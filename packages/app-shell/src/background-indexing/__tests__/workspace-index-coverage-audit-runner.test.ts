@@ -152,6 +152,20 @@ async function runAudit(overrides: RunAuditOverrides = {}): Promise<RunAuditResu
   return { clearInFlightAudit, markAuditVerified, recoveryAttemptKey, resolveDbRootId, statuses };
 }
 
+/**
+ * Models how the status store applies these patches: zustand shallow-merges a
+ * partial, so an omitted key keeps whatever the previous patch published.
+ */
+function mergeStatusPatches(
+  patches: readonly WorkspaceCollectionSyncStatusPatch[]
+): WorkspaceCollectionSyncStatusPatch {
+  const merged: WorkspaceCollectionSyncStatusPatch = {};
+  for (const patch of patches) {
+    Object.assign(merged, patch);
+  }
+  return merged;
+}
+
 function captureLogs(predicate: (record: LogRecord) => boolean): {
   records: LogRecord[];
   stop: () => void;
@@ -363,9 +377,33 @@ describe('startWorkspaceCoverageAudit incomplete outcome', () => {
     const { statuses } = await runAudit({ db });
 
     const lastError = statuses.at(-1)?.lastError ?? '';
-    expect(lastError).toContain('1 additional missing files were not classified');
-    expect(lastError).toContain('1 files are unindexable by content policy');
+    expect(lastError).toContain('1 additional missing file was not classified');
+    expect(lastError).toContain('1 file is unindexable by content policy');
     expect(statuses.at(-1)?.unindexableFileCount).toBe(1);
+  });
+
+  it('pluralizes the unclassified remainder and the content-exclusion count', async () => {
+    // 202 missing files: 2 past the classification read budget (200), and 2 of
+    // the read files refused by the content gate.
+    const missing = Array.from({ length: 202 }, (_, index) => `missed-${index}.ts`);
+    setTree(ROOT_PATH, missing);
+    const { db } = createDb({ 'db-root:/workspace/root': [] });
+    processFilesMock.mockImplementation(async (requests: Array<{ compositeKey: string }>) =>
+      Object.fromEntries(
+        requests.map((request, index) => [
+          request.compositeKey,
+          index < 2
+            ? { message: 'Binary file - preview not available', status: 'inaccessible' as const }
+            : { content: 'export const value = 1;', status: 'accessible' as const },
+        ])
+      )
+    );
+
+    const { statuses } = await runAudit({ db });
+
+    const lastError = statuses.at(-1)?.lastError ?? '';
+    expect(lastError).toContain('2 additional missing files were not classified');
+    expect(lastError).toContain('2 files are unindexable by content policy');
   });
 
   it('summarizes at most three incomplete roots and counts the rest', async () => {
@@ -438,6 +476,9 @@ describe('startWorkspaceCoverageAudit unverifiable outcomes', () => {
         pauseReasons: [],
         queuedFiles: 0,
         state: 'waiting',
+        // Explicit absence, not omission: nothing was verified, so no count
+        // may survive from the previous audit.
+        unindexableFileCount: null,
       },
     ]);
     // Neither "covered" nor "gap": no verification, and no recovery sync.
@@ -487,6 +528,7 @@ describe('startWorkspaceCoverageAudit unverifiable outcomes', () => {
           pauseReasons: [],
           queuedFiles: 0,
           state: 'waiting',
+          unindexableFileCount: null,
         },
       ]);
       expect(warnings.records[0]?.args).toContainEqual({ rootPath: ROOT_PATH });
@@ -499,6 +541,55 @@ describe('startWorkspaceCoverageAudit unverifiable outcomes', () => {
     setTree(ROOT_PATH, ['src/index.ts'], [`${ROOT_PATH}/src`, `${ROOT_PATH}/docs`]);
     const { statuses } = await runAudit();
     expect(statuses.at(-1)?.lastError).toContain('2 directory listings were truncated');
+  });
+
+  it('clears a previously published unindexable count on a truncated root', async () => {
+    // The status store shallow-merges each patch, so a patch that OMITS
+    // unindexableFileCount leaves the previous audit's number on screen —
+    // "3 files skipped" sitting beside "coverage cannot be verified".
+    setTree(ROOT_PATH, ['src/index.ts', 'assets/binary.md']);
+    const { db } = createDb({ 'db-root:/workspace/root': ['src/index.ts'] });
+    processFilesMock.mockImplementation(async (requests: Array<{ compositeKey: string }>) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          { content: 'binary\u0000content', status: 'accessible' as const },
+        ])
+      )
+    );
+
+    const verified = await runAudit({ db });
+    expect(verified.statuses.at(-1)?.unindexableFileCount).toBe(1);
+
+    setTree(ROOT_PATH, ['src/index.ts'], [`${ROOT_PATH}/src`]);
+    const unverifiable = await runAudit({ db });
+
+    expect(unverifiable.statuses.at(-1)?.unindexableFileCount).toBeNull();
+    expect(mergeStatusPatches([...verified.statuses, ...unverifiable.statuses])).toMatchObject({
+      lastError: expect.stringContaining('coverage cannot be verified'),
+      unindexableFileCount: null,
+    });
+  });
+
+  it('clears a previously published unindexable count on an unresolved root', async () => {
+    setTree(ROOT_PATH, ['src/index.ts', 'assets/binary.md']);
+    const { db } = createDb({ 'db-root:/workspace/root': ['src/index.ts'] });
+    processFilesMock.mockImplementation(async (requests: Array<{ compositeKey: string }>) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          { content: 'binary\u0000content', status: 'accessible' as const },
+        ])
+      )
+    );
+
+    const verified = await runAudit({ db });
+    const unverifiable = await runAudit({ db, resolveDbRootId: async () => null });
+
+    expect(mergeStatusPatches([...verified.statuses, ...unverifiable.statuses])).toMatchObject({
+      lastError: createUnresolvedRootCoverageMessage(ROOT_PATH),
+      unindexableFileCount: null,
+    });
   });
 
   it('reports the first unverifiable root in mounted order', async () => {
@@ -544,6 +635,24 @@ describe('startWorkspaceCoverageAudit cancellation and failure', () => {
     expect(recoveryAttemptKey).toBeNull();
   });
 
+  it('abandons an unverifiable outcome when currency is lost after the walk', async () => {
+    // The post-walk gate is a SINGLE check covering both branches: an
+    // unverifiable outcome must be dropped on a stale audit exactly like a
+    // real target list.
+    setTree(ROOT_PATH, ['src/index.ts'], [`${ROOT_PATH}/src`]);
+    let calls = 0;
+    const { recoveryAttemptKey, statuses } = await runAudit({
+      isCurrent: () => {
+        calls += 1;
+        return calls < 2;
+      },
+    });
+
+    expect(readFullTreeWithOptionsMock).toHaveBeenCalledTimes(1);
+    expect(statuses).toEqual([]);
+    expect(recoveryAttemptKey).toBeNull();
+  });
+
   it('surfaces a walk failure as an error status instead of a coverage verdict', async () => {
     readFullTreeWithOptionsMock.mockRejectedValue(new Error('adapter exploded'));
 
@@ -561,9 +670,33 @@ describe('startWorkspaceCoverageAudit cancellation and failure', () => {
         pauseReasons: [],
         queuedFiles: 0,
         state: 'error',
+        // A failed audit verified nothing either.
+        unindexableFileCount: null,
       },
     ]);
     expect(clearInFlightAudit).toHaveBeenCalledWith('audit-key');
+  });
+
+  it('clears a previously published unindexable count when the audit fails', async () => {
+    setTree(ROOT_PATH, ['src/index.ts', 'assets/binary.md']);
+    const { db } = createDb({ 'db-root:/workspace/root': ['src/index.ts'] });
+    processFilesMock.mockImplementation(async (requests: Array<{ compositeKey: string }>) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          { content: 'binary\u0000content', status: 'accessible' as const },
+        ])
+      )
+    );
+    const verified = await runAudit({ db });
+
+    readFullTreeWithOptionsMock.mockRejectedValue(new Error('adapter exploded'));
+    const failed = await runAudit({ db });
+
+    expect(mergeStatusPatches([...verified.statuses, ...failed.statuses])).toMatchObject({
+      state: 'error',
+      unindexableFileCount: null,
+    });
   });
 
   it('swallows a failure that lands after the audit stopped being current', async () => {

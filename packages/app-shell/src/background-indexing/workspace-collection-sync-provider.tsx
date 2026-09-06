@@ -370,7 +370,11 @@ function publishNoSyncableTargetStatus(args: {
         activeRootPath: unresolvedTarget.handle.path,
         collectionId: args.collectionId,
         lastError: createUnresolvedRootCoverageMessage(unresolvedTarget.handle.path),
+        // Unverifiable, not in-progress: this message asserts coverage CANNOT be
+        // verified, so a previously published count must not survive beside it.
+        // The omission exception is only for the in-progress audit message.
         state: 'waiting',
+        unindexableFileCount: null,
       })
     );
     return;
@@ -382,7 +386,11 @@ function publishNoSyncableTargetStatus(args: {
         activeRootPath: deferredRootPath,
         collectionId: args.collectionId,
         lastError: createUnresolvedRootCoverageMessage(deferredRootPath),
+        // Unverifiable, not in-progress: this message asserts coverage CANNOT be
+        // verified, so a previously published count must not survive beside it.
+        // The omission exception is only for the in-progress audit message.
         state: 'waiting',
+        unindexableFileCount: null,
       })
     );
     return;

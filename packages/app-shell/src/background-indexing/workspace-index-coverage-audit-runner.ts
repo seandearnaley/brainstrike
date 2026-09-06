@@ -1,3 +1,20 @@
+/**
+ * Coverage-audit ORCHESTRATION.
+ *
+ * This is the outer half of a two-layer audit and is deliberately NOT merged
+ * with `./workspace-index-coverage-audit`, which owns the pure primitives
+ * (expected-file construction, missing-file resolution, gap classification).
+ * Everything here is orchestration those primitives must not know about:
+ * assembling audit targets from the mounted roots, treating an unresolved db
+ * root id or a truncated directory enumeration as first-class *unverifiable*
+ * outcomes rather than gaps, composing user-facing messages and status
+ * patches, and keying recovery attempts so one incomplete result triggers at
+ * most one recovery sync.
+ *
+ * It lived inline in `workspace-collection-sync-provider.tsx` and never needed
+ * React (BST-1654).
+ */
+
 import type { WorkspaceCollectionSyncStatusPatch } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import type { DbHandle } from '@brainstrike/db/react';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
@@ -19,22 +36,6 @@ import { countExpectedWorkspaceIndexFiles } from './workspace-index-debug-harnes
 // keeps this scope from its own file.
 const logger = createLogger('WorkspaceCollectionSyncProvider');
 
-/**
- * Coverage-audit ORCHESTRATION.
- *
- * This is the outer half of a two-layer audit and is deliberately NOT merged
- * with `./workspace-index-coverage-audit`, which owns the pure primitives
- * (expected-file construction, missing-file resolution, gap classification).
- * Everything here is orchestration those primitives must not know about:
- * assembling audit targets from the mounted roots, treating an unresolved db
- * root id or a truncated directory enumeration as first-class *unverifiable*
- * outcomes rather than gaps, composing user-facing messages and status
- * patches, and keying recovery attempts so one incomplete result triggers at
- * most one recovery sync.
- *
- * It lived inline in `workspace-collection-sync-provider.tsx` and never needed
- * React (BST-1654).
- */
 export const WORKSPACE_COVERAGE_AUDIT_MESSAGE =
   'Verifying Workspace Index coverage before reporting idle.';
 
@@ -169,10 +170,18 @@ function describeCoverageGapForMessage(
     );
   }
   if (gap.unclassifiedCount > 0) {
-    parts.push(`${gap.unclassifiedCount} additional missing files were not classified`);
+    parts.push(
+      `${gap.unclassifiedCount} additional missing file${
+        gap.unclassifiedCount === 1 ? ' was' : 's were'
+      } not classified`
+    );
   }
   if (gap.contentExcluded.length > 0) {
-    parts.push(`${gap.contentExcluded.length} files are unindexable by content policy`);
+    parts.push(
+      `${gap.contentExcluded.length} file${
+        gap.contentExcluded.length === 1 ? ' is' : 's are'
+      } unindexable by content policy`
+    );
   }
   return parts.length > 0 ? `; ${parts.join('; ')}` : '';
 }
@@ -223,12 +232,24 @@ function createCoverageRecoveryAttemptKey(args: {
   return `${args.auditKey}:${mismatchKey}`;
 }
 
+/**
+ * `unindexableFileCount` is three-valued on purpose, because the store
+ * shallow-merges each patch and the count is rendered right next to
+ * `lastError`:
+ *   - a number publishes what THIS audit verified;
+ *   - `null` publishes an explicit "unknown", clearing whatever the previous
+ *     audit published — required whenever the outcome is unverifiable, or the
+ *     user reads a hard count beside "coverage cannot be verified";
+ *   - omitting the key keeps the previous value, and is ONLY correct while an
+ *     audit is still running (the in-progress `waiting` patch), where the last
+ *     verified count is still the best answer available.
+ */
 export function createCoverageStatusPatch(args: {
   activeRootPath: string | null;
   collectionId: string;
   lastError: string | null;
   state: 'error' | 'idle' | 'waiting';
-  unindexableFileCount?: number;
+  unindexableFileCount?: number | null;
 }): WorkspaceCollectionSyncStatusPatch {
   return {
     activeRootPath: args.activeRootPath,
@@ -333,15 +354,16 @@ async function runWorkspaceCoverageAudit(args: {
     return null;
   }
   const targets = await buildCoverageAuditTargets(args);
-  if (args.isCurrent()) {
-    if (isCoverageAuditOutcome(targets)) {
-      return targets;
-    }
-  } else {
-    return null;
-  }
+  // ONE post-walk currency gate, covering both an unverifiable outcome and a
+  // real target list. `isCurrent` is a pure closure read
+  // (`!disposed && activeAuditToken === auditToken` in the provider) and no
+  // await separates it from what follows, so a second adjacent call could
+  // never answer differently — BST-1654 removed that duplicate.
   if (!args.isCurrent()) {
     return null;
+  }
+  if (isCoverageAuditOutcome(targets)) {
+    return targets;
   }
   // Compare SETS of relative paths, not counts: the DB is the source of truth
   // for what was indexed, and the on-disk walk for what should be. The set
@@ -457,6 +479,9 @@ function applyWorkspaceCoverageAuditOutcome(args: {
         collectionId: args.collectionId,
         lastError: args.outcome.message,
         state: 'waiting',
+        // Nothing was verified: publish the absence so a count from an earlier
+        // audit cannot survive next to "coverage cannot be verified".
+        unindexableFileCount: null,
       })
     );
     return null;
@@ -551,6 +576,8 @@ export function startWorkspaceCoverageAudit(args: {
           collectionId: args.collectionId,
           lastError: message,
           state: 'error',
+          // A failed audit verified nothing either.
+          unindexableFileCount: null,
         })
       );
       return null;
