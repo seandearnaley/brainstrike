@@ -849,12 +849,24 @@ Runtime invariants:
   (`onStepUsage` → `recordLiveStepUsage`, summed per in-flight run) and the
   forwarded `brainstrike.child-run-usage` aui-data part (`onChildRunUsage` →
   cumulative re-read; the server AWAITS the row before forwarding, so the
-  refresh never reads pre-write state); the live sum has THREE clear paths —
-  `handleUsage` (only AFTER the post-write refresh, so the total never dips
-  and jumps), the wrapped `completePreparedRequest` on a cancelled/failed
-  terminal status (the abort-gated tap never delivers those runs' finish), and
-  thread selection (a just-selected thread cannot have its own in-flight
-  accumulation, so a lingering sum is a stranded remainder). A repo-backed
+  refresh never reads pre-write state); the live sum is CLEARED on three paths.
+  Two are settle-side — `handleUsage` (only AFTER the post-write refresh, so the
+  total never dips and jumps) and the wrapped `completePreparedRequest` on a
+  cancelled/failed terminal status (the abort-gated tap never delivers those
+  runs' finish). The third is RUN START: the wrapped `prepareRequestData`
+  resets the thread's sum synchronously before composition awaits, because
+  every clear keys off the CURRENT selection, so switching away mid-stream
+  strands the old thread's partial sum permanently — its later steps and its
+  settle-clear both land on the newly selected thread.
+  A fourth path used to sweep on thread selection; BST-1652 replaced it with a
+  READER-side gate, because a sweep is an effect and an effect fires after
+  paint. `ContextUsageMeter` gates the recorded sum on `isRunning` and passes
+  the gated value to the popover. **The gate and the run-start reset are a
+  required pair and neither covers the other's case**: the gate hides a
+  stranded sum while the thread is idle, and the reset removes it before the
+  next run on that thread can expose and accumulate onto it. Without the reset,
+  a new run re-opens the gate on the retained tokens and the headline stays
+  inflated with its cost suppressed for the whole run. A repo-backed
   thread with no rows yet hydrates the honest ZERO baseline
   (`EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY`) so the FIRST run's live steps
   render as the thread total; a failed load stays null (never $0). While live
