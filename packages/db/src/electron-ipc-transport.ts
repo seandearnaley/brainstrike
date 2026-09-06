@@ -154,8 +154,12 @@ async function testElectronConnection(electronDB: ElectronDatabaseAPI): Promise<
 
 export interface ElectronIpcTransportOptions {
   /**
-   * The `useElectronIPC` opt-in. Read through a thunk, not captured, so the
-   * probe always reflects the current provider props.
+   * The `useElectronIPC` opt-in. A thunk so the transport never holds a value it
+   * cannot re-read, but the provider builds it in a lazy `useState` initializer,
+   * so it closes over the props of the FIRST render — the mount-time contract
+   * `DbProvider` documents. It does not track later prop changes, and must not:
+   * re-opening a transport would swap the database out from under live
+   * repositories.
    */
   readonly isEnabled: () => boolean;
 }
@@ -288,7 +292,21 @@ export function createElectronIpcTransport(
 
   const hardReset = async (): Promise<boolean> => {
     if (!isAvailable()) {
-      return false;
+      // NOT `return false`. `false` means "runtime, run your own drain → purge
+      // → close instead", and the runtime's local sequence can never reset a
+      // database the MAIN process owns: `purgeAndClose()` below has nothing to
+      // purge, so the reset would resolve having destroyed nothing and the
+      // caller would reload into the same profile. `hardReset()` is only ever
+      // called on the ALREADY-SELECTED transport, so a capability that passed
+      // selection and then failed here is a broken bridge, not a routing
+      // choice — and `factory-reset.test.tsx` already pins the sibling rule
+      // ("surfaces desktop hard reset failure instead of falling back to
+      // direct PGlite") for a resetLocal that reports failure.
+      throw new Error(
+        'Electron database bridge became unavailable before the desktop factory reset ran. ' +
+          'Refusing to fall through to the renderer-local purge, which cannot reset a ' +
+          'main-process-owned database.'
+      );
     }
     const electronDb = readBridge();
     if (typeof electronDb?.resetLocal !== 'function') {
@@ -318,11 +336,19 @@ export function createElectronIpcTransport(
     isAvailable,
     kind: 'electron-ipc',
     open,
-    // Unreachable in practice: `hardReset()` handles every desktop reset, so
-    // the runtime's purge/close leg never runs against this transport.
-    purgeAndClose: () => {
-      bridge = null;
-      return Promise.resolve();
-    },
+    // `hardReset()` handles every desktop reset, so the runtime's purge/close
+    // leg must never run against this transport. It is an ASSERTION, not a
+    // no-op: the renderer cannot purge a database the main process owns, so
+    // resolving here would report a factory reset that destroyed nothing —
+    // exactly the silent success `hardReset()` above refuses to produce. The
+    // only way to arrive is `hardReset()` returning false, which it no longer
+    // does.
+    purgeAndClose: () =>
+      Promise.reject(
+        new Error(
+          'The renderer cannot purge the desktop database: the main process owns it. ' +
+            'Reaching this means a factory reset fell through hardReset().'
+        )
+      ),
   };
 }

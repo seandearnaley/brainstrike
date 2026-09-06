@@ -211,6 +211,12 @@ export interface DatabaseTransport {
    * Transport-owned hard reset. `true` means it fully handled the reset (the
    * desktop path deletes the profile directory in the main process), and the
    * runtime skips its own drain → purge → close entirely.
+   *
+   * `false` is only legitimate for a transport whose OWN reset IS the runtime's
+   * drain → purge → close — i.e. `pglite-direct`. A transport that owns no
+   * closable connection must THROW rather than return `false`, because the
+   * runtime's local leg would then find nothing to purge and resolve as a
+   * factory reset that destroyed nothing (see `electron-ipc-transport.ts`).
    */
   readonly hardReset: () => Promise<boolean>;
   readonly hasOpenConnection: () => boolean;
