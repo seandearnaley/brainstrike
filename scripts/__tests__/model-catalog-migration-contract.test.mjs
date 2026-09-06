@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   analyzeModelCatalogMigrationContract,
   CATALOG_FILE,
+  findCatalogKeyOrderFailures,
 } from '../model-catalog-migration-contract.mjs';
 
 const migrationIndexSource = `
@@ -39,6 +40,30 @@ const databaseContract = readFileSync(
   new URL('../../docs/agents/database.md', import.meta.url),
   'utf8'
 );
+
+const providersContract = readFileSync(
+  new URL('../../docs/agents/assistant-providers.md', import.meta.url),
+  'utf8'
+);
+
+const shippedProviderCatalog = JSON.parse(
+  readFileSync(new URL(`../../${CATALOG_FILE}`, import.meta.url), 'utf8')
+);
+
+/**
+ * Build an object whose keys are in the GIVEN order. The key-order fixtures
+ * below must stay out of order to mean anything, and an object literal would
+ * not: Biome's `useSortedKeys` assist sorts JS object properties, so one
+ * `--write` run over this file would quietly sort the fixtures and leave the
+ * tests passing while asserting nothing.
+ */
+function objectWithKeyOrder(entries) {
+  const object = {};
+  for (const [key, value] of entries) {
+    object[key] = value;
+  }
+  return object;
+}
 
 describe('model catalog migration contract', () => {
   it('documents the JSON catalog source and its enforcing script in the database contract', () => {
@@ -641,5 +666,134 @@ export const migrations = [
           'Static catalog model openai::gpt-next has type llm, but the final DB model catalog has type embedding.',
       },
     ]);
+  });
+
+  it('rejects catalog objects whose keys are out of alphabetical order', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/025-update-provider-models-2026.ts',
+          'migration025UpdateProviderModels2026',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('gpt-next', 'openai', 'GPT Next', '{"type":"llm","streaming":true}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration025UpdateProviderModels2026,
+];
+`,
+      providerCatalog: [
+        objectWithKeyOrder([
+          [
+            'models',
+            [
+              objectWithKeyOrder([
+                ['type', 'llm'],
+                ['id', 'gpt-next'],
+              ]),
+            ],
+          ],
+          ['id', 'openai'],
+        ]),
+      ],
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: CATALOG_FILE,
+        message:
+          'Catalog entry openai declares "id" after "models"; provider-catalog.json object keys are alphabetical at every depth so catalog edits stay reviewable data diffs. Reorder this entry\'s keys.',
+      },
+      {
+        file: CATALOG_FILE,
+        message:
+          'Catalog entry openai.models.gpt-next declares "id" after "type"; provider-catalog.json object keys are alphabetical at every depth so catalog edits stay reviewable data diffs. Reorder this entry\'s keys.',
+      },
+    ]);
+  });
+
+  it('names ONE offending key per object rather than every pair a shuffle disturbs', () => {
+    const failures = findCatalogKeyOrderFailures([
+      objectWithKeyOrder([
+        ['runtime', 'hosted'],
+        ['id', 'openai'],
+        ['models', []],
+        ['displayName', 'OpenAI'],
+      ]),
+    ]);
+
+    assert.deepEqual(
+      failures.map((failure) => failure.message),
+      [
+        'Catalog entry openai declares "id" after "runtime"; provider-catalog.json object keys are alphabetical at every depth so catalog edits stay reviewable data diffs. Reorder this entry\'s keys.',
+      ],
+      'a reviewer needs the first key to move, not one failure per disturbed pair'
+    );
+  });
+
+  it('accepts _note first and reports a nested object by its own path', () => {
+    const failures = findCatalogKeyOrderFailures([
+      {
+        _note: 'vendor citation',
+        id: 'openai',
+        models: [
+          objectWithKeyOrder([
+            ['_note', 'row citation'],
+            ['id', 'gpt-next'],
+            [
+              'pricing',
+              objectWithKeyOrder([
+                ['outputPerMTok', 30],
+                ['inputPerMTok', 5],
+              ]),
+            ],
+            ['type', 'llm'],
+          ]),
+        ],
+      },
+    ]);
+
+    assert.deepEqual(
+      failures.map((failure) => failure.message),
+      [
+        'Catalog entry openai.models.gpt-next.pricing declares "inputPerMTok" after "outputPerMTok"; provider-catalog.json object keys are alphabetical at every depth so catalog edits stay reviewable data diffs. Reorder this entry\'s keys.',
+      ],
+      '`_note` sorts before every other catalog key, and nested objects are checked too'
+    );
+  });
+
+  it('holds the shipped catalog to the order it already keeps', () => {
+    assert.deepEqual(findCatalogKeyOrderFailures(shippedProviderCatalog), []);
+  });
+
+  it('leaves the curated ROW order of providers and models alone', () => {
+    // The catalog lists `gpt-5.6-sol` before `gpt-5.6-terra` and
+    // `claude-opus-5` before `claude-sonnet-5`: editorial order no comparator
+    // derives. Only KEY order is mechanical, so only KEY order is enforced.
+    const [openai] = shippedProviderCatalog;
+    const modelIds = openai.models.map((model) => model.id);
+
+    assert.notDeepEqual(
+      modelIds,
+      [...modelIds].sort(),
+      'if the shipped row order ever becomes sorted, re-derive the rule instead of assuming it'
+    );
+    assert.deepEqual(findCatalogKeyOrderFailures(shippedProviderCatalog), []);
+  });
+
+  it('documents the catalog key-order rule in the providers contract', () => {
+    assert.match(
+      providersContract,
+      /object keys are alphabetical at every depth/,
+      'docs/agents/assistant-providers.md must state the rule findCatalogKeyOrderFailures enforces'
+    );
+    assert.match(
+      providersContract,
+      /`scripts\/model-catalog-migration-contract\.mjs`[^\n]*\n?[^\n]*enforces/,
+      'the doc must name the script that enforces it, so an editor knows what will fail'
+    );
   });
 });

@@ -1120,6 +1120,18 @@ The schema is a REQUIRED boundary, not a convenience:
   surprise. A field added only to the interface never validates; a field added
   only to the schema is invisible to consumers.
 
+**Catalog object keys are alphabetical at every depth, and that is enforced.**
+`biome.json` re-includes this one path from the blanket `!**/*.json`, so the
+file is formatted — but Biome's `useSortedKeys` assist does not reach JSON
+object keys, so `findCatalogKeyOrderFailures` in
+`scripts/model-catalog-migration-contract.mjs` enforces the order instead
+(`pnpm lint:model-catalog-migrations`, already a CI lint). A wrong order FAILS
+naming the entry; nothing is reordered for you, because a silent reorder of a
+data file is an invisible change to the rows a reviewer is reading. ROW order
+is deliberately unchecked: providers and models are curated (`gpt-5.6-sol`
+before `gpt-5.6-terra`, `claude-opus-5` before `claude-sonnet-5`) and no
+comparator derives that.
+
 Scripts read the JSON directly rather than through the package —
 `scripts/model-catalog-migration-contract.mjs`,
 `scripts/gen-model-catalog-migration.mjs`, and
