@@ -185,7 +185,14 @@ export class WorkerStorage {
     opId?: number
   ) {
     const lastOp = this.activeSaveOps.get(key) ?? 0;
-    if (opId && opId < lastOp) {
+    // BST-459: `opId` is optional in the protocol, so `undefined` — not `0` —
+    // is the "sender did not sequence this write" signal. Both checks below
+    // test existence rather than truthiness: a truthy test would treat a
+    // legitimate `opId: 0` as unsequenced and fail this guard OPEN, letting a
+    // stale write clobber a newer one. The in-repo producer emits `Date.now()`
+    // (see worker-storage.worker.mjs), which is never 0, but `StorageRequest`
+    // is exported and any monotonic counter starting at 0 would hit this.
+    if (opId !== undefined && opId < lastOp) {
       this.worker?.postMessage({
         id,
         operation: 'setItem',
@@ -194,7 +201,12 @@ export class WorkerStorage {
       });
       return;
     }
-    if (opId) {
+    // Recording `opId: 0` is behaviourally identical to leaving the entry
+    // absent, because the read above defaults to 0 — so this arm is not
+    // independently observable and no test can pin it. It is written
+    // existence-first anyway so the pair reads as one contract; a lone
+    // truthiness check here would look like the bug fixed above.
+    if (opId !== undefined) {
       this.activeSaveOps.set(key, opId);
     }
 

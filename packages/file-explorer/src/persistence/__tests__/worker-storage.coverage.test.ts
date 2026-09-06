@@ -17,6 +17,7 @@
 
 import type { StorageAdapter } from '@brainstrike/storage';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { readGlobalSlot, setGlobalSlot } from './global-slots';
 
 // ---------------------------------------------------------------------------
 // Mock logger
@@ -154,9 +155,9 @@ describe('WorkerStorage – coverage boost', () => {
       value: mockLocalStorage,
       writable: true,
     });
-    (globalThis as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = MockErrorEvent;
+    setGlobalSlot('ErrorEvent', MockErrorEvent);
 
-    originalWorker = (global as unknown as { Worker?: typeof Worker }).Worker;
+    originalWorker = readGlobalSlot<typeof Worker>('Worker');
     mockWorker = new MockWorker();
     MockWorkerConstructorSpy = vi.fn();
 
@@ -191,8 +192,7 @@ describe('WorkerStorage – coverage boost', () => {
       Reflect.deleteProperty(globalThis, 'localStorage');
     }
     if (originalErrorEvent) {
-      (globalThis as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent =
-        originalErrorEvent as typeof MockErrorEvent;
+      setGlobalSlot('ErrorEvent', originalErrorEvent as typeof MockErrorEvent);
     } else {
       Reflect.deleteProperty(globalThis, 'ErrorEvent');
     }
@@ -665,6 +665,48 @@ describe('WorkerStorage – coverage boost', () => {
           type: 'storage_response',
         });
       });
+    });
+
+    // BST-459: `opId` is declared `opId?: number`, so 0 is a legal value of the
+    // protocol type and `undefined` is the only "sender did not sequence this
+    // write" signal. A truthiness check conflates the two and fails the guard
+    // OPEN for opId 0 — the stale write wins and clobbers newer data.
+    it('skips a stale setItem carrying opId 0, not just truthy stale opIds', async () => {
+      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      mockWorker.emitMessage({
+        id: 'newer',
+        key: 'zero-key',
+        operation: 'setItem',
+        opId: 5,
+        type: 'storage_request',
+        value: 'newer',
+      });
+
+      await vi.waitFor(() => {
+        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('zero-key', 'newer');
+      });
+
+      mockLocalStorage.setItem.mockClear();
+
+      mockWorker.emitMessage({
+        id: 'stale-zero',
+        key: 'zero-key',
+        operation: 'setItem',
+        opId: 0,
+        type: 'storage_request',
+        value: 'stale',
+      });
+
+      await vi.waitFor(() => {
+        expect(mockWorker.postMessage).toHaveBeenCalledWith({
+          id: 'stale-zero',
+          operation: 'setItem',
+          success: true,
+          type: 'storage_response',
+        });
+      });
+      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
     });
   });
 
