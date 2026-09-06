@@ -49,9 +49,14 @@ export interface ManageCanvasTooLargeFailure {
   readonly ok: false;
 }
 
+/**
+ * `too_large` is deliberately EXCLUDED from the repository shape here and
+ * re-admitted only in its hinted form, so a future call site cannot return the
+ * bare code and silently drop the recovery the model depends on.
+ */
 export type ManageCanvasToolResult =
   | CanvasListResult
-  | CanvasMutationResult
+  | Exclude<CanvasMutationResult, { readonly error: 'too_large' }>
   | ManageCanvasNoThreadFailure
   | ManageCanvasTooLargeFailure;
 
@@ -66,7 +71,7 @@ function withSizeHint(result: CanvasMutationResult): ManageCanvasToolResult {
   return 'ok' in result && result.ok === false && result.error === 'too_large'
     ? {
         error: 'too_large',
-        hint: `The document would exceed the ${CANVAS_HTML_MAX_BYTES / 1_000_000} MB canvas limit, measured in UTF-8 bytes. Retrying unchanged will fail the same way: send a smaller replacement, or start a new canvas.`,
+        hint: `The document would exceed the ${CANVAS_HTML_MAX_BYTES / 1_000_000} MB canvas limit, measured in UTF-8 bytes rather than characters. Retrying the same edit fails identically. Send a smaller replacement, or use the rewrite action to replace the whole document — rewrite is the deterministic escape, because it does not compose against the stored version.`,
         ok: false,
       }
     : result;

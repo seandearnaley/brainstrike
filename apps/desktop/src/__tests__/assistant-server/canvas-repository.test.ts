@@ -46,6 +46,8 @@ function createFakeDatabase(
   };
 }
 
+const slotMarker = '<!--slot-->';
+
 describe('canvas repository', () => {
   it('creates version one with app-side uuidv7 ids and exact SQL parameters', async () => {
     const db = createFakeDatabase(({ params, sql }) => {
@@ -153,8 +155,7 @@ describe('canvas repository', () => {
     // composition — an already-oversized document would be refused whatever the
     // replacement was. Asserted rather than assumed, because getting this wrong
     // is invisible: the test still passes.
-    const slot = '<!--slot-->';
-    const base = `${'a'.repeat(CANVAS_HTML_MAX_BYTES - 4_000_000)}${slot}`;
+    const base = `${'a'.repeat(CANVAS_HTML_MAX_BYTES - 4_000_000)}${slotMarker}`;
     expect(new TextEncoder().encode(base).length).toBeLessThan(CANVAS_HTML_MAX_BYTES);
     let inserted = false;
     const db = createFakeDatabase((_call, index) => {
@@ -170,7 +171,38 @@ describe('canvas repository', () => {
       // Individually fine — 1.5M code points, well under .max() — but 6 MB of
       // UTF-8 replacing 11 bytes, which carries an in-bounds document over.
       newString: '\u{1F600}'.repeat(1_500_000),
-      oldString: slot,
+      oldString: slotMarker,
+      threadId: 'thread-1',
+    });
+
+    expect(result).toEqual({ error: 'too_large', ok: false });
+    expect(inserted).toBe(false);
+  });
+
+  // Reaches the PRE-CHECK, which the case above does not: 5,000,011 - 11 +
+  // 4,000,000 UTF-16 units is 9,000,000, over the ceiling before any encoding.
+  // The case above lands at 7,000,000 units and is caught by insertVersion.
+  //
+  // Stated plainly: no assertion can DISTINGUISH the two paths, because the
+  // pre-check is an allocation guard, not a correctness one — deleting it leaves
+  // insertVersion to reject the same input with the same result, and only the
+  // transient ~18 MB composition differs. So this covers the branch and pins the
+  // behaviour; it cannot be mutated red on its own, and pretending otherwise
+  // would be the kind of decorative guard this repo refuses elsewhere.
+  it('refuses an oversized composition before materialising it', async () => {
+    let inserted = false;
+    const db = createFakeDatabase((_call, index) => {
+      if (index === 0) {
+        return [versionRow({ html: `${'a'.repeat(5_000_000)}${slotMarker}`, version: 3 })];
+      }
+      inserted = true;
+      return [{ canvasId: 'canvas-1', version: 4 }];
+    });
+
+    const result = await applyUpdate(db, {
+      canvasId: 'canvas-1',
+      newString: '\u{1F600}'.repeat(2_000_000),
+      oldString: slotMarker,
       threadId: 'thread-1',
     });
 

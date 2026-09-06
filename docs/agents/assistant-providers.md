@@ -4524,7 +4524,14 @@ failure a model cannot retry its way out of, so `manage-canvas-tool.ts` attaches
 a hint naming the limit and telling it to shrink the replacement or start a new
 canvas; the descriptions carry `(max 8 MB of UTF-8)` for the same reason, since
 the emitted `maxLength` is a character count and would otherwise advertise a
-ceiling about four times looser than the enforced one. `manage-canvas-tool.ts`
+ceiling about four times looser than the enforced one.
+
+One consequence on existing data, stated because neither the schema nor the
+hint implies it: a row written before this ceiling existed can sit above it —
+the old `.max(8_000_000)` counted UTF-16 units and admitted well over 8 MB of
+UTF-8 for BMP-heavy content. Such a row is update-locked except for an update
+that brings it under the ceiling in one shot, and `rewrite` is the deterministic
+way out, which is why the hint names it. `manage-canvas-tool.ts`
 has no size enforcement of its own, so unlike the workspace-file content fields
 — which sit above an authoritative ~2 MB byte cap in the desktop tool and
 therefore use `.max()` only as a loose outer guard — canvas has nothing
