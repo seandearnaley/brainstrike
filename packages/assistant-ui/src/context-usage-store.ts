@@ -30,8 +30,11 @@ interface ContextUsageState {
    * the writer deliberately holds the live sum until after the re-read. Without
    * this marker the headline drops the whole run for that window and jumps back
    * when the refresh lands, which is the exact dip the writer ordering exists
-   * to prevent. Set by the writer at settle start; cleared by
-   * `clearLiveRunUsage`, so it can never outlive the sum it protects.
+   * to prevent. Set by the writer at settle start and cleared by
+   * `clearLiveRunUsage` — which is only half the guarantee: the writer must
+   * also release it structurally (`finally` plus a `catch` for a synchronous
+   * throw), because a marker that outlives its sum holds this gate open on an
+   * idle thread, which is worse than never having claimed it.
    */
   beginLiveRunUsageSettle: (threadId: string) => void;
   breakdownByThread: Record<string, AssistantContextBreakdownState>;

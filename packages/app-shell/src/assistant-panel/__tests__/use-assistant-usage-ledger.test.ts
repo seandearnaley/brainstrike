@@ -193,6 +193,79 @@ describe('useAssistantUsageLedger', () => {
     expect(useContextUsageStore.getState().settlingRunUsageByThread[THREAD_ID]).toBeUndefined();
   });
 
+  it('releases the settle claim when the durable write REJECTS', async () => {
+    // A claim that outlives its sum is strictly worse than no claim: it holds the
+    // reader gate open on an idle thread, so the headline stays inflated until some
+    // later run on that thread settles. Before the review that found this, a failed
+    // write left the sum stranded but the `isRunning` gate hid it.
+    const recordRunUsage = vi.fn(async () => {
+      throw new Error('PGlite write failed');
+    });
+    const input = createInput({
+      assistantThreadRepository: createRepositoryStub({ recordRunUsage }),
+    });
+    const { result } = renderHook(() => useAssistantUsageLedger(input));
+    act(() => {
+      result.current.handleStepUsage({ inputTokens: 400, outputTokens: 40 });
+    });
+
+    act(() => {
+      result.current.handleUsage(USAGE);
+    });
+
+    await waitFor(() =>
+      expect(useContextUsageStore.getState().liveRunUsageByThread[THREAD_ID]).toBeUndefined()
+    );
+    expect(useContextUsageStore.getState().settlingRunUsageByThread[THREAD_ID]).toBeUndefined();
+  });
+
+  it('releases the settle claim when the durable write throws SYNCHRONOUSLY', async () => {
+    // A synchronous throw never reaches the promise chain's `finally`, so the
+    // structural release has to be a `catch` as well — the rejecting-promise test
+    // above passes even without one.
+    const recordRunUsage = vi.fn(() => {
+      throw new Error('repository exploded before returning a promise');
+    });
+    const input = createInput({
+      assistantThreadRepository: createRepositoryStub({
+        recordRunUsage: recordRunUsage as unknown as AssistantThreadRepository['recordRunUsage'],
+      }),
+    });
+    const { result } = renderHook(() => useAssistantUsageLedger(input));
+    act(() => {
+      result.current.handleStepUsage({ inputTokens: 400, outputTokens: 40 });
+    });
+
+    act(() => {
+      result.current.handleUsage(USAGE);
+    });
+
+    await waitFor(() =>
+      expect(useContextUsageStore.getState().liveRunUsageByThread[THREAD_ID]).toBeUndefined()
+    );
+    expect(useContextUsageStore.getState().settlingRunUsageByThread[THREAD_ID]).toBeUndefined();
+  });
+
+  it('never claims the settle window when there is no durable sink', async () => {
+    // Nothing will refresh a cumulative, so there is no window to protect: the
+    // live sum is dropped outright and the marker is never taken. An absent run
+    // context is the same guard as an absent repository or thread id.
+    const input = createInput({ getActiveRunUsageContext: () => null });
+    const { result } = renderHook(() => useAssistantUsageLedger(input));
+    act(() => {
+      result.current.handleStepUsage({ inputTokens: 400, outputTokens: 40 });
+    });
+
+    act(() => {
+      result.current.handleUsage(USAGE);
+    });
+
+    await waitFor(() =>
+      expect(useContextUsageStore.getState().liveRunUsageByThread[THREAD_ID]).toBeUndefined()
+    );
+    expect(useContextUsageStore.getState().settlingRunUsageByThread).toEqual({});
+  });
+
   it('starts the live sum from zero when a new run begins on a thread holding a stranded one', async () => {
     // A run the user switches away from mid-stream never settles under the
     // thread it started on: handleStepUsage AND both settle-side clears key off
