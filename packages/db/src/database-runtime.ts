@@ -36,7 +36,6 @@ import {
   createDatabaseWorkScheduler,
   type DatabaseWorkScheduler,
 } from './database-work-scheduler.js';
-import type { DbInitializationStatus } from './db-context.js';
 import type { DbHandle } from './db-handle.js';
 import {
   createLiveQueryDrainRegistry,
@@ -66,6 +65,8 @@ const logger = createLogger('DbProvider');
 function logDatabaseError(message: string, error: unknown): void {
   logger.error({ err: error }, message);
 }
+
+export type DbInitializationStatus = 'idle' | 'initializing' | 'ready' | 'error';
 
 export type EmbeddingSetsRepo = IEmbeddingSetsRepository;
 export type ViewFilterPresetsRepo = IViewFilterPresetsRepository;
