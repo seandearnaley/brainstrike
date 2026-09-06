@@ -2,21 +2,62 @@ import type { LoggerOptions } from 'pino';
 import pino from 'pino';
 
 /**
+ * Is this a genuine Error *object* — one whose `message`/`stack` live in
+ * non-enumerable slots and would be lost by an ordinary enumerable walk?
+ *
+ * Wider than `instanceof Error`, which is realm-bound: an Error from a
+ * `node:vm` context, a worker, or a dual-loaded class hierarchy fails it. The
+ * `[object Error]` tag is the only cross-realm brand check available in a
+ * browser-safe package (`node:util`'s `isNativeError` is Node-only).
+ *
+ * Two properties of that tag are worth stating plainly, because both are easy
+ * to get wrong:
+ *
+ * 1. **It is forgeable.** `{ [Symbol.toStringTag]: 'Error' }` also reports
+ *    `[object Error]`. The cost of a forgery is only that empty
+ *    `message`/`name`/`stack` keys appear on the redacted object — no data is
+ *    lost and nothing sensitive is exposed — so it is an acceptable price for
+ *    cross-realm support.
+ * 2. **Reading it runs user code.** `Object.prototype.toString` performs
+ *    `Get(O, @@toStringTag)`, so a throwing getter (or a Proxy that rejects the
+ *    read) would throw from here. That is intolerable: this predicate runs
+ *    inside `redactSensitiveLogValue`, on every logged argument, *outside* the
+ *    try/catch in `logInternal` — so an exception would escape the logging call
+ *    and mask the failure being reported. Hence the guard below.
+ *
+ * Shared with `redactSensitiveLogValue`, which sits *earlier* in the pipeline
+ * and must answer this same question identically. If the redactor declines a
+ * value the serializer would have accepted, the diagnostics are already gone
+ * by the time the serializer runs and cannot be recovered (BST-1662).
+ */
+export function isErrorObject(value: unknown): value is Error {
+  if (value instanceof Error) {
+    return true;
+  }
+  try {
+    return Object.prototype.toString.call(value) === '[object Error]';
+  } catch {
+    // A value that sabotages its own introspection is not an Error we can read
+    // anything from. Treating it as a plain object costs nothing — the ordinary
+    // enumerable walk still redacts and logs it — whereas rethrowing here would
+    // take down the log call that was reporting the real problem.
+    return false;
+  }
+}
+
+/**
  * Does this value carry an Error's diagnostic payload?
  *
- * Deliberately wider than `instanceof Error` in two directions, each covering a
- * shape that reaches this serializer in practice:
+ * The serializer's gate is deliberately wider than `isErrorObject`, because it
+ * runs *after* `redactSensitiveLogValue` has flattened Errors: `logInternal`
+ * hands pino a plain object carrying the Error's `message`/`stack` copied out
+ * of their non-enumerable slots. That flattened object is what actually arrives
+ * here from every call site, so gating on the Error-object test alone would
+ * skip pino's std handling and drop `type` plus the flattened cause text.
  *
- * 1. **Cross-realm Errors.** `instanceof` is realm-bound, so an Error from a
- *    `node:vm` context, a worker, or a dual-loaded class hierarchy fails it.
- *    `[object Error]` reads the `[[ErrorData]]` internal slot, which plain
- *    objects never have.
- * 2. **The redacted representation.** `logInternal` runs every argument through
- *    `redactSensitiveLogValue` before pino sees it, which copies an Error's
- *    non-enumerable `message`/`stack` onto a *plain object*. That object is what
- *    actually arrives here from every call site, so an `instanceof` gate would
- *    skip pino's std handling entirely and drop `type` plus the flattened cause
- *    text from `message`/`stack`.
+ * The redactor must NOT use this wider test. It runs before flattening, where a
+ * plain object's `message`/`stack` are already enumerable and copied by the
+ * ordinary walk; accepting them there would only bolt on a spurious `name`.
  *
  * Still narrower than pino's own `isErrorLike` (`typeof value.message === 'string'`):
  * requiring a string `stack` as well keeps structured failures that merely carry
@@ -25,7 +66,7 @@ import pino from 'pino';
  * wearing a synthetic empty `stack` and a self-referential `raw`.
  */
 function carriesErrorDiagnostics(value: unknown): boolean {
-  if (value instanceof Error || Object.prototype.toString.call(value) === '[object Error]') {
+  if (isErrorObject(value)) {
     return true;
   }
   if (typeof value !== 'object' || value === null) {

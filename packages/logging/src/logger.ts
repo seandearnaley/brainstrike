@@ -5,7 +5,7 @@ import type {
   TransportTargetOptions,
 } from 'pino';
 import pino from 'pino';
-import { logSerializers } from './log-serializers.js';
+import { isErrorObject, logSerializers } from './log-serializers.js';
 
 type BrowserLoggerOptions = NonNullable<LoggerOptions['browser']>;
 type ManagedNodeDestination = DestinationStream & {
@@ -680,7 +680,10 @@ export function redactSensitiveLogValue(
   // cyclic cause chain (err.cause === err, or mutual A<->B) must hit the
   // WeakMap and terminate — recursing first would loop forever.
   seen.set(value, redacted);
-  if (value instanceof Error) {
+  // Shares the serializer's Error-object test rather than `instanceof Error`,
+  // so a cross-realm Error is not stripped here — before the (wider) serializer
+  // gate downstream ever sees it (BST-1662).
+  if (isErrorObject(value)) {
     Object.assign(redacted, { message: value.message, name: value.name, stack: value.stack });
     // `Error.cause` is a non-enumerable own property, so the `Object.entries`
     // walk below never visits it — without this, the cause chain silently
