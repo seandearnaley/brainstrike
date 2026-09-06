@@ -531,11 +531,23 @@ function assertDiffable(inventory, label) {
 function compiledKeys(inventory) {
   const occurrences = new Map();
   const compiledCounts = new Map();
+  // A name shared by two BAILED functions is as unidentifiable as one shared by two
+  // compiled ones, and the two inventories need not be the same revision — a baseline
+  // is regenerated across toolchain changes. So a file can hold two bailed `Row`s on
+  // one side and a single compiled `Row` on the other, and keying that lone record
+  // reports a definite win for a name nothing can attribute. Collected for CROSS-SIDE
+  // filtering only: the displayed unmatchable totals stay compiled-only, which falls
+  // out of `dropKeysAmbiguousOnEitherSide` counting a key only when it actually
+  // removes a compiled one.
+  const ambiguousBailedKeys = new Set();
   for (const entry of inventory.functions) {
+    const key = `${entry.file}::${entry.name}`;
     if (entry.status !== 'compiled') {
+      if (entry.ambiguousName) {
+        ambiguousBailedKeys.add(key);
+      }
       continue;
     }
-    const key = `${entry.file}::${entry.name}`;
     compiledCounts.set(key, (compiledCounts.get(key) ?? 0) + 1);
     if (entry.matchable) {
       occurrences.set(key, (occurrences.get(key) ?? 0) + 1);
@@ -543,7 +555,7 @@ function compiledKeys(inventory) {
   }
 
   const keys = new Map();
-  const unmatchableKeys = new Set();
+  const unmatchableKeys = ambiguousBailedKeys;
   let unmatchable = 0;
   for (const entry of inventory.functions) {
     if (entry.status !== 'compiled') {

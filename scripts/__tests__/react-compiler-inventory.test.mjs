@@ -338,6 +338,93 @@ test('a bailout is not called "still not memoized" when the candidate compiled t
   assert.deepEqual(diff.stillBailed, []);
 });
 
+test('a name only the BAILED records make ambiguous still leaves the comparison', () => {
+  // The two inventories need not be the same revision — a baseline is regenerated
+  // across toolchain changes — so a file can hold two bailed `Row`s on one side and a
+  // single compiled `Row` on the other. Keying that lone record reports a definite win
+  // for a name nothing can attribute to a function.
+  const baseline = inventory('babel', [
+    {
+      ambiguousName: true,
+      file: 'a.tsx',
+      line: 5,
+      matchable: false,
+      name: 'Row',
+      reasons: [],
+      status: 'bailed',
+    },
+    {
+      ambiguousName: true,
+      file: 'a.tsx',
+      line: 9,
+      matchable: false,
+      name: 'Row',
+      reasons: [],
+      status: 'bailed',
+    },
+  ]);
+  const candidate = inventory('oxc', [
+    {
+      ambiguousName: false,
+      file: 'a.tsx',
+      line: 5,
+      matchable: true,
+      name: 'Row',
+      status: 'compiled',
+    },
+  ]);
+
+  const diff = diffInventories(baseline, candidate);
+
+  assert.deepEqual(diff.wins, [], 'an unattributable name is not a definite win');
+  assert.deepEqual(diff.regressions, []);
+  assert.deepEqual(diff.ambiguousLosses, [], 'the candidate compiles MORE, so nothing was lost');
+  // Counted where the record it excluded actually lives: one compiled record on the
+  // candidate side, none on the baseline's (its records are bailed, not compiled).
+  assert.deepEqual(diff.unmatchable, { baseline: 0, candidate: 1 });
+});
+
+test('an ambiguous bailout does not manufacture a regression in the mirror direction', () => {
+  const baseline = inventory('babel', [
+    {
+      ambiguousName: false,
+      file: 'a.tsx',
+      line: 5,
+      matchable: true,
+      name: 'Row',
+      status: 'compiled',
+    },
+  ]);
+  const candidate = inventory('oxc', [
+    {
+      ambiguousName: true,
+      file: 'a.tsx',
+      line: 5,
+      matchable: false,
+      name: 'Row',
+      reasons: [],
+      status: 'bailed',
+    },
+    {
+      ambiguousName: true,
+      file: 'a.tsx',
+      line: 9,
+      matchable: false,
+      name: 'Row',
+      reasons: [],
+      status: 'bailed',
+    },
+  ]);
+
+  const diff = diffInventories(baseline, candidate);
+
+  // Coverage really was lost here, but it cannot be attributed to one function — so it
+  // belongs in the loss bucket that FAILS the command, never in `regressions`.
+  assert.deepEqual(diff.regressions, []);
+  assert.deepEqual(diff.wins, []);
+  assert.deepEqual(diff.ambiguousLosses, [{ baseline: 1, candidate: 0, key: 'a.tsx::Row' }]);
+});
+
 test('diffInventories refuses an inventory written by an older script', () => {
   const stale = { backend: 'babel', failures: [], functions: [] };
   assert.throws(
