@@ -1314,10 +1314,11 @@ terminal classification and bounded provider response evidence needed for
 forensics.
 
 The table is FK-less, a shape inherited from when the parent was created at
-runtime and NOT revisited by BST-1651 (migration 118 now creates
-`brainstrike_assistant_thread_runs`, so an FK has become expressible; adding one
-would be its own migration and its own ticket). Until then the parent link is
-enforced in code, not by the schema. The canonical
+runtime and NOT revisited by BST-1651. Migration 118 now creates
+`brainstrike_assistant_thread_runs`, so an FK has become expressible — but none
+is declared, and nothing is scheduled to declare one. The parent link is
+enforced in code, not by the schema, and the paragraph below is that
+enforcement; do not read the FK's absence as an oversight. The canonical
 `AssistantRunErrorRepository.record` therefore derives `thread_id` and
 `resource_id` from the durable renderer-minted parent run; callers provide
 neither. A missing parent returns no row and THROWS. A conflict on `run_id`

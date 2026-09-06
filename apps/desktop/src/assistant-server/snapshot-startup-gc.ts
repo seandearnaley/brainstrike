@@ -436,6 +436,13 @@ export async function runSnapshotStartupGc(
   const historyPrunedRoots: string[] = [];
 
   const ledgerThreadIds = await listSnapshotThreadIdsInLedger(deps.db);
+  // ORDERING INVARIANT — DO NOT ADD A `mastra_threads` READ BELOW THIS POINT.
+  // Everything after `liveThreadIds` classifies and DELETES. This is the only
+  // read of that relation, and its position is what makes an unmigrated
+  // database abort the sweep with nothing touched (BST-1651 retired the
+  // explicit `to_regclass` refusal in favour of this order). A second reader
+  // placed after the delete phase would silently reintroduce
+  // mass-delete-on-absence, and the paired test would not catch it.
   const liveThreadIds =
     ledgerThreadIds.length === 0
       ? new Set<string>()

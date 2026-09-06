@@ -521,6 +521,62 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       await expect(ledger.get(worktree.id)).resolves.toMatchObject({ archivedAt: null });
     });
 
+    /**
+     * BST-1651 review item 1: the "refuses by throwing" claim lives at the
+     * CALL SITE, not the callee.
+     *
+     * `hasRunningThread` used to answer `false` — "no run is using this
+     * worktree" — when `brainstrike_assistant_thread_runs` was absent, which is
+     * the fail-OPEN direction on a seam that removes a directory. Migration 118
+     * owns the relation so that branch was deleted, and the read now rejects.
+     * That is only an improvement if the rejection reaches something that
+     * ABORTS; if any frame between here and the safety check swallowed it into
+     * a default, the retirement would be a silent regression rather than a
+     * fix. Pin the whole path: refusal out, and the worktree still on disk.
+     */
+    it('ABORTS the archive when the in-flight-run read rejects — never falls through to the removal', async () => {
+      const created = await buildService().create({
+        baseRef: 'main',
+        branch: { name: 'bs/archive-inflight-probe-raises' },
+        createdBy: 'user',
+        name: 'archive-inflight-probe-raises',
+        rootId: 'r-1',
+      });
+      // NOT the house `if (!created.ok) return;`: this test's whole assertion
+      // is that a directory SURVIVES, so a failed setup would satisfy it
+      // vacuously.
+      expect(created.ok).toBe(true);
+      if (!created.ok) {
+        throw new Error(`setup failed: ${created.error}`);
+      }
+      const { worktree } = created.value;
+      const underlying = asLedgerDatabase(db);
+      const failingLedger: WorktreeLedgerDatabase = {
+        async query(sql, params) {
+          // Exactly what an unmigrated database does to `hasRunningThread`.
+          if (sql.includes('brainstrike_assistant_thread_runs')) {
+            throw Object.assign(
+              new Error('relation "brainstrike_assistant_thread_runs" does not exist'),
+              { code: '42P01' }
+            );
+          }
+          return await underlying.query(sql, params);
+        },
+      };
+      const service = buildTestService(
+        { db, managedDirectory, repo },
+        { getDatabase: () => Promise.resolve(failingLedger) }
+      );
+
+      const refused = await service.archive({ worktreeId: worktree.id });
+
+      expect(refused.ok).toBe(false);
+      // The point of the test: nothing was removed and nothing was archived.
+      expect(existsSync(worktree.path)).toBe(true);
+      const ledger = createWorktreeLedger(() => Promise.resolve(underlying));
+      await expect(ledger.get(worktree.id)).resolves.toMatchObject({ archivedAt: null });
+    });
+
     it('leaves the ledger row UNARCHIVED when the removal itself fails', async () => {
       const service = buildService();
       const created = await service.create({

@@ -235,12 +235,7 @@ describe('runSnapshotStartupGc', () => {
       threadsTablePresent: false,
     });
 
-    const rejection = await runSnapshotStartupGc(fixture.deps).then(
-      () => null,
-      (error: unknown) => error
-    );
-
-    expect((rejection as { code?: string } | null)?.code).toBe('42P01');
+    await expect(runSnapshotStartupGc(fixture.deps)).rejects.toMatchObject({ code: '42P01' });
     expect(fixture.deletedThreads).toEqual([]);
     expect(fixture.deletedByIds).toEqual([]);
     expect(fixture.prunedThreads).toEqual([]);
