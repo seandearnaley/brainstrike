@@ -1,7 +1,7 @@
 // BST-1622: a desktop main-process test may not assert on what the renderer was
 // told while stubbing the window listing empty.
 //
-// The main -> renderer broadcasts this guard is about iterate
+// The main -> renderer broadcasts covered by this guard all iterate
 // `BrowserWindow.getAllWindows()` (src/ipc-mcp.ts, src/mcp/lifecycle-control.ts,
 // src/ipc-domains/db-ipc.ts, src/assistant-server/workspace-context-tools.ts and
 // eight sites in src/main.ts). Every one is a `for (const window of ...)` loop.
