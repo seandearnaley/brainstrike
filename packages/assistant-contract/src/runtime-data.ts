@@ -68,7 +68,7 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * Mirrors the `thinking` discriminated union of the installed
- * `@ai-sdk/anthropic` (4.0.39), held there by
+ * `@ai-sdk/anthropic` (4.0.49), held there by
  * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`.
  *
  * `budgetTokens` is OPTIONAL upstream and required here on purpose: an
@@ -81,9 +81,16 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
  * provider-side on current models, so reasoning must be asked for explicitly —
  * that silence was why Claude runs showed no thinking. `enabled` + an explicit
  * `budgetTokens` remains supported for older models.
+ *
+ * `updates` — thinking returned BETWEEN tool calls — is new in this provider
+ * range and is mirrored because the wire accepts it, not because the app emits
+ * it: the producer in `assistant-ui-panel-wrapper-runtime` still projects
+ * `resolveReasoningVisible` onto `summarized`/`omitted` only. Leaving it out
+ * would make this union strictly narrower than the provider, the exact failure
+ * mode the mirror contract exists to catch.
  */
 export type AnthropicThinkingOptions =
-  | { type: 'adaptive'; display?: 'omitted' | 'summarized' }
+  | { type: 'adaptive'; display?: 'omitted' | 'summarized' | 'updates' }
   | { type: 'enabled'; budgetTokens: number }
   | { type: 'disabled' };
 

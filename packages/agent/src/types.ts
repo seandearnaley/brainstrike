@@ -326,13 +326,18 @@ export interface OpenRouterProviderOptions extends JSONObject {
   };
 }
 
-/** Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.39). */
+/** Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.49). */
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * Mirrors the `thinking` discriminated union of the installed
- * `@ai-sdk/anthropic` (4.0.39). `display` governs whether reasoning is
+ * `@ai-sdk/anthropic` (4.0.49). `display` governs whether reasoning is
  * RETURNED and defaults to `omitted` provider-side, so it must be asked for.
+ * `updates` — thinking returned BETWEEN tool calls — is new in this provider
+ * range; the provider adds the `thinking-display-updates-2026-08-18` beta
+ * header for it. It is mirrored because the wire accepts it, not because the
+ * app emits it yet: the producer in `assistant-ui-panel-wrapper-runtime` still
+ * projects `resolveReasoningVisible` onto `summarized`/`omitted` only.
  * Kept in step with the identical declaration in
  * `@brainstrike/assistant-contract` — this package is what actually hands
  * `providerOptions` to the SDK, so a narrower type here would silently fail
@@ -341,7 +346,7 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
  * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`.
  */
 export type AnthropicThinkingOptions =
-  | { type: 'adaptive'; display?: 'omitted' | 'summarized' }
+  | { type: 'adaptive'; display?: 'omitted' | 'summarized' | 'updates' }
   | { type: 'enabled'; budgetTokens: number }
   | { type: 'disabled' };
 

@@ -26,7 +26,7 @@ cleanupUnusedCatalogs: true
 # prune either), and a comment attached to an entry that is itself pruned has no
 # measured verdict — so keep rationale beside entries that stay.
 catalog:
-  '@ai-sdk/amazon-bedrock': 5.0.57
+  '@ai-sdk/amazon-bedrock': 5.0.76
   '@anthropic-ai/sandbox-runtime': 0.0.73
   # BST-1353: the AWS default credential chain (profiles, SSO, process creds,
   # instance/container roles) behind Bedrock's `credentialProvider` seam.
