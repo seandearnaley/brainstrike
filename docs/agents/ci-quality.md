@@ -1025,24 +1025,160 @@ measurement and worker-message validation modules remain in unit coverage, and
 the web L98/F85/B73/S89 thresholds are unchanged. Do not broaden this exception
 or replace it with a wildcard.
 
-### Claude auto-review fails with a visible incomplete disposition (BST-1412)
+### Claude review coverage and orchestration (BST-1412, BST-1640)
 
-Claude Auto Review is bounded to the exact pull request diff and the existing
-GitHub review surfaces: `gh pr view`, `gh pr diff`, `gh pr comment`, and the
-inline-comment MCP tool. It must not crawl the checked-out repository or use
-generic shell/git exploration. The explicit 80-turn budget remains unchanged;
-the observed `directory mismatch ... tsconfig.json` text in run `32562173635`
-was a comment printed by the action's own Bun launcher, not a Claude tool call
-or a repository tsconfig failure.
+Claude Auto Review runs on `pull_request` (`opened`, `ready_for_review`,
+`reopened`; never `synchronize`) and on targeted `workflow_dispatch`. The
+`pull_request` trigger is deliberate and settled (2026-09-05):
 
-The Claude action step uses `continue-on-error` only so a following failure
-handler can post an explicit `Claude auto-review did not complete` PR comment.
-That handler runs exclusively when the action step's outcome is `failure` and
-then exits non-zero, so successful reviews do not receive duplicate failure
-comments and incomplete reviews keep the workflow red. Contract coverage lives
-in `scripts/__tests__/claude-auto-review-contract.test.mjs`; it executes the
-handler with a fake `gh`, verifies the visible PR disposition, and proves the
-handler preserves a failing exit status.
+- It executes the workflow at the PR's own merge ref for **any base branch**,
+  so each layer of a stack is reviewed against its parent — `gh pr diff` is
+  already per-layer. `pull_request_target` cannot do this: for a stacked layer
+  it would execute the *intermediate branch's* workflow copy with base-repo
+  credentials, and Anthropic's App token exchange rejects its OIDC token
+  regardless (anthropics/claude-code-action#713; it blacked out 7/7 automatic
+  reviews on 2026-09-05 and every stacked layer). Do not switch back.
+- Drafts are reviewed at `ready_for_review`; the job condition skips
+  `opened`/`reopened` while `draft == true`. This matches Codex, which also
+  ignores drafts, and removes the draft-open-then-ready double review. A PR
+  opened ready, converted to draft, and marked ready again is reviewed twice;
+  that round trip is rare and not worth guarding.
+- The action receives `github_token: ${{ github.token }}`, which
+  `setupGitHubToken()` returns before any App exchange, so no event type can
+  depend on that endpoint's allowlist; the job carries no `id-token` grant.
+  Nothing needs an App identity: the model runs with zero tools and the
+  trusted reporter publishes with `github.token`. The action's own
+  write-permission check still runs on every PR event regardless of token
+  source; preparation's same-repository head guard is belt-and-braces on top.
+
+**Trust model, stated honestly.** Under `pull_request`, this workflow file and
+`scripts/claude-review.mjs` execute from the PR's merge commit — PR-author
+code — with `secrets.CLAUDE_CODE_OAUTH_TOKEN` injected and a `pull-requests:
+write` token in scope. That is the exposure: a same-repository PR can rewrite
+these steps to do anything with that secret and token, and since PRs here are
+agent-authored, a prompt-injected agent reaches a credential by this path.
+`pull_request_target` prevented it structurally and was given up for stack
+coverage. "The model has no tools" and "the reporter emits text" constrain
+only the model and the reporter, not PR-authored YAML. Accepted because every
+PR is the owner's or their agents', and the owner reads workflow diffs; there
+is no CODEOWNERS enforcement and none would be satisfiable in a one-human repo.
+Mitigations available if the exposure is judged too large: rotate
+`CLAUDE_CODE_OAUTH_TOKEN` on a cadence, or move the action step behind a
+protected `environment:` (a GitHub setting, not repository code). The
+`workflow_dispatch` path (`--ref main`) remains the trusted way to review a PR
+that touches the reviewer itself.
+
+Preparation pins the checkout to `GITHUB_SHA` and requires the event's ref
+(`refs/heads/<default>` for dispatch, `refs/pull/<N>/merge` for
+`pull_request`); for `pull_request` the expected ref derives from the same
+payload as `GITHUB_REF`, so the checkout equality is the load-bearing check.
+Any branch of this repository is an acceptable base — stacked layers pass; the
+base-repository comparison is a malformed-response tripwire, since GitHub
+cannot return a base outside the host repository. Automatic runs require a
+same-repository head. A fork-head `pull_request` run holds a read-only token
+regardless of the `permissions:` block, so its skipped disposition lands in the
+job summary and the job goes red, but the PR comment cannot post; the dispatch
+command in that summary still works from `main`. The repository takes no fork
+PRs, so this is accepted rather than engineered around.
+
+**Both reviewers, one budget.** Claude: one automatic review per lifecycle
+event above, plus one targeted dispatch after the fix batch. Codex: one
+automatic review at open/ready, plus at most one `@codex review` after the
+batch. Review energy is front-loaded; later rounds trend nitpicky. Restacking
+(force-push after rebase) triggers neither reviewer; a base merge that
+retargets a child to `main` fires `edited`, which triggers nothing — correct,
+there is nothing new to review.
+
+**Size ceiling.** The action carries the prompt in several environment
+variables at once and Linux caps one at 128 KiB (`MAX_ARG_STRLEN`); above it
+the step dies at spawn with `Argument list too long` and no disposition
+(observed at 131 KiB and 188 KiB; 84 KiB passed). Preparation therefore
+refuses a prompt over a 100 KiB budget with an **incomplete** disposition
+that states both numbers and says to split the PR. No narrower diff is ever
+substituted; a PR that size needs splitting, not a shorter review.
+
+Automatic review retains the `opened`, `ready_for_review`, and `reopened`
+lifecycle and omits `synchronize`. Changes to the workflow or its orchestration
+script receive an explicit **skipped** disposition; a maintainer can request
+coverage with the trusted default-branch workflow:
+
+```bash
+gh workflow run claude-code-review.yml --repo seandearnaley/brainstrike --ref main \
+  -f pr_number=123 -f expected_head=<40-character-current-head> \
+  -f 'focus=Verify the specific workflow trust boundary or previously reported findings'
+```
+
+This is a targeted review, not another automatic whole-PR round. Follow the
+initial review plus one batched re-review budget above; a third whole-PR round
+needs user approval. Never close/reopen a PR, toggle its draft status, push an
+empty commit, or restart the full Test pipeline merely to request Claude review.
+A newly introduced workflow cannot be dispatched from the default branch until
+an approved merge makes it available there. A PR that changes this workflow or
+its script is self-change-skipped, so its own automatic review never runs; use
+the trusted dispatch above for coverage and obtain human review. Local contract
+fixtures are not proof that a live Claude review completed.
+
+`scripts/claude-review.mjs` captures `gh pr diff`, checking the live head and
+base before and after capture. It sends that snapshot directly as prompt data.
+Claude has no file, shell, network, or GitHub tools: `--tools=` disables built-ins,
+`--disallowedTools "mcp__*"` denies MCP tools, strict empty MCP configuration
+prevents other servers loading, and slash commands are disabled. Only the
+schema's `StructuredOutput` tool remains. Do not replace this with `allowedTools`
+plus `dontAsk`: read-only commands remain available under that permission mode.
+The model and 80-turn ceiling remain unchanged.
+
+Claude returns completed/head/base/scope fields and review text. Trusted
+orchestration validates the exact request, rechecks live head/base, and posts
+that text with an explicit **Claude-generated review** attribution. Both
+invocation paths use top-level file/line findings; the model cannot post inline
+comments or execute untrusted diff content. Missing, partial, malformed,
+wrong-head/base/scope, oversized, or unpublishable output stays incomplete.
+Reviews are never truncated to fit GitHub's comment-body limit. A diff that
+exceeds the runner/action's input limit also fails visibly; no narrower diff is
+substituted.
+
+The final handler records a disposition in the workflow summary and publishes
+it on the PR, tied to the requested head, scope, and run attempt. Publication
+failures remain incomplete in the summary and fail the job:
+
+- **Skipped:** the automatic self-change or untrusted-head guard withheld
+  Claude execution; the disposition carries the dispatch command whose focus
+  matches what was withheld.
+- **Incomplete:** preparation/action failure, an oversized diff, the 80-turn
+  cap, cancellation, missing exact-run structured review output, publication
+  failure, or a changed/closed PR invalidates coverage. The reporter's message
+  still names an upstream OIDC skip; that is residual defense only — no OIDC
+  path is live while `github_token` is supplied.
+- **Completed:** the action explicitly concluded successfully, the
+  complete structured output matches the requested head/base/scope, live
+  head/base checks still match, and the trusted reporter publishes the actual
+  review text. It is coverage, not approval; inspect and close its findings.
+
+Skipped and incomplete dispositions fail the review job. `continue-on-error`
+only allows this final reporting step to run; it preserves BST-1412's red
+failure disposition. Hard runner loss or checkout failure can prevent final
+reporting; a missing disposition never counts as completion. The required Test
+checks remain separate. Any later push invalidates an older head's coverage.
+Contracts execute normal, failure, self-change, targeted, moving-head, missing
+content, and trust rejection paths in `scripts/__tests__/claude-review.test.mjs`
+and pin the workflow wiring in `claude-auto-review-contract.test.mjs`.
+The opt-in CLI boundary check uses a fake localhost Anthropic API and no real
+credentials:
+
+```bash
+node scripts/probe-claude-review-tools.mjs /absolute/path/to/claude
+```
+
+Use CLI 2.1.261, the version installed by the pinned action. The fixture injects
+an unsolicited Bash file-read tool call: it must be rejected, the private
+fixture content must remain unread, and structured output must still succeed.
+This validates model tool isolation, not live OIDC or semantic review quality.
+
+Primary trust evidence: [Anthropic action security guidance](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/docs/security.md),
+[manual dispatch example](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/examples/manual-code-analysis.yml),
+[OIDC skip and conclusion implementation](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/src/entrypoints/run.ts),
+[Claude CLI tool controls](https://code.claude.com/docs/en/cli-reference),
+and [GitHub's trusted-event security guidance](https://docs.github.com/en/actions/reference/security/secure-use).
 
 ### Cost-ranked Linux x64 jobs run on Ubicloud (BST-765)
 
@@ -1663,6 +1799,50 @@ tree than CI is a second, weaker verdict wearing the same name).
 `verify-tokenizer-asset-bundle` and `verify-no-cross-chunk-cycles` are the
 shape exceptions: each inspects a build artifact, so it takes a bundle
 `directory` instead of a repo root.
+
+### Desktop assistant setup promise ownership (BST-1639)
+
+`apps/desktop/e2e/utils/assistant-mock.ts` separates asynchronous credential
+persistence from synchronous renderer configuration. The pending write has an
+explicit, scoped owner: `evaluateHandle` returns a remote object containing
+**both the original write promise and its tagged completion**. Observe rejection
+in the same renderer turn as `saveKey`; attaching the first rejection handler in
+a later CDP command produces an unhandled-rejection event for an immediately
+rejected write. Await the tagged completion, propagate the original rejection
+or structured write failure, and dispose the handle in `finally` before
+configuring the renderer. A missing write bridge is a visible failure. Never
+substitute retries, a global promise pin, or a timeout increase.
+
+The original smoke failure occurred during the second assistant setup, after
+the folder fixture's thread-seeding reload. Its trace was created but never
+uploaded: the workflow looked in `test-results` while desktop Playwright writes
+to `blob-report`. The required Desktop E2E and both nightly desktop uploads now target
+`apps/desktop/blob-report/`, matching the already-correct packaged MCP uploader.
+Both Playwright test attachments (`outputDir`) and its blob reporter use that
+directory. Uploaders warn if it is missing: `failure()` also covers setup/build
+failures before Playwright has run, when no test artifacts exist. This absence
+prevents reconstructing the precise GC schedule in that historical execution.
+
+The controlled regression in `assistant-panel.desktop.test.ts` invokes the
+public `setupAssistantMock` helper in an isolated Electron renderer, with a
+collectible pending writer and explicit `HeapProfiler.collectGarbage`. The
+pre-fix helper reproduces `Resulting promise was garbage collected`; the owned
+write survives until settlement. Public JSHandle instrumentation verifies that
+disposal completes on every outcome and that the released handle is unusable
+while its renderer remains responsive; the test does not demand that V8 reclaim
+a released object by a deadline. A missing-disposal negative control fails this
+contract. It also
+covers delayed and immediate rejection, structured failure, and navigation,
+including the absence of unhandled renderer errors. The regular assistant and
+folder specs continue to exercise the real frozen preload bridge and complete
+product workflows. The isolated writer does not replace the production bridge.
+
+Electron 43's V8 inspector holds awaited evaluation results weakly; see
+[V8's promise-lifetime fix and regression](https://github.com/v8/v8/commit/5177b10891e65108c1a19dfc56bff4e58d79d216).
+Retaining an outer async wrapper alone does not retain the promise it awaits,
+so an Electron upgrade is not a substitute for testing this helper's ownership
+boundary. The upload pairing is guarded by
+`scripts/__tests__/desktop-smoke-artifacts-contract.test.mjs`.
 
 ### Desktop E2E process-exit guard (BST-1087)
 
@@ -2854,6 +3034,22 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   `logging-settings.tsx`, whose only exports are one component named and defaulted).
   The eslint plugin matches the Vite runtime semantics; do not swap in Biome's rule
   without re-measuring both.
+
+Local dependency audit: run `pnpm knip` from the repository root after installing
+dependencies. The command builds `@brainstrike/platform-utils` and
+`@brainstrike/build-utils` through the bounded Turbo wrapper before Knip loads
+the Vite/Playwright configs, so absent
+`dist/` directories need no manual preparation; a failed build stops the audit,
+and an audit failure remains nonzero. `scripts/__tests__/knip-workflow.test.mjs`
+exercises that command ordering and both failure paths. The web-only
+`@brainstrike/mcp-app-host-ui` ignore documents its real CSS `@import`, which the
+workspace's TS/TSX project glob does not follow. Installed Knip 6.32.2 rejects
+workspace-level `rules` (including `exports: "warn"`), so the BST-1642 trial for
+`types`, `utils`, `logging`, `tokenization`, and `worker-runtime` has no warning
+counts; keep existing global severities until a version supporting scoped rules
+is deliberately adopted. App category registration is tested through each app's
+rendered settings navigation; settings-ui tests must not read either app's source
+without declaring those cross-package inputs in Turbo.
 
 Local: `pnpm run react-doctor` (lint-enabled full scan, telemetry off via config) ·
 `pnpm exec react-doctor . --no-supply-chain --scope full --json --no-cache` (fresh machine report) ·

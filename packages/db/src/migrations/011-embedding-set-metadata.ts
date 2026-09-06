@@ -16,6 +16,7 @@ export const migration011EmbeddingSetMetadata: Migration = {
       DROP COLUMN IF EXISTS description,
       DROP COLUMN IF EXISTS name;
   `,
+  ledgerKey: 'custom-011-embedding-set-metadata',
   name: 'embedding_set_metadata',
   up: `
     -- Add user-facing metadata columns to embedding_sets

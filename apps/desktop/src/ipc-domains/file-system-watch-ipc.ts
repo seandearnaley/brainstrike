@@ -24,6 +24,11 @@ import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 import { isMockFileSystemIpcPath, resolveFileSystemIpcPath } from './file-system-ipc';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 const logger = createLogger('FileSystemWatchIpc');
 
 export interface FileSystemWatchEventPayload {
@@ -441,9 +446,10 @@ export function registerFileSystemWatchIpcHandlers({
   telemetry.duplicateRegistrations = 0;
   telemetry.setupLatencySamples = 0;
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.watch,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (event, handle: DirectoryHandle): Promise<FileSystemWatchRegistration> => {
       const owner = event.sender;
       const requestedPath = handle?.path;
@@ -496,9 +502,10 @@ export function registerFileSystemWatchIpcHandlers({
     }
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.watchRetry,
+    UNAUTHENTICATED_SENDER_POLICY,
     (event, rawWatchId: unknown): FileSystemWatchRetryResult => {
       const watchId = typeof rawWatchId === 'string' ? rawWatchId : '';
       const entry = liveWatchersById.get(watchId);
@@ -551,14 +558,20 @@ export function registerFileSystemWatchIpcHandlers({
     }
   );
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.watchTelemetry, () => ({
-    activeWatchers: liveWatchersBySubscription.size,
-    ...telemetry,
-  }));
+  registry.registerUnauthenticatedInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.watchTelemetry,
+    UNAUTHENTICATED_SENDER_POLICY,
+    () => ({
+      activeWatchers: liveWatchersBySubscription.size,
+      ...telemetry,
+    })
+  );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.unwatch,
+    UNAUTHENTICATED_SENDER_POLICY,
     (event, rawWatchId: unknown): void => {
       const watchId = typeof rawWatchId === 'string' ? rawWatchId : '';
       const entry = liveWatchersById.get(watchId);

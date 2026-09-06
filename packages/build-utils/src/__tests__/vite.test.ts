@@ -156,7 +156,6 @@ describe('assistant vite helpers', () => {
     expect(entries).toEqual(
       expect.arrayContaining([
         '@assistant-ui/react',
-        '@assistant-ui/react-data-stream',
         '@assistant-ui/react-markdown',
         'react-shiki/core',
         'remark-gfm',
@@ -166,6 +165,14 @@ describe('assistant vite helpers', () => {
       ])
     );
     expect(entries.some((entry) => entry.includes('@assistant-ui/styles'))).toBe(false);
+    // BST-1645: `@assistant-ui/react-data-stream` is NOT a dependency of this
+    // repo. The renderer drives assistant-stream's DataStreamDecoder through a
+    // bespoke `ChatModelAdapter` on `useLocalRuntime`
+    // (packages/assistant-ui/src/data-stream-runtime.ts) because the vendor's
+    // `useDataStreamRuntime` owns its chat-model slot and does not support
+    // human-in-the-loop tools. Prebundling a package nothing imports only
+    // duplicated `@ai-sdk/provider` in the lockfile.
+    expect(entries.some((entry) => entry.includes('@assistant-ui/react-data-stream'))).toBe(false);
   });
 
   test('returns database lazy-panel optimize-deps package ids', () => {

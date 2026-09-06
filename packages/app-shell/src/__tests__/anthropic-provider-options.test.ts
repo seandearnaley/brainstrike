@@ -5,8 +5,20 @@ import {
 } from '../assistant-ui-panel-wrapper-runtime';
 
 describe('direct Anthropic provider options', () => {
+  it('explicitly disables Opus 5 thinking when effort and budget are cleared', () => {
+    expect(buildProviderOptions('anthropic', 'claude-opus-5', {})).toEqual({
+      anthropic: { thinking: { type: 'disabled' } },
+    });
+  });
+
   it.each([
     ['claude-fable-5', 'xhigh'],
+    ['claude-opus-5', 'low'],
+    ['claude-opus-5', 'medium'],
+    ['claude-opus-5', 'high'],
+    ['claude-opus-5', 'xhigh'],
+    ['claude-opus-5', 'max'],
+
     ['claude-opus-4-8', 'max'],
     ['claude-sonnet-5', 'xhigh'],
     ['claude-sonnet-4-6', 'max'],

@@ -2,6 +2,7 @@ import type { AssistantMemoryThread, AssistantThreadMetadata } from '@brainstrik
 import type { WorktreeListEntry } from '@brainstrike/types';
 import { forgePrCacheKey } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
+import { selectWorktreeCollection } from '../worktree-map-collection';
 import {
   buildWorktreeMap,
   describeWorktreeProvenance,
@@ -413,5 +414,122 @@ describe('formatWorktreeActivity', () => {
     // "1 minute ago" — an asymmetric rounding rule for the same magnitude.
     expect(formatWorktreeActivity(new Date('2026-08-26T12:01:30.000Z'), NOW)).toBe('in 1 minute');
     expect(formatWorktreeActivity(new Date('2026-08-26T11:58:30.000Z'), NOW)).toBe('1 minute ago');
+  });
+});
+
+describe('worktree collection navigation', () => {
+  const project = (entries: readonly WorktreeListEntry[]) =>
+    buildWorktreeMap({
+      entries,
+      indexingOptInByRootId: {},
+      prCache: new Map(),
+      runningThreadIds: new Set(),
+      threads: [],
+    });
+  it('paginates across repository boundaries and clamps after a collection shrinks', () => {
+    const repositories = project(
+      Array.from({ length: 60 }, (_, i) =>
+        entry({
+          name: `wt-${i}`,
+          path: `/wt/${i}`,
+          primary: false,
+          repoCommonDir: i < 30 ? '/a/.git' : '/b/.git',
+          repositoryRoot: i < 30 ? '/a' : '/b',
+        })
+      )
+    );
+    const input = {
+      filter: 'all' as const,
+      page: 1,
+      query: '',
+      repositories,
+      sort: 'name' as const,
+      statusByPath: new Map(),
+    };
+    const result = selectWorktreeCollection(input);
+    expect(result.repositories.map((repo) => repo.cards.length)).toEqual([5, 20]);
+    expect(result.matched).toBe(60);
+    const shrunk = selectWorktreeCollection({ ...input, page: 2, query: 'wt-59' });
+    expect(shrunk.page).toBe(0);
+    expect(shrunk.repositories[0]?.cards[0]?.entry.path).toBe('/wt/59');
+  });
+  it('keeps primary first, sorts activity newest first, and places missing dates last', () => {
+    const repositories = project([
+      entry({ name: 'primary', path: '/primary' }),
+      entry({ createdAt: '2026-08-01T00:00:00Z', name: 'alpha', path: '/old', primary: false }),
+      entry({ createdAt: '2026-09-01T00:00:00Z', name: 'zulu', path: '/new', primary: false }),
+      entry({ name: 'undated', path: '/undated', primary: false }),
+    ]);
+    const result = selectWorktreeCollection({
+      filter: 'all',
+      page: 0,
+      query: '',
+      repositories,
+      sort: 'recent',
+      statusByPath: new Map(),
+    });
+    expect(result.repositories[0]?.cards.map((card) => card.entry.path)).toEqual([
+      '/primary',
+      '/new',
+      '/old',
+      '/undated',
+    ]);
+  });
+  it('sorts linked thread activity ahead of checkout creation time', () => {
+    const repositories = buildWorktreeMap({
+      entries: [
+        entry({
+          createdAt: '2026-01-01T00:00:00Z',
+          id: 'active',
+          name: 'zulu',
+          path: '/active',
+          primary: false,
+        }),
+        entry({
+          createdAt: '2026-08-01T00:00:00Z',
+          name: 'alpha',
+          path: '/new',
+          primary: false,
+        }),
+      ],
+      indexingOptInByRootId: {},
+      prCache: new Map(),
+      runningThreadIds: new Set(),
+      threads: [
+        thread({
+          id: 'thread-active',
+          metadata: { checkoutMode: 'worktree', checkoutWorktreeId: 'active' },
+          updatedAt: new Date('2026-09-01T00:00:00Z'),
+        }),
+      ],
+    });
+    const result = selectWorktreeCollection({
+      filter: 'all',
+      page: 0,
+      query: '',
+      repositories,
+      sort: 'recent',
+      statusByPath: new Map(),
+    });
+    expect(result.repositories[0]?.cards.map((card) => card.entry.path)).toEqual([
+      '/active',
+      '/new',
+    ]);
+  });
+  it('external excludes the primary checkout and managed checkouts', () => {
+    const repositories = project([
+      entry(),
+      entry({ path: '/external', primary: false }),
+      entry({ managed: true, path: '/managed', primary: false }),
+    ]);
+    const result = selectWorktreeCollection({
+      filter: 'external',
+      page: 0,
+      query: '',
+      repositories,
+      sort: 'name',
+      statusByPath: new Map(),
+    });
+    expect(result.repositories[0]?.cards.map((card) => card.entry.path)).toEqual(['/external']);
   });
 });

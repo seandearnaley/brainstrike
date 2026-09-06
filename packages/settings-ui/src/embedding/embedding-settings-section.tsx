@@ -34,6 +34,7 @@ import {
 } from '@brainstrike/ui';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { type ReactElement, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { SettingsSearchIcon } from '../settings/settings-search-icon';
 import { SETTINGS_SEARCH_INPUT_STYLE } from '../settings/settings-search-layout';
 
@@ -518,7 +519,19 @@ function renderProviderSection({
 // parseCompositeKey removed - selection is now per-collection/embedding-set, not a global preference.
 
 export function EmbeddingSettings() {
-  const { models, providers: registryProviders, isLoading, hasLoaded } = useModelRegistryStore();
+  const {
+    models,
+    providers: registryProviders,
+    isLoading,
+    hasLoaded,
+  } = useModelRegistryStore(
+    useShallow((state) => ({
+      hasLoaded: state.hasLoaded,
+      isLoading: state.isLoading,
+      models: state.models,
+      providers: state.providers,
+    }))
+  );
   const registryError = useEnsureModelRegistry();
   const {
     catalog: runtimeCatalog,

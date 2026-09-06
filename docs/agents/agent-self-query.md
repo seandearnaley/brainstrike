@@ -330,8 +330,9 @@ entire reason those errors are not sanitised.
   children cannot prompt for approval (every `'ask'` tool is stripped from a
   child's map). Persona authors must opt in explicitly via `tools:`. Pinned by
   `user-personas.test.ts`.
-- **`riskCategory: 'read'` is pinned explicitly** in `tool-categories.ts` rather
-  than derived. The input is arbitrary SQL; a reader must see the bucket
+- **`riskCategory: 'read'` is pinned explicitly** on its `defineNativeTool`
+  declaration (`packages/assistant-contract/src/native-tools/definitions/query-self.ts`)
+  rather than derived. The input is arbitrary SQL; a reader must see the bucket
   asserted at the declaration site with the sandbox named as its justification.
 - **Desktop-only.** Excluded from `WEB_NATIVE_TOOL_IDS` — the browser has no
   assistant server.

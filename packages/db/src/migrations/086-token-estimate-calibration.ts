@@ -24,6 +24,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration086TokenEstimateCalibration: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_token_estimate_calibration;',
+  ledgerKey: 'custom-086-token-estimate-calibration',
   name: 'token_estimate_calibration',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_token_estimate_calibration (

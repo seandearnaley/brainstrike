@@ -38,6 +38,18 @@ Structured logs:
 Scoped loggers:
 - createLogger('FileImporter')
 
+Workspace indexing setup (BST-1340):
+- Missing root or managed collection is `unconfigured`, clearing stale progress
+  and `lastError` without a durable diagnostic failure. The provider reports
+  `waiting` while the database initializes and constructs the sync service only
+  once it exists. A missing required database inside the service is an invalid
+  dependency and remains an error, as do invalid metadata and runtime failures.
+- The provider bootstraps a default Workspace Index for fresh preferences.
+  Publishing its collection id re-enters the sync lifecycle, which owns the
+  resulting status; bootstrap completion must not overwrite a newer status.
+  Public regressions: `workspace-collection-sync-service.test.ts` and
+  `workspace-collection-sync-provider.test.tsx` in app-shell background indexing.
+
 Sensitive data:
 - Auto-redacts: apiKey, password, token, secret, authorization, cookie
 - Structured arguments and listener bindings are recursively redacted before transport,
@@ -70,10 +82,102 @@ the persistence to every applicable factory-reset path in the same change.
 Electron preload possession is not an authorization boundary. Sensitive invoke
 handlers use `registerAuthorizedInvoke` from
 `apps/desktop/src/platform/desktop-ipc-registry.ts` and declare a non-empty set
-of server-owned `DesktopWindowRole` values. The registry resolves the sender by
-`event.sender.id` and rejects missing or disallowed roles before the handler
-receives renderer-controlled arguments. Empty and duplicate policies are
-registration errors; unknown senders never inherit `visible-ui`.
+of server-owned `DesktopWindowRole` values. Authorization runs BEFORE the
+handler receives or parses any renderer-controlled argument and has two
+factors (BST-1641):
+
+1. **Sender role** — `event.sender.id` is resolved through `window-role.ts`
+   and rejected unless it maps to a declared role. Empty and duplicate
+   policies are registration errors; unknown senders never inherit
+   `visible-ui`.
+2. **Sender frame** — `event.senderFrame.url` must match the allowlist in
+   `apps/desktop/src/platform/desktop-ipc-sender-frame.ts` (Electron's
+   "Validate the sender of all IPC messages" checklist item). The allowlist is
+   a pure derivation of the ONE process-wide `DesktopRendererTarget`
+   (`apps/desktop/src/desktop-renderer-target.ts`): `main.ts` resolves the
+   launch mode once (`resolveDesktopRendererLaunchMode`), builds the target,
+   and configures it before any window exists; the visible window
+   (`create-window.ts`) and the hidden hosts (`renderer-host-lifecycle.ts`)
+   load the document that target names, and the allowlist is derived from the
+   same object — so nothing re-derives the launch mode from
+   `process.argv`/`app.isPackaged`/test-mode flags on its own, and the
+   allowlist cannot trust a document the loaders never load (or reject the one
+   they do). A loader that runs before the target is configured throws
+   `Desktop renderer target is not configured.` at load time (visible window:
+   `createWindow` rejects before any `loadFile`/`loadURL`; hidden host: the
+   lifecycle reports `state: 'error'` with that `lastError`, un-retried),
+   never as every authorized channel rejecting at first invoke. The target is
+   launch-mode-exact: `built`/`test-built` accept ONLY the `file://` document
+   at `resolveBuiltRendererPath()` (`dist-root.ts`), and `dev-server` accepts
+   ONLY `DESKTOP_DEV_RENDERER_URL`'s origin + pathname — so a packaged app
+   never trusts `http://localhost:38181` and a dev app never trusts a stray
+   `file://` page. Query and fragment are ignored because hidden hosts load
+   the same document as `?mode=<role>&runtimeId=…`; the dev pathname is
+   compared for equality after trailing-slash normalization (`/desktop` ≡
+   `/desktop/`, which Vite serves interchangeably), so a sibling file, a
+   path-prefix spoof (`index.html.evil`, `/desktop-evil`) or another path
+   does not match. **Standing rule:** the renderer is a single-document app —
+   `RouterProvider` wraps a `BrowserRouter` shell with no routes, links, or
+   `navigate` calls — and must stay that way: a history (`pushState`)
+   navigation would change the frame's pathname mid-session and silently
+   drop the visible window off the dev-server allowlist. A `null`/missing
+   `senderFrame` (Electron nulls it after the frame navigated or was
+   destroyed), a `WebFrameMain.url` getter that throws (Electron throws
+   "Render frame was disposed…" for a disposed frame rather than returning
+   null), an off-allowlist URL, and an unconfigured target ALL fail closed
+   with a curated `Desktop IPC <channel> …` error; the renderer-controlled
+   URL is never echoed into that message. Every rejection (role, missing or
+   disposed frame, URL) is also logged in the main process by the
+   `DesktopIpcRegistry` scope at `warn` WITH the channel and the rejected
+   URL/sender id, where the renderer cannot read it, so allowlist drift and
+   dev-server pathname mismatches are diagnosable.
+   `createDesktopIpcRegistry({ senderFrameAllowlist })` injects an allowlist
+   for unit tests; the desktop test setup configures a deterministic target
+   process-wide (`TEST_DESKTOP_RENDERER_TARGET`), and suites that
+   `vi.resetModules()` reinstall it on the fresh instance via
+   `reconfigureTestRendererTargetAfterModuleReset` (a fresh module instance
+   is unconfigured, i.e. fail-closed — by design, not a test bug).
+
+The unauthenticated verb is deliberately the long one:
+`registerUnauthenticatedInvoke(domain, channel, { reason }, handler)` requires
+a non-empty reason (registration error otherwise) so every opt-out is
+reviewable at the call site; the short `registerInvoke` no longer exists. The
+reason states WHO holds the channel per the preload manifests
+(`dist/preload.js` = `visible-ui`; `dist/hidden-preload.js` = the hidden
+roles) and that a sender-role policy is pending. Channels not exposed by any
+preload manifest cannot be invoked from a renderer at all, so "exposed only by
+the visible-UI preload" is a factual caller set, not an authorization claim.
+
+Sender-authorized domains and their roles (the preload manifests are the
+source of truth for who may hold a channel; `hidden-preload.ts` exposes no
+`fs:*`, `git:*`, `terminal:*`, `shell:*`, `changes:*`, `browser:*`, or
+`command-sessions:*` channel):
+
+| Domain / channels | Roles |
+| --- | --- |
+| `terminal:*` (create/write/resize/destroy), `command-sessions:*` | `visible-ui` |
+| `shell:*` (open-external/open-path/show-item-in-folder) | `visible-ui` |
+| `git:*` (all 15, incl. push/commit/switchBranch) | `visible-ui` |
+| `changes:*` (resolveView/fileDiff/inventory/rewind*) | `visible-ui` |
+| `browser:*` (all 10 pane controls) | `visible-ui` |
+| `fs:*` under `registerFileSystemIpcHandlers` (reads, root grants incl. `fs:addRootByPath`/`fs:requestDirectoryAccess`, `fs:readFileByPath`, `fs:readFileByAbsolutePath`, `fs:removeRoot`) | `visible-ui` |
+| `db:exec`, `db:transaction` (raw SQL entry points; typed replacement is BST-1234), `db:diagnostics`, `db:scheduler:snapshot`, `db:test`, `db:managed-cache:apply-batch`, `db:managed-cache:invalidate-by-identity`, `db:chunks:insert-and-enqueue-embedding-jobs` — every `db:*` channel the embedding host's `hidden-preload.ts` bridge exposes besides the shared `db:query` | `embedding-host`, `visible-ui` |
+| `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, `worktrees:*`, `mcp:content:*`, MCP apps/task/elicitation bridges | `visible-ui` (pre-existing) |
+| `vector-preferences:read|write|clear` | `embedding-host` (pre-existing; see BST-1380 below) |
+| Contract-registered leaf domains (BST-1648, `registerDomain` — authorized by construction): `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
+
+Still `registerUnauthenticatedInvoke` with a stated reason (sender-role
+policy pending, tracked as the BST-1641 follow-up): `db:query` (visible UI +
+chunking/embedding hosts), the visible-UI-only `db:ping`, `db:live-query:*`,
+`db:clearAll`, `db:resetLocal` and `db:getUserDataPath`,
+`logging:get-preferences` (all four roles), `app:power-snapshot`
+(visible UI + embedding host), `parser-host:parse` (visible UI + chunking
+host), and the visible-UI-only `mcp:*`, `notesVault:*`, `storage:*`/
+`preferences:*`, `fs:watch*`, hooks/forge/file-exports/diagnostics/
+assistant-checkpoint/embedding-backfill/runtime/agent-chat channels and the hidden-host lifecycle
+controls (`*-host:ensure-started|stop|reset|get-status`, `chunking-host:chunk-*`,
+`llm-host:*`, `embedding-host:query-embedding`). `tools:execute` is the
+unregistered legacy harness (BST-1233).
 
 Provider secrets plus assistant URL/token credentials are visible-UI-only.
 Hidden chunking, embedding, and local-LLM windows use the role-selected
@@ -81,7 +185,27 @@ Hidden chunking, embedding, and local-LLM windows use the role-selected
 This packaging boundary is defense in depth: main-process sender authorization
 must remain even when a preload omits the channel. Add new sensitive invoke
 channels through the authorized registration API and cover both an allowed
-sender and hidden/untracked rejection.
+sender and hidden/untracked rejection. The browser pane host
+(`browser/browser-pane-host.ts`) is sandboxed with NO preload and MCP App
+iframes receive no preload either, so neither can reach `ipcRenderer` at all;
+the sender-frame factor additionally rejects them by URL if that ever changes.
+
+Paired tests: `apps/desktop/src/__tests__/platform/desktop-ipc-registry.test.ts`
+(role rejection, spoofed/null/missing/disposed frame rejection with a valid
+`sender.id`, unconfigured-target fail-closed, the main-process warn record,
+mandatory reason), `desktop-ipc-sender-frame.test.ts` (allowlist matching
+per launch mode, trailing-slash normalization, equality-not-prefix),
+`desktop-renderer-target.test.ts` (for every launch mode and window role the
+document the loaders load is on the allowlist derived from the same target,
+and the other launch mode's document is not), the unconfigured-target
+load-time failures in `create-window.test.ts` and
+`renderer-host-lifecycle.test.ts`, `privileged-ipc-sender-authorization.test.ts`
+(terminal, command sessions, shell, git, changes, browser: allowed
+visible-UI, hidden, untracked, and off-allowlist frame per channel, plus the
+exact channel set), the same matrix for every contract-registered leaf domain
+in `contract-domains-sender-authorization.test.ts`, the `files` sweep in
+`ipc-domains/file-system-ipc.test.ts`, and the eight-channel `db:*` role
+matrix in `ipc-domains/db-ipc.test.ts`.
 
 Narrowing a manifest can silently REMOVE a capability a hidden host still
 depends on. BST-1235 dropped `electronAPI.storage` from the hidden hosts, and
@@ -121,6 +245,111 @@ plus only a syntactically bounded safe error code, so native `realpath` text
 cannot re-inject a path or line break through metadata. The legacy
 `fs:readFileByPath` channel remains a separate generic mounted-path API and is
 never a fallback for the scoped capability.
+
+---
+
+## IPC CONTRACT MODULES (BST-1648)
+
+**Preloads import pure sibling modules; the channel manifest is the ONE
+place a channel string lives.** `scripts/build-main-config.mjs` bundles
+`preload` and `hidden-preload` with the same esbuild `bundle: true` config as
+`main`: every RELATIVE import is inlined into `dist/preload.js` /
+`dist/hidden-preload.js`, while bare package, `node:*`, and `electron`
+imports stay external `require(...)` calls — which a sandboxed renderer can
+resolve for `electron` and nothing else. The old "preload imports nothing"
+rule (#871) was therefore never a bundler constraint and is replaced by an
+allowlist:
+
+- A preload may import any relative module whose transitive VALUE-import
+  graph is pure (no `electron`, no `node:*`, no bare package). Type-only
+  imports are erased by the bundler and do not count.
+  `apps/desktop/src/__tests__/preload-sandbox-imports.test.ts` walks that
+  graph from both entries with the TypeScript AST
+  (`__tests__/helpers/preload-import-graph.ts`) and fails on the first impure
+  edge by file and specifier; `scripts/build-main.mjs` additionally refuses to
+  emit a preload bundle containing any `require(` other than `electron`
+  (`scripts/preload-bundle-contract.mjs`, pinned on a real write:false
+  bundle by `preload-bundle-contract.test.ts`).
+- `platform/desktop-ipc-channels.ts` (`DESKTOP_IPC_CHANNELS`) is the one
+  manifest. It now also owns the `logging` group (`LOGGING_API_CHANNELS` is a
+  re-export of it, because `logging-api-contract.ts`'s validators need
+  `@brainstrike/logging`) and the `chunkingHost` / `embeddingHost` / `llmHost`
+  groups, whose literals are pinned equal to the `@brainstrike/worker-runtime`
+  descriptors in `*-host-shared.ts` by
+  `__tests__/platform/desktop-ipc-channel-contract.test.ts` (a preload cannot
+  require that package; main keeps using the descriptors). `preload.ts` and
+  `hidden-preload.ts` contain NO channel literal: `preload-runtime-contract.test.ts`
+  and `hidden-preload-contract.test.ts` flag any string equal to a manifest
+  channel, and the hidden test pins the manifest GROUPS the hidden preload may
+  reference (`chunkingHost`, `db`, `embeddingHost`, `files`, `llmHost`,
+  `logging`, `runtime`, `vectorPreferences`) so the role-scoped hidden
+  capability manifest (BST-1235/BST-1380) cannot widen by a stray reference.
+- `platform/ipc-contract.ts` is the pure per-domain contract vocabulary:
+  `channel<Args, Result>({ channel, roles, parseArgs })`,
+  `rawChannel<Args, Result>(…)`, `pushEvent<Payload>({ channel })`, and the
+  derived `Handlers<C>` (main) / `Bridge<C>` (preload + renderer `Window`)
+  types. `roles` is a non-empty tuple and `parseArgs` is a plain function
+  that runs only in MAIN before the handler and THROWS on malformed input
+  (no zod in preload, no coercion).
+- **Registering a domain is one line per side.** Main:
+  `registerDomain(registry, domain, contract, handlers)`
+  (`platform/desktop-ipc-registry.ts`) registers every invoke channel through
+  `registerAuthorizedInvoke` with `spec.roles` — a contract domain has NO
+  unauthenticated path, so Electron's "validate the sender" checklist item is
+  satisfied by construction. Per call the order is: both authorization
+  factors, then `parseArgs` in main (a throw rejects the invoke), then the
+  handler with the parsed tuple. Push events are never registered (a
+  main→renderer push is a `webContents.send`). A contract key with no handler
+  or a handler with no contract key is a registration error. Preload:
+  `exposeBridge(name, contract)` (`createBridgeExposer` in
+  `platform/ipc-bridge.ts`, electron surfaces injected) exposes exactly
+  `Object.keys(contract)`, each method routed to its manifest channel, with
+  the ONE `unwrapIpcResult` for `ipc-result` channels and subscribe-returns-
+  unsubscribe for push events. Renderer typing is derived:
+  `types/electron.d.ts` declares `window.<name>?: Bridge<typeof xContract>`,
+  and each contract pins `BridgeMatches<typeof xContract, PackageBridge> =
+  true` against the shared package interface its consumers import
+  (`SkillsBridge`, `UserCommandsBridge`, `AssistantPersonasBridge`,
+  `ContextFilesBridge`), so app-shell/settings-ui never re-declare a bridge.
+  Contract modules live at `ipc-domains/<domain>.contract.ts` and reference
+  the manifest entry (`DESKTOP_IPC_CHANNELS.<group>.<key>`) — the manifest
+  stays the one literal owner. `settleIpcResult({ category, code }, run)`
+  converts a throw-style operation into the envelope (logged in main).
+- Migrated so far: `clipboard`, `contextFiles`, `skills`, `userCommands`,
+  `userPersonas` (all `visible-ui`). Their parity tests are key-set equality,
+  not source regexes: `preload-contract-bridges.test.ts` loads the real
+  preload under a mocked `electron` and asserts each exposed key set equals
+  `Object.keys(contract)` and routes/unwraps correctly;
+  `ipc-domains/leaf-contracts.test.ts` pins `Object.keys(contract)` to the
+  package `*_BRIDGE_REQUIRED_METHODS` resolver sets and exercises `parseArgs`;
+  `platform/register-domain.test.ts` and `platform/ipc-bridge.test.ts` pin
+  the two derivations.
+- **Global manifest test (there is deliberately no registry singleton).**
+  `createDesktopIpcRegistry` rejects a duplicate channel per INSTANCE only;
+  production composes ~38 per-domain instances. `__tests__/main/
+  ipc-global-manifest.test.ts` boots the real `main.ts` (module scope and the
+  `app.whenReady()` block through window creation) under mocks, captures
+  every registry instance through the factory, and asserts over
+  `union(getSnapshot())` — the snapshot's production-shaped consumer: no
+  channel on two instances, every invoke spec of every glob-discovered
+  `ipc-domains/*.contract.ts` registered (push specs never), and every
+  registered channel a `DESKTOP_IPC_CHANNELS` literal. A new domain or a
+  migrated contract needs no edit there.
+
+**Error-envelope ruling (extends the `mcp:content:*` ruling in
+`docs/agents/assistant-providers.md`).** Exactly one failure shape crosses IPC
+as data for contract channels: `IpcResult<T> = { ok: true, value } |
+{ ok: false, error: { category, code, message } }` (`ipcOk` / `ipcFailure`
+in `platform/ipc-contract.ts`). A thrown Error reaches the renderer as
+Electron's formatted string, main-process stack included, so contract
+handlers never throw for expected failures. `channel()` declares the
+`ipc-result` envelope: the handler returns `IpcResult<T>` and the ONE preload
+unwrap turns `ok: false` into a clean Error whose message is
+`message (category · code)` with `category`/`code` properties, and rejects a
+malformed reply by name. `rawChannel()` is for domains whose consumers already
+read a typed envelope of their own (`GitResult`, `TerminalResult`,
+`NotesVaultResult`) and never throw across IPC; throw-style domains convert to
+`IpcResult` as they migrate. Paired: `__tests__/platform/ipc-contract.test.ts`.
 
 ---
 
@@ -293,8 +522,10 @@ or later repersist stale authority records. E2E root-ledger
 seeding and the E2E reset harness's full clear use separate channels that main
 registers only in explicit Electron test mode, so production tests do not
 require a production bypass. Preload and main use the same `--test-mode` /
-`ELECTRON_IS_E2E_TEST=true` predicate, and a source-AST contract pins preload's
-copied seed-key set to main's authoritative tuple.
+`ELECTRON_IS_E2E_TEST=true` predicate, and the preload builds its seed-key set
+from main's authoritative `MAIN_OWNED_DESKTOP_STORAGE_KEYS` tuple directly
+(the pure `platform/desktop-storage-authority.ts` module bundles into the
+preload — see IPC CONTRACT MODULES below).
 
 That coverage is pinned by
 `apps/desktop/src/__tests__/main/desktop-factory-reset-storage-ledgers.test.ts`,

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerChangesIpcHandlers } from '../ipc-changes';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -10,6 +11,10 @@ vi.mock('electron', () => ({
     removeListener: vi.fn(),
   },
 }));
+
+// BST-1641: every `changes` channel is visible-UI-only, so dispatches carry a
+// sender that passes both factors (tracked role + allowlisted frame).
+const trustedEvent = createTrustedInvokeEvent();
 
 /**
  * A tracked gap from Task 1's review: nothing previously asserted that
@@ -67,18 +72,18 @@ describe('registerChangesIpcHandlers', () => {
     // Prove each registered channel is wired to the RIGHT handler function —
     // a wrong-channel copy-paste (both pointing at the same handler, or
     // swapped) would still pass the presence assertion above but fail here.
-    await resolveViewHandler({}, 'root-1', { kind: 'agent-run' });
+    await resolveViewHandler(trustedEvent, 'root-1', { kind: 'agent-run' });
     expect(handlers.resolveView).toHaveBeenCalledWith('root-1', { kind: 'agent-run' });
     expect(handlers.fileDiff).not.toHaveBeenCalled();
 
-    await fileDiffHandler({}, 'root-1', { kind: 'agent-run' }, 'src/file.ts');
+    await fileDiffHandler(trustedEvent, 'root-1', { kind: 'agent-run' }, 'src/file.ts');
     expect(handlers.fileDiff).toHaveBeenCalledWith('root-1', { kind: 'agent-run' }, 'src/file.ts');
 
     // BST-1114 T0 / BST-1397: `inventory` takes ONE optional renderer argument
     // (`{ maxAgeMs }`, the forced-refresh knob) — assert the registered thunk
     // forwards exactly that argument and NEVER the raw IpcMainInvokeEvent (a
     // `(...args) => handlers.inventory(...args)` slip would leak the event).
-    const fakeEvent = { sender: 'renderer' };
+    const fakeEvent = trustedEvent;
     await inventoryHandler(fakeEvent);
     expect(handlers.inventory).toHaveBeenLastCalledWith(undefined);
     await inventoryHandler(fakeEvent, { maxAgeMs: 0 });
@@ -125,19 +130,21 @@ describe('registerChangesIpcHandlers', () => {
         payload: unknown
       ) => unknown;
 
-    await handlerFor(DESKTOP_IPC_CHANNELS.changes.rewindPreview)({}, { messageId: 'm1' });
+    await handlerFor(DESKTOP_IPC_CHANNELS.changes.rewindPreview)(trustedEvent, { messageId: 'm1' });
     expect(handlers.rewindPreview).toHaveBeenCalledWith({ messageId: 'm1' });
     expect(handlers.applyRewind).not.toHaveBeenCalled();
     expect(handlers.redoRewind).not.toHaveBeenCalled();
 
-    await handlerFor(DESKTOP_IPC_CHANNELS.changes.applyRewind)({}, { messageId: 'm1' });
+    await handlerFor(DESKTOP_IPC_CHANNELS.changes.applyRewind)(trustedEvent, { messageId: 'm1' });
     expect(handlers.applyRewind).toHaveBeenCalledWith({ messageId: 'm1' });
 
-    await handlerFor(DESKTOP_IPC_CHANNELS.changes.redoRewind)({}, { rewindId: 'r1' });
+    await handlerFor(DESKTOP_IPC_CHANNELS.changes.redoRewind)(trustedEvent, { rewindId: 'r1' });
     expect(handlers.redoRewind).toHaveBeenCalledWith({ rewindId: 'r1' });
 
     // W5 T4b.
-    await handlerFor(DESKTOP_IPC_CHANNELS.changes.finalizeRewinds)({}, { threadId: 't1' });
+    await handlerFor(DESKTOP_IPC_CHANNELS.changes.finalizeRewinds)(trustedEvent, {
+      threadId: 't1',
+    });
     expect(handlers.finalizeRewinds).toHaveBeenCalledWith({ threadId: 't1' });
   });
 });

@@ -1,7 +1,12 @@
 import {
   type AssistantTaskItem,
   type AssistantTaskStatus,
+  isNativeToolId,
   NATIVE_TOOL_ID,
+  NATIVE_TOOLS,
+  type NativeToolDefinition,
+  type NativeToolId,
+  type NativeToolKey,
 } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { formatTokenCount } from '@brainstrike/tokenization';
@@ -105,39 +110,16 @@ export function buildCurrentTaskListNote(
 const HARNESS_FRAMING =
   'You run inside the Brainstrike IDE. Context-tool selections update the visual Context Explorer beside this chat and the reusable LLM context. Prefer the specific relevant lines over whole files.';
 
-interface ModelFacingToolNames {
-  askUser: string | null;
-  browserGetPageText: string | null;
-  browserNavigate: string | null;
-  browserReadPage: string | null;
-  deleteWorkspaceFile: string | null;
-  executeCommand: string | null;
-  findWorkspaceSymbol: string | null;
-  globWorkspace: string | null;
-  grepSearch: string | null;
-  hybridSearch: string | null;
-  listEmbeddingSpaces: string | null;
-  listWorkspaceContext: string | null;
-  lspInspect: string | null;
-  manageCanvas: string | null;
-  manageTaskList: string | null;
-  queryEmbeddingSpace: string | null;
-  readWorkspaceContext: string | null;
-  readWorkspaceDirectory: string | null;
-  readWorkspaceFile: string | null;
-  renameWorkspaceFile: string | null;
-  runSkillScript: string | null;
-  skill: string | null;
-  skillRead: string | null;
-  skillSearch: string | null;
-  stringReplaceWorkspaceFile: string | null;
-  submitPlan: string | null;
-  updateWorkspaceContextSelection: string | null;
-  updateWorkspaceTapestrySelections: string | null;
-  webExtract: string | null;
-  webSearch: string | null;
-  writeWorkspaceFile: string | null;
-}
+/**
+ * Model-facing (sanitized, possibly hash-suffixed) name per catalog tool, or
+ * `null` when the tool is not registered for the run.
+ *
+ * Keyed by the catalog key of EVERY native tool by construction (`NativeToolKey`
+ * is derived from `NATIVE_TOOLS`), so a new tool has a slot here the moment it
+ * is defined — the hand-written interface this replaced had silently fallen
+ * eight tools behind the catalog (BST-1646).
+ */
+export type ModelFacingToolNames = { readonly [Key in NativeToolKey]: string | null };
 
 function buildOriginalToModelFacingToolNameMap(
   toolNameMap: ReadonlyMap<string, string>
@@ -149,105 +131,56 @@ function buildOriginalToModelFacingToolNameMap(
   return originalToModelFacing;
 }
 
-function resolveModelFacingToolName(
-  originalToModelFacingToolNameMap: ReadonlyMap<string, string>,
-  originalToolId: string
-): string | null {
-  return originalToModelFacingToolNameMap.get(originalToolId) ?? null;
+/**
+ * Resolve the model-facing name of every catalog tool from Mastra's
+ * `toolNameMap` (model-facing → original id).
+ */
+export function resolveModelFacingToolNames(
+  toolNameMap: ReadonlyMap<string, string>
+): ModelFacingToolNames {
+  const originalToModelFacing = buildOriginalToModelFacingToolNameMap(toolNameMap);
+  const names: Partial<Record<NativeToolKey, string | null>> = {};
+  for (const [key, toolId] of Object.entries(NATIVE_TOOL_ID) as [NativeToolKey, NativeToolId][]) {
+    names[key] = originalToModelFacing.get(toolId) ?? null;
+  }
+  return names as ModelFacingToolNames;
 }
 
-function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): ModelFacingToolNames {
+/**
+ * The per-definition `instruction` hooks, one line per REGISTERED tool that
+ * declares one, in catalog order. This is the extension point for new tools:
+ * the guidance lives beside the definition instead of as another hand-placed
+ * builder here. A hook's resolver throws for an id outside the catalog so a
+ * typo cannot silently read as "tool not registered".
+ */
+export function composeNativeToolInstructions(
+  tools: readonly NativeToolDefinition[],
+  toolNameMap: ReadonlyMap<string, string>
+): readonly string[] {
   const originalToModelFacing = buildOriginalToModelFacingToolNameMap(toolNameMap);
-  return {
-    askUser: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.askUser),
-    browserGetPageText: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.browserGetPageText
-    ),
-    browserNavigate: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.browserNavigate
-    ),
-    browserReadPage: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.browserReadPage
-    ),
-    deleteWorkspaceFile: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.deleteWorkspaceFile
-    ),
-    executeCommand: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.executeCommand
-    ),
-    findWorkspaceSymbol: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.findWorkspaceSymbol
-    ),
-    globWorkspace: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.globWorkspace),
-    grepSearch: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.grepSearch),
-    hybridSearch: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.hybridSearch),
-    listEmbeddingSpaces: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.listEmbeddingSpaces
-    ),
-    listWorkspaceContext: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.listWorkspaceContext
-    ),
-    lspInspect: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.lspInspect),
-    manageCanvas: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.manageCanvas),
-    manageTaskList: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.manageTaskList
-    ),
-    queryEmbeddingSpace: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.queryEmbeddingSpace
-    ),
-    readWorkspaceContext: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.readWorkspaceContext
-    ),
-    readWorkspaceDirectory: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.readWorkspaceDirectory
-    ),
-    readWorkspaceFile: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.readWorkspaceFile
-    ),
-    renameWorkspaceFile: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.renameWorkspaceFile
-    ),
-    runSkillScript: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.runSkillScript
-    ),
-    skill: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.skill),
-    skillRead: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.skillRead),
-    skillSearch: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.skillSearch),
-    stringReplaceWorkspaceFile: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.stringReplaceWorkspaceFile
-    ),
-    submitPlan: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.submitPlan),
-    updateWorkspaceContextSelection: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.updateWorkspaceContextSelection
-    ),
-    updateWorkspaceTapestrySelections: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.updateWorkspaceTapestrySelections
-    ),
-    webExtract: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.webExtract),
-    webSearch: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.webSearch),
-    writeWorkspaceFile: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.writeWorkspaceFile
-    ),
+  const of = (toolId: string): string | null => {
+    // Validated against the CATALOG, not the list being composed: a hook may
+    // name any native tool, and a typo must throw rather than read as "not
+    // registered this run".
+    if (!(isNativeToolId(toolId) || tools.some((tool) => tool.id === toolId))) {
+      throw new Error(
+        `${toolId} is not a native tool id; an instruction hook may only name catalog tools.`
+      );
+    }
+    return originalToModelFacing.get(toolId) ?? null;
   };
+  const lines: string[] = [];
+  for (const tool of tools) {
+    const self = originalToModelFacing.get(tool.id);
+    if (!(tool.instruction && self)) {
+      continue;
+    }
+    const line = tool.instruction({ of, self });
+    if (line.length > 0) {
+      lines.push(line);
+    }
+  }
+  return lines;
 }
 
 /**
@@ -260,7 +193,7 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
  * and directive.
  */
 export function buildLocalDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
-  const names = getModelFacingToolNames(toolNameMap);
+  const names = resolveModelFacingToolNames(toolNameMap);
   const searchLine =
     names.grepSearch && names.queryEmbeddingSpace
       ? `To look up project code: use ${names.grepSearch} for exact strings or identifiers, and ${names.queryEmbeddingSpace} for conceptual questions.`
@@ -661,7 +594,7 @@ export function buildDefaultInstructions(
   toolNameMap: ReadonlyMap<string, string>,
   options: BuildDefaultInstructionsOptions = {}
 ): string {
-  const names = getModelFacingToolNames(toolNameMap);
+  const names = resolveModelFacingToolNames(toolNameMap);
   const planModePrefix = buildPlanModePrefix(names, options.planMode);
   const workspaceInspectionInstruction = names.listWorkspaceContext
     ? `Inspect selected context, token budgets, open roots, and the workspace-index hint with ${names.listWorkspaceContext}; use detail: true only for per-file Tapestry ranges.`
@@ -732,6 +665,9 @@ export function buildDefaultInstructions(
     .join(' ');
 
   const askUserInstruction = buildAskUserInstruction(names);
+  // Guidance declared on the tool definitions themselves (`instruction`), one
+  // line per registered tool, after the hand-ordered guidance above.
+  const definitionInstructions = composeNativeToolInstructions(NATIVE_TOOLS, toolNameMap);
   const toolDiscoveryInstruction = buildToolDiscoveryInstruction(
     names,
     options.toolDiscoveryEnabled,
@@ -766,6 +702,7 @@ export function buildDefaultInstructions(
     buildBrowserPaneInstruction(names),
     taskListInstruction,
     askUserInstruction,
+    ...definitionInstructions,
     delegationInstruction,
     multiRootInstruction,
     curationInstruction,

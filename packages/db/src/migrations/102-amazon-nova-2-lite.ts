@@ -30,6 +30,7 @@ export const migration102AmazonNova2Lite: Migration = {
   down: `
     DELETE FROM models WHERE id = 'amazon.nova-2-lite-v1:0' AND provider_id = 'bedrock';
   `,
+  ledgerKey: 'custom-102-amazon-nova-2-lite',
   name: 'amazon_nova_2_lite',
   up: `
     INSERT INTO models

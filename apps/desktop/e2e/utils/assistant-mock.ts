@@ -2,6 +2,7 @@ import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
 } from '@brainstrike/assistant-contract/assistant-stream-session';
+import type { SecretsWriteResult } from '@brainstrike/assistant-contract/secrets-bridge';
 import { TOOL_SUSPEND_DATA_NAME } from '@brainstrike/assistant-contract/tool-suspend';
 import type { Page } from '@playwright/test';
 
@@ -211,9 +212,7 @@ interface AssistantProviderInstallPayload {
   readonly provider: string;
 }
 
-async function configureAssistantProviderInPage(
-  payload: AssistantProviderInstallPayload
-): Promise<void> {
+function configureAssistantProviderInPage(payload: AssistantProviderInstallPayload): void {
   const assistantAvailabilityOverrideEvent = 'brainstrike:assistant-availability-override-changed';
   const globals = globalThis as unknown as Window & {
     __assistantAvailabilityOverride?: { state: 'enabled' };
@@ -232,12 +231,10 @@ async function configureAssistantProviderInPage(
   const secretsGlobals = globalThis as unknown as {
     secrets?: {
       list?: () => Promise<string[]>;
-      saveKey?: (provider: string, key: string) => Promise<unknown>;
       [key: string]: unknown;
     };
   };
 
-  await secretsGlobals.secrets?.saveKey?.(payload.provider, payload.apiKey);
   try {
     globals.localStorage?.setItem(
       'assistant-preferences.v1',
@@ -277,6 +274,44 @@ async function configureAssistantProviderWithModels(
   page: Page,
   payload: AssistantProviderInstallPayload
 ): Promise<void> {
+  // Electron 43's V8 inspector weakly owns awaited evaluation results. Keep
+  // the actual write reachable through a remote object until it settles;
+  // retaining only an async wrapper does not retain its awaited promise.
+  const pendingWrite = await page.evaluateHandle(
+    ({ apiKey, provider }) => {
+      const secrets = (
+        globalThis as unknown as {
+          secrets?: { saveKey?: (provider: string, key: string) => Promise<SecretsWriteResult> };
+        }
+      ).secrets;
+      if (typeof secrets?.saveKey !== 'function') {
+        throw new Error('Desktop secrets.saveKey is unavailable.');
+      }
+      const write = secrets.saveKey(provider, apiKey);
+      // Observe rejection in the same turn as invocation. Waiting until the
+      // next CDP command would briefly leave an immediate rejection unhandled.
+      const completion = write.then(
+        (value) => ({ ok: true, value }) as const,
+        (error: unknown) => ({ error, ok: false }) as const
+      );
+      // A derived completion promise alone does not keep its source alive.
+      return { completion, write };
+    },
+    { apiKey: payload.apiKey, provider: payload.provider }
+  );
+  try {
+    await pendingWrite.evaluate(async ({ completion }) => {
+      const result = await completion;
+      if (!result.ok) {
+        throw result.error;
+      }
+      if (result.value !== true) {
+        throw new Error(`Assistant provider key save failed: ${result.value.error}`);
+      }
+    });
+  } finally {
+    await pendingWrite.dispose();
+  }
   await page.evaluate(configureAssistantProviderInPage, payload);
 }
 

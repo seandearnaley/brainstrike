@@ -8,6 +8,7 @@ import {
   type ScannedSkill,
   type ScannedWorkspaceSkills,
 } from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { get_encoding } from 'tiktoken';
 import { describe, expect, it, vi } from 'vitest';
@@ -734,7 +735,10 @@ describe('desktop native tool provider prompt budget', () => {
       const skillToolIds = new Set(Object.keys(createAssistantSkillTools(workspaceSkills)));
       const expectedCoreIds = Object.entries(NATIVE_TOOL_DEFAULTS)
         .filter(
-          ([toolId, metadata]) => metadata.loadingTier === 'critical' || skillToolIds.has(toolId)
+          ([toolId, metadata]) =>
+            metadata.loadingTier === 'critical' ||
+            skillToolIds.has(toolId) ||
+            toolId === NATIVE_TOOL_ID.readToolOutputArtifact
         )
         .map(([toolId]) => toolId)
         .sort();

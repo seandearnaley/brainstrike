@@ -30,12 +30,28 @@ class FakeUtilityProcess extends EventEmitter {
 }
 
 const forkMock = vi.hoisted(() => vi.fn());
+const loggerWarnMock = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
   utilityProcess: {
     fork: forkMock,
   },
 }));
+
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      debug: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+      info: vi.fn(),
+      trace: vi.fn(),
+      warn: loggerWarnMock,
+    }),
+  };
+});
 
 function latestProcess(): FakeUtilityProcess {
   const value = forkMock.mock.results.at(-1)?.value;
@@ -56,6 +72,7 @@ describe('ParserHostManager', () => {
     vi.resetModules();
     forkMock.mockReset();
     forkMock.mockImplementation(() => new FakeUtilityProcess());
+    loggerWarnMock.mockReset();
   });
   afterEach(() => {
     vi.resetModules();
@@ -135,6 +152,37 @@ describe('ParserHostManager', () => {
       throw new Error('expected failure');
     }
     expect(response.error).toMatch(/timeout/i);
+  });
+
+  it('logs a late response at warn instead of dropping it silently', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js', requestTimeoutMs: 10 });
+
+    const response = await manager.parse(baseRequest);
+    expect(response.ok).toBe(false);
+    loggerWarnMock.mockClear();
+
+    // The host finished after the manager gave up: that completion must be
+    // visible in logs, never vanish.
+    latestProcess().reply({ ok: true, requestId: 'req-1', root: { type: 'Program' } });
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ requestId: 'req-1' })
+    );
+  });
+
+  it('logs a malformed host message at warn instead of ignoring it', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+
+    const parsePromise = manager.parse(baseRequest);
+    const host = latestProcess();
+    host.emit('message', { unexpected: true });
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(expect.any(String), expect.anything());
+    host.reply({ ok: true, requestId: 'req-1', root: { type: 'Program' } });
+    await expect(parsePromise).resolves.toMatchObject({ ok: true });
   });
 
   it('stop() kills the host and rejects pending requests', async () => {

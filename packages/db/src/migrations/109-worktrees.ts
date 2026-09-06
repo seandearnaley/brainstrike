@@ -25,6 +25,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration109Worktrees: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_worktrees;',
+  ledgerKey: 'custom-109-worktrees',
   name: 'worktrees',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_worktrees (

@@ -558,8 +558,28 @@ separate path unaffected by any of the above and stays enabled.
 When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
 tool map is settlement-wrapped after policy/provider transforms and before
 `toModelOutput`. Non-media results above 12,000 UTF-8 bytes are fully retained
-before an artifact envelope can reach display/transcript. A trusted per-tool
-canonical-name map may lower the inline threshold by
+before an artifact envelope can reach display/transcript.
+MCP settlement also consults the generic model projector before retaining an
+otherwise-inline result (BST-1655). A 9 KB issue can fit the 12 KB artifact
+ceiling yet exceed the final 8 KB model envelope. The projection owner compares
+its actual bounded value with complete source text, including JSON escaping and
+the domain reserve used with PostToolUse context; any loss requires settlement.
+This predicate applies only to MCP tools from the eligible runtime map. Task
+status projections and inline media keep their dedicated contracts. No second
+size constant approximates the model projection. The complete raw output is
+stored before publishing a recovery page; storage failures still fail visibly.
+Runtime settlement requires an explicit reader resolver. It resolves exactly
+one eligible reader from the canonical name map before storage; zero or
+multiple matches fail visibly without writing an artifact. Recovery pages use
+the exact callable id. MCP Apps retain their complete marker,
+origin, and ordinary result in display/transcript output so sandbox mounting
+and hydration remain valid; only the ordinary result is serialized for model
+artifact recovery. Apps media takes the existing inline media path. The eligible
+artifact reader remains on the core discovery surface, so recovery never
+requires a search call. The reader's own model projector receives
+the sanitized tool through the central projection wrapper's receiver and fits
+continuation guidance with that same id. Standalone page helpers retain their canonical-name default.
+A trusted per-tool canonical-name map may lower the inline threshold by
 serialized characters when a complete domain projection has a tighter budget.
 `brainstrike.webExtract` uses the smaller of 2400 characters and the active
 run's resolved domain-projection character budget: smaller extracts project
@@ -673,13 +693,16 @@ live in `docs/agents/assistant-providers.md`.
 
 **Hosted native-tool definition and prompt budget (LIVE):**
 The runtime does not maintain a parallel provider-tool catalog.
-`@brainstrike/assistant-contract` supplies canonical ids and descriptions;
-`NATIVE_TOOL_INPUT_SCHEMAS` in `packages/agent/src/tools/schemas.ts` supplies
-the exact Zod input object for each desktop native id. The desktop registry
+`@brainstrike/assistant-contract` supplies canonical ids and descriptions from
+the per-tool `defineNativeTool` declarations (`native-tools/definitions/*.ts`,
+BST-1646); `NATIVE_TOOL_INPUT_SCHEMAS` in `packages/agent/src/tools/schemas.ts`
+is derived from those same declarations and supplies the exact Zod input object
+for each desktop native id. The desktop registry
 uses those objects directly, `validateToolInput` parses with the same map, and
 Mastra performs the Standard Schema → provider JSON Schema conversion. The
-browser-safe `NATIVE_TOOL_SCHEMAS` registry is intentionally lossy display
-metadata and MUST NOT enter execution, validation, or provider registration.
+browser-safe `NATIVE_TOOL_SCHEMAS` registry is lossy display metadata derived
+from those same Zod objects (`toToolSchemaDisplay`, BST-1646) and MUST NOT
+enter execution, validation, or provider registration.
 
 The hosted surface is guarded at both sides of Mastra's conversion boundary.
 The authored full-registry red baseline must fit within 7,900 `o200k_base`
@@ -1229,8 +1252,23 @@ The reasoning disclosure renders live reasoning text directly from
 renderer, because that renderer reads a different part hook and produces an
 expanded-but-empty disclosure. Reasoning may remain auto-collapsed by the
 activity UI, but user expansion must show accumulated text before, during, and
-after intervening tool calls; the active icon clears only on a real terminal
-part.
+after intervening tool calls. Each contiguous activity group renders through
+`ChainOfThoughtPrimitive.Parts` at its own position (BST-1656); never hoist later
+parts into the first group or suppress later groups. Reasoning indicators and
+activity status derive from that group's parts/status, so earlier groups remain
+inactive when later thinking starts. The existing named tool-renderer map is
+adapted into the chain primitive's single tool slot, preserving task-list,
+subagent, and MCP result renderers. Activity wrappers remain mounted through
+completion, preserving disclosure state and tool identity. Reasoning-only groups
+omit the zero-tool step count. Incomplete group status is authoritative even
+without tool calls: cancellation shows a neutral Stopped summary, while other
+incomplete reasons show Activity failed. A completed call with the canonical
+`isError` flag also marks its group failed; domain fields alone never imply
+failure, and a call is counted once. Completed tool details remain
+accessible by expanding the activity group; packaged UI proofs follow that
+same disclosure interaction. Tool durations and shell output remain correlated
+by call id across the message, while each group's elapsed fallback uses only its
+own tool events. The turn-wide task list renders once in the first group.
 
 Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.37's
 decoder/tool pipeline hand-rolls nested stream controllers (merge streams,

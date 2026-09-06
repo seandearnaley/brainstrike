@@ -1,6 +1,10 @@
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { ProviderAuthEngine } from '../../provider-auth/provider-auth-engine';
+import {
+  createAllowlistedSenderFrame,
+  reconfigureTestRendererTargetAfterModuleReset,
+} from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 import { makeFakeSecrets } from './fake-secrets';
 
 const { getWindowRoleByWebContentsIdMock } = vi.hoisted(() => ({
@@ -23,11 +27,15 @@ const REFRESH_SENTINEL = 'REFRESH-TOKEN-SENTINEL-2c9d';
 const PROVIDER = 'fake-provider';
 
 function createInvokeEvent(senderId = 4242): IpcMainInvokeEvent {
-  return { sender: { id: senderId } } as IpcMainInvokeEvent;
+  return {
+    sender: { id: senderId },
+    senderFrame: createAllowlistedSenderFrame(),
+  } as unknown as IpcMainInvokeEvent;
 }
 
 async function bootstrap(engineOverrides: Partial<ProviderAuthEngine> = {}) {
   vi.resetModules();
+  await reconfigureTestRendererTargetAfterModuleReset();
   const { createProviderAuthEngine } = await import('../../provider-auth/provider-auth-engine');
   const { registerProviderAuthIpcHandlers } = await import('../../ipc-domains/provider-auth');
   const { ipcMain } = await import('electron');
@@ -160,6 +168,7 @@ describe('provider-auth IPC domain', () => {
     // status a real flow produces (awaiting_browser, awaiting_device_code
     // with user code, connected with accountId) — not just idle reads.
     vi.resetModules();
+    await reconfigureTestRendererTargetAfterModuleReset();
     const { createProviderAuthEngine } = await import('../../provider-auth/provider-auth-engine');
     const { registerProviderAuthIpcHandlers } = await import('../../ipc-domains/provider-auth');
     const { ipcMain } = await import('electron');

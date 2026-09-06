@@ -8,6 +8,7 @@ export const migration108OpenRouterGlm53: Migration = {
       AND id = 'z-ai/glm-5.3';
     UPDATE models SET sort_order = sort_order - 1 WHERE provider_id = 'openrouter';
   `,
+  ledgerKey: 'custom-108-openrouter-glm-5-3',
   name: 'openrouter_glm_5_3',
   up: `
     UPDATE models SET sort_order = sort_order + 1 WHERE provider_id = 'openrouter';

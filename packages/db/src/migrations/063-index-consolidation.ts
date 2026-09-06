@@ -61,6 +61,7 @@ export const migration063IndexConsolidation: Migration = {
     END
     $$;
   `,
+  ledgerKey: 'custom-063-index-consolidation',
   name: 'index_consolidation',
   up: `
     -- Prefix of UNIQUE idx_embedding_cache_content_model (content_hash, model_key)

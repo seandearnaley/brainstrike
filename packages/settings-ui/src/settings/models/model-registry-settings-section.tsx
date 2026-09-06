@@ -5,6 +5,7 @@ import { createLogger } from '@brainstrike/logging';
 import { Badge, Button, Card, Input, Label, Progress, Switch, useToast } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, Download, Folder, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { getModelRuntimeServices } from './model-runtime-services';
 
 const logger = createLogger('ModelRegistrySettingsSection');
@@ -26,7 +27,23 @@ export function ModelRegistrySettingsSection() {
     setModelCacheDir,
     setDownloadProgress,
     setDownloading,
-  } = useModelRegistryStore();
+  } = useModelRegistryStore(
+    useShallow((state) => ({
+      downloadProgress: state.downloadProgress,
+      error: state.error,
+      fetchRegistry: state.fetchRegistry,
+      isDownloading: state.isDownloading,
+      isLoading: state.isLoading,
+      modelCacheDir: state.modelCacheDir,
+      models: state.models,
+      providers: state.providers,
+      setDownloading: state.setDownloading,
+      setDownloadProgress: state.setDownloadProgress,
+      setModelCacheDir: state.setModelCacheDir,
+      toggleModel: state.toggleModel,
+      toggleProvider: state.toggleProvider,
+    }))
+  );
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
 
   useEnsureModelRegistry({ db });

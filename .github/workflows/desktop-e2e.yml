@@ -92,9 +92,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: desktop-full-regression-test-results
-          path: apps/desktop/test-results/
+          path: apps/desktop/blob-report/
           retention-days: 1
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
   desktop-embedding-e2e:
     name: Desktop Embedding E2E
@@ -182,9 +182,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: desktop-embedding-e2e-test-results
-          path: apps/desktop/test-results/
+          path: apps/desktop/blob-report/
           retention-days: 1
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
   notify-failure:
     name: Notify desktop E2E failure

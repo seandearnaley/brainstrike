@@ -83,6 +83,7 @@ const {
   resolveWorkspaceIndexingQosPolicyMock,
   registerRootMock,
   resolveDbRootIdMock,
+  refreshCollectionIndexingStatsMock,
 } = vi.hoisted(() => ({
   applyManagedCacheBatchLocalMock: vi.fn(
     async (db: {
@@ -277,6 +278,7 @@ const {
   listManagedCacheEntryMetadataMock: vi.fn(),
   processFilesMock: vi.fn(),
   readFullTreeWithOptionsMock: vi.fn(),
+  refreshCollectionIndexingStatsMock: vi.fn(async () => []),
   registerRootMock: vi.fn(async (_descriptor: unknown) => undefined),
   // Non-null by default: managed-cache identity is root_id (source_root_path
   // retired); a null dbRootId now skips the import, which would stall these
@@ -361,6 +363,7 @@ vi.mock('@brainstrike/db', () => ({
       requeueFailed: vi.fn(),
     };
   }),
+  refreshCollectionIndexingStats: refreshCollectionIndexingStatsMock,
   usePGliteDatabase: () => dbState.current,
   WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS: {
     dimensions: 384,
@@ -531,6 +534,7 @@ vi.mock('@brainstrike/vector-management', () => ({
 describe('WorkspaceCollectionSyncProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    refreshCollectionIndexingStatsMock.mockReset().mockResolvedValue([]);
     fileSystemState.isAccessLoading = false;
     fileSystemState.rootDirectoryHandle = {
       kind: 'directory',
@@ -652,15 +656,33 @@ describe('WorkspaceCollectionSyncProvider', () => {
       'background'
     );
     expect(applyManagedCacheBatchLocalMock.mock.calls[0]?.[0]).not.toBe(dbState.current);
-    expect(enqueueBackfillMock).toHaveBeenCalledWith(
-      '00000000-0000-0000-0000-000000000101',
-      expect.objectContaining({
-        source: 'background-indexing',
-      })
+    await waitFor(() =>
+      expect(enqueueBackfillMock).toHaveBeenCalledWith(
+        '00000000-0000-0000-0000-000000000101',
+        expect.objectContaining({
+          source: 'background-indexing',
+        })
+      )
     );
     expect(useWorkspaceCollectionSyncStatusStore.getState().managedCollectionName).toBe(
       'Managed Cache'
     );
+  });
+
+  it('surfaces a failed import statistics refresh instead of claiming successful indexing', async () => {
+    refreshCollectionIndexingStatsMock.mockRejectedValueOnce(new Error('Stats refresh failed'));
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+        lastError: 'Stats refresh failed',
+        state: 'error',
+      })
+    );
+    expect(enqueueBackfillMock).not.toHaveBeenCalled();
   });
 
   it('coalesces refresh events while a background sync is already importing', async () => {
@@ -945,6 +967,49 @@ describe('WorkspaceCollectionSyncProvider', () => {
         managedCollectionName: 'Workspace Index',
       })
     );
+  });
+
+  it('keeps a fresh profile error-free through database startup and collection bootstrap without a root', async () => {
+    const readyDatabase = dbState.current;
+    dbState.current = null;
+    fileSystemState.rootDirectoryHandle = null;
+    fileSystemState.rootDirectoryHandles = [];
+    fileSystemState.rootIdByPath = new Map();
+    useBackgroundIndexingPreferencesStore.setState({ managedCollectionId: null });
+    const observedStates: string[] = [];
+    const unsubscribe = useWorkspaceCollectionSyncStatusStore.subscribe((state) => {
+      observedStates.push(state.state);
+    });
+    try {
+      const content = () => (
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+      const { rerender } = render(content());
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+          lastError: null,
+          state: 'waiting',
+        })
+      );
+      expect(getOrCreateWorkspaceIndexSetMock).not.toHaveBeenCalled();
+
+      dbState.current = readyDatabase;
+      rerender(content());
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+          lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          state: 'unconfigured',
+        })
+      );
+      expect(getOrCreateWorkspaceIndexSetMock).toHaveBeenCalledTimes(1);
+      expect(observedStates).not.toContain('error');
+      expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('bootstraps when persist hydration completed but the store marker is stale', async () => {
@@ -2424,76 +2489,60 @@ describe('WorkspaceCollectionSyncProvider', () => {
     ).toBe(false);
   });
 
-  it('waits for file explorer restoration to settle before starting background indexing', async () => {
-    fileTreeContextState.current = {
-      isLoading: false,
-      isRestorationSettled: false,
-      isRestoringExpandedPaths: true,
-      restorationProgress: null,
-    };
-
-    const { rerender } = render(
+  it.each([
+    { isLoading: true, isRestorationSettled: true, isRestoringExpandedPaths: false },
+    { isLoading: false, isRestorationSettled: false, isRestoringExpandedPaths: true },
+  ])('indexes authoritative roots independently of tree presentation: %j', async (treeState) => {
+    fileTreeContextState.current = { ...treeState, restorationProgress: null };
+    render(
       <WorkspaceCollectionSyncProvider>
         <div data-testid="child" />
       </WorkspaceCollectionSyncProvider>
     );
-
-    await waitFor(() =>
-      expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('waiting')
-    );
-    expect(runEnhancedImportMock).not.toHaveBeenCalled();
-
-    fileTreeContextState.current = {
-      isLoading: false,
-      isRestorationSettled: true,
-      isRestoringExpandedPaths: false,
-      restorationProgress: null,
-    };
-    rerender(
-      <WorkspaceCollectionSyncProvider>
-        <div data-testid="child" />
-      </WorkspaceCollectionSyncProvider>
-    );
-
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
   });
 
-  it('starts background indexing after the grace window even if file explorer restoration never settles', async () => {
-    // A very large root (e.g. a 27k-file repo) can keep the file tree loading
-    // for minutes. Tree restoration is only a convenience gate, so the indexer
-    // must not stay wedged in "waiting" forever — after TREE_RESTORATION_GRACE_MS
-    // it proceeds regardless of tree state. This is the real-world "added a
-    // folder, nothing happened" failure that the grace timeout fixes.
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
+  it.each(['access', 'root-registry', 'database'] as const)(
+    'does not time out authoritative %s readiness while the tree is also loading',
+    async (pending) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const readyDatabase = dbState.current;
       fileTreeContextState.current = {
-        isLoading: false,
+        isLoading: true,
         isRestorationSettled: false,
         isRestoringExpandedPaths: true,
         restorationProgress: null,
       };
+      fileSystemState.isAccessLoading = pending === 'access';
+      rootsReconciliationSettledState.current = pending !== 'root-registry';
+      if (pending === 'database') {
+        dbState.current = null;
+      }
+      try {
+        const content = () => (
+          <WorkspaceCollectionSyncProvider>
+            <div data-testid="child" />
+          </WorkspaceCollectionSyncProvider>
+        );
+        const { rerender, unmount } = render(content());
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(6000);
+        });
+        expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+        expect(runEnhancedImportMock).not.toHaveBeenCalled();
+        expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('waiting');
 
-      render(
-        <WorkspaceCollectionSyncProvider>
-          <div data-testid="child" />
-        </WorkspaceCollectionSyncProvider>
-      );
-
-      await waitFor(() =>
-        expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('waiting')
-      );
-      expect(runEnhancedImportMock).not.toHaveBeenCalled();
-
-      // Tree never settles; only the 5s grace timer elapses.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(6000);
-      });
-
-      await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
-    } finally {
-      vi.useRealTimers();
+        fileSystemState.isAccessLoading = false;
+        rootsReconciliationSettledState.current = true;
+        dbState.current = readyDatabase;
+        rerender(content());
+        await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+        unmount();
+      } finally {
+        vi.useRealTimers();
+      }
     }
-  });
+  );
 
   it('pauses background indexing when the shared background-work arbiter is paused', async () => {
     useBackgroundIndexingPreferencesStore.setState({
@@ -2646,41 +2695,35 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
   });
 
-  it('waits for the shared tree to finish loading before starting background indexing', async () => {
-    fileTreeContextState.current = {
-      isLoading: true,
-      isRestorationSettled: true,
-      isRestoringExpandedPaths: false,
-      restorationProgress: null,
-    };
-
-    const { rerender } = render(
-      <WorkspaceCollectionSyncProvider>
-        <div data-testid="child" />
-      </WorkspaceCollectionSyncProvider>
-    );
-
-    await waitFor(() =>
-      expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('waiting')
-    );
-    expect(runEnhancedImportMock).not.toHaveBeenCalled();
-
-    fileTreeContextState.current = {
-      isLoading: false,
-      isRestorationSettled: true,
-      isRestoringExpandedPaths: false,
-      restorationProgress: null,
-    };
-    rerender(
-      <WorkspaceCollectionSyncProvider>
-        <div data-testid="child" />
-      </WorkspaceCollectionSyncProvider>
-    );
-
-    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+  it('does not cancel or restart indexing when only tree presentation changes', async () => {
+    const cancelSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'cancel');
+    try {
+      const content = () => (
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+      const { rerender } = render(content());
+      await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+      const cancellationCount = cancelSpy.mock.calls.length;
+      fileTreeContextState.current = {
+        isLoading: true,
+        isRestorationSettled: false,
+        isRestoringExpandedPaths: true,
+        restorationProgress: null,
+      };
+      rerender(content());
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(cancelSpy).toHaveBeenCalledTimes(cancellationCount);
+      expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+    } finally {
+      cancelSpy.mockRestore();
+    }
   });
 
-  it('cancels an in-flight sync when restoration resumes after scanning has started', async () => {
+  it('cancels an in-flight sync when root access restoration resumes after scanning has started', async () => {
     type TreeReadResult = Array<{
       handle: { path: string; platform: 'electron' };
       name: string;
@@ -2705,12 +2748,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
     await waitFor(() => expect(readFullTreeWithOptionsMock).toHaveBeenCalledTimes(1));
 
-    fileTreeContextState.current = {
-      isLoading: false,
-      isRestorationSettled: false,
-      isRestoringExpandedPaths: true,
-      restorationProgress: null,
-    };
+    fileSystemState.isAccessLoading = true;
     rerender(
       <WorkspaceCollectionSyncProvider>
         <div data-testid="child" />

@@ -1,6 +1,7 @@
 import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { getResetTables } from '@brainstrike/db';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 import {
   applyManagedCacheBatchMock,
   browserWindowMock,
@@ -330,7 +331,7 @@ describe('database IPC handlers', () => {
     const handler = handlers.get('db:exec');
 
     const result = await handler?.(
-      {} as unknown,
+      createTrustedInvokeEvent(),
       "ALTER TABLE file_records ADD COLUMN label TEXT DEFAULT 'drop'"
     );
 
@@ -343,7 +344,7 @@ describe('database IPC handlers', () => {
   it('db:exec rejects destructive renderer schema SQL before it reaches PGlite', async () => {
     const handler = handlers.get('db:exec');
 
-    await expect(handler?.({} as unknown, 'DROP TABLE file_records')).rejects.toThrow(
+    await expect(handler?.(createTrustedInvokeEvent(), 'DROP TABLE file_records')).rejects.toThrow(
       'db:exec does not permit destructive schema SQL from the renderer.'
     );
 
@@ -442,7 +443,7 @@ describe('database IPC handlers', () => {
     const ret = { done: true };
     mockDb.exec.mockResolvedValue(ret);
 
-    const result = await handler?.({} as unknown, 'CREATE TABLE');
+    const result = await handler?.(createTrustedInvokeEvent(), 'CREATE TABLE');
 
     expect(getDatabaseMock).toHaveBeenCalled();
     expect(mockDb.exec).toHaveBeenCalledWith('CREATE TABLE');
@@ -454,7 +455,7 @@ describe('database IPC handlers', () => {
     const err = new Error('exec fail');
     mockDb.exec.mockRejectedValue(err);
 
-    await expect(handler?.({} as unknown, 'SELECT bad')).rejects.toThrow(err);
+    await expect(handler?.(createTrustedInvokeEvent(), 'SELECT bad')).rejects.toThrow(err);
   });
 
   it('db:managed-cache:apply-batch validates payload and delegates to the DB host', async () => {
@@ -480,7 +481,7 @@ describe('database IPC handlers', () => {
       embeddingSetId: 'set-1',
     };
 
-    await handler?.({} as unknown, payload);
+    await handler?.(createTrustedInvokeEvent(), payload);
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).toHaveBeenCalled();
@@ -508,7 +509,7 @@ describe('database IPC handlers', () => {
       await queryHandler?.({} as unknown, 'SELECT warmup', []);
       order.length = 0;
 
-      const background = batchHandler?.({} as unknown, payload, {
+      const background = batchHandler?.(createTrustedInvokeEvent(), payload, {
         label: 'managed cache batch',
         priority: 'background',
       });
@@ -535,7 +536,7 @@ describe('database IPC handlers', () => {
     isCorruptionErrorMock.mockReturnValueOnce(true);
 
     await expect(
-      handler?.({} as unknown, {
+      handler?.(createTrustedInvokeEvent(), {
         changes: 'invalid',
         embeddingSetId: '',
       })
@@ -555,7 +556,7 @@ describe('database IPC handlers', () => {
       embeddingSetId: 'set-1',
     };
 
-    await handler?.({} as unknown, payload);
+    await handler?.(createTrustedInvokeEvent(), payload);
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).toHaveBeenCalled();
@@ -580,7 +581,7 @@ describe('database IPC handlers', () => {
       ],
     };
 
-    await handler?.({} as unknown, payload);
+    await handler?.(createTrustedInvokeEvent(), payload);
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).toHaveBeenCalled();
@@ -613,7 +614,7 @@ describe('database IPC handlers', () => {
       await queryHandler?.({} as unknown, 'SELECT warmup', []);
       order.length = 0;
 
-      const background = invalidationHandler?.({} as unknown, payload, {
+      const background = invalidationHandler?.(createTrustedInvokeEvent(), payload, {
         label: 'managed cache invalidation',
         priority: 'background',
       });
@@ -639,7 +640,7 @@ describe('database IPC handlers', () => {
     const handler = handlers.get('db:managed-cache:invalidate-by-identity');
 
     await expect(
-      handler?.({} as unknown, {
+      handler?.(createTrustedInvokeEvent(), {
         embeddingSetId: '',
         targets: 'invalid',
       })
@@ -1179,7 +1180,7 @@ describe('database IPC handlers', () => {
       throw new Error('handler not registered');
     }
 
-    const result = await handler({} as unknown);
+    const result = await handler(createTrustedInvokeEvent());
 
     expect(getDbHostManagerMock).toHaveBeenCalledTimes(1);
     expect(getDatabaseDiagnosticsMock).toHaveBeenCalledTimes(1);
@@ -1207,7 +1208,7 @@ describe('database IPC handlers', () => {
     const row = { test: 1, timestamp: 'now' };
     mockDb.query.mockResolvedValue({ rows: [row] });
 
-    const result = await handler?.({} as unknown);
+    const result = await handler?.(createTrustedInvokeEvent());
 
     expect(mockDb.query).toHaveBeenCalledWith('SELECT 1');
     expect(result).toEqual({
@@ -1221,7 +1222,7 @@ describe('database IPC handlers', () => {
     const handler = handlers.get('db:test');
     mockDb.query.mockRejectedValue(new Error('oops'));
 
-    const result = await handler?.({} as unknown);
+    const result = await handler?.(createTrustedInvokeEvent());
 
     expect(result).toEqual({
       dbLocation: 'DB Host',

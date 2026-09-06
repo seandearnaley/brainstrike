@@ -1,8 +1,16 @@
-import type { ManageTaskListResult } from '@brainstrike/assistant-contract';
+import {
+  type ManageTaskListResult,
+  readAssistantRunEventDataPart,
+} from '@brainstrike/assistant-contract';
 import { useMemo } from 'react';
 import { deriveTaskListFromParts } from './derive-task-list';
 import { createShellOutputAccumulator, type ShellOutputAccumulation } from './shell-output-parts';
-import { runEventsSpanMs, summarizeToolActivity, type ToolActivitySummary } from './tool-activity';
+import {
+  isToolCallPart,
+  runEventsSpanMs,
+  summarizeToolActivity,
+  type ToolActivitySummary,
+} from './tool-activity';
 import { collectToolDurations } from './tool-durations';
 import { useStableRecord } from './use-stable-record';
 
@@ -15,7 +23,7 @@ export interface ChainActivityDerivations {
 }
 
 /**
- * The chain-of-thought's per-turn derivations from `message.parts`, with the
+ * Group-local summary and elapsed time, plus message-wide call-id lookups with the
  * context-value stability this hot path needs: `messageParts` gets a new
  * identity on EVERY streamed chunk, so raw per-chunk recomputations would hand
  * ToolDurationProvider/ShellOutputProvider fresh objects each chunk and
@@ -30,10 +38,20 @@ export interface ChainActivityDerivations {
  */
 export function useChainActivityDerivations(
   messageParts: readonly unknown[],
-  messageId: string
+  messageId: string,
+  groupParts: readonly unknown[]
 ): ChainActivityDerivations {
-  const toolActivity = useMemo(() => summarizeToolActivity(messageParts), [messageParts]);
-  const activityFallbackMs = useMemo(() => runEventsSpanMs(messageParts), [messageParts]);
+  const toolActivity = useMemo(() => summarizeToolActivity(groupParts), [groupParts]);
+  const activityFallbackMs = useMemo(() => {
+    const ids = new Set(groupParts.filter(isToolCallPart).map((part) => part['toolCallId']));
+    return runEventsSpanMs(
+      messageParts.filter((part) => {
+        const event = readAssistantRunEventDataPart(part);
+        const id = event?.metadata?.['toolCallId'];
+        return typeof id === 'string' && ids.has(id);
+      })
+    );
+  }, [messageParts, groupParts]);
   const toolDurations = useStableRecord(
     useMemo(() => collectToolDurations(messageParts), [messageParts])
   );

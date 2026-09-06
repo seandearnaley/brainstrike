@@ -1,86 +1,86 @@
 name: Claude Auto Review
 on:
   pull_request:
-    # No `synchronize`: re-reviewing the full diff on EVERY push turns active
-    # review cycles into a loop — each fix push triggers a fresh cold review of
-    # the whole PR, which re-reports already-fixed findings (race) and, once
-    # the real findings are exhausted, degrades into speculative or fabricated
-    # ones (observed on #1154: ~17 passes, the last citing a function that
-    # doesn't exist). One review per lifecycle event; push-driven re-review can
-    # use targeted fix review within docs/agents/ci-quality.md's review budget.
-    # Never close/reopen solely for review: it also starts the Test pipeline.
+    # One initial whole-PR review per layer. No synchronize-triggered cold
+    # review loops. Never close/reopen solely for review; use the targeted
+    # dispatch below. pull_request (not pull_request_target) is deliberate:
+    # it runs from the PR merge commit for ANY base branch, so every layer of
+    # a stack is reviewed against its own parent, and drafts are handled by
+    # the job condition. pull_request_target would execute the intermediate
+    # branch's workflow copy for stacked layers, and Anthropic's App token
+    # exchange rejects its OIDC token regardless (claude-code-action#713).
     types: [opened, ready_for_review, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to review
+        required: true
+        type: string
+      expected_head:
+        description: Exact 40-character PR head SHA
+        required: true
+        type: string
+      focus:
+        description: Targeted review scope or findings to verify (not a new whole-PR round)
+        required: true
+        type: string
 
 jobs:
   review:
-    # The Claude action keeps GitHub OIDC below; only the ephemeral x64 runner
-    # moves to the equivalent 2-vCPU/8-GB Ubicloud shape.
+    # Drafts are reviewed when marked ready, not at open. Targeted dispatch
+    # always runs. The pull_request clause is spelled out because GitHub
+    # expressions coerce `null == false` to true — a bare `draft == false`
+    # would admit any future trigger that lacks a pull_request payload.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) }}
     runs-on: ubicloud-standard-2
-    # Large PRs can exceed Claude's default review budget while still producing
-    # valid review output. Keep this aligned with the --max-turns budget below.
     timeout-minutes: 60
     permissions:
       contents: read
       pull-requests: write
-      id-token: write
     steps:
+      # pull_request checks out the event's merge commit (PR head merged into
+      # its base) — PR-authored code, including this file; see the trust model
+      # in docs/agents/ci-quality.md. workflow_dispatch checks out the default
+      # branch. Never check out the PR head separately with these credentials,
+      # even into a second worktree.
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 1
+          persist-credentials: false
 
-      - name: Detect Claude workflow self-change
-        id: claude-workflow-change
+      - name: Prepare exact-head review request
+        id: request
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          if gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only | grep -Fxq ".github/workflows/claude-code-review.yml"; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Skipping Claude auto-review because this PR changes the review workflow; Claude OIDC validation requires this workflow to match the default branch."
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: node scripts/claude-review.mjs prepare
 
       - name: Run Claude auto-review
         id: claude-review
+        if: ${{ steps.request.outputs.eligible == 'true' }}
         continue-on-error: true
-        uses: anthropics/claude-code-action@v1
-        if: ${{ steps.claude-workflow-change.outputs.changed != 'true' }}
+        # Pin the action whose conclusion/OIDC skip behavior the reporter checks.
+        uses: anthropics/claude-code-action@d75b94d5ad426cb8546e6628b6f5f19b84e5cce1 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
-            REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
+          # Supplying github_token makes the action skip Anthropic's App token
+          # exchange entirely (setupGitHubToken returns OVERRIDE_GITHUB_TOKEN
+          # first), so no event type can trip that endpoint's OIDC allowlist
+          # (claude-code-action#713). Nothing here needs an App identity: the
+          # model runs with zero tools and never reaches GitHub, and the trusted
+          # reporter below publishes with github.token. The action's own
+          # write-permission check still runs on PR events regardless of token
+          # source; the same-repository head guard in scripts/claude-review.mjs
+          # is belt-and-braces on top of it.
+          github_token: ${{ github.token }}
+          prompt: ${{ steps.request.outputs.prompt }}
+          claude_args: ${{ steps.request.outputs.claude_args }}
 
-            Review only the exact pull request diff returned by `gh pr diff`, with a focus on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Security implications
-            - Performance considerations
-
-            Do not inspect or crawl the checked-out repository. Use `gh pr view` only for pull
-            request metadata and `gh pr diff` only for the exact pull request diff.
-
-            Use `gh pr comment` for top-level feedback.
-            Use `mcp__github_inline_comment__create_inline_comment` to highlight specific code issues.
-            Only post GitHub comments - don't submit review text as messages.
-
-          claude_args: |
-            --model claude-opus-5 --max-turns 80 --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
-
-      - name: Report incomplete Claude review
-        if: ${{ steps.claude-review.outcome == 'failure' }}
+      - name: Report exact-head Claude review disposition
+        if: ${{ always() }}
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "## Claude auto-review did not complete
-
-          The review action failed before producing a completed review disposition. Review coverage is incomplete; this includes runs that reach the configured 80-turn limit.
-
-          Inspect the failed workflow run: $RUN_URL"
-          echo "::error::Claude auto-review did not complete; an incomplete-review disposition was posted."
-          exit 1
+          ACTION_OUTCOME: ${{ steps.claude-review.outcome }}
+          REVIEW_OUTPUT: ${{ steps.claude-review.outputs.structured_output }}
+          ACTION_CONCLUSION: ${{ steps.claude-review.outputs.conclusion }}
+        run: node scripts/claude-review.mjs report

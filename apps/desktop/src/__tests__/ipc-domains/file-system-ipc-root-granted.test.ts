@@ -1,6 +1,6 @@
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 
 vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -33,7 +33,7 @@ async function invokeAddRootByPath(requestedPath: string): Promise<unknown> {
   if (!handler) {
     throw new Error('fs:addRootByPath handler was not registered');
   }
-  return handler({} as IpcMainInvokeEvent, requestedPath);
+  return handler(createTrustedInvokeEvent(), requestedPath);
 }
 
 describe('file system IPC root-granted notification', () => {

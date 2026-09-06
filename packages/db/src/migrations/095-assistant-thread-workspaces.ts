@@ -24,6 +24,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration095AssistantThreadWorkspaces: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_assistant_thread_workspaces;',
+  ledgerKey: 'custom-095-assistant-thread-workspaces',
   name: 'assistant_thread_workspaces',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_workspaces (

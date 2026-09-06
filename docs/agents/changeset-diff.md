@@ -430,6 +430,35 @@ invalidation; N status subprocesses behind an orientation surface is the cost
 this seam exists to avoid. Until a card's status resolves it renders
 "checking…", never a clean glyph.
 
+**Collection navigation (BST-1635).** The Map projects its canonical repository
+models through `selectWorktreeCollection`: tokenized case-insensitive local
+search, All/Running/Needs attention/External filters, primary-first name or
+recent-activity sorting within each repository, and a global 25-checkout page
+bound. Search/filter/sort changes return to the first page; a smaller result
+clamps both the visible and source page so recovering async results cannot jump back.
+Page changes remount the results scrollport, including automatic clamping; toolbar
+changes also reset checkout scrolling. These are ephemeral React view preferences, never a
+new persistent store or another DB/IPC query. Unknown/loading status is not an
+attention signal; the primary checkout's Local-only usability is not a fault.
+Status errors, dirty/behind checkouts, failed PR checks and unusable non-primary
+checkouts are attention signals. Repository and status loading/refresh ownership
+stay in `useWorktreeMap`. The paired collection cases live in
+`worktree-map-model.test.ts` and `worktree-map-surface.test.tsx`.
+
+**Responsive rows (BST-1636).** Repository sections use one vertical scrollport
+and full-width checkout articles, with one, two, or four columns based on the
+Worktrees container width (600px / 760px). Checkout identity/path, Git status,
+thread activity and actions keep a stable order. The action group uses 32px
+controls and stays inside the row at narrow widths; the primary label may
+truncate while its accessible name and title remain complete. The indexing toggle exposes its existing exact-root preference via
+an accessible name and `aria-pressed`. Missing-on-disk rows do not claim a
+pending Git read. A resolved clean status is explicit, and the selected linked
+thread is labeled and accented. Disabled-target guidance stays visible in a neutral tone; the canonical unmanaged-checkout message directs users to the shipped Worktrees → Adopt action. All mutation and capability guards are unchanged.
+Paired behavior coverage remains in `worktree-map-surface.test.tsx`; the real
+large-collection/geometry regression is in
+`apps/desktop/e2e/worktree-map.desktop.test.ts`. The opt-in
+`scripts/probe-worktree-map.mjs` checks row fit instead of horizontal scrolling.
+
 **"Open in Terminal" — SHIPPED in W6 (BST-1457); the deferral and its tripwire
 are gone.** Spec §10 lists the action on a Worktree Map card, §4.1 on the Folder
 chip's root rows and §4.3 on the Mode chip's worktree menu; all three exist. The

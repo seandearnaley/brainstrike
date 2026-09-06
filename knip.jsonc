@@ -52,6 +52,9 @@
         "src/config/server.ts"
       ],
       "ignoreDependencies": [
+        // Imported by src/app/globals.css via @import; CSS imports are not followed
+        // by this workspace's TS/TSX project glob (knip 6.32.2).
+        "@brainstrike/mcp-app-host-ui",
         // PGlite is the app's database engine. It is reached ONLY through
         // vite.config.mts — `optimizeDeps.include` prebundles it and a resolve
         // alias swaps its nodefs build for the OPFS one — never through an
@@ -64,7 +67,6 @@
         "@tailwindcss/typography", // Loaded via Tailwind v4 `@plugin` directive in src/app/globals.css (knip does not parse CSS)
         // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
         "@assistant-ui/react",
-        "@assistant-ui/react-data-stream",
         "@assistant-ui/react-markdown",
         "@assistant-ui/styles",
         "@radix-ui/react-accordion",
@@ -128,7 +130,6 @@
         "@fontsource-variable/geist-mono", // Imported via CSS @import in renderer/styles.css
         // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
         "@assistant-ui/react",
-        "@assistant-ui/react-data-stream",
         "@assistant-ui/react-markdown",
         "@assistant-ui/styles",
         "@radix-ui/react-accordion",

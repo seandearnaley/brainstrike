@@ -1,36 +1,6 @@
-# AGENTS GUIDELINES
-
-Be precise, tool-driven, and skeptical of your own assumptions: verify in code/tests before claiming anything is fixed; read the relevant files instead of assuming behavior; correctness > agreement. Start with the actual answer and match response length to the task.
-
-> **Project Context:** Local-First (client-resident state; single-device today) • AI-Native (MCP/RAG-Optimized) • Web-Second.
-> Latency-critical paths must not grow round-trip API dependencies; assume state resides on the client.
-> Sync roadmap (settled 2026-07-28, BST-911): future sync covers the "mind" — threads/memory/prompts — never vectors/HNSW.
-> No sync/CRDT machinery exists yet: do not design against a sync layer; only preserve cheap groundwork (uuidv7 PKs, tombstone/op-log seams) where the data layer is already being reworked.
-
-## Working rules
-
-- If requirements, intent, or target state are unclear, ask before writing code — don't fill gaps with plausible assumptions. Clear, low-impact changes: just proceed.
-- Implement the simplest thing that satisfies the request. Touch only files related to the task; flag unrelated debt instead of fixing it in-band.
-- **NO SILENT FALLBACKS.** Malformed config, unsupported routing, and broken capabilities throw or surface visibly — never coerce, never degrade quietly.
-- Stop for explicit confirmation before: deleting files or overwriting large swathes of code; data migrations / dropping records / live-schema changes; irreversible terminal commands; deploying or pushing to remote environments; side-effectful external API calls.
-- For non-trivial changes, know: where state lives (single source of truth), how you'd observe/debug it, what breaks if it's deleted, and whether async timing/ordering/cleanup is safe.
-- The bar is a clean build, lint, type check, and unit tests all green **in the same run** after your change. CI double-checks; it is not your test runner.
-- End coding tasks with a short summary: files changed (one line each), nearby files intentionally untouched, and follow-ups (or "None").
-
-## Architecture docs — load on demand
+# AGENT GUIDELINES
 
 Detailed subsystem contracts live in `docs/agents/`. **Before changing one of these areas, read its doc first** — they record hard-won invariants and settled rulings (many marked "do not relitigate"). They are living documents: update the doc and its paired tests in the same change. Some local Claude Code setups may mirror these contracts through ignored `.claude/skills/`; that integration is optional and untracked, so the table below is the canonical agent-agnostic map.
-
-### Context-efficient lookup
-
-Do not preload every contract. Start with this routing table, then search the
-one relevant contract for the exact symbol, path, error text, or invariant you
-are changing. Read the matching section and its named source/tests; verify the
-claim there before widening context. A typical lookup is:
-
-```bash
-rg -n "<symbol|path|error text|invariant>" AGENTS.md docs/agents packages apps scripts
-```
 
 Nearest `AGENTS.md` files add package-local rules; they supplement rather than
 replace this root policy. Treat `docs/agents/*.md` as living contracts,
@@ -64,7 +34,7 @@ disagree with a historical document.
 Cross-cutting invariants (full detail + rationale in the docs):
 
 - Local inference (embeddings + local LLM) runs ONLY in hidden renderer hosts — never in Electron main.
-- Schema/catalog changes register in BOTH migration runners (numbered + drizzle `customMigrations`). New `packages/db` tests need no lane registration: the recursive Vitest unit-project glob discovers them, and required Unit plus nightly coverage split that one project with the same native `--shard` set. `scripts/__tests__/db-test-discovery-contract.test.mjs` guards the recursive glob and a minimum file floor.
+- Schema/catalog changes add to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. New `packages/db` tests need no lane registration: the recursive Vitest unit-project glob discovers them, and required Unit plus nightly coverage split that one project with the same native `--shard` set. `scripts/__tests__/db-test-discovery-contract.test.mjs` guards the recursive glob and a minimum file floor.
 - Every PGlite construction site loads the full engine-extension set.
 - Feature gating is capability-based (does the bridge exist?) — never `isElectron()` checks in shared code. Web omits desktop-only capabilities rather than stubbing them.
 - Any new persistent store/state must be wired into factory reset.
@@ -76,7 +46,6 @@ Cross-cutting invariants (full detail + rationale in the docs):
 - TypeScript strict. Never `any` — prefer `unknown` + narrowing; discriminated unions over enums; annotate params and return types.
 - React 19 + Vite, Tailwind CSS v4, pnpm workspaces (Turborepo), shared `@brainstrike/ui` components, PGlite-backed local-first persistence.
 - Filenames kebab-case; components export PascalCase; hooks are `use-*.ts` exporting camelCase.
-- Reuse shared packages; avoid copy-paste divergence.
 
 ## Testing
 
@@ -88,6 +57,7 @@ Cross-cutting invariants (full detail + rationale in the docs):
 ## CI
 
 - Plain GitHub Actions. No CI *routing* labels, no generated proof artifacts, no custom planner/registry — do not reintroduce them. (Sole exception: the `coverage` label on-demand-triggers the advisory `coverage.yml`; see `docs/agents/ci-quality.md`.) Required PR checks come from `.github/workflows/test.yml`; web + desktop E2E smoke run on every PR; full E2E regression on schedule/dispatch.
+- Claude review coverage requires an exact-head completed disposition and actual review content. Self-change skips and incomplete actions are not completed reviews. Use the trusted targeted invocation in `docs/agents/ci-quality.md`; never close/reopen a PR or restart Test merely to request review.
 - React Doctor runs on every PR (`scope: changed` — only NEWLY introduced error-severity issues block). Local: `pnpm run react-doctor`. Its config invariants are pinned in `docs/agents/ci-quality.md`.
 
 # Ultracite Code Standards

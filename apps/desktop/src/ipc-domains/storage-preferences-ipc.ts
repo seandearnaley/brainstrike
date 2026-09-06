@@ -18,6 +18,11 @@ import {
 import { VECTOR_PREFERENCES_STORAGE_KEY } from '../platform/vector-preferences-storage-key';
 import type { DesktopSettingsStoreSchema } from '../store-schema';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 interface RegisterStoragePreferencesIpcHandlersOptions {
   readonly getStore: () => ElectronStore<DesktopSettingsStoreSchema> | null;
   readonly storage: ElectronStorageAdapter;
@@ -65,14 +70,16 @@ export function registerStoragePreferencesIpcHandlers({
 }: RegisterStoragePreferencesIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'storage',
     DESKTOP_IPC_CHANNELS.storage.getItem,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, key: string) => storage.getItem(key)
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'storage',
     DESKTOP_IPC_CHANNELS.storage.setItem,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, key: unknown, value: unknown) => {
       assertRendererWritableDesktopStorageKey(key);
       if (typeof value !== 'string') {
@@ -81,30 +88,40 @@ export function registerStoragePreferencesIpcHandlers({
       return storage.setItem(key, value);
     }
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'storage',
     DESKTOP_IPC_CHANNELS.storage.removeItem,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, key: unknown) => {
       assertRendererWritableDesktopStorageKey(key);
       return storage.removeItem(key);
     }
   );
-  registry.registerInvoke('storage', DESKTOP_IPC_CHANNELS.storage.clear, async () => {
-    // Renderer factory-reset cleanup may clear preference slices, but only
-    // desktop main's reset barrier may erase root/vault authority ledgers.
-    await storage.clearExcept(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
-  });
-  registry.registerInvoke('storage', DESKTOP_IPC_CHANNELS.storage.getAllKeys, async () =>
-    storage.getAllKeys()
+  registry.registerUnauthenticatedInvoke(
+    'storage',
+    DESKTOP_IPC_CHANNELS.storage.clear,
+    UNAUTHENTICATED_SENDER_POLICY,
+    async () => {
+      // Renderer factory-reset cleanup may clear preference slices, but only
+      // desktop main's reset barrier may erase root/vault authority ledgers.
+      await storage.clearExcept(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
+    }
+  );
+  registry.registerUnauthenticatedInvoke(
+    'storage',
+    DESKTOP_IPC_CHANNELS.storage.getAllKeys,
+    UNAUTHENTICATED_SENDER_POLICY,
+    async () => storage.getAllKeys()
   );
 
   if (isElectronE2ETestMode()) {
     // Existing desktop E2E boots from exact persisted-root fixtures. Keep that
     // setup authority on a separately registered test-only channel instead of
     // weakening the production mutation guard.
-    registry.registerInvoke(
+    registry.registerUnauthenticatedInvoke(
       'storage',
       DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e,
+      UNAUTHENTICATED_SENDER_POLICY,
       async (_event, key: unknown, value: unknown) => {
         if (!isMainOwnedDesktopStorageKey(key)) {
           throw new Error('E2E main-owned storage seed requires a main-owned key.');
@@ -115,8 +132,11 @@ export function registerStoragePreferencesIpcHandlers({
         return storage.setItem(key, value);
       }
     );
-    registry.registerInvoke('storage', DESKTOP_IPC_CHANNELS.storage.clearAllForE2e, async () =>
-      storage.clear()
+    registry.registerUnauthenticatedInvoke(
+      'storage',
+      DESKTOP_IPC_CHANNELS.storage.clearAllForE2e,
+      UNAUTHENTICATED_SENDER_POLICY,
+      async () => storage.clear()
     );
   }
 
@@ -153,9 +173,10 @@ export function registerStoragePreferencesIpcHandlers({
     async () => storage.removeItem(VECTOR_PREFERENCES_STORAGE_KEY)
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'preferences',
     DESKTOP_IPC_CHANNELS.preferences.layoutSave,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, state: unknown): Promise<LayoutPersistenceResult> => {
       const store = getSettingsStoreAccess(getStore);
       if (!store) {
@@ -180,9 +201,10 @@ export function registerStoragePreferencesIpcHandlers({
     }
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'preferences',
     DESKTOP_IPC_CHANNELS.preferences.layoutLoad,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (): Promise<LayoutLoadResult> => {
       const store = getSettingsStoreAccess(getStore);
       if (!store) {
@@ -212,9 +234,10 @@ export function registerStoragePreferencesIpcHandlers({
     }
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'preferences',
     DESKTOP_IPC_CHANNELS.preferences.settingsClearAll,
+    UNAUTHENTICATED_SENDER_POLICY,
     async () => {
       try {
         const store = getSettingsStoreAccess(getStore);

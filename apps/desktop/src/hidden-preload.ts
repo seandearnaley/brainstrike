@@ -3,6 +3,8 @@
 // duplicated, or unknown role is a packaging error and fails closed.
 const { contextBridge, ipcRenderer } = require('electron');
 
+import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+
 type ChunkingHostRequest = import('./chunking-host-shared').ChunkingHostRequest;
 type ChunkingHostResponseReport = import('./chunking-host-shared').ChunkingHostResponseReport;
 type ChunkingHostStatus = import('./chunking-host-shared').ChunkingHostStatus;
@@ -19,47 +21,6 @@ type LlmHostStatus = import('./llm-host-shared').LlmHostStatus;
 type HiddenRendererRole = 'chunking-host' | 'embedding-host' | 'llm-host';
 
 const HIDDEN_RENDERER_ROLE_ARGUMENT = '--brainstrike-hidden-renderer-role=' as const;
-const DESKTOP_PRELOAD_IPC_CHANNELS = {
-  db: {
-    applyManagedCacheBatch: 'db:managed-cache:apply-batch',
-    diagnostics: 'db:diagnostics',
-    exec: 'db:exec',
-    insertChunksAndEnqueueEmbeddingJobs: 'db:chunks:insert-and-enqueue-embedding-jobs',
-    invalidateManagedCacheEntriesByIdentity: 'db:managed-cache:invalidate-by-identity',
-    query: 'db:query',
-    schedulerSnapshot: 'db:scheduler:snapshot',
-    test: 'db:test',
-    transaction: 'db:transaction',
-  },
-  files: {
-    parserHostParse: 'parser-host:parse',
-  },
-  runtime: {
-    powerSnapshot: 'app:power-snapshot',
-    powerState: 'app:power-state',
-  },
-  vectorPreferences: {
-    clear: 'vector-preferences:clear',
-    read: 'vector-preferences:read',
-    write: 'vector-preferences:write',
-  },
-} as const;
-const CHUNKING_HOST_REQUEST_EVENT = 'chunking-host:request' as const;
-const CHUNKING_HOST_REPORT_RESPONSE_CHANNEL = 'chunking-host:report-response' as const;
-const CHUNKING_HOST_REPORT_STATUS_CHANNEL = 'chunking-host:report-status' as const;
-const EMBEDDING_HOST_COMMAND_EVENT = 'embedding-host:command' as const;
-const EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT =
-  'embedding-host:query-embedding-request' as const;
-const EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL =
-  'embedding-host:report-query-embedding-response' as const;
-const EMBEDDING_HOST_REPORT_STATUS_CHANNEL = 'embedding-host:report-status' as const;
-const LLM_HOST_REQUEST_EVENT = 'llm-host:request' as const;
-const LLM_HOST_REPORT_PROGRESS_CHANNEL = 'llm-host:report-progress' as const;
-const LLM_HOST_REPORT_RESPONSE_CHANNEL = 'llm-host:report-response' as const;
-const LLM_HOST_REPORT_STATUS_CHANNEL = 'llm-host:report-status' as const;
-const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences' as const;
-const LOGGING_INGEST_BUFFERED_RECORD_CHANNEL = 'logging:ingest-buffered-record' as const;
-const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated' as const;
 
 function resolveHiddenRendererRole(argv: readonly string[]): HiddenRendererRole {
   const roleArguments = argv.filter((argument) =>
@@ -87,34 +48,34 @@ function subscribe<T>(channel: string, callback: (payload: T) => void): () => vo
 
 function exposeLoggingBridge(): void {
   contextBridge.exposeInMainWorld('logging', {
-    getPreferences: () => ipcRenderer.invoke(LOGGING_GET_PREFERENCES_CHANNEL),
+    getPreferences: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.getPreferences),
     ingestBufferedRecord: (record: unknown): void => {
-      ipcRenderer.send(LOGGING_INGEST_BUFFERED_RECORD_CHANNEL, record);
+      ipcRenderer.send(DESKTOP_IPC_CHANNELS.logging.ingestBufferedRecord, record);
     },
     onPreferencesUpdated: (callback: (preferences: unknown) => void) =>
-      subscribe(LOGGING_PREFERENCES_UPDATED_EVENT, callback),
+      subscribe(DESKTOP_IPC_CHANNELS.logging.preferencesUpdated, callback),
   });
 }
 
 function exposeChunkingHostBridge(): void {
   contextBridge.exposeInMainWorld('chunkingHost', {
     onRequest: (callback: (request: ChunkingHostRequest) => void) =>
-      subscribe(CHUNKING_HOST_REQUEST_EVENT, callback),
+      subscribe(DESKTOP_IPC_CHANNELS.chunkingHost.request, callback),
     reportResponse: (response: ChunkingHostResponseReport): void => {
-      ipcRenderer.send(CHUNKING_HOST_REPORT_RESPONSE_CHANNEL, response);
+      ipcRenderer.send(DESKTOP_IPC_CHANNELS.chunkingHost.reportResponse, response);
     },
     reportStatus: (status: ChunkingHostStatus): void => {
-      ipcRenderer.send(CHUNKING_HOST_REPORT_STATUS_CHANNEL, status);
+      ipcRenderer.send(DESKTOP_IPC_CHANNELS.chunkingHost.reportStatus, status);
     },
   });
   contextBridge.exposeInMainWorld('parserHost', {
     parse: (request: unknown) =>
-      ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.files.parserHostParse, request),
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.parserHostParse, request),
   });
   contextBridge.exposeInMainWorld('electronAPI', {
     db: {
       query: (sql: string, params?: unknown[], options?: unknown) =>
-        ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.db.query, sql, params, options),
+        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.query, sql, params, options),
     },
   });
 }
@@ -131,14 +92,10 @@ function exposeEmbeddingElectronApiBridge(): void {
   contextBridge.exposeInMainWorld('electronAPI', {
     db: {
       applyManagedCacheBatch: (payload: unknown, options?: unknown) =>
-        ipcRenderer.invoke(
-          DESKTOP_PRELOAD_IPC_CHANNELS.db.applyManagedCacheBatch,
-          payload,
-          options
-        ),
-      diagnostics: () => ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.db.diagnostics),
+        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.applyManagedCacheBatch, payload, options),
+      diagnostics: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.diagnostics),
       exec: (sql: string, params?: unknown[], options?: unknown) =>
-        ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.db.exec, sql, params, options),
+        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.exec, sql, params, options),
       insertChunksAndEnqueueEmbeddingJobs: (
         chunks: readonly unknown[],
         fileRecordId: string,
@@ -146,38 +103,32 @@ function exposeEmbeddingElectronApiBridge(): void {
         workOptions?: unknown
       ) =>
         ipcRenderer.invoke(
-          DESKTOP_PRELOAD_IPC_CHANNELS.db.insertChunksAndEnqueueEmbeddingJobs,
+          DESKTOP_IPC_CHANNELS.db.insertChunksAndEnqueueEmbeddingJobs,
           { chunks, fileRecordId, options },
           workOptions
         ),
       invalidateManagedCacheEntriesByIdentity: (payload: unknown, options?: unknown) =>
         ipcRenderer.invoke(
-          DESKTOP_PRELOAD_IPC_CHANNELS.db.invalidateManagedCacheEntriesByIdentity,
+          DESKTOP_IPC_CHANNELS.db.invalidateManagedCacheEntriesByIdentity,
           payload,
           options
         ),
       query: (sql: string, params?: unknown[], options?: unknown) =>
-        ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.db.query, sql, params, options),
+        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.query, sql, params, options),
       runTransaction: (
         statements: ReadonlyArray<{ params?: unknown[]; sql: string }>,
         resultIndex: number,
         options?: unknown
       ) =>
-        ipcRenderer.invoke(
-          DESKTOP_PRELOAD_IPC_CHANNELS.db.transaction,
-          statements,
-          resultIndex,
-          options
-        ),
-      schedulerSnapshot: () =>
-        ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.db.schedulerSnapshot),
-      test: () => ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.db.test),
+        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.transaction, statements, resultIndex, options),
+      schedulerSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.schedulerSnapshot),
+      test: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.test),
     },
     vectorPreferences: {
-      clear: () => ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.vectorPreferences.clear),
-      read: () => ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.vectorPreferences.read),
+      clear: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.vectorPreferences.clear),
+      read: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.vectorPreferences.read),
       write: (value: string) =>
-        ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.vectorPreferences.write, value),
+        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.vectorPreferences.write, value),
     },
   });
 }
@@ -186,35 +137,35 @@ function exposeEmbeddingHostBridge(): void {
   exposeEmbeddingElectronApiBridge();
   contextBridge.exposeInMainWorld('embeddingHost', {
     onCommand: (callback: (command: EmbeddingHostCommand) => void) =>
-      subscribe(EMBEDDING_HOST_COMMAND_EVENT, callback),
+      subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.command, callback),
     onQueryEmbeddingRequest: (callback: (request: EmbeddingHostQueryEmbeddingRequest) => void) =>
-      subscribe(EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT, callback),
+      subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingRequest, callback),
     reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport): void => {
-      ipcRenderer.send(EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL, response);
+      ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportQueryEmbeddingResponse, response);
     },
     reportStatus: (status: EmbeddingHostStatus): void => {
-      ipcRenderer.send(EMBEDDING_HOST_REPORT_STATUS_CHANNEL, status);
+      ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportStatus, status);
     },
   });
   contextBridge.exposeInMainWorld('power', {
-    getSnapshot: () => ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerSnapshot),
+    getSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.powerSnapshot),
     onPowerState: (callback: (state: 'resume' | 'suspend') => void) =>
-      subscribe(DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerState, callback),
+      subscribe(DESKTOP_IPC_CHANNELS.runtime.powerState, callback),
   });
 }
 
 function exposeLlmHostBridge(): void {
   contextBridge.exposeInMainWorld('llmHost', {
     onRequest: (callback: (request: LlmHostRequest) => void) =>
-      subscribe(LLM_HOST_REQUEST_EVENT, callback),
+      subscribe(DESKTOP_IPC_CHANNELS.llmHost.request, callback),
     reportProgress: (progress: LlmHostResponseReport): void => {
-      ipcRenderer.send(LLM_HOST_REPORT_PROGRESS_CHANNEL, progress);
+      ipcRenderer.send(DESKTOP_IPC_CHANNELS.llmHost.reportProgress, progress);
     },
     reportResponse: (response: LlmHostResponseReport): void => {
-      ipcRenderer.send(LLM_HOST_REPORT_RESPONSE_CHANNEL, response);
+      ipcRenderer.send(DESKTOP_IPC_CHANNELS.llmHost.reportResponse, response);
     },
     reportStatus: (status: LlmHostStatus): void => {
-      ipcRenderer.send(LLM_HOST_REPORT_STATUS_CHANNEL, status);
+      ipcRenderer.send(DESKTOP_IPC_CHANNELS.llmHost.reportStatus, status);
     },
   });
 }

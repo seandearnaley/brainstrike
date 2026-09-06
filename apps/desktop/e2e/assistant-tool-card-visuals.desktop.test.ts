@@ -55,7 +55,11 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     await expect(window.getByText('Retrieved answer.').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    // Tool cards render directly in the thread (no reasoning fold for tool-only turns).
+    const summary = window.getByTestId('assistant-activity-summary').first();
+    await expect(summary).toHaveAttribute('aria-expanded', 'false', {
+      timeout: E2E_TIMEOUTS.toolVisibility,
+    });
+    await summary.click();
     const toolCard = window.getByTestId('tool-fallback').first();
     await expect(toolCard).toBeVisible({ timeout: E2E_TIMEOUTS.toolVisibility });
     await expect(toolCard).toHaveAttribute('data-tool-category', 'internal');
@@ -72,10 +76,13 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 
-    await expect(window.getByText(errorMessage).first()).toBeVisible({
+    const summary = window.getByTestId('assistant-activity-summary').first();
+    await expect(summary).toHaveAttribute('aria-expanded', 'false', {
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    // Tool cards render directly in the thread (no reasoning fold for tool-only turns).
+    await expect(summary).toContainText('Activity failed');
+    await expect(summary).not.toContainText('Worked');
+    await summary.click();
     const toolCard = window.getByTestId('tool-fallback').first();
     await expect(toolCard).toBeVisible({ timeout: E2E_TIMEOUTS.toolVisibility });
     // Category classification is independent of the failure state; an internal

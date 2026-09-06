@@ -6,6 +6,7 @@ import {
   type DataMessagePartComponent,
   MessagePrimitive,
   ThreadPrimitive,
+  type ToolCallMessagePartProps,
   useAssistantDataUI,
   useAui,
   useAuiState,
@@ -554,33 +555,34 @@ function isActivityPart(part: unknown): boolean {
   return type === 'tool-call' || type === 'reasoning';
 }
 
-/** Stable React key for an activity row: the tool call id, else its position. */
-function activityPartKey(part: unknown, index: number): string {
-  if (part && typeof part === 'object') {
-    const id = (part as { toolCallId?: unknown }).toolCallId;
-    if (typeof id === 'string' && id.length > 0) {
-      return id;
-    }
-  }
-  return `activity-${index}`;
+function ActivityPartLayout({ children }: { children?: ReactNode }) {
+  return <div className="mb-2 last:mb-0 empty:mb-0">{children}</div>;
+}
+
+function ActivityToolPart(props: ToolCallMessagePartProps) {
+  const Component =
+    CHAIN_OF_THOUGHT_TOOL_COMPONENTS.by_name[props.toolName] ??
+    CHAIN_OF_THOUGHT_TOOL_COMPONENTS.Fallback;
+  return <Component {...props} />;
 }
 
 export const LocalChainOfThought = () => {
   const aui = useAui();
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
   const messageParts = useAuiState((state) => state.message.parts);
-  const hasReasoningParts = useAuiState((state) => state.message.parts.some(isReasoningPart));
+  const groupParts = useAuiState((state) => state.chainOfThought.parts);
+  const hasReasoningParts = useAuiState((state) =>
+    state.chainOfThought.parts.some(isReasoningPart)
+  );
   const isReasoningRunning = useAuiState((state) =>
-    state.message.parts.some(isRunningReasoningPart)
+    state.chainOfThought.parts.some(isRunningReasoningPart)
   );
-  const isMessageRunning = useAuiState(
-    (state) => (state.message as { status?: { type?: string } }).status?.type === 'running'
-  );
-  // The Mastra agent loop puts each tool call in its own step, which
-  // assistant-ui splits into a SEPARATE chain-of-thought group. To group the
-  // whole turn into ONE Activity panel ("Worked · N steps"), the FIRST chain
-  // renders every tool/reasoning part of the message (by index, so streaming
-  // binding is preserved) and every later chain renders nothing.
+  const isActivityActive = useAuiState((state) => state.chainOfThought.status.type === 'running');
+  const incompleteReason = useAuiState((state) => {
+    const status = state.chainOfThought.status;
+    return status.type === 'incomplete' ? status.reason : undefined;
+  });
+  // The task-list summary is turn-wide; render it once without hoisting activity.
   const isFirstChain = useAuiState((state) => {
     const firstActivity = state.message.parts.find(isActivityPart);
     if (!firstActivity) {
@@ -588,23 +590,10 @@ export const LocalChainOfThought = () => {
     }
     return state.chainOfThought.parts.find(isActivityPart) === firstActivity;
   });
-  // `index:stableKey` for each activity part, built in ONE pass (the selector
-  // re-runs on every streamed update). Selecting a string primitive keeps
-  // re-render semantics stable; the stable key avoids array-index keys.
-  const activityKey = useAuiState((state) => {
-    const entries: string[] = [];
-    for (const [index, part] of state.message.parts.entries()) {
-      if (isActivityPart(part)) {
-        entries.push(`${index}:${activityPartKey(part, index)}`);
-      }
-    }
-    return entries.join(',');
-  });
-
   const messageId = useAuiState((state) => (state.message as { id?: string }).id ?? '');
   // Per-turn derivations with context-value stability — see the hook's doc.
   const { activityFallbackMs, shellOutputs, taskList, toolActivity, toolDurations } =
-    useChainActivityDerivations(messageParts, messageId);
+    useChainActivityDerivations(messageParts, messageId, groupParts);
 
   const initializedRef = useRef(false);
   const reasoningPanelId = useId();
@@ -617,33 +606,21 @@ export const LocalChainOfThought = () => {
     aui.chainOfThought().setCollapsed(true);
   }, [aui]);
 
-  // Later chains are already covered by the first chain's turn-level group.
-  if (!isFirstChain) {
-    return null;
-  }
-
-  const activityEntries =
-    activityKey === ''
-      ? []
-      : activityKey.split(',').map((entry) => {
-          const separator = entry.indexOf(':');
-          return { index: Number(entry.slice(0, separator)), key: entry.slice(separator + 1) };
-        });
-
-  // Render each tool/reasoning part by index — this keeps assistant-ui's live
-  // streaming binding while letting us group across step boundaries.
-  const activityParts = activityEntries.map(({ index, key }) => (
-    <div className="mb-2 last:mb-0 empty:mb-0" key={key}>
-      <MessagePrimitive.PartByIndex
-        components={{
-          /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Reasoning" key */
-          Reasoning: collapsed ? HiddenReasoningPart : AssistantReasoningPart,
-          tools: CHAIN_OF_THOUGHT_TOOL_COMPONENTS,
-        }}
-        index={index}
-      />
-    </div>
-  ));
+  const activityParts = (
+    <ChainOfThoughtPrimitive.Parts
+      components={{
+        /* biome-ignore lint/style/useNamingConvention: assistant-ui component slot */
+        Layout: ActivityPartLayout,
+        /* biome-ignore lint/style/useNamingConvention: assistant-ui component slot */
+        Reasoning: collapsed ? HiddenReasoningPart : AssistantReasoningPart,
+        /* The chain primitive exposes one tool slot; retain the existing named renderers. */
+        tools: {
+          /* biome-ignore lint/style/useNamingConvention: assistant-ui component slot */
+          Fallback: ActivityToolPart,
+        },
+      }}
+    />
+  );
 
   // Only reasoning lives behind the collapsible pill; tool cards always render.
   const reasoningSection = hasReasoningParts ? (
@@ -660,33 +637,20 @@ export const LocalChainOfThought = () => {
     activityParts
   );
 
-  const isActivityActive = toolActivity.runningCount > 0 || isReasoningRunning || isMessageRunning;
-  // A FINISHED lone tool call (no reasoning) is more useful as just the card —
-  // the "Worked · 1 step" wrapper adds nothing. While the turn is still active
-  // we always group, so streaming tools land in a stable container instead of a
-  // bare card that pops into a group when the second tool arrives.
-  const isSingleTool = !isActivityActive && toolActivity.stepCount === 1 && !hasReasoningParts;
-
-  let content: ReactNode = reasoningSection;
-  if (isSingleTool) {
-    content = activityParts;
-  } else if (toolActivity.stepCount > 0) {
-    content = (
-      <AssistantActivityGroup
-        fallbackMs={activityFallbackMs}
-        isActive={isActivityActive}
-        summary={toolActivity}
-      >
-        {reasoningSection}
-      </AssistantActivityGroup>
-    );
-  }
-
   return (
     <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-2xl">
-      {taskList ? <TodoProgress result={taskList} /> : null}
+      {isFirstChain && taskList ? <TodoProgress result={taskList} /> : null}
       <ToolDurationProvider durations={toolDurations}>
-        <ShellOutputProvider outputs={shellOutputs}>{content}</ShellOutputProvider>
+        <ShellOutputProvider outputs={shellOutputs}>
+          <AssistantActivityGroup
+            fallbackMs={activityFallbackMs}
+            incompleteReason={incompleteReason}
+            isActive={isActivityActive}
+            summary={toolActivity}
+          >
+            {reasoningSection}
+          </AssistantActivityGroup>
+        </ShellOutputProvider>
       </ToolDurationProvider>
     </ChainOfThoughtPrimitive.Root>
   );

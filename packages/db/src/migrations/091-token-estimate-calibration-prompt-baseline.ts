@@ -19,6 +19,7 @@ export const migration091TokenEstimateCalibrationPromptBaseline: Migration = {
     ALTER TABLE IF EXISTS brainstrike_token_estimate_calibration
       DROP COLUMN IF EXISTS prompt_baseline_tokens;
   `,
+  ledgerKey: 'custom-091-token-estimate-calibration-prompt-baseline',
   name: 'token_estimate_calibration_prompt_baseline',
   up: `
     ALTER TABLE brainstrike_token_estimate_calibration

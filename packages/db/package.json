@@ -57,6 +57,11 @@
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js",
       "require": "./dist/react.js"
+    },
+    "./pglite-factory": {
+      "types": "./dist/pglite-factory.d.ts",
+      "import": "./dist/pglite-factory.js",
+      "require": "./dist/pglite-factory.js"
     }
   },
   "files": [

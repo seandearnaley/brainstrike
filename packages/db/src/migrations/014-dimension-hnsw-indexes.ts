@@ -50,6 +50,7 @@ export const migration014DimensionHnswIndexes: Migration = {
     // Drop all dimension-based indexes
     await dropAllDimensionIndexes(db, [...dimensionsToClean]);
   },
+  ledgerKey: 'custom-014-dimension-hnsw-indexes',
   name: 'dimension_hnsw_indexes',
   up: async (db: MigrationTransactionalDb) => {
     // Check if pgvector extension is available

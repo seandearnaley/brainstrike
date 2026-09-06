@@ -1,12 +1,9 @@
 import { createLogger } from '@brainstrike/logging';
-import { PGlite, type PGliteOptions } from '@electric-sql/pglite';
-import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
-import { vector } from '@electric-sql/pglite-pgvector';
 import {
   type FirstRunBootstrapDb,
   runFirstRunBootstrapPipeline,
 } from './browser-first-run-bootstrap-pipeline.js';
+import { createEnginePglite } from './pglite-factory.js';
 
 const logger = createLogger('FirstRunBootstrapWorker');
 
@@ -52,17 +49,6 @@ function parseRunMessage(data: unknown): FirstRunBootstrapRunMessage {
   return { dataDir, type: 'run' };
 }
 
-async function createReadyPGlite(options: PGliteOptions): Promise<FirstRunBootstrapDb> {
-  // Same engine-extension set as every other PGlite construction site
-  // (PGLITE EXTENSION INVARIANT) — the migrations CREATE EXTENSION these.
-  const db = new PGlite({
-    ...options,
-    extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
-  });
-  await db.waitReady;
-  return db;
-}
-
 export interface FirstRunBootstrapWorkerFactories {
   createMemoryDb(): Promise<FirstRunBootstrapDb>;
   createStoreLoadDb(dataDir: string, dump: Blob | File): Promise<FirstRunBootstrapDb>;
@@ -71,9 +57,9 @@ export interface FirstRunBootstrapWorkerFactories {
 }
 
 export const firstRunBootstrapWorkerPGliteFactories: FirstRunBootstrapWorkerFactories = {
-  createMemoryDb: (): Promise<FirstRunBootstrapDb> => createReadyPGlite({}),
+  createMemoryDb: (): Promise<FirstRunBootstrapDb> => createEnginePglite({}),
   createStoreLoadDb: (dataDir: string, dump: Blob | File): Promise<FirstRunBootstrapDb> =>
-    createReadyPGlite({
+    createEnginePglite({
       dataDir,
       loadDataDir: dump,
       // The persistent store is only ever written by STRICT instances (#1111).

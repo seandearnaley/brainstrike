@@ -257,6 +257,88 @@ test.describe('Worktree Map (desktop)', () => {
     await expect(cards.nth(1)).toContainText('Claude Code');
   });
 
+  test('large collections paginate without horizontal overflow and keep actions aligned', async ({
+    window: page,
+  }, testInfo) => {
+    test.setTimeout(180_000);
+    const repo = freshGitRepo({
+      label: 'large-collection',
+      prefix: 'bst-map-layout-',
+      tracker: tempDirs,
+    });
+    for (let i = 0; i < 30; i += 1) {
+      const name = `checkout-${String(i).padStart(2, '0')}-long-branch-name`;
+      git(repo, [
+        'worktree',
+        'add',
+        '-b',
+        name,
+        path.join(repo, '.claude', 'worktrees', name),
+        'HEAD',
+      ]);
+    }
+    await seedRoot(page, repo);
+    await openWorktreeMap(page);
+    const cards = page.getByTestId('worktree-map-card');
+    await expect(cards).toHaveCount(25);
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect(cards).toHaveCount(6);
+    await expect(page.getByText('26–31 of 31')).toBeVisible();
+    const search = page.getByRole('searchbox', { name: 'Search worktrees' });
+    await search.fill('checkout-29');
+    await expect(cards).toHaveCount(1);
+    await expect(cards.first()).toContainText('checkout-29-long-branch-name');
+    await search.fill('');
+    await expect(cards).toHaveCount(25);
+
+    for (const width of [1280, 600]) {
+      await page.setViewportSize({ height: 900, width });
+      await expect
+        .poll(async () =>
+          cards.evaluateAll((elements) =>
+            elements.every((element) => element.scrollWidth <= element.clientWidth + 1)
+          )
+        )
+        .toBe(true);
+      const geometry = await cards.evaluateAll((elements) =>
+        elements.slice(0, 3).map((element) => {
+          const primary = element.querySelector('[data-testid="worktree-map-new-thread"]');
+          const menu = element.querySelector('[data-testid="worktree-map-card-actions"]');
+          if (!(primary && menu)) {
+            throw new Error('Missing worktree actions');
+          }
+          const a = primary.getBoundingClientRect();
+          const b = menu.getBoundingClientRect();
+          const bounds = element.getBoundingClientRect();
+          const actionsContained = Array.from(element.querySelectorAll('footer button')).every(
+            (button) => {
+              const rect = button.getBoundingClientRect();
+              return rect.left >= bounds.left && rect.right <= bounds.right;
+            }
+          );
+          return {
+            actionsContained,
+            actionX: b.x,
+            menuHeight: b.height,
+            menuWidth: b.width,
+            primaryHeight: a.height,
+            verticalDelta: Math.abs(a.y - b.y),
+          };
+        })
+      );
+      expect(geometry).toHaveLength(3);
+      for (const row of geometry) {
+        expect(row.actionsContained).toBe(true);
+        expect(row.menuHeight).toBe(32);
+        expect(row.menuWidth).toBe(32);
+        expect(row.primaryHeight).toBe(32);
+        expect(row.verticalDelta).toBeLessThanOrEqual(1);
+        expect(row.actionX).toBe(geometry[0]?.actionX);
+      }
+      await page.screenshot({ path: testInfo.outputPath(`worktrees-${width}.png`) });
+    }
+  });
+
   test('the primary checkout is refused as a checkout target', async ({ window: page }) => {
     test.setTimeout(180_000);
     const { repo } = freshRepo('primary');

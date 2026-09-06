@@ -10,6 +10,10 @@ import {
 } from '../../agent-client-loader';
 import type { DesktopEnvLoadFailure } from '../../desktop-env';
 import { TAVILY_ENV_KEYS } from '../../tavily-env-keys';
+import {
+  createAllowlistedSenderFrame,
+  reconfigureTestRendererTargetAfterModuleReset,
+} from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 
 const { getWindowRoleByWebContentsIdMock } = vi.hoisted(() => ({
   getWindowRoleByWebContentsIdMock: vi.fn(),
@@ -81,12 +85,16 @@ function restoreProviderEnv(): void {
 }
 
 function createInvokeEvent(senderId = 7101): IpcMainInvokeEvent {
-  return { sender: { id: senderId } } as IpcMainInvokeEvent;
+  return {
+    sender: { id: senderId },
+    senderFrame: createAllowlistedSenderFrame(),
+  } as unknown as IpcMainInvokeEvent;
 }
 
 describe('registerSecretsIpcHandlers', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
+    await reconfigureTestRendererTargetAfterModuleReset();
     vi.clearAllMocks();
     clearCachedAgentClient();
     getWindowRoleByWebContentsIdMock.mockReturnValue('visible-ui');

@@ -37,6 +37,7 @@ export const migration062AssistantRunOutcomes: Migration = {
 
     DROP TABLE IF EXISTS brainstrike_assistant_run_outcomes;
   `,
+  ledgerKey: 'custom-062-assistant-run-outcomes',
   name: 'assistant_run_outcomes',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_run_outcomes (

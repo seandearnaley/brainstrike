@@ -1,10 +1,11 @@
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantActivityGroup } from '../assistant-activity-group';
 import { runEventsSpanMs, summarizeToolActivity, type ToolActivitySummary } from '../tool-activity';
 import { formatActivityDuration } from '../tool-durations';
+import { useChainActivityDerivations } from '../use-chain-activity-derivations';
 
 const toolPart = (overrides: Record<string, unknown>) => ({
   toolName: 'brainstrike.grepSearch',
@@ -31,6 +32,16 @@ describe('summarizeToolActivity', () => {
     expect(summary.failedCount).toBe(1);
   });
 
+  it('counts completed error results once without guessing from domain fields', () => {
+    const summary = summarizeToolActivity([
+      toolPart({ isError: true, status: { type: 'complete' } }),
+      toolPart({ isError: true, status: { type: 'incomplete' } }),
+      toolPart({ result: { error: 'ordinary domain data' }, status: { type: 'complete' } }),
+    ]);
+    expect(summary.failedCount).toBe(2);
+    expect(summary.stepCount).toBe(3);
+  });
+
   it('surfaces the running tool name and its primary argument as the active step', () => {
     const summary = summarizeToolActivity([
       toolPart({ status: { type: 'complete' }, toolName: 'first.tool' }),
@@ -53,6 +64,27 @@ describe('summarizeToolActivity', () => {
 });
 
 describe('runEventsSpanMs', () => {
+  it('derives the elapsed fallback only from the current group, retaining message-wide tool durations', () => {
+    const first = toolPart({ status: { type: 'complete' }, toolCallId: 'a' });
+    const second = toolPart({ status: { type: 'complete' }, toolCallId: 'b' });
+    const event = (timestamp: string, toolCallId: string, kind: string) => {
+      const part = runEventPart(timestamp);
+      return { ...part, data: { ...part.data, kind, metadata: { toolCallId } } };
+    };
+    const parts = [
+      first,
+      second,
+      event('2026-09-05T10:00:00.000Z', 'a', 'tool.started'),
+      event('2026-09-05T10:00:02.000Z', 'a', 'tool.completed'),
+      event('2026-09-05T10:00:20.000Z', 'b', 'tool.started'),
+      event('2026-09-05T10:00:25.000Z', 'b', 'tool.completed'),
+    ];
+    const { result } = renderHook(() => useChainActivityDerivations(parts, 'message-1', [first]));
+    expect(result.current.activityFallbackMs).toBe(2000);
+    expect(result.current.toolActivity.stepCount).toBe(1);
+    expect(result.current.toolDurations).toEqual({ a: 2000, b: 5000 });
+  });
+
   it('returns the min→max timestamp span across run events', () => {
     const span = runEventsSpanMs([
       runEventPart('2026-06-16T10:00:00.000Z'),
@@ -134,6 +166,18 @@ describe('AssistantActivityGroup', () => {
       vi.advanceTimersByTime(1000);
     });
     expect(screen.getByText('3.0s')).toBeInTheDocument();
+  });
+
+  it('retains reasoning time when the same group resumes after a completed tool', () => {
+    const { rerender } = render(<AssistantActivityGroup isActive summary={activeSummary} />);
+    act(() => vi.advanceTimersByTime(3400));
+    rerender(<AssistantActivityGroup fallbackMs={1000} isActive={false} summary={doneSummary} />);
+    expect(screen.getByText('for 3.4s')).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(500));
+    rerender(<AssistantActivityGroup fallbackMs={1000} isActive summary={activeSummary} />);
+    expect(screen.getByText('3.4s')).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1000));
+    expect(screen.getByText('4.4s')).toBeInTheDocument();
   });
 
   it('renders the done summary with elapsed fallback and step count', () => {

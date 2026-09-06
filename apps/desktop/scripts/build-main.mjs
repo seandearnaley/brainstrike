@@ -11,11 +11,15 @@
  * pinned by src/__tests__/build-main-config.test.ts).
  */
 import { existsSync } from 'node:fs';
-import { readdir, rm } from 'node:fs/promises';
+import { readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { MAIN_PROCESS_BUILD_OPTIONS } from './build-main-config.mjs';
+import {
+  assertPreloadBundleRequires,
+  PRELOAD_BUNDLE_ENTRY_NAMES,
+} from './preload-bundle-contract.mjs';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -37,5 +41,19 @@ async function cleanMainProcessOutputs() {
   );
 }
 
+/**
+ * The preloads run sandboxed: `require` resolves nothing but `electron`
+ * there, so a bundle that requires anything else is a launch-time failure.
+ * Refuse to ship it (BST-1648).
+ */
+async function assertPreloadBundlesAreSandboxSafe() {
+  for (const entryName of PRELOAD_BUNDLE_ENTRY_NAMES) {
+    const fileName = `${entryName}.js`;
+    const source = await readFile(path.join(appRoot, 'dist', fileName), 'utf8');
+    assertPreloadBundleRequires(fileName, source);
+  }
+}
+
 await cleanMainProcessOutputs();
 await build(MAIN_PROCESS_BUILD_OPTIONS);
+await assertPreloadBundlesAreSandboxSafe();

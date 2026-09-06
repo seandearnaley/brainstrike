@@ -526,27 +526,31 @@ export function liveTerminalCountForTest(): number {
 export function registerTerminalIpcHandlers(handlers: TerminalIpcHandlers): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'terminal',
     DESKTOP_IPC_CHANNELS.terminal.create,
+    { roles: ['visible-ui'] },
     (event: IpcMainInvokeEvent, params: TerminalCreateParams) =>
       handlers.create(event.sender, params)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'terminal',
     DESKTOP_IPC_CHANNELS.terminal.write,
+    { roles: ['visible-ui'] },
     (event: IpcMainInvokeEvent, params: TerminalWriteParams) =>
       handlers.write(params, event.sender.id)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'terminal',
     DESKTOP_IPC_CHANNELS.terminal.resize,
+    { roles: ['visible-ui'] },
     (event: IpcMainInvokeEvent, params: TerminalResizeParams) =>
       handlers.resize(params, event.sender.id)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'terminal',
     DESKTOP_IPC_CHANNELS.terminal.destroy,
+    { roles: ['visible-ui'] },
     (event: IpcMainInvokeEvent, params: TerminalDestroyParams) =>
       handlers.destroy(params, event.sender.id)
   );

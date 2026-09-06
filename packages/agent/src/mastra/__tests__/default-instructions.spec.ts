@@ -817,3 +817,88 @@ describe('tool-discovery capability coverage', () => {
     expect(line.toLowerCase()).toContain('not loaded');
   });
 });
+describe('model-facing tool names cover the whole catalog (BST-1646)', () => {
+  // The hand-written ModelFacingToolNames interface had fallen EIGHT tools
+  // behind the catalog: a new tool got no slot, so no instruction could ever
+  // name it, and nothing failed. The slot map is now DERIVED from NATIVE_TOOLS.
+  const FORMERLY_MISSING = [
+    'brainstrike.inspectCommandSessions',
+    'brainstrike.listWorktrees',
+    'brainstrike.manageCommandSession',
+    'brainstrike.manageWorktree',
+    'brainstrike.queryDiagnostics',
+    'brainstrike.querySelf',
+    'brainstrike.readToolOutputArtifact',
+    'brainstrike.runPython',
+  ] as const;
+
+  it('resolves a model-facing name slot for every catalog id, including the eight that were missing', async () => {
+    const { NATIVE_TOOL_ID, NATIVE_TOOL_IDS } = await import(
+      '@brainstrike/assistant-contract/tool-metadata'
+    );
+    const { resolveModelFacingToolNames } = await import('../default-instructions');
+    const toolNameMap = new Map(
+      NATIVE_TOOL_IDS.map((id) => [id.replace(/[^a-zA-Z0-9_-]/g, '_'), id] as const)
+    );
+    const names = resolveModelFacingToolNames(toolNameMap);
+    for (const [key, id] of Object.entries(NATIVE_TOOL_ID)) {
+      expect(names[key as keyof typeof names], `${key} → ${id}`).toBe(
+        id.replace(/[^a-zA-Z0-9_-]/g, '_')
+      );
+    }
+    for (const id of FORMERLY_MISSING) {
+      expect(Object.values(names)).toContain(id.replace(/[^a-zA-Z0-9_-]/g, '_'));
+    }
+    expect(Object.keys(names)).toHaveLength(NATIVE_TOOL_IDS.length);
+  });
+
+  it('composes a definition-declared instruction into the prompt only when that tool is registered', async () => {
+    const { defineNativeTool, providerCompatibleInputSchema } = await import(
+      '@brainstrike/assistant-contract/tool-metadata'
+    );
+    const { z } = await import('zod');
+    const { composeNativeToolInstructions } = await import('../default-instructions');
+    const probe = defineNativeTool({
+      defaults: {
+        category: 'retrieval',
+        estimatedTokens: 1,
+        loadingTier: 'deferred',
+        requiresApproval: false,
+        riskCategory: 'read',
+      },
+      description: 'probe',
+      discovery: { family: 'diagnostics', namespace: 'database' },
+      id: 'brainstrike.instructionProbe',
+      inputSchema: providerCompatibleInputSchema(z.object({}).strict()),
+      instruction: (names) =>
+        `Use ${names.self} after ${names.of('brainstrike.grepSearch') ?? 'a search'}.`,
+      kind: 'desktop',
+      returns: 'probe',
+      surfaces: ['desktop'],
+    });
+
+    expect(
+      composeNativeToolInstructions(
+        [probe],
+        new Map([
+          ['brainstrike_instructionProbe', 'brainstrike.instructionProbe'],
+          ['brainstrike_grepSearch', 'brainstrike.grepSearch'],
+        ])
+      )
+    ).toEqual(['Use brainstrike_instructionProbe after brainstrike_grepSearch.']);
+    // Not registered this run → no line, never a line naming a missing verb.
+    expect(composeNativeToolInstructions([probe], new Map())).toEqual([]);
+    // A hook naming an id outside the catalog is a bug, not "unregistered".
+    const typo = defineNativeTool({
+      ...probe,
+      id: 'brainstrike.instructionTypo',
+      instruction: (names) => `${names.of('brainstrike.doesNotExist')}`,
+    });
+    expect(() =>
+      composeNativeToolInstructions(
+        [typo],
+        new Map([['brainstrike_instructionTypo', 'brainstrike.instructionTypo']])
+      )
+    ).toThrow(/not a native tool id/);
+  });
+});

@@ -14,7 +14,7 @@
  */
 
 import type { McpHostPort } from '@brainstrike/assistant-contract';
-import { resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID, resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
 import {
   findProviderDefinition,
   resolveTokenMeasurementCapability,
@@ -58,7 +58,7 @@ import { filterToolsForPlanMode, resolveSuspendToolsForRun } from '../plan-mode-
 import { ProjectionSafeToolCallFilter } from '../projection-safe-tool-call-filter';
 import type { ResolvedRuntimeConfiguration } from '../runtime-configuration';
 import { createRunTokenDiagnostics, type RunTokenDiagnostics } from '../token-measurement';
-import { applyToolModelOutputProjections } from '../tool-model-output';
+import { applyToolModelOutputProjections, wouldTruncateMcpModelOutput } from '../tool-model-output';
 import {
   applyToolOutputArtifactSettlement,
   type ToolOutputArtifactSettlementStore,
@@ -230,12 +230,28 @@ function applyRuntimeToolHooks(params: {
   });
 }
 
+export function resolveEligibleArtifactReaderName(
+  tools: ToolsInput,
+  toolNameMap: ReadonlyMap<string, string>
+): string {
+  const names = Object.keys(tools).filter(
+    (id) => toolNameMap.get(id) === NATIVE_TOOL_ID.readToolOutputArtifact
+  );
+  const name = names[0];
+  if (names.length !== 1 || !name) {
+    throw new Error('Durable tool output requires one eligible artifact reader.');
+  }
+  return name;
+}
+
 function settleRuntimeToolOutputs(params: {
   getDelegationToolNames: (() => readonly string[]) | undefined;
   inlineMaxSerializedCharsByToolName: ReadonlyMap<string, number> | undefined;
   store: ToolOutputArtifactSettlementStore | undefined;
   toolNameMap: ReadonlyMap<string, string>;
   tools: ToolsInput;
+  mcpToolNames: ReadonlySet<string>;
+  resolvedToolResultBudget: ScaledToolResultBudget;
 }): ToolsInput {
   if (!params.store) {
     return params.tools;
@@ -247,8 +263,12 @@ function settleRuntimeToolOutputs(params: {
     ...(params.inlineMaxSerializedCharsByToolName
       ? { inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName }
       : {}),
+    getReaderToolName: () => resolveEligibleArtifactReaderName(params.tools, params.toolNameMap),
     store: params.store,
     toolNameMap: params.toolNameMap,
+    wouldTruncateModelOutput: (toolName, output) =>
+      params.mcpToolNames.has(toolName) &&
+      wouldTruncateMcpModelOutput(toolName, output, params.resolvedToolResultBudget),
   });
 }
 
@@ -496,6 +516,19 @@ export async function composeRuntimeToolMap(
     timeoutOverrideMs: params.mcpTimeoutMs,
     toolNameMap,
   });
+  // Collection adds only MCP entries to the already-sanitized local registry.
+  // Capture that provenance before provider controls can change the final map.
+  const mcpToolNames = new Set(
+    Object.keys(combinedTools)
+      .filter((id) => !sanitizedLocalToolIds.has(id))
+      .map((id) => {
+        const original = toolNameMap.get(id);
+        if (!original) {
+          throw new Error(`Collected MCP tool ${id} is missing its original name.`);
+        }
+        return original;
+      })
+  );
   // Intentional global guard: every native and MCP tool execution shares this
   // ceiling so a single slow tool cannot freeze the assistant stream.
   // Per-runtime, which is per request. The guard is the only layer that sees
@@ -571,6 +604,8 @@ export async function composeRuntimeToolMap(
   const artifactSettledTools = settleRuntimeToolOutputs({
     getDelegationToolNames: params.getDelegationToolNames,
     inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName,
+    mcpToolNames,
+    resolvedToolResultBudget: params.resolvedToolResultBudget,
     store: params.toolOutputArtifactStore,
     toolNameMap,
     tools: finalTools,

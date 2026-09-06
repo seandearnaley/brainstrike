@@ -595,12 +595,20 @@
   in `LlmModelDefinition.anthropicReasoning` (BST-847), typed `AnthropicEffort`
   and separate from the OpenAI-vocabulary `reasoning` block. It is recorded
   from vendor documentation, never derived from union membership: Fable 5,
-  Opus 4.8, and Sonnet 5 offer `low|medium|high|xhigh|max`; Sonnet 4.6 offers
+  Opus 5, Opus 4.8, and Sonnet 5 offer `low|medium|high|xhigh|max`; Sonnet 4.6 offers
   `low|medium|high|max` (NO `xhigh`). Each defaults to `high`. Haiku 4.5
   declares NO effort ladder: effort is unsupported, while thinking keeps the
   legacy `enabled` + `budgetTokens` form. Sources, retrieved **2026-09-04**:
   https://platform.claude.com/docs/en/build-with-claude/effort and
   https://platform.claude.com/docs/en/about-claude/models/overview.
+  Opus 5 rejects thinking disabled with `xhigh` or `max`; the supported-effort
+  path emits adaptive thinking. Switching Thinking off clears effort and budget;
+  for Opus 5 only, cleared settings explicitly emit `thinking.type: disabled`
+  because omission enables thinking by default on this model. Other models keep
+  their existing omission behavior. Its
+  direct catalog row is seeded disabled (migration 116), preserving existing
+  user toggles. Pricing includes $10/MTok for one-hour cache writes, retained
+  here because the registry represents only the five-minute cache-write rate.
   `resolveReasoningControlsAvailability` reads the declared ladder/default;
   Haiku gets an empty ladder so its Effort row disappears while its Thinking
   toggle remains. A missing or uncatalogued id (direct Anthropic uses the
@@ -840,8 +848,8 @@
   `node:` builtin. Keep it that way — a browser-safe subpath that reaches an
   `@ai-sdk` module now drags a Node HTTP stack into the renderer bundle.
   **The v4 `@ai-sdk/provider` line still has TWO copies, not one.** 4.0.7 (the
-  `packages/agent` pin, the three providers, `@ai-sdk/provider-utils@5.0.27`,
-  and `@assistant-ui/react-data-stream`) and 4.0.4 (`@mastra/core@1.57.0`'s
+  `packages/agent` pin, the three providers, and
+  `@ai-sdk/provider-utils@5.0.27`) and 4.0.4 (`@mastra/core@1.57.0`'s
   `@ai-sdk/provider-v7` alias, via `@ai-sdk/provider-utils@5.0.13`). What #2462
   removed was the agent-only THIRD revision — 4.0.2, which the old
   `provider-utils@5.0.5` pulled in — and that third copy was the actual hazard,
@@ -4154,10 +4162,10 @@ active budget. Proofs:
 display, persistence, hooks, and reload, but their Mastra `toModelOutput`
 projections are deterministic line-oriented text. Content mode returns NO
 context lines unless the caller opts in (`contextLines` defaults to 0 —
-BST-1193: searches locate, reads understand; the schema, the browser-safe
-display mirror in `tool-schemas-display-search.ts`, and the tool fallback
-must state the same default, pinned by
-`native-tool-display-schema-parity.spec.ts`). Since BST-1185 those
+BST-1193: searches locate, reads understand; the schema's `.describe()`
+text and the tool fallback must state the same default — the inspector
+display is derived from that schema (`toToolSchemaDisplay`, BST-1646), so
+there is no longer a second mirror to keep in step). Since BST-1185 those
 projections are PATH-GROUPED and happy-path-silent: one file header per file
 (`rootName:path`, root prefix only when the producer's `openRoots` reports
 more than one open folder — the display name is a valid `root` selector, and
@@ -4299,31 +4307,59 @@ hint, throw visibly. Provider-native Anthropic/OpenAI web search remains owned
 by the provider adapter and does not pass through this execute-backed Tavily
 projector.
 
-Native-tool catalog ownership is deliberately split at the browser/runtime
-boundary:
-- `packages/assistant-contract/src/native-tool-catalog.ts` owns the canonical
-  ids and the exact desktop/skill partitions. The browser-safe
-  `TOOL_DESCRIPTIONS` and `NATIVE_TOOL_DEFAULTS` registries are exact
-  `NativeToolId` maps. `NATIVE_TOOL_SCHEMAS` is display metadata for UI and
-  documentation only; it is NEVER an execution or provider-schema source.
-- `packages/agent/src/tools/schemas.ts` owns the exact
-  `NATIVE_TOOL_INPUT_SCHEMAS` map from every `DesktopNativeToolId` to its
-  canonical Zod schema. Desktop provider registration and `validateToolInput`
-  reuse those same schema objects. Mastra converts them to provider JSON Schema
-  through the Standard Schema input protocol; never reconstruct validation or
-  provider schemas from the lossy display metadata.
-- Agent Skills (`skill`/`skill_read`/`skill_search`) remain canonical native ids
-  for metadata parity, but their execution schemas are Mastra-owned and are not
-  entries in `NATIVE_TOOL_INPUT_SCHEMAS`. The separate desktop-only
-  `brainstrike.runSkillScript` is a Brainstrike-owned typed execution tool and
-  therefore is present in the desktop catalog/schema map, deferred `skills`
-  namespace, and execute-risk policy; web and the built-in local model omit it.
+Native-tool catalog ownership (BST-1646): ONE `defineNativeTool` declaration
+per tool, everything else derived.
+- `packages/assistant-contract/src/native-tools/definitions/*.ts` — one file per
+  tool declaring its id, model-facing description, registered Zod
+  `inputSchema` (wrapped once in `providerCompatibleInputSchema`), load/risk
+  `defaults`, `discovery` namespace + capability family, `surfaces`
+  (desktop/web/local), history posture, non-durable output, and inspector
+  `returns` prose. `native-tools/index.ts` is the ONLY list (`NATIVE_TOOLS`);
+  `deriveNativeToolRegistries` produces every registry from it under its
+  historical export name: `NATIVE_TOOL_ID`, the id partitions
+  (`DESKTOP_/WEB_/LOCAL_DESKTOP_/SKILL_/NON_DURABLE_…`), `TOOL_DESCRIPTIONS`,
+  `NATIVE_TOOL_DEFAULTS`, `NATIVE_TOOL_DISCOVERY_NAMESPACES` membership,
+  `DEFERRED_CAPABILITY_FAMILIES`, the two history allowlists
+  (`RECENCY_PRUNABLE_` / `STALE_REPLAYABLE_NATIVE_TOOL_IDS`), and the prompt
+  composer's model-facing name map. `defineNativeTool` throws on an
+  undeterminable risk bucket, a deferred tool without a namespace, or a
+  critical tool with one. `NATIVE_TOOL_SCHEMAS` (the settings inspector
+  display, and the built-in local model's tool schema via
+  `toLocalRuntimeInputSchema`) is DERIVED from each definition's
+  `inputSchema` by `native-tools/display.ts` (`toToolSchemaDisplay`, Zod 4
+  `z.toJSONSchema` in `io: 'input'` mode — the same conversion the provider
+  wrapper runs), so parameter names, types, required-ness, enum options,
+  defaults, and bounds cannot drift from the wire. A parameter's prose is its
+  `.describe()` text; a definition's `display` map adds inspector-only prose
+  (never sent to the model) for a field whose wire description is absent or
+  terser than a human reader needs, and a key naming no parameter throws at
+  derivation. `NATIVE_TOOL_SCHEMAS` is NEVER an execution or provider-schema
+  source.
+- `packages/agent/src/tools/schemas.ts` exports `NATIVE_TOOL_INPUT_SCHEMAS`,
+  derived from the desktop definitions' `inputSchema` objects (the Zod modules
+  themselves live in `packages/assistant-contract/src/native-tools/schemas/`,
+  exported as `@brainstrike/assistant-contract/native-tool-schemas`, and are
+  re-exported from the historical `packages/agent/src/tools/schemas-*.ts`
+  paths for one release — edit the contract package, never the agent shims). Desktop provider
+  registration and `validateToolInput` reuse those same schema objects. Mastra
+  converts them to provider JSON Schema through the Standard Schema input
+  protocol; never reconstruct validation or provider schemas from the lossy
+  display metadata.
+- Agent Skills (`skill`/`skill_read`/`skill_search`) are `kind: 'skill'`
+  definitions: Mastra executes them, but the provider contract Brainstrike
+  imposes (`providerDescription` + `inputSchema` in `skill-tools.ts`) comes
+  from the definition, and they are not entries in `NATIVE_TOOL_INPUT_SCHEMAS`.
+  The separate desktop-only `brainstrike.runSkillScript` is a Brainstrike-owned
+  typed execution tool and therefore is present in the desktop catalog/schema
+  map, deferred `skills` namespace, and execute-risk policy; web and the
+  built-in local model omit it.
 
 Provider-emitted `null` has one fleet-wide meaning for the registered native
 catalog: on an optional or defaulted field it is omission, never a second domain
 value. `providerCompatibleInputSchema` in
-`packages/agent/src/tools/provider-compatible-input.ts` wraps each complete
-registered input once. One immutable traversal of its strict input JSON Schema
+`packages/assistant-contract/src/native-tools/schemas/provider-compatible-input.ts`
+(re-exported by `packages/agent/src/tools/provider-compatible-input.ts`) wraps
+each complete registered input once. One immutable traversal of its strict input JSON Schema
 removes `null` only from declared properties absent from `required`, including
 properties nested in arrays, tuple positions, uniquely const-matched
 `oneOf`/`anyOf` branches, and unions with exactly one structured branch matching
@@ -4368,10 +4404,18 @@ Mastra/OpenAI request in `mcp-optional-inputs.spec.ts` pins explicit non-strict
 generation, required-field preservation, omission at execution, and continued
 input validation; `mcp-runtime-client.spec.ts` pins explicit strict opt-in.
 
-Adding or renaming a native tool must update the canonical catalog first, then
-the exact metadata/schema maps, live desktop registry, exports, and conditional
-model-facing guidance. The parity tests fail on stale, missing, or extra keys;
-there is no fallback alias or partially registered tool.
+Adding or renaming a native tool is one `defineNativeTool` file (listed once
+in `native-tools/index.ts`) plus one entry in the desktop executor map
+(`apps/desktop/src/assistant-server/native-tool-executors-*.ts`, assembled
+into the exhaustive `NATIVE_TOOL_EXECUTORS` — a definition with no entry, or
+an entry for no definition, is a compile error) and, when the tool needs
+prompt guidance, an `instruction` hook on the definition.
+`buildDesktopAssistantTools` is a fold of `DESKTOP_NATIVE_TOOL_IDS` through
+that map; an entry returns `undefined` when its capability is absent for the
+request (built-in local provider, no artifact reader, no skill resolver). The catalog's
+inline snapshot (`native-tools.test.ts`) is the only hand-listed id set; every
+other registry derives, so there is no stale, missing, or extra key to drift —
+and no fallback alias or partially registered tool.
 
 `brainstrike.manageCanvas` is desktop-only because its source of truth is the
 client-local `brainstrike_canvas_versions` ledger. It is a deferred workspace
@@ -4682,6 +4726,9 @@ pair is not a normal function definition that catalog search may rename.
 Mastra's canonical `skill`, `skill_read`, and `skill_search` controls also stay
 eager: `SkillsProcessor` tells the model to call them directly, so deferring
 them would make Mastra's own injected instructions reference unavailable tools.
+The eligible `readToolOutputArtifact` recovery control stays eager for the same
+reason: settlement emits directly callable continuation actions. This adds no
+alias and does not bypass eligibility or permission gates.
 
 `LlmModelDefinition.nativeToolSearch` records provider-native support on the
 exact model route:

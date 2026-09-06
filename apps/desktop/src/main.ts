@@ -77,6 +77,11 @@ import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { type SerializedDesktopError, serializeDesktopError } from './desktop-error-serialization';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
+import {
+  configureDesktopRendererTarget,
+  createDesktopRendererTarget,
+} from './desktop-renderer-target';
+import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import {
   createDesktopFactoryResetHandler,
@@ -107,6 +112,7 @@ import {
   createDesktopDimensionIndexMaintenanceScheduler,
   type DesktopDimensionIndexMaintenanceScheduler,
 } from './dimension-index-maintenance-scheduler';
+import { resolveBuiltRendererPath } from './dist-root';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
@@ -1650,6 +1656,24 @@ if (singleInstanceLockAcquired) {
         isTestMode: e2eTestMode,
       });
       logger.debug('Resolved desktop launch mode', { launchMode });
+
+      // The ONE renderer target for this process (BST-1641). The visible
+      // window (`create-window.ts`) and the hidden hosts
+      // (`renderer-host-lifecycle.ts`) load the document it names, and the
+      // IPC sender-frame allowlist that every `registerAuthorizedInvoke`
+      // channel checks `event.senderFrame.url` against is derived from this
+      // same object — there is no second launch-mode derivation to drift.
+      // Configured here, after the launch mode is known and before any
+      // BrowserWindow exists: a loader that ran first would throw
+      // "not configured" at load time, and no authorized invoke can ever be
+      // evaluated against an unconfigured (fail-closed) allowlist.
+      const rendererTarget = createDesktopRendererTarget({
+        builtRendererPath: resolveBuiltRendererPath(),
+        devRendererUrl: DESKTOP_DEV_RENDERER_URL,
+        launchMode,
+      });
+      configureDesktopRendererTarget(rendererTarget);
+      logger.debug('Configured desktop renderer target', { rendererTarget });
 
       // Register the root-validated `brainstrike-asset://` protocol now that the
       // app is ready (protocol.handle requires ready). The resolver validates

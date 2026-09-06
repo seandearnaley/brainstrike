@@ -20,6 +20,7 @@ export const migration085ToolCallTelemetryOccurredAtIndex: Migration = {
   down: `
     DROP INDEX IF EXISTS brainstrike_tool_call_telemetry_occurred_at_idx;
   `,
+  ledgerKey: 'custom-085-tool-call-telemetry-occurred-at-index',
   name: 'tool_call_telemetry_occurred_at_index',
   up: `
     CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_occurred_at_idx

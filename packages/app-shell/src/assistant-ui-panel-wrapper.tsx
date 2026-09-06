@@ -207,15 +207,17 @@ export function AssistantUiPanelWrapper({
   providerKeySources,
 }: AssistantUiPanelWrapperProps) {
   const providerSource = useAssistantProviderSource();
-  const {
-    setModel,
-    clearModel,
-    getLocalRuntimeStatuses,
-    getLocalRuntimeModels,
-    getSelectedModel,
-    getSelectedProvider,
-    setProviderSettings,
-  } = useAssistantPreferencesStore();
+  const setModel = useAssistantPreferencesStore((state) => state.setModel);
+  const clearModel = useAssistantPreferencesStore((state) => state.clearModel);
+  const getLocalRuntimeStatuses = useAssistantPreferencesStore(
+    (state) => state.getLocalRuntimeStatuses
+  );
+  const getLocalRuntimeModels = useAssistantPreferencesStore(
+    (state) => state.getLocalRuntimeModels
+  );
+  const getSelectedModel = useAssistantPreferencesStore((state) => state.getSelectedModel);
+  const getSelectedProvider = useAssistantPreferencesStore((state) => state.getSelectedProvider);
+  const setProviderSettings = useAssistantPreferencesStore((state) => state.setProviderSettings);
   const { localRuntimeHint, localRuntimeModels } = useAssistantLocalRuntimeCatalog({
     getLocalRuntimeModels,
     getLocalRuntimeStatuses,

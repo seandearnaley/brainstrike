@@ -53,7 +53,11 @@ test.describe('Assistant retrieval (desktop)', () => {
     await expect(window.getByText('Retrieved answer.').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    // Tool cards render directly in the thread (no reasoning fold for tool-only turns).
+    const summary = window.getByTestId('assistant-activity-summary').first();
+    await expect(summary).toHaveAttribute('aria-expanded', 'false', {
+      timeout: E2E_TIMEOUTS.toolVisibility,
+    });
+    await summary.click();
     await expect(window.getByTestId('tool-fallback').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
@@ -68,10 +72,14 @@ test.describe('Assistant retrieval (desktop)', () => {
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 
+    const summary = window.getByTestId('assistant-activity-summary').first();
+    await expect(summary).toHaveAttribute('aria-expanded', 'false', {
+      timeout: E2E_TIMEOUTS.toolVisibility,
+    });
+    await summary.click();
     await expect(window.getByText(errorMessage).first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    // Tool cards render directly in the thread (no reasoning fold for tool-only turns).
     await expect(window.getByTestId('tool-fallback').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });

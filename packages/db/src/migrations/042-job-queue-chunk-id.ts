@@ -13,6 +13,7 @@ export const migration042JobQueueChunkId: Migration = {
     ALTER TABLE job_queue
       DROP COLUMN IF EXISTS chunk_id;
   `,
+  ledgerKey: 'custom-042-job-queue-chunk-id',
   name: 'job_queue_chunk_id',
   up: `
     ALTER TABLE job_queue

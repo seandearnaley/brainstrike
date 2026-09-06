@@ -146,8 +146,32 @@ When adding a new tool:
     aware that the runtime may rename them internally; the original name is  
     preserved in `runtime.toolNameMap`.
     
-6. **Document your tool**. Update this AGENTS.md to describe any new tools,  
-    their purpose, limitations and usage. If the tool proxies to an external  
+6. **Declare the tool once**. A Brainstrike native tool is ONE
+    `defineNativeTool({...})` file under
+    `packages/assistant-contract/src/native-tools/definitions/` (id, model-facing
+    description, registered Zod `inputSchema`, load/risk `defaults`, discovery
+    namespace + capability family, `surfaces`, history posture, inspector
+    `returns` prose) listed once in `native-tools/index.ts`. Every registry —
+    `NATIVE_TOOL_ID`, `TOOL_DESCRIPTIONS`, `NATIVE_TOOL_DEFAULTS`,
+    `NATIVE_TOOL_INPUT_SCHEMAS`, discovery namespaces, capability families, the
+    web/local partitions, the history allowlists, and the prompt composer's
+    model-facing name map — is derived from that list; a missing facet fails at
+    definition time (`InvalidNativeToolDefinitionError` /
+    `UndeterminableToolRiskError`), never as a stale second copy. The settings
+    inspector display (`NATIVE_TOOL_SCHEMAS`) is derived from the definition's
+    `inputSchema` too: parameter prose is the schema's `.describe()` text, and
+    an optional `display` map on the definition adds inspector-only prose that
+    is never sent to the model. Then add the tool's executor entry to the
+    exhaustive `NATIVE_TOOL_EXECUTORS` map
+    (`apps/desktop/src/assistant-server/native-tool-executors-*.ts`) — a
+    definition without an entry is a compile error, and
+    `buildDesktopAssistantTools` folds the catalog through that map. The
+    catalog's one inline snapshot
+    (`packages/assistant-contract/src/__tests__/native-tools.test.ts`) is the
+    only place a tool id is listed by hand.
+
+7. **Document your tool**. Update this AGENTS.md to describe any new tools,
+    their purpose, limitations and usage. If the tool proxies to an external
     service, document rate limits and visible failure behavior.
 
 ### `brainstrike.manageCanvas` tool (schema here, executed in desktop)
@@ -156,7 +180,8 @@ Single tool with an `action` discriminated union — `create`, `update`,
 `rewrite`, `list` — persisting versioned Canvas documents
 (`brainstrike_canvas_versions`, migration 082) that the Canvas surface renders
 in the sandboxed CanvasFrame (BST-1173). The Zod schema lives in
-`src/tools/schemas-workspace.ts` (provider envelope is a strict root object
+`packages/assistant-contract/src/native-tools/schemas/schemas-workspace.ts` (re-exported from
+`src/tools/schemas-workspace.ts`) (provider envelope is a strict root object
 delegating to the canonical union; root `oneOf` is rejected by the provider
 contract). Execution lives in `apps/desktop/src/assistant-server/manage-canvas-tool.ts`.
 
@@ -188,7 +213,9 @@ Limitations / invariants:
 Two tools over ONE code path (BST-1392, spec §6.4): both call the SAME
 `WorktreeService` the Worktree Map / Mode chip calls, never `git worktree`
 directly. `listWorktrees` is read-only; `manageWorktree` creates or archives.
-The Zod schemas live in `src/tools/schemas-worktrees.ts`
+The Zod schemas live in
+`packages/assistant-contract/src/native-tools/schemas/schemas-worktrees.ts` (re-exported from
+`src/tools/schemas-worktrees.ts`)
 (`ListWorktreesInputSchema`, `ManageWorktreeInputSchema` — the latter is a
 strict root object with a `superRefine` delegating to a `create`/`archive`
 discriminated union, same shape as `manageCanvas`: a raw discriminated union
