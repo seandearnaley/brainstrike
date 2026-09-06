@@ -2,10 +2,13 @@
 //
 // The guard exists because ~26 desktop test files stub
 // `BrowserWindow.getAllWindows: () => []`, and the main -> renderer broadcasts
-// it covers are all `for (const window of BrowserWindow.getAllWindows())`
-// loops. An empty listing is a perfectly good stub for a test that does not
-// care what the renderer was told; it is a silent false green for one that
-// does.
+// it covers all RESOLVE THEIR TARGET WINDOW from that listing. Scope is the
+// resolution, not the loop shape: most iterate it, but
+// chunking-host-manager.ts picks one out with `.find()`. An empty listing is a
+// perfectly good stub for a test that does not care what the renderer was
+// told; it is a silent false green for one that does — with no windows the
+// loop body never runs and the `.find()` returns undefined, so either way
+// nothing is sent and the assertion passes anyway.
 //
 // It is NOT every send site in apps/desktop (BST-1624): broadcasts that go to
 // a WebContents the caller already holds are outside the rule by design, for

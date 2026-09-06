@@ -1,14 +1,18 @@
 // BST-1622: a desktop main-process test may not assert on what the renderer was
 // told while stubbing the window listing empty.
 //
-// The main -> renderer broadcasts covered by this guard all iterate
-// `BrowserWindow.getAllWindows()` (src/ipc-mcp.ts, src/mcp/lifecycle-control.ts,
-// src/ipc-domains/db-ipc.ts, src/assistant-server/workspace-context-tools.ts and
-// eight sites in src/main.ts). Every one is a `for (const window of ...)` loop.
-// With `getAllWindows: () => []` the loop body never runs, so an assertion about
-// what the renderer received — `expect(send).toHaveBeenCalledWith(...)` and,
-// worse, its `.not.` twin — passes whether or not the production code sends
-// anything. The test reports a green it never earned.
+// The main -> renderer broadcasts covered by this guard all RESOLVE THEIR
+// TARGET WINDOW from `BrowserWindow.getAllWindows()`. Scope is the resolution,
+// not the shape: src/ipc-mcp.ts, src/mcp/lifecycle-control.ts,
+// src/ipc-domains/db-ipc.ts, src/assistant-server/workspace-context-tools.ts
+// and eight sites in src/main.ts iterate the listing, while
+// chunking-host-manager.ts `.find()`s a single window out of it.
+//
+// With `getAllWindows: () => []` both go dark — the loop body never runs and
+// the `.find()` returns undefined — so an assertion about what the renderer
+// received (`expect(send).toHaveBeenCalledWith(...)` and, worse, its `.not.`
+// twin) passes whether or not the production code sends anything. The test
+// reports a green it never earned.
 //
 // SCOPE, stated because an earlier version of this comment over-claimed
 // "every main -> renderer broadcast" (BST-1624). It is not every send site —
