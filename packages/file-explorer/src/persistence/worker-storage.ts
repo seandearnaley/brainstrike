@@ -185,7 +185,27 @@ export class WorkerStorage {
     opId?: number
   ) {
     const lastOp = this.activeSaveOps.get(key) ?? 0;
-    if (opId && opId < lastOp) {
+    // BST-459. The question both checks below ask is "did the sender give this
+    // write a usable sequence number?", and `Number.isFinite` is the predicate
+    // that answers it. Neither of the two obvious shorthands does:
+    //
+    //   `opId && …`            treats `0` as unsequenced. 0 is a legal value of
+    //                          the declared `opId?: number`, so a stale write
+    //                          carrying it was APPLIED over a newer one — this
+    //                          guard failing open, which is the ticket's bug.
+    //   `opId !== undefined`   admits anything else that arrives. The payload
+    //                          crosses postMessage and is not type-checked at
+    //                          runtime: `NaN` would be recorded, and since
+    //                          `x < NaN` is always false the guard would then
+    //                          stop firing for that key until the next valid
+    //                          write; `''` would compare as 0 and SKIP a write
+    //                          that should have landed.
+    //
+    // The in-repo producer emits `Date.now()` (worker-storage.worker.mjs), so
+    // none of this is reachable today — but `StorageRequest` is exported, and
+    // the natural move to a monotonic counter starts at 0.
+    const sequenced = opId !== undefined && Number.isFinite(opId);
+    if (sequenced && opId < lastOp) {
       this.worker?.postMessage({
         id,
         operation: 'setItem',
@@ -194,7 +214,7 @@ export class WorkerStorage {
       });
       return;
     }
-    if (opId) {
+    if (sequenced) {
       this.activeSaveOps.set(key, opId);
     }
 
