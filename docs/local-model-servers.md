@@ -142,7 +142,7 @@ and [tool use](https://lmstudio.ai/docs/developer/openai-compat/tools).
   are separate capabilities.
 - **Assistant stream initialization fails before the server receives a
   request**: observational memory uses its own explicit model. Configure that
-  model and its credentials under **Settings → Models & Providers → Assistant
+  model and its credentials under **Settings → Model Catalog → Assistant
   Memory**, or turn off observations. Brainstrike does not silently replace
   the chosen memory model with the active chat model.
 

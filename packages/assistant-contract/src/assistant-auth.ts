@@ -1,3 +1,13 @@
+import { createLogger } from '@brainstrike/logging';
+
+const logger = createLogger('AssistantBridge');
+let reportedMalformedAssistantBridge = false;
+
+/** @internal Test-only reset for deterministic module-state assertions. */
+export function __resetMalformedAssistantBridgeReportForTests(): void {
+  reportedMalformedAssistantBridge = false;
+}
+
 /**
  * Auth contract between the desktop assistant HTTP server and its renderer
  * clients. The desktop main process mints a per-boot capability token and hands
@@ -27,3 +37,44 @@ export type AssistantServerAuthResult =
   | AssistantServerAuthInfo
   | AssistantServerStartupFailure
   | null;
+
+/** Desktop preload capability for the embedded assistant server. Absent on web. */
+export interface AssistantBridge {
+  getAuth?: () => Promise<AssistantServerAuthResult>;
+  getUrl?: () => Promise<string>;
+  url?: string;
+}
+
+declare global {
+  interface Window {
+    assistant?: AssistantBridge;
+  }
+}
+
+/**
+ * Read the optional desktop assistant capability without making consumers
+ * repeat unverified casts. The bridge remains capability-gated: web and SSR
+ * return undefined rather than receiving a stub.
+ */
+export function getAssistantBridge(): AssistantBridge | undefined {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const bridge: unknown = window.assistant;
+  if (bridge === undefined) {
+    return;
+  }
+  if (bridge === null || typeof bridge !== 'object' || Array.isArray(bridge)) {
+    if (!reportedMalformedAssistantBridge) {
+      reportedMalformedAssistantBridge = true;
+      logger.error(
+        'window.assistant is present but malformed; desktop assistant capabilities disabled.',
+        {
+          receivedType: Array.isArray(bridge) ? 'array' : bridge === null ? 'null' : typeof bridge,
+        }
+      );
+    }
+    return;
+  }
+  return bridge;
+}

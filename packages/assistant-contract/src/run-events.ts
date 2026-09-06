@@ -1,9 +1,6 @@
 export const ASSISTANT_RUN_EVENT_DATA_NAME = 'brainstrike.run-event';
 
 export const ASSISTANT_RUN_EVENT_KINDS = [
-  'context.budget',
-  'context.prepared',
-  'context.selection',
   'hook.blocked',
   'hook.notice',
   'memory.configured',
@@ -22,9 +19,64 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'memory.semantic.started',
   'memory.working.loaded',
   'memory.working.updated',
+  // One MCP server — or the whole client — contributed ZERO tools to this run
+  // (BST-1602): discovery lost its timeout race, or that server's `listTools`
+  // failed. The run still answers, with a materially reduced tool surface.
+  //
+  // Deliberately NOT `tool.failed`: no tool ran and none failed. The tool never
+  // entered the map at all, so `search_tools` reports "0 results" and the
+  // model's follow-up call fails fast — a `tool.failed` spelling would invent a
+  // failed call in the Task Ledger and double-count the one the model does
+  // make. Deliberately NOT `run.failed`: the turn is healthy and completes.
+  //
+  // Standalone breadcrumb, like the `worktree.*` kinds: no `.started`
+  // counterpart and no terminal, so it never leaves a row spinning. Status is
+  // `'failed'` rather than the `worktree.*` `'info'` — those record operations
+  // that SUCCEEDED, this records a configured capability that did not load.
+  //
+  // It is in `isAlwaysVisibleRunEvent`, and that is load-bearing rather than
+  // incidental: run-event rows are hidden at default detail, so without the
+  // allowlist entry this kind would reproduce the silent degradation it exists
+  // to report. It passes that allowlist's own test — nothing else cards this
+  // fact. An ordinary tool failure is excluded there because its ToolFallback
+  // card reports it; a skipped server has no card at all, and the "Tool
+  // execution failed." card the user does see belongs to the model's doomed
+  // follow-up call and names the wrong cause. Carrying no `toolCallId`, it needs
+  // no exemption from the card-suppression rule (unlike that allowlist's two
+  // `tool.*` entries).
+  'mcp.tools.unavailable',
+  // Forge (pull request) observations (BST-1391, W4). These are the ONLY run
+  // events not produced by the agent stream: the main-process ForgeService
+  // observes them out of band and the renderer appends them to the thread's
+  // MOST RECENT run — the run whose push produced the pull request.
+  //
+  // `run_id` is NOT NULL with an FK to the renderer-bootstrapped thread-runs
+  // table, so a thread with no runs gets no row: there is no turn to attach
+  // the observation to, and `appendThreadRunEvent`'s INSERT … SELECT no-ops.
+  // The chip and the thread pill still show the PR — only the timeline row is
+  // absent, and the writer logs that it was.
+  //
+  // Deliberately three kinds rather than one `pr.updated`: the timeline reads
+  // as a history ("Opened #2574", "Checks failed", "Merged"), and the
+  // notification gate is per-kind.
+  'pr.checks',
+  'pr.merged',
+  'pr.opened',
   'run.cancelled',
+  'run.database.retried',
   'run.failed',
   'run.finished',
+  // A stalled ATTEMPT that the turn recovered from, and the continuation that
+  // followed (BST-1409). Deliberately NOT `run.failed`/`run.started`: the turn
+  // never failed and never restarted — one provider attempt went silent and was
+  // replaced, with every completed step carried forward. Reusing the terminal
+  // kinds would report a healthy turn as a failure in the durable timeline.
+  //
+  // A continuation IS a fresh `agent.stream`, so Mastra re-emits its `start`
+  // part; the turn runner drops that duplicate (`withoutDuplicateRunStarted`)
+  // precisely so this stays true and one turn reports one `run.started`.
+  'run.resumed',
+  'run.stalled',
   'run.started',
   'run.steered',
   'run.step.finished',
@@ -35,6 +87,37 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'subagent.tool.completed',
   'subagent.tool.failed',
   'subagent.tool.started',
+  // The approval PAUSE itself, as a durable event (BST-1402). The pause is NOT
+  // otherwise unrecorded: a STILL-PENDING one is rediscovered on load from the
+  // Mastra suspended-workflow snapshot (`listSuspendedMastraRuns` +
+  // `appendSuspendedPauseMessages`), which re-appends the real actionable
+  // `brainstrike.tool-approval` notice. This row exists for the two things that
+  // rediscovery cannot do:
+  //   1. It is a CHEAP CROSS-THREAD PROJECTION SURFACE. The Threads panel's
+  //      "needs you" column is one SQL query over
+  //      `brainstrike_assistant_run_events`; rediscovery is a per-thread round
+  //      trip through workflow storage and cannot be run for every thread in a
+  //      list.
+  //   2. It records pauses that were LATER ANSWERED. Rediscovery only ever
+  //      surfaces snapshots that are still suspended, so without this row the
+  //      history of "this run stopped and asked" disappears the moment the user
+  //      answers.
+  //
+  // Deliberately NOT spelled `.started`, and deliberately WITHOUT a resolution
+  // counterpart. No tool ran: a `.started` spelling would make
+  // `collectToolDurations` clock the USER's deliberation as tool execution and
+  // would pair the pause against `tool.completed` as if a call had run, while
+  // `RUN_LEDGER_AGGREGATION_SQL` counts only `tool.completed`/`tool.failed`, so
+  // this is never a tool call in the Task Ledger either. Resolution is DERIVED
+  // from events that already exist — the next event for the SAME
+  // `metadata.toolCallId` (approve => the resumed stream re-yields the tool
+  // start and eventually `tool.completed`; decline => `tool.failed`, "Tool call
+  // declined"; unanswerable => `tool.resume.unsupported`). The run status is
+  // NOT a resolution signal: the paused leg is recorded `completed` (it returns
+  // `finished` at the pause), so "the run left `status = 'running'`" is true the
+  // instant the pause is written. A `tool.approval.resolved` kind would be a second
+  // source of truth for a fact those terminals already carry.
+  'tool.approval.requested',
   'tool.completed',
   'tool.failed',
   // A suspending tool paused a run this build has no registered resume UI for
@@ -46,6 +129,20 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // timeline / duration pairings while the tool is still suspended.
   'tool.resume.unsupported',
   'tool.started',
+  // Managed-worktree lifecycle (BST-1390). Standalone breadcrumbs, emitted
+  // `status: 'info'` (or `'failed'` for a failed setup) — deliberately NOT
+  // `.started` kinds: a worktree create/archive is atomic from the timeline's
+  // point of view and has no terminal to pair against, so a `.started`
+  // spelling would leave a row spinning for the rest of the run.
+  //
+  // They exist ONLY for operations that happen inside a run. A worktree created
+  // before the thread's first request has no run row to attach to, and no
+  // orphan event is invented for it: the create sheet reports the outcome and
+  // `brainstrike_worktrees` is the durable record. See
+  // docs/agents/assistant-persistence.md.
+  'worktree.archived',
+  'worktree.created',
+  'worktree.setup',
 ] as const;
 
 export type AssistantRunEventKind = (typeof ASSISTANT_RUN_EVENT_KINDS)[number];

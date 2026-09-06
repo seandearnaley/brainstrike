@@ -309,6 +309,9 @@ export class BFSEngine {
    * Handle load result from main thread.
    */
   handleLoadResult(path: string, children: WorkerFileNode[], requestId?: string): void {
+    if (!this.canApplyCorrelatedLoadResponse(path, requestId)) {
+      return;
+    }
     const operationId = this.resolveLoadOperationId(path, requestId);
     this.applyDirectoryChildrenUpdate(path, children, 'loaded', operationId);
 
@@ -369,6 +372,9 @@ export class BFSEngine {
    * Handle load error from main thread.
    */
   handleLoadError(path: string, error: string, requestId?: string): void {
+    if (!this.canApplyCorrelatedLoadResponse(path, requestId)) {
+      return;
+    }
     const operationId = this.resolveLoadOperationId(path, requestId);
     const updatedNode = this.updateIndexedNode(path, (node) =>
       this.createNodeWithLoadState(node, 'error', error)
@@ -424,6 +430,14 @@ export class BFSEngine {
       }
     }
     return;
+  }
+
+  private canApplyCorrelatedLoadResponse(path: string, requestId: string | undefined): boolean {
+    if (requestId === undefined) {
+      return true;
+    }
+    const pending = this.pendingLoads.get(requestId);
+    return Boolean(pending?.paths.has(path) && !pending.results.has(path));
   }
 
   private requestLoads(paths: string[], operationId: number): Promise<BatchLoadResult[]> {

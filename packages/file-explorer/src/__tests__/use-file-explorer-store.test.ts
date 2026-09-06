@@ -8,7 +8,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla'; // Use vanilla store for testing actions
 import { createDirectoryExpansionActions } from '../actions/directory-expansion-actions';
-import { createFileContentActions } from '../actions/file-content-actions';
+import { createFileContentActions, createFileContentCache } from '../actions/file-content-actions';
 import { createFileSelectionActions } from '../actions/file-selection-actions';
 import { createFolderStateActions } from '../actions/folder-state-actions';
 import { createSettingsActions } from '../actions/settings-actions';
@@ -43,6 +43,7 @@ describe('useFileExplorerStore Actions Integration', () => {
     clearQuickFilter: vi.fn(),
     clearSelectedFiles: vi.fn(),
     collapseAllDirectories: vi.fn(),
+    consumePersistenceRecoveryNotice: vi.fn(),
     currentFolderId: null,
     evictOldFileContents: vi.fn(),
     expandAllDirectories: vi.fn(),
@@ -53,9 +54,12 @@ describe('useFileExplorerStore Actions Integration', () => {
     getFileContentCacheStats: vi.fn(),
     hydrateFolderState: vi.fn(),
     lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files', // Ensure default
+    reconcileSelectionWithDirectorySnapshot: vi.fn(),
+    reconcileSelectionWithDirectorySnapshots: vi.fn(),
     removeActiveRoot: vi.fn(),
     removeMultipleSelectedFiles: vi.fn(),
     removeSelectedFile: vi.fn(),
+    reportPersistedStateDiscard: vi.fn(),
     resetSelectionToExplicit: vi.fn(),
     selectedFilePaths: new Set<string>(),
     setActiveRoots: vi.fn(),
@@ -105,7 +109,8 @@ describe('useFileExplorerStore Actions Integration', () => {
     const settingsActions = createSettingsActions(zustandStore.setState, zustandStore.getState);
     const fileContentActions = createFileContentActions(
       zustandStore.setState,
-      zustandStore.getState
+      zustandStore.getState,
+      createFileContentCache()
     );
 
     // Combine actions and add them to the store's state for the test setup
@@ -156,21 +161,16 @@ describe('useFileExplorerStore Actions Integration', () => {
       expect(state.selectedFilePaths.size).toBe(0);
     });
 
-    it('setSelectedFiles should replace selection (only with valid composite keys)', () => {
+    it('setSelectedFiles should reject malformed composite keys without replacing selection', () => {
       const validSet = new Set([compositeKey1, compositeKey2]);
       const invalidSet = new Set([compositeKey1, 'invalid-key', compositeKey2]);
 
       store.setSelectedFiles(validSet);
-      let state = store.getState();
+      const state = store.getState();
       expect(state.selectedFilePaths).toEqual(validSet);
 
-      // Test with invalid keys - should only keep valid ones
-      store.setSelectedFiles(invalidSet);
-      state = store.getState();
-      expect(state.selectedFilePaths.size).toBe(2);
-      expect(state.selectedFilePaths.has(compositeKey1)).toBe(true);
-      expect(state.selectedFilePaths.has(compositeKey2)).toBe(true);
-      expect(state.selectedFilePaths.has('invalid-key')).toBe(false);
+      expect(() => store.setSelectedFiles(invalidSet)).toThrow('Invalid composite key format');
+      expect(store.getState().selectedFilePaths).toEqual(validSet);
     });
 
     it('toggleSelectedFile should add if not present and remove if present', () => {

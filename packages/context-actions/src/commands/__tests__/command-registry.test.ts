@@ -221,4 +221,28 @@ describe('createGlobalCommands', () => {
     const failure = await byId.get('nav.settings')?.run(makeContext([]));
     expect(failure).toEqual({ error: 'boom', ok: false });
   });
+
+  it('gates the open-folder command on whether a handler is supplied', () => {
+    const withoutHandler = createGlobalCommands({ newThread: () => {} });
+    const ctx = makeContext([]);
+    expect(
+      withoutHandler
+        .filter((command) => command.isAvailable?.(ctx) ?? true)
+        .some((command) => command.id === 'global.open-folder')
+    ).toBe(false);
+
+    const openFolder = vi.fn();
+    const withHandler = createGlobalCommands({ newThread: () => {}, openFolder });
+    const available = withHandler.filter((command) => command.isAvailable?.(ctx) ?? true);
+    expect(available.some((command) => command.id === 'global.open-folder')).toBe(true);
+  });
+
+  it('runs the supplied open-folder handler', async () => {
+    const openFolder = vi.fn();
+    const commands = createGlobalCommands({ openFolder });
+    const command = commands.find((c) => c.id === 'global.open-folder');
+    const outcome = await command?.run(makeContext([]));
+    expect(outcome).toEqual({ ok: true });
+    expect(openFolder).toHaveBeenCalledTimes(1);
+  });
 });

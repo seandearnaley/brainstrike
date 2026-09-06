@@ -414,6 +414,123 @@ describe('resolveProviderError', () => {
     expect(provider.runError.code).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
     expect(provider.detail).toBe('opaque');
   });
+
+  // BST-1384: a provider 401 is the ONE wrong-credential status (the same rule
+  // the Settings "Test connection" probe applies — provider-verification.ts).
+  // OpenRouter's 401 body is literally "User not found." for ANY unrecognized
+  // key, which read as an app regression for a full day. The visible detail
+  // must name the provider, say the credential was rejected, and point at the
+  // remedy FOR THAT PROVIDER'S AUTH TYPE (PR #2573 review: an api-key remedy
+  // is wrong for a ChatGPT subscription session or a local-runtime token);
+  // the runError envelope (code/httpStatus — the diagnostics fingerprint and
+  // debug-bundle fields) must be byte-identical to before.
+  describe('rejected credential (HTTP 401)', () => {
+    const openRouterUserNotFound = {
+      message: 'User not found.',
+      statusCode: 401,
+    };
+
+    it('rewrites an OpenRouter 401 into actionable api-key copy, guidance first', () => {
+      const resolved = resolveProviderError(openRouterUserNotFound, {
+        provider: 'openrouter',
+      } as RuntimeData);
+      expect(resolved.detail).toBe(
+        'OpenRouter rejected the API key (HTTP 401) — it is invalid or was revoked. Update the key in Settings → Providers, or verify it in the provider dashboard. Provider response: User not found.'
+      );
+    });
+
+    it('leaves the runError envelope untouched (fingerprint + bundle fields)', () => {
+      const resolved = resolveProviderError(openRouterUserNotFound, {
+        provider: 'openrouter',
+      } as RuntimeData);
+      expect(resolved.runError).toEqual({
+        code: PROVIDER_RUN_ERROR_FALLBACK_CODE,
+        httpStatus: 401,
+        message: 'User not found.',
+      });
+    });
+
+    it('names every api-key provider by its registry displayName', () => {
+      const resolved = resolveProviderError(
+        { message: 'Incorrect API key provided.', statusCode: 401 },
+        { provider: 'openai' } as RuntimeData
+      );
+      expect(resolved.detail).toBe(
+        'OpenAI rejected the API key (HTTP 401) — it is invalid or was revoked. Update the key in Settings → Providers, or verify it in the provider dashboard. Provider response: Incorrect API key provided.'
+      );
+    });
+
+    it('tells a subscription (oauth_subscription) provider to sign in again, never to edit a key', () => {
+      // openai-codex stores the placeholder `oauth-subscription-no-api-key`;
+      // an expired/revoked session or failed refresh is exactly a 401.
+      const resolved = resolveProviderError({ message: 'Unauthorized', statusCode: 401 }, {
+        provider: 'openai-codex',
+      } as RuntimeData);
+      expect(resolved.detail).toBe(
+        'OpenAI (ChatGPT) rejected the sign-in session (HTTP 401) — it expired or was revoked. Sign in again in Settings → Providers. Provider response: Unauthorized'
+      );
+      expect(resolved.detail).not.toContain('API key');
+    });
+
+    it('points an aws provider at its Bedrock credential / AWS session', () => {
+      const resolved = resolveProviderError(
+        { message: 'The security token included in the request is invalid.', statusCode: 401 },
+        { provider: 'bedrock' } as RuntimeData
+      );
+      expect(resolved.detail).toBe(
+        'Amazon Bedrock rejected the AWS credentials (HTTP 401) — they are invalid or expired. Update the Bedrock credential in Settings → Providers, or refresh the AWS profile session (for example `aws sso login`). Provider response: The security token included in the request is invalid.'
+      );
+    });
+
+    it('points a keyless local runtime (authType none) at its Local Runtimes token', () => {
+      // ollama/lmstudio carry an OPTIONAL bearer via providerOptions.apiToken,
+      // configured under Local Runtimes — there is no Settings key to update.
+      const resolved = resolveProviderError({ message: 'Unauthorized', statusCode: 401 }, {
+        provider: 'ollama',
+      } as RuntimeData);
+      expect(resolved.detail).toBe(
+        'Ollama (Local Runtime) rejected the request as unauthorized (HTTP 401). Check the runtime’s API token under Settings → Local Runtimes. Provider response: Unauthorized'
+      );
+      expect(resolved.detail).not.toContain('API key');
+    });
+
+    it('falls back to a neutral credential subject when the provider is unknown', () => {
+      const resolved = resolveProviderError(openRouterUserNotFound, undefined);
+      expect(resolved.detail).toBe(
+        'The provider rejected the credential (HTTP 401) — it is invalid or was revoked. Check the provider’s credential in Settings → Providers. Provider response: User not found.'
+      );
+    });
+
+    it('keeps the guidance intact under the visible clamp (provider body is what truncates)', () => {
+      const longBody = 'x'.repeat(MAX_VISIBLE_PROVIDER_ERROR_CHARS + 200);
+      const resolved = resolveProviderError({ message: longBody, statusCode: 401 }, {
+        provider: 'openrouter',
+      } as RuntimeData);
+      const visible = truncateStreamDetail(resolved.detail, MAX_VISIBLE_PROVIDER_ERROR_CHARS);
+      expect(visible.length).toBe(MAX_VISIBLE_PROVIDER_ERROR_CHARS);
+      expect(visible.startsWith('OpenRouter rejected the API key (HTTP 401)')).toBe(true);
+      expect(visible).toContain('Settings → Providers');
+      expect(visible.endsWith(PROVIDER_ERROR_TRUNCATION_MARKER)).toBe(true);
+    });
+
+    it('does NOT treat 403 as a wrong key (authenticated but limited — probe parity)', () => {
+      const resolved = resolveProviderError(
+        { message: 'Your account is not allowed to use this model.', statusCode: 403 },
+        { provider: 'openrouter' } as RuntimeData
+      );
+      expect(resolved.detail).toBe('Your account is not allowed to use this model.');
+    });
+
+    it('never classifies a local (evidence-free) failure as a rejected key', () => {
+      // No httpStatus ⇒ the error never crossed to a provider; the wording of
+      // its message is irrelevant.
+      const resolved = resolveProviderError(new Error('User not found.'), {
+        provider: 'openrouter',
+      } as RuntimeData);
+      expect(resolved.runError.code).toBe(LOCAL_RUN_ERROR_FALLBACK_CODE);
+      expect(resolved.detail).toBe('User not found.');
+    });
+  });
 });
 
 describe('buildProviderErrorDiagnosticCode', () => {

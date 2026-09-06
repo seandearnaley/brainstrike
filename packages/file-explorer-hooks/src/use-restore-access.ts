@@ -1,6 +1,7 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { readHandleCache } from './adapter-with-handle-cache.js';
 import { useAdapters } from './adapters-context.js';
 
 const logger = createLogger('useRestoreAccess');
@@ -105,8 +106,38 @@ interface WebHandleCacheShape {
   restoreLastRootHandle?: () => Promise<{ handle: FileSystemDirectoryHandle } | null>;
 }
 
-interface WebAdapterWithCache {
-  getHandleCache?: () => WebHandleCacheShape;
+const WEB_HANDLE_CACHE_METHODS = [
+  'clear',
+  'getAllRootHandles',
+  'getLastRootHandleForRestore',
+  'markHandleRestored',
+  'removeRootHandle',
+  'restoreLastRootHandle',
+] as const satisfies readonly (keyof WebHandleCacheShape)[];
+
+type UncoveredWebHandleCacheMethod = Exclude<
+  keyof WebHandleCacheShape,
+  (typeof WEB_HANDLE_CACHE_METHODS)[number]
+>;
+const WEB_HANDLE_CACHE_METHODS_ARE_EXHAUSTIVE: UncoveredWebHandleCacheMethod extends never
+  ? true
+  : never = true;
+
+function isWebHandleCacheShape(value: unknown): value is WebHandleCacheShape {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  // This hook deliberately supports partial cache capabilities. Validate every
+  // known member that is present, require at least one recognized callable
+  // member, then let each call site gate its own method.
+  return (
+    WEB_HANDLE_CACHE_METHODS_ARE_EXHAUSTIVE &&
+    WEB_HANDLE_CACHE_METHODS.every(
+      (method) => candidate[method] === undefined || typeof candidate[method] === 'function'
+    ) &&
+    WEB_HANDLE_CACHE_METHODS.some((method) => typeof candidate[method] === 'function')
+  );
 }
 
 interface LoadStoredHandlesOptions {
@@ -523,8 +554,7 @@ export function useRestoreAccess(): RestoreAccessState {
   }, []);
 
   const handleCache = useMemo(() => {
-    const adapter = fileSystemAdapter as WebAdapterWithCache | null;
-    const cache = adapter?.getHandleCache?.() ?? null;
+    const cache = readHandleCache(fileSystemAdapter, isWebHandleCacheShape);
     if (cache) {
       logger.debug('Handle cache available for restore checks', {
         hasNewMethod: typeof cache.getLastRootHandleForRestore === 'function',

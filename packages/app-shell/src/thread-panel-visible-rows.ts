@@ -1,37 +1,60 @@
 import type {
   AssistantMemoryThread,
   AssistantThreadGroup,
+  ThreadListSectionHeader,
   ThreadListView,
 } from '@brainstrike/assistant-data';
+import { UNASSIGNED_FOLDER_SECTION_ID } from '@brainstrike/assistant-data';
 import { THREAD_CONTROL_ROW_PITCH_PX } from './assistant-thread-presentation';
 
 export const THREAD_PANEL_INITIAL_VISIBLE_LIMIT = 50;
 export const THREAD_PANEL_DISCLOSURE_INCREMENT = 50;
 export const THREAD_PANEL_UNGROUPED_NODE_ID = 'group:ungrouped' as const;
 
-export type ThreadPanelSectionKey = 'flat' | 'ungrouped' | `group:${string}`;
+/**
+ * Treegrid node id of a section row. Custom-groups sections keep their
+ * `group:` prefix (the Ungrouped section is {@link THREAD_PANEL_UNGROUPED_NODE_ID});
+ * folder sections reuse the section ids `thread-list-sections.ts` mints, so one
+ * id addresses the row, its disclosure limit, its collapse state, and its
+ * membership.
+ */
+export type ThreadPanelSectionNodeId =
+  | typeof UNASSIGNED_FOLDER_SECTION_ID
+  | `folder:${string}`
+  | `group:${string}`;
+
+export type ThreadPanelSectionKey = 'flat' | 'ungrouped' | ThreadPanelSectionNodeId;
+
+/**
+ * The custom-groups Ungrouped section is NOT the folder view's "No folder"
+ * section: one is the absence of a user-created group, the other the absence of
+ * a workspace folder, and they carry different headers and actions.
+ */
+export type ThreadPanelSectionHeader = ThreadListSectionHeader | { readonly kind: 'ungrouped' };
+
+export interface ThreadPanelGroupRow {
+  readonly collapsed: boolean;
+  readonly header: ThreadPanelSectionHeader;
+  readonly id: ThreadPanelSectionNodeId;
+  readonly kind: 'group';
+  readonly sectionKey: Exclude<ThreadPanelSectionKey, 'flat'>;
+  readonly totalCount: number;
+}
 
 export type ThreadPanelVisibleRow =
-  | {
-      readonly collapsed: boolean;
-      readonly group: AssistantThreadGroup | null;
-      readonly id: `group:${string}`;
-      readonly kind: 'group';
-      readonly sectionKey: Exclude<ThreadPanelSectionKey, 'flat'>;
-      readonly totalCount: number;
-    }
+  | ThreadPanelGroupRow
   | {
       readonly groupId: string | null;
       readonly id: string;
       readonly kind: 'thread';
-      readonly parentId: `group:${string}` | null;
+      readonly parentId: ThreadPanelSectionNodeId | null;
       readonly thread: AssistantMemoryThread;
     }
   | {
       readonly groupId: string | null;
       readonly id: `show-more:${string}`;
       readonly kind: 'show-more';
-      readonly parentId: `group:${string}` | null;
+      readonly parentId: ThreadPanelSectionNodeId | null;
       readonly remainingCount: number;
       readonly sectionKey: ThreadPanelSectionKey;
     }
@@ -39,9 +62,46 @@ export type ThreadPanelVisibleRow =
       readonly groupId: string | null;
       readonly id: `empty:${string}`;
       readonly kind: 'empty';
-      readonly parentId: `group:${string}`;
+      readonly parentId: ThreadPanelSectionNodeId;
       readonly sectionKey: Exclude<ThreadPanelSectionKey, 'flat'>;
     };
+
+/**
+ * Address of the section's members for `getGroupMemberIds`. `null` is the
+ * custom-groups Ungrouped section, which has no section id of its own.
+ */
+export function getThreadPanelMemberSectionId(row: ThreadPanelGroupRow): string | null {
+  switch (row.header.kind) {
+    case 'group':
+      return row.header.group.id;
+    case 'ungrouped':
+      return null;
+    case 'folder':
+    case 'unassigned':
+      return row.id;
+    default: {
+      const exhaustive: never = row.header;
+      throw new Error(`Unknown thread panel section header: ${JSON.stringify(exhaustive)}.`);
+    }
+  }
+}
+
+/** Key this section's collapsed flag is stored under in `collapsedGroupIds`. */
+export function getThreadPanelCollapseId(row: ThreadPanelGroupRow): string {
+  switch (row.header.kind) {
+    case 'group':
+      return row.header.group.id;
+    case 'ungrouped':
+      return THREAD_PANEL_UNGROUPED_NODE_ID;
+    case 'folder':
+    case 'unassigned':
+      return row.id;
+    default: {
+      const exhaustive: never = row.header;
+      throw new Error(`Unknown thread panel section header: ${JSON.stringify(exhaustive)}.`);
+    }
+  }
+}
 
 /**
  * Pre-measurement height estimate per row kind, in px. TreeTable re-measures
@@ -92,7 +152,7 @@ function appendSectionRows({
 }: {
   readonly groupId: string | null;
   readonly limitsBySectionKey: Readonly<Record<string, number>>;
-  readonly parentId: `group:${string}` | null;
+  readonly parentId: ThreadPanelSectionNodeId | null;
   readonly rows: ThreadPanelVisibleRow[];
   readonly sectionKey: ThreadPanelSectionKey;
   readonly threads: readonly AssistantMemoryThread[];
@@ -137,7 +197,7 @@ function appendGroupedSection({
   const parentId = group ? (`group:${group.id}` as const) : THREAD_PANEL_UNGROUPED_NODE_ID;
   rows.push({
     collapsed,
-    group,
+    header: group ? { group, kind: 'group' } : { kind: 'ungrouped' },
     id: parentId,
     kind: 'group',
     sectionKey,
@@ -168,6 +228,71 @@ function appendGroupedSection({
   });
 }
 
+/**
+ * Re-derives the section id as a node id WITHOUT a cast, so a section id this
+ * module cannot address fails loudly here instead of silently becoming an
+ * unreachable treegrid node. The two shapes are the ones
+ * `thread-list-sections.ts` mints (`folder:${rootId}` and the deliberately
+ * unemittable `folder-unassigned` sentinel).
+ */
+function requireFolderSectionNodeId(
+  sectionId: string
+): typeof UNASSIGNED_FOLDER_SECTION_ID | `folder:${string}` {
+  if (sectionId === UNASSIGNED_FOLDER_SECTION_ID) {
+    return UNASSIGNED_FOLDER_SECTION_ID;
+  }
+  const prefix = 'folder:';
+  if (sectionId.startsWith(prefix)) {
+    return `folder:${sectionId.slice(prefix.length)}`;
+  }
+  throw new Error(`Unknown thread folder section id: ${sectionId}.`);
+}
+
+/**
+ * A folder section never renders the empty drop-zone row a custom group does:
+ * `buildThreadListSections` only creates a bucket for folders that HAVE
+ * threads, and a folder is not a drop target (re-binding happens through the
+ * composer's folder chip, not a drag).
+ */
+function appendFolderSection({
+  collapsed,
+  header,
+  limitsBySectionKey,
+  nodeId,
+  rows,
+  threads,
+  visibleThreadIds,
+}: {
+  readonly collapsed: boolean;
+  readonly header: ThreadPanelSectionHeader;
+  readonly limitsBySectionKey: Readonly<Record<string, number>>;
+  readonly nodeId: typeof UNASSIGNED_FOLDER_SECTION_ID | `folder:${string}`;
+  readonly rows: ThreadPanelVisibleRow[];
+  readonly threads: readonly AssistantMemoryThread[];
+  readonly visibleThreadIds: string[];
+}): void {
+  rows.push({
+    collapsed,
+    header,
+    id: nodeId,
+    kind: 'group',
+    sectionKey: nodeId,
+    totalCount: threads.length,
+  });
+  if (collapsed) {
+    return;
+  }
+  appendSectionRows({
+    groupId: null,
+    limitsBySectionKey,
+    parentId: nodeId,
+    rows,
+    sectionKey: nodeId,
+    threads,
+    visibleThreadIds,
+  });
+}
+
 export function buildThreadPanelVisibleRows({
   collapsedGroupIds,
   limitsBySectionKey,
@@ -191,11 +316,26 @@ export function buildThreadPanelVisibleRows({
     });
     return { rows, visibleThreadIds };
   }
+  if (view.kind === 'folders') {
+    for (const section of view.sections) {
+      const nodeId = requireFolderSectionNodeId(section.id);
+      appendFolderSection({
+        collapsed: Boolean(collapsedGroupIds[nodeId]),
+        header: section.header,
+        limitsBySectionKey,
+        nodeId,
+        rows,
+        threads: section.threads,
+        visibleThreadIds,
+      });
+    }
+    return { rows, visibleThreadIds };
+  }
 
   for (const section of view.sections) {
     appendGroupedSection({
-      collapsed: Boolean(collapsedGroupIds[section.group.id]),
-      group: section.group,
+      collapsed: Boolean(collapsedGroupIds[section.header.group.id]),
+      group: section.header.group,
       limitsBySectionKey,
       rows,
       threads: section.threads,

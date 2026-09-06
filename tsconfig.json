@@ -119,6 +119,15 @@
       "@brainstrike/agent": [
         "./packages/agent/dist/index.d.ts"
       ],
+      "@brainstrike/mcp-app-host": [
+        "./packages/mcp-app-host/src/index.ts"
+      ],
+      "@brainstrike/mcp-app-host-ui": [
+        "./packages/mcp-app-host-ui/src/index.ts"
+      ],
+      "@brainstrike/mcp-tasks-extension": [
+        "./packages/mcp-tasks-extension/src/index.ts"
+      ],
       "@brainstrike/embeddings": [
         "./packages/embeddings/src"
       ],

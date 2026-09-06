@@ -456,6 +456,46 @@ export function validateRewindFinalizePayload(value: unknown): GitResult<RewindF
   return { ok: true, value: { threadId } };
 }
 
+/**
+ * The `changes:inventory` options bag. Absent is the normal case (serve the
+ * TTL cache); `{ maxAgeMs: 0 }` is the forced refresh a renderer that just
+ * registered a root uses to guarantee the rebuild — and therefore the
+ * per-repository watcher arming — sees its new `roots` row (BST-1397).
+ *
+ * Nothing is coerced: a non-integer, negative, or otherwise malformed
+ * `maxAgeMs` is a caller bug and comes back as a visible `ok: false`. The
+ * service itself throws on a bad value, so accepting one here would only
+ * convert a validation error into an "unexpected handler failure".
+ */
+export function validateInventoryOptions(
+  value: unknown
+): GitResult<{ readonly maxAgeMs?: number }> {
+  const subject = 'changes:inventory';
+  if (value === undefined) {
+    return { ok: true, value: {} };
+  }
+  const recordResult = asRecord(value, subject);
+  if (!recordResult.ok) {
+    return recordResult;
+  }
+  const record = recordResult.value;
+  const keysResult = rejectUnsupportedKeys(record, ['maxAgeMs'], subject);
+  if (!keysResult.ok) {
+    return keysResult;
+  }
+  const maxAgeMs = record['maxAgeMs'];
+  if (maxAgeMs === undefined) {
+    return { ok: true, value: {} };
+  }
+  if (typeof maxAgeMs !== 'number' || !Number.isInteger(maxAgeMs) || maxAgeMs < 0) {
+    return {
+      error: `${subject} requires maxAgeMs to be an integer >= 0`,
+      ok: false,
+    };
+  }
+  return { ok: true, value: { maxAgeMs } };
+}
+
 export interface ChangesIpcHandlers {
   /**
    * Apply a Conversation Rewind (BST-1115). `mode` is required — see
@@ -481,10 +521,10 @@ export interface ChangesIpcHandlers {
   readonly finalizeRewinds: (payload: unknown) => Promise<GitResult<AssistantRewindFinalization>>;
   /**
    * Repository/worktree topology for the Changes surface's source picker and
-   * tree grouping (BST-1114 T0). Takes no renderer-supplied arguments, so
-   * there is nothing to validate at this boundary.
+   * tree grouping (BST-1114 T0). The optional options bag is the only
+   * renderer-supplied argument — see {@link validateInventoryOptions}.
    */
-  readonly inventory: () => Promise<GitResult<GitInventory>>;
+  readonly inventory: (options?: unknown) => Promise<GitResult<GitInventory>>;
   /** Undo the newest rewind in a thread — one level, until finalization. */
   readonly redoRewind: (payload: unknown) => Promise<GitResult<AssistantRewindRedoResult>>;
   readonly resolveView: (rootId: unknown, changeset: unknown) => Promise<GitResult<ChangesetView>>;
@@ -718,7 +758,11 @@ export function createChangesIpcHandlers(
         return failed('changes:finalizeRewinds', error);
       }
     },
-    inventory: async () => {
+    inventory: async (options) => {
+      const optionsResult = validateInventoryOptions(options);
+      if (!optionsResult.ok) {
+        return optionsResult;
+      }
       const inventoryService = resolveInventoryService();
       if (!inventoryService) {
         return {
@@ -728,7 +772,7 @@ export function createChangesIpcHandlers(
         };
       }
       try {
-        const snapshot = await inventoryService.getSnapshot();
+        const snapshot = await inventoryService.getSnapshot(optionsResult.value);
         // Project to the declared `GitInventory` shape: the snapshot's
         // `capturedAt` is a service-internal cache detail, not part of the
         // renderer contract.

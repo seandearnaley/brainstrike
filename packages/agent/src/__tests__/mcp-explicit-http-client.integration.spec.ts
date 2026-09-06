@@ -1,17 +1,28 @@
+// biome-ignore-all lint/style/noExcessiveLinesPerFile: real modern and legacy protocol fixtures are atomic lifecycle tests
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import { SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/client';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import {
+  completable,
+  createMcpHandler,
+  McpServer,
+  ResourceTemplate,
+  type Transport,
+} from '@modelcontextprotocol/server';
+import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   ExplicitHttpMcpClient,
+  type ExplicitHttpMcpClientOptions,
   type ExplicitHttpMcpFetch,
-  type ExplicitHttpMcpTransport,
 } from '../mcp/explicit-http-client';
+import {
+  createDeferredTestExtension,
+  TEST_EXTENSION_ID,
+  TEST_EXTENSION_SETTINGS,
+} from './fixtures/mcp-client-extension-registry';
 
 interface RecordedRequest {
   body?: unknown;
@@ -30,6 +41,7 @@ interface ExpiringStatefulServer extends RunningServer {
 }
 
 const cleanupTasks: Array<() => Promise<void>> = [];
+const MCP_CONNECTION_CLOSED_PROTOCOL_CODE = -32_000;
 
 afterEach(async () => {
   const tasks = cleanupTasks.splice(0).reverse();
@@ -45,8 +57,8 @@ function createEchoServer(): McpServer {
     'echo',
     {
       description: 'Echo a value',
-      inputSchema: { value: z.string() },
-      outputSchema: { echoed: z.string() },
+      inputSchema: z.object({ value: z.string() }),
+      outputSchema: z.object({ echoed: z.string() }),
     },
     async ({ value }) => ({
       content: [{ text: value, type: 'text' }],
@@ -58,6 +70,95 @@ function createEchoServer(): McpServer {
     isError: true,
   }));
 
+  return server;
+}
+
+function createCoreFeatureServer(): McpServer {
+  const server = new McpServer({ name: 'core-feature-test-server', version: '1.0.0' });
+  server.registerTool('search', { description: 'Search issues' }, async () => ({ content: [] }));
+  server.registerResource(
+    'BST-1471',
+    'linear://issue/BST-1471',
+    {
+      cacheHint: { cacheScope: 'private', ttlMs: 1000 },
+      description: 'Issue body',
+      mimeType: 'text/markdown',
+      title: 'MCP core server features',
+    },
+    async (uri) => ({
+      contents: [
+        { mimeType: 'text/markdown', text: '# BST-1471', uri: uri.href },
+        {
+          blob: 'AAEC',
+          mimeType: 'application/octet-stream',
+          uri: 'linear://issue/BST-1471/attachment',
+        },
+      ],
+    })
+  );
+  server.registerResource(
+    'issue',
+    new ResourceTemplate('linear://issue/{identifier}', {
+      complete: {
+        identifier: (value) => ['BST-1471', 'BST-1472'].filter((id) => id.startsWith(value)),
+      },
+      list: undefined,
+    }),
+    { description: 'Issue by identifier', mimeType: 'text/markdown', title: 'Issue' },
+    async (uri) => ({ contents: [{ text: uri.href, uri: uri.href }] })
+  );
+  server.registerPrompt(
+    'summarize-issue',
+    {
+      argsSchema: z.object({
+        identifier: z.string(),
+        tone: completable(z.string(), (value) =>
+          ['formal', 'friendly'].filter((tone) => tone.startsWith(value))
+        ),
+      }),
+      description: 'Summarize one issue',
+      title: 'Summarize issue',
+    },
+    ({ identifier, tone }) => ({
+      description: 'A mixed-content prompt',
+      messages: [
+        {
+          content: { text: `Write a ${tone} summary for ${identifier}.`, type: 'text' },
+          role: 'user',
+        },
+        {
+          content: { data: 'aW1hZ2U=', mimeType: 'image/png', type: 'image' },
+          role: 'assistant',
+        },
+        {
+          content: {
+            name: identifier,
+            type: 'resource_link',
+            uri: `linear://issue/${identifier}`,
+          },
+          role: 'assistant',
+        },
+        {
+          content: {
+            resource: {
+              mimeType: 'text/markdown',
+              text: `# ${identifier}`,
+              uri: `linear://issue/${identifier}`,
+            },
+            type: 'resource',
+          },
+          role: 'assistant',
+        },
+      ],
+    })
+  );
+  server.server.registerCapabilities({
+    prompts: { listChanged: true },
+    resources: { listChanged: true, subscribe: true },
+    tools: { listChanged: true },
+  });
+  server.server.setRequestHandler('resources/subscribe', async () => ({}));
+  server.server.setRequestHandler('resources/unsubscribe', async () => ({}));
   return server;
 }
 
@@ -96,14 +197,15 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
 }
-
 function requestMethod(body: unknown): string | undefined {
   if (!(body && typeof body === 'object' && 'method' in body)) {
     return;
   }
   return typeof body.method === 'string' ? body.method : undefined;
 }
-
+function requestCount(requests: readonly RecordedRequest[], method: string): number {
+  return requests.filter((request) => requestMethod(request.body) === method).length;
+}
 async function startStreamableServer(options: {
   failInitializations?: number;
   failToolRequests?: number;
@@ -112,7 +214,7 @@ async function startStreamableServer(options: {
 }): Promise<RunningServer> {
   let failInitializations = options.failInitializations ?? 0;
   let failToolRequests = options.failToolRequests ?? 0;
-  const transports = new Set<StreamableHTTPServerTransport>();
+  const transports = new Set<NodeStreamableHTTPServerTransport>();
   const mcpServers = new Set<McpServer>();
 
   const server = createServer(async (request, response) => {
@@ -151,7 +253,7 @@ async function startStreamableServer(options: {
 
     // Stateless mode: `sessionIdGenerator` stays unset (exactOptionalPropertyTypes
     // forbids an explicit `undefined`).
-    const transport = new StreamableHTTPServerTransport({
+    const transport = new NodeStreamableHTTPServerTransport({
       enableJsonResponse: true,
     });
     const mcpServer = createEchoServer();
@@ -180,6 +282,7 @@ async function startStreamableServer(options: {
 }
 
 async function startSseServer(options: {
+  createMcpServer?: () => McpServer;
   pathname: string;
   requests: RecordedRequest[];
 }): Promise<RunningServer> {
@@ -196,7 +299,7 @@ async function startSseServer(options: {
 
     if (request.method === 'GET' && url.pathname === options.pathname) {
       transport = new SSEServerTransport('/messages', response);
-      mcpServer = createEchoServer();
+      mcpServer = options.createMcpServer?.() ?? createEchoServer();
       await mcpServer.connect(transport);
       return;
     }
@@ -221,7 +324,7 @@ async function startStatefulStreamableServer(options: {
   pathname: string;
   requests: RecordedRequest[];
 }): Promise<RunningServer> {
-  const transport = new StreamableHTTPServerTransport({
+  const transport = new NodeStreamableHTTPServerTransport({
     enableJsonResponse: true,
     sessionIdGenerator: () => 'explicit-http-test-session',
   });
@@ -282,6 +385,15 @@ async function startExpiringStatefulServer(options: {
       response.writeHead(405).end();
       return;
     }
+    if (request.method === 'DELETE') {
+      if (request.headers['mcp-session-id'] !== validSession || expired) {
+        response.writeHead(404).end('no valid session');
+        return;
+      }
+      validSession = undefined;
+      response.writeHead(200).end();
+      return;
+    }
     if (request.method !== 'POST') {
       response.writeHead(405).end();
       return;
@@ -337,7 +449,7 @@ async function startExpiringStatefulServer(options: {
         connectionClosedToolCalls -= 1;
         response.writeHead(200, { 'content-type': 'application/json' }).end(
           JSON.stringify({
-            error: { code: ErrorCode.ConnectionClosed, message: 'Connection closed' },
+            error: { code: MCP_CONNECTION_CLOSED_PROTOCOL_CODE, message: 'Connection closed' },
             id: requestId,
             jsonrpc: '2.0',
           })
@@ -366,12 +478,7 @@ async function startExpiringStatefulServer(options: {
   };
 }
 
-function trackClient(options: {
-  headers?: Readonly<Record<string, string>>;
-  name: string;
-  transport: ExplicitHttpMcpTransport;
-  url: URL;
-}): ExplicitHttpMcpClient {
+function trackClient(options: ExplicitHttpMcpClientOptions): ExplicitHttpMcpClient {
   const client = new ExplicitHttpMcpClient(options);
   cleanupTasks.push(() => client.close());
   return client;
@@ -398,56 +505,304 @@ function expectSessionDeletedLast(requests: readonly RecordedRequest[], pathname
 }
 
 describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
-  it.each(['file:///tmp/mcp.sock', 'ftp://example.test/mcp'])(
-    'rejects the non-HTTP remote URL %s',
-    (url) => {
-      expect(
-        () =>
-          new ExplicitHttpMcpClient({
-            name: 'invalid-url-canary',
-            transport: 'streamable-http',
-            url,
-          })
-      ).toThrow('MCP HTTP URL must use http: or https:');
-    }
-  );
+  it('exposes the negotiated legacy revision and server initialize metadata', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startStreamableServer({ pathname: '/mcp', requests });
+    const client = trackClient({
+      name: 'legacy-metadata-canary',
+      protocol: 'legacy',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+    expect(client.getProtocolEra()).toBeUndefined();
+    expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
+    expect(client.getServerVersion()).toBeUndefined();
+    expect(client.getServerCapabilities()).toBeUndefined();
+    await client.connect();
+    expect(client.getProtocolEra()).toBe('legacy');
+    expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+    expect(client.getServerVersion()).toEqual({
+      name: 'explicit-http-test-server',
+      version: '1.0.0',
+    });
+    expect(client.getServerCapabilities()).toMatchObject({ tools: {} });
+    expect(requests.map((request) => requestMethod(request.body)).filter(Boolean)).toEqual([
+      'initialize',
+      'notifications/initialized',
+    ]);
+    await client.close();
+    expect(client.getProtocolEra()).toBeUndefined();
+    expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
+    expect(client.getServerVersion()).toBeUndefined();
+    expect(client.getServerCapabilities()).toBeUndefined();
+  });
+  it('auto-negotiates modern through the real Streamable HTTP discover exchange', async () => {
+    const handler = createMcpHandler(() => createEchoServer(), { legacy: 'reject' });
+    cleanupTasks.push(() => handler.close());
+    const client = trackClient({
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        const body = await request
+          .clone()
+          .json()
+          .catch(() => undefined);
+        expect(body).toMatchObject({
+          params: { _meta: { 'io.modelcontextprotocol/clientCapabilities': {} } },
+        });
+        return handler.fetch(request);
+      },
+      name: 'auto-modern-canary',
+      protocol: 'auto',
+      transport: 'streamable-http',
+      url: new URL('http://mcp-modern.invalid/mcp'),
+    });
+    await client.connect();
+    expect(client.getProtocolEra()).toBe('modern');
+    expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
+    expect(client.getServerVersion()).toEqual({
+      name: 'explicit-http-test-server',
+      version: '1.0.0',
+    });
+  });
+  it('rejects unsupported core feature lists with a typed capability error', async () => {
+    const handler = createMcpHandler(() => createEchoServer(), { legacy: 'reject' });
+    cleanupTasks.push(() => handler.close());
+    const client = trackClient({
+      fetch: (input, init) => handler.fetch(new Request(input, init)),
+      name: 'strict-capability-canary',
+      protocol: '2026-07-28',
+      transport: 'streamable-http',
+      url: new URL('http://mcp-modern.invalid/mcp'),
+    });
 
-  it('rejects embedded URL credentials before making a request', () => {
+    await client.connect();
+    await expect(client.listResources()).rejects.toMatchObject({
+      code: SdkErrorCode.CapabilityNotSupported,
+    });
+  });
+  it('preserves every core server feature through a real modern server', async () => {
+    const handler = createMcpHandler(() => createCoreFeatureServer(), { legacy: 'reject' });
+    cleanupTasks.push(() => handler.close());
+    const client = trackClient({
+      fetch: (input, init) => handler.fetch(new Request(input, init)),
+      name: 'modern-core-features',
+      protocol: '2026-07-28',
+      transport: 'streamable-http',
+      url: new URL('http://mcp-modern.invalid/mcp'),
+    });
+
+    expect((await client.listResources()).resources).toMatchObject([
+      { name: 'BST-1471', uri: 'linear://issue/BST-1471' },
+    ]);
+    expect((await client.listResourceTemplates()).resourceTemplates).toMatchObject([
+      { name: 'issue', uriTemplate: 'linear://issue/{identifier}' },
+    ]);
+    expect(await client.readResource({ uri: 'linear://issue/BST-1471' })).toMatchObject({
+      cacheScope: 'private',
+      contents: [
+        { text: '# BST-1471', uri: 'linear://issue/BST-1471' },
+        { blob: 'AAEC', mimeType: 'application/octet-stream' },
+      ],
+      ttlMs: 1000,
+    });
+    expect((await client.listPrompts()).prompts).toMatchObject([{ name: 'summarize-issue' }]);
     expect(
-      () =>
-        new ExplicitHttpMcpClient({
-          name: 'credential-url-canary',
-          transport: 'sse',
-          url: 'https://user:password@example.test/mcp',
-        })
-    ).toThrow('MCP HTTP URL must not include credentials');
+      await client.getPrompt({
+        arguments: { identifier: 'BST-1471', tone: 'formal' },
+        name: 'summarize-issue',
+      })
+    ).toMatchObject({
+      messages: [
+        { content: { type: 'text' } },
+        { content: { type: 'image' } },
+        { content: { type: 'resource_link' } },
+        { content: { type: 'resource' } },
+      ],
+    });
+    await expect(
+      client.complete({
+        argument: { name: 'tone', value: 'f' },
+        ref: { name: 'summarize-issue', type: 'ref/prompt' },
+      })
+    ).resolves.toMatchObject({ completion: { values: ['formal', 'friendly'] } });
+    await expect(
+      client.subscribeResource({ uri: 'linear://issue/BST-1471' })
+    ).rejects.toMatchObject({ code: SdkErrorCode.MethodNotSupportedByProtocolVersion });
   });
 
-  it.each(['Accept', 'content-TYPE', 'MCP-Session-Id', 'mcp-PROTOCOL-version', 'Last-Event-ID'])(
-    'rejects the protocol-owned configured header %s before requesting',
-    (header) => {
-      let fetchCalled = false;
-      expect(
-        () =>
-          new ExplicitHttpMcpClient({
-            fetch: async () => {
-              fetchCalled = true;
-              return new Response(null, { status: 500 });
-            },
-            headers: { [header]: 'caller-controlled-value' },
-            name: 'protocol-header-canary',
-            transport: 'streamable-http',
-            url: 'https://example.test/mcp',
-          })
-      ).toThrow(`Configured MCP header "${header}" is protocol-owned`);
-      expect(fetchCalled).toBe(false);
-    }
-  );
+  it('preserves every core server feature and legacy resource subscriptions over real SSE', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startSseServer({
+      createMcpServer: createCoreFeatureServer,
+      pathname: '/legacy-core',
+      requests,
+    });
+    const client = trackClient({
+      name: 'legacy-core-features',
+      protocol: 'legacy',
+      transport: 'sse',
+      url: server.url,
+    });
+
+    expect((await client.listResources()).resources).toHaveLength(1);
+    expect((await client.listResourceTemplates()).resourceTemplates).toHaveLength(1);
+    expect(await client.readResource({ uri: 'linear://issue/BST-1471' })).toMatchObject({
+      contents: [{ text: '# BST-1471' }, { blob: 'AAEC' }],
+    });
+    expect((await client.listPrompts()).prompts).toHaveLength(1);
+    expect(
+      await client.getPrompt({
+        arguments: { identifier: 'BST-1471', tone: 'friendly' },
+        name: 'summarize-issue',
+      })
+    ).toMatchObject({
+      messages: [
+        { content: { type: 'text' } },
+        { content: { type: 'image' } },
+        { content: { type: 'resource_link' } },
+        { content: { type: 'resource' } },
+      ],
+    });
+    await expect(
+      client.complete({
+        argument: { name: 'tone', value: 'f' },
+        ref: { name: 'summarize-issue', type: 'ref/prompt' },
+      })
+    ).resolves.toMatchObject({ completion: { values: ['formal', 'friendly'] } });
+    await client.subscribeResource({ uri: 'linear://issue/BST-1471' });
+    await client.unsubscribeResource({ uri: 'linear://issue/BST-1471' });
+    await expect(client.listen({ toolsListChanged: true })).rejects.toMatchObject({
+      code: SdkErrorCode.MethodNotSupportedByProtocolVersion,
+    });
+    expect(requests.map((request) => requestMethod(request.body))).not.toContain(
+      'subscriptions/listen'
+    );
+  });
+  it('auto-negotiates legacy only after the modern probe returns legacy evidence', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startStreamableServer({ pathname: '/mcp', requests });
+    const client = trackClient({
+      name: 'auto-legacy-canary',
+      protocol: 'auto',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+    await client.connect();
+    expect(client.getProtocolEra()).toBe('legacy');
+    expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+    expect(requests.map((request) => requestMethod(request.body)).filter(Boolean)).toEqual([
+      'server/discover',
+      'initialize',
+      'notifications/initialized',
+    ]);
+  });
+
+  it.each([
+    { code: SdkErrorCode.ClientHttpAuthentication, status: 401 },
+    { code: SdkErrorCode.ClientHttpForbidden, status: 403 },
+  ])('keeps auto-probe HTTP $status as an authentication outcome', async ({ code, status }) => {
+    const requests: RecordedRequest[] = [];
+    const server = createServer(async (request, response) => {
+      const body = await readJsonBody(request);
+      requests.push({
+        body,
+        headers: request.headers,
+        method: request.method ?? 'UNKNOWN',
+        pathname: new URL(request.url ?? '/', 'http://localhost').pathname,
+      });
+      response.writeHead(status).end();
+    });
+    const running = await listen(server, '/mcp');
+    const client = trackClient({
+      name: `auth-${status}-canary`,
+      protocol: 'auto',
+      transport: 'streamable-http',
+      url: running.url,
+    });
+
+    await expect(client.connect()).rejects.toMatchObject({ code, status });
+    expect(requests.map((request) => requestMethod(request.body))).toEqual(['server/discover']);
+  });
+
+  it('keeps pinned-modern rejection distinct and never initializes the legacy server', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startStreamableServer({ pathname: '/mcp', requests });
+    const client = trackClient({
+      name: 'pinned-modern-rejection-canary',
+      protocol: '2026-07-28',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+
+    await expect(client.connect()).rejects.toMatchObject({
+      code: SdkErrorCode.EraNegotiationFailed,
+    });
+    expect(requests.map((request) => requestMethod(request.body)).filter(Boolean)).toEqual([
+      'server/discover',
+    ]);
+  });
+
+  it('keeps an unanswered HTTP auto probe as a request timeout, not legacy evidence', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = createServer(async (request) => {
+      const body = await readJsonBody(request);
+      requests.push({
+        body,
+        headers: request.headers,
+        method: request.method ?? 'UNKNOWN',
+        pathname: new URL(request.url ?? '/', 'http://localhost').pathname,
+      });
+      await new Promise<void>(() => undefined);
+    });
+    const running = await listen(server, '/mcp');
+    const client = trackClient({
+      name: 'silent-auto-probe-canary',
+      protocol: 'auto',
+      transport: 'streamable-http',
+      url: running.url,
+    });
+
+    await expect(client.connect({ timeout: 50 })).rejects.toMatchObject({
+      code: SdkErrorCode.RequestTimeout,
+    });
+    expect(requests.map((request) => requestMethod(request.body))).toEqual(['server/discover']);
+  });
+
+  it('retains the HTTP status when an auto probe fails with a server error', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = createServer(async (request, response) => {
+      const body = await readJsonBody(request);
+      requests.push({
+        body,
+        headers: request.headers,
+        method: request.method ?? 'UNKNOWN',
+        pathname: new URL(request.url ?? '/', 'http://localhost').pathname,
+      });
+      response.writeHead(503).end();
+    });
+    const running = await listen(server, '/mcp');
+    const client = trackClient({
+      name: 'server-error-auto-probe-canary',
+      protocol: 'auto',
+      transport: 'streamable-http',
+      url: running.url,
+    });
+
+    const error = await client.connect().catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SdkHttpError);
+    expect(error).toMatchObject({ code: SdkErrorCode.EraNegotiationFailed, status: 503 });
+    expect(requests.map((request) => requestMethod(request.body))).toEqual(['server/discover']);
+    expect(client.getProtocolEra()).toBeUndefined();
+    expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
+  });
 
   it('uses Streamable HTTP at a misleading /sse path without transport inference', async () => {
     const requests: RecordedRequest[] = [];
     const server = await startStreamableServer({ pathname: '/sse', requests });
+    const extension = createDeferredTestExtension();
     const client = trackClient({
+      extensionRegistry: extension.registry,
       headers: {
         Authorization: 'Bearer streamable-canary',
         'X-Brainstrike-Test': 'alpha, beta',
@@ -456,7 +811,7 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       transport: 'streamable-http',
       url: server.url,
     });
-
+    extension.register();
     const listed = await client.listTools();
     const called = await client.callTool({ arguments: { value: 'hello' }, name: 'echo' });
     const failed = await client.callTool({ name: 'fail' });
@@ -474,7 +829,9 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       body: {
         method: 'initialize',
         params: {
-          capabilities: { extensions: { 'io.modelcontextprotocol/ui': {} } },
+          capabilities: {
+            extensions: { [TEST_EXTENSION_ID]: TEST_EXTENSION_SETTINGS },
+          },
         },
       },
       method: 'POST',
@@ -513,7 +870,9 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       url: running.url,
     });
 
-    await expect(client.connect()).rejects.toThrow(/Streamable HTTP error/);
+    const failure = client.connect();
+    await expect(failure).rejects.toBeInstanceOf(SdkHttpError);
+    await expect(failure).rejects.toMatchObject({ status: 404 });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     expect(requests).toHaveLength(1);
@@ -557,7 +916,7 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       url: server.url,
     });
 
-    await expect(client.connect()).rejects.toThrow(/Streamable HTTP error/);
+    await expect(client.connect()).rejects.toMatchObject({ status: 404 });
     const [first, second] = await Promise.all([client.listTools(), client.listTools()]);
 
     expect(first.tools).toHaveLength(2);
@@ -714,31 +1073,82 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     expect(deleteSignal?.aborted).toBe(true);
     await expect(client.listTools()).rejects.toThrow('Explicit HTTP MCP client is closed');
   });
+  it.each([
+    { lifecycle: 'client-owned', requestCount: 2, result: 'resolved', unexpectedCloses: 0 },
+    { lifecycle: 'host-owned', requestCount: 1, result: 'rejected', unexpectedCloses: 1 },
+  ] as const)(
+    '$lifecycle handles an expired session without changing ownership',
+    async (testCase) => {
+      const requests: RecordedRequest[] = [];
+      const server = await startExpiringStatefulServer({ pathname: '/mcp', requests });
+      let unexpectedCloses = 0;
+      const client = trackClient({
+        lifecycle: testCase.lifecycle,
+        name: `${testCase.lifecycle}-expired-session-canary`,
+        onUnexpectedClose: () => (unexpectedCloses += 1),
+        transport: 'streamable-http',
+        url: server.url,
+      });
+      await client.connect();
+      server.expireSession();
+      const listing = client.listTools();
+      await (testCase.result === 'resolved'
+        ? expect(listing).resolves.toMatchObject({ tools: [] })
+        : expect(listing).rejects.toMatchObject({ status: 404 }));
+      expect(requestCount(requests, 'initialize')).toBe(testCase.requestCount);
+      expect(requestCount(requests, 'tools/list')).toBe(testCase.requestCount);
+      expect(unexpectedCloses).toBe(testCase.unexpectedCloses);
 
-  it('reinitializes once on the same transport after an established session expires', async () => {
+      if (testCase.lifecycle === 'client-owned') {
+        const initializeRequests = requests.filter(
+          (request) => requestMethod(request.body) === 'initialize'
+        );
+        expect(initializeRequests[0]?.headers['mcp-session-id']).toBeUndefined();
+        expect(initializeRequests[1]?.headers['mcp-session-id']).toBeUndefined();
+        return;
+      }
+
+      await expect(client.listTools()).resolves.toMatchObject({ tools: [] });
+      expect(requestCount(requests, 'initialize')).toBe(2);
+      expect(requestCount(requests, 'tools/list')).toBe(2);
+      await expect(client.close()).resolves.toBeUndefined();
+      expect(requests.filter((request) => request.method === 'DELETE')).toHaveLength(1);
+    }
+  );
+  it('isolates a throwing host-owned invalidation observer from the original failure', async () => {
     const requests: RecordedRequest[] = [];
     const server = await startExpiringStatefulServer({ pathname: '/mcp', requests });
     const client = trackClient({
-      name: 'expired-session-reinitialize-canary',
+      lifecycle: 'host-owned',
+      name: 'throwing-invalidation-observer-canary',
+      onUnexpectedClose: () => {
+        throw new Error('observer failed');
+      },
       transport: 'streamable-http',
       url: server.url,
     });
     await client.connect();
     server.expireSession();
 
-    await expect(client.listTools()).resolves.toMatchObject({ tools: [] });
-
-    const initializeRequests = requests.filter(
-      (request) => requestMethod(request.body) === 'initialize'
-    );
-    expect(initializeRequests).toHaveLength(2);
-    expect(initializeRequests[0]?.headers['mcp-session-id']).toBeUndefined();
-    expect(initializeRequests[1]?.headers['mcp-session-id']).toBeUndefined();
-    expect(requests.filter((request) => requestMethod(request.body) === 'tools/list')).toHaveLength(
-      2
-    );
+    await expect(client.listTools()).rejects.toMatchObject({ status: 404 });
   });
+  it('preserves an in-flight session failure when terminal close wins the race', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startExpiringStatefulServer({ pathname: '/mcp', requests });
+    const client = new ExplicitHttpMcpClient({
+      name: 'close-race-session-canary',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+    await client.connect();
+    let closeResult: Promise<void> | undefined;
+    server.expireSession(() => {
+      closeResult = client.close();
+    });
 
+    await expect(client.listTools()).rejects.toMatchObject({ status: 404 });
+    await expect(closeResult).rejects.toMatchObject({ status: 404 });
+  });
   it('does not reinterpret a stateless operation 404 as an expired session', async () => {
     const requests: RecordedRequest[] = [];
     const server = await startStreamableServer({
@@ -753,13 +1163,9 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     });
     await client.connect();
 
-    await expect(client.listTools()).rejects.toThrow(/Streamable HTTP error/);
-    expect(requests.filter((request) => requestMethod(request.body) === 'initialize')).toHaveLength(
-      1
-    );
-    expect(requests.filter((request) => requestMethod(request.body) === 'tools/list')).toHaveLength(
-      1
-    );
+    await expect(client.listTools()).rejects.toMatchObject({ status: 404 });
+    expect(requestCount(requests, 'initialize')).toBe(1);
+    expect(requestCount(requests, 'tools/list')).toBe(1);
   });
 
   it('surfaces ConnectionClosed without replaying a potentially mutating tool call', async () => {
@@ -777,21 +1183,17 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     await client.connect();
 
     await expect(client.callTool({ name: 'mutating-tool' })).rejects.toMatchObject({
-      code: ErrorCode.ConnectionClosed,
-      message: 'MCP error -32000: Connection closed',
+      code: MCP_CONNECTION_CLOSED_PROTOCOL_CODE,
+      message: 'Connection closed',
     });
-    expect(requests.filter((request) => requestMethod(request.body) === 'initialize')).toHaveLength(
-      1
-    );
-    expect(requests.filter((request) => requestMethod(request.body) === 'tools/call')).toHaveLength(
-      1
-    );
+    expect(requestCount(requests, 'initialize')).toBe(1);
+    expect(requestCount(requests, 'tools/call')).toBe(1);
   });
 
   it('does not reinitialize a reconnectable failure after the caller is aborted', async () => {
     const requests: RecordedRequest[] = [];
     const server = await startExpiringStatefulServer({ pathname: '/mcp', requests });
-    const client = trackClient({
+    const client = new ExplicitHttpMcpClient({
       name: 'aborted-session-reinitialize-canary',
       transport: 'streamable-http',
       url: server.url,
@@ -804,5 +1206,6 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     expect(requests.filter((request) => requestMethod(request.body) === 'initialize')).toHaveLength(
       1
     );
+    await expect(client.close()).rejects.toMatchObject({ status: 404 });
   });
 });

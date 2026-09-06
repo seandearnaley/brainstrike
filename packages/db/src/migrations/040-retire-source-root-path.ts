@@ -36,6 +36,7 @@ export const migration040RetireSourceRootPath: Migration = {
       WHERE embedding_set_id IS NOT NULL
         AND source_root_path IS NOT NULL;
   `,
+  ledgerKey: 'custom-040-retire-source-root-path',
   name: 'retire_source_root_path',
   up: `
     UPDATE file_records

@@ -1,8 +1,8 @@
-import { wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { createPgliteAssistantThreadRepository } from '../assistant-memory-repository';
 import { DAILY_SPEND_AGGREGATION_SQL, mapDailySpendUsageRow } from '../cost-tracking/daily-spend';
+import { createMigratedTestPGlite } from './helpers/test-pglite';
 
 let pgliteDataDirCounter = 0;
 
@@ -23,19 +23,12 @@ interface LiveQuerySurface {
 describe('daily spend aggregation (real PGlite)', () => {
   let pgliteDataDir: string | undefined;
 
-  afterEach(async () => {
-    if (pgliteDataDir) {
-      await wasmLoader.closeCached(pgliteDataDir);
-      pgliteDataDir = undefined;
-    }
-  });
-
   it('is consumable through live.query and windows to the rolling last 24 hours', async () => {
     // The budget guardrail consumes DAILY_SPEND_AGGREGATION_SQL through
     // PGlite's live extension, whose format() rewrite breaks on repeated bind
     // parameters — same regression class pinned for RUN_LEDGER_AGGREGATION_SQL.
     pgliteDataDir = createPgliteTestDataDir('assistant-daily-spend-live');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -120,7 +113,7 @@ describe('daily spend aggregation (real PGlite)', () => {
 
   it('persists Anthropic cache token classes and surfaces them in the aggregation', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-daily-spend-cache');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 

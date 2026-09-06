@@ -6,6 +6,27 @@
 
 Renderer-only execution is mandatory.
 
+### Embedding telemetry diagnostics (BST-1101)
+
+- The System Diagnostics embedding card presents aggregate transfer, residency,
+  memory-estimate, device-count, and health-count data only. It must not render cache
+  keys, model names, source ids, failure strings, user content, or vectors. An empty
+  observation window is neutral (`No samples`), not a warning or degraded state. A
+  desktop telemetry-provider failure renders a fixed unavailable message; its raw
+  error text remains internal and must not reach the diagnostics DOM.
+- `EmbeddingTelemetrySnapshot.peakVectorsInFlight` is a per-batch high-water mark.
+  In streaming mode it is the largest batch waiting for acknowledgement; the worker
+  waits for that acknowledgement before sending the next batch. In workerpool mode the
+  adapter emits one synthetic batch for the complete task result, so the value is the
+  largest vector count returned by one task, not the total concurrent vectors across
+  the pool. Multi-source aggregation takes the maximum and never sums source peaks.
+- `resetEmbeddingTelemetryForTests` is deliberately excluded from the production root
+  API. Tests that need process-global telemetry isolation import the explicit
+  `@brainstrike/embedding-worker/testing` subpath. Production code must never import it.
+- App-shell tests use the production snapshot validator and empty-snapshot factory from
+  `@brainstrike/embedding-worker`; a permissive shape-only mock would hide desktop host
+  boundary failures.
+
 Rules:
 - Embedding worker MUST run in renderer (browser context).
 - MUST NOT run in Electron main process.
@@ -24,9 +45,37 @@ Flow:
    - Main creates a hidden BrowserWindow with `?mode=embedding-host`.
    - The window loads `hidden-preload.js` with the server-owned
      `embedding-host` role argument. That manifest exposes only the embedding
-     report/request bridge, power snapshot/events, logging ingest, and the database
-     capabilities the current renderer-owned queue needs. It never exposes
-     provider secrets or assistant-server credentials.
+     report/request bridge, power snapshot/events, logging ingest, the database
+     capabilities the current renderer-owned queue needs, and the scoped
+     vector-preferences capability below. It never exposes provider secrets,
+     assistant-server credentials, or the visible UI's unrestricted `storage`
+     key-value bridge.
+
+Vector device preference is ONE canonical record (BST-1380):
+- The host resolves `devicePref`/`devicePrefConfigured` from the SAME
+  `vector-preferences.v1` record the visible UI writes. The visible UI reaches it
+  through `electronAPI.storage`; the hidden host reaches it through the scoped
+  `electronAPI.vectorPreferences` capability (`vector-preferences:read` /
+  `:write` / `:clear`), authorized to the `embedding-host` role only. Those
+  channels accept NO key — `apps/desktop/src/platform/vector-preferences-storage-key.ts`
+  pins it in main — so a hidden host can neither enumerate keys nor address
+  another persisted store.
+- `packages/app-state/src/stores/vector-preferences-store.ts` must NOT fall back
+  to browser storage when an Electron renderer exposes neither capability; it
+  throws. Zustand's persist middleware swallows storage rejections and resolves
+  `rehydrate()` anyway, so `ensureVectorPreferencesHydrated` asserts the
+  capability itself — a swallowed read would otherwise present as
+  "unconfigured, use WebGPU".
+- History: BST-1235 moved hidden hosts onto the narrow manifest, which silently
+  dropped `electronAPI.storage`. The host then read an empty per-host
+  localStorage, saw `devicePrefConfigured: false`, ran auto-detection, and
+  fail-closed on every machine without a WebGPU adapter — ignoring the user's
+  explicit setting. Do not "fix" a recurrence by relaxing the E2E assertion or
+  by re-exposing the full storage bridge. Paired tests:
+  `vector-preferences-store.hidden-host.test.ts`,
+  `hidden-preload-runtime.test.ts`, `hidden-preload-contract.test.ts`,
+  `storage-preferences-ipc.test.ts`,
+  `vector-preferences-storage-key-contract.test.ts`.
    - The host renderer mounts `DbProvider` with `useElectronIPC=true`.
    - The host renderer uses `startEmbeddingWorker()` from `@brainstrike/embeddings`.
    - It pulls jobs from the PGlite-backed `job_queue`.
@@ -52,6 +101,20 @@ Flow:
      `maxInFlightJobs` may override it with another positive value. Slots are
      released only after the corresponding completion/failure write, or during
      explicit cleanup after a lost lease or interrupted batch.
+   - Every durable `embed_chunk` payload carries `sourceContentHash` plus
+     `embeddingInputHash`, the lowercase SHA-256 of
+     `${contentHash}:${resolvedModelKey}`. Every producer
+     (pipeline, transactional chunk insert, desktop backfill, and vector queue
+     backfill) computes batches through `buildEmbeddingJobInputHashes` before
+     enqueue. That helper mirrors the worker's hosted-provider model resolution
+     and hashes independent chunks concurrently. Before embedding, the worker
+     requires the persisted source hash to match the loaded chunk; changed
+     chunks are failed terminally so an old input hash can never label a new
+     vector. The worker reuses the input hash for stale checks and completion
+     writes, and the claim path must never recompute it. Migration 105 backfills
+     provable queued/running jobs plus retryable failed jobs and visibly
+     cancels/counts active jobs whose chunk/model identity cannot be proven; do
+     not add a legacy hashing fallback to the worker.
    - Desktop backfill admission bounds queued/running jobs for the target
      `embedding_set_id`, not the entire embeddings queue. Workspace Index may
      legitimately fill its separate QoS depth with other embedding sets; those
@@ -61,6 +124,50 @@ Flow:
    - Admitted manual backfill jobs use the queue's earliest runnable ordering,
      so an older unrelated embedding-set backlog cannot strand them behind the
      backfill drain timeout.
+   - A `source: 'background-indexing'` backfill is owned by the host runtime,
+     never by the React tree that requested it (BST-1654). The renderer's
+     `WorkspaceCollectionSyncService` exposes two distinct teardowns and callers
+     must not conflate them: `cancel()` is a deliberate stop (manual pause,
+     indexing disabled, restart-active) and cancels the host run; `detach()` is
+     the requester going away and releases only local state — it aborts the
+     renderer-side loop and drops the progress subscription while the durable
+     run keeps going. The provider's teardown effect MUST call `detach()`: it
+     re-runs on every `service` identity change, so cancelling there tied a
+     host-owned run's lifetime to a React memo dependency list and silently
+     killed a user's backfill on navigation. The next `sync()` re-attaches via
+     `selectRecoverableBackgroundBackfill`; `useResyncOnReturnToVisibility`
+     remains the recovery path for hard teardowns only.
+   - The renderer loop and the backfill therefore need SEPARATE abort
+     controllers, and the signal handed to `enqueueBackfill` is the backfill's.
+     On desktop the signal dies at the IPC boundary, so sharing one controller
+     looked harmless; on web there is no host process — `enqueueLocalBackfill`
+     merges the caller's signal into the run and awaits it, so the promise IS
+     the run and aborting that signal kills the backfill. While they shared a
+     controller, `detach()` still destroyed the run on web: the original bug,
+     unfixed on that path. `detach()` aborts only the renderer loop; `cancel()`
+     and a superseding `sync()` abort both.
+   - Detaching drops tracking, never cancellation authority. An explicit pause
+     or disable cancels in-flight `background-indexing` runs regardless of which
+     provider instance is mounted, so `cancel()` and the disabled `sync()` path
+     both enumerate `getBackfillsInFlight()` and cancel every run whose request
+     id carries the `background-indexing-backfill:` prefix — a detached run is
+     in no instance's `activeBackfill`, and the instance that sees the stop is
+     usually a fresh one tracking nothing. Runs the prefix does not claim are
+     left alone, and an undeliverable stop rejects instead of reporting success.
+     Never make `detach()` the answer to a deliberate stop: trading the
+     navigation bug for "pause does not stop indexing" is the worse half.
+   - That enumeration sweep MUST be failure-isolated. A `for … await` loop that
+     lets the first rejection escape never attempts the cancels behind it, so
+     one uncooperative run silently spares every later one — "pause did not stop
+     indexing" reappearing through a different door. Attempt every enumerated
+     run, then surface the failures together (`AggregateError`); isolation must
+     not become silent success.
+   - A stop that lands while an `enqueueBackfill` is in flight cannot be closed
+     by the sweep alone: it enumerates a host that cannot report the run yet,
+     and the cancel it fires for the speculative `pending:` tracking entry races
+     ahead of the run's creation. `enqueueManagedBackfill` therefore re-checks
+     the backfill signal once the enqueue resolves and cancels the freshly
+     created run, so at least one cancel is ordered AFTER the run exists.
    - A backfill suspends the dimension HNSW index before enqueueing. Every
      interruption after that point, including producer faults and timeouts,
      must either restore the index immediately when the scoped set has drained
@@ -72,6 +179,89 @@ Flow:
      count snapshot so always-mounted queue subscribers do not rerender on an
      idle polling cadence. Diagnostics consume the stored poll timestamp; they
      must not synthesize queue freshness during React render.
+
+### Embedding input hash relocation benchmark (BST-393)
+
+- `packages/embeddings/src/__tests__/embedding-input-hash-benchmark.integration.test.ts`
+  compares the historical claim-path filter hash with the persisted-payload path from
+  BST-391 for batch sizes 1, 8, and 32 and source contents of 128 and 4096 bytes.
+- It reports median historical worker-hot-path, persisted worker-hot-path, producer
+  hash, and relocated end-to-end durations. The relocated end-to-end value is a
+  separately measured composed operation covering producer hashing followed by
+  the persisted worker path; it is not the sum of independently sampled medians.
+  This prevents the benchmark from pretending that moving work upstream makes
+  its CPU cost disappear.
+- Completion-path duplicate hashing is not benchmarked: BST-392 removed it
+  before this harness existed. The remaining comparison is the still-relevant
+  BST-391 claim-path filter relocation identified when BST-393 was re-groomed.
+- Timing is diagnostic output, not a threshold gate. The deterministic checks
+  seed both current and stale embedding hashes across the matrix and require the
+  historical and persisted filters to classify the same exact chunk IDs. The
+  two one-item scenarios split the branches: 128 bytes is current and 4096 bytes
+  is stale; every multi-item scenario contains both. The historical path
+  intentionally preserves its serial per-chunk hash awaits, verbatim pre-BST-391
+  SHA-256 helper, and pre-BST-391 payload validator; its fixture payloads omit
+  both new source-identity fields so the historical timing cannot silently absorb
+  relocated validation work. It also reproduces the historical tagged-item
+  construction/result shape and normalizes both arms to sorted chunk IDs only
+  after timing. Stable per-scenario closures invoke both arms; their options and
+  callbacks are constructed once outside warmup and measured samples. The
+  historical options dispatch hashing through the snapshotted callback with a
+  batch-level `jobModel.compositeKey` and preserve the original orphan
+  `logWarn`/`failOrphanJobs` path. The timing therefore includes the scheduling
+  behavior BST-391 removed. The persisted arm also includes BST-391's new
+  current/stale partition and per-chunk `sourceContentHash` comparison, so
+  historical-minus-persisted understates the hashing win rather than isolating pure
+  hash cost. Each scenario deletes its queue, chunk, file, and embedding-set rows
+  before the next scenario, so table growth does not confound comparisons across
+  the content-length axis.
+  Source length still varies because `loadChunksBatch` reads chunk content.
+  Fixture chunk hashes must be production-shaped 64-character lowercase hex.
+  SHA-256 reserves nine padding bytes, so the 64-byte hex hash plus separator
+  already exceeds one block's 55-byte input limit; the 22-byte composite model
+  key makes this fixture's `${contentHash}:${resolvedModelKey}` input 87 bytes,
+  but does not cause the second compression block. Current and stale
+  `embedding_hash` fixtures are
+  distinct 64-hex digests so equality compares like-shaped identities instead
+  of rejecting by length. The fixture uses an already-composite local model key
+  supplied independently to the producer and historical batch job model;
+  equivalence does not cover hosted-provider normalization or payload/job-model
+  divergence. Historical `resolveJobModel` parsing is intentionally outside the
+  claim-path filter timing, so historical-minus-persisted also excludes that
+  once-per-batch cost.
+- Focused run:
+  `pnpm --filter @brainstrike/embeddings exec vitest run --config vitest.integration.config.mts --maxWorkers=1 --no-file-parallelism src/__tests__/embedding-input-hash-benchmark.integration.test.ts`.
+
+### Embedding queue load verification (BST-387)
+
+- `packages/embeddings/src/__tests__/embedding-queue-load.integration.test.ts`
+  runs a serialized real-PGlite matrix with 1, 2, 4, and 16 polling loops.
+- All scenarios share ONE lazily created `memory://` PGlite closed in
+  `afterAll`, with per-scenario state kept disjoint by scenario-prefixed ids
+  and dedupe-key-scoped SQL. Do not return to a fresh instance per scenario:
+  PGlite close leaves WASM teardown to GC, and the teardown-overlapping-
+  instantiation churn was BST-1221's reproducible V8 fatal trigger on the
+  PKU-enabled Linux x64 CI runners (see docs/agents/ci-quality.md).
+- It records exact peak claimed jobs, vectors and UTF-8 input bytes in flight,
+  effective claim limits and returned batch sizes, lease claim count, maximum
+  attempts, and completion latency. Absolute latency
+  is reported rather than threshold-gated because host load is not a product
+  invariant. Claim/completion spies maintain an in-memory set of active claimed
+  job IDs, so the observer adds no database query before heartbeat arming.
+  Reported latency is not a product baseline. `peakClaimedJobs` is sampled
+  post-claim and depends on the worker preserving reserve-before-claim
+  ordering. The deterministic gates are
+  a pre-claim permit rendezvous proving every requested polling loop starts,
+  one claim per job, exact claim limit and returned batch size 1, and observed
+  concurrency scaling from 1 to 2 to 4 before flattening at the four-job global
+  working-set ceiling when sixteen loops poll. The first-wave rendezvous targets
+  `min(concurrency, maxInFlightJobs)`, which makes the overlap proof structural
+  without deadlocking loops parked on the in-flight budget.
+- The adaptive scenario begins with a slow synthetic model (claim limit 1),
+  then accelerates it (claim limit 4), proving the runtime consumes changing
+  throughput policy without exceeding the same global budget.
+- Focused run:
+  `pnpm --filter @brainstrike/embeddings exec vitest run --config vitest.integration.config.mts --maxWorkers=1 --no-file-parallelism src/__tests__/embedding-queue-load.integration.test.ts`.
 
 Foreground query coordination (desktop):
 - The hidden host runs BOTH background indexing and assistant query embeddings; a
@@ -103,6 +293,16 @@ Workspace indexing QoS ownership:
   the shared policy remains free of Electron imports.
 - Invalid power snapshots throw through the shared normalization/validation
   contract. Do not add implicit environment defaults at an import boundary.
+- QoS observers log initial observations and state transitions at info; a
+  reason-only transition uses the distinct debug message `Workspace indexing
+  QoS reason changed` (BST-1337). The observer retains the latest reason even
+  with debug disabled. Each loop owns its observer; logging never controls
+  scheduling. `accelerator-idle` can change pipeline overlap, stream capacity,
+  and app-shell batch sizes while staying `balanced` (worker claim size stays
+  16). This is capacity feedback, not a pause/resume edge; foreground, memory,
+  battery, and thermal constraints still take precedence immediately. Do not
+  add a telemetry debounce that delays those constraints. Coverage:
+  `packages/indexing-contract/src/__tests__/workspace-indexing-qos.test.ts`.
 
 Embedding queue factory registration (visible renderer):
 - `TransformersBackend.initialize` (local-model semantic search, prompt-library
@@ -144,12 +344,74 @@ Embedding runtime telemetry (BST-402):
   into binary bytes. WebGPU entries attribute that estimate to GPU memory and WASM
   entries to heap memory. Missing registry metadata remains explicitly unavailable; it
   is never presented as a measured browser-memory value.
+- Pipeline-cache residency policy has one implementation:
+  `packages/embedding-worker/src/pipeline-cache-controller.ts`. The production worker
+  injects the real Transformers.js loader; the controller owns the 1-WebGPU/3-WASM
+  limits, LRU/idle eviction, disposal, and diagnostic snapshots. A miss reserves its
+  logical cache slot synchronously. Request and cache-clock validation finish before any
+  eviction or loader call, so a rejected request cannot orphan a physical allocation. The
+  replacement loader cannot allocate until the evicted resource's possibly asynchronous
+  `.dispose()` completes. Concurrent misses
+  therefore remain deduplicated and physically bounded. Pending entries are reservations,
+  never resident-limit or idle-timeout eviction victims: if every device-class slot is
+  pending, a distinct miss fails immediately with a request-scoped load-failure diagnostic
+  and can be retried once capacity becomes available. This prevents a pending caller from
+  receiving a resource that a concurrent miss already disposed. A resident-limit disposal
+  rejection blocks the pending replacement and emits its request-scoped load-failure
+  diagnostic. Every disposer rejection latches the controller against future loads, remains
+  visible to `wait` and `close`, and asks workerpool to replace the failed worker through its
+  managed lifetime-error channel. A direct worker has no such channel, so an idle disposer
+  failure is re-reported immediately through the owner-visible uncaught-worker-error path;
+  the streaming client then fails and retires that worker. BST-369's deterministic
+  browser proof now routes ordinary queue tasks through a private
+  `createBrowserEmbeddingQueue` (`minWorkers = maxWorkers = 1`), workerpool's
+  `runEmbedding` RPC, and the actual `embedding.worker.ts` module. A wrapper installs a
+  one-shot, fixed synthetic Transformers runtime before dynamically importing that
+  production worker. Its allowlisted pipelines retain page-touched 8 MiB WASM or 16 MiB
+  GPU-class `Uint8Array` stores until the production controller awaits their deliberately
+  asynchronous `.dispose()` method. The physical ledger sums each live allocation's actual
+  `store.byteLength`, not declared model metadata. Every cross-origin HTTP(S) request and
+  the same-origin `/api/hf/` proxy are aborted and asserted absent; malformed, duplicate,
+  or late runtime bootstrap attempts throw rather than falling back.
+- The probe is lazy: normal app startup does not import its page module or worker. The
+  native page `navigator.webdriver === true` signal plus an explicit pre-bootstrap init
+  flag control exposure. Chromium's `WorkerNavigator` does not expose `webdriver`, so the
+  worker uses the wrapper's fixed one-shot attestation as defense in depth rather than
+  claiming a second native webdriver signal. Inputs, model IDs, sizes, and switch counts
+  are fixed and bounded; the external hook accepts no arguments.
+- BST-369's physical assertion is intentionally scoped. It proves browser-worker JS
+  backing-store residency and reclamation for both WASM and a **logical GPU-class proxy**;
+  it does not claim to measure GPU VRAM or real model inference. The test also asserts the
+  production telemetry estimate (three WASM plus one GPU-class resident), 23 transferred
+  result buffers, 18 exact resident-limit disposals, no runtime failure telemetry, and
+  telemetry-source removal on queue teardown.
+- Browser memory sampling uses only cross-origin-isolated
+  `performance.measureUserAgentSpecificMemory()`. The performance project pins Chromium
+  with `ForceEagerMeasureMemory`; missing capability, malformed totals, missing dedicated
+  worker attribution, mixed page/worker attribution that cannot isolate the probe, or
+  surviving attribution after teardown all fail. Two animation
+  frames separate `Worker.terminate()` from the final sample because invoking Chromium's
+  API in the termination task can remain pending before the agent teardown commits.
+  There is no `performance.memory` fallback. Paired tests:
+  `test-runtime-bootstrap.spec.ts`, `pipeline-cache-controller.spec.ts`,
+  `pipeline-cache.spec.ts`,
+  `pipeline-cache-controller.browser.test.ts`,
+  `embedding-model-switch-memory-probe-contract.test.ts`,
+  `apps/web/src/__tests__/web-e2e-test-hooks.test.tsx`, and
+  `apps/web/e2e/performance/embedding-model-switch-memory.test.ts`.
 - `StreamingEmbeddingWorkerClient` and every worker in the non-streaming browser
   workerpool own source-scoped, in-memory telemetry records. The workerpool records the
   unique buffers transferred with each completed result and forwards pipeline-cache
   diagnostics emitted during `runEmbedding`. Worker-global diagnostics that occur after
   an RPC settles (notably the five-minute idle-cache eviction) travel over a pool-unique
-  `BroadcastChannel`; its name is carried in the managed worker script fragment. The
+  `BroadcastChannel`; its name is carried in the managed worker script fragment. Request-scoped
+  cancellation travels over a separate adapter-to-worker channel derived from that identity,
+  so sibling workers never consume one another's telemetry as control traffic. Abort signals stop
+  `runEmbedding` between inference batches and reject with `AbortError` without calling
+  workerpool's destructive `Promise.cancel()`, so the loaded pipeline remains reusable. The
+  adapter clears request-control state on settlement and removes every signal listener during
+  cleanup; malformed control messages fail the worker lifetime visibly instead of being
+  ignored. The
   device-loss path announces its source identity on that channel before self-closing, so
   the adapter removes the source immediately; the termination callback remains an
   idempotent cleanup seam. Active workerpool device-loss, uncaught-error, and
@@ -225,6 +487,50 @@ Embedding runtime telemetry (BST-402):
 - This telemetry is intentionally session-only and must not be persisted. A future
   persistence or export path requires the diagnostics privacy and factory-reset contracts
   to be revisited explicitly.
+
+Streaming embedding payload-memory proof (BST-372):
+- No contemporaneous pre-streaming process-memory capture exists, so the comparison boundary
+  is a controlled replay of the exact source implementations. At parent commit
+  `13541685dc1586efea302440041965efd807440a`, `runBatches` appended every output vector to
+  one request-wide array and `processEmbeddings` transferred those buffers only after all
+  batches completed. Uniform Float32 output therefore retained
+  `totalInputs * dimensions * 4` payload bytes until request completion, in addition to
+  model/runtime/input/transient memory. Streaming landed in
+  `f983a0ed0ee0fc3581060f61c2f6fcb8bfed9d32`: `streamEmbeddings` transferred one batch and
+  awaited the matching request-and-index acknowledgement before starting the next batch. That
+  revision predates the `transferBytes` event field; the current runtime additionally reports
+  the exact unique-buffer byte count there. Its transport-output retention bound is therefore
+  `batchSize * dimensions * 4` bytes for uniform Float32 vectors. This is a payload bound, not a
+  claim about total renderer RSS or heap.
+- `embedding.worker.runtime.spec.ts` exercises the live maximum supported dimension across
+  eight protocol batches. Before each acknowledgement, the test
+  requires exactly one inference batch and one posted batch, eight current/peak vectors in
+  flight, and an exact transfer-list byte sum. The message mock is cleared before each
+  acknowledgement so the harness does not retain prior vector payloads. Removing the
+  `await waitForBatchAck(...)` gate makes all eight inference batches start before the first
+  acknowledgement and fails the assertion (`8` observed versus `1` allowed), proving the
+  backpressure check has teeth.
+- The normal unit suite also discovers `bst-372-current-retention.spec.ts`, which launches a
+  fresh `--expose-gc` process against current production code. It observes physical
+  `ArrayBuffer` retention across 4,096 maximum-dimension inputs and 512 acknowledged batches;
+  the peak delta must remain at or below 512,000 bytes rather than the 32,768,000-byte request
+  payload. The verified head measured 256,000 bytes. A temporary request-wide accumulator
+  mutation raised the delta to 32,896,000 bytes and failed that bound, independently of the
+  worker's self-reported in-flight telemetry.
+- `docs/bench-embedding-streaming-memory-2026-08.md` records the reproducible A/B harness,
+  environment, fail-closed runner, artifact hashes, source-blob verification, and every raw
+  process result. The runner binds each variant to its exact revision plus the executed
+  `embedding.worker.ts` and `shared.ts` blobs; the archived harness re-verifies those sources
+  before import and derives result metadata from the binding. Five fresh processes per revision
+  used the same deterministic 4,096-input, batch-8, 2,000-dimension fixture and produced exactly
+  32,768,000 payload bytes. Pre-stream peak RSS growth was 34.781–35.250 MiB (35.047
+  MiB median); streaming growth was 0.875–1.266 MiB (1.219 MiB median), an observed median
+  difference of 33.828 MiB. This isolates idealized sender-side retention under prompt
+  collection. It omits receiver lifetime and is not a conservative bound or a claim about total
+  Electron RSS with a real model loaded.
+- `apps/desktop/e2e/embedding-worker-renderer.memory.desktop.test.ts` remains the
+  application-level proof for bounded heap/RSS across large and repeated real-host runs. Its
+  model-backed measurements are complementary, not a historical pre-streaming baseline.
 
 ---
 

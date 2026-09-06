@@ -4,7 +4,7 @@ import {
   buildQuerySelectionManifest,
 } from '@brainstrike/file-explorer';
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
-import type { FileSystemAdapter } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
@@ -164,6 +164,7 @@ export interface UseRecursiveFolderSelectOptions {
    */
   onDirectoriesLoaded?: (updates: readonly RecursiveSelectionDirectoryUpdate[]) => void;
   onError?: (error: Error) => void;
+  parentRootId?: DirectoryHandle['rootId'];
 }
 
 export interface SelectionResult {
@@ -206,6 +207,7 @@ export function useRecursiveFolderSelect(
     getSubtreeByPath,
     onDirectoriesLoaded,
     onError,
+    parentRootId,
   } = options;
 
   const store = useOptionalFileExplorerStoreContext();
@@ -338,6 +340,7 @@ export function useRecursiveFolderSelect(
               },
             }));
           },
+          parentRootId,
           useRegex,
         });
 
@@ -442,6 +445,7 @@ export function useRecursiveFolderSelect(
       internalFilterTreeFn,
       onDirectoriesLoaded,
       onError,
+      parentRootId,
       quickFilter,
       setQuerySelection,
       showToast,

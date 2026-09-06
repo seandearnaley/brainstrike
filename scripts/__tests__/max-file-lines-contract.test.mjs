@@ -27,8 +27,11 @@ const MAX_LINES = 1000;
 // and lowers this ceiling in lockstep; it must never go up. (Shipped at 136;
 // BST-1211 took it 126 -> 122 by deleting the preview table and shrinking
 // preview-panel.tsx and its suite under the cap; BST-1258 took it 122 -> 120
-// by splitting workspace-tab-host.tsx into the workspace tabs modules.)
-const MAX_BASELINE_ENTRIES = 120;
+// by splitting workspace-tab-host.tsx into the workspace tabs modules; BST-1650
+// took it 120 -> 119 by moving the provider catalog rows out of
+// provider-registry.ts into provider-catalog.json; BST-1653 took it 119 -> 118
+// by extracting the database runtime and its transports out of db-provider.tsx.)
+const MAX_BASELINE_ENTRIES = 118;
 
 function isRuleOff(configured) {
   return configured === 'off' || configured?.level === 'off';

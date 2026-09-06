@@ -40,11 +40,28 @@ const { getAllWindowsMock, lifecycleState, mockHostWindow } = vi.hoisted(() => {
   };
 });
 
+const loggerWarnMock = vi.hoisted(() => vi.fn());
+
 vi.mock('electron', () => ({
   BrowserWindow: {
     getAllWindows: getAllWindowsMock,
   },
 }));
+
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      debug: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+      info: vi.fn(),
+      trace: vi.fn(),
+      warn: loggerWarnMock,
+    }),
+  };
+});
 
 vi.mock('../renderer-host-lifecycle', () => ({
   RendererHostLifecycle: vi.fn().mockImplementation(function MockRendererHostLifecycle() {
@@ -68,7 +85,7 @@ type TestableChunkingHostManager = Omit<ChunkingHostManager, never> & {
       type: string;
     }
   ) => void;
-  pendingRequests: Map<string, unknown>;
+  requests: { has: (requestId: string) => boolean; size: () => number };
 };
 
 describe('ChunkingHostManager', () => {
@@ -118,7 +135,7 @@ describe('ChunkingHostManager', () => {
       })
     ).rejects.toThrow('Chunking host request req-1 could not be sent: webContents unavailable');
 
-    expect(manager.pendingRequests.size).toBe(0);
+    expect(manager.requests.size()).toBe(0);
   });
 
   it('times out stale chunking requests instead of hanging forever', async () => {
@@ -136,7 +153,38 @@ describe('ChunkingHostManager', () => {
     await vi.advanceTimersByTimeAsync(30_001);
 
     await rejection;
-    expect(manager.pendingRequests.size).toBe(0);
+    expect(manager.requests.size()).toBe(0);
+  });
+
+  it('logs a late response at warn instead of dropping it silently', async () => {
+    const manager = new ChunkingHostManager() as unknown as TestableChunkingHostManager;
+    const requestPromise = manager.chunkFile(11, {
+      content: 'hello',
+      fileName: 'a.txt',
+      filePath: '/tmp/a.txt',
+      fileRecordId: 'file-1',
+      kind: 'chunk-file',
+      options: {},
+      requestId: 'req-late',
+    });
+    const rejection = expect(requestPromise).rejects.toThrow('timed out');
+    await vi.advanceTimersByTimeAsync(30_001);
+    await rejection;
+    loggerWarnMock.mockClear();
+
+    manager.acceptResponseReport(71, {
+      channel: 'chunk-result',
+      payload: { result: { chunks: [] } },
+      requestId: 'req-late',
+      runtimeId: 'chunking-host-runtime',
+      type: 'result',
+    });
+
+    // `channel` and `type` are what identify which late report arrived.
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'Received chunking host response for unknown request',
+      { channel: 'chunk-result', requestId: 'req-late', type: 'result' }
+    );
   });
 
   it('treats chunking progress as request liveness and keeps the request alive', async () => {
@@ -164,7 +212,7 @@ describe('ChunkingHostManager', () => {
     });
     await vi.advanceTimersByTimeAsync(29_999);
 
-    expect(manager.pendingRequests.has('req-progress-refresh')).toBe(true);
+    expect(manager.requests.has('req-progress-refresh')).toBe(true);
 
     manager.acceptResponseReport(71, {
       channel: 'chunk-result',
@@ -191,7 +239,7 @@ describe('ChunkingHostManager', () => {
       requestId: 'req-unexpected',
     });
     await vi.advanceTimersByTimeAsync(0);
-    expect(manager.pendingRequests.has('req-unexpected')).toBe(true);
+    expect(manager.requests.has('req-unexpected')).toBe(true);
 
     manager.acceptResponseReport(71, {
       channel: 'unexpected-channel',

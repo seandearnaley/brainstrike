@@ -84,9 +84,14 @@ export function hasRegisteredSuspendResumeUi(
  *   close a tool call out on `tool.completed`/`tool.failed`. Closing this one
  *   out would contradict `runStillSuspended: true` in the event's own metadata.
  *
- * It IS in `isAlwaysVisibleRunEvent`, because the transient
- * `brainstrike.tool-suspend` notice is gone after a reload and this row is then
- * the only thing left explaining the dead end.
+ * It IS in `isAlwaysVisibleRunEvent`, but NOT because the notice is lost on
+ * reload — since BST-1084 `appendSuspendedPauseMessages` re-appends the
+ * transient `brainstrike.tool-suspend` notice for pauses that are STILL
+ * suspended. What that notice cannot be is IN the transcript: it is a synthetic
+ * message appended at the END of the thread, and it exists only while the pause
+ * is pending. This row is the in-transcript record, at the point the run
+ * actually stopped, and the only thing that outlives the pause being answered
+ * or discarded.
  */
 export const UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND =
   'tool.resume.unsupported' satisfies AssistantRunEventKind;

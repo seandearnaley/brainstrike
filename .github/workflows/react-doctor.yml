@@ -35,7 +35,9 @@ env:
 
 jobs:
   react-doctor:
-    runs-on: ubuntu-latest
+    # Short x64 automation: preserve the 2-vCPU/8-GB shape at the lower
+    # Ubicloud standard rate. Provider allocation must fail visibly.
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v6
         with:
@@ -43,6 +45,6 @@ jobs:
       - uses: millionco/react-doctor@v2
         with:
           # Pinned for reproducible CI (kept in lockstep with the devDependency).
-          version: "0.9.11"
+          version: "0.9.13"
           scope: changed
           blocking: error

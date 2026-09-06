@@ -25,6 +25,10 @@ import { createRunRequest, MockRequest, MockResponse } from './_harness';
 
 const mockSecretsService = vi.hoisted(() => ({
   deleteKey: vi.fn(),
+  // BST-1352: the assistant POST path reads the TYPED credential.
+  getCredential: vi.fn((_provider: string) =>
+    Promise.resolve({ key: 'test-api-key', type: 'api_key' as const })
+  ),
   getKey: vi.fn((_provider: string) => Promise.resolve('test-api-key')),
   listProviders: vi.fn(() => Promise.resolve(['openai'])),
   saveKey: vi.fn(),
@@ -162,6 +166,9 @@ vi.mock('../../assistant-server/workspace-text-file-reader', () => ({
 const runRequest = createRunRequest(handleAssistantRequest);
 
 beforeEach(() => {
+  mockSecretsService.getCredential
+    .mockReset()
+    .mockResolvedValue({ key: 'test-api-key', type: 'api_key' });
   mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
   mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
   mockDesktopDatabase.query.mockReset().mockResolvedValue({ rows: [] });

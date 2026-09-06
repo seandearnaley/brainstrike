@@ -1,6 +1,7 @@
 import { app, session } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCSP } from '../csp-utils';
+import { __resetMcpAppSessionPolicyForTests } from '../mcp/apps-session-policy';
 import { desktopSecurityLogger, setupSecurity } from '../setup-security';
 
 vi.mock('@brainstrike/logging', () => ({
@@ -16,8 +17,12 @@ vi.mock('electron', () => ({
   app: {
     isPackaged: false,
   },
+  protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
   session: {
     defaultSession: {
+      on: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+      setPermissionRequestHandler: vi.fn(),
       webRequest: {
         onHeadersReceived: vi.fn(),
       },
@@ -34,6 +39,7 @@ describe('setupSecurity', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetMcpAppSessionPolicyForTests();
   });
 
   afterEach(() => {
@@ -147,6 +153,45 @@ describe('setupSecurity', () => {
     });
   });
 
+  it('exempts brainstrike-mcp-app: responses — the shell protocol handler owns their headers (BST-1572)', () => {
+    // Same reasoning as the canvas exemption: the MCP App sandbox shell must
+    // stay frameable and must carry ONLY the per-app policy the protocol
+    // handler serves, which the nested srcdoc app frame inherits.
+    vi.mocked(getCSP).mockReturnValue('app-csp-policy');
+
+    setupSecurity();
+
+    const onHeadersReceived = vi.mocked(session.defaultSession.webRequest.onHeadersReceived);
+    const handler = onHeadersReceived.mock.calls[0]?.[0];
+
+    const details = {
+      id: 1,
+      method: 'GET',
+      referrer: '',
+      resourceType: 'subFrame',
+      responseHeaders: {
+        'Content-Security-Policy': ['mcp-app-policy'],
+        'Content-Type': ['text/html; charset=utf-8'],
+        'Permissions-Policy': ['camera=()'],
+      },
+      statusCode: 200,
+      statusLine: 'HTTP/1.1 200 OK',
+      timestamp: Date.now(),
+      url: 'brainstrike-mcp-app://0123456789abcdef0123456789abcdef/',
+    } as any;
+    const callback = vi.fn();
+
+    handler?.(details, callback);
+
+    expect(callback).toHaveBeenCalledWith({
+      responseHeaders: {
+        'Content-Security-Policy': ['mcp-app-policy'],
+        'Content-Type': ['text/html; charset=utf-8'],
+        'Permissions-Policy': ['camera=()'],
+      },
+    });
+  });
+
   it('should handle missing responseHeaders', () => {
     const mockCSP = 'test-csp-policy';
     vi.mocked(getCSP).mockReturnValue(mockCSP);
@@ -180,5 +225,20 @@ describe('setupSecurity', () => {
         'X-XSS-Protection': ['0'],
       },
     });
+  });
+  it('installs the MCP App sandbox session policy on the default session', () => {
+    vi.mocked(getCSP).mockReturnValue('test-csp-policy');
+
+    setupSecurity();
+
+    const defaultSession = session.defaultSession;
+    expect(defaultSession.setPermissionRequestHandler).toHaveBeenCalledTimes(1);
+    expect(defaultSession.setPermissionCheckHandler).toHaveBeenCalledTimes(1);
+    expect(defaultSession.on).toHaveBeenCalledWith('will-download', expect.any(Function));
+
+    // Idempotent: a second setup must not stack a second will-download listener.
+    setupSecurity();
+    expect(defaultSession.setPermissionRequestHandler).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(defaultSession.on).mock.calls).toHaveLength(1);
   });
 });

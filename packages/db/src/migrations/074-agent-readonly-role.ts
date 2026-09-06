@@ -62,6 +62,7 @@ export const migration074AgentReadonlyRole: Migration = {
       END IF;
     END $$;
   `,
+  ledgerKey: 'custom-074-agent-readonly-role',
   name: 'agent_readonly_role',
   up: `
     DO $$

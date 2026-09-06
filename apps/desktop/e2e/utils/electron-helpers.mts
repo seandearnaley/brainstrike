@@ -73,6 +73,8 @@ const ignoredElectronOutputPatterns = [
   '"msg":"Database initialized with pgvector extension at:"',
   '"msg":"Database initialized successfully at:',
   '"msg":"Database connection closed"',
+  '"msg":"DB host process started"',
+  '"msg":"DB host init completed"',
   '"msg":"Window startup: dom-ready"',
   '"msg":"Window startup: did-finish-load"',
   '"msg":"Window startup: browser-window-created"',
@@ -105,6 +107,7 @@ const ignoredElectronOutputPatterns = [
   '"msg":"main-process-health"',
   '"msg":"Skipping maximize in desktop E2E mode because Electron shows hidden windows when maximizing"',
   '"msg":"Window startup: did-start-loading"',
+  '"msg":"Window startup: renderer-loaded"',
   '"msg":"powerSaveBlocker started for active embedding host work"',
   '"msg":"powerSaveBlocker stopped for idle embedding host"',
   '"msg":"Failed to resubscribe live query after pause release"',
@@ -113,6 +116,16 @@ const ignoredElectronOutputPatterns = [
   '"msg":"mastra stream started"',
   '"msg":"mastra stream finished"',
   '"msg":"registry cleared"',
+  '"msg":"discovered suspended approvals"',
+  '"msg":"brainstrike-asset protocol registered"',
+  '"msg":"brainstrike-canvas protocol registered"',
+  '"msg":"Browser pane session partition configured"',
+  '"msg":"Browser pane host created"',
+  '"msg":"Startup thread-run reap completed"',
+  '"msg":"Workspace snapshot orphan sweep completed"',
+  '"msg":"Workspace snapshot startup GC completed"',
+  '"msg":"Dimension index maintenance capability probe completed"',
+  '"msg":"Started parcel watcher"',
   '[ERROR:dbus/bus.cc:406] Failed to connect to the bus:',
   '[ERROR:dbus/object_proxy.cc:573] Failed to call method: org.freedesktop.DBus.NameHasOwner:',
   'Debugger ending on ws://',
@@ -345,6 +358,11 @@ function createLaunchOptions(
   const baseArgs = [
     mainPath,
     '--test-mode',
+    '--js-flags=--expose-gc',
+    // Without this flag Chromium quantizes performance.memory.usedJSHeapSize
+    // AND caches it for 20 minutes, so within a single test every heap read
+    // returns the identical value and the memory ceilings can never bind.
+    '--enable-precise-memory-info',
     `--brainstrike-desktop-launch-mode=${launchMode}`,
     '--disable-dialogs',
     // NOTE: Do NOT specify --remote-debugging-port here.

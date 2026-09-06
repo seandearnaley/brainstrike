@@ -131,6 +131,17 @@ export interface FTSSearchOptions {
   /** Filter by specific file record ID */
   fileRecordId?: string;
   /**
+   * Allow an English pg_trgm fallback after an empty exact result. The fallback
+   * is eligible only for `queryMode: 'plain'`, whose raw text has no operators
+   * to preserve. Default `true`; set `false` for exact-only evaluation.
+   */
+  fuzzyFallback?: boolean;
+  /**
+   * Minimum word-similarity score for fuzzy candidates (default: 0.6). This is
+   * intentionally separate from the unbounded BM25 `threshold` domain.
+   */
+  fuzzyThreshold?: number;
+  /**
    * When `false` (the default), returned rows omit the heavy embedding vector
    * and instead carry `embeddingDimensions` (via a cheap `vector_dims()`
    * projection). FTS never needs the vector, so it is projected away by default.
@@ -156,13 +167,6 @@ export interface FTSSearchOptions {
   limit?: number;
   /** Query parsing mode (default: 'websearch' for user-friendly syntax) */
   queryMode?: FTSQueryMode;
-  /**
-   * @deprecated INERT since the BM25 ordering swap: ranking is BM25 (which has
-   * its own length normalization via the index's `b` parameter), so ts_rank
-   * normalization flags do not apply and this option is ignored. Kept only to
-   * avoid a type-surface break for existing callers.
-   */
-  rankNormalization?: number;
   /** Optional multi-root workspace scope (file_records.root_id ∈ rootIds). Empty array matches nothing. */
   rootIds?: readonly string[];
   /** Optional snapshot id referencing a persisted selection allowlist */
@@ -185,6 +189,8 @@ export interface FTSSearchResult {
   chunk: FileChunk;
   /** Headline snippet with search terms highlighted (if requested) */
   headline?: string;
+  /** Exact tsvector/BM25 result or explicit pg_trgm typo-recovery result. */
+  matchKind: 'exact' | 'fuzzy';
   /** Position in result set (1-indexed) */
   position: number;
   /**

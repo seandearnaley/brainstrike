@@ -14,6 +14,7 @@ export const migration061ModelVisionCapability: Migration = {
   down: `
     UPDATE models SET capabilities = capabilities - 'vision' WHERE capabilities ? 'vision';
   `,
+  ledgerKey: 'custom-061-model-vision-capability',
   name: 'model_vision_capability',
   up: `
     UPDATE models SET capabilities = capabilities || '{"vision":true}'::jsonb

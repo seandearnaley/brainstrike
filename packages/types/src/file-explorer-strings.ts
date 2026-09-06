@@ -8,6 +8,7 @@ export const FileExplorerStrings = {
   error: {
     browserCompatibility: 'Browser Compatibility Error',
     contextCopyFailed: 'Failed to generate or copy context',
+    contextDownloadFailed: 'Failed to generate or download context',
     contextGenerationFailed: 'Failed to generate context',
     fileLoadFailed: 'Failed to load file',
     noRootDirectory: 'No folder selected.',
@@ -47,6 +48,14 @@ export const FileExplorerStrings = {
     chooseDirectory: 'Please choose a folder from the file picker',
     waitForContext: 'Please wait while we prepare your context',
     waitForLoading: 'Please wait while we load the file tree',
+  },
+  recovery: {
+    persistedStateDiscarded:
+      'Saved explorer settings could not be restored and were reset. Your files were not changed.',
+    persistedStateUnavailable:
+      'Saved explorer settings could not be read. Changes will be saved when storage becomes available. Your files were not changed.',
+    title: 'Explorer settings reset',
+    unavailableTitle: 'Explorer settings unavailable',
   },
   refresh: 'Refresh',
 

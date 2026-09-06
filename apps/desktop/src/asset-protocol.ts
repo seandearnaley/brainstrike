@@ -30,6 +30,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createLogger } from '@brainstrike/logging';
 import { net, protocol } from 'electron';
+import { isContained } from './ipc-domains/workspace-root-paths';
 import type { WorkspaceRootResolver } from './workspace-root-cwd';
 
 const logger = createLogger('AssetProtocol');
@@ -80,7 +81,7 @@ async function isContainedInAnyRoot(
     } catch {
       continue;
     }
-    if (real === rootReal || real.startsWith(rootReal + path.sep)) {
+    if (isContained(rootReal, real)) {
       return true;
     }
   }

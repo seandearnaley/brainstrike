@@ -307,12 +307,15 @@ export function useFileTree(
         if (entry.type === 'directory') {
           const node = context.processDirectory(entry, relativePath, handle, context.rootFolderId);
 
+          const entryHandle = entry.handle as Partial<DirectoryHandle> | undefined;
+          const rootId = entryHandle?.rootId ?? handle.rootId;
           const dirHandle: DirectoryHandle = {
             _internal: entry.handle,
             kind: 'directory',
             name: entry.name,
             path: node.path,
             platform: handle.platform,
+            ...(rootId === undefined ? {} : { rootId }),
           };
 
           // Defer reading until the stack pop; failures handled centrally

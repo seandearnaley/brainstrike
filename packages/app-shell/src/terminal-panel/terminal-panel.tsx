@@ -2,6 +2,8 @@ import { Button } from '@brainstrike/ui';
 import { Bot, RotateCw, TerminalSquare } from 'lucide-react';
 import { type ReactElement, useMemo, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
+import type { TerminalTarget } from '../stores/terminal-target-store';
+import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { isCommandSessionBridgeAvailable } from './command-session-bridge';
 import { CommandSessionInventory } from './command-session-inventory';
 import { useActiveRootId } from './use-active-root-id';
@@ -20,14 +22,21 @@ import { useTerminalSession } from './use-terminal-session';
  * Constructed only on desktop (the wrapper checks `window.terminal`); it still
  * renders its own no-root empty state. On a root focus-change the existing
  * session keeps running (it is pinned to its cwd); switching the active root
- * starts a fresh session for the newly focused root.
+ * starts a fresh session for the newly focused root. A `terminal-target-store`
+ * pin (BST-1457 "Open in Terminal") OVERRIDES the focused root and adds an
+ * explicit "Follow focused folder" release, so a pin is visible and reversible
+ * rather than a state the user cannot leave.
  */
 interface HumanTerminalProps {
-  readonly activeRootId: string;
+  /** Pinned checkout path, or null when following the focused root. */
+  readonly cwd: string | null;
+  /** Present ONLY while a target is pinned — its absence IS "we follow focus". */
+  readonly onClearTarget: (() => void) | undefined;
+  readonly rootId: string;
 }
 
-function HumanTerminal({ activeRootId }: HumanTerminalProps): ReactElement {
-  const { containerRef, restart, state } = useTerminalSession(activeRootId);
+function HumanTerminal({ cwd, onClearTarget, rootId }: HumanTerminalProps): ReactElement {
+  const { containerRef, restart, state } = useTerminalSession(rootId, cwd);
 
   const isExited = state.kind === 'exited';
   const isError = state.kind === 'error';
@@ -41,12 +50,26 @@ function HumanTerminal({ activeRootId }: HumanTerminalProps): ReactElement {
             {state.kind === 'ready' ? state.cwd : 'Terminal'}
           </span>
         </div>
-        {isExited || isError ? (
-          <Button onClick={restart} size="sm" type="button" variant="outline">
-            <RotateCw aria-hidden="true" className="mr-1" />
-            Restart
-          </Button>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {onClearTarget ? (
+            <Button
+              data-testid="terminal-panel-clear-target"
+              onClick={onClearTarget}
+              size="sm"
+              title="Stop pinning this terminal to a specific checkout"
+              type="button"
+              variant="outline"
+            >
+              Follow focused folder
+            </Button>
+          ) : null}
+          {isExited || isError ? (
+            <Button onClick={restart} size="sm" type="button" variant="outline">
+              <RotateCw aria-hidden="true" className="mr-1" />
+              Restart
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -98,11 +121,32 @@ function HumanTerminal({ activeRootId }: HumanTerminalProps): ReactElement {
 }
 
 export function TerminalPanel(): ReactElement {
-  const activeRootId = useActiveRootId();
+  const focusedRootId = useActiveRootId();
+  const target = useTerminalTargetStore((state) => state.target);
+  const clearTarget = useTerminalTargetStore((state) => state.reset);
   const commandSessionsAvailable = useMemo(() => isCommandSessionBridgeAvailable(), []);
   const [surface, setSurface] = useState<'command-sessions' | 'shell'>('shell');
+  // An explicit pin wins; with none the panel follows the focused root exactly
+  // as it always has. Derived during render — never mirrored into state.
+  const rootId = target?.rootId ?? focusedRootId;
 
-  if (!activeRootId) {
+  // An explicit "Open in Terminal" must show the shell it just started, even
+  // when Command sessions was the last surface selected — otherwise the
+  // requested PTY starts invisibly behind that tab (PR #2675 review). Render-time
+  // adjustment per the house "derived state" idiom (budget-settings-panel.tsx,
+  // threads-panel-search.tsx): `openTerminalAt` always sets a FRESH object, so
+  // its identity changes on every call, including a repeat pin of the same
+  // checkout. The user can still switch back to Command sessions afterward —
+  // this only forces the surface at the moment a new target is requested.
+  const [lastHandledTarget, setLastHandledTarget] = useState<TerminalTarget | null>(target);
+  if (target !== lastHandledTarget) {
+    setLastHandledTarget(target);
+    if (target) {
+      setSurface('shell');
+    }
+  }
+
+  if (!rootId) {
     return (
       <div
         className="flex h-full items-center justify-center bg-background p-6 text-center text-muted-foreground text-sm"
@@ -141,11 +185,19 @@ export function TerminalPanel(): ReactElement {
         </nav>
       ) : null}
       <div className="min-h-0 flex-1" hidden={surface !== 'shell'}>
-        <HumanTerminal activeRootId={activeRootId} />
+        <HumanTerminal
+          cwd={target?.cwd ?? null}
+          onClearTarget={target ? clearTarget : undefined}
+          rootId={rootId}
+        />
       </div>
-      {commandSessionsAvailable ? (
+      {commandSessionsAvailable && focusedRootId ? (
         <div className="min-h-0 flex-1" hidden={surface !== 'command-sessions'}>
-          <CommandSessionInventory key={activeRootId} rootId={activeRootId} />
+          {/* A pin is a SHELL pin by design — Command sessions always follows
+              the FOCUSED root, never the pinned `rootId`, so a checkout pinned
+              in another root can never silently retarget this surface's
+              destructive stop/remove/write actions (PR #2675 review). */}
+          <CommandSessionInventory key={focusedRootId} rootId={focusedRootId} />
         </div>
       ) : null}
     </div>

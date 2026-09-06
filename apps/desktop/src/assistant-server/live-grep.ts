@@ -5,6 +5,7 @@ import type { GrepMatch, LineMatcher } from '@brainstrike/db';
 import { collectGrepMatchesInContent } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
+import { createAgentIgnoreGuard } from './agent-ignore-guard';
 import { buildLiveNote } from './live-grep-note';
 import {
   PROBE_RIPGREP_TIMEOUT_MS,
@@ -509,8 +510,18 @@ async function probeExcludedRoot(args: {
   if (args.signal.aborted) {
     return empty;
   }
+  // The probe's whole purpose is reading inside policy-EXCLUDED trees, which
+  // makes it the read path most likely to steer past an agent ignore file. The
+  // hard boundary is the one exclusion it may not bypass (BST-1432), so it is
+  // applied to the bounded slice — after the cap, before any file is opened.
+  const guard = createAgentIgnoreGuard(canonicalRootPath);
+  const guardVerdicts = await Promise.all(
+    eligible.map((relativePath) => guard.ignoresFile(relativePath))
+  );
+  const permitted = eligible.filter((_relativePath, index) => guardVerdicts[index] !== true);
+
   const candidateResults = await Promise.all(
-    eligible.map((relativePath) =>
+    permitted.map((relativePath) =>
       countExcludedCandidateMatches({
         canonicalRootPath,
         matcher: args.matcher,
@@ -688,7 +699,7 @@ async function gatherRootCandidates(args: {
           ripgrepPath,
           root,
         });
-      state.candidates.push(...candidates);
+      state.candidates.push(...(await dropAgentIgnored(canonicalRootPath, candidates)));
       state.prefilterTruncated = state.prefilterTruncated || prefilterTruncated;
       state.candidateCapHit = state.candidateCapHit || capHit;
       state.partialReadErrors = state.partialReadErrors || partialReadErrors;
@@ -709,8 +720,30 @@ async function gatherRootCandidates(args: {
   }
 
   const { candidates, scanLimited } = await collectJsWalkCandidates(root);
-  state.candidates.push(...candidates);
+  state.candidates.push(...(await dropAgentIgnored(canonicalRootPath, candidates)));
   state.scanLimited = state.scanLimited || scanLimited;
+}
+
+/**
+ * Drop candidates excluded by an agent ignore file (BST-1432).
+ *
+ * Applied HERE, where the ripgrep and JS-walk candidate sets converge, so both
+ * engines are trimmed by one authority. Enforcing it inside each collector
+ * would make the boundary's strength depend on whether `rg` is installed —
+ * see `createAgentIgnoreGuard` for the full rationale.
+ */
+async function dropAgentIgnored(
+  canonicalRootPath: string,
+  candidates: readonly LiveCandidate[]
+): Promise<LiveCandidate[]> {
+  if (candidates.length === 0) {
+    return [];
+  }
+  const guard = createAgentIgnoreGuard(canonicalRootPath);
+  const verdicts = await Promise.all(
+    candidates.map((candidate) => guard.ignoresFile(candidate.relativePath))
+  );
+  return candidates.filter((_candidate, index) => verdicts[index] !== true);
 }
 
 export async function runLiveGrep(

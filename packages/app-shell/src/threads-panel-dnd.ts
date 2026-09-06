@@ -43,10 +43,16 @@ function sectionThreadIds(view: ThreadListView, groupId: string | null): readonl
   if (view.kind === 'flat') {
     return view.threads.map((thread) => thread.id);
   }
+  if (view.kind === 'folders') {
+    // Unreachable: `resolveThreadsPanelDrop` answers `none` for a folders view
+    // before any resolver runs. Kept as an invariant so a future caller that
+    // reaches in here cannot invent an order folder sections do not have.
+    throw new Error('resolveThreadsPanelDrop: folder grouping has no drag order.');
+  }
   if (groupId === null) {
     return view.ungrouped.map((thread) => thread.id);
   }
-  const section = view.sections.find((candidate) => candidate.group.id === groupId);
+  const section = view.sections.find((candidate) => candidate.header.group.id === groupId);
   return section ? section.threads.map((thread) => thread.id) : [];
 }
 
@@ -112,9 +118,17 @@ function resolveGroupReorder({
   if (view.kind !== 'grouped' || !target.edge || source.groupId === target.groupId) {
     return NONE;
   }
-  const currentIds = view.sections
-    .map((section) => section.group.id)
-    .filter((groupId) => groupId !== source.groupId);
+  // One pass collects both the rendered order and the order with the dragged
+  // group lifted out; the two are compared at the end to detect a no-op drop.
+  const previousIds: string[] = [];
+  const currentIds: string[] = [];
+  for (const section of view.sections) {
+    const groupId = section.header.group.id;
+    previousIds.push(groupId);
+    if (groupId !== source.groupId) {
+      currentIds.push(groupId);
+    }
+  }
   const targetIndex = currentIds.indexOf(target.groupId);
   if (targetIndex === -1) {
     return NONE;
@@ -125,7 +139,6 @@ function resolveGroupReorder({
     source.groupId,
     ...currentIds.slice(insertIndex),
   ];
-  const previousIds = view.sections.map((section) => section.group.id);
   if (orderedGroupIds.join('\0') === previousIds.join('\0')) {
     return NONE;
   }
@@ -133,16 +146,45 @@ function resolveGroupReorder({
 }
 
 export function resolveThreadsPanelDrop({
+  filtersActive,
   groupIdByThreadId,
   source,
   target,
   view,
 }: {
+  /**
+   * True while at least one "Show only" filter is narrowing the list, which
+   * makes every rendered section PARTIAL. See the row short-circuit below.
+   */
+  readonly filtersActive: boolean;
   readonly groupIdByThreadId: ReadonlyMap<string, string | null>;
   readonly source: ThreadsPanelDragSource;
   readonly target: ThreadsPanelDropTarget;
   readonly view: ThreadListView;
 }): ThreadsPanelDropIntent {
+  if (view.kind === 'folders') {
+    // Folder sections have no manual order and no membership to rewrite: a
+    // thread's folder is its `metadata.operatingRootId`, re-bound from the
+    // composer's folder chip. The panel therefore renders no drag sources in
+    // this mode, but the drop monitor is global — so a drop that arrives from
+    // somewhere else resolves to no intent rather than throwing at the user.
+    return NONE;
+  }
+  if (filtersActive && source.type === 'thread-row') {
+    // A filtered section is a PARTIAL section, and `applyThreadOrder` rewrites
+    // the ranks of everything it is handed with ONE fresh key sequence — its
+    // "manual order is always fully materialized" only holds when the entries
+    // are the WHOLE section. Reordering what the filter left visible would
+    // renumber those threads while the hidden ones keep their old ranks, so
+    // clearing the filter would reveal the two sequences interleaved: an order
+    // the user never chose, with nothing anywhere reporting it. The panel
+    // therefore renders no row drag source while a filter is active — the same
+    // "no affordance beats one that lies" call folder grouping makes — and
+    // this mirrors it for the global drop monitor. Group-header drags are
+    // untouched: a section is minted per GROUP, not per surviving thread, so a
+    // group reorder is still a complete rewrite.
+    return NONE;
+  }
   if (source.type === 'thread-row') {
     if (target.type === 'group-header') {
       if (source.groupId === target.groupId) {

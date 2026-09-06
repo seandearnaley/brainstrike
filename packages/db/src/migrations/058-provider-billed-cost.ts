@@ -6,6 +6,7 @@ export const migration058ProviderBilledCost: Migration = {
     ALTER TABLE IF EXISTS brainstrike_assistant_run_usage
       DROP COLUMN IF EXISTS billed_cost_usd;
   `,
+  ledgerKey: 'custom-058-provider-billed-cost',
   name: 'provider_billed_cost',
   up: `
     ALTER TABLE brainstrike_assistant_run_usage

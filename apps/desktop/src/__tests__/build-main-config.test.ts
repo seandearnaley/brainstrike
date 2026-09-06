@@ -7,7 +7,16 @@ import {
 } from '../../scripts/build-main-config.mjs';
 
 interface DesktopPackageConfig {
-  build?: { asarUnpack?: readonly string[] };
+  build?: {
+    asarUnpack?: readonly string[];
+    mac?: {
+      extraResources?: readonly {
+        filter?: readonly string[];
+        from?: string;
+        to?: string;
+      }[];
+    };
+  };
   dependencies?: Record<string, string>;
 }
 
@@ -45,8 +54,8 @@ function readDesktopPackageConfig(): DesktopPackageConfig {
  * - hidden renderer host preload → dist/hidden-preload.js
  * - main-thread watchdog worker → dist/main-watchdog-worker.js
  * - utilityProcess.fork sibling lookups → dist/db-host-entry.js,
- *   dist/parser-host-entry.js (resolved relative to module.filename of the
- *   bundled main.js, so outputs must stay FLAT in dist/)
+ *   dist/parser-host-entry.js (resolved through bundled-sibling-path from the
+ *   running bundle's __filename, so outputs must stay FLAT in dist/)
  */
 describe('main-process bundle config', () => {
   it('bundles every runtime and logging transport entry point', () => {
@@ -56,6 +65,7 @@ describe('main-process bundle config', () => {
       main: 'src/main-bootstrap.ts',
       'main-log-transport': 'src/diagnostics/main-log-transport.ts',
       'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
+      'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
       'parser-host-entry': 'src/parser-host-entry.ts',
       preload: 'src/preload.ts',
     });
@@ -67,6 +77,21 @@ describe('main-process bundle config', () => {
     expect(packageJson.build?.asarUnpack).toEqual(
       expect.arrayContaining(['dist/main-log-transport.js', 'dist/main-watchdog-worker.js'])
     );
+  });
+
+  it('packages the bundled Python manifest and target archives as macOS resources', () => {
+    const packageJson = readDesktopPackageConfig();
+
+    expect(packageJson.build?.mac?.extraResources).toContainEqual({
+      filter: ['manifest.json', '*.tar.gz'],
+      from: 'resources/python-runtime',
+      to: 'python-runtime',
+    });
+    expect(
+      fs.existsSync(
+        path.resolve(import.meta.dirname, '../../resources/python-runtime/manifest.json')
+      )
+    ).toBe(true);
   });
 
   it('ships and unpacks the classic TypeScript server used by LSP diagnostics', () => {
@@ -104,6 +129,17 @@ describe('main-process bundle config', () => {
     // Flat output directory keeps the fork-entry sibling lookups valid.
     expect(MAIN_PROCESS_BUILD_OPTIONS.outdir?.endsWith('dist')).toBe(true);
     expect(MAIN_PROCESS_BUILD_OPTIONS.outbase?.endsWith('src')).toBe(true);
+  });
+
+  it('emits the conformance entry as CJS and executes it without a silent module guard', () => {
+    const entrySource = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../../src/official-conformance-client-entry.ts'),
+      'utf8'
+    );
+
+    expect(MAIN_PROCESS_BUILD_OPTIONS.format).toBe('cjs');
+    expect(entrySource).toContain('void runOfficialConformanceProcess(');
+    expect(entrySource).not.toContain("typeof require !== 'undefined'");
   });
 
   it('ignores the renderer tsconfig paths so workspace packages stay external', () => {

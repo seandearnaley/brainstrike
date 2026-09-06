@@ -4,6 +4,7 @@ import { WebE2ETestHooks } from '../web-e2e-test-hooks';
 
 const usePGliteDatabaseMock = vi.hoisted(() => vi.fn());
 const getEmbeddingQueueMock = vi.hoisted(() => vi.fn());
+const runEmbeddingModelSwitchMemoryProbeMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: usePGliteDatabaseMock,
@@ -14,6 +15,9 @@ vi.mock('@brainstrike/db/react', () => ({
 
 vi.mock('../create-embedding-queue', () => ({
   getEmbeddingQueue: getEmbeddingQueueMock,
+}));
+vi.mock('../embedding-model-switch-memory-probe', () => ({
+  runEmbeddingModelSwitchMemoryProbe: runEmbeddingModelSwitchMemoryProbeMock,
 }));
 
 interface TestDbHandle {
@@ -30,12 +34,29 @@ function setWebDriver(value: boolean): void {
 describe('WebE2ETestHooks', () => {
   beforeEach(() => {
     Reflect.deleteProperty(window, '__brainstrikeWebE2ETestHooks__');
+    window.__brainstrikeEnableEmbeddingModelSwitchMemoryProbe__ = true;
     usePGliteDatabaseMock.mockReset();
+    runEmbeddingModelSwitchMemoryProbeMock.mockReset();
+    runEmbeddingModelSwitchMemoryProbeMock.mockResolvedValue({
+      afterTeardown: { estimatedGpuBytes: 0, estimatedHeapBytes: 0, residentCount: 0 },
+      beforeTeardown: {
+        estimatedGpuBytes: 16,
+        estimatedHeapBytes: 24,
+        memoryEstimateUnavailableCount: 0,
+        residentCount: 4,
+      },
+      disposedModels: ['wasm-b', 'wasm-cycle-5'],
+      firstGpuEvictedModel: 'gpu-a',
+      firstWasmEvictedModel: 'wasm-b',
+      health: { failureCount: 0, lastFailure: null },
+      residentLimitEvictionCount: 1,
+    });
     vi.restoreAllMocks();
   });
 
   afterEach(() => {
     Reflect.deleteProperty(window, '__brainstrikeWebE2ETestHooks__');
+    Reflect.deleteProperty(window, '__brainstrikeEnableEmbeddingModelSwitchMemoryProbe__');
     vi.restoreAllMocks();
   });
 
@@ -52,6 +73,7 @@ describe('WebE2ETestHooks', () => {
       readFileRowCounts: vi.fn(),
       readModelEnabled: vi.fn(),
       readResetRowCounts: vi.fn(),
+      runEmbeddingModelSwitchMemoryProbe: vi.fn(),
       seedFileRowsOnly: vi.fn(),
       seedResetProbeRows: vi.fn(),
       syncDatabase: vi.fn(),
@@ -81,6 +103,7 @@ describe('WebE2ETestHooks', () => {
       readFileRowCounts: vi.fn(),
       readModelEnabled: vi.fn(),
       readResetRowCounts: vi.fn(),
+      runEmbeddingModelSwitchMemoryProbe: vi.fn(),
       seedFileRowsOnly: vi.fn(),
       seedResetProbeRows: vi.fn(),
       syncDatabase: vi.fn(),
@@ -92,6 +115,56 @@ describe('WebE2ETestHooks', () => {
     await waitFor(() => {
       expect(window.__brainstrikeWebE2ETestHooks__).toBeUndefined();
     });
+  });
+
+  it('does not expose the model-switch probe without the explicit init flag', async () => {
+    Reflect.deleteProperty(window, '__brainstrikeEnableEmbeddingModelSwitchMemoryProbe__');
+    setWebDriver(true);
+    usePGliteDatabaseMock.mockReturnValue({
+      query: vi.fn(),
+      syncToFs: vi.fn(),
+    } satisfies TestDbHandle);
+
+    render(<WebE2ETestHooks dbPath="idb://web-e2e-test" />);
+
+    await waitFor(() => {
+      expect(window.__brainstrikeWebE2ETestHooks__).toBeDefined();
+    });
+    expect(
+      window.__brainstrikeWebE2ETestHooks__?.runEmbeddingModelSwitchMemoryProbe
+    ).toBeUndefined();
+  });
+
+  it('rechecks webdriver and init attestation when a captured probe hook runs', async () => {
+    setWebDriver(true);
+    usePGliteDatabaseMock.mockReturnValue({
+      query: vi.fn(),
+      syncToFs: vi.fn(),
+    } satisfies TestDbHandle);
+
+    render(<WebE2ETestHooks dbPath="idb://web-e2e-test" />);
+
+    await waitFor(() => {
+      expect(window.__brainstrikeWebE2ETestHooks__?.runEmbeddingModelSwitchMemoryProbe).toBeTypeOf(
+        'function'
+      );
+    });
+    const runProbe = window.__brainstrikeWebE2ETestHooks__?.runEmbeddingModelSwitchMemoryProbe;
+    if (!runProbe) {
+      throw new Error('Expected the model-switch probe hook to be installed.');
+    }
+
+    setWebDriver(false);
+    await expect(runProbe()).rejects.toThrow(
+      'Embedding model-switch memory probe is restricted to webdriver automation.'
+    );
+
+    setWebDriver(true);
+    Reflect.deleteProperty(window, '__brainstrikeEnableEmbeddingModelSwitchMemoryProbe__');
+    await expect(runProbe()).rejects.toThrow(
+      'Embedding model-switch memory probe requires the explicit init-script flag.'
+    );
+    expect(runEmbeddingModelSwitchMemoryProbeMock).not.toHaveBeenCalled();
   });
 
   it('exposes model state and durable sync helpers for webdriver tests', async () => {
@@ -185,6 +258,15 @@ describe('WebE2ETestHooks', () => {
       fallbackApplied: false,
       finite: true,
     });
+    const runModelSwitchProbe =
+      window.__brainstrikeWebE2ETestHooks__?.runEmbeddingModelSwitchMemoryProbe;
+    if (!runModelSwitchProbe) {
+      throw new Error('Expected the explicitly enabled model-switch probe hook.');
+    }
+    await expect(runModelSwitchProbe()).resolves.toMatchObject({
+      firstGpuEvictedModel: 'gpu-a',
+      firstWasmEvictedModel: 'wasm-b',
+    });
     await window.__brainstrikeWebE2ETestHooks__?.syncDatabase();
 
     expect(query).toHaveBeenCalledWith(
@@ -227,6 +309,7 @@ describe('WebE2ETestHooks', () => {
       texts: ['Brainstrike production CSP qualification'],
       truncateDim: 384,
     });
+    expect(runEmbeddingModelSwitchMemoryProbeMock).toHaveBeenCalledTimes(1);
     expect(syncToFs).toHaveBeenCalledTimes(1);
 
     unmount();

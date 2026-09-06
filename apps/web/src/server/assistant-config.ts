@@ -1,4 +1,6 @@
 import {
+  type DeprecatedEnvVarReport,
+  detectDeprecatedProviderEnvVars,
   PROVIDER_DEFAULT_MODELS,
   providerEnvKeys,
   type SupportedProvider,
@@ -46,6 +48,12 @@ export interface ConfiguredAssistantProviderConfig extends AssistantProviderConf
 }
 
 export interface HostedWebAssistantStatusPayload {
+  /**
+   * Deprecated env names set in THIS server's environment (BST-1361), with
+   * the canonical rename. Names only — values never cross the wire. Limited
+   * to Hosted Web providers; omitted when nothing deprecated is set.
+   */
+  deprecatedEnvVars?: readonly DeprecatedEnvVarReport[];
   enabled: boolean;
   model?: string;
   provider?: HostedWebAssistantProvider;
@@ -95,6 +103,26 @@ export function resolveAssistantProviderConfigs(
   }).filter(isConfiguredAssistantProvider);
 }
 
+// BST-1361: rename warnings for deprecated env names, computed from this
+// server's own environment, restricted to the Hosted Web provider set, and
+// memoized for the process lifetime (review 10b) — the server environment is
+// immutable after boot, so per-request re-scans buy nothing.
+let cachedDeprecatedEnvVarReports: readonly DeprecatedEnvVarReport[] | undefined;
+
+function hostedWebDeprecatedEnvVars(): readonly DeprecatedEnvVarReport[] {
+  if (!cachedDeprecatedEnvVarReports) {
+    cachedDeprecatedEnvVarReports = detectDeprecatedProviderEnvVars(process.env).filter((report) =>
+      isHostedWebAssistantProvider(report.provider)
+    );
+  }
+  return cachedDeprecatedEnvVarReports;
+}
+
+/** Tests mutate process.env per case; production never calls this. */
+export function resetHostedWebDeprecatedEnvVarsForTests(): void {
+  cachedDeprecatedEnvVarReports = undefined;
+}
+
 export function resolveHostedWebAssistantStatus(
   resolveConfig: (
     provider: HostedWebAssistantProvider
@@ -103,10 +131,17 @@ export function resolveHostedWebAssistantStatus(
   const configuredProviders = resolveAssistantProviderConfigs(resolveConfig);
   const primary = configuredProviders[0];
   if (!primary) {
+    // Disclosure gate (BST-1361 review 4): production/anonymous deployments
+    // serve this route disabled — a disabled payload must not reveal which
+    // env names exist on the server. Rename guidance rides only the
+    // credentialed (local Vite / protected Preview) enabled state.
     return { enabled: false, reason: 'missing_api_key' };
   }
 
+  const deprecatedReports = hostedWebDeprecatedEnvVars();
+
   return {
+    ...(deprecatedReports.length > 0 ? { deprecatedEnvVars: deprecatedReports } : {}),
     enabled: true,
     model: resolveHostedWebAssistantModel(primary.provider),
     provider: primary.provider,

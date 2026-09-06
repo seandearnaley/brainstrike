@@ -9,6 +9,7 @@ import {
   decryptIfEncrypted,
   ensureMcpDirExists,
   getMcpConfigPath,
+  type LoadedMcpConfig,
   loadMcpConfig,
   type McpConfig,
   type McpServer,
@@ -17,6 +18,18 @@ import {
   watchMcpConfig,
   withDecryptedSecrets,
 } from '../../mcp-loader';
+
+const loggerMocks = vi.hoisted(() => ({
+  debug: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+}));
+
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => loggerMocks,
+}));
 
 // Mock electron
 vi.mock('electron', () => ({
@@ -59,6 +72,12 @@ const mockedFsp = vi.mocked(
 );
 
 type WatchCallback = (eventType: string, filename?: string) => void;
+
+async function flushMicrotasks(): Promise<void> {
+  for (let index = 0; index < 10; index += 1) {
+    await Promise.resolve();
+  }
+}
 
 function getWatchCallback(): WatchCallback {
   const watchCall = mockedFs.watch.mock.calls[0];
@@ -319,6 +338,8 @@ describe('mcp-loader comprehensive tests', () => {
       expect(result.servers[0]).toEqual({
         command: 'cmd',
         name: 'minimal',
+        protocol: 'legacy',
+        startup: 'automatic',
         transport: 'stdio',
       });
     });
@@ -331,6 +352,8 @@ describe('mcp-loader comprehensive tests', () => {
       const result = parseMcpConfig(json);
       expect(result.servers[0]).toEqual({
         name: 'minimal-sse',
+        protocol: 'legacy',
+        startup: 'automatic',
         transport: 'sse',
         url: 'http://example.com',
       });
@@ -1101,7 +1124,24 @@ describe('mcp-loader comprehensive tests', () => {
       };
 
       const result = await withDecryptedSecrets(config);
-      expect(result).toEqual(config);
+      expect(result).toEqual({
+        servers: [
+          {
+            command: 'cmd',
+            name: 'plain',
+            protocol: 'legacy',
+            startup: 'automatic',
+            transport: 'stdio',
+          },
+          {
+            name: 'plain-sse',
+            protocol: 'legacy',
+            startup: 'automatic',
+            transport: 'sse',
+            url: 'http://example.com',
+          },
+        ],
+      });
     });
 
     it('should remove undefined headers after decryption', async () => {
@@ -1351,6 +1391,117 @@ describe('mcp-loader comprehensive tests', () => {
       await vi.advanceTimersByTimeAsync(100);
 
       expect(onChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('publishes only the latest event when config loads finish out of order', async () => {
+      const firstRead = Promise.withResolvers<string>();
+      let configReads = 0;
+      mockedFsp.readFile.mockImplementation(async (filePath) => {
+        if (filePath.toString().endsWith('mcp-custom-path.txt')) {
+          const error = new Error('File not found') as Error & { code: string };
+          error.code = 'ENOENT';
+          throw error;
+        }
+        configReads += 1;
+        if (configReads === 1) {
+          return await firstRead.promise;
+        }
+        return JSON.stringify({
+          servers: [{ command: 'second', name: 'second', transport: 'stdio' }],
+        });
+      });
+      const onChange = vi.fn();
+      await watchMcpConfig(onChange);
+      const watchCallback = getWatchCallback();
+
+      watchCallback('change', 'mcp.config.json');
+      vi.advanceTimersByTime(100);
+      await flushMicrotasks();
+      expect(configReads).toBe(1);
+
+      watchCallback('change', 'mcp.config.json');
+      vi.advanceTimersByTime(100);
+      await flushMicrotasks();
+      expect(onChange).toHaveBeenCalledOnce();
+      expect(onChange.mock.calls[0]?.[0].servers?.[0]?.name).toBe('second');
+
+      firstRead.resolve(
+        JSON.stringify({ servers: [{ command: 'first', name: 'first', transport: 'stdio' }] })
+      );
+      await flushMicrotasks();
+      expect(onChange).toHaveBeenCalledOnce();
+    });
+
+    it('observes an async watcher callback rejection exactly once', async () => {
+      const callbackError = new Error('projection failed');
+      mockedFsp.readFile.mockResolvedValue(
+        JSON.stringify({ servers: [{ command: 'cmd', name: 'test', transport: 'stdio' }] })
+      );
+      const onChange = vi.fn(async () => {
+        throw callbackError;
+      });
+      await watchMcpConfig(onChange);
+
+      getWatchCallback()('change', 'mcp.config.json');
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(loggerMocks.error).toHaveBeenCalledOnce();
+      expect(loggerMocks.error).toHaveBeenCalledWith('MCP config watcher callback failed', {
+        error: callbackError,
+      });
+    });
+
+    it('serializes async watcher callbacks across separate events', async () => {
+      let configReads = 0;
+      mockedFsp.readFile.mockImplementation(async (filePath) => {
+        if (filePath.toString().endsWith('mcp-custom-path.txt')) {
+          const error = new Error('File not found') as Error & { code: string };
+          error.code = 'ENOENT';
+          throw error;
+        }
+        configReads += 1;
+        return JSON.stringify({
+          servers: [
+            { command: 'cmd', name: configReads === 1 ? 'first' : 'second', transport: 'stdio' },
+          ],
+        });
+      });
+      const firstCallback = Promise.withResolvers<void>();
+      const order: string[] = [];
+      const onChange = vi.fn(async (config: LoadedMcpConfig) => {
+        const name = config.servers?.[0]?.name ?? 'missing';
+        order.push(`${name}:start`);
+        if (name === 'first') {
+          await firstCallback.promise;
+        }
+        order.push(`${name}:end`);
+      });
+      await watchMcpConfig(onChange);
+      const watchCallback = getWatchCallback();
+
+      watchCallback('change', 'mcp.config.json');
+      vi.advanceTimersByTime(100);
+      await flushMicrotasks();
+      watchCallback('change', 'mcp.config.json');
+      vi.advanceTimersByTime(100);
+      await flushMicrotasks();
+
+      expect(order).toEqual(['first:start']);
+      firstCallback.resolve();
+      await flushMicrotasks();
+      expect(order).toEqual(['first:start', 'first:end', 'second:start', 'second:end']);
+    });
+
+    it('cancels pending debounce work when closed', async () => {
+      const onChange = vi.fn();
+      const watcher = await watchMcpConfig(onChange);
+
+      getWatchCallback()('change', 'mcp.config.json');
+      watcher.close();
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(onChange).not.toHaveBeenCalled();
+      expect(mockWatcher.close).toHaveBeenCalledOnce();
     });
 
     it('should handle undefined filename', async () => {

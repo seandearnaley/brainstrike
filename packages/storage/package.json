@@ -4,8 +4,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/logging": "workspace:*",
-    "@brainstrike/platform-utils": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/platform-utils": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/config": "workspace:*",

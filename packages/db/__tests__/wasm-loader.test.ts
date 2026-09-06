@@ -17,7 +17,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
         this.query = vi.fn().mockResolvedValue(undefined);
         this.close = vi.fn().mockResolvedValue(undefined);
       });
-      return { PGlite: PGliteMock };
+      return { PGlite: { create: (options: unknown) => Promise.resolve(new PGliteMock(options)) } };
     });
 
     // Mock the vector extension
@@ -136,6 +136,50 @@ describe('wasmLoader.ensureWasmLoaded', () => {
   });
 
   describe('disposeAll / disposeWasmLoader', () => {
+    it('shares one pending persistent creation and waits for readiness', async () => {
+      const ready = Promise.withResolvers<{ close: ReturnType<typeof vi.fn> }>();
+      const create = vi.fn(() => ready.promise);
+      vi.doMock('@electric-sql/pglite', () => ({ PGlite: { create } }));
+      const first = wasmLoader.createPGlite('idb://pending-factory');
+      const second = wasmLoader.createPGlite('idb://pending-factory');
+      await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+      const db = { close: vi.fn().mockResolvedValue(undefined) };
+      ready.resolve(db);
+      expect(await first).toBe(db);
+      expect(await second).toBe(db);
+      await wasmLoader.closeCached('idb://pending-factory');
+      expect(db.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('evicts a rejected persistent creation so a later call can retry', async () => {
+      const db = { close: vi.fn().mockResolvedValue(undefined) };
+      const create = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('engine boot failed'))
+        .mockResolvedValue(db);
+      vi.doMock('@electric-sql/pglite', () => ({ PGlite: { create } }));
+      await expect(wasmLoader.createPGlite('idb://retry-factory')).rejects.toThrow(
+        'engine boot failed'
+      );
+      expect(await wasmLoader.createPGlite('idb://retry-factory')).toBe(db);
+      expect(create).toHaveBeenCalledTimes(2);
+      await wasmLoader.closeCached('idb://retry-factory');
+    });
+
+    it('closes an in-flight persistent creation during disposal', async () => {
+      const ready = Promise.withResolvers<{ close: ReturnType<typeof vi.fn> }>();
+      const create = vi.fn(() => ready.promise);
+      vi.doMock('@electric-sql/pglite', () => ({ PGlite: { create } }));
+      const pending = wasmLoader.createPGlite('idb://dispose-factory');
+      await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+      const disposed = wasmLoader.disposeAll();
+      const db = { close: vi.fn().mockResolvedValue(undefined) };
+      ready.resolve(db);
+      await pending;
+      await disposed;
+      expect(db.close).toHaveBeenCalledTimes(1);
+    });
+
     it('closes all cached DB instances and resets loader state', async () => {
       // Pre-load extensions so createPGlite can proceed
       vi.doMock('@electric-sql/pglite/live', () => ({ live: {} }));
@@ -147,7 +191,9 @@ describe('wasmLoader.ensureWasmLoaded', () => {
           this.query = vi.fn().mockResolvedValue(undefined);
           this.close = vi.fn().mockResolvedValue(undefined);
         });
-        return { PGlite: PGliteMock };
+        return {
+          PGlite: { create: (options: unknown) => Promise.resolve(new PGliteMock(options)) },
+        };
       });
       vi.doMock('@electric-sql/pglite-pgvector', () => ({ vector: {} }));
       vi.doMock('@electric-sql/pglite/live', () => ({ live: {} }));
@@ -188,7 +234,9 @@ describe('wasmLoader.ensureWasmLoaded', () => {
           this.query = vi.fn().mockResolvedValue(undefined);
           this.close = vi.fn().mockResolvedValue(undefined);
         });
-        return { PGlite: PGliteMock };
+        return {
+          PGlite: { create: (options: unknown) => Promise.resolve(new PGliteMock(options)) },
+        };
       });
       vi.doMock('@electric-sql/pglite-pgvector', () => ({ vector: {} }));
       vi.doMock('@electric-sql/pglite/live', () => ({ live: {} }));
@@ -215,7 +263,9 @@ describe('wasmLoader.ensureWasmLoaded', () => {
           this.query = vi.fn().mockResolvedValue(undefined);
           this.close = vi.fn().mockRejectedValue(new Error('already closed'));
         });
-        return { PGlite: PGliteMock };
+        return {
+          PGlite: { create: (options: unknown) => Promise.resolve(new PGliteMock(options)) },
+        };
       });
       vi.doMock('@electric-sql/pglite-pgvector', () => ({ vector: {} }));
       vi.doMock('@electric-sql/pglite/live', () => ({ live: {} }));

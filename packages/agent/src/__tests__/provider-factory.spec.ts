@@ -12,25 +12,37 @@ import { listProviderModels, listProviders } from '../providers/registry';
 describe('provider-factory', () => {
   describe('createProvider', () => {
     it('creates OpenAI provider with default model', () => {
-      const model = createProvider('openai', 'test-key') as { modelId: string };
+      const model = createProvider('openai', { apiKey: 'test-key', kind: 'api_key' }) as {
+        modelId: string;
+      };
       expect(model).toBeDefined();
       expect(model.modelId).toBe('gpt-5.6-terra');
     });
 
     it('creates OpenAI provider with custom model', () => {
-      const model = createProvider('openai', 'test-key', 'gpt-5.4') as { modelId: string };
+      const model = createProvider(
+        'openai',
+        { apiKey: 'test-key', kind: 'api_key' },
+        'gpt-5.4'
+      ) as { modelId: string };
       expect(model).toBeDefined();
       expect(model.modelId).toBe('gpt-5.4');
     });
 
     it('creates Anthropic provider with default model', () => {
-      const model = createProvider('anthropic', 'test-key') as { modelId: string };
+      const model = createProvider('anthropic', { apiKey: 'test-key', kind: 'api_key' }) as {
+        modelId: string;
+      };
       expect(model).toBeDefined();
       expect(model.modelId).toBe('claude-sonnet-5');
     });
 
     it('creates Anthropic provider with custom model', () => {
-      const model = createProvider('anthropic', 'test-key', 'claude-sonnet-4-6') as {
+      const model = createProvider(
+        'anthropic',
+        { apiKey: 'test-key', kind: 'api_key' },
+        'claude-sonnet-4-6'
+      ) as {
         modelId: string;
       };
       expect(model).toBeDefined();
@@ -38,13 +50,19 @@ describe('provider-factory', () => {
     });
 
     it('creates Google provider with default model', () => {
-      const model = createProvider('google', 'test-key') as { modelId: string };
+      const model = createProvider('google', { apiKey: 'test-key', kind: 'api_key' }) as {
+        modelId: string;
+      };
       expect(model).toBeDefined();
       expect(model.modelId).toBe('gemini-3.5-flash');
     });
 
     it('creates Google provider with custom model', () => {
-      const model = createProvider('google', 'test-key', 'gemini-3.5-flash') as {
+      const model = createProvider(
+        'google',
+        { apiKey: 'test-key', kind: 'api_key' },
+        'gemini-3.5-flash'
+      ) as {
         modelId: string;
       };
       expect(model).toBeDefined();
@@ -52,7 +70,10 @@ describe('provider-factory', () => {
     });
 
     it('creates OpenRouter provider with default model', () => {
-      const model = createProvider('openrouter', 'test-key') as ModelRouterLanguageModel;
+      const model = createProvider('openrouter', {
+        apiKey: 'test-key',
+        kind: 'api_key',
+      }) as ModelRouterLanguageModel;
       expect(model).toBeInstanceOf(ModelRouterLanguageModel);
       expect(model.provider).toBe('openrouter');
       expect(model.modelId).toBe('openai/gpt-5.6-terra');
@@ -61,7 +82,7 @@ describe('provider-factory', () => {
     it('uses the Mastra model router for an OpenRouter model', () => {
       const model = createProvider(
         'openrouter',
-        'test-key',
+        { apiKey: 'test-key', kind: 'api_key' },
         'z-ai/glm-5.2'
       ) as ModelRouterLanguageModel;
       expect(model).toBeInstanceOf(ModelRouterLanguageModel);
@@ -91,7 +112,7 @@ describe('provider-factory', () => {
 
     it('throws MastraAgentError for unsupported provider', () => {
       try {
-        createProvider('unsupported', 'test-key');
+        createProvider('unsupported', { apiKey: 'test-key', kind: 'api_key' });
         throw new Error('Expected unsupported provider to throw');
       } catch (error) {
         expect(isMastraAgentError(error)).toBe(true);

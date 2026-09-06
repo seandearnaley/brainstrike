@@ -63,22 +63,24 @@ describe('readCacheTokenCount', () => {
 });
 
 describe('readOpenRouterBilledCost', () => {
-  it('returns undefined when no provider metadata is present', () => {
-    expect(readOpenRouterBilledCost({})).toBeUndefined();
+  it('reports ABSENT when no provider metadata is present', () => {
+    expect(readOpenRouterBilledCost({})).toEqual({ kind: 'absent' });
   });
 
-  it('returns undefined when the openrouter namespace or usage/cost is absent', () => {
-    expect(readOpenRouterBilledCost({ providerMetadata: {} })).toBeUndefined();
-    expect(readOpenRouterBilledCost({ providerMetadata: { openrouter: {} } })).toBeUndefined();
-    expect(
-      readOpenRouterBilledCost({ providerMetadata: { openrouter: { usage: {} } } })
-    ).toBeUndefined();
+  it('reports ABSENT when the openrouter namespace or usage/cost is missing', () => {
+    expect(readOpenRouterBilledCost({ providerMetadata: {} })).toEqual({ kind: 'absent' });
+    expect(readOpenRouterBilledCost({ providerMetadata: { openrouter: {} } })).toEqual({
+      kind: 'absent',
+    });
+    expect(readOpenRouterBilledCost({ providerMetadata: { openrouter: { usage: {} } } })).toEqual({
+      kind: 'absent',
+    });
   });
 
-  it('reads the billed cost from top-level provider metadata', () => {
+  it('reports the billed cost from top-level provider metadata', () => {
     expect(
       readOpenRouterBilledCost({ providerMetadata: { openrouter: { usage: { cost: 0.0125 } } } })
-    ).toBe(0.0125);
+    ).toEqual({ kind: 'reported', usd: 0.0125 });
   });
 
   it('prefers the payload metadata location over the top-level field', () => {
@@ -89,30 +91,35 @@ describe('readOpenRouterBilledCost', () => {
         },
         providerMetadata: { openrouter: { usage: { cost: 9 } } },
       })
-    ).toBe(0.5);
+    ).toEqual({ kind: 'reported', usd: 0.5 });
   });
 
-  it('THROWS on present-but-malformed metadata instead of silently dropping the cost', () => {
-    expect(() => readOpenRouterBilledCost({ providerMetadata: 'nope' })).toThrow(
-      'OpenRouter provider metadata must be an object.'
-    );
-    expect(() => readOpenRouterBilledCost({ providerMetadata: { openrouter: 7 } })).toThrow(
-      'OpenRouter provider metadata must be an object.'
-    );
-    expect(() =>
+  it('reports MALFORMED rather than throwing, and never coerces it to a number', () => {
+    // Malformed stays a distinct, represented fact — it is not absent and it is
+    // certainly not zero, since a fabricated zero is the undercount this whole
+    // path exists to avoid. Returning it instead of throwing is what stops a
+    // broken provider contract from destroying a completed turn; the callers
+    // log it at ERROR so it remains impossible to miss.
+    expect(readOpenRouterBilledCost({ providerMetadata: 'nope' })).toMatchObject({
+      kind: 'malformed',
+    });
+    expect(readOpenRouterBilledCost({ providerMetadata: { openrouter: 7 } })).toMatchObject({
+      kind: 'malformed',
+    });
+    expect(
       readOpenRouterBilledCost({ providerMetadata: { openrouter: { usage: 'x' } } })
-    ).toThrow('OpenRouter usage metadata must be an object.');
+    ).toMatchObject({ kind: 'malformed', reason: /usage metadata must be an object/ });
     for (const cost of ['1', -0.01, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(() =>
+      expect(
         readOpenRouterBilledCost({ providerMetadata: { openrouter: { usage: { cost } } } })
-      ).toThrow('OpenRouter billed cost must be a finite, non-negative number.');
+      ).toMatchObject({ kind: 'malformed', reason: /finite, non-negative/ });
     }
   });
 
-  it('accepts a zero cost (free-tier steps are billable at zero)', () => {
+  it('reports a zero cost as REPORTED — a measured zero is a real amount', () => {
     expect(
       readOpenRouterBilledCost({ providerMetadata: { openrouter: { usage: { cost: 0 } } } })
-    ).toBe(0);
+    ).toEqual({ kind: 'reported', usd: 0 });
   });
 });
 
@@ -137,11 +144,18 @@ describe('readOpenRouterDiagnostics', () => {
     ).toBeUndefined();
   });
 
-  it('throws when present OpenRouter diagnostics are malformed', () => {
-    expect(() =>
+  it('DROPS malformed diagnostics instead of failing the turn', () => {
+    // These feed run-event DISPLAY metadata — a provider label and a
+    // reasoning-token count on the timeline — from inside the streaming path.
+    // Throwing let a provider abort a completed turn over decoration: the same
+    // bad trade that made `stealth/ox-alpha` fail instantly on a missing billed
+    // cost, and worse, because that one at least guarded accounting.
+    //
+    // Dropped, never coerced. The timeline omits a label it cannot trust.
+    expect(
       readOpenRouterDiagnostics({ providerMetadata: { openrouter: { provider: 7 } } })
-    ).toThrow('OpenRouter selected provider must be a non-empty string.');
-    expect(() =>
+    ).toBeUndefined();
+    expect(
       readOpenRouterDiagnostics({
         providerMetadata: {
           openrouter: {
@@ -149,7 +163,17 @@ describe('readOpenRouterDiagnostics', () => {
           },
         },
       })
-    ).toThrow('OpenRouter reasoning tokens must be a finite, non-negative number.');
+    ).toBeUndefined();
+  });
+
+  it('keeps malformed DISTINGUISHABLE where it guards accounting, not decoration', () => {
+    // Diagnostics drop a malformed field to `undefined`, indistinguishable from
+    // absent, because a label the timeline cannot trust is simply omitted.
+    // Accounting keeps the distinction: absent is a fact about the route,
+    // malformed is a broken contract the callers log at ERROR.
+    expect(
+      readOpenRouterBilledCost({ providerMetadata: { openrouter: { usage: { cost: -1 } } } })
+    ).toMatchObject({ kind: 'malformed' });
   });
 });
 

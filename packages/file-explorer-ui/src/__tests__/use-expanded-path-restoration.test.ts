@@ -78,6 +78,96 @@ describe('useExpandedPathRestoration', () => {
     });
   });
 
+  it('retries the same restoration key after unmount terminates its active load', async () => {
+    let rejectActiveLoad: ((reason?: unknown) => void) | undefined;
+    const physicalLoadPaths: string[][] = [];
+    const loadSpecificPaths = vi.fn((paths: string[]): Promise<void> => {
+      physicalLoadPaths.push(paths);
+      if (physicalLoadPaths.length > 1) {
+        return Promise.resolve();
+      }
+      return new Promise<void>((_resolve, reject) => {
+        rejectActiveLoad = reject;
+      });
+    });
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          expandedDirectoryPaths: new Set(['/workspace/src', '/workspace/src/components']),
+        })
+      ),
+    };
+    const renderRestoration = () =>
+      renderHook(() =>
+        useExpandedPathRestoration({
+          currentRootFolderId: 'root-a',
+          currentRootPath: '/workspace',
+          fileTree: [createDirectoryNode('/workspace/src')],
+          isTreeLoading: false,
+          loadSpecificPaths,
+          restorationKey: 'root-a',
+          setExpandedPaths: vi.fn(),
+          store,
+        })
+      );
+
+    const firstProvider = renderRestoration();
+    await waitFor(() => expect(loadSpecificPaths).toHaveBeenCalledTimes(1));
+
+    firstProvider.unmount();
+    await act(async () => {
+      rejectActiveLoad?.(new Error('File tree worker port terminated'));
+      await Promise.resolve();
+    });
+
+    const remountedProvider = renderRestoration();
+    await waitFor(() => expect(loadSpecificPaths).toHaveBeenCalledTimes(2));
+    expect(physicalLoadPaths).toEqual([
+      ['/workspace/src', '/workspace/src/components'],
+      ['/workspace/src', '/workspace/src/components'],
+    ]);
+    remountedProvider.unmount();
+  });
+
+  it('does not spin on a permanent restoration failure and retries after remount', async () => {
+    const loadSpecificPaths = vi
+      .fn<(paths: string[]) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('restoration read failed'))
+      .mockResolvedValue(undefined);
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          expandedDirectoryPaths: new Set(['/workspace/src']),
+        })
+      ),
+    };
+    const renderRestoration = () =>
+      renderHook(() =>
+        useExpandedPathRestoration({
+          currentRootFolderId: 'root-a',
+          currentRootPath: '/workspace',
+          fileTree: [createDirectoryNode('/workspace/src')],
+          isTreeLoading: false,
+          loadSpecificPaths,
+          restorationKey: 'root-a',
+          setExpandedPaths: vi.fn(),
+          store,
+        })
+      );
+
+    const firstProvider = renderRestoration();
+    await waitFor(() => expect(firstProvider.result.current.isRestoringExpandedPaths).toBe(false));
+    expect(loadSpecificPaths).toHaveBeenCalledTimes(1);
+    expect(firstProvider.result.current.isRestorationSettled).toBe(false);
+
+    firstProvider.unmount();
+
+    const remountedProvider = renderRestoration();
+    await waitFor(() => expect(loadSpecificPaths).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(remountedProvider.result.current.isRestorationSettled).toBe(true));
+    remountedProvider.unmount();
+  });
+
   it('restores persisted expanded directories after the root folder is available', async () => {
     const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
     const setExpandedPaths = vi.fn();

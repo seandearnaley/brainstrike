@@ -84,10 +84,16 @@ function startWebStartupReap(database: DbHandle, store: WebStartupReapStore): vo
   publishWebStartupReap(store, { error: null, status: 'pending' });
   store.promise = Promise.resolve()
     .then(async () => {
+      // No missing-relation branch (BST-1651). This is behaviour-preserving
+      // either way: the retired `runsTableMissing` check threw, and an
+      // unmigrated database now rejects, and both publish the same `error`
+      // snapshot. `schemaReady` (the repository has loaded for this resource,
+      // so its schema probe passed) is a WEAKER guarantee than desktop's
+      // `getDatabase()`-awaits-`migrate()`, so it is not load-bearing here —
+      // the outcome does not depend on it. That is NOT licence to drop the
+      // gate: `canReadRuns` also gates the live query below, which must not
+      // subscribe before the repository has loaded for this resource.
       const report = await reapOrphanedAssistantThreadRuns(database, getRendererBootedAt());
-      if (report.runsTableMissing) {
-        throw new Error('Web assistant run cleanup could not find the bootstrapped runs table.');
-      }
       if (report.reaped.length > 0) {
         logger.info('Web startup marked orphaned assistant runs failed', {
           runIds: report.reaped.map((run) => run.id),

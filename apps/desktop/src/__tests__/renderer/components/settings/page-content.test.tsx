@@ -60,6 +60,7 @@ interface McpApi {
   enableTools: (ids: string[]) => Promise<void>;
   getConfig: () => Promise<{ path: string; exists: boolean; servers: never[] }>;
   getPath?: () => Promise<string>;
+  getServerStatusSnapshot: () => Promise<{ revision: number; servers: never[] }>;
   getToolStats: () => Promise<{
     total: number;
     enabled: number;
@@ -67,6 +68,13 @@ interface McpApi {
     servers: number;
   }>;
   listTools: () => Promise<Record<string, never[]>>;
+  onConfigUpdated: (
+    listener: (config: { error?: string; exists: boolean; path: string }) => void
+  ) => () => void;
+  onServerStatusUpdated: (
+    listener: (snapshot: { revision: number; servers: never[] }) => void
+  ) => () => void;
+  onToolsUpdated: (listener: (tools: unknown) => void) => () => void;
   readConfigText?: () => Promise<{
     path: string;
     exists: boolean;
@@ -130,8 +138,12 @@ beforeEach(() => {
     enableTools: vi.fn().mockResolvedValue(undefined),
     getConfig: vi.fn().mockResolvedValue({ exists: true, path: '/tmp/mcp.json', servers: [] }),
     getPath: vi.fn().mockResolvedValue('/tmp/mcp.json'),
+    getServerStatusSnapshot: vi.fn().mockResolvedValue({ revision: 0, servers: [] }),
     getToolStats: vi.fn().mockResolvedValue({ disabled: 0, enabled: 0, servers: 0, total: 0 }),
     listTools: vi.fn().mockResolvedValue({}),
+    onConfigUpdated: vi.fn(() => vi.fn()),
+    onServerStatusUpdated: vi.fn(() => vi.fn()),
+    onToolsUpdated: vi.fn(() => vi.fn()),
     readConfigText: vi.fn().mockResolvedValue({
       content: '{\n  "servers": []\n}',
       created: false,
@@ -219,7 +231,7 @@ describe('Desktop SettingsPageContent', () => {
     expect(await within(nav).findByRole('button', { name: /Factory Reset/i })).toBeInTheDocument();
   });
 
-  it('renders LLM credentials form fields in Models & Providers', async () => {
+  it('registers Workspace with the live worktree capability status', async () => {
     render(
       <ThemeProvider storageAdapter={themeStorageAdapter}>
         <TooltipProvider>
@@ -228,12 +240,37 @@ describe('Desktop SettingsPageContent', () => {
       </ThemeProvider>
     );
 
-    const modelsButton = await screen.findByRole('button', { name: /Models & Providers/i });
-    fireEvent.click(modelsButton);
+    const nav = await screen.findByRole('navigation', { name: /settings categories/i });
+    fireEvent.click(await within(nav).findByRole('button', { name: /^Workspace$/i }));
 
-    expect(await screen.findByText(/Provider API Keys/i)).toBeInTheDocument();
-    expect(screen.getByLabelText('Provider')).toBeInTheDocument();
-    expect(screen.getByLabelText('API Key')).toBeInTheDocument();
+    expect(await screen.findByTestId('worktree-settings-unavailable')).toHaveTextContent(
+      'Worktrees are a desktop feature'
+    );
+  });
+
+  it('renders the Provider Hub, not a separate API Keys category', async () => {
+    render(
+      <ThemeProvider storageAdapter={themeStorageAdapter}>
+        <TooltipProvider>
+          <SettingsPageContent />
+        </TooltipProvider>
+      </ThemeProvider>
+    );
+
+    const nav = await screen.findByRole('navigation', { name: /settings categories/i });
+    // BST-1358 replaced "API Keys" + "Models & Providers" with one surface.
+    expect(within(nav).queryByRole('button', { name: /^API Keys$/i })).not.toBeInTheDocument();
+
+    // findByRole throws on multiple matches, so this also guards against a duplicate registration.
+    const providersButton = await within(nav).findByRole('button', { name: /^Providers$/i });
+    fireEvent.click(providersButton);
+
+    expect(window.location.hash).toBe('#settings/providers');
+
+    expect(await screen.findByTestId('providers-settings')).toBeInTheDocument();
+    // Cards are grouped by provider runtime, exactly as the model picker groups.
+    expect(await screen.findByTestId('provider-card-openai')).toBeInTheDocument();
+    expect(screen.getByTestId('provider-group-hosted')).toBeInTheDocument();
   });
 });
 vi.mock('@brainstrike/settings-ui/settings-category-factories', async (importOriginal) => {

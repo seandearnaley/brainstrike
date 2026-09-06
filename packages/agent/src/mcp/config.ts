@@ -1,70 +1,87 @@
-import { z } from 'zod';
+import {
+  McpConfigValidationError,
+  parseMcpConfigValue as parseSharedMcpConfigValue,
+  McpConfigSchema as SharedMcpConfigSchema,
+  type McpServer as SharedMcpServer,
+  McpServerSchema as SharedMcpServerSchema,
+} from '@brainstrike/assistant-contract/mcp-config';
 
-export const McpTransportEnum = z.enum(['stdio', 'streamable-http', 'sse']);
+export * from '@brainstrike/assistant-contract/mcp-config';
 
-const StdioSchema = z.object({
-  args: z.array(z.string()).optional(),
-  command: z.string().min(1),
-  enabledTools: z.array(z.string()).optional(),
-  env: z.record(z.string(), z.string()).optional(),
-  name: z.string().min(1),
-  transport: z.literal('stdio'),
-});
+const UNSUPPORTED_BEARER_MESSAGE =
+  'MCP bearer authentication requires a production credential resolver';
 
-const HttpServerSchema = z.object({
-  enabledTools: z.array(z.string()).optional(),
-  headers: z.record(z.string(), z.string()).optional(),
-  name: z.string().min(1),
-  url: z.string().url(),
-});
-
-const StreamableHttpSchema = HttpServerSchema.extend({
-  transport: z.literal('streamable-http'),
-});
-
-const SseSchema = HttpServerSchema.extend({
-  transport: z.literal('sse'),
-});
-
-export const McpServerSchema = z.discriminatedUnion('transport', [
-  StdioSchema,
-  StreamableHttpSchema,
-  SseSchema,
-]);
-
-export const McpConfigSchema = z
-  .object({
-    servers: z.array(McpServerSchema).min(1),
-  })
-  .superRefine((config, context) => {
-    const serverNames = new Set<string>();
-    for (const [index, server] of config.servers.entries()) {
-      if (serverNames.has(server.name)) {
-        context.addIssue({
-          code: 'custom',
-          message: 'duplicate server name',
-          path: ['servers', index, 'name'],
-        });
-        continue;
-      }
-      serverNames.add(server.name);
+function bearerAuthUnsupported(server: SharedMcpServer): boolean {
+  switch (server.transport) {
+    case 'stdio':
+      return false;
+    case 'sse':
+    case 'streamable-http':
+      return server.auth?.type === 'bearer';
+    default: {
+      const exhaustiveServer: never = server;
+      return exhaustiveServer;
     }
-  });
-
-export type McpServer = z.infer<typeof McpServerSchema>;
-export type McpConfig = z.infer<typeof McpConfigSchema>;
-
-function formatZodIssue(issue: z.ZodIssue): { path: string; message: string } {
-  const path = Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path);
-  return { message: issue.message, path };
+  }
 }
 
-export function parseMcpConfig(jsonText: string): McpConfig {
-  const raw = JSON.parse(jsonText) as unknown;
-  const parsed = McpConfigSchema.safeParse(raw);
+function throwCapabilityValidationError(error: {
+  issues: readonly { message: string; path: readonly PropertyKey[] }[];
+}): never {
+  throw new McpConfigValidationError(
+    error.issues.map((issue) => ({ message: issue.message, path: issue.path.join('.') }))
+  );
+}
+
+export const McpServerSchema = SharedMcpServerSchema.superRefine((server, context) => {
+  if (bearerAuthUnsupported(server)) {
+    context.addIssue({ code: 'custom', message: UNSUPPORTED_BEARER_MESSAGE, path: ['auth'] });
+  }
+});
+
+export const McpConfigSchema = SharedMcpConfigSchema.superRefine((config, context) => {
+  for (const [index, server] of config.servers.entries()) {
+    if (bearerAuthUnsupported(server)) {
+      context.addIssue({
+        code: 'custom',
+        message: UNSUPPORTED_BEARER_MESSAGE,
+        path: ['servers', index, 'auth'],
+      });
+    }
+  }
+});
+
+export function parseMcpServerValue(value: unknown): ReturnType<typeof McpServerSchema.parse> {
+  const parsed = McpServerSchema.safeParse(value);
   if (!parsed.success) {
-    const issues = parsed.error.issues.map((issue) => formatZodIssue(issue));
-    throw new Error(JSON.stringify({ code: 'invalid_mcp_config', issues }));
+    return throwCapabilityValidationError(parsed.error);
   }
   return parsed.data;
+}
+
+export function parseMcpConfigValue(value: unknown): ReturnType<typeof parseSharedMcpConfigValue> {
+  const parsed = parseSharedMcpConfigValue(value);
+  const capabilityScoped = McpConfigSchema.safeParse(parsed.config);
+  if (!capabilityScoped.success) {
+    return throwCapabilityValidationError(capabilityScoped.error);
+  }
+  return { config: capabilityScoped.data, migrations: parsed.migrations };
+}
+
+export function parseMcpConfigWithMigrations(
+  jsonText: string
+): ReturnType<typeof parseMcpConfigValue> {
+  let value: unknown;
+  try {
+    value = JSON.parse(jsonText) as unknown;
+  } catch {
+    throw new McpConfigValidationError([{ message: 'invalid JSON syntax', path: '' }]);
+  }
+  return parseMcpConfigValue(value);
+}
+
+export function parseMcpConfig(
+  jsonText: string
+): ReturnType<typeof parseMcpConfigWithMigrations>['config'] {
+  return parseMcpConfigWithMigrations(jsonText).config;
 }

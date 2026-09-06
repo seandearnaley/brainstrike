@@ -94,7 +94,7 @@ function getRiskLevelStyle(level: 'low' | 'medium' | 'high' | undefined): string
     case 'high':
       return 'text-destructive';
     case 'medium':
-      return 'text-yellow-600 dark:text-yellow-500';
+      return 'text-warning';
     default:
       // 'low' and undefined both get muted foreground style
       return 'text-muted-foreground';

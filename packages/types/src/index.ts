@@ -13,10 +13,12 @@ export * from './file-explorer-selection-types.js';
 export * from './file-explorer-state-types.js';
 export * from './file-explorer-strings.js';
 export * from './file-system.js'; // Added export for file system types
+export * from './forge.js';
 export * from './git.js';
 export * from './tapestry-colors.js';
 export * from './view-filter-preset-types.js';
 export * from './workspace-path-utils.js';
+export * from './worktree.js';
 
 // Explicitly re-export the classes as values
 export { ConcurrentLoadingError, FileContentError, PartialRefreshError };

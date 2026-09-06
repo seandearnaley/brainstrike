@@ -219,10 +219,21 @@ via the workspace snapshot `editors[*].pane`).
 - **Reveal is one-shot LOCAL state**, never persisted: `(revealNonce,
   revealPath)` keyed per activation; the header toggle and breadcrumb folder
   clicks bump the nonce (re-clicking the same target re-reveals).
+- **Boot hydration preserves explicit live pane edits.** The active thread may
+  restore before its PGlite workspace snapshot is available. The renderer
+  coordinator suppresses saves during that initial read, diffs the complete
+  live workspace against its boot baseline, and merges pane fields only for
+  tabs admitted by the loaded snapshot (or preserves the live editor map
+  atomically when the user changed the tab set). It then applies panes through
+  the existing wholesale replacement boundary and persists the merged snapshot
+  immediately. This prevents a stale `open: true` row from undoing a manual
+  close without leaking a pane from another thread. The complete ordering and
+  rejection contract lives in `docs/agents/assistant-persistence.md`.
 
 Paired tests: `file-tab-pane-store.test.ts`,
-`file-tab-body-pane.test.tsx`, `apps/web/e2e/file-tab-pane.test.ts`. When
-changing pane semantics, update this section and those tests together.
+`file-tab-body-pane.test.tsx`, `apps/web/e2e/file-tab-pane.test.ts`, and
+`packages/app-shell/src/thread-workspace/__tests__/use-thread-workspace-coordinator.test.tsx`.
+When changing pane semantics, update this section and those tests together.
 
 ---
 
@@ -339,6 +350,22 @@ different roots — cannot share or corrupt a cursor and no lock is held across
 blocking I/O. `close()` never blocks: it revokes the capability for new
 operations while operations already in flight drain against the pinned
 handle.
+
+Synthetic roots are selected only by the registration-time
+`isSyntheticFileSystemPath` seam, whose production default is
+`isMockFileSystemIpcPath`. Unit harnesses may opt real-looking fixture paths into
+the synthetic adapter explicitly; ambient `VITEST` state is never consulted by
+this trust-boundary choice. The decision is frozen by normalized presentation
+path and then bound to the opened root's canonical identity; a conflicting alias
+fails closed. The one classification consistently selects the synthetic
+`createSecureRoot`, canonical-root resolver, and lexical read-path resolver, so a
+root cannot mix synthetic and native authorization mechanics. Unit tests that
+exercise native composition inject the registry's secure-root/read-path seam as
+one required pair.
+Legacy mock/fixture read shortcuts consult that same frozen root classification;
+an explicitly native mock-prefixed root therefore stays on its mounted secure
+capability. If canonical binding rejects a newly opened native capability, the
+registration path closes it before propagating the conflict.
 
 Symlink/reparse entries remain explicit file-shaped Explorer rows so indexing
 attempts produce the existing visible inaccessible-file result; native reads
@@ -569,6 +596,219 @@ polling. Paired tests:
 
 ---
 
+## WORKSPACE WALK: IGNORE FILES ARE THE PRIMARY SIGNAL, THE POLICY IS THE FLOOR
+
+`walkWorkspaceRoot` (`apps/desktop/src/assistant-server/workspace-file-walk.ts`)
+honours the ignore-file chain when the caller passes `respectGitignore`
+(BST-1427, extended by BST-1431/BST-1432), with
+`createBackgroundIndexingEntryPolicy('balanced')` beneath it as a floor.
+
+**ONE precedence order, lowest first — do not add a source without placing it
+here.** Implemented by `createWorkspaceIgnoreMatcher`
+(`packages/utils/src/workspace-ignore-matcher.ts`):
+
+| # | Source | Bypassed by `includeIgnored`? |
+| --- | --- | --- |
+| 1 | global excludes (`core.excludesFile`) | yes |
+| 2 | `.git/info/exclude` | yes |
+| 3 | parent `.gitignore` chain (root inside a larger repo) | yes |
+| 4 | `.gitignore` (root, then nested — deeper wins) | yes |
+| 5 | `.ignore` ("hide from search, keep in git") | yes |
+| 6 | `.rgignore` | yes |
+| 7 | `.llmignore` (portable agent ignore file) | **NO — HARD** |
+| 8 | `.brainstrikeignore` (ours; wins over the portable one) | **NO — HARD** |
+
+**Layer groups resolve GLOBALLY; nesting resolves within a group.** Outermost
+scope first inside each group (deeper wins — ripgrep's model), but every
+bypassable scope is resolved before any hard one. A scope-major fold made the
+agent layers bypassable by anyone who could add a nested `.gitignore` carrying
+`!key.ts`, which is the opposite of what they are sold as.
+
+**Sources that share a base compile into ONE matcher; sources based elsewhere
+get their own scope with a `pathPrefix`.** Parent `.gitignore`s are anchored at
+their own directory, so `workspace/vendor/` must be tested against
+`workspace/vendor/x.ts`, not the `vendor/x.ts` the walk emits — concatenating
+them into the root scope silently broke every slash-containing parent pattern.
+Prefix rather than pattern-rewriting, because rebasing gitignore text means
+reimplementing its syntax. The matcher evaluates every reachable directory
+component plus the leaf through those scoped parsers (BST-1434), keeping each
+containing component in one path-keyed state map. Cross-scope evaluation uses
+`ignore@7.0.5`'s direct rule-manager verdict because public `test()` deliberately
+returns an ignored parent's cached result for descendants; silently accepting a
+different dependency shape is forbidden. This preserves separately excluded
+ancestors, descendant-specific rules hidden behind a parent match, and repeated
+unanchored matches after a deeper scope re-includes only the first directory.
+The ordinary single-root case avoids the path-keyed map but still evaluates each
+component directly so its cross-group semantics cannot differ from the scoped
+path. Direct verdicts are memoized per immutable compiled matcher, recovering
+the ancestor-query cache that public `test()` would otherwise provide.
+Leaf-only negations still cannot bypass an ignored parent directory.
+
+**`.git/info/exclude` is resolved through `git rev-parse --git-path`**, not
+`<repo>/.git/info/exclude`. In a linked worktree or submodule `.git` is a FILE,
+so the naive path does not exist and the layer silently vanishes — on a repo
+where worktrees are routine.
+
+**`core.excludesFile` is read with `cwd` at the workspace root**, and memoised
+per root. Without `cwd`, `git config --get` merges the LOCAL config of whatever
+directory Electron main was launched from.
+
+**THE AGENT LAYERS ARE A HARD BOUNDARY (7-8) — do not relitigate.**
+`includeIgnored` bypasses every other layer, because tools legitimately search
+excluded trees. It does not bypass these. They are the only exclusion a user may
+reasonably treat as a security control (credentials, customer data, a private
+corpus), and a promise of "never read, index, or send" that one flag defeats is
+worse than no promise, because people rely on it. Consequences that follow and
+must be preserved:
+
+- The walk asks the matcher FIRST and ALWAYS; `includeIgnored` short-circuits
+  only the static policy floor beneath it.
+- **`respectGitignore` does not gate them either.** It controls which BYPASSABLE
+  layers are COLLECTED; the matcher is always constructed and the agent files
+  always read. Gating them on a flag named for `.gitignore` was the same master
+  key one level up, and `walkWorkspaceRoot` is exported — the next caller that
+  omits the flag would inherit a walk with no hard boundary and no signal it
+  lost one.
+- **The verdict is evaluated on the file that gets READ, not the path that was
+  requested.** `resolveWorkspaceAbsolutePath` returns the realpath'd target and
+  the normalized request as separate fields; checking the request let an
+  ordinary in-root symlink (`notes/leak.md -> ../secrets/api-key.env`) pass
+  containment, be asked about under its alias, and be read from its target.
+  Aliasing, not retargeting — the stable-path lock does not help. Every read
+  path checks both, and the walk checks a symlink's canonical target before
+  recording it.
+- **The agent layers are INHERITED from parent directories**, up to the
+  enclosing repository root, in the walk AND in `createAgentIgnoreGuard` — via
+  the shared `repository-root.ts` so the two cannot drift. A repo-root
+  `.llmignore` is the normal way a team ships one; reading only `.gitignore`
+  from parents meant it did nothing once a subdirectory was opened as a root
+  (BST-1436). Repo-root discovery is unconditional (a stat walk); the
+  `git config` subprocesses stay gated on `respectGitignore`.
+- **NO PROCESS-WIDE GUARD CACHE.** One existed for a release and is deliberately
+  gone. It saved mostly-ENOENT opens and cost the primary user story: a rule
+  written AFTER the first query was invisible until restart. "It cannot loosen
+  on its own" is the wrong safety property — TIGHTENING is what the user is
+  doing. Batch callers share one guard per operation, which bounds staleness to
+  a single tool call.
+- **An unreadable agent ignore file FAILS CLOSED — in the WALK as well as the
+  guard.** This inverts the rule for
+  every other layer, where failing open costs only a wider walk. Here, "I could
+  not read the rules" resolving to "there are no rules" serves the protected
+  file — the exact outcome the boundary exists to prevent, arriving through the
+  door marked robustness. ENOENT is the only quiet failure.
+- **Never fold verdicts across layers by hand.** Layers are concatenated in
+  precedence order into ONE `ignore` instance per group. A separate instance per
+  layer forces the caller to combine verdicts, and that combination is wrong
+  wherever a directory-only pattern meets its negation: for `cache/one.md` under
+  `.gitignore: cache/` plus `.ignore: !cache/`, the layers report
+  `{ignored:true}` and `{}`, so any fold keeps the file excluded — while
+  `git check-ignore` does not. Hand the ordered patterns to the parser.
+
+- **Why gitignore leads.** A hand-maintained denylist of directory names cannot
+  keep up with machine-local caches, and when it falls behind the failure is
+  SILENT: a glob returns `0 matches`, not an error. Every directory that has
+  actually hurt us was already gitignored — `.pnpm-store` (82,267 files here,
+  1.6x the 50,000 walk cap on its own; BST-1428), `.turbo`, `.claude/worktrees`
+  — and two of the three still needed a bespoke list entry. Respecting
+  `.gitignore` is what ripgrep, fd, VS Code, ESLint and Prettier all do.
+- **Why the floor stays.** A root that is not a git repo has no `.gitignore`,
+  and `.git` itself is never gitignored. The static policy carries those alone.
+- **DIRECTORIES MUST BE TESTED WITH A TRAILING SLASH** — do not relitigate. A
+  directory-only pattern (`dist/`) does NOT match the bare path `dist`, because
+  a bare path carries no directory signal. Asking the file form when deciding
+  whether to descend returns false, the walk enters the tree, and it then
+  rejects every file inside one at a time — which is the cap starvation this
+  exists to prevent. `createWorkspaceIgnoreMatcher` therefore exposes `ignoresDirectory`
+  and `ignoresFile` as separate methods rather than one convenience call.
+- **Nested `.gitignore` files scope to their own subtree**, pushed on entry and
+  popped on exit, outermost-first so a deeper file can re-include what an outer
+  one ignored (git resolves last-match-wins). The presence check reuses the
+  directory listing the walk already has, so directories without one cost
+  nothing.
+- **Implementation is the `ignore` package**, chosen deliberately and pinned by
+  `workspace-ignore-matcher.test.ts`: gitignore reimplementations disagree on
+  edge cases, so the behaviour depended on is asserted rather than assumed.
+- **LIVE GREP DELIBERATELY DOES NOT OPT IN.** Its ripgrep pass runs
+  `--no-ignore --hidden` so rg is a true SUPERSET and `policy.shouldIncludeFile`
+  stays the SINGLE authority trimming both engines identically — otherwise
+  results differ by whether rg is installed. Honouring `.gitignore` on the JS
+  side alone breaks that parity (the `rg-vs-walk parity` case catches it);
+  honouring it on both would require rg's Rust implementation and the `ignore`
+  package to agree on every edge case. Making grep gitignore-aware is its own
+  change: BST-1429. THE AGENT LAYERS ARE THE EXCEPTION — see below.
+- Measured on this repo, walking with the FULL chain: `scanned` 6,739 → 5,560
+  and `kept` 5,147 → 4,998, at 92ms → 151ms. (BST-1427 measured 88ms → 111ms
+  with `.gitignore` alone.) The extra ~40ms is dominated by the one-time
+  `git config --get core.excludesFile` subprocess at root-chain assembly, not by
+  per-directory reads — `readDirectoryIgnoreSources` only opens names actually
+  present in the listing the walk already has, so a directory declaring no
+  ignore files costs a few Set lookups.
+
+### A ZERO-MATCH GLOB STEERS TO `includeIgnored` — BUT ONLY WHEN THAT WOULD HELP
+
+Widening the exclusion set from a fixed denylist to "whatever the repo ignores"
+means `globWorkspace({pattern: 'coverage/**'})` returns a bare `{count: 0}`,
+indistinguishable from "those files do not exist" — a NEW instance of the silent
+failure this walk exists to remove. The walk reports what it excluded
+(`onExcluded`) and the tool emits a `hint` naming `includeIgnored`.
+
+Three rules, each load-bearing, each with a test:
+
+- **PARTIAL matching for a pruned DIRECTORY, FULL matching for a FILE.** A
+  pruned directory is reported instead of its contents, so it is only a prefix
+  and `coverage` must partial-match `coverage/**`. A file is the whole path.
+  Using partial for both makes the steer fire whenever ANY file was excluded,
+  because bare patterns are made recursive (`secrets/**` → `**/secrets/**`) and
+  under a leading `**` nearly every path partial-matches. That is why
+  `onExcluded` carries `isDirectory`.
+- **Never for the HARD agent layers**, via `matcher.ignoresHard`. The advice
+  would be a dead end (`includeIgnored` cannot lift them), and reporting the
+  path would DISCLOSE that something exists where the user asked for nothing to
+  be visible — most of what `.llmignore` was bought for. `.git` is excluded from
+  reporting for the dead-end half of the same reason.
+- **Never when the caller already passed `includeIgnored`, or when
+  `scanLimited`** — the latter's honest answer is "the walk did not finish",
+  which its own note already gives.
+
+The pre-existing "nothing matches" case (`**/*.rs`) still asserts `hint` is
+undefined. Keeping it unamended is the evidence that the steer is precise rather
+than firing on every empty result — a hint on every call is noise the model
+learns to skip, which costs the one case that needed it.
+
+### THE HARD BOUNDARY BINDS ON EVERY READ PATH (BST-1432)
+
+A `.llmignore` honoured by the file lister but not by grep is not a boundary —
+it is a UI convenience that reads as a security control, which is the worse of
+the two failures. `createAgentIgnoreGuard`
+(`apps/desktop/src/assistant-server/agent-ignore-guard.ts`) is the hard layers
+made queryable by arbitrary path, because ripgrep returns a flat path list with
+no directory context and cannot use the walk's push/pop matcher.
+
+| Read path | Enforced at |
+| --- | --- |
+| `globWorkspace` / walk | `walkWorkspaceRoot` matcher (layers 1-8) |
+| live grep — ripgrep engine | `dropAgentIgnored`, where both engines converge |
+| live grep — JS-walk engine | same call site, so parity cannot drift |
+| excluded-path steering probe | its bounded eligible slice, before any read |
+| `readWorkspaceFile` (paged) | inside the stable-path lock |
+| `readWorkspaceTextFile` (LSP inspect, rename reindex, workspace-context, `@file`) | the shared reader, so consumers inherit it |
+
+- **Why JS-side for both grep engines**, when `.gitignore` deliberately is not:
+  rg implements gitignore natively, so delegating that layer risks two
+  implementations disagreeing. `.llmignore` is not an rg ignore file at all, so
+  there is no second implementation to diverge from.
+- **Both grep engines are filtered at ONE call site.** Enforcing inside each
+  collector would make the boundary's strength depend on whether `rg` is
+  installed on the machine.
+- **A refused read THROWS; it never returns empty content.** Empty content
+  teaches the model the file is empty and it will report that as fact — a
+  fabricated claim about the user's code. The message names the ignore files so
+  the user can find the rule.
+- **The guard is hard-layers-only.** Applying layers 1-6 there too would
+  silently make `includeIgnored` useless on every path that consults it.
+- Still uncovered, deliberately and tracked: file MUTATION tools do not consult
+  the guard, so an agent can still write to an agent-ignored path (BST-1433).
+
 ## EXPLORER TREE LIVE REFRESH
 
 One pipeline keeps the visible tree, forest roots, and the background indexer
@@ -597,13 +837,56 @@ fallback.
   unstat-able paths normalize to the safe `directory`/`removed` invalidation
   shape; backend callback errors (e.g. FSEvents dropped-events) degrade to a
   root-level invalidation with log-once semantics while the subscription
-  stays alive. The 150ms/500-item batcher and `fileFilter.shouldIgnorePath`
-  apply (DEFAULT_IGNORE_PATTERNS also feed native-level ignore globs — same
-  names, never broader). A per-subscription `ignorePatterns` override exists
+  stays alive. The 150ms/500-item batcher and root-relative default segment
+  classifier apply, plus (BST-1342) the background-indexing policy's unconditional
+  excluded-path prefixes (`.claude/worktrees` and `.brainstrike/worktrees`)
+  checked ROOT-RELATIVELY via
+  `isExcludedBackgroundIndexingPath` — a subscription root opened inside an
+  excluded tree watches normally; only nested excluded trees are silenced.
+  Deliberate consequence: a NESTED worktree subtree stays VISIBLE in the
+  Explorer (`fileFilter` unchanged; the token-indexer e2e still expands into
+  it) but is no longer live-refreshed — external changes there appear only
+  on manual re-enumeration. That is the point of the fix (run-5189: worktree
+  churn flooding FSEvents drove overflow → full-refresh storms → DB-host
+  saturation that killed an active run); do not "fix" the staleness back
+  into a watch. The background-indexing excluded-path globs still feed the
+  native layer for roots outside excluded trees — this is the load-bearing
+  run-5189 overflow guard. The generic Parcel/Electron watcher remains
+  default-false and retains `DEFAULT_IGNORE_PATTERNS` natively. The concrete
+  MAIN-owned Explorer `fs:watch` closure is the sole production caller of
+  `reportDefaultFilteredChanges:true` (never renderer/wire input). That opt-in
+  retains `.git`, `node_modules`, `.pnpm-store`, `.next`, and `.turbo` at the
+  native boundary: recursively observing those high-cardinality trees risks
+  descriptor exhaustion or bounded subscribe-timeout failure. A force-tracked
+  file inside one of them is therefore unsupported by this pipeline; lossless
+  support requires a separate bounded Git-aware tracked-path watcher, not
+  polling or broadening this recursive subscription.
+
+  Parcel delivers only the bounded reportable defaults `dist`, `build`, and
+  `.DS_Store` to a lightweight JS classifier. It matches the event path
+  relative to the watched root, so opening a root beneath an ancestor named
+  `build`, `dist`, or `node_modules` never creates a permanent filtered marker
+  storm. The classifier omits detailed paths from Explorer/indexing and records
+  the first matched root-relative boundary. The 150ms producer batch and the
+  renderer's 300ms/1s aggregate each retain at most 64 deduped boundaries;
+  excess cardinality sets explicit `filteredChangeBoundariesOverflow:true`.
+  Filtered records never stat or enter the serialized event promise chain.
+  Changes refreshes only registrations intersecting retained boundaries;
+  overflow fails open within that durable root only. Sustained builds still
+  cost one trailing/max-wait Git view refresh per affected repository, not per
+  raw event and not for unrelated repositories. User-configured Explorer `excludeFilters` are later display
+  projection, not watcher inputs, so those paths continue through the normal
+  detailed event path. The managed-worktree exclusions remain the explicit
+  exception: no detailed event and no boundary evidence, preserving their documented
+  deliberate staleness. `.git` also remains natively ignored here because it is
+  metadata rather than a working-tree path; the private git-metadata watcher
+  owns its bounded HEAD/index/refs signal and deliberately excludes objects
+  churn. A per-subscription `ignorePatterns` override exists
   (BST-1112, see `docs/agents/platform-contracts.md`) for main-owned callers
-  outside this pipeline, e.g. a git-metadata watcher; the Explorer refresh
-  pipeline described here NEVER passes it, so "same names, never broader"
-  holds unconditionally for this path. Typed watcher health
+  outside this pipeline, e.g. a git-metadata watcher. It is mutually exclusive
+  with coarse reporting, including the explicit `[]` override; Notes Vault
+  retains default native filtering and git metadata remains marker-free.
+  Typed watcher health
   (`starting|healthy|degraded|failed|stopped`) flows over one-way
   `fs:watch-health` pushes scoped to the owning WebContents (no root-path
   field on the wire); `fs:watch-retry` is MANUAL-only with escalating
@@ -655,7 +938,13 @@ fallback.
   mounted root; `use-file-system-context.ts` debounces dispatches (300ms
   trailing + 1s max-wait so a continuously-busy root cannot starve dispatch)
   into ONE `FILE_EXPLORER_REFRESH_EVENT` (`source:'watcher'`,
-  `scope:'incremental'`, per-root `FileSystemChange[]`).
+  `scope:'incremental'`, per-root `FileSystemChange[]`). Optional per-root
+  `filteredChangeBoundaries` are bounded working-tree evidence from the same
+  watch, Set-merged across the window. Explicit boundary overflow is distinct
+  from watcher record loss and never changes `scope` to `full`: Git consumers
+  fail open only across mounted registrations in that durable root; tree,
+  background-indexing, and row-metadata consumers no-op without detailed
+  changes. Mixed batches deliver both once.
 - **Watcher health signals (separate channel from change events).** Change
   events carry structural deltas; watcher HEALTH travels out-of-band on
   `FileSystemWatchSignal` (`packages/types/src/file-system.ts`), the optional
@@ -710,7 +999,173 @@ fallback.
   re-enumerates the named root via `refreshTree`; unlike manual/full this is
   NOT gated by `skipManualFullEvents` (nothing refreshes an overflow directly,
   so the outer authority provider must react too, else a single-root workspace
-  never reloads).
+  never reloads). (3) Open workspace file tabs:
+  `use-workspace-open-file-refresh.ts`, mounted once by `WorkspaceTabsProvider`,
+  maps the SAME event onto open composite keys. Incremental file changes match
+  the exact root-relative path; directory changes match open descendants; a
+  named full refresh reloads every open tab in only those durable RootIds; and
+  manual/full's canonical `roots:[]` is an ALL-OPEN-TABS broadcast. Durable
+  `folderId === rootId` wins; root-path matching exists only for legacy
+  path-identified composite keys, with the shared Windows drive/UNC
+  case-insensitive path semantics. Same relative paths in different durable
+  roots never cross-refresh. Malformed persisted keys are warn-logged by count,
+  never echoed with their root/path. The window listener is stable, while its
+  tabs/reload callback are synchronized in the commit phase through the shared
+  `useEventCallback`; watcher/IPC events arriving after commit but before
+  passive effects therefore never route through the previous render.
+
+  A matching event calls the shared content loader's `reloadFileContents`:
+  cached bytes are evicted synchronously before any await, then re-read. The
+  generation/active-read authority is owned ONCE by `FileExplorerProvider` and
+  shared by every `useSharedFileContentLoading` instance beneath it — hook-local
+  authority is invalid because all those hooks commit into the same provider
+  store/cache. The LRU is constructed once per Zustand store (never at module
+  scope), and provider replacement creates the store/cache and authority in
+  one memoized lifecycle. A retired provider read can finish only into its
+  retired store/cache; it cannot repopulate content consumed by the replacement
+  provider. Per-store clears, eviction, stats, and full reset act on that same
+  scoped cache. Factory reset first invalidates all read generations and queued
+  batches, then clears the live store's raw content/LRU and advances a keyed
+  provider lifecycle. This remounts hook-local loading/pending/cache refs and
+  state on web even when reset does not reload; provider/store identity changes
+  use the same key, with commit-phase cleanup invalidating the retired
+  authority. Each generation token is globally monotonic within the authority,
+  so clearing its per-key map can never make a pre-reset token valid again.
+  Each key carries a monotonic in-memory generation while the
+  reload is active, so an older read resolving in a sibling hook after a second
+  disk change cannot republish stale bytes. Refresh partitions keys before its
+  first await: immediately-ready keys start in ONE batch, while dependent keys
+  are grouped by the identity of their preceding promise. Each group filters
+  superseded generations and starts as soon as only its own predecessor
+  settles, so one slow/hung read cannot blank and starve unrelated tabs. A
+  rejected obsolete read is diagnosed by count (never path), then that group
+  still performs its fresh replacement. All groups submit through the ONE
+  provider-owned scheduler, which permits at most TWO simultaneous worker
+  queues per lifecycle epoch: an existing slow queue leaves one lane for
+  unrelated ready work, but twenty distinct predecessors settling together
+  cannot create twenty queues. This is a concurrency bound, not a liveness
+  timeout. Scheduling class comes from the CALLER'S logical intent, never the
+  physical key count after dedupe or predecessor grouping. Tab open and explicit
+  tab Retry pass `interactive`; preview/report loads and canonical
+  `FILE_EXPLORER_REFRESH_EVENT` reloads pass `background`. Every dependent
+  reload group carries that original intent even when twenty groups each contain
+  one key. Singleton background work remains background. If a tab open/Retry
+  requests a key already queued inside a background ticket, the scheduler
+  extracts only that key into a new interactive tail ticket, including when it
+  was the background ticket's sole key; unrelated bulk keys never hitchhike,
+  queue position never depends on the old batch shape, the original logical
+  request waits for both pieces, and the file is read only once. Explicit Retry
+  performs that promotion/join before starting a replacement generation;
+  watcher refresh retains predecessor-replacement semantics. Interactive work
+  takes the next free lane ahead of queued
+  background work; FIFO is preserved within each class, and after TWO consecutive
+  interactive dispatches while background work waits, one background batch runs
+  before another interactive batch. Active work is never preempted.
+  `FileContentWorker` accepts an optional `AbortSignal`, but the shared
+  loader currently passes no controller and there is no content-read timeout or
+  user-cancel policy. If two adapter reads never settle, both lanes remain
+  occupied, keys sharing either predecessor remain coupled, and queued batches
+  plus their logical waiters remain pending. Do not invent an elapsed-time
+  cutoff here: a safe bound needs an explicit cancellation owner/trigger and
+  adapter cancellation contract.
+  Each completed group clears its own
+  generation; active-load entries are identity-cleaned on settlement, so
+  close/reopen churn does not create an unbounded key registry. Read preparation
+  is settled per key rather than fail-fast: valid siblings still reach the
+  worker, while preparation and worker failures clear every marked key and
+  update a provider-owned immutable error map only for current failed composite
+  keys. That map is a live projection, not an error history: a key is retained
+  only while its physical read is active or an explicit consumer owns it.
+  `WorkspaceTabsProvider` subscribes synchronously to the tab store and owns
+  exactly its open composite keys, so the durable projection is bounded by the
+  tab store's hard maximum of 20. Single close, bulk close, external hydration,
+  oldest-tab eviction, unmount, and factory reset all retire their keys
+  immediately. Direct preview reads and context export are separate UI
+  ownership domains. A direct preview rejection becomes a selection-scoped
+  accessible alert whose retry reloads those exact keys. Copy/download keep the
+  report manager's success/destructive toasts but also return a typed outcome;
+  the middle panel owns a failed export as the exact action plus a deep snapshot
+  of its range/tree options and retries the WHOLE action, not only its nested
+  missing-content load. Report generation receives the raw background loader,
+  so a nested content read cannot supersede the outer action epoch or replace
+  its accurately labelled copy/download failure with a preview-only retry.
+  Root-unavailable outcomes are explicit and non-retryable. Selection change
+  fences the retired action by canonical set membership rather than `Set`
+  identity, because multi-root projections may recreate a value-equivalent
+  selection. Internal error text is logged rather than rendered. There is no
+  arbitrary eviction that could hide an
+  active tab's terminal error. Every
+  physical reload group and deduped active read settles before the
+  public logical request rejects with the single error or an aggregate. The
+  aggregate object is memoized by the immutable error-map snapshot so an
+  unrelated rerender cannot manufacture a new error identity. A later
+  successful queued group cannot erase an earlier sibling's failure. A logical
+  retry clears only its requested keys at its boundary. `WorkspaceTabsProvider`
+  carries that map to `WorkspaceBody`, which exact-matches the active tab's key
+  and renders `FileContentErrorScreen` (an accessible terminal `alert`) instead
+  of the indefinite pending spinner. The automatic active-tab loader stops at
+  that per-key error boundary instead of entering a fail/render/retry loop; a
+  user-visible Retry button calls `reloadFileContents([compositeKey], 'interactive')`, which
+  clears only that key and starts a fresh read. The screen shows the selected
+  file path plus a bounded safe error category, never a raw internal message.
+  A later canonical refresh can also clear only the affected key and retry it.
+  Content failures never enter the explorer's global error surface or appear on
+  unrelated tabs. The authority's `trackActiveLoad`/`releaseActiveLoad` methods
+  are test-only predecessor seams; production reads are owned through
+  `scheduleBatch`. Fire-and-forget UI consumers explicitly observe the rejection
+  after the shared error state is set. Rebuilt worker `FileHandle`s carry
+  `fileNode.handle.rootId` when present; `rootFolderId` remains selection/cache
+  identity and is NEVER substituted for durable read authority. Removed
+  files/directories therefore replace the tab with its loading boundary and
+  then a visible read-failure result, never the pre-delete content. Listener
+  cleanup is provider-scoped. Absolute handleless reads are gated ONLY by the
+  explicit `readFileByAbsolutePath(absolutePath, mountedRootPath, rootId)` adapter
+  method. On desktop that adapter uses the distinct visible-UI-only
+  `fs:readFileByAbsolutePath` IPC channel, which carries all THREE values. Main
+  exact-maps RootId, verifies the claimed presentation/canonical path belongs to
+  that SAME live mount, then authorizes the requested path. Duplicate
+  presentation aliases and symlink/junction retargets never select the first
+  path match. A path under mounted root B therefore cannot be read while
+  claiming mounted root A or A's durable identity. Legacy path-shaped composite
+  keys that remain unmatched after the descriptor projection is authoritative
+  fail visibly instead of falling back to path-only lookup. During async desktop
+  boot, an open tab whose exact root descriptor has not arrived remains unloaded;
+  the workspace tab effect observes descriptor arrival and retries rather than
+  persisting a sticky inaccessible sentinel. `readFileByPath` is
+  adapter-defined—the real web adapter implements
+  it for root-relative browser-handle resolution—so its presence is never
+  treated as desktop/native authority. Web missing/lazy nodes therefore retain
+  their cached-handle and permission route even when their root descriptor is a
+  non-absolute folder name. Every explicit request is rejected at both the
+  worker and adapter boundary unless its durable RootId is non-empty and its
+  mounted root and requested file are non-empty fully qualified paths. Native
+  reads use the canonical path returned
+  by root validation rather than re-reading the original alias. A
+  direct-path-capable adapter completes this read
+  even when refresh has produced an empty tree (including deletion of the last
+  open file); it never returns fulfilled while leaving the tab pending. Direct
+  worker requests carry the mounted root and RootId and never fall back to generic
+  `readFileByPath` if that explicit capability disappears. Path resolution
+  preserves POSIX `/`, Windows drive roots such as `C:\`, and UNC share roots.
+  The dev inline-fixture decorator keeps fixture-owned absolute reads on fixture
+  bytes while delegating foreign absolute paths to the wrapped capability.
+  Relative paths reject empty, control, `.` and `..` segments.
+  Absolute paths are accepted only when contained by the selected root, using
+  POSIX case-sensitive and Windows drive/UNC case-insensitive semantics; an
+  outside absolute path is rejected visibly rather than reinterpreted as a
+  relative path or concatenated as a fallback. A structured worker
+  `status:'inaccessible'` result is canonicalized through
+  `buildInaccessibleContent`, while the exact `BINARY_CONTENT_MESSAGE` sentinel
+  is preserved so the tab routes binary files to `BinaryFilePreview` instead of
+  rendering either message as source code.
+
+  **Surface audit (BST-1159):** file-tab `CodeSurface` is invoked without
+  `editable`/`onChange` (read-only default), Markdown preview is read-only, and
+  `DiffView` is read-only. There is no in-app dirty buffer or save capability,
+  so inventing a conflict state here would be false architecture. Git-scope
+  Changes diffs already own an independent reload-token + generation guard
+  (BST-1161); rewind-preview diffs are immutable pre-apply snapshots. External
+  editor buffers remain outside Brainstrike's authority and are notice-only.
 - **An identical re-enumeration is a no-op in the worker (BST-1336).** Every
   `refreshTree` ends in `port.init(...)`, and one FSEvents overflow fires that
   once per mounted `FileTreeProvider` on the root, so a real desktop log showed
@@ -742,6 +1197,161 @@ fallback.
   registry), so it ignores the event it just caused; every nested forest
   RootSection provider reacts — that is what makes the toolbar Refresh reach
   every forest root, including the focused root's VISIBLE section.
+- **Selection follows authoritative directory replacement (BST-1166).** The
+  file-explorer store remains the selection source of truth; filtered display
+  rows and the virtualized tree never rewrite it. A forced root refresh emits
+  its complete root listing, while watcher-driven loaded-directory refreshes
+  return complete per-directory snapshots. `FileTreeProvider` reconciles those
+  snapshots through the durable root id: selected direct files absent from a
+  refreshed directory are removed, as are selected descendants beneath a
+  removed child directory; direct files and descendants of a surviving child
+  directory remain selected. Query-backed selection stays in query mode and
+  records a vanished manifest path as an exclusion instead of degrading to an
+  explicit set. Path joining is slash-aware so drive roots such as `C:/` retain
+  surviving selections under the normalized `c:/` identity. When one batch
+  contains overlapping directory snapshots, an authoritative ancestor that no
+  longer lists the descendant directory wins over a nearer descendant snapshot,
+  regardless of collection order; a `loadMore`/`truncated` pseudo-row makes that
+  directory snapshot non-authoritative, so it cannot disprove selection.
+  Ordinary expand, restoration, and expand-all enumeration never trigger
+  reconciliation. Authoritative directories refresh parent-depth-first against
+  the shared normalized tree, with a work-conserving pool of at most five
+  same-depth reads in flight and no cap or truncation of the derived path set.
+  A freed slot immediately starts the next peer, while the next depth still
+  waits for every shallower peer; all complete snapshots from the batch then
+  publish through one store update bound to the root identity that started the
+  batch. The finite work bound is the number of unique ancestors
+  derived from the bounded selection projection (at most selected paths times
+  their ancestor depth), while live I/O remains bounded to five. Direct manual
+  refreshes and refresh events run through one lossless queue per provider, so
+  they cannot publish overlapping snapshots. Consecutive full requests are
+  losslessly bounded to the active physical refresh plus at most one trailing
+  authoritative refresh: requests that arrive before a pending refresh starts
+  join it and receive its exact outcome, while the pending slot clears when I/O
+  starts so a later mutation retains one trailing read. Incremental events are
+  FIFO mutation boundaries and always break full-request coalescing; they are
+  never reordered or dropped. Each provider owns a monotonic,
+  root-scoped effective-projection revision. At each fence read it resolves the
+  canonical selected path set through `getSelectionProjectionPaths` and advances
+  only when that set or root identity actually changes. Query-manifest updates,
+  focused explicit changes, and foreign `folderStates` writes are therefore all
+  observed without relying on incomplete action counters; value-equivalent
+  no-ops do not advance it. A directory batch discards its entire stale snapshot
+  set if that revision changes before publication; it never reconciles an older
+  snapshot against a newer selection. A same-path root-id switch during a later
+  directory read can never retarget already-completed snapshots. A failed peer
+  stops new pool assignments, while every already-started peer drains before
+  the first error rejects the job; the provider queue therefore cannot advance
+  into overlapping late tree commits. The failed job is surfaced and consumed
+  so later events still run. Every queued job carries
+  the provider effect's lifecycle epoch;
+  cleanup invalidates that epoch, so retired jobs stop before new I/O and an
+  in-flight job discards all snapshots after its next await instead of
+  reconciling through an unmounted provider. A direct caller receives
+  `{status:'cancelled'}` when retirement crosses either the root read or
+  directory revalidation await; only a still-active caller receives the raw
+  completed/cancelled outcome. Watcher changes retry `error`
+  directories and retain invalidations
+  for `loading` directories by forcing a fresh read instead of joining the
+  pre-event request. Genuinely `unloaded` nonselected directories still wait
+  for expansion, but an exact changed parent that is also a selected-path
+  ancestor is re-enumerated even while collapsed/unloaded so a removal can
+  disprove stale selected descendants. This intersection is bounded to event
+  parents; it never sweeps every selected directory.
+  A shallow root replacement
+  cannot prove nested membership merely because its top-level directory
+  survives, so every successful watcher/full or manual/full root refresh
+  derives the current selection's unique ancestor directories from the core
+  explicit/query projection, refreshes those surviving directories parent-first,
+  and publishes their snapshots as one bounded batch. The outer provider's
+  direct toolbar refresh uses that same orchestration before it ignores the
+  manual/full fan-out event; nested forest providers perform it while handling
+  the event. Ancestor derivation preserves each selected path's exact mixed,
+  drive, or UNC separator presentation for normalized-tree lookup and uses a
+  normalized identity only for containment, dedupe, and ordering. Mixed
+  root+directory watcher batches likewise force-refresh a
+  surviving directory even when the shallow root reload reset it to `unloaded`,
+  while removed or file-retyped paths skip. The reducer indexes snapshots once
+  and walks only the bounded selection paths and their ancestors, never the full
+  or filtered tree. When a query manifest is absent, loading, errored, or
+  mismatched, reconciliation mutates only its exact materialized projection
+  (paths, exclusions, count, and version) and preserves query mode; it never
+  invents manifest membership. Forced root snapshots carry the root id resolved
+  by that refresh, and forced directory snapshots capture both committed root
+  identity and generation before I/O; a late callback or directory read after a
+  same-path root-id switch therefore returns no snapshot for the new root. A
+  forced directory refresh also retires any older renderer or worker-backed
+  expansion/restoration read for that path, removes buffered pre-event evidence,
+  commits outside renderer expand-all batching, and owns a token-checked
+  in-flight entry, so it cannot join a pre-mutation listing or have that listing
+  erase its registry entry. Its directory existence/type check is a normalized
+  O(1) lookup and its authoritative result materializes only immediate children,
+  never the descendant subtree. The worker port exposes one shared bulk operation,
+  so retiring a worker-backed read cancels that active bulk sweep as a unit;
+  the replacement physical read remains scoped to the affected directory, then
+  the original bounded restoration/expand request continues through the
+  renderer so unrelated paths are not silently reported as restored. Starting
+  another bulk operation marks the displaced operation retired before taking
+  the shared worker slot; the port's supersession rejection therefore triggers
+  that same bounded renderer replay instead of being logged and falsely
+  settling the older restoration. Every worker `requestLoad` also owns a
+  request-id-scoped renderer `AbortController`. Explicit abort, bulk
+  supersession, runtime failure, and port termination abort and remove all live
+  request controllers; ordinary settlement removes only the identity-matching
+  controller, keeping the registry bounded. Runtime failure and port
+  termination also reject and clear the shared pending bulk operation before
+  worker disposal, so provider cleanup cannot strand restoration ownership
+  across a remount. The lazy-tree caller propagates every non-retired worker or
+  patch failure instead of reporting successful restoration; only an
+  explicitly watcher-retired worker operation continues through the bounded
+  serial replay. Restoration locks carry provider-owner identity: owner
+  unmount deletes even an in-flight entry, late finalizers touch only their
+  exact entry, and only a successful physical load plus expansion commit marks
+  the restoration key complete. Abort cancellation is a retryable retirement:
+  it neither warning-logs nor records a failed automatic attempt, and the same
+  provider/root/key can retry after the physical promise settles. Every physical
+  settlement still owned by the hook advances its local completion version, so
+  a root or restoration-key change that waited behind older I/O resumes after
+  that exact rejection/settlement boundary. A visible non-abort failure records
+  one failed automatic attempt for that provider/root/key; the completion wake
+  does not mark it successful or spin on loading-state transitions. Unmount or a
+  new root/key releases the owner-scoped record and is the explicit retry
+  boundary. Stale or terminated runs likewise remain retryable without
+  releasing another provider's lock. The signal
+  fences the handle-map publication after directory I/O, and the port
+  suppresses any result/error that settles after its request was retired. As a
+  second ordering defense, the
+  BFS engine rejects a correlated result/error whose request id and path are no
+  longer pending before touching its tree; legacy id-less standalone updates
+  remain valid. A forced
+  root refresh retires the same provider's
+  active root/child/bulk consumers and waits for any still-live shared root read
+  that crossed the invalidation boundary before starting fresh physical I/O;
+  every actively loading child in the retained normalized snapshot is reset to
+  `unloaded` before replacement I/O, so a failed or cancelled root read leaves
+  no non-retryable loading marker or stale child controller;
+  the shared registry deletes only identity-matching settled entries and remains
+  bounded to live requests. Structural changes directly beneath a Windows drive
+  root retain the `C:/` or `C:\\` parent boundary and therefore trigger the
+  required root refresh. Explicit selection reconciliation decodes every key
+  through the canonical strict selection codec; missing separators and empty
+  folder/path components throw instead of becoming ghost selections. The
+  persistence validator salvages canonical keys, drops malformed entries, and
+  raises the existing redacted discard notice before strict merge, while a
+  direct merge of unvalidated keys fails visibly. Selection is files-only: a
+  direct authoritative directory hit at a selected path is a stale
+  file-to-directory retype and removes that selection. An ordinary
+  joined/already-applied root load does not publish initial-loading state or
+  clear active child loading paths; only a genuine initial load or a
+  forced/fresh root boundary publishes root-pending state.
+  `loadSpecificPaths` rejects every non-abort worker, patch-rehydration, or
+  serial directory-read failure after publishing the visible tree error.
+  Restoration callers consume that rejection without retrying it in an effect
+  loop; abort semantics remain cancellation rather than a visible tree error.
+  Pinned by `file-selection-reconciliation.test.ts`,
+  `use-file-tree-refresh-events.test.tsx`, `use-file-tree-context.test.ts`,
+  `use-file-tree-worker.test.tsx`, `port.test.ts`, `bfs-engine.test.ts`, and
+  `file-tree-provider.test.tsx`.
 - **Narrow toolbar geometry.** The Explorer panel's 180px minimum width leaves
   a 76px right grid track. Below 236px, Refresh, View Filters **and Expand All /
   Collapse All** move into one 24px compact-actions menu beside the 24px Select
@@ -823,5 +1433,25 @@ fallback.
   (post-rewind refresh + `failed`-only retry) and its wiring in
   `packages/app-shell/src/changes/__tests__/rewind-confirm-dialog.test.tsx`,
   `packages/file-system/src/__tests__/electron-watchers.test.ts`.
+  Open-tab content refresh is pinned by
+  `packages/file-explorer-ui/src/__tests__/workspace-tabs-refresh.test.tsx`
+  (incremental/full/deleted/multi-root/Windows/commit-phase freshness/cleanup) and
+  `packages/file-explorer-ui/src/__tests__/use-shared-file-content-loading.test.tsx`
+  (web cached-handle routing versus explicit native absolute-path authority),
+  `packages/file-explorer-ui/src/__tests__/use-shared-file-content-reload.test.tsx`
+  (same-hook and cross-hook stale suppression, ready/dependent/rejected batch
+  scheduling, reset/replacement lifecycle isolation, per-key preparation and
+  worker-error settlement, all-settle rejection across independent groups,
+  owned versus transient error retention, empty-tree direct refresh, twenty-group
+  queue bounds, and nested-handle RootId forwarding),
+  `packages/file-explorer-ui/src/__tests__/workspace-tabs-error-lifecycle.test.tsx`
+  (single/bulk close, twenty-tab eviction, and reset pruning),
+  `packages/file-explorer-ui/src/__tests__/file-content-direct-read-path.test.ts`
+  (explicit capability routing plus POSIX/drive/UNC root preservation and
+  strict containment),
+  `packages/file-explorer-ui/src/__tests__/file-explorer-provider.test.tsx`
+  (live factory-reset content/cache clearing), plus
+  `packages/file-explorer/src/__tests__/file-content-actions.test.ts`
+  (store-scoped cache/reset lifecycle).
 
 When changing this flow, update this section and the paired tests.

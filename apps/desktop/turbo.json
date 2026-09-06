@@ -7,7 +7,17 @@
       "dependsOn": ["^build"],
       "cache": false
     },
+    "type-check": {
+      // `type-check:test` executes this repository-root verifier. It lives
+      // outside the desktop package's default inputs, so hash it explicitly
+      // or Turbo can replay stale green diagnostics after verifier changes.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/verify-test-tsconfig-program.mjs"
+      ]
+    },
     "test": {
+      "env": ["$TURBO_EXTENDS$", "DESKTOP_TEST_SHARD", "DESKTOP_TEST_SHARD_REQUIRED"],
       // vite-config.test.ts asserts desktop/web Vite alias parity by reading
       // apps/web/vite.config.mts — a CROSS-PACKAGE file turbo's default input
       // hash for this package does not cover. Without this, a web-only Vite
@@ -16,6 +26,9 @@
       // config to the hash. (Mirror of apps/web/turbo.json, which declares the
       // reverse-direction read of apps/desktop/index.html.)
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/vite.config.mts"]
+    },
+    "test:integration": {
+      "env": ["$TURBO_EXTENDS$", "DESKTOP_TEST_SHARD", "DESKTOP_TEST_SHARD_REQUIRED"]
     },
     "test:coverage": {
       // Same cross-package input: the coverage lane runs the full suite

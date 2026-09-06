@@ -7,6 +7,7 @@ import {
 } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FILE_EXPLORER_STORAGE_VERSION } from '../persistence/persistence-constants';
+import { encodeFileSelection } from '../selection.js';
 
 // Mock console spies for all tests in this file
 const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -138,6 +139,8 @@ describe('file-explorer-persistence', () => {
     });
 
     it('should correctly serialize state, converting Sets to Arrays', () => {
+      const fileGlobalKey = encodeFileSelection('folder-123', 'file-global');
+      const fileAnotherKey = encodeFileSelection('folder-123', 'file-another');
       const mockState: FileExplorerState = {
         ...(DEFAULT_STATE as FileExplorerState),
         currentFolderId: 'folder-123',
@@ -150,18 +153,21 @@ describe('file-explorer-persistence', () => {
             lastActiveTab: 'files',
             // Note: These will be overwritten by top-level state during serialization
             // because folder-123 is the current folder
-            selectedFilePaths: new Set(['file1', 'file2']),
+            selectedFilePaths: new Set([
+              encodeFileSelection('folder-123', 'file1'),
+              encodeFileSelection('folder-123', 'file2'),
+            ]),
           },
         },
         lastActiveTab: 'settings',
-        selectedFilePaths: new Set(['file-global', 'file-another']),
+        selectedFilePaths: new Set([fileGlobalKey, fileAnotherKey]),
       };
       const result = partializeFn(mockState);
       expect(result.currentFolderId).toBe('folder-123');
       expect(result.lastActiveTab).toBe('settings');
       expect(Array.isArray(result.selectedFilePaths)).toBe(true);
       expect(result.selectedFilePaths).toEqual(
-        expect.arrayContaining(['file-global', 'file-another'])
+        expect.arrayContaining([fileGlobalKey, fileAnotherKey])
       );
       expect(Array.isArray(result.expandedDirectoryPaths)).toBe(true);
       expect(result.expandedDirectoryPaths).toEqual(
@@ -171,7 +177,7 @@ describe('file-explorer-persistence', () => {
       // to ensure selections are preserved when app closes without switching folders
       expect(Array.isArray(result.folderStates['folder-123']?.selectedFilePaths)).toBe(true);
       expect(result.folderStates['folder-123']?.selectedFilePaths).toEqual(
-        expect.arrayContaining(['file-global', 'file-another'])
+        expect.arrayContaining([fileGlobalKey, fileAnotherKey])
       );
     });
 
@@ -218,22 +224,38 @@ describe('file-explorer-persistence', () => {
     });
 
     it('should unwrap state from { state, version } wrapper', () => {
+      const selectionKey = encodeFileSelection('folder-abc', 'file.ts');
       const actualState: SerializedState = {
         currentFolderId: 'folder-abc',
         devInlineFixtureEnabled: false,
         excludeFilters: [],
         expandedDirectoryPaths: [],
-        folderAccessOrder: [],
-        folderStates: {},
+        folderAccessOrder: ['folder-abc'],
+        folderStates: {
+          'folder-abc': {
+            excludeFilters: [],
+            expandedDirectoryPaths: [],
+            folderSummaryThreshold: 0,
+            includeFilters: [],
+            includeProjectTree: false,
+            lastAccessed: 1,
+            lastActiveTab: 'files',
+            maxSelectionCount: 0,
+            selectedFilePaths: [selectionKey],
+            tokenBudget: DEFAULT_TOKEN_BUDGET,
+            useRegex: false,
+            viewFilterPresetId: null,
+          },
+        },
         folderSummaryThreshold: 0,
         includeFilters: [],
         includeProjectTree: false,
         lastActiveTab: 'files',
         maxSelectionCount: 0,
         quickFilter: '',
-        selectedFilePaths: ['file.ts'],
+        selectedFilePaths: [selectionKey],
         selectionModel: {
-          explicitPaths: ['file.ts'],
+          explicitPaths: [selectionKey],
           materializedAt: null,
           materializedPaths: null,
           mode: 'explicit',
@@ -278,22 +300,38 @@ describe('file-explorer-persistence', () => {
     });
 
     it('should return state as is if not wrapped', () => {
+      const selectionKey = encodeFileSelection('folder-xyz', 'file.js');
       const actualState: SerializedState = {
         currentFolderId: 'folder-xyz',
         devInlineFixtureEnabled: false,
         excludeFilters: [],
         expandedDirectoryPaths: [],
-        folderAccessOrder: [],
-        folderStates: {},
+        folderAccessOrder: ['folder-xyz'],
+        folderStates: {
+          'folder-xyz': {
+            excludeFilters: [],
+            expandedDirectoryPaths: [],
+            folderSummaryThreshold: 0,
+            includeFilters: [],
+            includeProjectTree: false,
+            lastAccessed: 1,
+            lastActiveTab: 'files',
+            maxSelectionCount: 0,
+            selectedFilePaths: [selectionKey],
+            tokenBudget: DEFAULT_TOKEN_BUDGET,
+            useRegex: false,
+            viewFilterPresetId: null,
+          },
+        },
         folderSummaryThreshold: 0,
         includeFilters: [],
         includeProjectTree: false,
         lastActiveTab: 'files',
         maxSelectionCount: 0,
         quickFilter: '',
-        selectedFilePaths: ['file.js'],
+        selectedFilePaths: [selectionKey],
         selectionModel: {
-          explicitPaths: ['file.js'],
+          explicitPaths: [selectionKey],
           materializedAt: null,
           materializedPaths: null,
           mode: 'explicit',
@@ -387,7 +425,7 @@ describe('file-explorer-persistence', () => {
           ...testDefaultFolderState, // Use defined default folder state
           expandedDirectoryPaths: new Set(['initial-exp-dir']),
           lastActiveTab: 'preview',
-          selectedFilePaths: new Set(['initial-sel.txt']),
+          selectedFilePaths: new Set([encodeFileSelection('initial-folder', 'initial-sel.txt')]),
         },
       },
       selectedFilePaths: new Set(),
@@ -516,6 +554,12 @@ describe('file-explorer-persistence', () => {
     });
 
     it('should merge persisted SerializedState into current FileExplorerState, converting arrays to Sets', () => {
+      const anotherSelection = encodeFileSelection('another-persisted', 'another.txt');
+      const persistedSelection = encodeFileSelection('persisted-folder', 'persisted-sel.txt');
+      const persistedGlobalSelection = encodeFileSelection(
+        'persisted-folder',
+        'persisted-global.txt'
+      );
       const persisted: SerializedState = {
         currentFolderId: 'persisted-folder',
         devInlineFixtureEnabled: false,
@@ -532,7 +576,7 @@ describe('file-explorer-persistence', () => {
             lastAccessed: Date.now(),
             lastActiveTab: 'files',
             maxSelectionCount: 0,
-            selectedFilePaths: ['another.txt'],
+            selectedFilePaths: [anotherSelection],
             tokenBudget: DEFAULT_TOKEN_BUDGET,
             useRegex: false,
           },
@@ -545,7 +589,7 @@ describe('file-explorer-persistence', () => {
             lastAccessed: Date.now(),
             lastActiveTab: 'files',
             maxSelectionCount: 10,
-            selectedFilePaths: ['persisted-sel.txt'],
+            selectedFilePaths: [persistedSelection],
             tokenBudget: DEFAULT_TOKEN_BUDGET,
             useRegex: false,
           },
@@ -556,7 +600,7 @@ describe('file-explorer-persistence', () => {
         lastActiveTab: 'preview',
         maxSelectionCount: 20,
         quickFilter: '',
-        selectedFilePaths: ['persisted-global.txt'],
+        selectedFilePaths: [persistedGlobalSelection],
         tokenBudget: DEFAULT_TOKEN_BUDGET,
         useRegex: true,
       };
@@ -567,26 +611,28 @@ describe('file-explorer-persistence', () => {
       expect(result.lastActiveTab).toBe('preview');
       expect(result.includeFilters).toEqual(['*.md']);
       expect(result.selectedFilePaths).toBeInstanceOf(Set);
-      expect(result.selectedFilePaths.has('persisted-global.txt')).toBe(true);
+      expect(result.selectedFilePaths.has(persistedGlobalSelection)).toBe(true);
       expect(result.expandedDirectoryPaths).toBeInstanceOf(Set);
       expect(result.expandedDirectoryPaths.has('persisted-global-dir')).toBe(true);
 
       expect(result.folderStates['persisted-folder']).toBeDefined();
       expect(result.folderStates['persisted-folder']?.selectedFilePaths).toBeInstanceOf(Set);
       expect(
-        result.folderStates['persisted-folder']?.selectedFilePaths.has('persisted-sel.txt')
+        result.folderStates['persisted-folder']?.selectedFilePaths.has(persistedSelection)
       ).toBe(true);
       expect(result.folderStates['persisted-folder']?.includeFilters).toEqual(['*.json']);
 
       expect(result.folderStates['another-persisted']).toBeDefined();
-      expect(result.folderStates['another-persisted']?.selectedFilePaths.has('another.txt')).toBe(
-        true
-      );
+      expect(
+        result.folderStates['another-persisted']?.selectedFilePaths.has(anotherSelection)
+      ).toBe(true);
 
       expect(result.folderStates['initial-folder']).toBeDefined();
-      expect(result.folderStates['initial-folder']?.selectedFilePaths.has('initial-sel.txt')).toBe(
-        true
-      );
+      expect(
+        result.folderStates['initial-folder']?.selectedFilePaths.has(
+          encodeFileSelection('initial-folder', 'initial-sel.txt')
+        )
+      ).toBe(true);
       expect(result.folderStates['initial-folder']?.lastActiveTab).toBe('preview');
     });
 
@@ -605,23 +651,29 @@ describe('file-explorer-persistence', () => {
             lastAccessed: 123,
             lastActiveTab: 'files',
             // These will be overwritten by top-level state during serialization
-            selectedFilePaths: new Set(['fs1']),
+            selectedFilePaths: new Set([encodeFileSelection('rt-folder', 'fs1')]),
           },
         },
-        selectedFilePaths: new Set(['s1', 's2']),
+        selectedFilePaths: new Set([
+          encodeFileSelection('rt-folder', 's1'),
+          encodeFileSelection('rt-folder', 's2'),
+        ]),
       };
 
       const serialized = partializeFn(state);
       const merged = mergeFn(serialized, initialCurrentState);
 
       expect(merged.currentFolderId).toBe('rt-folder');
-      expect(Array.from(merged.selectedFilePaths)).toEqual(['s1', 's2']);
+      expect(Array.from(merged.selectedFilePaths)).toEqual([
+        encodeFileSelection('rt-folder', 's1'),
+        encodeFileSelection('rt-folder', 's2'),
+      ]);
       expect(Array.from(merged.expandedDirectoryPaths)).toEqual(['d1']);
       expect(merged.folderStates['rt-folder']).toBeDefined();
       // After serialization, the current folder's state is synced from top-level
       expect(Array.from(merged.folderStates['rt-folder']?.selectedFilePaths ?? new Set())).toEqual([
-        's1',
-        's2',
+        encodeFileSelection('rt-folder', 's1'),
+        encodeFileSelection('rt-folder', 's2'),
       ]);
       expect(
         Array.from(merged.folderStates['rt-folder']?.expandedDirectoryPaths ?? new Set())
@@ -637,7 +689,7 @@ describe('file-explorer-persistence', () => {
             ...testDefaultFolderState,
             expandedDirectoryPaths: new Set(['extra-dir']),
             lastActiveTab: 'files',
-            selectedFilePaths: new Set(['extra.txt']),
+            selectedFilePaths: new Set([encodeFileSelection('extra-folder', 'extra.txt')]),
           },
         },
       };
@@ -664,7 +716,7 @@ describe('file-explorer-persistence', () => {
       expect(result.folderStates['extra-folder']).toBeDefined();
       expect(
         Array.from(result.folderStates['extra-folder']?.selectedFilePaths ?? new Set())
-      ).toEqual(['extra.txt']);
+      ).toEqual([encodeFileSelection('extra-folder', 'extra.txt')]);
       expect(result.folderStates['initial-folder']).toBeDefined();
     });
 
@@ -707,6 +759,7 @@ describe('file-explorer-persistence', () => {
     });
 
     it('should handle unknown folder states from persisted data', () => {
+      const unknownSelection = encodeFileSelection('unknown', 'u.txt');
       const persisted: SerializedState = {
         currentFolderId: null,
         excludeFilters: [],
@@ -724,7 +777,7 @@ describe('file-explorer-persistence', () => {
             lastAccessed: 1,
             lastActiveTab: 'files',
             maxSelectionCount: 0,
-            selectedFilePaths: ['u.txt'],
+            selectedFilePaths: [unknownSelection],
             useRegex: false,
           },
         },
@@ -745,7 +798,7 @@ describe('file-explorer-persistence', () => {
 
       expect(merged.folderStates['unknown']).toBeDefined();
       expect(Array.from((merged.folderStates['unknown'] as FolderState).selectedFilePaths)).toEqual(
-        ['u.txt']
+        [unknownSelection]
       );
       expect((merged.folderStates['unknown'] as unknown as Record<string, unknown>)['extra']).toBe(
         'val'

@@ -1,6 +1,7 @@
 import type {
   DirectoryHandle,
   FileSystemAdapter,
+  FileSystemWatchBatchMetadata,
   FileSystemWatchSignal,
 } from '@brainstrike/file-system';
 import type { FileSystemChange } from '@brainstrike/types';
@@ -23,8 +24,12 @@ function makeHandle(rootId: string): DirectoryHandle {
   };
 }
 
-type WatchCallback = (changes: FileSystemChange[]) => void;
-type OnChanges = (rootId: string, changes: FileSystemChange[]) => void;
+type WatchCallback = (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void;
+type OnChanges = (
+  rootId: string,
+  changes: FileSystemChange[],
+  metadata?: FileSystemWatchBatchMetadata
+) => void;
 type OnSignal = (rootId: string, signal: FileSystemWatchSignal) => void;
 
 interface WatchCall {
@@ -115,6 +120,22 @@ describe('useFileSystemWatcher', () => {
     expect(adapter.watchCalls).toHaveLength(2);
     expect(adapter.watchCalls[0]!.handle).toBe(handleA);
     expect(adapter.watchCalls[1]!.handle).toBe(handleB);
+  });
+
+  it('forwards filtered-boundary metadata with the durable root id', () => {
+    const adapter = makeAdapter();
+    const handle = makeHandle('root-a');
+    renderHook(() =>
+      useFileSystemWatcher({ adapter, onChanges, roots: [{ handle, rootId: 'root-a' }] })
+    );
+
+    const metadata: FileSystemWatchBatchMetadata = {
+      filteredChangeBoundaries: ['packages/app/dist'],
+      filteredChangeBoundariesOverflow: true,
+    };
+    adapter.watchCalls[0]?.callback([], metadata);
+
+    expect(onChanges).toHaveBeenCalledWith('root-a', [], metadata);
   });
 
   it('when a root is added, starts a new watcher without restarting existing ones', () => {

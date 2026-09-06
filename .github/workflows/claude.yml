@@ -11,7 +11,9 @@ jobs:
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
-    runs-on: ubuntu-latest
+    # Preserve GitHub OIDC and permissions while moving the ephemeral x64 host
+    # to the equivalent 2-vCPU/8-GB Ubicloud shape.
+    runs-on: ubicloud-standard-2
     timeout-minutes: 45
     permissions:
       contents: write
@@ -30,6 +32,10 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Job-level `actions: read` only scopes GITHUB_TOKEN; the action also
+          # needs this input to expose the Actions API (CI results) to Claude.
+          additional_permissions: |
+            actions: read
           claude_args: |
             --model claude-opus-5
             --max-turns 16

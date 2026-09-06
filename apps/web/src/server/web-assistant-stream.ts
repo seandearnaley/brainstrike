@@ -1,9 +1,12 @@
 import {
   type AgentMessage,
+  type ProviderAuthInput,
   type RuntimeData,
   type StreamChunk,
   toAiSdkStyleStream,
 } from '@brainstrike/agent/hosted-web';
+import type { ResolvedProviderCredential } from '@brainstrike/assistant-service/ports';
+import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
 
 /**
  * Build a stateless Hosted Web stream (BST-973-2 converged entry).
@@ -22,17 +25,30 @@ import {
 export async function buildWebAssistantStreamFromPrepared(params: {
   readonly agentMessages: AgentMessage[];
   /**
-   * Passed separately from runtimeData: the shared preparation returns hosted
-   * keys top-level (only local-server tokens are hydrated INTO runtimeData),
-   * so the stream runtime must re-attach it here.
+   * The typed credential the shared preparation resolved (BST-1352 review
+   * finding 6): web is a PROJECTION of it, never a parallel string re-mint.
+   * api_key-only enforcement lives at the web resolution layer
+   * (runWebAssistantPost's env-backed reader), so this is always an api_key
+   * credential when present.
    */
-  readonly apiKey: string;
+  readonly credential: ResolvedProviderCredential | undefined;
   readonly runtimeData: RuntimeData;
   readonly signal?: AbortSignal;
 }): Promise<AsyncIterable<StreamChunk>> {
-  return await toAiSdkStyleStream(params.agentMessages, {
-    ...params.runtimeData,
-    apiKey: params.apiKey,
-    ...(params.signal ? { signal: params.signal } : {}),
-  });
+  // Rides the STREAM OPTIONS as a direct parameter, never RuntimeData —
+  // RuntimeData reaches Mastra RequestContext serialization (BST-1352).
+  const provider =
+    typeof params.runtimeData.provider === 'string' ? params.runtimeData.provider : '';
+  const authInput: ProviderAuthInput | undefined = providerAuthInputFromCredential(
+    provider,
+    params.credential
+  );
+  return await toAiSdkStyleStream(
+    params.agentMessages,
+    {
+      ...params.runtimeData,
+      ...(params.signal ? { signal: params.signal } : {}),
+    },
+    authInput ? { authInput } : {}
+  );
 }

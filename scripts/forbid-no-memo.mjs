@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { readFile } from 'node:fs/promises';
-import { glob } from 'glob';
+import { glob, readFile } from 'node:fs/promises';
+import path from 'node:path';
 
 const SOURCE_PATTERNS = [
   'apps/**/*.{js,jsx,cjs,mjs,ts,tsx,cts,mts}',
@@ -12,18 +12,31 @@ const SOURCE_PATTERNS = [
 ];
 
 const IGNORE_PATTERNS = [
+  '**/node_modules',
   '**/node_modules/**',
+  '**/.git',
   '**/.git/**',
+  '**/dist',
   '**/dist/**',
+  '**/.turbo',
   '**/.turbo/**',
+  '**/build',
   '**/build/**',
+  '**/coverage',
   '**/coverage/**',
+  '**/playwright-report',
   '**/playwright-report/**',
+  '**/test-results',
   '**/test-results/**',
+  '**/.vite',
   '**/.vite/**',
+  '**/.nyc_output',
   '**/.nyc_output/**',
+  '**/blob-report',
   '**/blob-report/**',
+  '**/.stryker-tmp',
   '**/.stryker-tmp/**',
+  '**/reports',
   '**/reports/**',
 ];
 
@@ -35,14 +48,23 @@ function getLineNumber(sourceText, matchIndex) {
 }
 
 async function main() {
-  const sourceFiles = await glob(SOURCE_PATTERNS, {
-    absolute: false,
-    ignore: IGNORE_PATTERNS,
-    nodir: true,
-    // Windows: glob returns backslash-separated paths by default, which breaks
-    // the /-separated violation output consumers (and the test) match on.
-    posix: true,
-  });
+  const sourceFiles = (
+    await Array.fromAsync(
+      glob(SOURCE_PATTERNS, {
+        exclude: IGNORE_PATTERNS,
+        withFileTypes: true,
+      })
+    )
+  )
+    .filter((entry) => entry.isFile())
+    // Windows: Node glob returns platform-separated paths by default, which
+    // breaks the /-separated violation output consumers (and the test) match on.
+    .map((entry) =>
+      path
+        .relative(process.cwd(), path.join(entry.parentPath, entry.name))
+        .split(path.sep)
+        .join('/')
+    );
 
   const violations = (
     await Promise.all(

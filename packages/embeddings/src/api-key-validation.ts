@@ -3,9 +3,14 @@
  * Prevents errors from propagating to users when they haven't configured required API keys.
  */
 
+import { providerVendorEnvKey } from '@brainstrike/assistant-contract/provider-metadata';
 import { type HostedProviderType, hostedProviderRequiresApiKey } from './provider-types.js';
 import { isHostedProvider, parseProviderModelKey } from './provider-utils.js';
-import { resolveHostedProviderApiKey } from './providers/hosted/api-key-resolver.js';
+import {
+  detectDeprecatedHostedProviderEnvNames,
+  HOSTED_PROVIDER_ENV_KEYS,
+  resolveHostedProviderApiKey,
+} from './providers/hosted/api-key-resolver.js';
 
 /**
  * Result of API key validation check
@@ -22,16 +27,20 @@ export type ApiKeyValidationResult =
     };
 
 /**
- * Environment variable names for each hosted provider
+ * User-facing env-name hints, derived from the resolver's ONE name table
+ * (BST-1361 review 6 — no second hand-maintained list). The vendor-standard
+ * name leads the hint when the provider is registry-keyed
+ * (`providerVendorEnvKey`); local runtimes fall through to their transport
+ * names unchanged.
  */
-const PROVIDER_ENV_HINTS: Record<HostedProviderType, string[]> = {
-  cohere: ['COHERE_API_KEY'],
-  google: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY'],
-  lmstudio: ['LMSTUDIO_API_KEY'],
-  ollama: ['OLLAMA_API_KEY'],
-  openai: ['OPENAI_API_KEY', 'BRAINSTRIKE_OPENAI_API_KEY'],
-  voyage: ['VOYAGE_API_KEY'],
-};
+function providerEnvHints(provider: HostedProviderType): readonly string[] {
+  const names = HOSTED_PROVIDER_ENV_KEYS[provider] ?? [];
+  const vendorName = providerVendorEnvKey(provider);
+  if (!(vendorName && names.includes(vendorName))) {
+    return names;
+  }
+  return [vendorName, ...names.filter((name) => name !== vendorName)];
+}
 
 /**
  * Human-readable provider names for error messages
@@ -94,12 +103,23 @@ export async function checkApiKeyAvailability(
 
   // API key not found - return helpful error message
   const displayName = PROVIDER_DISPLAY_NAMES[provider];
-  const envHints = PROVIDER_ENV_HINTS[provider];
+  const envHints = providerEnvHints(provider);
   const envHintText = envHints.length > 0 ? ` (${envHints[0]})` : '';
+
+  // BST-1361: a set-but-deprecated name (plain or VITE_-prefixed) is the
+  // most likely cause of a suddenly-missing key — surface the rename in the
+  // same visible error instead of dying silently. Names only, never values.
+  const deprecatedHits = detectDeprecatedHostedProviderEnvNames(provider);
+  const deprecatedText =
+    deprecatedHits.length > 0
+      ? ` Deprecated variable(s) detected that never authenticate: ${deprecatedHits
+          .map(({ envVar, replacement }) => `${envVar} (rename to ${replacement})`)
+          .join(', ')}.`
+      : '';
 
   return {
     available: false,
-    message: `${displayName} API key not configured. Please add your API key${envHintText} in Settings → Secrets or set the environment variable.`,
+    message: `${displayName} API key not configured. Please add your API key${envHintText} in Settings → Secrets or set the environment variable.${deprecatedText}`,
     provider,
     reason: 'missing-provider-key',
   };
@@ -133,7 +153,7 @@ export function requiresApiKey(modelKey: string | null | undefined): boolean {
  */
 export function getApiKeyConfigInstructions(provider: HostedProviderType): string {
   const displayName = PROVIDER_DISPLAY_NAMES[provider];
-  const envHints = PROVIDER_ENV_HINTS[provider];
+  const envHints = providerEnvHints(provider);
 
   if (!hostedProviderRequiresApiKey(provider)) {
     return `${displayName} local runtime does not require an API key by default.`;

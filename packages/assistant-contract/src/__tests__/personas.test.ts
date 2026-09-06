@@ -3,11 +3,13 @@ import {
   type AssistantPersonaDefinition,
   assertReadOnlyPersona,
   BUILT_IN_PERSONAS,
+  delegationDescriptionForPersona,
   delegationToolNameForPersona,
   PersonaToolRiskViolationError,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '../personas';
 import { ASSISTANT_RUN_EVENT_KINDS, type AssistantRunEventKind } from '../run-events';
+import { MAX_USER_PERSONA_MAX_STEPS } from '../user-personas';
 
 const baseDefinition = (
   overrides: Partial<AssistantPersonaDefinition>
@@ -116,6 +118,87 @@ describe('subagent run-event kinds', () => {
     ];
     for (const kind of expected) {
       expect(ASSISTANT_RUN_EVENT_KINDS).toContain(kind);
+    }
+  });
+});
+
+describe('delegationDescriptionForPersona', () => {
+  const persona = (maxSteps: number) => ({
+    allowedToolIds: [],
+    description: 'Delegate exploration.',
+    id: 'x',
+    instructions: 'i',
+    label: 'X',
+    maxSteps,
+  });
+
+  it('derives the cap from maxSteps instead of restating it in prose', () => {
+    // The supervisor picks the SIZE of a delegated task from this description
+    // and nothing else — it becomes the `agent-<id>` tool description. Deriving
+    // it here rather than writing "16 steps" into each persona's prose removes
+    // the drift entirely: there is no second copy to fall out of sync.
+    expect(delegationDescriptionForPersona(persona(16))).toContain('at most 16 steps');
+    expect(delegationDescriptionForPersona(persona(4))).toContain('at most 4 steps');
+  });
+
+  it('covers USER-defined personas, whose frontmatter never mentions a cap', () => {
+    // A user persona's description comes straight from its markdown frontmatter,
+    // so it can never disclose its own budget. Hardcoding the sentence in the
+    // built-ins would have left exactly this case with the original bug.
+    const userPersona: AssistantPersonaDefinition = { ...persona(4), source: 'user' };
+    expect(delegationDescriptionForPersona(userPersona)).toContain('at most 4 steps');
+  });
+
+  it('keeps the persona own description intact', () => {
+    expect(delegationDescriptionForPersona(persona(16))).toContain('Delegate exploration.');
+  });
+
+  it('discloses a cap for every built-in', () => {
+    for (const builtIn of BUILT_IN_PERSONAS) {
+      expect(delegationDescriptionForPersona(builtIn)).toContain(
+        `at most ${builtIn.maxSteps} steps`
+      );
+    }
+  });
+
+  it('gives every built-in the budget a user persona is also allowed', () => {
+    // One step is reserved in-loop for the wrap-up summary
+    // (buildChildIterationPolicy), so the usable tool budget is maxSteps - 1.
+    // At the previous cap of 8 that left 7 tool steps for a persona whose own
+    // description invites surveying many files.
+    //
+    // The built-ins sit AT the user ceiling, never above it: a budget users
+    // cannot declare would make the shipped Explorer unreplicable by a user
+    // persona, and would leave MAX_USER_PERSONA_MAX_STEPS describing a limit
+    // the app itself ignores.
+    for (const builtIn of BUILT_IN_PERSONAS) {
+      expect(builtIn.maxSteps).toBe(MAX_USER_PERSONA_MAX_STEPS);
+    }
+  });
+});
+
+describe('persona instructions demand provenance, not conclusions', () => {
+  it('requires every finding to distinguish code from documentation', () => {
+    // An explore child reported FOREGROUND_GATE_REOPEN_MS=250 as a code
+    // constant. It exists only in docs/agents/local-inference.md — the doc
+    // itself says the real constant is named something else. The supervisor
+    // then wrote it into durable memory under "Verified architecture survey".
+    for (const persona of BUILT_IN_PERSONAS) {
+      expect(persona.instructions.toLowerCase()).toContain('documentation');
+    }
+  });
+
+  it('forbids EVERY built-in from producing the final deliverable', () => {
+    // An explore child asked to survey the repo "for a developer-onboarding
+    // document" returned a complete HTML page. It is a research step, not the
+    // author: the supervisor discarded the page and the child had burned its
+    // budget writing it.
+    //
+    // The Analyst is delegated research for reports and pages too, so guarding
+    // only `explore` would leave the identical budget-waster one delegation
+    // away.
+    for (const persona of BUILT_IN_PERSONAS) {
+      expect(persona.instructions.toLowerCase()).toContain('deliverable');
     }
   });
 });

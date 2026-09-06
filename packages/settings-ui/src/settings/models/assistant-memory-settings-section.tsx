@@ -11,6 +11,7 @@ import type { SupportedProvider } from '@brainstrike/assistant-contract/provider
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { Badge, Card, Input, Label, Switch } from '@brainstrike/ui';
 import { BrainCircuit } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   formatMemoryScopeLabel,
   listObservationalMemoryModelOptions,
@@ -100,10 +101,17 @@ function ObservationalMemoryModelField({
           already receiving it. Local chats keep observations paused.
         </p>
       ) : (
-        <p className="text-muted-foreground text-xs">
+        <p
+          className="text-muted-foreground text-xs"
+          data-testid="assistant-memory-manual-observer-note"
+        >
           The target identifies a provider/model such as{' '}
           <span className="font-mono">openai/gpt-5.4-mini</span>; Desktop resolves its credential
-          before constructing the observer.
+          before constructing the observer. Unlike Auto, a manual target is NOT tied to your chat
+          provider: whenever observations run on a chat using a different HOSTED provider, that
+          conversation reaches the observer's provider as well. A{' '}
+          <span className="font-mono">local</span> observer is the exception — it runs on this
+          device and sends nothing.
         </p>
       )}
       {hasUnavailableObservationModel && (
@@ -116,8 +124,8 @@ function ObservationalMemoryModelField({
           role={observationalMemoryEnabled ? 'alert' : 'status'}
         >
           Configured observational memory model {modelTarget} is not available with the current
-          provider credentials. Configure its API key in Settings → LLM Provider Keys, choose a
-          keyless local observer, or turn observations off.
+          provider credentials. Configure its API key in Settings → Providers, choose a keyless
+          local observer, or turn observations off.
         </p>
       )}
     </div>
@@ -131,7 +139,13 @@ export function AssistantMemorySettingsSection({
   const db = usePGliteDatabase();
   useEnsureModelRegistry({ db });
 
-  const { hasLoaded, models, providers } = useModelRegistryStore();
+  const { hasLoaded, models, providers } = useModelRegistryStore(
+    useShallow((state) => ({
+      hasLoaded: state.hasLoaded,
+      models: state.models,
+      providers: state.providers,
+    }))
+  );
   const {
     observationalMemory,
     semanticRecall,
@@ -146,7 +160,23 @@ export function AssistantMemorySettingsSection({
     setSemanticRecallMessageRange,
     setSemanticRecallScope,
     setSemanticRecallTopK,
-  } = useAssistantMemoryPreferencesStore();
+  } = useAssistantMemoryPreferencesStore(
+    useShallow((state) => ({
+      observationalMemory: state.observationalMemory,
+      semanticRecall: state.semanticRecall,
+      setObservationalMemoryEnabled: state.setObservationalMemoryEnabled,
+      setObservationalMemoryModelTarget: state.setObservationalMemoryModelTarget,
+      setObservationalMemoryScope: state.setObservationalMemoryScope,
+      setObservationalRetrievalMode: state.setObservationalRetrievalMode,
+      setObservationMessageTokens: state.setObservationMessageTokens,
+      setReflectionObservationTokens: state.setReflectionObservationTokens,
+      setSemanticRecallEmbeddingModelTarget: state.setSemanticRecallEmbeddingModelTarget,
+      setSemanticRecallEnabled: state.setSemanticRecallEnabled,
+      setSemanticRecallMessageRange: state.setSemanticRecallMessageRange,
+      setSemanticRecallScope: state.setSemanticRecallScope,
+      setSemanticRecallTopK: state.setSemanticRecallTopK,
+    }))
+  );
 
   const observationOptions = listObservationalMemoryModelOptions({
     assistantMemoryBackendAvailable,

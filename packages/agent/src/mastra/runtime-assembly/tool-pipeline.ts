@@ -12,8 +12,13 @@
  * `prepareHostedToolDiscovery` owns the discovery + model-projection phase and
  * runs after the caller has resolved the language model.
  */
-import { resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
-import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
+
+import type { McpHostPort } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID, resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
+import {
+  findProviderDefinition,
+  resolveTokenMeasurementCapability,
+} from '@brainstrike/assistant-contract/provider-registry';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage, ToolsInput } from '@mastra/core/agent';
@@ -23,14 +28,25 @@ import {
   resolveAssistantResilienceConfig,
 } from '../../config/resilience-config';
 import type { McpConfig } from '../../mcp/config';
+import type { McpTaskTrackingCapability } from '../../mcp/task-tracking';
 import { createListingOnlyModel } from '../../providers/listing-only-model';
 import { applyProviderNativeWebSearch } from '../../providers/native-web-search';
+import type { ProviderAuthInput } from '../../providers/provider-auth-input';
 import { createAssistantSkillTools } from '../../skills/skill-tools';
 import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { applyToolGuards } from '../../tools/guard-tool-execution';
 import type { AgentHookRunner } from '../../tools/hook-runner';
 import { applyToolHooks } from '../../tools/hook-tool-wrap';
+import {
+  createToolExecutionDurations,
+  type ToolExecutionDurations,
+} from '../../tools/tool-execution-durations';
 import { createMastraAgentError } from '../mastra-agent-error';
+import {
+  createMcpAppToolAdmissionCapability,
+  type McpAppToolAdmissionCapability,
+} from '../mcp-app-tool-call';
+import type { McpDiscoverySkip } from '../mcp-discovery-diagnostics';
 import { createMcpRuntimeClient, type McpRuntimeClient } from '../mcp-runtime-client';
 import { collectCombinedTools } from '../mcp-tool-loader';
 import {
@@ -42,7 +58,7 @@ import { filterToolsForPlanMode, resolveSuspendToolsForRun } from '../plan-mode-
 import { ProjectionSafeToolCallFilter } from '../projection-safe-tool-call-filter';
 import type { ResolvedRuntimeConfiguration } from '../runtime-configuration';
 import { createRunTokenDiagnostics, type RunTokenDiagnostics } from '../token-measurement';
-import { applyToolModelOutputProjections } from '../tool-model-output';
+import { applyToolModelOutputProjections, wouldTruncateMcpModelOutput } from '../tool-model-output';
 import {
   applyToolOutputArtifactSettlement,
   type ToolOutputArtifactSettlementStore,
@@ -195,6 +211,7 @@ function mergeSkillToolsIntoLocalTools(
 }
 
 function applyRuntimeToolHooks(params: {
+  durations: ToolExecutionDurations;
   guardedTools: ToolsInput;
   hookRunner: AgentHookRunner | undefined;
   toolNameMap: ReadonlyMap<string, string>;
@@ -203,10 +220,28 @@ function applyRuntimeToolHooks(params: {
     return params.guardedTools;
   }
   return applyToolHooks(params.guardedTools, {
+    // A PreToolUse BLOCK returns without reaching the guard, so the hook layer
+    // records that short-circuit itself — otherwise the consumer falls back to
+    // a timestamp gap that includes the approval wait.
+    durations: params.durations,
     hookRunner: params.hookRunner,
     logger,
     toolNameMap: params.toolNameMap,
   });
+}
+
+export function resolveEligibleArtifactReaderName(
+  tools: ToolsInput,
+  toolNameMap: ReadonlyMap<string, string>
+): string {
+  const names = Object.keys(tools).filter(
+    (id) => toolNameMap.get(id) === NATIVE_TOOL_ID.readToolOutputArtifact
+  );
+  const name = names[0];
+  if (names.length !== 1 || !name) {
+    throw new Error('Durable tool output requires one eligible artifact reader.');
+  }
+  return name;
 }
 
 function settleRuntimeToolOutputs(params: {
@@ -215,6 +250,8 @@ function settleRuntimeToolOutputs(params: {
   store: ToolOutputArtifactSettlementStore | undefined;
   toolNameMap: ReadonlyMap<string, string>;
   tools: ToolsInput;
+  mcpToolNames: ReadonlySet<string>;
+  resolvedToolResultBudget: ScaledToolResultBudget;
 }): ToolsInput {
   if (!params.store) {
     return params.tools;
@@ -226,12 +263,16 @@ function settleRuntimeToolOutputs(params: {
     ...(params.inlineMaxSerializedCharsByToolName
       ? { inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName }
       : {}),
+    getReaderToolName: () => resolveEligibleArtifactReaderName(params.tools, params.toolNameMap),
     store: params.store,
     toolNameMap: params.toolNameMap,
+    wouldTruncateModelOutput: (toolName, output) =>
+      params.mcpToolNames.has(toolName) &&
+      wouldTruncateMcpModelOutput(toolName, output, params.resolvedToolResultBudget),
   });
 }
 
-const MASTRA_CATALOG_META_TOOL_IDS = new Set(['search_tools']);
+const MASTRA_CATALOG_META_TOOL_IDS = new Set(['search_tools', 'list_available_tools']);
 
 function assertCatalogMetaToolNamesAvailable(params: {
   eligibleTools: ToolsInput;
@@ -255,7 +296,12 @@ function assertCatalogMetaToolNamesAvailable(params: {
 }
 
 function isHostedProviderRuntime(provider: ResolvedRuntimeConfiguration['provider']): boolean {
-  return !['local', 'ollama', 'lmstudio'].includes(provider);
+  // Registry-derived (BST-1349) with FAIL-OPEN polarity (PR #2513 review,
+  // finding 4): only the known local runtimes opt out of the hosted path, so
+  // an unknown id or a future runtime value keeps the pre-BST-1349 hosted
+  // default. Guarded lookup: an out-of-registry id must not TypeError.
+  const runtime = findProviderDefinition(provider)?.runtime;
+  return runtime !== 'local' && runtime !== 'browser';
 }
 
 export async function prepareHostedToolDiscovery(params: {
@@ -373,13 +419,21 @@ export function createToolHistoryFilter(
 }
 
 export interface RuntimeToolMapParams {
-  apiKey: string | undefined;
+  /**
+   * The run's resolved ProviderAuthInput (BST-1352): consumed by the
+   * provider-native web-search swap so its second SDK client is built through
+   * the same auth seam as the chat model (never from a bare key).
+   */
+  auth: ProviderAuthInput | undefined;
   getDelegationToolNames: (() => readonly string[]) | undefined;
   hasStorage: boolean;
   hookRunner: AgentHookRunner | undefined;
   inlineMaxSerializedCharsByToolName: ReadonlyMap<string, number> | undefined;
   localTools: ToolsInput | undefined;
   mcpConfig: McpConfig | undefined;
+  mcpHost: McpHostPort | undefined;
+  /** Host-owned MCP Tasks tracking; absent makes a task result a hard error. */
+  mcpTaskTracking: McpTaskTrackingCapability | undefined;
   mcpTimeoutMs: number | undefined;
   permissionSnapshot: PermissionToolGateSnapshot | undefined;
   planModeActive: boolean;
@@ -396,9 +450,19 @@ export interface RuntimeToolMapResult {
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
   /** Pre-permission-gate map; persona subagents re-gate it independently. */
   guardedTools: ToolsInput;
+  /** Apps admission surface captured only after ordinary runtime admission. */
+  mcpAppToolAdmission: McpAppToolAdmissionCapability;
   mcpClient: McpRuntimeClient | undefined;
+  /**
+   * Every MCP server that contributed ZERO tools to this run (BST-1602). Empty
+   * when discovery was healthy. Carried, never swallowed: the run answers with
+   * a materially reduced tool surface and the user is owed that fact.
+   */
+  mcpDiscoverySkips: readonly McpDiscoverySkip[];
   resilienceConfig: AssistantResilienceConfig;
   sanitizedLocalToolIds: ReadonlySet<string>;
+  /** Real per-call execution time, written by the guard wrapper. */
+  toolExecutionDurations: ToolExecutionDurations;
   toolNameMap: Map<string, string>;
 }
 
@@ -411,8 +475,18 @@ export interface RuntimeToolMapResult {
 export async function composeRuntimeToolMap(
   params: RuntimeToolMapParams
 ): Promise<RuntimeToolMapResult> {
-  const mcpClient = createMcpRuntimeClient({
+  // Resolved first: the MCP task settlement wait is capped under the same
+  // guard ceiling applyToolGuards enforces below.
+  const resilienceConfig = resolveAssistantResilienceConfig();
+  const mcpClient = await createMcpRuntimeClient({
     config: params.mcpConfig,
+    ...(params.mcpHost ? { host: params.mcpHost } : {}),
+    ...(params.mcpTaskTracking
+      ? {
+          mcpTaskTracking: params.mcpTaskTracking,
+          toolTimeoutMs: resilienceConfig.toolTimeoutMs,
+        }
+      : {}),
   });
 
   // Agent Skills (desktop-injected engine): fold Mastra's canonical
@@ -431,19 +505,38 @@ export async function composeRuntimeToolMap(
   const toolNameMap = new Map<string, string>();
   const sanitizedLocalTools = sanitizeTools(localToolsWithSkills, toolNameMap);
   const sanitizedLocalToolIds = new Set(Object.keys(sanitizedLocalTools ?? {}));
-  const combinedTools = await collectCombinedTools({
+  const { mcpDiscoverySkips, tools: combinedTools } = await collectCombinedTools({
     durableArtifactSettlement: Boolean(params.toolOutputArtifactStore),
     mcpClient,
-    mcpConfig: params.mcpConfig,
+    // The injected host snapshot is the sole server/configuration authority.
+    // Legacy serialized config is only meaningful on the no-host path above.
+    mcpConfig: params.mcpHost ? undefined : params.mcpConfig,
     sanitizedLocalTools,
     scaledDefaultTokens: params.resolvedToolResultBudget.transportResultTokens,
     timeoutOverrideMs: params.mcpTimeoutMs,
     toolNameMap,
   });
-  const resilienceConfig = resolveAssistantResilienceConfig();
+  // Collection adds only MCP entries to the already-sanitized local registry.
+  // Capture that provenance before provider controls can change the final map.
+  const mcpToolNames = new Set(
+    Object.keys(combinedTools)
+      .filter((id) => !sanitizedLocalToolIds.has(id))
+      .map((id) => {
+        const original = toolNameMap.get(id);
+        if (!original) {
+          throw new Error(`Collected MCP tool ${id} is missing its original name.`);
+        }
+        return original;
+      })
+  );
   // Intentional global guard: every native and MCP tool execution shares this
   // ceiling so a single slow tool cannot freeze the assistant stream.
+  // Per-runtime, which is per request. The guard is the only layer that sees
+  // real execution time; an approval-gated call's stream timestamps span the
+  // human wait instead (see tool-execution-durations.ts).
+  const toolExecutionDurations = createToolExecutionDurations();
   const guardedTools = applyToolGuards(combinedTools, {
+    durations: toolExecutionDurations,
     logger,
     timeoutMs: resilienceConfig.toolTimeoutMs,
   });
@@ -453,6 +546,7 @@ export async function composeRuntimeToolMap(
   // can never widen access — permission runs downstream of `execute`, so a hook
   // only ever sees a tool the policy already allowed (hooks REFINE, never widen).
   const hookedTools = applyRuntimeToolHooks({
+    durations: toolExecutionDurations,
     guardedTools,
     hookRunner: params.hookRunner,
     toolNameMap,
@@ -480,6 +574,17 @@ export async function composeRuntimeToolMap(
     planModeActive: params.planModeActive,
     toolNameMap,
   });
+  const mcpAppToolAdmission = createMcpAppToolAdmissionCapability({
+    askTools,
+    ...(params.permissionSnapshot?.defaultRisk
+      ? { defaultRisk: params.permissionSnapshot.defaultRisk }
+      : {}),
+    ...(params.permissionSnapshot?.riskByTool
+      ? { riskByTool: params.permissionSnapshot.riskByTool }
+      : {}),
+    toolNameMap,
+    tools: gatedTools,
+  });
 
   // Provider-native web search (v1: anthropic/openai only). Runs AFTER the gate
   // so it uses the gate's authoritative decision — swap the web-search entry to
@@ -488,8 +593,8 @@ export async function composeRuntimeToolMap(
   // and cannot be approval-gated). Guarded to supported providers, so every other
   // caller/path is unchanged (see native-web-search.ts).
   const finalTools = applyProviderNativeWebSearch({
-    apiKey: params.apiKey,
     askTools,
+    auth: params.auth,
     logger,
     preserveExecuteBackedWebSearch: params.preserveExecuteBackedWebSearch,
     provider: params.provider,
@@ -499,6 +604,8 @@ export async function composeRuntimeToolMap(
   const artifactSettledTools = settleRuntimeToolOutputs({
     getDelegationToolNames: params.getDelegationToolNames,
     inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName,
+    mcpToolNames,
+    resolvedToolResultBudget: params.resolvedToolResultBudget,
     store: params.toolOutputArtifactStore,
     toolNameMap,
     tools: finalTools,
@@ -508,9 +615,12 @@ export async function composeRuntimeToolMap(
     artifactSettledTools,
     askTools,
     guardedTools,
+    mcpAppToolAdmission,
     mcpClient,
+    mcpDiscoverySkips,
     resilienceConfig,
     sanitizedLocalToolIds,
+    toolExecutionDurations,
     toolNameMap,
   };
 }

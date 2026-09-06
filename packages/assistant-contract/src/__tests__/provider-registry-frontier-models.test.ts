@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { resolveReasoningControlsAvailability } from '../model-reasoning.js';
 import {
   type EmbeddingModelDefinition,
   getLlmModelDefinition,
@@ -41,15 +42,43 @@ describe('frontier model refresh (2026-07)', () => {
   });
 
   describe('Anthropic', () => {
-    it('exposes Fable 5 / Sonnet 5 alongside the retained Opus and Haiku models', () => {
+    it('exposes Opus 5 / Fable 5 / Sonnet 5 alongside the retained Opus and Haiku models', () => {
       const ids = llmIds('anthropic');
       expect(ids).toEqual([
         'claude-fable-5',
+        'claude-opus-5',
         'claude-opus-4-8',
         'claude-sonnet-5',
         'claude-sonnet-4-6',
         'claude-haiku-4-5',
       ]);
+    });
+
+    it('declares Claude Opus 5 from the vendor model-overview facts (BST-957)', () => {
+      const opus = getLlmModelDefinition('anthropic', 'claude-opus-5');
+
+      expect(opus).toEqual({
+        anthropicReasoning: {
+          defaultEffort: 'high',
+          supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        },
+        contextWindow: 1_000_000,
+        id: 'claude-opus-5',
+        label: 'Claude Opus 5',
+        maxOutputTokens: 128_000,
+        nativeToolSearch: 'anthropic',
+        pricing: {
+          cacheReadPerMTok: 0.5,
+          cacheWritePerMTok: 6.25,
+          inputPerMTok: 5,
+          outputPerMTok: 25,
+        },
+        promptCaching: 'anthropic',
+        supportsStreaming: true,
+        tagline: 'For complex agentic coding and enterprise work',
+        type: 'llm',
+        vision: 'supported',
+      });
     });
 
     it('drops the superseded 4-5 generation aliases', () => {
@@ -100,6 +129,22 @@ describe('frontier model refresh (2026-07)', () => {
       expect(v2?.supportsStandardDimension).toBe(true);
       expect(v2?.dimensionParameter).toBe('output_dimensionality');
     });
+
+    it('declares Gemini 3.7 Flash for the direct Google provider', () => {
+      const gemini = getLlmModelDefinition('google', 'gemini-3.7-flash');
+
+      expect(gemini).toEqual({
+        contextWindow: 1_048_576,
+        id: 'gemini-3.7-flash',
+        label: 'Gemini 3.7 Flash',
+        maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.75, outputPerMTok: 3.75 },
+        supportsStreaming: true,
+        tagline: 'Fast multimodal reasoning for complex agentic workflows',
+        type: 'llm',
+        vision: 'supported',
+      });
+    });
   });
 
   describe('OpenRouter', () => {
@@ -107,6 +152,7 @@ describe('frontier model refresh (2026-07)', () => {
       const ids = llmIds('openrouter');
       expect(ids).toEqual(
         expect.arrayContaining([
+          'stealth/ox-alpha',
           'openai/gpt-5.6-sol',
           'openai/gpt-5.6-terra',
           'openai/gpt-5.6-luna',
@@ -120,7 +166,9 @@ describe('frontier model refresh (2026-07)', () => {
           'qwen/qwen3.7-plus',
           'qwen/qwen3.6-flash',
           'qwen/qwen3.8-27b',
+          'qwen/qwen3.8-flash',
           'qwen/qwen3-coder-next',
+          'meta/muse-spark-1.2',
           'meta/muse-spark-1.1',
           'moonshotai/kimi-k3',
           'inclusionai/ling-3.0-flash:free',
@@ -128,6 +176,7 @@ describe('frontier model refresh (2026-07)', () => {
           'poolside/laguna-xs-2.1',
           'qwen/qwen3.8-2.4t-a95b',
           'qwen/qwen3.8-max',
+          'nvidia/nemotron-3.5-lightning',
           'google/gemini-3.7-flash',
           'google/gemini-3.6-flash',
           'google/gemini-3.5-flash-lite',
@@ -135,6 +184,7 @@ describe('frontier model refresh (2026-07)', () => {
           'thinkingmachines/inkling',
           'kwaipilot/kat-coder-air-v2.5',
           'kwaipilot/kat-coder-pro-v2.5',
+          'x-ai/grok-4.6',
           'x-ai/grok-4.5',
           'moonshotai/kimi-k2.6',
           'moonshotai/kimi-k2.7-code',
@@ -157,6 +207,48 @@ describe('frontier model refresh (2026-07)', () => {
 
     it('defaults to openai/gpt-5.6-terra', () => {
       expect(resolveDefaultModel('openrouter')).toBe('openai/gpt-5.6-terra');
+    });
+
+    it('declares Ox Alpha from live OpenRouter route metadata', () => {
+      const oxAlpha = getLlmModelDefinition('openrouter', 'stealth/ox-alpha');
+
+      expect(oxAlpha).toEqual({
+        contextWindow: 1_048_576,
+        id: 'stealth/ox-alpha',
+        label: 'Ox Alpha (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 0, outputPerMTok: 0 },
+        reasoning: {
+          defaultEffort: 'max',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['max', 'high', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      });
+    });
+
+    it('declares GLM 5.3 from the frozen OpenRouter catalog facts', () => {
+      const glm53 = getLlmModelDefinition('openrouter', 'z-ai/glm-5.3');
+
+      expect(glm53).toEqual({
+        contextWindow: 1_048_576,
+        id: 'z-ai/glm-5.3',
+        label: 'GLM-5.3 (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 1.4, outputPerMTok: 4.4 },
+        reasoning: {
+          defaultEffort: 'max',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['max', 'high', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
+      });
     });
 
     it("declares the new models' authoritative OpenRouter reasoning options", () => {
@@ -268,6 +360,48 @@ describe('frontier model refresh (2026-07)', () => {
       });
     });
 
+    it('declares Grok 4.6 from vendor capabilities and gateway metadata', () => {
+      const grok = getLlmModelDefinition('openrouter', 'x-ai/grok-4.6');
+
+      expect(grok).toEqual({
+        contextWindow: 500_000,
+        id: 'x-ai/grok-4.6',
+        label: 'Grok 4.6 (OpenRouter)',
+        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
+        reasoning: {
+          defaultEffort: 'high',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'high', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      });
+      expect(grok.maxOutputTokens).toBeUndefined();
+    });
+
+    it('declares Muse Spark 1.2 from vendor capabilities and gateway metadata', () => {
+      const spark = getLlmModelDefinition('openrouter', 'meta/muse-spark-1.2');
+
+      expect(spark).toEqual({
+        contextWindow: 1_048_576,
+        id: 'meta/muse-spark-1.2',
+        label: 'Muse Spark 1.2 (OpenRouter)',
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 4.25 },
+        reasoning: {
+          defaultEffort: 'medium',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      });
+      expect(spark.maxOutputTokens).toBeUndefined();
+    });
+
     it('declares Qwen3.8 27B from vendor capabilities and gateway metadata', () => {
       const qwen = getLlmModelDefinition('openrouter', 'qwen/qwen3.8-27b');
 
@@ -286,6 +420,35 @@ describe('frontier model refresh (2026-07)', () => {
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
+      });
+    });
+
+    it('declares Qwen3.8 Flash with its fixed route budgets and optional reasoning ladder', () => {
+      const qwen = getLlmModelDefinition('openrouter', 'qwen/qwen3.8-flash');
+
+      expect(qwen).toEqual({
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.8-flash',
+        inputModalities: ['text', 'image', 'video'],
+        label: 'Qwen3.8 Flash (OpenRouter)',
+        maxOutputTokens: 131_072,
+        outputModalities: ['text'],
+        pricing: { inputPerMTok: 0.15, outputPerMTok: 0.47 },
+        reasoning: {
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['xhigh', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      });
+      expect(resolveReasoningControlsAvailability('openrouter', 'qwen/qwen3.8-flash')).toEqual({
+        available: true,
+        defaultEffort: 'xhigh',
+        efforts: ['xhigh', 'medium', 'low', 'none'],
+        family: 'openrouter',
       });
     });
 
@@ -328,6 +491,22 @@ describe('frontier model refresh (2026-07)', () => {
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
+      });
+    });
+
+    it('declares Nemotron 3.5 Lightning from vendor capabilities and gateway metadata', () => {
+      const nemotron = getLlmModelDefinition('openrouter', 'nvidia/nemotron-3.5-lightning');
+
+      expect(nemotron).toEqual({
+        contextWindow: 262_144,
+        id: 'nvidia/nemotron-3.5-lightning',
+        label: 'Nemotron 3.5 Lightning (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 0.08, outputPerMTok: 0.2 },
+        reasoning: { mandatory: false, supportedEfforts: ['none'] },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
       });
     });
   });

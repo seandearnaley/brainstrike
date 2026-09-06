@@ -122,11 +122,13 @@ export {
 export {
   type AssistantResilienceConfig,
   DEFAULT_APPROVAL_STALE_MS,
+  DEFAULT_STREAM_FIRST_OUTPUT_MS,
   DEFAULT_STREAM_INACTIVITY_MS,
   DEFAULT_TOOL_CALL_INPUT_MS,
   DEFAULT_TOOL_TIMEOUT_MS,
   resolveApprovalStaleMs,
   resolveAssistantResilienceConfig,
+  resolveStreamFirstOutputMs,
   resolveStreamInactivityMs,
   resolveToolCallInputMs,
   resolveToolTimeoutMs,
@@ -171,12 +173,9 @@ export {
   createMastraAgentRuntime,
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
+  type McpAppAdmissionObserver,
 } from './mastra/agent-runtime';
 export {
-  type DiscoveredSuspendedApproval,
-  type DiscoveredSuspendedPause,
-  type ListSuspendedRunsResult,
-  listSuspendedMastraRuns,
   streamMastraAgent,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
@@ -216,6 +215,16 @@ export {
   MastraAgentError,
   type MastraAgentErrorCode,
 } from './mastra/mastra-agent-error';
+export type {
+  McpAppOrdinaryToolCallOptions,
+  McpAppToolAdmissionCapability,
+  McpAppToolCallTelemetry,
+} from './mastra/mcp-app-tool-call';
+export {
+  createMcpAppOrdinaryToolCallPreparer,
+  McpAppToolNotAdmittedError,
+} from './mastra/mcp-app-tool-call';
+export { readMcpCreatedTaskResult } from './mastra/mcp-task-tool-result';
 export {
   type AssistantPermissionPolicyRequest,
   isAssistantPermissionPolicyRequest,
@@ -223,6 +232,7 @@ export {
 } from './mastra/permission-policy-request';
 export { resolveSelfApprovalDecision } from './mastra/permission-tool-gate';
 export { PERSONA_PIN_KEYLESS_PROVIDERS } from './mastra/persona-pinned-model';
+export { composeRuntimeToolMap } from './mastra/runtime-assembly/tool-pipeline';
 export {
   SHELL_OUTPUT_STREAM_PART_TYPE,
   type ShellOutputWriter,
@@ -234,6 +244,12 @@ export {
   MAX_DELEGATIONS_PER_RUN,
   shouldEnablePersonas,
 } from './mastra/subagent-delegation';
+export {
+  type DiscoveredSuspendedApproval,
+  type DiscoveredSuspendedPause,
+  type ListSuspendedRunsResult,
+  listSuspendedMastraRuns,
+} from './mastra/suspended-run-discovery';
 export type { ToolCallTelemetryMetadata } from './mastra/tool-call-telemetry';
 export {
   attachToolCallTelemetryMetadata,
@@ -277,8 +293,27 @@ export {
 } from './mastra/tool-projection-rewrite-processor';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
-export type { McpConfig, McpServer } from './mcp/config';
-export { McpConfigSchema, McpServerSchema, McpTransportEnum, parseMcpConfig } from './mcp/config';
+export type {
+  McpConfig,
+  McpConfigInput,
+  McpProtocol,
+  McpProtocolMigration,
+  McpServer,
+  McpServerInput,
+  ResolvedMcpConfig,
+  ResolvedMcpServer,
+} from './mcp/config';
+export {
+  isInteractiveMcpStdioServer,
+  McpConfigSchema,
+  McpProtocolEnum,
+  McpServerSchema,
+  McpTransportEnum,
+  parseMcpConfig,
+  parseMcpConfigWithMigrations,
+  resolveMcpStartupPolicy,
+  toMcpVersionNegotiation,
+} from './mcp/config';
 export {
   createDefaultToolPreferences,
   deleteToolPreferences,
@@ -286,6 +321,7 @@ export {
   loadToolPreferences,
   saveToolPreferences,
   type ToolPreferences,
+  type ToolPreferencesLoadResult,
 } from './mcp/tool-persistence';
 export {
   type McpToolMetadata,
@@ -333,6 +369,23 @@ export {
   providerRunErrorToEventMetadata,
   readProviderRunError,
 } from './provider-error-metadata';
+// BST-1353: the AWS credential chain is exported from the ROOT (Node)
+// entrypoint only — never from browser-safe/client/provider-metadata — so a
+// renderer import cannot reach `@aws-sdk/credential-providers`.
+export {
+  AWS_CHAIN_NO_CREDENTIALS_HINT,
+  type AwsChainFailure,
+  type AwsChainFailureKind,
+  classifyAwsChainFailure,
+  createAwsCredentialChain,
+  describeAwsChainFailure,
+  resolveAwsCredentialChain,
+  verifyAwsCredentialChain,
+} from './providers/aws-credential-chain';
+export type {
+  AwsCredentialIdentity,
+  AwsCredentialIdentityProvider,
+} from './providers/aws-credential-identity';
 export type {
   LocalLlmConfig,
   LocalLlmGenerationOptions,
@@ -359,6 +412,10 @@ export {
   providerSupportsNativeWebSearch,
   WEB_SEARCH_TOOL_ID,
 } from './providers/native-web-search';
+export {
+  apiKeyAuthInput,
+  type ProviderAuthInput,
+} from './providers/provider-auth-input';
 export {
   type ConcreteLanguageModel,
   createEmbeddingProvider,
@@ -619,6 +676,8 @@ export {
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
   ListWorkspaceContextInputSchema,
+  type ListWorktreesInput,
+  ListWorktreesInputSchema,
   type LspInspectInput,
   LspInspectInputSchema,
   type ManageCanvasInput,
@@ -627,8 +686,11 @@ export {
   ManageCommandSessionInputSchema,
   type ManageTaskListInput,
   ManageTaskListInputSchema,
+  type ManageWorktreeInput,
+  ManageWorktreeInputSchema,
   NATIVE_TOOL_INPUT_SCHEMAS,
   normalizeManageCanvasInput,
+  normalizeManageWorktreeInput,
   type QueryDiagnosticsInput,
   QueryDiagnosticsInputSchema,
   type QueryEmbeddingSpaceInput,

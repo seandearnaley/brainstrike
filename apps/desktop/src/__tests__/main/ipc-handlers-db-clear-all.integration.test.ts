@@ -63,7 +63,14 @@ const PRESENT_RELATIONS = [
   'brainstrike_tool_call_telemetry',
   'brainstrike_token_estimate_calibration',
   'brainstrike_diagnostic_events',
+  // Forge PR cache (migration 110, BST-1391).
+  'brainstrike_forge_prs',
+  // Managed-worktree ledger (migration 109, BST-1390).
+  'brainstrike_worktrees',
   'brainstrike_mind_ops',
+  // Principal-bound MCP Tasks handles and durable authority epochs (migration 114, BST-1562).
+  'brainstrike_mcp_tasks',
+  'brainstrike_mcp_task_authorities',
   'brainstrike_thread_message_index',
   'brainstrike_thread_search_state',
   'brainstrike_workspace_snapshots',

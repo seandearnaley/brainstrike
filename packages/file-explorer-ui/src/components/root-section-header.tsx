@@ -21,6 +21,13 @@ export interface RootSectionHeaderProps {
    */
   isMain?: boolean | undefined;
   /**
+   * Claims this row's `workspace-root` ContextTarget. Called synchronously in
+   * the `contextmenu` event (ui-conventions: targets are event-time
+   * snapshots). Absent ⇒ the row claims nothing and `ActionContextMenu`
+   * vetoes the open, so there is no menu at all.
+   */
+  onContextMenu?: ((event: React.MouseEvent<HTMLElement>) => void) | undefined;
+  /**
    * Called when the disconnect (X) button is clicked. The button is only
    * rendered when this is provided (phase 5 disconnect flow); confirmation is
    * the caller's responsibility (see DisconnectRootDialog).
@@ -55,6 +62,15 @@ export interface RootSectionHeaderProps {
    * same never-nest-interactive-elements reason as selectionControl.
    */
   statusControl?: React.ReactNode | undefined;
+  /**
+   * Forwarded ref to the toggle button, so a caller (the root context menu's
+   * `onCloseAutoFocus`) can restore focus to a REAL DOM node directly rather
+   * than a testid-keyed `querySelector`, which silently no-ops on a rename
+   * (NO SILENT FALLBACKS) and — because supplying `onCloseAutoFocus` at all
+   * suppresses Radix's own trigger-focus restoration — would leave focus on
+   * nothing with no failing test.
+   */
+  toggleButtonRef?: React.Ref<HTMLButtonElement> | undefined;
 }
 
 /**
@@ -76,12 +92,14 @@ export const RootSectionHeader = ({
   isCollapsed,
   isFocused,
   isMain,
+  onContextMenu,
   onDisconnect,
   onToggleCollapse,
   path,
   reserveFloatingActionsClearance,
   selectionControl,
   statusControl,
+  toggleButtonRef,
 }: RootSectionHeaderProps) => {
   const ChevronIcon = isCollapsed ? ChevronRight : ChevronDown;
   const chevronLabel = isCollapsed ? 'Expand section' : 'Collapse section';
@@ -89,12 +107,15 @@ export const RootSectionHeader = ({
   const name = <span className="truncate">{displayName}</span>;
 
   return (
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: layout row claims context-menu identity for its nested controls
+    // biome-ignore lint/a11y/noStaticElementInteractions: see above — context-menu ownership does not make the row a separate control
     <div
       className={`group relative flex w-full items-center hover:bg-muted/40 ${
         isFocused ? 'bg-muted/40' : ''
       } ${reserveFloatingActionsClearance ? 'pr-16' : ''}`}
       data-focused={isFocused ? 'true' : undefined}
       data-testid="root-section-header-row"
+      onContextMenu={onContextMenu}
     >
       {isFocused && (
         <span
@@ -113,6 +134,7 @@ export const RootSectionHeader = ({
         }`}
         data-testid="root-section-header"
         onClick={onToggleCollapse}
+        ref={toggleButtonRef}
         type="button"
       >
         <ChevronIcon aria-label={chevronLabel} className="h-3 w-3 shrink-0" />

@@ -43,6 +43,13 @@ const logger = createLogger('UseGitInventory');
 
 export interface UseGitInventoryOptions {
   /**
+   * Whether push invalidations may trigger inventory scans for this caller.
+   * Defaults to `true`. Setting this false pauses effect-driven loads without
+   * disabling an explicit {@link UseGitInventoryResult.refresh} call, and a
+   * later false -> true transition performs a fresh load.
+   */
+  readonly active?: boolean;
+  /**
    * Skip the mount-time load. OPT-IN, default `false` — the Changes surface
    * (`changes-surface.tsx`, the original caller) needs the inventory eagerly
    * for its source picker and its changed-files grouping, and must keep
@@ -82,12 +89,17 @@ export interface UseGitInventoryResult {
 }
 
 export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInventoryResult {
-  const { deferInitialLoad = false } = options;
+  const { active = true, deferInitialLoad = false } = options;
+  // A false -> true transition is a new inventory activation. Results from an
+  // older activation stay retained internally but are not exposed while the
+  // mandatory re-entry refresh is unresolved.
+  const activation = useMemo<object>(() => ({}), [active]);
   // Resolved ONCE per hook instance, not per render — see doc comment.
   const bridge = useMemo(() => resolveChangesBridge(), []);
   const [inventory, setInventory] = useState<GitInventory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [resolvedActivation, setResolvedActivation] = useState<object | null>(null);
   const generationRef = useRef(0);
   // True once ANY load has been requested (mount-time or a gesture's
   // `refresh()`). Gates push-driven refetches for deferred callers — see the
@@ -96,8 +108,10 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
 
   // EXTERNAL GIT ACTIVITY (BST-1161, spec §6): the inventory spans every
   // repository, so ANY accepted `changes:invalidated` event re-reads it. A
-  // `refresh` dependency (same discipline as `use-changeset.ts`'s inputs), so
-  // the mount effect below re-fires on each accepted event.
+  // direct mount-effect dependency (same discipline as `use-changeset.ts`'s
+  // inputs), so the effect below re-fires on each accepted event without
+  // making the imperative `refresh` callback depend on an otherwise-unused
+  // value.
   useChangesLiveRefreshSubscription();
   const anyInvalidationNonce = useChangesLiveRefreshStore((state) => state.anyInvalidationNonce);
 
@@ -107,6 +121,7 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
     const generation = generationRef.current;
     if (!bridge) {
       if (generation === generationRef.current) {
+        setResolvedActivation(activation);
         setInventory(null);
         setError(null);
         setLoading(false);
@@ -120,9 +135,11 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
         return;
       }
       if (result.ok) {
+        setResolvedActivation(activation);
         setInventory(result.value);
         setError(null);
       } else {
+        setResolvedActivation(activation);
         setInventory(null);
         setError(result.error);
       }
@@ -136,29 +153,35 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
       const message = caught instanceof Error ? caught.message : String(caught);
       logger.error('Failed to load git inventory', { error: caught });
       if (generation === generationRef.current) {
+        setResolvedActivation(activation);
         setInventory(null);
         setError(message);
         setLoading(false);
       }
     }
-  }, [anyInvalidationNonce, bridge]);
+  }, [activation, bridge]);
 
   useEffect(() => {
+    // A surface that has gone inactive must stop paying for full inventory
+    // scans even if it loaded earlier. Re-entry changes `active` back to true
+    // and this same effect performs a fresh load.
+    if (!active) {
+      return;
+    }
     // A deferred caller that has never requested a load stays unloaded even
     // across push invalidations — the deferral exists so merely mounting the
     // surface costs no repo scan, and a push event must not defeat it. Once a
-    // load HAS been requested, invalidations (which re-create `refresh` via
-    // `anyInvalidationNonce`) keep the loaded inventory fresh.
+    // load HAS been requested, invalidations keep the loaded inventory fresh.
     if (deferInitialLoad && !loadRequestedRef.current) {
       return;
     }
     void refresh();
-  }, [deferInitialLoad, refresh]);
+  }, [active, anyInvalidationNonce, deferInitialLoad, refresh]);
 
   return {
     available: bridge !== null,
-    error,
-    inventory,
+    error: resolvedActivation === activation ? error : null,
+    inventory: resolvedActivation === activation ? inventory : null,
     loading,
     refresh,
   };

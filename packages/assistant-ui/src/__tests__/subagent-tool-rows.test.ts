@@ -3,6 +3,7 @@ import {
   mergeSubagentToolRows,
   readLiveSubagentToolRows,
   readSubAgentToolRows,
+  readSubagentDelegationOutcome,
   serializeLiveSubagentToolRows,
 } from '../subagent-tool-rows';
 
@@ -32,6 +33,83 @@ function liveEventPart(args: {
     type: 'data',
   };
 }
+
+function terminalEventPart(args: {
+  kind: string;
+  outcome?: string;
+  parentToolCallId: string;
+  status: string;
+}) {
+  return {
+    data: {
+      id: `${args.kind}-${args.parentToolCallId}`,
+      kind: args.kind,
+      label: args.kind,
+      metadata: {
+        parentToolCallId: args.parentToolCallId,
+        personaId: 'explore',
+        ...(args.outcome ? { outcome: args.outcome } : {}),
+      },
+      status: args.status,
+      timestamp: '2026-07-10T00:00:00.000Z',
+    },
+    name: RUN_EVENT_NAME,
+    type: 'data',
+  };
+}
+
+describe('readSubagentDelegationOutcome', () => {
+  // BST-1410. A child that exhausts its step cap mid-tool-loop still produces a
+  // SUCCESSFUL delegation tool call, so `status.type` cannot distinguish it. The
+  // discriminator is the terminal run event's bounded `outcome` metadata — never
+  // the human label, which a hard child failure shares.
+  it("reports 'no-answer' for this delegation's terminal event", () => {
+    const parts = [
+      terminalEventPart({
+        kind: 'subagent.failed',
+        outcome: 'no-answer',
+        parentToolCallId: 'delegation-1',
+        status: 'failed',
+      }),
+    ];
+    expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBe('no-answer');
+  });
+
+  it('ignores a terminal event belonging to a DIFFERENT concurrent delegation', () => {
+    // MAX_CONCURRENT_DELEGATIONS is 2, so two delegations are open at once.
+    const parts = [
+      terminalEventPart({
+        kind: 'subagent.failed',
+        outcome: 'no-answer',
+        parentToolCallId: 'delegation-2',
+        status: 'failed',
+      }),
+    ];
+    expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBeUndefined();
+  });
+
+  it('reports nothing for a hard failure or a cancellation (no outcome marker)', () => {
+    const parts = [
+      terminalEventPart({
+        kind: 'subagent.failed',
+        parentToolCallId: 'delegation-1',
+        status: 'cancelled',
+      }),
+    ];
+    expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBeUndefined();
+  });
+
+  it('reports nothing for a delegation that answered', () => {
+    const parts = [
+      terminalEventPart({
+        kind: 'subagent.finished',
+        parentToolCallId: 'delegation-1',
+        status: 'completed',
+      }),
+    ];
+    expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBeUndefined();
+  });
+});
 
 describe('readSubAgentToolRows (persisted)', () => {
   it('maps subAgentToolResults to success/error rows keyed by child toolCallId', () => {
@@ -202,5 +280,50 @@ describe('mergeSubagentToolRows', () => {
       [{ argSummary: undefined, key: 'child-1', status: 'running' as const, toolName: 'grep' }]
     );
     expect(merged).toHaveLength(1);
+  });
+});
+
+describe('readLiveSubagentToolRowsFromMessages', () => {
+  // Field failure (2026-08-24): on reload, hydration weaves a run's
+  // subagent.tool.* events into ONE assistant group, and an approval-resume
+  // turn splits into sibling groups — so the events can land on a DIFFERENT
+  // message than the delegation card. The card read only its own message's
+  // parts and showed "0 tool calls" for a child that did four minutes of
+  // work. Events are parentToolCallId-scoped by design, so a thread-wide read
+  // is safe and reload-robust.
+  it('finds rows woven into a SIBLING message', async () => {
+    const { readLiveSubagentToolRowsFromMessages } = await import('../subagent-tool-rows');
+    const messages = [
+      { parts: [{ text: 'card lives here, events do not', type: 'text' }] },
+      {
+        parts: [
+          liveEventPart({
+            childToolName: 'readWorkspaceFile',
+            kind: 'subagent.tool.completed',
+            parentToolCallId: 'parent-1',
+            toolCallId: 'child-1',
+          }),
+        ],
+      },
+    ];
+    const rows = readLiveSubagentToolRowsFromMessages(messages, 'parent-1');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: 'success', toolName: 'readWorkspaceFile' });
+  });
+
+  it('ignores rows belonging to a different delegation', async () => {
+    const { readLiveSubagentToolRowsFromMessages } = await import('../subagent-tool-rows');
+    const messages = [
+      {
+        parts: [
+          liveEventPart({
+            kind: 'subagent.tool.completed',
+            parentToolCallId: 'someone-else',
+            toolCallId: 'child-9',
+          }),
+        ],
+      },
+    ];
+    expect(readLiveSubagentToolRowsFromMessages(messages, 'parent-1')).toHaveLength(0);
   });
 });

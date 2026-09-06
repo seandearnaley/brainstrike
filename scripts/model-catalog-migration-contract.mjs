@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
+import { parseTypeScriptSource } from './provider-registry-ast-helpers.mjs';
 
 const MIGRATION_EXPORT_PATTERN =
   /export\s+const\s+(migration\d{3}[A-Za-z0-9_]*)\s*:\s*Migration\s*=/;
@@ -23,7 +24,36 @@ const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set(['openai', 'anthropic', 'googl
 // catalog refresh. Earlier migrations are historical input used to reconstruct
 // the catalog snapshot; future deletions from this version onward are enforced.
 const REMOVED_MODEL_REMAP_CONTRACT_START_VERSION = 33;
-const STATIC_CATALOG_STALE_ROW_ALLOWLIST = new Set([]);
+// Module-level MUTABLE state, and `gen-model-catalog-migration.test.mjs` adds
+// to it under try/finally because an empty allowlist has no other way to
+// exercise its own wiring. The BST-1650 follow-up weighed that against making
+// the residue predicate injectable into `planModelCatalogMigration`, and the
+// try/finally WINS — do not "fix" it into a parameter:
+//
+//   The property under test is that the generator and the contract checker
+//   consult the SAME allowlist. A planner that accepted its own residue
+//   predicate could be proved green against a rule the checker never sees,
+//   which is the exact divergence `isHistoricalCatalogResidue` was extracted to
+//   make impossible and that `docs/agents/database.md` states as a contract. A
+//   seam that lets a test fake the coupling it is asserting is worse than the
+//   mutation it replaces — and it would add a parameter no production call site
+//   ever passes.
+//
+// `node --test` runs a file's tests sequentially, and the finally restores the
+// Set, so the blast radius is the one test that opts in.
+export const STATIC_CATALOG_STALE_ROW_ALLOWLIST = new Set([]);
+// Providers whose final-snapshot rows are RECONSTRUCTION RESIDUE rather than a
+// pending catalog deletion. Migration 021 renamed `transformers` to `local`
+// with `UPDATE models SET provider_id = ...`, and the operation extractor
+// models only INSERT/DELETE, so every pre-021 row survives in the snapshot
+// under a provider id no catalog has declared since.
+//
+// This list is CLOSED. Any OTHER provider vanishing from the catalog is a real
+// deletion that owes a catalog migration plus MODEL_ID_MIGRATIONS /
+// MEMORY_MODEL_TARGET_MIGRATIONS decisions (BST-565); exempting it because its
+// id is simply absent would leave stale DB rows behind while persisted user
+// selections dangle.
+export const RETIRED_PROVIDER_RESIDUE_IDS = new Set(['transformers']);
 
 function extractMigrationExportName(source) {
   return source.match(MIGRATION_EXPORT_PATTERN)?.[1] ?? null;
@@ -38,24 +68,11 @@ function extractMigrationArrayNames(source) {
   return new Set(match[1].match(/\bmigration\d{3}[A-Za-z0-9_]*\b/g) ?? []);
 }
 
-function extractCustomMigrationNames(source) {
-  const names = new Set();
-  const pattern = /customMigration\(\s*['"][^'"]+['"]\s*,\s*(migration\d{3}[A-Za-z0-9_]*)/g;
-  for (const match of source.matchAll(pattern)) {
-    names.add(match[1]);
-  }
-  return names;
-}
-
 function getPropertyNameText(name) {
   if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
     return name.text;
   }
   return null;
-}
-
-function parseTypeScriptSource(source, fileName) {
-  return ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 }
 
 function findConstObjectLiteral(source, constName, fileName) {
@@ -94,30 +111,6 @@ function unwrapExpression(node) {
     return unwrapExpression(node.expression);
   }
   return node;
-}
-
-function stringLiteralOrConstValue(node, constants) {
-  const value = unwrapExpression(node);
-  if (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) {
-    return value.text;
-  }
-  if (ts.isIdentifier(value)) {
-    return constants.get(value.text) ?? null;
-  }
-  return null;
-}
-
-function getObjectProperty(objectLiteral, propertyName) {
-  for (const property of objectLiteral.properties) {
-    if (!ts.isPropertyAssignment(property)) {
-      continue;
-    }
-
-    if (getPropertyNameText(property.name) === propertyName) {
-      return property.initializer;
-    }
-  }
-  return null;
 }
 
 function extractStringRecord(source, constName, fileName) {
@@ -205,139 +198,160 @@ function extractMigrationUpSql(file) {
   return upSql;
 }
 
-function extractStringConstExports(source, fileName) {
-  const sourceFile = parseTypeScriptSource(source, fileName);
-  const constants = new Map();
+export const CATALOG_FILE = 'packages/assistant-contract/src/provider-catalog.json';
 
-  for (const [name, value] of extractStringConstDeclarationsFromSourceFile(sourceFile, {
-    exportedOnly: true,
-  })) {
-    constants.set(name, value);
+/**
+ * `provider-catalog.json` already declares every object's keys in ascending
+ * order, at every depth, with no exception in the whole file. That property is
+ * what makes BST-1650's promise hold — catalog edits read as data diffs — and
+ * it is the file the team edits weekly: two model rows line up field for
+ * field, and a field added by one author cannot land in a different slot than
+ * the same field on the row below.
+ *
+ * NOTHING enforced it. `biome.json` re-includes this one path from the blanket
+ * `!**\/*.json` so the file is FORMATTED, but Biome's `useSortedKeys` assist
+ * does not reach JSON object keys — unsorting a row and running
+ * `biome check packages/assistant-contract/src/provider-catalog.json` reports
+ * nothing. So the check lives here, in the contract CI already runs as
+ * `pnpm lint:model-catalog-migrations`.
+ *
+ * Two deliberate limits:
+ *
+ * - ROW order is NOT checked. The catalog lists `gpt-5.6-sol` before
+ *   `gpt-5.6-terra` and `claude-opus-5` before `claude-sonnet-5`: curated
+ *   editorial order that no comparator derives. Inventing a row rule would
+ *   churn the file this check exists to keep quiet.
+ * - Nothing is auto-fixed. A silent reorder of a data file is an invisible
+ *   change to the very rows a reviewer is reading, so a wrong order FAILS and
+ *   names the entry to reorder.
+ */
+function compareCatalogKeys(left, right) {
+  // Code-unit order, which is exactly what `Object.keys(...).sort()` yields, so
+  // the rule reads the same on every machine. `localeCompare` would make the
+  // check locale-dependent and would not agree with the file about `_note`.
+  if (left === right) {
+    return 0;
   }
-
-  return constants;
+  return left < right ? -1 : 1;
 }
 
-function extractStringConstDeclarationsFromSourceFile(sourceFile, options = {}) {
-  const exportedOnly = options.exportedOnly ?? false;
-  const constants = new Map();
+function catalogArraySegment(entry, index) {
+  const id = isPlainObject(entry) && typeof entry.id === 'string' ? entry.id : null;
+  return id ?? `[${index}]`;
+}
 
-  function visit(node) {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer &&
-      node.parent &&
-      ts.isVariableDeclarationList(node.parent) &&
-      node.parent.parent &&
-      ts.isVariableStatement(node.parent.parent)
-    ) {
-      const value = stringLiteralInitializerValue(node.initializer);
-      const exported = node.parent.parent.modifiers?.some(
-        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
-      );
-      if ((!exportedOnly || exported) && value !== null) {
-        constants.set(node.name.text, value);
+function describeCatalogPath(path) {
+  return path.length > 0 ? path.join('.') : 'the provider catalog root';
+}
+
+function visitCatalogObjects(value, path, visit) {
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => {
+      visitCatalogObjects(entry, [...path, catalogArraySegment(entry, index)], visit);
+    });
+    return;
+  }
+
+  if (!isPlainObject(value)) {
+    return;
+  }
+
+  visit(value, path);
+  for (const [key, nested] of Object.entries(value)) {
+    visitCatalogObjects(nested, [...path, key], visit);
+  }
+}
+
+/**
+ * Report the FIRST out-of-order key of each catalog object. One failure per
+ * object, not one per disturbed pair: a reviewer needs the key to move, and a
+ * shuffled row would otherwise bury the other failures under its own noise.
+ */
+export function findCatalogKeyOrderFailures(catalog) {
+  const failures = [];
+
+  visitCatalogObjects(catalog, [], (entry, path) => {
+    const keys = Object.keys(entry);
+    for (let index = 1; index < keys.length; index += 1) {
+      const previous = keys[index - 1];
+      const current = keys[index];
+      if (compareCatalogKeys(previous, current) <= 0) {
+        continue;
       }
-    }
 
-    ts.forEachChild(node, visit);
-  }
-
-  visit(sourceFile);
-  return constants;
-}
-
-function extractProviderRegistryModels(source, constants = new Map()) {
-  const sourceFile = parseTypeScriptSource(source, 'provider-registry.ts');
-  const localConstants = extractStringConstDeclarationsFromSourceFile(sourceFile);
-  const resolvedConstants = new Map([...constants, ...localConstants]);
-  let providerDefinitions = null;
-
-  function visit(node) {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === 'PROVIDER_DEFINITIONS' &&
-      node.initializer
-    ) {
-      providerDefinitions = unwrapExpression(node.initializer);
+      failures.push({
+        file: CATALOG_FILE,
+        message: `Catalog entry ${describeCatalogPath(path)} declares "${current}" after "${previous}"; provider-catalog.json object keys are alphabetical at every depth so catalog edits stay reviewable data diffs. Reorder this entry's keys.`,
+      });
       return;
     }
+  });
 
-    ts.forEachChild(node, visit);
-  }
+  return failures;
+}
 
-  visit(sourceFile);
-
+/**
+ * Read the static catalog rows from `provider-catalog.json` (BST-1650). This
+ * used to walk the TypeScript AST of `provider-registry.ts` and resolve
+ * identifier-valued fields against exported string constants; the catalog is
+ * data now, so the walk is a plain traversal and the "unresolvable expression"
+ * failure class no longer exists.
+ *
+ * Structural problems still fail CLOSED — a catalog this function cannot read
+ * must never be reported as an empty catalog, which would silently pass every
+ * downstream comparison.
+ */
+export function readProviderCatalogModels(catalog) {
   const failures = [];
-  const providerIds = new Set();
   const rows = [];
   const claimedModelKeys = new Set();
 
-  if (!(providerDefinitions && ts.isArrayLiteralExpression(providerDefinitions))) {
+  if (!Array.isArray(catalog)) {
     failures.push({
-      file: 'packages/assistant-contract/src/provider-registry.ts',
-      message:
-        'PROVIDER_DEFINITIONS must be a static array literal for model catalog contract validation.',
+      file: CATALOG_FILE,
+      message: 'The provider catalog must be a JSON array of provider objects.',
     });
-    return { claimedModelKeys, failures, providerIds, rows };
+    return { claimedModelKeys, failures, rows };
   }
 
-  for (const providerNode of providerDefinitions.elements) {
-    const provider = unwrapExpression(providerNode);
-    if (!ts.isObjectLiteralExpression(provider)) {
+  for (const provider of catalog) {
+    if (!isPlainObject(provider)) {
+      failures.push({ file: CATALOG_FILE, message: 'Provider catalog entries must be objects.' });
+      continue;
+    }
+
+    const providerId = provider.id;
+    if (typeof providerId !== 'string') {
       failures.push({
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message:
-          'PROVIDER_DEFINITIONS entries must be object literals for model catalog validation.',
+        file: CATALOG_FILE,
+        message: 'Provider catalog entry is missing a string id.',
       });
       continue;
     }
 
-    const providerIdNode = getObjectProperty(provider, 'id');
-    const providerId = providerIdNode
-      ? stringLiteralOrConstValue(providerIdNode, resolvedConstants)
-      : null;
-    if (!providerId) {
+    if (!Array.isArray(provider.models)) {
       failures.push({
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message: 'Static provider-registry provider has an unresolvable id expression.',
-      });
-      continue;
-    }
-    providerIds.add(providerId);
-
-    const modelsInitializer = getObjectProperty(provider, 'models');
-    const modelsNode = modelsInitializer ? unwrapExpression(modelsInitializer) : null;
-    if (!(modelsNode && ts.isArrayLiteralExpression(modelsNode))) {
-      failures.push({
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message: `Static provider-registry provider ${providerId} models must be a static array literal.`,
+        file: CATALOG_FILE,
+        message: `Provider ${providerId} must declare a models array.`,
       });
       continue;
     }
 
-    for (const modelNode of modelsNode.elements) {
-      const model = unwrapExpression(modelNode);
-      if (!ts.isObjectLiteralExpression(model)) {
+    for (const model of provider.models) {
+      if (!isPlainObject(model)) {
         failures.push({
-          file: 'packages/assistant-contract/src/provider-registry.ts',
-          message: `Static provider-registry model for ${providerId} must be an object literal.`,
+          file: CATALOG_FILE,
+          message: `Model entries for ${providerId} must be objects.`,
         });
         continue;
       }
 
-      const modelIdNode = getObjectProperty(model, 'id');
-      const modelTypeNode = getObjectProperty(model, 'type');
-      const id = modelIdNode ? stringLiteralOrConstValue(modelIdNode, resolvedConstants) : null;
-      const type = modelTypeNode
-        ? stringLiteralOrConstValue(modelTypeNode, resolvedConstants)
-        : null;
+      const id = typeof model.id === 'string' ? model.id : null;
+      const type = typeof model.type === 'string' ? model.type : null;
       if (!id) {
         failures.push({
-          file: 'packages/assistant-contract/src/provider-registry.ts',
-          message: `Static provider-registry model for ${providerId} has an unresolvable id expression.`,
+          file: CATALOG_FILE,
+          message: `A model entry for ${providerId} is missing a string id.`,
         });
       }
       if (id) {
@@ -345,10 +359,10 @@ function extractProviderRegistryModels(source, constants = new Map()) {
       }
       if (!type) {
         failures.push({
-          file: 'packages/assistant-contract/src/provider-registry.ts',
+          file: CATALOG_FILE,
           message: id
-            ? `Static provider-registry model ${modelKey({ id, providerId })} has an unresolvable type expression.`
-            : `Static provider-registry model for ${providerId} has an unresolvable type expression.`,
+            ? `Catalog model ${modelKey({ id, providerId })} is missing a string type.`
+            : `A model entry for ${providerId} is missing a string type.`,
         });
       }
       if (id && type) {
@@ -357,10 +371,14 @@ function extractProviderRegistryModels(source, constants = new Map()) {
     }
   }
 
-  return { claimedModelKeys, failures, providerIds, rows };
+  return { claimedModelKeys, failures, rows };
 }
 
-function summarizeMigrationFile(file) {
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function summarizeMigrationFile(file) {
   const exportName = extractMigrationExportName(file.source);
   const upSql = extractMigrationUpSql(file);
   return {
@@ -614,6 +632,22 @@ function modelKey(row) {
   return `${row.providerId}::${row.id}`;
 }
 
+/**
+ * Is this final-snapshot row historical residue rather than a catalog row
+ * somebody deleted?
+ *
+ * `scripts/gen-model-catalog-migration.mjs` imports this so the checker and the
+ * generator can never disagree about which rows are residue: a row one of them
+ * waves through and the other treats as a pending deletion would either block
+ * generation permanently or hide a removal the checker is meant to catch.
+ */
+export function isHistoricalCatalogResidue(row) {
+  return (
+    RETIRED_PROVIDER_RESIDUE_IDS.has(row.providerId) ||
+    STATIC_CATALOG_STALE_ROW_ALLOWLIST.has(modelKey(row))
+  );
+}
+
 function memoryModelTarget(row) {
   if (row.providerId === 'openrouter') {
     return `openrouter/${row.id}`;
@@ -677,7 +711,7 @@ function collectDeletedRowsRequiringRemaps(migrationSummaries) {
   return deletedRows.filter((row) => !rowRemainsInFinalSnapshot(row, snapshot));
 }
 
-function buildFinalCatalogSnapshot(migrationSummaries) {
+export function buildFinalCatalogSnapshot(migrationSummaries) {
   const snapshot = new Map();
 
   for (const migration of migrationSummaries) {
@@ -710,13 +744,12 @@ function buildFinalCatalogSnapshot(migrationSummaries) {
 }
 
 function findStaticProviderRegistryFailures(input, migrationSummaries) {
-  if (!input.providerRegistrySource) {
+  if (input.providerCatalog === undefined) {
     return [];
   }
 
-  const constants = new Map(Object.entries(input.providerRegistryConstants ?? {}));
   const finalCatalog = buildFinalCatalogSnapshot(migrationSummaries);
-  const registry = extractProviderRegistryModels(input.providerRegistrySource, constants);
+  const registry = readProviderCatalogModels(input.providerCatalog);
   const failures = [...registry.failures];
 
   for (const row of registry.rows) {
@@ -727,30 +760,29 @@ function findStaticProviderRegistryFailures(input, migrationSummaries) {
 
     if (catalogRow?.providerId === row.providerId) {
       failures.push({
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message: `Static provider-registry model ${modelKey(row)} has type ${row.type}, but the final DB model catalog has type ${catalogRow.type ?? 'unknown'}.`,
+        file: CATALOG_FILE,
+        message: `Static catalog model ${modelKey(row)} has type ${row.type}, but the final DB model catalog has type ${catalogRow.type ?? 'unknown'}.`,
       });
     } else {
       failures.push({
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message: `Static provider-registry model ${modelKey(row)} is missing from the final DB model catalog.`,
+        file: CATALOG_FILE,
+        message: `Static catalog model ${modelKey(row)} is missing from the final DB model catalog.`,
       });
     }
   }
 
   for (const row of finalCatalog.values()) {
     const key = modelKey(row);
-    if (
-      !registry.providerIds.has(row.providerId) ||
-      registry.claimedModelKeys.has(key) ||
-      STATIC_CATALOG_STALE_ROW_ALLOWLIST.has(key)
-    ) {
+    // A provider missing from the catalog entirely is NOT a reason to skip:
+    // that is the whole-provider deletion case, and it owes the same migration
+    // and remap decisions as a single removed row.
+    if (registry.claimedModelKeys.has(key) || isHistoricalCatalogResidue(row)) {
       continue;
     }
 
     failures.push({
-      file: 'packages/assistant-contract/src/provider-registry.ts',
-      message: `Final DB model catalog row ${key} is missing from provider-registry.ts; delete it in a catalog migration or add it to STATIC_CATALOG_STALE_ROW_ALLOWLIST.`,
+      file: CATALOG_FILE,
+      message: `Final DB model catalog row ${key} is missing from ${CATALOG_FILE}; delete it in a catalog migration or add it to STATIC_CATALOG_STALE_ROW_ALLOWLIST.`,
     });
   }
 
@@ -806,7 +838,6 @@ function findRemovedAssistantModelRemapFailures(input, migrationSummaries) {
 
 export function analyzeModelCatalogMigrationContract(input) {
   const migrationNames = extractMigrationArrayNames(input.migrationIndexSource);
-  const customMigrationNames = extractCustomMigrationNames(input.drizzleMigrateSource);
   const migrationSummaries = input.migrationFiles.map(summarizeMigrationFile);
   const migrationByName = new Map(
     migrationSummaries
@@ -834,41 +865,25 @@ export function analyzeModelCatalogMigrationContract(input) {
         message: `Catalog-mutating migration ${migration.exportName} is missing from packages/db/src/migrations/index.ts migrations.`,
       });
     }
-
-    if (!customMigrationNames.has(migration.exportName)) {
-      failures.push({
-        file: migration.file,
-        message: `Catalog-mutating migration ${migration.exportName} is missing from packages/db/src/drizzle/migrate.ts customMigrations.`,
-      });
-    }
-  }
-
-  for (const customMigrationName of customMigrationNames) {
-    if (migrationNames.has(customMigrationName)) {
-      continue;
-    }
-
-    failures.push({
-      file: 'packages/db/src/drizzle/migrate.ts',
-      message: `Custom migration ${customMigrationName} is missing from packages/db/src/migrations/index.ts migrations.`,
-    });
   }
 
   failures.push(...findRemovedAssistantModelRemapFailures(input, migrationSummaries));
   failures.push(...findStaticProviderRegistryFailures(input, migrationSummaries));
+  if (input.providerCatalog !== undefined) {
+    failures.push(...findCatalogKeyOrderFailures(input.providerCatalog));
+  }
 
   return {
     catalogMutatingMigrations: migrationSummaries
       .filter((migration) => migration.catalogMutating)
       .map((migration) => migration.exportName ?? migration.file),
-    customMigrations: [...customMigrationNames],
     failures,
     knownMigrationCount: migrationByName.size,
     migrations: [...migrationNames],
   };
 }
 
-async function readMigrationFiles(rootDir) {
+export async function readMigrationFiles(rootDir) {
   const migrationsDir = path.join(rootDir, 'packages/db/src/migrations');
   const entries = await readdir(migrationsDir);
   const migrationFiles = entries.filter((entry) => /^\d{3}-.*\.ts$/.test(entry)).sort();
@@ -888,15 +903,12 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
   const [
     migrationFiles,
     migrationIndexSource,
-    drizzleMigrateSource,
     assistantPreferencesSource,
     memoryPreferencesSource,
-    providerRegistrySource,
-    localLlmSource,
+    providerCatalogSource,
   ] = await Promise.all([
     readMigrationFiles(rootDir),
     readFile(path.join(rootDir, 'packages/db/src/migrations/index.ts'), 'utf8'),
-    readFile(path.join(rootDir, 'packages/db/src/drizzle/migrate.ts'), 'utf8'),
     readFile(
       path.join(rootDir, 'packages/app-state/src/stores/assistant-model-id-migrations.ts'),
       'utf8'
@@ -905,20 +917,15 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
       path.join(rootDir, 'packages/app-state/src/stores/assistant-memory-preferences-store.ts'),
       'utf8'
     ),
-    readFile(path.join(rootDir, 'packages/assistant-contract/src/provider-registry.ts'), 'utf8'),
-    readFile(path.join(rootDir, 'packages/assistant-contract/src/local-llm.ts'), 'utf8'),
+    readFile(path.join(rootDir, CATALOG_FILE), 'utf8'),
   ]);
 
   return analyzeModelCatalogMigrationContract({
     assistantPreferencesSource,
-    drizzleMigrateSource,
     memoryPreferencesSource,
     migrationFiles,
     migrationIndexSource,
-    providerRegistryConstants: Object.fromEntries(
-      extractStringConstExports(localLlmSource, 'packages/assistant-contract/src/local-llm.ts')
-    ),
-    providerRegistrySource,
+    providerCatalog: JSON.parse(providerCatalogSource),
   });
 }
 
@@ -927,7 +934,7 @@ async function main() {
   if (result.failures.length > 0) {
     console.error('Model catalog migration contract failed.');
     console.error(
-      'Catalog row migrations must be registered in both migration runners, and removed assistant model IDs must have preference remap decisions.'
+      'Catalog row migrations must be registered in the numbered manifest with a ledgerKey, removed assistant model IDs must have preference remap decisions, and provider-catalog.json must keep its object keys alphabetical.'
     );
     for (const failure of result.failures) {
       console.error(`- ${failure.file}: ${failure.message}`);

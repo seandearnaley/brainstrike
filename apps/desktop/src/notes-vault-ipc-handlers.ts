@@ -60,6 +60,11 @@ import {
   writeContainedFileBytes,
 } from './secure-file-write';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 const logger = createLogger('NotesVaultIpc');
 
 /** Directory name of the app-managed default vault (under the OS documents dir). */
@@ -1060,63 +1065,79 @@ export function resetNotesVaultIpcStateForTest(): void {
 export function registerNotesVaultIpcHandlers(handlers: NotesVaultIpcHandlers): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke('notesVault', DESKTOP_IPC_CHANNELS.notesVault.ensureDefaultVault, () =>
-    handlers.ensureDefaultVault()
+  registry.registerUnauthenticatedInvoke(
+    'notesVault',
+    DESKTOP_IPC_CHANNELS.notesVault.ensureDefaultVault,
+    UNAUTHENTICATED_SENDER_POLICY,
+    () => handlers.ensureDefaultVault()
   );
-  registry.registerInvoke('notesVault', DESKTOP_IPC_CHANNELS.notesVault.pickDirectory, () =>
-    handlers.pickDirectory()
+  registry.registerUnauthenticatedInvoke(
+    'notesVault',
+    DESKTOP_IPC_CHANNELS.notesVault.pickDirectory,
+    UNAUTHENTICATED_SENDER_POLICY,
+    () => handlers.pickDirectory()
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'notesVault',
     DESKTOP_IPC_CHANNELS.notesVault.registerRoot,
+    UNAUTHENTICATED_SENDER_POLICY,
     (_event, requestedPath: unknown) => handlers.registerRoot(requestedPath)
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'notesVault',
     DESKTOP_IPC_CHANNELS.notesVault.listDirectory,
+    UNAUTHENTICATED_SENDER_POLICY,
     (_event, requestedPath: unknown) => handlers.listDirectory(requestedPath)
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'notesVault',
     DESKTOP_IPC_CHANNELS.notesVault.statEntry,
+    UNAUTHENTICATED_SENDER_POLICY,
     (_event, requestedPath: unknown) => handlers.statEntry(requestedPath)
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'notesVault',
     DESKTOP_IPC_CHANNELS.notesVault.readFile,
+    UNAUTHENTICATED_SENDER_POLICY,
     (_event, requestedPath: unknown) => handlers.readFile(requestedPath)
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'notesVault',
     DESKTOP_IPC_CHANNELS.notesVault.writeFile,
+    UNAUTHENTICATED_SENDER_POLICY,
     (_event, requestedPath: unknown, content: unknown) => handlers.writeFile(requestedPath, content)
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'notesVault',
     DESKTOP_IPC_CHANNELS.notesVault.createDirectory,
+    UNAUTHENTICATED_SENDER_POLICY,
     (_event, requestedPath: unknown) => handlers.createDirectory(requestedPath)
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'notesVault',
     DESKTOP_IPC_CHANNELS.notesVault.deleteEntry,
+    UNAUTHENTICATED_SENDER_POLICY,
     (_event, requestedPath: unknown, rawOptions: unknown) =>
       handlers.deleteEntry(requestedPath, rawOptions)
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'notesVault',
     DESKTOP_IPC_CHANNELS.notesVault.rename,
+    UNAUTHENTICATED_SENDER_POLICY,
     (_event, fromRequested: unknown, toRequested: unknown) =>
       handlers.rename(fromRequested, toRequested)
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'notesVault',
     DESKTOP_IPC_CHANNELS.notesVault.watch,
+    UNAUTHENTICATED_SENDER_POLICY,
     (event: IpcMainInvokeEvent, requestedPath: unknown) =>
       handlers.watch(event.sender, requestedPath)
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'notesVault',
     DESKTOP_IPC_CHANNELS.notesVault.unwatch,
+    UNAUTHENTICATED_SENDER_POLICY,
     (event: IpcMainInvokeEvent, rawWatchId: unknown) =>
       handlers.unwatch(rawWatchId, event.sender.id)
   );

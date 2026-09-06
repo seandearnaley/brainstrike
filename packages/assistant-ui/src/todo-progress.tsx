@@ -11,14 +11,19 @@ import {
   type AssistantTaskStatus,
   type ManageTaskListResult,
   NATIVE_TOOL_ID,
+  readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
 import { cn } from '@brainstrike/ui';
+import { use } from 'react';
+import { ActiveThreadKeyContext } from './active-thread-key-context';
+import { McpTaskToolResult } from './mcp-task-tool-result';
 import {
   isSubagentDelegationToolName,
   SUBAGENT_TOOL_CARDS,
   SubagentDelegationCard,
 } from './subagent-tool-cards';
 import { ToolFallback } from './tool-fallback';
+import { useToolResultRenderers } from './use-tool-result-renderers';
 
 const STATUS_GLYPH: Record<AssistantTaskStatus, string> = {
   completed: '✓',
@@ -137,8 +142,30 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({ args, argsText,
  * SubagentExecutionCard instead; everything else keeps the shared ToolFallback.
  */
 const ToolFallbackWithSubagents: typeof ToolFallback = (props) => {
+  // Host-registered result renderers (BST-1572): the adapter package that owns
+  // a surface supplies the descriptor, so nothing host-specific is imported
+  // here. Claimed by result SHAPE, never by a `by_name` entry.
+  const renderers = useToolResultRenderers();
+  // The persisted thread owning this part; a host renderer acting on the
+  // part's behalf (MCP Apps) correlates admission through it.
+  const threadId = use(ActiveThreadKeyContext);
   if (isSubagentDelegationToolName(props.toolName)) {
     return <SubagentDelegationCard {...props} />;
+  }
+  const renderer =
+    props.result === undefined
+      ? undefined
+      : renderers.find((candidate) => candidate.matches(props.result));
+  if (renderer) {
+    return <renderer.Component {...props} threadId={threadId} />;
+  }
+  // BST-1566: a task-producing MCP tool persists the `{ kind: 'mcp-task' }`
+  // marker as its raw result. Tool names are server-defined, so the branch is
+  // on the result shape (exact-match reader), never a `by_name` entry.
+  const mcpTask =
+    props.result === undefined ? undefined : readMcpTaskToolInvocationResult(props.result);
+  if (mcpTask) {
+    return <McpTaskToolResult snapshot={mcpTask} />;
   }
   return <ToolFallback {...props} />;
 };

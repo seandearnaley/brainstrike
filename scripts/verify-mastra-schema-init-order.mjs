@@ -60,11 +60,10 @@
 // protected the file that TRIPPED the defect rather than the files that CONTAIN
 // it.
 
-import { readFile } from 'node:fs/promises';
+import { glob, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { glob } from 'glob';
 import ts from 'typescript';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -78,19 +77,28 @@ const SOURCE_PATTERNS = [
 ];
 
 const IGNORE_PATTERNS = [
+  '**/node_modules',
   '**/node_modules/**',
+  '**/dist',
   '**/dist/**',
+  '**/build',
   '**/build/**',
+  '**/.turbo',
   '**/.turbo/**',
+  '**/coverage',
   '**/coverage/**',
+  '**/playwright-report',
   '**/playwright-report/**',
+  '**/test-results',
   '**/test-results/**',
   // Tests are never bundled into a renderer chunk graph: Vitest and Playwright
   // evaluate modules in dependency order, so a module-scope read there cannot
   // reproduce this defect and forbidding it would be noise.
+  '**/__tests__',
   '**/__tests__/**',
   '**/*.test.*',
   '**/*.spec.*',
+  '**/e2e',
   '**/e2e/**',
 ];
 
@@ -440,13 +448,19 @@ export async function findMastraSchemaModuleScopeReads({ root = REPO_ROOT } = {}
     );
   }
 
-  const sourceFiles = await glob(SOURCE_PATTERNS, {
-    absolute: false,
-    cwd: root,
-    ignore: IGNORE_PATTERNS,
-    nodir: true,
-    posix: true,
-  });
+  const sourceFiles = (
+    await Array.fromAsync(
+      glob(SOURCE_PATTERNS, {
+        cwd: root,
+        exclude: IGNORE_PATTERNS,
+        withFileTypes: true,
+      })
+    )
+  )
+    .filter((entry) => entry.isFile())
+    .map((entry) =>
+      path.relative(root, path.join(entry.parentPath, entry.name)).split(path.sep).join('/')
+    );
   if (sourceFiles.length < MIN_SOURCE_FILES) {
     throw new Error(
       `Discovered only ${sourceFiles.length} source file(s) under ${root}, below the floor of ` +

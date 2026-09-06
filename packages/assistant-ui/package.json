@@ -56,11 +56,35 @@
       "types": "./dist/follow-up-queue-store.d.ts",
       "import": "./dist/follow-up-queue-store.js"
     },
+    "./mcp-task-bridge-context": {
+      "types": "./dist/mcp-task-bridge-context.d.ts",
+      "import": "./dist/mcp-task-bridge-context.js"
+    },
+    "./mcp-task-status-card": {
+      "types": "./dist/mcp-task-status-card.d.ts",
+      "import": "./dist/mcp-task-status-card.js"
+    },
     "./rewind-composer-store": {
       "types": "./dist/rewind-composer-store.d.ts",
       "import": "./dist/rewind-composer-store.js"
     },
-    "./styles.css": "./styles.css"
+    "./styles.css": "./styles.css",
+    "./tool-fallback": {
+      "types": "./dist/tool-fallback.d.ts",
+      "import": "./dist/tool-fallback.js"
+    },
+    "./tool-result-renderer-context": {
+      "types": "./dist/tool-result-renderer-context.d.ts",
+      "import": "./dist/tool-result-renderer-context.js"
+    },
+    "./tool-result-renderers": {
+      "types": "./dist/use-tool-result-renderers.d.ts",
+      "import": "./dist/use-tool-result-renderers.js"
+    },
+    "./worktree-archive-confirmation-dialog": {
+      "types": "./dist/workspace-bar/worktree-archive-confirmation-dialog.d.ts",
+      "import": "./dist/workspace-bar/worktree-archive-confirmation-dialog.js"
+    }
   },
   "files": [
     "dist",

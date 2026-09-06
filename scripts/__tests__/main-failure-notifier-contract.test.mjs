@@ -190,7 +190,7 @@ test('the notifier can file an issue, stays cheap, and never touches the paid po
     assert.doesNotMatch(
       String(job['runs-on']),
       /^ubicloud/,
-      `${id}: the Ubicloud contract is limited to the five measured jobs; a notifier is not one.`
+      `${id}: five-second main notifiers must remain on GitHub-hosted runners.`
     );
     const steps = job.steps ?? [];
     assert.ok(steps.length > 0, `${id} must actually do something.`);

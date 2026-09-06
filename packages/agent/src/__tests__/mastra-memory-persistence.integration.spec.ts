@@ -41,7 +41,8 @@ import type {
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite-pgvector';
-import type { MastraDBMessage } from '@mastra/core/memory';
+import type { AgentMemoryOption } from '@mastra/core/agent';
+import type { MastraDBMessage, MastraMemory } from '@mastra/core/memory';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -53,6 +54,7 @@ import type {
   LocalLlmHostGenerateRequest,
 } from '../providers/local/llm-host-client';
 import type { AgentHookRunner } from '../tools/hook-runner';
+import type { StreamChunk } from '../types';
 
 // vi.mock factories are hoisted above imports, so the model the fake provider
 // returns must live in a hoisted holder the factory can close over.
@@ -198,6 +200,69 @@ function createScriptedToolCallModel(args: {
       return emitNextToolCall();
     },
     modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
+function createStallingAfterToolResultModel(args: {
+  partialText: string;
+  recoveryText?: string;
+  toolCallId: string;
+  toolName: string;
+}): LanguageModelV2 {
+  let toolResultCalls = 0;
+  let toolCallEmitted = false;
+
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: (options: LanguageModelV2CallOptions) => {
+      const promptHasToolResult = options.prompt.some((message) => message.role === 'tool');
+      if (!(toolCallEmitted || promptHasToolResult)) {
+        toolCallEmitted = true;
+        return Promise.resolve({
+          stream: streamParts([
+            { type: 'stream-start', warnings: [] },
+            {
+              input: JSON.stringify({ city: 'Paris' }),
+              toolCallId: args.toolCallId,
+              toolName: args.toolName,
+              type: 'tool-call',
+            },
+            { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+          ]),
+        });
+      }
+
+      toolResultCalls += 1;
+      if (args.recoveryText && toolResultCalls > 1) {
+        return Promise.resolve({
+          stream: streamParts([
+            { type: 'stream-start', warnings: [] },
+            { id: 'recovery-text', type: 'text-start' },
+            { delta: args.recoveryText, id: 'recovery-text', type: 'text-delta' },
+            { id: 'recovery-text', type: 'text-end' },
+            { finishReason: 'stop', type: 'finish', usage: USAGE },
+          ]),
+        });
+      }
+
+      return Promise.resolve({
+        stream: new ReadableStream<LanguageModelV2StreamPart>({
+          start(controller) {
+            controller.enqueue({ type: 'stream-start', warnings: [] });
+            controller.enqueue({ id: 'incomplete-text', type: 'text-start' });
+            controller.enqueue({
+              delta: args.partialText,
+              id: 'incomplete-text',
+              type: 'text-delta',
+            });
+          },
+        }),
+      });
+    },
+    modelId: 'fake-stalling-model',
     provider: 'fake',
     specificationVersion: 'v2',
     supportedUrls: {},
@@ -409,7 +474,9 @@ async function runTurnWithMemory(args: {
   database: PGlite;
   forceInitialToolCall?: boolean;
   generateTitle?: boolean;
+  memoryDefaultOptions?: AgentMemoryOption['options'];
   memorySettings: RuntimeAssistantMemorySettings;
+  memoryOptions?: AgentMemoryOption['options'];
   model?: LanguageModelV2;
   threadId: string;
   toolCallId?: string;
@@ -424,6 +491,9 @@ async function runTurnWithMemory(args: {
   observationalMemoryModel?: LanguageModelV2;
   onToolResultPrompt?: (prompt: LanguageModelV2CallOptions['prompt']) => void;
   onStreamConsumed?: () => void;
+  onChunk?: (chunk: StreamChunk) => Promise<void> | void;
+  onMemoryCreated?: (memory: MastraMemory) => void;
+  onToolExecute?: () => void;
   userMessageId?: string;
   userText?: string;
   weatherDetail?: string;
@@ -444,7 +514,10 @@ async function runTurnWithMemory(args: {
 
   const memoryFactoryOptions: PgliteMastraMemoryOptions = {
     database: args.database as unknown as PgliteDatabase,
-    memoryOptions: { generateTitle: args.generateTitle ?? false },
+    memoryOptions: {
+      generateTitle: args.generateTitle ?? false,
+      ...args.memoryDefaultOptions,
+    },
     memorySettings: args.memorySettings,
   };
   if (args.embedder) {
@@ -457,15 +530,18 @@ async function runTurnWithMemory(args: {
     >;
   }
   const { memory, storage } = await createPgliteMastraMemory(memoryFactoryOptions);
+  args.onMemoryCreated?.(memory);
 
   const weatherTool = createTool({
     description: 'Get the current weather for a city.',
-    execute: (inputData: { city: string }) =>
-      Promise.resolve({
+    execute: (inputData: { city: string }) => {
+      args.onToolExecute?.();
+      return Promise.resolve({
         city: inputData.city,
         temperatureC: 21,
         ...(args.weatherDetail === undefined ? {} : { detail: args.weatherDetail }),
-      }),
+      });
+    },
     id: toolId,
     inputSchema: z.object({ city: z.string() }),
     outputSchema: z.object({
@@ -492,6 +568,7 @@ async function runTurnWithMemory(args: {
         provider: 'openai',
         ...(args.signal ? { signal: args.signal } : {}),
         memory: {
+          ...(args.memoryOptions ? { memoryOptions: args.memoryOptions } : {}),
           memorySettings: args.memorySettings,
           resourceId: 'resource-memory-test',
           threadId: args.threadId,
@@ -504,6 +581,7 @@ async function runTurnWithMemory(args: {
 
   let finalText = '';
   for await (const chunk of iterator) {
+    await args.onChunk?.(chunk);
     if (chunk.type === 'text-delta') {
       finalText += chunk.value;
     }
@@ -568,6 +646,285 @@ describe('mastra memory persistence through the live stream path', () => {
   afterEach(async () => {
     await database.close();
   });
+
+  it('persists a user-cancelled turn without incomplete work or tool re-execution', async () => {
+    const abortController = new AbortController();
+    const partialText = 'This incomplete answer must not be remembered.';
+    const threadId = 'thread-user-cancelled-turn';
+    let toolExecutions = 0;
+
+    await runTurnWithMemory({
+      assistantMessageId: 'assistant-cancelled',
+      database,
+      memorySettings: OM_DISABLED_SETTINGS,
+      model: createStallingAfterToolResultModel({
+        partialText,
+        toolCallId: 'call-cancelled',
+        toolName: 'get_weather',
+      }),
+      onChunk: (chunk) => {
+        if (chunk.type === 'tool-event' && chunk.status === 'success') {
+          abortController.abort(new Error('user stopped the turn'));
+        }
+      },
+      onToolExecute: () => {
+        toolExecutions += 1;
+      },
+      signal: abortController.signal,
+      threadId,
+      userMessageId: 'user-cancelled',
+    });
+
+    const abortedRows = await listThreadMessages(database, threadId);
+    expect(abortedRows.map((row) => row.role)).toEqual(['user', 'assistant']);
+    const abortedRecord = JSON.stringify(abortedRows);
+    expect(abortedRecord).toContain('call-cancelled');
+    expect(abortedRecord).toContain('temperatureC');
+    expect(abortedRecord.toLowerCase()).toContain('aborted before completion');
+    expect(abortedRecord).not.toContain(partialText);
+    expect(toolExecutions).toBe(1);
+
+    let replayedPrompt = '';
+    await runTurnWithMemory({
+      database,
+      memorySettings: OM_DISABLED_SETTINGS,
+      onToolExecute: () => {
+        toolExecutions += 1;
+      },
+      onToolResultPrompt: (prompt) => {
+        replayedPrompt = JSON.stringify(prompt);
+      },
+      threadId,
+      userMessageId: 'user-after-cancel',
+      userText: 'What happened before I stopped you?',
+    });
+
+    expect(replayedPrompt.toLowerCase()).toContain('aborted before completion');
+    expect(replayedPrompt).toContain('temperatureC');
+    expect(toolExecutions).toBe(1);
+  }, 30_000);
+
+  it('persists a watchdog-aborted turn without incomplete work', async () => {
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    const partialText = 'The watchdog must exclude this incomplete answer.';
+    const threadId = 'thread-watchdog-aborted-turn';
+    let toolExecutions = 0;
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '60';
+
+    try {
+      await runTurnWithMemory({
+        assistantMessageId: 'assistant-watchdog',
+        database,
+        memorySettings: OM_DISABLED_SETTINGS,
+        model: createStallingAfterToolResultModel({
+          partialText,
+          toolCallId: 'call-watchdog',
+          toolName: 'get_weather',
+        }),
+        onToolExecute: () => {
+          toolExecutions += 1;
+        },
+        threadId,
+        userMessageId: 'user-watchdog',
+      });
+
+      const abortedRows = await listThreadMessages(database, threadId);
+      expect(abortedRows.map((row) => row.role)).toEqual(['user', 'assistant']);
+      const abortedRecord = JSON.stringify(abortedRows);
+      expect(abortedRecord).toContain('call-watchdog');
+      expect(abortedRecord).toContain('temperatureC');
+      expect(abortedRecord.toLowerCase()).toContain('aborted before completion');
+      expect(abortedRecord).not.toContain(partialText);
+      expect(toolExecutions).toBe(1);
+    } finally {
+      if (previousToolTimeout === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
+      }
+      if (previousStreamInactivity === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+    }
+  }, 30_000);
+
+  it('keeps the terminal watchdog ending when the abort snapshot write fails', async () => {
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    let abortSnapshotWrites = 0;
+    let sawRunFailed = false;
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '60';
+
+    try {
+      await expect(
+        runTurnWithMemory({
+          database,
+          memorySettings: OM_DISABLED_SETTINGS,
+          model: createStallingAfterToolResultModel({
+            partialText: 'This partial answer remains incomplete.',
+            toolCallId: 'call-watchdog-write-failure',
+            toolName: 'get_weather',
+          }),
+          onChunk: (chunk) => {
+            if (chunk.type === 'run-event' && chunk.event.kind === 'run.failed') {
+              sawRunFailed = true;
+            }
+          },
+          onMemoryCreated: (memory) => {
+            const saveMessages = memory.saveMessages.bind(memory);
+            memory.saveMessages = async (args) => {
+              if (JSON.stringify(args.messages).includes('aborted before completion')) {
+                abortSnapshotWrites += 1;
+                throw new Error('abort snapshot storage unavailable');
+              }
+              return saveMessages(args);
+            };
+          },
+          threadId: 'thread-watchdog-write-failure',
+        })
+      ).resolves.toBeDefined();
+
+      expect(sawRunFailed).toBe(true);
+      expect(abortSnapshotWrites).toBe(1);
+    } finally {
+      if (previousToolTimeout === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
+      }
+      if (previousStreamInactivity === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+    }
+  }, 30_000);
+
+  it('does not persist an aborted snapshot when a stalled attempt recovers normally', async () => {
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    const previousStallAttempts = process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'];
+    const recoveryText = 'Recovered without replaying the completed tool.';
+    const threadId = 'thread-watchdog-recovered-turn';
+    let toolExecutions = 0;
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '60';
+    process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '2';
+
+    try {
+      await runTurnWithMemory({
+        assistantMessageId: 'assistant-watchdog-recovered',
+        database,
+        memorySettings: OM_DISABLED_SETTINGS,
+        model: createStallingAfterToolResultModel({
+          partialText: 'This stalled attempt must not become a durable abort.',
+          recoveryText,
+          toolCallId: 'call-watchdog-recovered',
+          toolName: 'get_weather',
+        }),
+        onToolExecute: () => {
+          toolExecutions += 1;
+        },
+        threadId,
+        userMessageId: 'user-watchdog-recovered',
+      });
+
+      const rows = await listThreadMessages(database, threadId);
+      const record = JSON.stringify(rows);
+      expect(rows.filter((row) => row.role === 'user')).toHaveLength(1);
+      expect(record).toContain(recoveryText);
+      expect(record.toLowerCase()).not.toContain('aborted before completion');
+      expect(toolExecutions).toBe(1);
+    } finally {
+      if (previousToolTimeout === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
+      }
+      if (previousStreamInactivity === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+      if (previousStallAttempts === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_STALL_ATTEMPTS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = previousStallAttempts;
+      }
+    }
+  }, 30_000);
+
+  it('persists a normally completed turn exactly once without an abort marker', async () => {
+    const threadId = 'thread-normal-persistence-control';
+    await runTurnWithMemory({
+      assistantMessageId: 'assistant-normal-control',
+      database,
+      memorySettings: OM_DISABLED_SETTINGS,
+      threadId,
+      userMessageId: 'user-normal-control',
+    });
+
+    const rows = await listThreadMessages(database, threadId);
+    expect(rows.map((row) => row.id)).toEqual(['user-normal-control', 'assistant-normal-control']);
+    expect(JSON.stringify(rows).toLowerCase()).not.toContain('aborted before completion');
+  });
+
+  it('does not persist a user-cancelled turn when memory is read-only', async () => {
+    const abortController = new AbortController();
+    const threadId = 'thread-read-only-cancelled-turn';
+
+    await runTurnWithMemory({
+      database,
+      memoryOptions: { readOnly: true },
+      memorySettings: OM_DISABLED_SETTINGS,
+      model: createStallingAfterToolResultModel({
+        partialText: 'Read-only memory must not persist this.',
+        toolCallId: 'call-read-only-cancelled',
+        toolName: 'get_weather',
+      }),
+      onChunk: (chunk) => {
+        if (chunk.type === 'tool-event' && chunk.status === 'success') {
+          abortController.abort(new Error('user stopped the read-only turn'));
+        }
+      },
+      signal: abortController.signal,
+      threadId,
+      userMessageId: 'user-read-only-cancelled',
+    });
+
+    expect(await listThreadMessages(database, threadId)).toEqual([]);
+  }, 30_000);
+
+  it('does not persist a user-cancelled turn when memory defaults are read-only', async () => {
+    const abortController = new AbortController();
+    const threadId = 'thread-default-read-only-cancelled-turn';
+
+    await runTurnWithMemory({
+      database,
+      memoryDefaultOptions: { readOnly: true },
+      memorySettings: OM_DISABLED_SETTINGS,
+      model: createStallingAfterToolResultModel({
+        partialText: 'Default read-only memory must not persist this.',
+        toolCallId: 'call-default-read-only-cancelled',
+        toolName: 'get_weather',
+      }),
+      onChunk: (chunk) => {
+        if (chunk.type === 'tool-event' && chunk.status === 'success') {
+          abortController.abort(new Error('user stopped the default read-only turn'));
+        }
+      },
+      signal: abortController.signal,
+      threadId,
+      userMessageId: 'user-default-read-only-cancelled',
+    });
+
+    expect(await listThreadMessages(database, threadId)).toEqual([]);
+  }, 30_000);
 
   it('re-declares semantic recall index metadata before query and upsert after reset', async () => {
     const threadId = 'thread-semantic-recall-reset';

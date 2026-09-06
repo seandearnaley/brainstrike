@@ -36,3 +36,4 @@ export const CONTEXT_EXPLORER_APP_ID = 'context-explorer';
 export const CHANGES_APP_ID = 'changes';
 export const CANVAS_APP_ID = 'canvas';
 export const TERMINAL_APP_ID = 'terminal';
+export const WORKTREE_MAP_APP_ID = 'worktree-map';

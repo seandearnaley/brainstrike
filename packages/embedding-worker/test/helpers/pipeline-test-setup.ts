@@ -1,5 +1,9 @@
 import { vi } from 'vitest';
 import type { EmbedWorkerRequest, EmbedWorkerSuccess } from '../../src';
+import {
+  EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY,
+  EMBEDDING_WORKER_TEST_RUNTIME_PHASE_KEY,
+} from '../../src/test-runtime-bootstrap';
 
 export const workerEmitMock = vi.fn();
 export const transferMock = vi.fn(function TransferStub<T>(value: T) {
@@ -38,6 +42,8 @@ vi.mock('@huggingface/transformers', () => ({
 
 export function resetMocks(): void {
   vi.resetModules();
+  Reflect.deleteProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY);
+  Reflect.deleteProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_PHASE_KEY);
   workerEmitMock.mockReset();
   pipelineMock.mockReset();
   transferMock.mockClear();

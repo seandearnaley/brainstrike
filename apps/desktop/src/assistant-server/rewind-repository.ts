@@ -20,19 +20,6 @@ import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
 const RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 
 /**
- * `to_regclass` PROBE, never a try/catch on 42P01 — see
- * `edit-checkpoint-journal.ts`'s `runsTableExists` for the full rationale (a
- * caught undefined_table inside a transaction leaves the transaction aborted,
- * so COMMIT silently ROLLBACKs). Both probed relations are fixed constants.
- */
-async function relationExists(db: EditCheckpointDatabase, relation: string): Promise<boolean> {
-  const probe = await db.query<{ present: boolean }>(
-    `SELECT to_regclass('${relation}') IS NOT NULL AS present`
-  );
-  return probe.rows[0]?.present === true;
-}
-
-/**
  * The TERMINAL `status` values of `brainstrike_assistant_thread_runs`.
  *
  * Mirrors `AssistantThreadRunStatus` in
@@ -67,40 +54,17 @@ const TERMINAL_RUN_STATUSES = ['cancelled', 'completed', 'failed'] as const;
  * describes runs the current process could actually own — its fail-safe
  * posture (unknown status = in flight) is untouched.
  *
- * An absent runs table is `false`, not a fallback: a profile with no runs table
- * has recorded no runs at all, so none of them can be in flight.
+ * NO RELATION PROBE (BST-1651). This used to answer `false` — "nothing is in
+ * flight" — for an absent runs table, which on a destructive seam is the
+ * fail-OPEN direction, the opposite of the posture the rest of this function
+ * defends. Migration 118 owns the relation and `getDatabase()` resolves only
+ * after `migrate()`, so the branch guarded a state main cannot reach; an
+ * unmigrated database now raises 42P01 and the gate refuses by throwing.
  */
-/**
- * Whether the runs table carries `turn_message_id` (BST-1163). The renderer's
- * lazy bootstrap is the ONLY thing that adds the column (no numbered
- * migration), and main-process rewind reads — reachable from the Changes
- * surface — can land before the renderer's first repository call on an
- * upgraded install. Referencing the column then raises 42703, and a caught
- * error inside a transaction leaves it aborted, so it is PROBED via
- * information_schema (the `job-queue.ts` precedent), never try/caught.
- * Deliberately NOT latched: the column appears mid-session the moment the
- * renderer bootstrap runs, and one probe per rewind interaction is cheap.
- */
-async function runsTurnLinkColumnExists(db: EditCheckpointDatabase): Promise<boolean> {
-  const result = await db.query<{ present: boolean }>(
-    `SELECT EXISTS (
-       SELECT 1 FROM information_schema.columns
-       WHERE table_schema = 'public'
-         AND table_name = $1
-         AND column_name = 'turn_message_id'
-     ) AS present`,
-    [RUNS_TABLE]
-  );
-  return result.rows[0]?.present === true;
-}
-
 export async function hasInFlightThreadRun(
   db: EditCheckpointDatabase,
   threadId: string
 ): Promise<boolean> {
-  if (!(await relationExists(db, RUNS_TABLE))) {
-    return false;
-  }
   const result = await db.query<{ present: boolean }>(
     `SELECT EXISTS (
        SELECT 1 FROM ${RUNS_TABLE}
@@ -129,8 +93,9 @@ interface MessageAnchorRow {
  * Resolve everything a rewind to `messageId` covers on the conversation side.
  * Returns `null` when the message does not exist IN THIS THREAD (a message id
  * belonging to another thread counts as missing — never a cross-thread leak,
- * mirroring `listRunRangeCheckpoints`'s anchor posture), or when Mastra's
- * message table does not exist yet on this profile.
+ * mirroring `listRunRangeCheckpoints`'s anchor posture). Migration 117 owns
+ * `mastra_messages`, so its absence is no longer a case this coerces to
+ * `null` (BST-1651) — an unmigrated database raises 42P01.
  *
  * Timestamps are read with an explicit `::text` cast so the microsecond
  * fraction Postgres stores survives; feeding a driver-truncated millisecond
@@ -141,9 +106,6 @@ export async function resolveRewindTarget(
   threadId: string,
   messageId: string
 ): Promise<RewindTarget | null> {
-  if (!(await relationExists(db, MASTRA_MEMORY_TABLES.messages))) {
-    return null;
-  }
   const targetResult = await db.query<MessageAnchorRow>(
     `SELECT id AS "id", "createdAt"::text AS "createdAt"
      FROM ${MASTRA_MEMORY_TABLES.messages}
@@ -219,18 +181,16 @@ export async function resolveRewindTarget(
  * together. A preview over a thread with an unfinished run still describes the
  * wider range honestly rather than hiding it.
  *
- * `runs-table-absent` is reported distinctly from `no-runs-after-message`:
- * this function never bootstraps the runs table, and "this profile has never
- * recorded an assistant run" is a different fact from "this thread's tail
- * produced none".
+ * `none` now carries exactly one reason. BST-1651 retired the companion
+ * `runs-table-absent`: it described a profile whose renderer bootstrap had not
+ * run, and migration 118 creates the relation for every profile, so the only
+ * database that could produce it is one that was never migrated — which raises
+ * 42P01 rather than reporting a reason.
  */
 export async function resolveRewindRunRange(
   db: EditCheckpointDatabase,
   target: RewindTarget
 ): Promise<AssistantRewindRange> {
-  if (!(await relationExists(db, RUNS_TABLE))) {
-    return { kind: 'none', reason: 'runs-table-absent' };
-  }
   // TURN GROUPING (BST-1163): a run carrying `turn_message_id` is in range
   // exactly when its TURN's user message is at-or-after the target in the
   // message total order — the same `("createdAt", id)` order
@@ -240,34 +200,29 @@ export async function resolveRewindRunRange(
   // (an earlier turn's leg whose terminal write landed after the target
   // message — swept into the revert and deleting pre-target work).
   //
-  // A NULL link (pre-1163 row) — or a link whose message row is gone
-  // (finalized rewind hard-deleted it) — keeps the original `completed_at`
-  // fallback: "had not finished when the target message was sent". Never a
-  // silent drop from the range.
-  const result = (await runsTurnLinkColumnExists(db))
-    ? await db.query<{ id: string }>(
-        `SELECT r.id AS "id"
-         FROM ${RUNS_TABLE} r
-         LEFT JOIN ${MASTRA_MEMORY_TABLES.messages} m
-           ON m.id = r.turn_message_id AND m.thread_id = r.thread_id
-         WHERE r.thread_id = $1
-           AND (
-             CASE WHEN m.id IS NOT NULL
-               THEN (m."createdAt", m.id) >= ($2::timestamptz, $3)
-               ELSE (r.completed_at IS NULL OR r.completed_at > $2::timestamptz)
-             END
-           )
-         ORDER BY r.started_at ASC, r.id ASC`,
-        [target.threadId, target.createdAt, target.messageId]
-      )
-    : // Pre-link table (the column arrives with the renderer bootstrap): the
-      // original completed_at rule, with the column never referenced at all.
-      await db.query<{ id: string }>(
-        `SELECT id AS "id" FROM ${RUNS_TABLE}
-         WHERE thread_id = $1 AND (completed_at IS NULL OR completed_at > $2::timestamptz)
-         ORDER BY started_at ASC, id ASC`,
-        [target.threadId, target.createdAt]
-      );
+  // A NULL link — a row minted before BST-1163, or one whose linked message
+  // is gone (finalized rewind hard-deleted it) — keeps the original
+  // `completed_at` fallback in the CASE arm below: "had not finished when the
+  // target message was sent". Never a silent drop from the range. The COLUMN
+  // is not probed for: migration 118 carries
+  // `ADD COLUMN IF NOT EXISTS turn_message_id`, so an upgraded install has it
+  // before any main-process read can land (BST-1651 retired the
+  // information_schema probe that predated that ALTER).
+  const result = await db.query<{ id: string }>(
+    `SELECT r.id AS "id"
+     FROM ${RUNS_TABLE} r
+     LEFT JOIN ${MASTRA_MEMORY_TABLES.messages} m
+       ON m.id = r.turn_message_id AND m.thread_id = r.thread_id
+     WHERE r.thread_id = $1
+       AND (
+         CASE WHEN m.id IS NOT NULL
+           THEN (m."createdAt", m.id) >= ($2::timestamptz, $3)
+           ELSE (r.completed_at IS NULL OR r.completed_at > $2::timestamptz)
+         END
+       )
+     ORDER BY r.started_at ASC, r.id ASC`,
+    [target.threadId, target.createdAt, target.messageId]
+  );
   const runIds = result.rows.map((row) => row.id);
   const fromRunId = runIds[0];
   if (!fromRunId) {
@@ -316,12 +271,6 @@ export async function resolveRewindMessageForRun(
   threadId: string,
   runId: string
 ): Promise<string | null> {
-  if (!(await relationExists(db, RUNS_TABLE))) {
-    return null;
-  }
-  if (!(await relationExists(db, MASTRA_MEMORY_TABLES.messages))) {
-    return null;
-  }
   // THE STORED LINK FIRST (BST-1163): a run row carrying `turn_message_id`
   // answers exactly, closing the documented mid-turn under-coverage — a
   // resume run resolves to ITS OWN turn's message rather than the next
@@ -329,19 +278,17 @@ export async function resolveRewindMessageForRun(
   // link whose message was hard-deleted (finalized rewind) falls back to the
   // timestamp rule below rather than answering a message the rewind API
   // would refuse.
-  if (await runsTurnLinkColumnExists(db)) {
-    const linkedResult = await db.query<{ id: string }>(
-      `SELECT r.turn_message_id AS "id"
-       FROM ${RUNS_TABLE} r
-       JOIN ${MASTRA_MEMORY_TABLES.messages} m
-         ON m.id = r.turn_message_id AND m.thread_id = r.thread_id
-       WHERE r.id = $1 AND r.thread_id = $2 AND r.turn_message_id IS NOT NULL`,
-      [runId, threadId]
-    );
-    const linkedMessageId = linkedResult.rows[0]?.id;
-    if (linkedMessageId !== undefined) {
-      return linkedMessageId;
-    }
+  const linkedResult = await db.query<{ id: string }>(
+    `SELECT r.turn_message_id AS "id"
+     FROM ${RUNS_TABLE} r
+     JOIN ${MASTRA_MEMORY_TABLES.messages} m
+       ON m.id = r.turn_message_id AND m.thread_id = r.thread_id
+     WHERE r.id = $1 AND r.thread_id = $2 AND r.turn_message_id IS NOT NULL`,
+    [runId, threadId]
+  );
+  const linkedMessageId = linkedResult.rows[0]?.id;
+  if (linkedMessageId !== undefined) {
+    return linkedMessageId;
   }
   const runResult = await db.query<{ startedAt: string }>(
     `SELECT started_at::text AS "startedAt" FROM ${RUNS_TABLE} WHERE id = $1 AND thread_id = $2`,
@@ -383,9 +330,6 @@ export async function resolveEarliestBatchTarget(
   messageIds: readonly string[]
 ): Promise<RewindTarget | null> {
   if (messageIds.length === 0) {
-    return null;
-  }
-  if (!(await relationExists(db, MASTRA_MEMORY_TABLES.messages))) {
     return null;
   }
   const result = await db.query<{ id: string }>(

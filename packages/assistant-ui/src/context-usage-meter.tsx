@@ -216,9 +216,10 @@ export const ContextUsageMeter = ({
   // app-shell writer with the SAME thread key contract as recordUsage.
   const breakdownState = useContextUsageStore((s) => s.breakdownByThread[key]);
   // In-flight run's billed step usage (BST-953 live tick) — added to the
-  // durable cumulative figure until the run's own row lands and the wrapper
-  // clears it (see context-usage-store.ts).
-  const liveRunUsage = useContextUsageStore((s) => s.liveRunUsageByThread[key]);
+  // durable cumulative figure until the run's own row lands and the settle
+  // path clears it (see context-usage-store.ts).
+  const recordedLiveRunUsage = useContextUsageStore((s) => s.liveRunUsageByThread[key]);
+  const isSettlingRunUsage = useContextUsageStore((s) => s.settlingRunUsageByThread[key] === true);
   const [open, setOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -278,6 +279,25 @@ export const ContextUsageMeter = ({
   // usage — is what the chip leads with; context-window occupancy stays on
   // the ring and inside the popover. Absent cumulative data (web / an
   // unhydrated thread) falls back to the context fraction.
+  //
+  // BST-1652: the sum is only "in-flight" while a run actually is. A run the
+  // user switched away from mid-stream may never settle, stranding its partial
+  // sum on that thread key. `isRunning` is the reader-side truth for the IDLE
+  // half — no run, no live component — and it is derived, not swept, because a
+  // sweeping effect only fires after paint (one frame of phantom tokens).
+  // It is NOT the whole answer: the gate opens again the moment a NEW run
+  // starts on that thread, so the writer resets the sum at run start
+  // (`prepareRequestAndResetLiveUsage` in the app-shell usage ledger) — a real
+  // event, not an effect. Both are required; neither covers the other's case.
+  //
+  // `isRunning` alone is also too NARROW at the other end: it goes false at
+  // stream finish, while the writer holds the live sum until the durable row is
+  // absorbed by a refreshed cumulative. Gating on it alone drops the whole run
+  // from the headline for that window and jumps it back when the refresh lands
+  // — the dip the writer's ordering exists to prevent, on every run rather than
+  // in an edge case. `settlingRunUsageByThread` is the writer saying "this sum
+  // is still mine"; a run the user walked away from never enters it.
+  const liveRunUsage = isRunning === true || isSettlingRunUsage ? recordedLiveRunUsage : undefined;
   const liveTokens = liveRunUsage ? liveRunUsage.inputTokens + liveRunUsage.outputTokens : 0;
   const trigger = resolveTriggerDisplay({
     cumulativeUsage,
@@ -318,7 +338,7 @@ export const ContextUsageMeter = ({
                 state === 'critical'
                   ? 'text-destructive'
                   : state === 'warning'
-                    ? 'text-amber-600 dark:text-amber-400'
+                    ? 'text-warning'
                     : 'text-muted-foreground'
               )}
             >

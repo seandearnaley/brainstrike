@@ -1,3 +1,5 @@
+// The web E2E graph is ESM, so the barrel's `./hmr-utils.js` re-export (which
+// contains `import.meta` syntax) is supported directly.
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { BACKGROUND_INDEXING_POLICY_OPTIONS } from '@brainstrike/utils';
 import type { Page } from '@playwright/test';
@@ -102,7 +104,21 @@ test.describe('Background indexing settings (web) @stateful @web-settings-state'
 
     const settingsSection = page.getByTestId('settings-category-search-indexing');
     await expect(page.getByRole('switch', { name: 'Workspace Index' })).toBeChecked();
-    await expect(settingsSection.getByText('Waiting for restore')).toBeVisible({ timeout: 15_000 });
+
+    // "No root selected", not "Waiting for restore". The latter is the badge the
+    // provider paints while a workspace coverage audit is IN FLIGHT
+    // (`workspace-collection-sync-provider.tsx` sets `state: 'waiting'` as it
+    // starts the audit, then moves on when it settles), so asserting it made
+    // this spec a race against a transient: it passed only when the 15s poll
+    // happened to sample mid-audit. Measured — the badge is "No root selected"
+    // at every sample across 5 runs and stays that way for a 12s poll, while
+    // the "Waiting for restore" assertion failed 1-in-3 cold and 3-in-3 once a
+    // competing poll starved the audit's scheduling.
+    //
+    // "No root selected" is also what this spec is actually about: it is the
+    // terminal badge for an enabled index with a managed collection and no root
+    // folder, which is precisely the setup state named in the title.
+    await expect(settingsSection.getByText('No root selected')).toBeVisible({ timeout: 15_000 });
     await expect(settingsSection.getByText('None selected')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('indexing-status-item')).toContainText('Workspace Index');
   });

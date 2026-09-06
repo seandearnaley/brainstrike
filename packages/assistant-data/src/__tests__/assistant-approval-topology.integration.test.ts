@@ -3,13 +3,13 @@ import {
   TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
-import { wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
 } from '../assistant-memory-repository';
+import { createMigratedTestPGlite } from './helpers/test-pglite';
 
 /**
  * BST-1243: approval/suspend flows must never corrupt durable branch topology.
@@ -160,16 +160,9 @@ function makeApproval(overrides: Partial<RediscoveredToolApproval>): Rediscovere
 describe('approval/suspend branch topology (BST-1243)', () => {
   let pgliteDataDir: string | undefined;
 
-  afterEach(async () => {
-    if (pgliteDataDir) {
-      await wasmLoader.closeCached(pgliteDataDir);
-      pgliteDataDir = undefined;
-    }
-  });
-
   async function makeHarness(prefix: string) {
     pgliteDataDir = createPgliteTestDataDir(prefix);
-    const db = (await wasmLoader.createPGlite(pgliteDataDir)) as DbHandle;
+    const db = (await createMigratedTestPGlite(pgliteDataDir)) as DbHandle;
     const repository = createPgliteAssistantThreadRepository(db);
     const thread = await repository.createThread('workspace-a');
     const makeAdapter = () =>

@@ -134,7 +134,8 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await page.addInitScript(() => {
       const STREAM_STEP_DELAY_MS = 300;
 
-      // @ts-expect-error test-only override
+      // Declared by app-shell's `use-assistant-availability` global augmentation,
+      // which the settings page now pulls into this app's type program.
       window.__assistantAvailabilityOverride = { state: 'enabled' };
       const startupEvents: AssistantThreadStartupEvent[] = [];
       const startupEventKeys = new Set<string>();

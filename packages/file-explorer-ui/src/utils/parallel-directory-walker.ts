@@ -374,12 +374,14 @@ export async function walkDirectoryParallel(
       typeof entryHandle?.path === 'string' && entryHandle.path.length > 0
         ? entryHandle.path
         : finalPath;
+    const rootId = entryHandle?.rootId ?? parentHandle.rootId;
     return {
       _internal: entry.handle,
       kind: 'directory',
       name: entry.name,
       path: childPath,
       platform: entryHandle?.platform ?? parentHandle.platform,
+      ...(rootId === undefined ? {} : { rootId }),
     };
   }
 

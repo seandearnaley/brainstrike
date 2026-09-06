@@ -1190,7 +1190,9 @@ describe('embedding-backfill', () => {
     expect(jobQueue.enqueueBatch).toHaveBeenCalledWith([
       expect.objectContaining({
         payload: expect.objectContaining({
+          embeddingInputHash: 'bb103e93e8a03ee38185fef46f8b8b8736de603d16296c91c9e20fc27eddef88',
           modelKey: 'local::model::variant',
+          sourceContentHash: 'hash-1',
         }),
       }),
     ]);
@@ -1397,6 +1399,9 @@ describe('embedding-backfill', () => {
       }
     );
 
+    await vi.waitFor(() => {
+      expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(3);
+    });
     await vi.runAllTimersAsync();
     await backfillPromise;
 
@@ -2462,9 +2467,11 @@ describe('embedding-backfill', () => {
       "Backfill timed out while waiting for embedding set 'set-123' to drain."
     );
 
+    await vi.waitFor(() => {
+      expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+    });
     await vi.advanceTimersByTimeAsync(100);
     await rejection;
-    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 

@@ -1,4 +1,5 @@
 import {
+  type BedrockReasoningEffort,
   type GoogleThinkingLevel,
   OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
@@ -30,6 +31,7 @@ export interface AssistantRunSteeringControl {
  * drift from the pickers that read them.
  */
 export {
+  type BedrockReasoningEffort,
   type GoogleThinkingLevel,
   OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
@@ -90,6 +92,33 @@ export interface AnthropicProviderOptions extends RuntimeJsonObject {
   thinking?: AnthropicThinkingOptions;
 }
 
+/**
+ * Mirrors `reasoningConfig` of the installed `@ai-sdk/amazon-bedrock` (5.0.57).
+ *
+ * Deliberately NOT a discriminated union: `type: 'enabled'` carries
+ * `budgetTokens` for Claude routes and `maxReasoningEffort` for Amazon Nova,
+ * so the same tag has two valid payloads and a union on `type` would be a lie.
+ * WHICH payload a route accepts is a registry fact
+ * (`LlmModelDefinition.bedrockReasoning`), not something this shape can encode.
+ *
+ * `type` is REQUIRED here though optional upstream: a config with no type is
+ * not a shape this app emits.
+ *
+ * `display` is the VISIBILITY knob and is honored by the SDK only for
+ * `type: 'adaptive'` — the same asymmetry first-party Anthropic has, where the
+ * legacy `enabled` + budget form carries no display either.
+ */
+export interface BedrockReasoningConfig {
+  budgetTokens?: number;
+  display?: 'omitted' | 'summarized';
+  maxReasoningEffort?: BedrockReasoningEffort;
+  type: 'adaptive' | 'disabled' | 'enabled';
+}
+
+export interface BedrockProviderOptions extends RuntimeJsonObject {
+  reasoningConfig?: BedrockReasoningConfig;
+}
+
 export interface GoogleProviderOptions extends RuntimeJsonObject {
   thinkingConfig?: {
     thinkingBudget?: number;
@@ -119,6 +148,7 @@ export interface RuntimeModelSettings {
 
 export type RuntimeProviderOptions = RuntimeJsonObject & {
   anthropic?: AnthropicProviderOptions;
+  bedrock?: BedrockProviderOptions;
   google?: GoogleProviderOptions;
   lmstudio?: LocalRuntimeProviderOptions;
   local?: LocalProviderOptions;
@@ -327,7 +357,12 @@ export interface RuntimeData {
    * `submitPlan`/`askUser` survive because they are classified `read`, not
    * because they suspend) and prepends a PLAN-MODE instruction block, so the model
    * investigates and proposes a plan for approval before any changes. Sent over
-   * the wire ONLY when `true` (presence-means-on, like `permissionPolicyRequest`).
+   * the wire ONLY when `true`, but read the VALUE rather than key presence: the
+   * request-lifecycle producer writes the key unconditionally and lets
+   * `JSON.stringify` drop an explicit `undefined`. Pinned by "leaves the opt-in
+   * keys PRESENT with undefined values" in `use-assistant-request-lifecycle.test.ts`;
+   * same shape as `permissionPolicyRequest`, whose declaration in
+   * `packages/agent/src/types.ts` carries the full rationale.
    * Excluded for the built-in local provider. Agent-only enforcement.
    */
   planMode?: boolean;

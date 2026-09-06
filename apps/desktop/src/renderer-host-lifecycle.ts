@@ -3,8 +3,11 @@ import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { app, BrowserWindow } from 'electron';
-import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
-import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
+import {
+  type DesktopRendererTarget,
+  resolveDesktopRendererTarget,
+} from './desktop-renderer-target';
+import { resolveDistRoot } from './dist-root';
 import { waitForWindowClosed } from './window-lifecycle-utils';
 import {
   assignWindowRole,
@@ -54,11 +57,6 @@ interface RendererHostLifecycleOptions<TStatus extends RendererHostStatusShape> 
   readonly role: Exclude<DesktopWindowRole, 'visible-ui'>;
   readonly statusEventName: string;
   readonly timeoutMessage: string;
-}
-
-function resolveDistRoot(): string {
-  const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();
-  return path.basename(appPath) === 'dist' ? appPath : path.join(appPath, 'dist');
 }
 
 function createLifecycleDisposedError(role: Exclude<DesktopWindowRole, 'visible-ui'>): Error {
@@ -360,23 +358,20 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     return window;
   }
 
-  private async loadWindow(window: BrowserWindow, runtimeId: string): Promise<void> {
-    // Resolve the renderer launch mode the SAME way the visible window does
-    // (create-window.ts → resolveDesktopRendererLaunchMode). The hidden hosts
-    // share the main process's argv, so they MUST agree with the visible window
-    // on where the renderer lives. Previously this branched on
-    // `app.isPackaged || --test-mode` and IGNORED
-    // `--brainstrike-desktop-launch-mode=built`, so `pnpm start` (unpackaged,
-    // built) pointed every hidden host at the dev server (localhost:38181) that
-    // isn't running → ERR_CONNECTION_REFUSED → background embedding/llm/chunking
-    // hosts dead while the visible window loaded the built file fine.
-    const launchMode = resolveDesktopRendererLaunchMode({
-      argv: process.argv,
-      isPackaged: app.isPackaged,
-      isTestMode: process.env['CI'] === 'true' || process.argv.includes('--test-mode'),
-    });
-    if (launchMode === 'built' || launchMode === 'test-built') {
-      await window.loadFile(path.join(resolveDistRoot(), 'renderer/index.html'), {
+  private async loadWindow(
+    window: BrowserWindow,
+    target: DesktopRendererTarget,
+    runtimeId: string
+  ): Promise<void> {
+    // The hidden hosts load the SAME document as the visible window — the
+    // process-wide renderer target `main.ts` configured (BST-1641) — with the
+    // role and runtime id as query parameters. Consuming that one object is
+    // what keeps the hosts, the visible window, and the IPC sender-frame
+    // allowlist in agreement (an earlier bug had this class branch on
+    // `app.isPackaged || --test-mode` on its own and point `pnpm start`'s
+    // hosts at a dev server that wasn't running).
+    if (target.kind === 'built-renderer') {
+      await window.loadFile(target.rendererPath, {
         query: {
           mode: this.options.mode,
           runtimeId,
@@ -385,11 +380,15 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       return;
     }
     await window.loadURL(
-      `${DESKTOP_DEV_RENDERER_URL}?mode=${encodeURIComponent(this.options.mode)}&runtimeId=${encodeURIComponent(runtimeId)}`
+      `${target.url}?mode=${encodeURIComponent(this.options.mode)}&runtimeId=${encodeURIComponent(runtimeId)}`
     );
   }
 
   private async createWindow(runtimeId: string): Promise<BrowserWindow> {
+    // Resolved once, before the retry loop: an unconfigured target is a boot
+    // ordering bug, not a transient load failure, so it fails by name here
+    // instead of being retried and reported as a generic load error.
+    const target = resolveDesktopRendererTarget();
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < HOST_LOAD_RETRY_ATTEMPTS; attempt++) {
       if (this.disposed) {
@@ -405,7 +404,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       // destroys a perfectly healthy host).
       this.hostWindow = window;
       try {
-        await this.loadWindow(window, runtimeId);
+        await this.loadWindow(window, target, runtimeId);
         return window;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));

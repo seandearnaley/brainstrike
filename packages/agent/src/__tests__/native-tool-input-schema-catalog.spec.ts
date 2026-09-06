@@ -1,43 +1,57 @@
-import { describe, expect, it } from 'vitest';
+import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
+import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { providerCompatibleInputSchema } from '../tools/provider-compatible-input';
 import * as toolSchemas from '../tools/schemas';
 
-const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
-  'brainstrike.askUser',
-  'brainstrike.deleteWorkspaceFile',
-  'brainstrike.executeCommand',
-  'brainstrike.findWorkspaceSymbol',
-  'brainstrike.globWorkspace',
-  'brainstrike.grepSearch',
-  'brainstrike.hybridSearch',
-  'brainstrike.inspectCommandSessions',
-  'brainstrike.listEmbeddingSpaces',
-  'brainstrike.listWorkspaceContext',
-  'brainstrike.lspInspect',
-  'brainstrike.browserGetPageText',
-  'brainstrike.browserNavigate',
-  'brainstrike.browserReadPage',
-  'brainstrike.manageCanvas',
-  'brainstrike.manageTaskList',
-  'brainstrike.manageCommandSession',
-  'brainstrike.queryEmbeddingSpace',
-  'brainstrike.queryDiagnostics',
-  'brainstrike.querySelf',
-  'brainstrike.readToolOutputArtifact',
-  'brainstrike.readWorkspaceContext',
-  'brainstrike.readWorkspaceDirectory',
-  'brainstrike.readWorkspaceFile',
-  'brainstrike.renameWorkspaceFile',
-  'brainstrike.runPython',
-  'brainstrike.runSkillScript',
-  'brainstrike.stringReplaceWorkspaceFile',
-  'brainstrike.submitPlan',
-  'brainstrike.updateWorkspaceContextSelection',
-  'brainstrike.updateWorkspaceTapestrySelections',
-  'brainstrike.webExtract',
-  'brainstrike.webSearch',
-  'brainstrike.writeWorkspaceFile',
-] as const;
+const PROVIDER_JSON_SCHEMA_OPTIONS = {
+  cycles: 'throw',
+  io: 'input',
+  reused: 'inline',
+} as const;
+
+function isJsonSchemaRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function jsonPathProperty(path: string, property: string): string {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(property)
+    ? `${path}.${property}`
+    : `${path}[${JSON.stringify(property)}]`;
+}
+
+function collectUnsupportedProviderSchemaShapes(schema: unknown, toolId: string): string[] {
+  const findings: string[] = [];
+
+  const visit = (value: unknown, path: string): void => {
+    if (Array.isArray(value)) {
+      value.forEach((entry, index) => {
+        visit(entry, `${path}[${index}]`);
+      });
+      return;
+    }
+    if (!isJsonSchemaRecord(value)) {
+      return;
+    }
+
+    if (Array.isArray(value['allOf'])) {
+      findings.push(`${toolId} at ${path}.allOf: allOf intersections are unsupported`);
+    }
+    if (isJsonSchemaRecord(value['additionalProperties'])) {
+      findings.push(
+        `${toolId} at ${path}.additionalProperties: structured additionalProperties is unsupported`
+      );
+    }
+
+    for (const [property, child] of Object.entries(value)) {
+      visit(child, jsonPathProperty(path, property));
+    }
+  };
+
+  visit(schema, '$');
+  return findings;
+}
 
 describe('native tool input schema catalog', () => {
   it('exports exact desktop-native parity without stale web or Mastra-owned skill entries', () => {
@@ -50,7 +64,9 @@ describe('native tool input schema catalog', () => {
       throw new TypeError('NATIVE_TOOL_INPUT_SCHEMAS must be an object');
     }
 
-    expect(Object.keys(registry).sort()).toEqual([...EXPECTED_DESKTOP_NATIVE_TOOL_IDS].sort());
+    // The catalog's inline snapshot (packages/assistant-contract native-tools.test.ts)
+    // is the ONE hand-maintained id list; this map is derived from the same definitions.
+    expect(Object.keys(registry)).toEqual([...DESKTOP_NATIVE_TOOL_IDS]);
     expect(registry).not.toHaveProperty('web.echo');
     expect(registry).not.toHaveProperty('skill');
     expect(registry).not.toHaveProperty('skill_read');
@@ -75,6 +91,446 @@ describe('native tool input schema catalog', () => {
     ).toBe(true);
     expect(schema.safeParse({ cursor, path: '/src/main.ts' }).success).toBe(false);
     expect(schema.safeParse({ cursor, root: 'other-root' }).success).toBe(false);
+
+    expect(
+      toolSchemas.ReadWorkspaceFileInputSchema.safeParse({
+        cursor: null,
+        endLine: null,
+        maxChars: null,
+        path: '/src/main.ts',
+        root: null,
+        startLine: null,
+      }).success
+    ).toBe(true);
+  });
+
+  it('accepts provider null for optional fields, normalizes it to omission, and rejects malformed values', () => {
+    const cases: ReadonlyArray<{
+      expected: Record<string, unknown>;
+      invalidInput: Record<string, unknown>;
+      providerInput: Record<string, unknown>;
+      toolId: keyof typeof toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS;
+    }> = [
+      {
+        expected: { path: '/src/main.ts' },
+        invalidInput: { path: 42 },
+        providerInput: {
+          cursor: null,
+          endLine: null,
+          maxChars: null,
+          path: '/src/main.ts',
+          root: null,
+          startLine: null,
+        },
+        toolId: 'brainstrike.readWorkspaceFile',
+      },
+      {
+        expected: { content: 'export {};', path: '/src/new.ts' },
+        invalidInput: { content: 'export {};', path: '/src/new.ts', root: 42 },
+        providerInput: { content: 'export {};', path: '/src/new.ts', root: null },
+        toolId: 'brainstrike.writeWorkspaceFile',
+      },
+      {
+        expected: {},
+        invalidInput: { includeHidden: 'false' },
+        providerInput: {
+          depth: null,
+          detail: null,
+          includeDirectories: null,
+          includeFiles: null,
+          includeHidden: null,
+          maxEntries: null,
+          offset: null,
+          path: null,
+          root: null,
+        },
+        toolId: 'brainstrike.readWorkspaceDirectory',
+      },
+      {
+        expected: { pattern: 'needle' },
+        invalidInput: { caseSensitive: 'false', pattern: 'needle' },
+        providerInput: {
+          caseSensitive: null,
+          contextLines: null,
+          filePaths: null,
+          isRegex: null,
+          maxResults: null,
+          offset: null,
+          outputMode: null,
+          pattern: 'needle',
+          root: null,
+        },
+        toolId: 'brainstrike.grepSearch',
+      },
+      {
+        expected: { command: 'pwd' },
+        invalidInput: { command: 'pwd', timeoutMs: 'slow' },
+        providerInput: { command: 'pwd', cwd: null, root: null, timeoutMs: null },
+        toolId: 'brainstrike.executeCommand',
+      },
+      {
+        expected: { filter: 'interactive', maxChars: 6000 },
+        invalidInput: { filter: 'interactive', maxChars: 'many' },
+        providerInput: { filter: null, maxChars: null },
+        toolId: 'brainstrike.browserReadPage',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const schema = toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS[testCase.toolId];
+      const parsed = schema.safeParse(testCase.providerInput);
+
+      expect(
+        parsed.success,
+        parsed.success ? testCase.toolId : `${testCase.toolId}: ${parsed.error.message}`
+      ).toBe(true);
+      if (!parsed.success) {
+        continue;
+      }
+      expect(parsed.data, testCase.toolId).toEqual(testCase.expected);
+      expect(schema.safeParse(testCase.invalidInput).success, testCase.toolId).toBe(false);
+    }
+
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.writeWorkspaceFile'].safeParse({
+        content: null,
+        path: '/src/new.ts',
+      }).success
+    ).toBe(false);
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.grepSearch'].safeParse({ pattern: null })
+        .success
+    ).toBe(false);
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.executeCommand'].safeParse({
+        command: null,
+      }).success
+    ).toBe(false);
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.writeWorkspaceFile'].safeParse({
+        content: 'export {};',
+        path: '/src/new.ts',
+        unknownProviderField: null,
+      }).success
+    ).toBe(false);
+
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.submitPlan'].parse({
+        overview: 'Implement the contract.',
+        risks: null,
+        steps: [{ detail: null, title: 'Implement' }],
+        title: 'Provider compatibility',
+        verification: null,
+      })
+    ).toEqual({
+      overview: 'Implement the contract.',
+      steps: [{ title: 'Implement' }],
+      title: 'Provider compatibility',
+    });
+
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.inspectCommandSessions'].parse({
+        operation: { action: 'list', offset: null },
+        root: null,
+      })
+    ).toEqual({ operation: { action: 'list' } });
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.submitPlan'].safeParse({
+        overview: 'Implement the contract.',
+        steps: [{ detail: null, title: null }],
+        title: 'Provider compatibility',
+      }).success
+    ).toBe(false);
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.inspectCommandSessions'].safeParse({
+        operation: { action: 'unknown', offset: null },
+      }).success
+    ).toBe(false);
+  });
+
+  it('wraps every registered schema without widening its provider JSON Schema', () => {
+    for (const [toolId, schema] of Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS)) {
+      expect(schema, toolId).toBeInstanceOf(z.ZodPipe);
+      if (!(schema instanceof z.ZodPipe)) {
+        continue;
+      }
+      const wrappedJsonSchema = z.toJSONSchema(schema, PROVIDER_JSON_SCHEMA_OPTIONS);
+      const authoredJsonSchema = z.toJSONSchema(schema.out, PROVIDER_JSON_SCHEMA_OPTIONS);
+      expect(wrappedJsonSchema, toolId).toEqual(authoredJsonSchema);
+      expect(JSON.stringify(wrappedJsonSchema), toolId).toBe(JSON.stringify(authoredJsonSchema));
+
+      const mastraOptions = { io: 'input', target: 'draft-07' } as const;
+      const wrappedMastraSchema = standardSchemaToJSONSchema(
+        toStandardSchema(schema),
+        mastraOptions
+      );
+      const authoredMastraSchema = standardSchemaToJSONSchema(
+        toStandardSchema(schema.out),
+        mastraOptions
+      );
+      expect(wrappedMastraSchema, toolId).toEqual(authoredMastraSchema);
+      expect(JSON.stringify(wrappedMastraSchema), toolId).toBe(
+        JSON.stringify(authoredMastraSchema)
+      );
+    }
+  });
+
+  // Zod 4.5 stopped being able to PRODUCE this shape. Through 4.4,
+  // `z.intersection(...)` emitted `allOf`; 4.5 merges intersections to match
+  // TypeScript (colinhacks/zod#6412) and emits a plain merged object. The
+  // rejection branch is still correct and still reachable — a hand-authored or
+  // third-party tool schema can carry `allOf` — so the fixture is now the JSON
+  // Schema itself rather than something derived from Zod. Deriving it left the
+  // branch UNEXERCISED while the test still passed its other case, which is the
+  // failure mode worth avoiding here.
+  it('rejects an allOf intersection, whatever produced it', () => {
+    expect(
+      collectUnsupportedProviderSchemaShapes(
+        {
+          allOf: [
+            { properties: { left: { type: 'string' } }, type: 'object' },
+            { properties: { right: { type: 'string' } }, type: 'object' },
+          ],
+          type: 'object',
+        },
+        'example-0'
+      )
+    ).toEqual(['example-0 at $.allOf: allOf intersections are unsupported']);
+  });
+
+  // Pins the reason the case above no longer derives its fixture from Zod. If a
+  // later Zod goes back to emitting `allOf` for intersections, this fails and
+  // says so, instead of the comment quietly rotting.
+  it('records that the installed Zod merges intersections instead of emitting allOf', () => {
+    const intersection = z.toJSONSchema(
+      z.intersection(
+        z.object({ left: z.string().optional() }),
+        z.object({ right: z.string().optional() })
+      ),
+      PROVIDER_JSON_SCHEMA_OPTIONS
+    );
+    expect(intersection).not.toHaveProperty('allOf');
+    // Assert the merge POSITIVELY too. `not.toHaveProperty('allOf')` alone would
+    // also pass if a future Zod expressed the intersection some third way —
+    // `$ref`, `unevaluatedProperties` — which would invalidate the comment above
+    // just as thoroughly as a return to `allOf`.
+    expect(intersection).toMatchObject({
+      properties: { left: { type: 'string' }, right: { type: 'string' } },
+      type: 'object',
+    });
+    expect(collectUnsupportedProviderSchemaShapes(intersection, 'merged')).toEqual([]);
+  });
+
+  // The bump changes the WIRE, not just the inspector: every `.nullable()` /
+  // `.nullish()` field in the catalog now serializes as a JSON Schema type array
+  // instead of an `anyOf`. The sweep below would keep passing either way, because
+  // nothing in it carried a type-array case — so this pins both halves: that the
+  // installed Zod really emits the new spelling for a catalog-shaped field, and
+  // that provider normalization accepts it.
+  it('accepts the type-array nullable spelling that reaches providers', () => {
+    const nullable = z.toJSONSchema(
+      z.object({ root: z.string().nullable().describe('open-folder id') }),
+      PROVIDER_JSON_SCHEMA_OPTIONS
+    );
+    expect(nullable.properties?.['root']).toMatchObject({ type: ['string', 'null'] });
+    expect(collectUnsupportedProviderSchemaShapes(nullable, 'nullable')).toEqual([]);
+  });
+
+  it('rejects unsupported provider-normalization shapes with tool and JSON paths', () => {
+    const unsupportedExamples = [
+      z.object({
+        files: z.record(z.string(), z.object({ note: z.string().optional() }).strict()),
+      }),
+    ];
+
+    expect(
+      unsupportedExamples.flatMap((schema, index) =>
+        collectUnsupportedProviderSchemaShapes(
+          z.toJSONSchema(schema, PROVIDER_JSON_SCHEMA_OPTIONS),
+          `example-${index}`
+        )
+      )
+    ).toEqual([
+      'example-0 at $.properties.files.additionalProperties: structured additionalProperties is unsupported',
+    ]);
+
+    const unsupportedCatalogShapes = Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS).flatMap(
+      ([toolId, schema]) =>
+        collectUnsupportedProviderSchemaShapes(
+          z.toJSONSchema(schema.out, PROVIDER_JSON_SCHEMA_OPTIONS),
+          toolId
+        )
+    );
+
+    expect(
+      unsupportedCatalogShapes,
+      'provider null normalization only supports declared properties, arrays/tuples, and supported unions'
+    ).toEqual([]);
+  });
+
+  it('normalizes direct factory schemas through Standard Schema without mutating input', async () => {
+    const providerInput = {
+      options: [{ description: null, label: 'Continue' }],
+      question: 'Continue?',
+      selectionMode: null,
+    };
+
+    const result = await toolSchemas.AskUserInputSchema['~standard'].validate(providerInput);
+    expect(result).toEqual({
+      value: {
+        options: [{ label: 'Continue' }],
+        question: 'Continue?',
+      },
+    });
+    expect(providerInput).toEqual({
+      options: [{ description: null, label: 'Continue' }],
+      question: 'Continue?',
+      selectionMode: null,
+    });
+  });
+
+  it('keeps null values in dynamic records visible to validation', () => {
+    const schema = providerCompatibleInputSchema(
+      z.object({ headers: z.record(z.string(), z.string()).optional() }).strict()
+    );
+
+    expect(schema.safeParse({ headers: { Authorization: null } }).success).toBe(false);
+  });
+
+  it('normalizes nullable optional properties to omission', () => {
+    const schema = providerCompatibleInputSchema(
+      z.object({ note: z.string().nullable().optional() }).strict()
+    );
+
+    expect(schema.parse({ note: null })).toEqual({});
+  });
+
+  it('normalizes nullable defaulted properties to their default', () => {
+    const schema = providerCompatibleInputSchema(
+      z.object({ mode: z.enum(['brief', 'full']).nullable().default('brief') }).strict()
+    );
+
+    expect(schema.parse({ mode: null })).toEqual({ mode: 'brief' });
+  });
+
+  it('normalizes optional scalar-union null to omission', () => {
+    const schema = providerCompatibleInputSchema(
+      z.object({ selector: z.union([z.string(), z.number()]).optional() }).strict()
+    );
+
+    expect(schema.parse({ selector: null })).toEqual({});
+  });
+
+  it('normalizes provider nulls through nullable structured wrappers and tuple positions', () => {
+    const schema = providerCompatibleInputSchema(
+      z
+        .object({
+          config: z.object({ note: z.string().optional() }).strict().nullable().optional(),
+          entries: z
+            .array(z.object({ note: z.string().optional() }).strict())
+            .nullable()
+            .optional(),
+          tuple: z.tuple([z.object({ note: z.string().optional() }).strict()]).optional(),
+        })
+        .strict()
+    );
+
+    expect(
+      schema.parse({
+        config: { note: null },
+        entries: [{ note: null }],
+        tuple: [{ note: null }],
+      })
+    ).toEqual({ config: {}, entries: [{}], tuple: [{}] });
+  });
+
+  it('keeps ambiguous structured-union nulls visible to authored validation', () => {
+    const schema = providerCompatibleInputSchema(
+      z
+        .object({
+          config: z
+            .union([
+              z.object({ note: z.string().optional() }).strict(),
+              z.object({ title: z.string().optional() }).strict(),
+            ])
+            .optional(),
+        })
+        .strict()
+    );
+
+    expect(schema.safeParse({ config: { note: null } }).success).toBe(false);
+  });
+
+  it('normalizes nested ordinary-union optional null through its unique const branch', () => {
+    const schema = providerCompatibleInputSchema(
+      z
+        .object({
+          operation: z.union([
+            z.object({ action: z.literal('read'), cursor: z.number().optional() }).strict(),
+            z.object({ action: z.literal('stop'), sessionId: z.string() }).strict(),
+          ]),
+        })
+        .strict()
+    );
+
+    expect(schema.parse({ operation: { action: 'read', cursor: null } })).toEqual({
+      operation: { action: 'read' },
+    });
+  });
+
+  it('runs authored refinements and transforms exactly once', () => {
+    let refinementRuns = 0;
+    let transformRuns = 0;
+    const schema = providerCompatibleInputSchema(
+      z
+        .object({ note: z.string().nullable().optional() })
+        .strict()
+        .superRefine(() => {
+          refinementRuns += 1;
+        })
+        .transform((value) => {
+          transformRuns += 1;
+          return value;
+        })
+    );
+
+    expect(schema.parse({ note: null })).toEqual({});
+    expect(refinementRuns).toBe(1);
+    expect(transformRuns).toBe(1);
+  });
+
+  it('defers JSON Schema conversion until first parse and memoizes it per wrapper', async () => {
+    vi.resetModules();
+    const actualZod = await vi.importActual<typeof import('zod')>('zod');
+    const toJSONSchema = vi.fn(actualZod.z.toJSONSchema);
+    const mockedZ = new Proxy(actualZod.z, {
+      get(target, property, receiver) {
+        return property === 'toJSONSchema' ? toJSONSchema : Reflect.get(target, property, receiver);
+      },
+    });
+    vi.doMock('zod', () => ({ ...actualZod, z: mockedZ }));
+
+    try {
+      const { z: isolatedZ } = await import('zod');
+      const { providerCompatibleInputSchema: isolatedProviderCompatibleInputSchema } = await import(
+        '../tools/provider-compatible-input'
+      );
+      const schema = isolatedProviderCompatibleInputSchema(
+        isolatedZ.object({ note: isolatedZ.string().optional() }).strict()
+      );
+
+      await import('../tools/schemas');
+      expect(toJSONSchema).not.toHaveBeenCalled();
+
+      expect(schema.parse({ note: null })).toEqual({});
+      expect(toJSONSchema).toHaveBeenCalledTimes(1);
+
+      expect(schema.parse({ note: null })).toEqual({});
+      expect(toJSONSchema).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.doUnmock('zod');
+      vi.resetModules();
+    }
   });
 
   it('validates the manageCanvas action union, tolerating cross-action extras (model-idiomatic)', () => {

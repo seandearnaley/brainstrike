@@ -7,6 +7,7 @@ import type {
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
   McpConfig,
+  ProviderAuthInput,
   RuntimeAssistantMemorySettings,
   RuntimeData,
   ScaledToolResultBudget,
@@ -27,7 +28,7 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { PgliteMastraMemoryResult } from '@brainstrike/agent/pglite-mastra-memory';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import type { McpHostPort } from '@brainstrike/assistant-contract';
 import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
 import {
@@ -36,7 +37,7 @@ import {
   resolveLocalLlmHostClient,
 } from './local-provider-runtime.js';
 import { resolveDesktopObserverUsageTarget } from './memory-model-targets.js';
-import type { AssistantLlmHostManager } from './ports.js';
+import type { AssistantLlmHostManager, AssistantStreamRuntimeOptions } from './ports.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';
 import type { PreRequestCompactionCapabilityResult } from './stream-init-compaction.js';
 import {
@@ -44,6 +45,7 @@ import {
   trustedCompactionOverlayFields,
   withCompactionUsageChunk,
 } from './stream-init-compaction.js';
+import { buildInitialStreamMemoryOptions } from './stream-runtime-options.js';
 import type { AgentStreamFailure, AgentStreamResult, DesktopMemoryFeature } from './types.js';
 
 /**
@@ -72,12 +74,7 @@ async function readThreadTaskListForTurn<K extends AgentStreamCapabilityKinds>(
   }
 }
 
-interface InitialStreamMemoryOptions {
-  memory?: AgentStreamMemoryResult['memory'];
-  storage?: AgentStreamMemoryResult['storage'];
-  toolOutputArtifactInlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
-  toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
-}
+type InitialStreamMemoryOptions = AssistantStreamRuntimeOptions;
 
 interface ToolOutputArtifactCapabilities {
   toolOutputArtifactReader?: ScopedToolOutputArtifactReader;
@@ -167,24 +164,6 @@ export function resolveToolBuildBudget(
   }
   const model = runtimeData?.model || getProviderDefaultModel(normalizedProvider) || '';
   return resolveToolResultBudgetForModel(normalizedProvider, model);
-}
-
-function buildInitialStreamMemoryOptions(
-  memoryResult: AgentStreamMemoryResult | undefined,
-  toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined,
-  webExtractInlineMaxSerializedChars: number
-): InitialStreamMemoryOptions {
-  return {
-    ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
-    ...(toolOutputArtifactStore
-      ? {
-          toolOutputArtifactInlineMaxSerializedCharsByToolName: new Map([
-            [NATIVE_TOOL_ID.webExtract, webExtractInlineMaxSerializedChars],
-          ]),
-          toolOutputArtifactStore,
-        }
-      : {}),
-  };
 }
 
 /**
@@ -729,13 +708,27 @@ interface AgentStreamHelperDeps<K extends AgentStreamCapabilityKinds> {
  * site would surface only at runtime.
  */
 export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKinds> {
+  /**
+   * Legacy resolved-key string, retained on the port for transport parity;
+   * NOT consumed here since the BST-1352 review — auth reaches the stream
+   * exclusively through `authInput` and the runtime carries no apiKey field.
+   */
   readonly apiKey: string | undefined;
+  /**
+   * Provider auth input (BST-1352), threaded as a DIRECT parameter into the
+   * stream options. Never copied onto RuntimeData (RequestContext.toJSON
+   * drops functions — a custom_fetch closure would vanish silently).
+   */
+  readonly authInput?: ProviderAuthInput | undefined;
   readonly capabilities: AgentStreamCapabilities<K>;
   /** Trusted host-injected compaction overlay lookup; never client supplied. */
   readonly compactionOverlayLookup?: RuntimeData['compactionOverlayLookup'];
   readonly getDatabase: AgentStreamDatabaseProvider<K['database']>;
   readonly logger: ScopedLogger;
+  readonly mcpAppAdmission?: AssistantStreamRuntimeOptions['mcpAppAdmission'];
   readonly mcpConfig: McpConfig | undefined;
+  readonly mcpHost?: McpHostPort;
+  readonly mcpTaskTracking?: AssistantStreamRuntimeOptions['mcpTaskTracking'];
   // Deliberately the mutable array type: this exact array is handed through
   // runUserPromptSubmitGate and resolveInitialAgentStream into
   // @brainstrike/agent's toAiSdkStyleStream, whose signature is AgentMessage[].
@@ -764,8 +757,11 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     logger,
     messages,
     runtimeData: incomingRuntimeData,
-    apiKey,
+    authInput,
     mcpConfig,
+    mcpHost,
+    mcpAppAdmission,
+    mcpTaskTracking,
     signal,
     runId,
     toolApprovalAction,
@@ -925,7 +921,9 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       // builder returns null), so no branch is needed here.
       taskList,
       ...(mcpConfig ? { mcpConfig } : {}),
-      ...(apiKey ? { apiKey } : {}),
+      // BST-1352 review: NO bearer key on the runtime — RuntimeData reaches
+      // Mastra RequestContext serialization; credentials travel ONLY as the
+      // direct authInput parameter.
       ...(localLlmHostClient ? { localLlmHostClient } : {}),
       ...(permissionPolicy ? { permissionPolicy } : {}),
       ...(hookRunner ? { hookRunner } : {}),
@@ -988,7 +986,9 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       Math.min(
         capabilities.webExtractInlineMaxSerializedChars,
         resolvedToolResultBudget.domainModelResultCharBudget
-      )
+      ),
+      authInput,
+      { mcpAppAdmission, mcpHost, mcpTaskTracking }
     );
 
     // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/

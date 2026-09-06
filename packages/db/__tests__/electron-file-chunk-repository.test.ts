@@ -247,6 +247,39 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(query.mock.calls[1][0]).toBe('DELETE FROM file_chunks');
   });
 
+  it('runs the same fuzzy fallback over the Electron database bridge', async () => {
+    const created = createRepoWithTransaction();
+    created.query.mockResolvedValueOnce({ rows: [] });
+    created.transaction.mockResolvedValueOnce({
+      rows: [
+        {
+          ...createRowFromChunk(baseChunk),
+          fts_rank: '0.875',
+          position: '1',
+        },
+      ],
+    });
+
+    const results = await created.repo.fullTextSearch('authentcation', { queryMode: 'plain' });
+
+    expect(results).toEqual([
+      {
+        chunk: baseChunk,
+        matchKind: 'fuzzy',
+        position: 1,
+        rank: 0.875,
+      },
+    ]);
+    expect(created.query).toHaveBeenCalledTimes(1);
+    expect(created.transaction).toHaveBeenCalledTimes(1);
+    const [statements, resultIndex] = created.transaction.mock.calls[0]!;
+    expect(resultIndex).toBe(1);
+    expect(statements[0]?.sql).toContain("set_config('pg_trgm.word_similarity_threshold'");
+    expect(statements[1]?.sql).toContain('$1 <% content');
+    expect(statements[1]?.sql).toContain("plainto_tsquery($2::regconfig, $1)::text <> ''");
+    expect(statements[1]?.params).toEqual(['authentcation', 'english', 0.6, 10]);
+  });
+
   it('clears embeddings and refreshes stats in one atomic query', async () => {
     query.mockResolvedValueOnce({ rows: [{ clearedCount: 3 }] });
 

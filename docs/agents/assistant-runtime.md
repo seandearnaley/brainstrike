@@ -32,6 +32,13 @@ below are LIVE.
    visible. Auth headers, request persistence, and request-body construction
    still share the bounded watchdog for every provider, including local.
 
+   Renderer consumers read the optional desktop assistant transport through
+   `getAssistantBridge()` from `@brainstrike/assistant-contract`. That contract
+   owns the `window.assistant` shape, returns no capability on web/SSR, and
+   reports a present malformed bridge at most once per renderer process so hot
+   render/request probes cannot flood logs; do not recreate local bridge
+   interfaces, unchecked double casts, or web stubs.
+
 2. **Per-tool guard (LIVE)** —
    `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` wraps
    the combined Mastra tool map in `createMastraAgentRuntime`'s tool pipeline
@@ -43,12 +50,59 @@ below are LIVE.
    Trusted `ToolInputError` validation failures instead retain their bounded,
    model-correctable message as `tool_input_invalid`; only application-owned
    validation code may construct that error.
+   **The guard also CANCELS the work it gave up on (BST-1594).** Winning the
+   race only stops the wait, so the guard publishes a deadline `AbortSignal`
+   through `packages/agent/src/tools/tool-guard-deadline.ts` and aborts it
+   BEFORE resolving the `tool_timeout`. The seam is keyed by TOOL-CALL ID via
+   the single `readToolCallId` reader, not by execution-context identity:
+   Mastra reconstructs the context object between the guarded `execute` and the
+   tool's own callback (verified at @mastra/core 1.55), so a context-identity
+   WeakMap would silently read empty. Registration returns a release the guard
+   runs in its `finally`. The MCP runtime client folds the deadline into its
+   `tools/call` signal (never replacing `context.abortSignal`, whose identity
+   carries the `retainRawMcpCallToolResult` marker), so the SDK sends
+   `notifications/cancelled` instead of leaving a progress-deferred request
+   dangling. A call with no tool-call id publishes nothing and keeps the
+   pre-guard behaviour — the caller's signal and the SDK request bounds still
+   apply. The id is PROVIDER data, so two live executions can collide on it; the
+   later registration wins and the collision is LOGGED (`error`, not thrown —
+   a provider-chosen id must not take a working tool call down) so a
+   mis-routed cancellation is diagnosable rather than invisible. Verifier over a
+   real spawned stdio child:
+   `packages/agent/src/__tests__/mcp-tool-guard-cancellation.integration.spec.ts`
+   with `packages/agent/test-fixtures/mcp-stdio-progress-cancellation-server.mjs`.
 
 3. **Stream inactivity watchdog (LIVE)** —
    `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
-   `StreamStalledError`). `streamChunksFromMastra` wraps the raw Mastra iterator.
-   A stream stall emits a visible assistant message, a terminal `run.failed`
-   event, and an error finish so the renderer does not remain in-flight forever.
+   `StreamStalledError`). `streamAttemptChunks` wraps the raw Mastra iterator.
+   The window is PHASE-AWARE across THREE phases (BST-1408, extended for
+   reasoning): `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` governs the wait for the
+   provider to produce its first OUTPUT **in each step**,
+   `BRAINSTRIKE_STREAM_REASONING_GAP_MS` every gap while it is emitting
+   REASONING, and `BRAINSTRIKE_STREAM_INACTIVITY_MS` every gap once it is
+   demonstrably ANSWERING — see the config list below for why they must not be
+   re-merged, why the phase boundary is provider output rather than "the first
+   part", and why a reasoning delta is not an answer. Since
+   BST-1409 a stall ends the ATTEMPT, not the turn; see ATTEMPTS VS TURNS below.
+   Only an unrecoverable stall emits a visible assistant message, a terminal
+   `run.failed` event, and an error finish so the renderer does not remain
+   in-flight forever.
+   An EMPTY MODEL RESPONSE rides the same attempt rails: a terminal `finish`
+   whose reason would complete the run, on a turn the model contributed
+   NOTHING to (no text/reasoning delta carrying a non-whitespace character —
+   whitespace-only output renders an equally empty bubble — and no
+   tool-lifecycle part, across every attempt; the deltas themselves still
+   stream, since formatting whitespace between real tokens is meaningful —
+   `ToolLifecycleState.sawModelContribution`, carried
+   like the billing flags; resume legs initialize it true because the resumed
+   tool call is model output), throws `EmptyModelResponseError` from the
+   mapper's `finish` case instead of completing. Field case 2026-08-23:
+   OpenRouter's `stealth/ox-alpha` route degraded into HTTP 200 streams with
+   one instant zero-usage step and a clean `stop` finish; mapping that to
+   `run.finished` painted an empty assistant bubble marked "success". An
+   ABNORMAL finish reason is deliberately NOT re-classified — it already fails
+   the run with its own truth (gate: `COMPLETED_FINISH_REASONS`, shared with
+   `makeTerminalRunEvent` so the two cannot drift).
    The adjacent `withToolCallInputTimeout` wrapper applies its OWN, much wider
    `BRAINSTRIKE_TOOL_CALL_INPUT_MS` window as an absolute deadline from the
    first streamed tool-input marker to its matching input end/complete call.
@@ -77,11 +131,21 @@ below are LIVE.
    consumer. For the built-in local provider this signal crosses
    `LlmHostChatModel → LocalLlmHostClient → LlmHostManager`, removes the exact
    pending request, and sends the hidden renderer's cancel command.
+   When watchdog expiry or caller Stop aborts a memory-backed turn, the stream
+   adapter persists the user input plus completed visible tool work from
+   Mastra's live `MessageList`, marks the assistant row
+   `[Assistant turn aborted before completion.]`, and excludes the incomplete
+   tail before runtime disposal. Stop therefore cannot resurrect execution on
+   the next turn. The same finalizer covers approval and suspended-tool resume
+   streams, while Mastra read-only memory remains write-free. Ordinary
+   completion still uses Mastra's finish writer only; teardown never performs a
+   second normal write.
 
 4. **Mastra error-processor layer (LIVE)** —
    `packages/agent/src/mastra/error-processors.ts`, wired into `new Agent` +
    `buildToolLoopOptions` (`new Agent` in `agent-runtime.ts`; the tool-loop
-   options in `agent-streaming.ts`). Adopts three `@mastra/core`
+   options in `runtime-assembly/stream-options.ts`, moved out of
+   `agent-streaming.ts` by BST-1649). Adopts three `@mastra/core`
    built-ins that recover on EMITTED provider/API errors — disjoint from the
    guard (tool-execute failures) and watchdog (silent stalls), so no
    double-wrapping:
@@ -211,8 +275,9 @@ currently exposes no explicit client reasoning-effort path.
 
 **EVERY error finish is a failed durable outcome, not just `length`.** All three
 parts of that sentence apply to `finishReason: 'error'` too — the finish emitted
-by `makeProviderErrorTermination`, `makeStreamStalledTermination`, and
-`makeToolCallInputTimeoutTermination` (all four abnormal-ending policies live in
+by `makeProviderErrorTermination`, `makeStreamStalledTermination`,
+`makeToolCallInputTimeoutTermination`, and the empty-model-response termination
+(all five abnormal-ending policies live in
 `packages/agent/src/mastra/stream-termination.ts` since BST-986; the watchdog
 MECHANISM stays in `../stream/with-*-timeout.ts`). This was NOT true until 2026-07-25:
 `getAbnormalFinishMessage` returns `undefined` for `'error'` (deliberately — the
@@ -243,6 +308,41 @@ than another optional parameter on `makeRunEventChunk` because `detail` and
 `timestamp` are both `string`, so a positional slip between them would
 type-check cleanly while writing a timestamp into the detail field.
 
+**A provider-evidenced HTTP 401 is a REJECTED CREDENTIAL, and the visible
+detail says so — with the remedy for THAT provider's auth type (BST-1384).**
+`resolveProviderError` (`mastra-chunk-decoding.ts`) rewrites the human detail
+for a run error whose `httpStatus` is 401 into "<remedy> Provider response:
+<body>", where the remedy is keyed by the registry `authType` of the run's
+provider (subject = registry `displayName`):
+`api_key` → "rejected the API key … Update the key in Settings → Providers, or
+verify it in the provider dashboard"; `oauth_subscription` → "rejected the
+sign-in session … Sign in again in Settings → Providers" (its stored key is the
+`oauth-subscription-no-api-key` placeholder — an api-key remedy would be a
+dead end); `aws` → "rejected the AWS credentials … Update the Bedrock credential
+… or refresh the AWS profile session"; `none` → "rejected the request as
+unauthorized … Check the runtime’s API token under Settings → Local Runtimes"
+(the optional local-runtime bearer is `providerOptions.apiToken`, not a Settings
+key); unknown provider → a neutral "rejected the credential" sentence. Adding a
+registry `authType` is a compile error here until it picks a remedy. Guidance
+comes FIRST so the visible clamp can only ever shorten the provider's own text
+(pinned by the clamp spec). 401 is the ONE wrong-credential status, mirroring
+the Settings "Test connection" probe's settled classifier
+(`provider-verification.ts`: 403 = authenticated-but-limited, 429 = rate-limited
+VALID credential) — a run must never blame the credential for a status the
+probe reports as verified. The `runError` envelope (code, `httpStatus`, the
+`mastra_agent_stream_provider_error:401` log fingerprint, debug-bundle fields)
+is byte-identical to before; only the detail changes. DELIBERATE asymmetry with
+the probe, do not "fix" either side to match the other: the probe composes its
+detail from the status alone (bodies are never echoed there), while this path
+appends the provider body — it is the user's only provider-side evidence, the
+pre-change visible detail WAS the raw body, and `runError.message` persists it
+regardless, so nothing new is exposed (some providers do echo a partially
+masked key in a 401 body, e.g. OpenAI's `Incorrect API key provided: sk-…XYZ`).
+Motivating field failure (2026-08-21): OpenRouter's 401 body is literally "User
+not found." for ANY unrecognized key, so a revoked stored key surfaced as an
+opaque app failure and read as a regression for a day. Pinned by the
+`rejected credential (HTTP 401)` block in `mastra-chunk-decoding.spec.ts`.
+
 **Finish-reason absence is distinct from a raw unsupported value (BST-868).**
 `readFinishReason` and `resolveFinishReason` preserve a missing, empty, or
 non-string Mastra field as Brainstrike's internal `'absent'` sentinel. The AI
@@ -266,7 +366,25 @@ lives in `runtime-assembly/tool-pipeline.ts`; OpenRouter billed-cost/usage
 extraction lives in `runtime-assembly/usage-metering.ts`):
 `sanitize/discover → timeout guard → lifecycle hooks → plan/permission/suspend
 gates → provider-native swap → artifact settlement → model-output projection →
-Agent`. The final
+Agent`. The still-unregistered MCP Apps path captures its admission capability
+immediately after the plan/permission/suspend gates. Admission returns an
+opaque one-use executor bound to the exact post-gate tool entry and exact
+server/tool identity; the Apps preparer has no separate invocation, guard, or
+hook injection seam. The host authority creates a generation-bound preparation
+id before invoking the preparer and requires its paired release callback to
+settle before a denied or cancelled call completes, including a cancelled
+preparation response. It receives no separate policy, plan, enabled-tool, or
+storage decision: a tool omitted by any ordinary gate is absent and fails
+visibly. The authority-owned per-call abort signal marks that bound execution
+for raw MCP result retention, so the transport adapter and temporary preview
+wrapper preserve the complete `CallToolResult` before artifact and model
+projection. Canonical `isError: true` server results remain successful JSON-RPC
+results with exact content and metadata; thrown transport/execution failures
+alone become ordinary guarded errors. An admitted App call therefore uses the ordinary guard,
+hooks, and execution-duration telemetry exactly once. Replaying the bound
+executor fails visibly before another tool execution can start.
+
+The final
 projection uses Mastra's native `toModelOutput`, so the mapping observes the
 post-hook execution result without replacing it. A discriminated internal
 carrier takes PostToolUse context to `toModelOutput`; Mastra's official
@@ -441,8 +559,28 @@ separate path unaffected by any of the above and stays enabled.
 When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
 tool map is settlement-wrapped after policy/provider transforms and before
 `toModelOutput`. Non-media results above 12,000 UTF-8 bytes are fully retained
-before an artifact envelope can reach display/transcript. A trusted per-tool
-canonical-name map may lower the inline threshold by
+before an artifact envelope can reach display/transcript.
+MCP settlement also consults the generic model projector before retaining an
+otherwise-inline result (BST-1655). A 9 KB issue can fit the 12 KB artifact
+ceiling yet exceed the final 8 KB model envelope. The projection owner compares
+its actual bounded value with complete source text, including JSON escaping and
+the domain reserve used with PostToolUse context; any loss requires settlement.
+This predicate applies only to MCP tools from the eligible runtime map. Task
+status projections and inline media keep their dedicated contracts. No second
+size constant approximates the model projection. The complete raw output is
+stored before publishing a recovery page; storage failures still fail visibly.
+Runtime settlement requires an explicit reader resolver. It resolves exactly
+one eligible reader from the canonical name map before storage; zero or
+multiple matches fail visibly without writing an artifact. Recovery pages use
+the exact callable id. MCP Apps retain their complete marker,
+origin, and ordinary result in display/transcript output so sandbox mounting
+and hydration remain valid; only the ordinary result is serialized for model
+artifact recovery. Apps media takes the existing inline media path. The eligible
+artifact reader remains on the core discovery surface, so recovery never
+requires a search call. The reader's own model projector receives
+the sanitized tool through the central projection wrapper's receiver and fits
+continuation guidance with that same id. Standalone page helpers retain their canonical-name default.
+A trusted per-tool canonical-name map may lower the inline threshold by
 serialized characters when a complete domain projection has a tighter budget.
 `brainstrike.webExtract` uses the smaller of 2400 characters and the active
 run's resolved domain-projection character budget: smaller extracts project
@@ -499,9 +637,21 @@ Mastra applies that hook's result back to the live `MessageList`.
 projections are resolved. It replaces only old, completed, successful native
 read/search/retrieval calls that have a serializable non-multimodal stored
 projection. The newest eligible read/search/retrieval step stays verbatim, as do missing
-projections, errors, edits, commands, verification, tasks, discovery, skills,
+projections, errors, commands, verification, tasks, discovery, skills,
 approvals, incomplete calls, and MCP tools. It never mutates the live
-`MessageList` or durable rows. Same-turn and reload integration tests must keep
+`MessageList` or durable rows.
+
+EDITS get one narrow, separate treatment (2026-08-23 ctx-explosion
+investigation, H2): a SETTLED `writeWorkspaceFile` / `stringReplaceWorkspaceFile`
+call — successful result, outside the same recent-step window — whose
+serialized args exceed 2,000 chars has its prompt-side INPUT collapsed to the
+identifying fields (`path`, `root`) plus an honest `elidedArguments` marker.
+The call/result pair stays structurally in place (nothing is stubbed or
+replayed), the RESULT stays verbatim, failed or in-flight edits keep full args
+(they may matter for a retry), and durable rows are untouched — same
+wire-only `processLLMRequest` guarantee as the read filtering. Rationale: a
+57 KB write's content otherwise rides every subsequent request of every
+subsequent leg while carrying no information the file on disk does not. Same-turn and reload integration tests must keep
 proving raw arguments/results remain persisted. A file write followed by two
 successful reads therefore retires the older redundant read while preserving
 the write and newest verification result; later protected state/working-memory
@@ -544,13 +694,16 @@ live in `docs/agents/assistant-providers.md`.
 
 **Hosted native-tool definition and prompt budget (LIVE):**
 The runtime does not maintain a parallel provider-tool catalog.
-`@brainstrike/assistant-contract` supplies canonical ids and descriptions;
-`NATIVE_TOOL_INPUT_SCHEMAS` in `packages/agent/src/tools/schemas.ts` supplies
-the exact Zod input object for each desktop native id. The desktop registry
+`@brainstrike/assistant-contract` supplies canonical ids and descriptions from
+the per-tool `defineNativeTool` declarations (`native-tools/definitions/*.ts`,
+BST-1646); `NATIVE_TOOL_INPUT_SCHEMAS` in `packages/agent/src/tools/schemas.ts`
+is derived from those same declarations and supplies the exact Zod input object
+for each desktop native id. The desktop registry
 uses those objects directly, `validateToolInput` parses with the same map, and
 Mastra performs the Standard Schema → provider JSON Schema conversion. The
-browser-safe `NATIVE_TOOL_SCHEMAS` registry is intentionally lossy display
-metadata and MUST NOT enter execution, validation, or provider registration.
+browser-safe `NATIVE_TOOL_SCHEMAS` registry is lossy display metadata derived
+from those same Zod objects (`toToolSchemaDisplay`, BST-1646) and MUST NOT
+enter execution, validation, or provider registration.
 
 The hosted surface is guarded at both sides of Mastra's conversion boundary.
 The authored full-registry red baseline must fit within 7,900 `o200k_base`
@@ -606,10 +759,329 @@ cannot be compacted away.
 > `mastra-error-processors.spec.ts` (retry, prefill recovery, TokenLimiter
 > clobber-guard regression, pinned `maxProcessorRetries`, bounded-terminal).
 
+## MCP TASK STATUS AND RESTART CONTROLS (BST-1565)
+
+`McpTaskStatusCard` is a controlled, browser-safe status surface, not a tool
+result card. It receives the bounded `McpTaskPresentation` contract and one
+injected controller port; it neither imports the agent runtime nor reconstructs
+Tasks authority in the renderer. Recover and Cancel submit the complete opaque
+handle unchanged. The agent-owned controller revalidates protocol, capability,
+server/resource, principal, and authority epoch before and after the existing
+repository/lifecycle/interaction authority runs.
+
+The card remains truthful while actions are pending: recovery does not switch
+to live and cancellation does not show `cancelled` until the controller returns
+an observed state. Actions are single-flight by complete opaque authority
+handle, so newer observations for the same handle stay pending while an
+authority-epoch or other handle replacement fences the stale outcome. Stable
+diagnostics render as a
+focused alert; successful actions move focus to the live status summary, which
+is a polite status region. The identity is never rendered, the transition list
+is already bounded by the contract, and unexpected authority errors use fixed
+copy rather than exposing paths or credentials. The component is exported for
+opt-in composition only; host registration and advertisement of Tasks are
+governed by `docs/agents/assistant-providers.md`.
+
+### TOOL-PATH WIRING (BST-1566)
+
+The agent runtime's MCP tool path is production-wired for a created task
+(`packages/agent/src/mastra/mcp-task-tool-result.ts`, consumed by
+`executeMcpTool` in `mcp-runtime-client.ts`):
+
+- **Capability, not environment.** `MastraAgentRuntimeOptions.mcpTaskTracking?:
+  McpTaskTrackingCapability` (the port in `packages/agent/src/mcp/task-tracking.ts`)
+  is threaded exactly like `toolOutputArtifactStore`: runtime option →
+  `composeRuntimeToolMap` → `createMcpRuntimeClient({ mcpTaskTracking,
+  toolTimeoutMs })`, and it survives `toAiSdkStyleStream`'s `optionsOverride`
+  Pick. Only a trusted host composes it; web and host-less runs leave it absent
+  and every MCP call stays synchronous.
+- **Detection covers both wire shapes.** A `tools/call` answer is a created task
+  when it is the bare `resultType: 'task'` result OR the client extension
+  registry's neutral envelope `{ [REGISTERED_EXTENSION_RESULT_KEY]: task,
+  content: [], resultType: 'complete' }` (`readRegisteredExtensionResult` is the
+  inverse of `rewriteIncomingMessage`; never re-implement the unwrap). Both are
+  parsed with `parseMcpCreateTaskResult` — a malformed task throws, it is never
+  coerced into an ordinary result. Detection runs before the raw-result
+  retention and `isError` branches: a task has no content to retain.
+- **NO SILENT FALLBACK.** A task result on a runtime without `mcpTaskTracking`
+  throws `MCP tool "<server>.<tool>" returned a task but this host has no task
+  tracking capability`. The task is never dropped, never returned as raw state.
+- **Identity.** `track()` receives `configuredServerId = server.name`, which IS
+  the host authority snapshot's `configuredServerId` (mapped verbatim in
+  `createMcpRuntimeClient`) and therefore matches `McpTaskHandle.serverId` on
+  the desktop host; `toolName` is the unprefixed MCP tool name.
+- **App-originated calls return the wire task.** When the Apps admission
+  executor marked the call for raw retention (`shouldRetainRawMcpCallToolResult`),
+  the tool still hands the task to `track()` so the host owns it, then returns
+  the canonical `CreateTaskResult` unchanged WITHOUT awaiting settlement: the
+  MCP App client expects that result and its frame bridge aborts inbound
+  requests after 10 s, far under the settlement wait. This branch runs before
+  the ordinary settlement branch; a tracking-less host still throws.
+- **Bounded settlement.** After `track()` the tool awaits
+  `awaitSettlement(handle, { timeoutMs, signal })` with
+  `timeoutMs = min(45_000, floor(0.75 × toolTimeoutMs))`
+  (`MCP_TASK_SETTLEMENT_WAIT_MS`, `resolveMcpTaskSettlementTimeoutMs`). The
+  guard's ceiling (`BRAINSTRIKE_TOOL_TIMEOUT_MS`, default 60s) is not observable
+  from inside `execute`, so the wait is capped under the ceiling that
+  `applyToolGuards` enforces; the remaining quarter covers the `tools/call`
+  round trip and `track()` so the guard can never report a timed-out tool for a
+  task that is tracked and healthy. A ceiling too small to hold any wait throws
+  at runtime construction. Timeout is not an error: the capability resolves
+  `{ settled: false, reason: 'timeout', task }` and the tool returns the live
+  presentation the status card keeps updating.
+- **Persisted marker vs model projection.** The tool's RAW domain result (what
+  persists on the tool invocation, and what the live display/transcript
+  transforms pass through unchanged) is
+  `createMcpTaskToolInvocationResult(presentation)` from
+  `@brainstrike/assistant-contract` (`{ kind: 'mcp-task', task }`). The
+  MODEL-visible output goes through the existing `toModelOutput` seam:
+  tracking-capable runtimes give every MCP tool `projectMcpTaskToolModelOutput`,
+  which returns `{ type: 'json', value: projectMcpTaskForContext(task) }` for the
+  marker and `undefined` for every other result (the pipeline then applies its
+  generic projection, so non-task MCP results are unchanged). The projection
+  never carries the control handle or raw task state and is bounded by
+  `MCP_TASK_CONTEXT_MAX_BYTES` (2,048), tightened to the run's
+  `domainModelResultCharBudget` via `getActiveToolResultBudget()` so the
+  smallest scaled budget cannot trip the domain-projection RangeError.
+
+Tests: `packages/agent/src/__tests__/mcp-task-tool-result.spec.ts` (detection
+both shapes, malformed rejection, timeout resolution, absent-capability throw,
+settled/timeout flows, projection bound at the smallest budget) and the "MCP
+task results" block in `mcp-runtime-client.spec.ts` (end-to-end through the
+runtime tool, `track` identity, persisted marker, model projection).
+
+### TOOL-PATH WIRING (BST-1572)
+
+The ordinary model-initiated MCP tool path now persists the renderer-owned Apps
+mount marker when the executing tool definition advertises
+`_meta.ui.resourceUri` (`packages/agent/src/mastra/mcp-app-tool-result.ts`,
+consumed by `executeMcpTool` in `mcp-runtime-client.ts`):
+
+- **Strict definition detection.** A definition with no own `_meta.ui` member
+  is an ordinary MCP tool and is unchanged. A present `_meta.ui` is parsed by
+  `parseMcpAppToolMeta` from `@brainstrike/mcp-app-host` before `tools/call`;
+  invalid keys, shapes, visibility, size, or a non-`ui://` resource URI throw
+  visibly before the remote tool can execute. A valid `ui` object without
+  `resourceUri` remains an ordinary result.
+- **Ordinary calls only.** The Apps admission executor marks its authority-owned
+  abort signal with `retainRawMcpCallToolResult`; that early return remains
+  before Apps marker construction and preserves the complete `CallToolResult`
+  for preview/authority execution. The marker is built only on the ordinary
+  model-initiated path.
+- **Ordering and ordinary result.** Created Tasks first settle to their existing
+  task marker (except app-originated raw-retention calls, which return the
+  CreateTaskResult after `track()` — see the BST-1566 section). For non-task calls the raw successful `CallToolResult` is kept
+  when there is no `structuredContent` or when media is present; otherwise the
+  existing `structuredContent` value is used. Canonical `isError: true` throws
+  before any Apps marker exists. The selected value is exactly the result this
+  path returned before BST-1572.
+- **Persisted marker and identity.** `createMcpAppToolResult` calls
+  `createMcpAppToolInvocationResult` with `serverId = server.name` (the
+  configured server id), the unprefixed MCP `toolName`, the strict `ui://`
+  `resourceUri`, and `mimeType: 'text/html;profile=mcp-app'`. The raw domain
+  result is `{ kind: 'mcp-app', app: { mimeType, resourceUri, serverId,
+  toolName }, result: ordinaryResult }`. Existing hook display/transcript
+  transforms and bounded artifact settlement preserve this small raw domain
+  marker exactly as they do the sibling Tasks marker.
+- **Model projection.** Apps metadata never reaches the model.
+  `projectMcpAppOrTaskToolModelOutput` composes the Tasks projector with the
+  Apps marker reader. The central `toModelOutput` seam unwraps `result` before
+  the custom projector and before generic fallback, so a nested task keeps its
+  bounded task projection and every other Apps result receives exactly the
+  generic projection its `ordinaryResult` would have received without the
+  marker. Definitions with neither Tasks capability nor `_meta.ui` retain no
+  custom projector.
+
+Tests: the "MCP Apps tool results" block in
+`packages/agent/src/__tests__/mcp-runtime-client.spec.ts` pins both ordinary
+result shapes, strict metadata failure, unchanged non-Apps tools, `isError`
+ordering, persisted marker identity, and marker-free model projection;
+`mcp-app-tool-call.spec.ts` pins the unchanged admission executor path.
+
+### ATTEMPTS VS TURNS (BST-1409)
+
+A turn may span several provider ATTEMPTS. `runTurnAttempts` (`turn-attempts.ts`,
+moved out of `agent-streaming.ts` by BST-1649) owns the turn; `streamAttemptChunks`
+(still in `agent-streaming.ts`) owns one attempt and now PROPAGATES a
+watchdog error instead of deciding the turn's fate. `runtime.dispose()` moved to
+the turn's `finally` and has exactly one owner across all three legs — the
+runtime is reusable, since `dispose()` only shuts down mastra + the MCP client.
+
+- **A stall ends the attempt.** The turn continues with a fresh
+  `agent.stream` carrying the original request plus everything the stalled
+  attempt produced, read from Mastra's in-memory `messageList` on the stream
+  result. Bounded by `BRAINSTRIKE_STREAM_STALL_ATTEMPTS` (default 2).
+- **Why the message list, not memory.** An aborted stream persists NOTHING to
+  `mastra_messages` — measured, not assumed (BST-1415): not the completed tool
+  calls, not even the user's message. That is also why re-sending the original
+  request in a continuation is safe rather than duplicative: the continuation is
+  the turn's only writer.
+- **`readProducedMessages()` returns `undefined` vs `[]` and the difference is
+  SAFETY-CRITICAL.** `[]` means the attempt genuinely produced nothing (a stall
+  before the first step), so continuing from the request alone re-runs nothing.
+  `undefined` means we could not tell, and continuing would re-send the request
+  as if the turn never started — every completed tool would execute a second
+  time. A turn that cannot prove what it produced does NOT resume.
+  An empty list is additionally CORROBORATED against what the attempt was
+  observed to do: `terminalToolCallStates` gains an entry per completed tool
+  call, so `produced.length === 0` while tools demonstrably ran is a
+  contradiction and refuses recovery too. That trust would otherwise rest
+  entirely on the reader, and being wrong reaches the re-execution outcome
+  through the branch treated as safe.
+- **Five refusals, all terminal:** user cancel (a decision, not a transport
+  fault), budget exhausted, unreadable produced messages, produced messages that
+  contradict completed tools, and `ToolCallInputStreamingTimeoutError` (a
+  generation fault — re-sending the same prompt has no reason to change it).
+  Recovery covers `StreamStalledError` only.
+- **Recovery is never silent.** Each stall emits `run.stalled` and each
+  continuation `run.resumed`, both carrying attempt/budget and the stall's full
+  BST-1408 breadcrumb (phase, parts-seen, `lastPartType`). A RECOVERED stall is
+  followed by no `run.failed`, so its `run.stalled` is the only durable record
+  of it and must carry the whole breadcrumb, not a subset. A refused stall's
+  `run.stalled` names the refusal.
+- **Per-attempt state, EXCEPT billing.** `ToolLifecycleState` is built per
+  attempt (`createTurnAttemptLifecycleState`), and the split is not uniform:
+  latency and in-flight lifecycle (`streamStartedAtMs`, `firstTextLatencyMs`,
+  the delegation tracker, the tool-call maps) are per attempt, because carrying
+  them would mis-time latency and re-settle tools the replaced attempt already
+  settled. BILLING is per TURN — a recovered turn really did spend the stalled
+  attempt's tokens, and the `message-finish` is what the run ledger and spend
+  analytics persist. `stepBilledCostUsd` / `stepCount` / the billed-cost flags
+  carry directly; TOKENS ride separate `carried*` fields because Mastra's finish
+  usage is cumulative over ONE stream and `stepped*` keeps its per-stream
+  meaning for the steered finish. Context sizes never accumulate: they describe
+  the latest step's prompt, and inflating them would claim a context window that
+  never existed.
+- **A replaced attempt SETTLES what it started.** The turn drains both
+  `makeCancelledDelegationRunEventChunks` AND
+  `makePendingToolOutputRunEventChunks` before discarding the attempt — the same
+  pair the terminal path drains. Without the second, a tool whose only terminal
+  observation was a `tool-output` part loses its `tool.completed` row and its
+  duration outright, because the continuation treats that tool result as INPUT
+  and never re-emits it.
+- **One turn reports one `run.started`.** A continuation is a fresh
+  `agent.stream`, so Mastra re-emits `start` and the mapper would produce a
+  second `run.started`; `withoutDuplicateRunStarted` drops it, and `run.resumed`
+  is what marks the new attempt. Left in, the timeline shows two "Assistant run
+  started" rows for one turn and every started/finished aggregation
+  double-counts recovered runs.
+- **A continuation that cannot be CONSTRUCTED terminates like everything else.**
+  `handleStreamFailure` already disposes the runtime and rethrows, so the turn
+  must not dispose again (`dispose()` has no idempotency guard, and a throw from
+  a second `mcpClient.disconnect()` would replace the original error). The turn
+  yields the same visible-text + `run.failed` + error-finish triple instead of
+  throwing mid-stream, which would have been the one ending whose cause is
+  invisible in the durable timeline.
+- **Only the INITIAL leg recovers.** Approval- and suspend-resume consume a
+  one-shot approval/snapshot that cannot be re-issued, so they run through the
+  same turn runner with `maxAttempts: 1` and keep the pre-BST-1409 behavior.
+- **Construction failures still REJECT the returned promise.** The first attempt
+  is built eagerly, before the generator is returned: a run rejected before any
+  stream part must surface as a transport rejection the renderer renders as an
+  error block (see the renderer safety net above), never as a mid-stream throw.
+  Pinned by the `stream_failure`/`empty_stream` cases in `mastra-streaming.spec.ts`.
+- Paired tests: `mastra-stall-recovery.integration.spec.ts` (recovery, budget
+  exhaustion, opt-out, user-cancel, continuation prompt contents, orphan drain
+  across a recovery). Every recovery case asserts the TOOL-EXECUTION COUNT: a
+  continuation that lost the completed steps would still answer plausibly, it
+  would just re-run every tool first, so only the count proves the carry-forward.
+
 Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
 defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
-- `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
+- `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000) — the tolerated gap
+  between parts, once the provider is demonstrably ANSWERING. Scoped to that
+  phase only since BST-1408, and narrowed again to exclude reasoning (see the
+  reasoning-gap entry below).
+- `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` (default 600000) — the budget for the
+  provider to produce its first output, **per step, not per stream**.
+  DELIBERATELY decoupled from the inactivity window and never tighter than it,
+  for the same reason the tool-call-input budget is (BST-839): the two answer
+  different questions — "has the provider started answering yet?" versus "is it
+  still delivering?". Sharing one number killed a healthy 18-minute turn,
+  because a request carrying ~169k prompt tokens at `reasoning.effort: 'max'`
+  can spend minutes producing nothing observable, which is indistinguishable
+  from a wedged transport at the stream-part layer. Same explicit-vs-default
+  resolution as the input budget: two EXPLICIT values in a contradictory shape
+  throw; an unset first-output window widens to the inactivity window.
+
+- `BRAINSTRIKE_STREAM_REASONING_GAP_MS` (default 600000) — the tolerated gap
+  between REASONING parts. Same explicit-vs-default resolution and same
+  never-tighter-than-inactivity invariant as the first-output window.
+
+  **A REASONING DELTA IS NOT AN ANSWER — do not relitigate.** BST-1408 split
+  "has it started?" from "is it still delivering?" but left reasoning on the
+  wrong side of that line: any non-scaffolding part flipped the stream to
+  `streaming`, so the FIRST reasoning token armed the 120s window for the rest
+  of the step. Interleaved-thinking models emit a burst of thought, pause to
+  think further, then continue — so that window was armed against precisely the
+  pauses high reasoning effort is made of. `google/gemini-3.7-flash` at
+  `reasoning.effort: 'high'` died on both attempts of one turn (run-352bcf33),
+  each time with `phase: 'streaming'` and `lastPartType: 'reasoning-delta'`.
+
+  Reasoning shares the first-output BUDGET because it asks the first-output
+  QUESTION: the model is working and has not begun its answer. It is a separate
+  phase rather than an addition to the scaffolding set, because a reasoning part
+  IS provider output — folding it into scaffolding would let it re-arm the
+  first-output window on every delta and would erode the closed-list rule that
+  makes unknown new part types default to "this is output".
+
+  The phase moves BOTH ways: the next answer part returns the stream to
+  `streaming`, so a wedged provider mid-answer is still caught by the tight
+  window, and reasoning resuming after text widens it again.
+
+  Owned by `MASTRA_REASONING_PART_KINDS` in `agent-streaming.ts`, typed
+  `Partial<Record<StaticMastraChunkType, …>>` — the SAME union derived from
+  Mastra's own `ChunkType['type']` that `MASTRA_STATIC_CHUNK_DISPOSITIONS` is
+  checked against — so a Mastra rename fails to COMPILE here rather than
+  silently dropping a type back into the tight window.
+
+  CONTENT vs MARKER inside that record is load-bearing. A thinking delta ENTERS
+  the reasoning phase; block bookkeeping (`reasoning-end`,
+  `reasoning-signature`) only PRESERVES the phase already in effect. Providers
+  exist that emit `text-start` BEFORE `reasoning-end`, so a marker that set the
+  phase would widen the window back out exactly as the answer began. Preserving
+  keeps a not-yet-answering stream wide — the gap between `reasoning-end` and
+  the first `text-delta` is still "has it begun answering?" — and an
+  already-answering stream tight.
+
+  `resolveStalledVisibleMessage` (stream-termination.ts) has its own branch for
+  this phase: "stalled without output" would be actively wrong when the model
+  was producing reasoning and stopped mid-thought.
+
+  **THE PHASE BOUNDARY IS PROVIDER OUTPUT, NOT "THE FIRST PART" — do not
+  relitigate.** Measured through the real Mastra loop, a turn's raw parts are:
+
+  ```
+  start       t+0ms      <- framework, instant
+  step-start  t+7ms      <- framework, instant
+  tool-call   t+312ms    <- provider, after 305ms of thinking
+  step-start  t+321ms    <- framework, instant
+  text-start  t+723ms    <- provider, after 402ms of thinking
+  ```
+
+  A rule that ends the wide window at the first RAW part therefore covers ~0ms
+  of provider time and measures every real time-to-first-token against the tight
+  one — which is the exact failure the split exists to prevent. Worse, Mastra
+  opens EVERY step with that prologue, so time-to-first-output recurs throughout
+  a turn: the captured incident's fatal gap was a MID-TURN step's TTFT
+  (`run.step.started` 07:51:41 → silence → killed 07:56:48), not the opening
+  one. `withInactivityTimeout` therefore takes a `countsAsProviderOutput`
+  classifier; `MASTRA_SCAFFOLDING_PART_TYPES` (`start`, `step-start`) both KEEPS
+  and RE-ARMS the wide window, so each step gets its own budget. That set is a
+  CLOSED list of scaffolding rather than an allowlist of output kinds: a Mastra
+  release adding a new provider part type must default to "this is output"
+  (tightening on a part known to come from the provider), never to "this is
+  free". The real-loop coverage is
+  `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec.ts` —
+  it exists because the shared fake-Mastra harness feeds a hand-written part
+  list with NO prologue and structurally cannot see this.
+- `BRAINSTRIKE_STREAM_STALL_ATTEMPTS` (default 2) — provider attempts per turn
+  before a stall becomes terminal. `1` disables recovery (the pre-BST-1409
+  behavior) and is what the terminal-path specs pin. Deliberately small: a
+  resume re-sends the whole prompt (~169k tokens in the captured incident), so
+  an unbounded budget would let a reliably-stalling route bill one turn
+  repeatedly.
 - `BRAINSTRIKE_TOOL_CALL_INPUT_MS` (default 600000) is the maximum wall-clock
   time for one incomplete streamed tool input; argument deltas do not reset it.
   Decoupled from — and never tighter than — the inactivity window (BST-839).
@@ -624,9 +1096,25 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   not include bearer tokens or silently restart/unload the external server. The
   timeout aborts the exact active provider request; it never lengthens the
   window or leaves generation running after the visible terminal failure.
-- Invariant: tool timeout < stream inactivity <= tool-call input budget (the
-  second comparison is enforced only against an explicitly configured input
-  budget; see above).
+- Invariant: tool timeout < stream inactivity <= tool-call input budget, and
+  stream inactivity <= stream first-output window, and stream inactivity <=
+  stream reasoning-gap window (all `<=` comparisons are enforced only against an
+  explicitly configured value; see above). The
+  FOUNDATIONAL tool-timeout ordering is checked before any derived window, so a
+  config breaking several invariants names the first thing to fix.
+- The stall diagnostic and the durable `run.failed` metadata carry `phase`
+  (`awaiting-output` | `reasoning` | `streaming`), `partsSeen` (scaffolding included — it is
+  transport activity, and `partsSeen: 2` beside `awaiting-output` is precisely
+  the "prologue arrived, provider never did" story), and `lastPartType`
+  (BST-1408). `lastPartType` is the last part the caller could NAME: an
+  undescribable part leaves the previous name in place rather than erasing the
+  breadcrumb. The user-visible text differs by phase too — a step that never
+  started reads "produced no output within Xms of the request starting", not
+  "stalled ... without output", which implied it had been streaming. `inactivityMs` alone could not say WHICH silence
+  fired or what the provider last sent, so the 2026-08-22 incident had to be
+  reconstructed by inference from run-event timestamps. The watchdog itself
+  stays generic over the stream element: `describePart` supplies the Mastra part
+  type from the call site rather than the timer module assuming a shape.
 - `BRAINSTRIKE_APPROVAL_STALE_MS` (default 86400000 = 24h) — advisory age after
   which a REDISCOVERED suspended approval is flagged `stale` in the re-surfaced
   notice (see PERMISSION ENGINE §restart-safe rediscovery). Deliberately
@@ -728,7 +1216,7 @@ renderer reload, or a dropped socket.
 
 Mastra title generation has its own finish-boundary lifecycle. The PGlite
 memory factory opts into top-level `generateTitle`, while
-`streamChunksFromMastra` starts the public
+`streamAttemptChunks` starts the public
 `Agent.generateTitleFromUserMessage` request before yielding the terminal
 finish. The downstream data-stream consumer stops pulling immediately after
 that finish, so the generator's `finally` must await the already-started title
@@ -766,8 +1254,23 @@ The reasoning disclosure renders live reasoning text directly from
 renderer, because that renderer reads a different part hook and produces an
 expanded-but-empty disclosure. Reasoning may remain auto-collapsed by the
 activity UI, but user expansion must show accumulated text before, during, and
-after intervening tool calls; the active icon clears only on a real terminal
-part.
+after intervening tool calls. Each contiguous activity group renders through
+`ChainOfThoughtPrimitive.Parts` at its own position (BST-1656); never hoist later
+parts into the first group or suppress later groups. Reasoning indicators and
+activity status derive from that group's parts/status, so earlier groups remain
+inactive when later thinking starts. The existing named tool-renderer map is
+adapted into the chain primitive's single tool slot, preserving task-list,
+subagent, and MCP result renderers. Activity wrappers remain mounted through
+completion, preserving disclosure state and tool identity. Reasoning-only groups
+omit the zero-tool step count. Incomplete group status is authoritative even
+without tool calls: cancellation shows a neutral Stopped summary, while other
+incomplete reasons show Activity failed. A completed call with the canonical
+`isError` flag also marks its group failed; domain fields alone never imply
+failure, and a call is counted once. Completed tool details remain
+accessible by expanding the activity group; packaged UI proofs follow that
+same disclosure interaction. Tool durations and shell output remain correlated
+by call id across the message, while each group's elapsed fallback uses only its
+own tool events. The turn-wide task list renders once in the first group.
 
 Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.37's
 decoder/tool pipeline hand-rolls nested stream controllers (merge streams,
@@ -1145,13 +1648,52 @@ viewport, not by thread length.
   Tier 2 puts inter-message spacing and the trailing gap on the row wrapper as
   padding.
 
-Paired tests: `packages/ui/src/__tests__/assistant-thread-virtualization.browser.test.tsx`
+Paired tests: `packages/assistant-ui/src/__tests__/assistant-thread-virtualization.browser.test.tsx`
 (real Chromium: tier attribute either side of the threshold, bounded DOM rows at
 N=1000 with all messages still reachable, opening at the newest message, append
 while scrolled up, streaming growth staying pinned, tier-1 containment computed
 styles) and the BST-897 case in `assistant-ui-panel-architecture.test.ts`.
 
 ---
+
+## IN-FLIGHT TOOL CARD PROGRESS (BST-849)
+
+`ToolFallback`'s running row reads its label from what assistant-stream already
+delivers, so a 30–120 s argument stream is no longer indistinguishable from a
+hung run: `Receiving input · 12.4 KB · 42.0s` while the model is still sending
+argument text, `Running · 44.0s` while the tool executes, and the measured
+execution time once the call settles. The pure label lives in
+`packages/assistant-ui/src/tool-call-progress.ts`; the hooks in
+`use-tool-call-progress.ts`.
+
+- **The signal is the accumulator's `state`, NOT `status.isArgsComplete`.**
+  `AssistantMessageAccumulator` (assistant-stream, pinned in lockstep with
+  `@assistant-ui/core`) stamps `state: 'partial-call'` on the tool-call part
+  it opens, flips it to `'call'` on `tool-call-args-text-finish`, and to
+  `'result'` with the result. It ALSO writes `status: { type: 'running',
+  isArgsComplete: false }` at creation and never flips that flag, so the typed
+  field cannot carry the distinction. `state` is undeclared on
+  `@assistant-ui/core`'s public `ToolCallMessagePart`, so
+  `readToolCallArgsState` narrows it off the props (the accumulator spreads
+  the whole part into the renderer) rather than casting.
+- **Fallback is silence, not a claim.** An absent or unrecognised `state`, or a
+  `partial-call` part that has received zero bytes (a zero-argument tool, a
+  call delivered whole, the window before the first delta), reads as plain
+  `Running`. "Receiving input" is asserted only once bytes have arrived.
+- **Elapsed comes from `part.timing`** (`startedAt` at part creation,
+  `completedAt` with the result), ticking once per second while running via
+  `useToolCallElapsedMs`; no timing means no timer — never a fabricated clock.
+- **Byte count is incremental** (`useIncrementalUtf8ByteLength`): the
+  accumulator only appends, so only the new suffix is encoded per delta —
+  re-encoding the whole text per emission is O(n²) allocation on the render
+  frame budget.
+- **Contract test:** `packages/assistant-ui/src/__tests__/tool-call-args-state.contract.test.ts`
+  drives the INSTALLED accumulator through part-start → delta → args-finish →
+  result and asserts `state`, `status`, and `timing` at each step. A
+  dependency bump that renames `state`, starts flipping `isArgsComplete`, or
+  drops `timing` fails there — otherwise the UI would silently revert to
+  plain `Running` for the whole stream while every other documented runtime
+  behaviour stayed green. Re-derive this section and that test together.
 
 ## POST-EDIT LSP DIAGNOSTICS (report R2 Phase A)
 
@@ -1216,10 +1758,61 @@ capability-gated, no `isElectron()`).
   URIs converted via `fileURLToPath` so Windows drive letters survive), and
   implementations. Reuses the same pooled connection + per-file diagnose lock;
   each hover/definition/implementation query is independently bounded
-  (`QUERY_TIMEOUT_MS`) and degrades to omitted, never a throw. A malformed
+  (`QUERY_TIMEOUT_MS`) and never throws. A malformed
   marker / out-of-range line / unmatched or ambiguous `match` is an actionable
   input error thrown for the model to correct. Registered across the full multi-registry checklist (read-risk,
   no approval).
+- **An unanswered inspect query is never an empty one (BST-1614).** A bounded
+  query that TIMED OUT or THREW must not degrade to the same value the server's
+  own "nothing here" answer produces. `queryHover`/`queryLocations` therefore
+  return a `QueryOutcome` — `{ok:true, value}` or `{ok:false, reason}` — and
+  `withTimeout`'s fallback is the `QUERY_TIMED_OUT` sentinel symbol, never
+  `null`. Every leg that did not answer lands in `LspInspectionResult.queryFailures`
+  as `{query, reason:'timeout'|'error', message}`, where `query` is named for the RESULT FIELD it fills (`hover` / `diagnostics` /
+  `definition` / `implementation`) and `message` says what is UNKNOWN and what
+  not to conclude ("do not conclude it has no definition or is dead code").
+  `detail` text from a rejected request is bounded and collapsed to one line by
+  `boundQueryFailureDetail` AT THE PRODUCER: `queryFailures` is a RETURNED
+  value, and a consumer other than the projection gets these strings raw.
+  Four invariants, all test-pinned:
+  (1) a partial failure NEVER flips `available` to false — a hover that worked
+  is still returned alongside the failures; (2) the failures are logged with
+  `logger.warn`, visible at the DEFAULT `INFO` level, so a human chasing a
+  wrong "no definition" claim finds the cause without enabling debug logging;
+  (3) `| unanswered=<queries>` goes in the projection HEADER, which is the only
+  unconditional line and is self-bounding, so the "absent group is not
+  verified-empty" signal never depends on a line that fits; (4) the
+  `query_unanswered:` detail lines sit in a PRIORITY-ORDERED prelude above the
+  droppable result lines — ahead of `hover`, because they prevent a wrong
+  conclusion while hover is only informational — but the prelude is itself
+  fit-aware. `domainModelResultCharBudget` is per-run (`resolveScaledToolResult
+  Budget` clamps the domain allowance to 500..3000 tokens, so a small context
+  window floors it at 2000 chars) and a maximal header + three failure lines +
+  clipped hover measures 4338 chars, so forcing them in would make the closing
+  `assertProjectionFits` THROW — failing the tool call outright exactly when
+  the language server is already misbehaving. Do not make any prelude line
+  unconditional. Do not reintroduce a bare `catch { return []; }` on either
+  query, and do not give `withTimeout` a fallback that a real answer could
+  equal.
+- **Diagnostics settlement is RETURNED, never inferred from the map
+  (BST-1614).** `waitForDiagnostics` resolves to a `DiagnosticsWait` —
+  `{settled:true, diagnostics}` only for a non-empty publish or an empty one
+  that survived the FULL `DIAGNOSTIC_SETTLE_MS` window, `{settled:false}`
+  otherwise — and both `diagnose`/`getEditDiagnostics` and `inspect` read that
+  value. The old `hasPublishedFor` map probe is gone, and re-adding one is a
+  regression: the diagnostics map is mutable and shared, so (a) a preliminary
+  empty publish landing near the 6s deadline leaves an entry behind while the
+  settle window never completes, and (b) a publish arriving during the up-to-4s
+  semantic queries repopulates it after `inspect` already captured the line
+  diagnostics. Either way a post-hoc `has()` reports a never-settled leg as
+  ANSWERED, resurrecting the false "this line is clean" verdict inside the very
+  leg added to prevent it. Both paths are pinned in
+  `lsp-inspect-query-failures.test.ts`.
+  Pinned by
+  `apps/desktop/src/__tests__/assistant-server/lsp-inspect-query-failures.test.ts`
+  (fake JSON-RPC wire: per-query timeout, throw, and the mixed case) plus the
+  projection cases in
+  `workspace-inspection-model-projections.test.ts`.
 - **Pool + lifecycle.** One pooled server child process per workspace `rootId`
   (module-level Map, mirroring `execute-command-tool`'s `liveChildProcesses`).
   All acquisition goes through `acquireLspServer`, which registers the pool
@@ -1231,8 +1824,11 @@ capability-gated, no `isElectron()`).
   Every server MUST be torn down: `disposeLspServers()` is wired into BOTH the
   factory-reset `runtimes[]` and graceful shutdown in `main.ts` (alongside the
   shell/terminal reapers); `evictLspServersForRoot(rootId)` fires from the
-  `fs:removeRoot` IPC handler. The no-orphan proof is the heart of
-  `lsp-diagnostics.integration.test.ts`.
+  `fs:removeRoot` IPC handler. Disposal awaits the child process's actual exit,
+  not merely `child.kill()` accepting the signal, so each caller awaiting that
+  connection's disposal observes honest settlement. Pool closure against new
+  acquisitions during global/root teardown is separate follow-up territory.
+  The no-orphan proof is the heart of `lsp-diagnostics.integration.test.ts`.
 - **No silent fallbacks.** An unresolvable server, an unsupported language, or
   a diagnostics timeout all resolve to an honest result the caller attaches —
   never a throw that would fail the already-applied edit. Unsupported languages
@@ -1458,6 +2054,14 @@ a reason to abort the whole check, so it cannot be used to defeat the guard.
 
 ## PERMISSION ENGINE (TOOL APPROVAL)
 
+Scope note: MCP elicitation (a server asking the user for input or link consent
+DURING a tool call, BST-1584) is a separate consent channel from tool approval
+and suspension. Approval/suspension ride the assistant stream and render as
+thread cards; elicitation is host-scoped — desktop main's presenter authority
+pushes it over IPC to an app-wide modal (`McpElicitationHost`) and receives the
+settlement back over IPC. Neither channel resumes or approves the other; see
+`docs/agents/assistant-providers.md` (client input / elicitation).
+
 Renderer execution boundary (BST-1233): production desktop main does not import
 or register `ipc-tools.ts`, the visible preload exposes no `tools.execute`, and
 desktop Settings supplies no playground execution callback. The `window.tools`
@@ -1488,9 +2092,44 @@ later hydration retries resolution and genuine adapter failures remain visible.
 
 Flow (desktop assistant server → agent runtime):
 1. The renderer attaches the persisted policy snapshot to the request only when
-   `enforce` is true. `resolveRequestPermissionPolicy` (agent) builds the trusted
+   `enforce` is true. **ONE producer, at request-composition time (BST-1652 — do
+   not add a second):** `prepareRequestData`
+   (`packages/app-shell/src/hooks/use-assistant-request-lifecycle.ts`) calls
+   `getPermissionToolGateSnapshotInput()` against the LIVE store and sets
+   `permissionPolicyRequest` unconditionally — to the snapshot when
+   `permissionEnforceable` (the desktop data-stream transport) and `enforce`,
+   otherwise to `undefined`, which `JSON.stringify` drops. That fresh read is
+   what closes the grant→resume race ("Always allow" flips the store and
+   approves the pending call in the SAME synchronous handler, with no re-render
+   in between). Consequently `buildAssistantRequestData` deliberately does NOT
+   take or emit the field and `assistant-ui-panel-wrapper.tsx` deliberately does
+   NOT subscribe to the permission-policy store during render: a render-time
+   value could only be overwritten, while the subscription re-rendered the whole
+   assistant panel on every grant. Pinned from both sides by
+   `use-assistant-request-lifecycle.test.ts` ("permission-policy freshness at the
+   request-composition seam"), the "never attaches permissionPolicyRequest" case
+   in `assistant-ui-panel-wrapper-runtime.test.ts`, and the commit counters in
+   `assistant-ui-panel-wrapper-store-subscription.test.tsx`.
+   `resolveRequestPermissionPolicy` (agent) builds the trusted
    `PermissionToolGateSnapshot` with a SERVER-built `riskByTool`
    (`buildNativeToolRiskMap`) — the client never classifies tool risk.
+
+   WIRE SHAPE — the field's disappearance for an opted-out request is a
+   JSON-BOUNDARY ASSUMPTION, NOT the presence-means-non-default rule that a
+   neighbouring opt-in field (`subagentPersonasRequest`) uses by genuinely
+   omitting its key. Here the key is always present on the producer's object
+   and only serialization removes it; `planMode` is written the same way. Read
+   the VALUE — pass it to `resolveRequestPermissionPolicy`, which treats an
+   absent key and an explicit `undefined` identically. Full rationale
+   (including why `exactOptionalPropertyTypes` never catches drift here) is on
+   the field declaration in `packages/agent/src/types.ts`. Pinned from both
+   ends: "leaves the opt-in keys PRESENT with undefined values"
+   (`use-assistant-request-lifecycle.test.ts`) fixes the producer's shape, and
+   the "wire-shape contract" cases
+   (`packages/agent/src/__tests__/permission-policy-request.spec.ts`) fix the
+   resolver's indifference to it. The unconditional write is load-bearing and
+   must NOT be simplified to conditional spread: it has to clobber a stale
+   snapshot inherited from `requestData`, not skip it.
 2. `filterToolsByPermissionWithMetadata` (`packages/agent/src/mastra/permission-tool-gate.ts`)
    gates the tool map BEFORE the immutable `Agent` is built: `'deny'`→omit;
    `'allow'`→keep unchanged; `'ask'`→keep a CLONE with Mastra's PER-TOOL
@@ -1529,7 +2168,11 @@ Flow (desktop assistant server → agent runtime):
    selected-workspace default). Its local guard mirrors the strict agent
    schema, including unknown-key rejection; malformed arguments show the
    existing visible preview error and unmodified raw arguments rather than a
-   guessed command. Live and rediscovered approvals share this component.
+   guessed command. File-edit previews label the target path and optional
+   workspace root separately in their combined text, with an explicit
+   separator; long identifiers truncate only visually while their complete
+   text remains available to assistive technology and on hover. Live and
+   rediscovered approvals share this component.
    `brainstrike.runSkillScript` uses a separate semantic preview that names the
    activated skill and skill-relative script while showing the explicit
    mounted root, root-relative cwd, runtime, and structured argv. It never
@@ -1556,8 +2199,12 @@ Flow (desktop assistant server → agent runtime):
    your files". Settled result surface (`run-python-result.tsx`, mounted by
    `tool-fallback.tsx`): killed ≠ completed ≠ didn't-run, non-zero exit is an
    amber finish (destructive chrome is reserved for `unavailable`), cancelled
-   never renders as success or empty, truncation is a per-stream note, and
-   the card-level status maps cancelled/timed-out/killed to a `stopped` state
+   never renders as success or empty, and truncation is a per-stream note.
+   Structurally narrowed result numbers must be safe integers (non-negative
+   exit/omitted-byte values and a positive timeout) before this purpose-built
+   surface renders. Malformed numbers stay on the generic tool-result path
+   rather than producing `NaN`/`Infinity` UI. The card-level status maps
+   cancelled/timed-out/killed to a `stopped` state
    instead of the generic green check.
    The built-in local provider admits a call to this chain only after its
    arguments parse as a root JSON object. A
@@ -1623,7 +2270,8 @@ Flow (desktop assistant server → agent runtime):
    `requireToolApproval: true` (the resume API needs it); the gate runs again on
    resume so the ask tools keep their per-tool flag. Because run-wide
    `requireToolApproval: true` would suspend EVERY tool call on the resumed leg,
-   `resolveResumeApprovalGate` (agent-streaming.ts) substitutes the FUNCTION form of
+   `resolveResumeApprovalGate` (`attempt-legs.ts`, moved out of `agent-streaming.ts`
+   by BST-1649) substitutes the FUNCTION form of
    the gate backed by the rebuilt runtime's authoritative `askTools` set. Allowed
    read/internal-state tools keep running, ask-gated mutations may suspend again,
    and the canonical Mastra internal ids (`internal-approval-exempt-tools.ts`:
@@ -1661,6 +2309,46 @@ Flow (desktop assistant server → agent runtime):
    Per-tool DENY still wins in both cases: a denied tool never enters the gated
    map, so it never reaches the resume gate. A non-empty `askTools` always gates
    exactly the ask set regardless of posture.
+
+THE PAUSE IS ALSO A DURABLE ROW (BST-1402). Every approval pause writes a
+`tool.approval.requested` run event to `brainstrike_assistant_run_events`
+carrying the paused call's `toolCallId`. It exists so a LIST-WIDE question —
+"which threads are waiting on me?" — can be answered in SQL: rediscovering
+pauses from Mastra's suspended-workflow snapshot is a per-thread round trip and
+cannot be run for a whole thread list. Its consumer is the Threads panel's
+"needs you" projection (`use-threads-awaiting-approval.ts`, one resource-scoped
+live query; see `docs/agents/assistant-persistence.md` § THREAD GROUPS). Two
+properties of that row are load-bearing:
+- RESOLUTION IS DERIVED AND RUN-AGNOSTIC. Nothing marks the row answered. A
+  pause is resolved by the LATER existence of `tool.started` / `tool.completed`
+  / `tool.failed` / `tool.resume.unsupported` for the SAME
+  `metadata->>'toolCallId'`. PAIRING is on that id and never on `run_id`: the
+  approve/decline resume is a SEPARATE leg that mints its own `runId` and its
+  own `thread_runs` row, so the event that answers a pause always carries a
+  different run id than the pause. `tool.started` counts as resolved here (a
+  tool that started was approved) even though the run-timeline derivation does
+  not treat it as terminal — the two ask different questions, which is exactly
+  why `tool.started` needs an ORDERING guard the three terminals do not: the
+  approval gate runs inside `toolCallStep`, so the PAUSING leg already emitted
+  a `tool.started` for that same call before the pause row. The guard compares
+  `occurred_at` (`sequence` is per-run and meaningless across the two legs).
+  The SQL, the guard, and the producer shapes that make it load-bearing are
+  specified once in `docs/agents/assistant-persistence.md` § THREAD GROUPS — do
+  not restate the rule here. Two earlier restatements each drifted: one into the
+  opposite ruling ("no ordering guard is needed"), and one into a run-scoped
+  guard that a step with two gated calls defeats.
+- IT DELIBERATELY IGNORES `thread_runs.status`. A leg that pauses for approval
+  finishes with `finishReason: 'tool-calls'`, which every terminal writer
+  records as `completed`, so a `status = 'running'` join would make the
+  projection permanently EMPTY while the user's obligation and the suspended
+  Mastra snapshot both outlive that row. For the same reason the startup
+  run-reap does not gate it.
+- AN ABANDONED PAUSE STAYS LIT (BST-1417, known). The only thing that clears
+  the glyph is an outcome event for that `toolCallId`. A pause the user never
+  answers — and whose suspended snapshot is later discarded — leaves the row
+  unresolved forever, so its thread keeps the "needs you" glyph with no pause
+  left to answer. Lighting it is the safe direction (never silently drop an
+  obligation), but it is a real dead end, not a design intent to defend.
 
 APPROVAL ACTION MESSAGES ARE BOOKKEEPING, NOT CONVERSATION: clicking
 Approve/Decline (and the suspend notice's Approve/Reject/Answer) appends a user
@@ -1836,7 +2524,8 @@ notices, REUSING the (already restart-safe, stateless)
 untouched. Unified since BST-1084 — the previous "non-approval pauses are
 tolerated + skipped" behavior is GONE, and with it the silent stranding path
 that blocked run_python's Gate B. Flow:
-- `listSuspendedMastraRuns(filter, options)` (`agent-streaming.ts`) wraps
+- `listSuspendedMastraRuns(filter, options)` (`suspended-run-discovery.ts`,
+  moved out of `agent-streaming.ts` by BST-1649) wraps
   `agent.listSuspendedRuns` — rebuilds a FRESH runtime (no in-memory handle),
   returns `{ approvals, suspends }`: approval-gated calls
   (`requiresApproval === true`) and non-approval `suspend()` pauses
@@ -2238,6 +2927,46 @@ When changing this flow, update this section and the paired tests.
 
 ---
 
+## SYSTEM-INSTRUCTION COMPOSITION
+
+`composeRuntimeInstructions` (`agent-runtime.ts`) assembles what the model
+actually receives, in two halves that
+`composeCacheAwareInstructions` keeps apart:
+
+- **`stableText`** — the resolved instructions, the CURRENT-DATE note, and the
+  context-budget note. Cached.
+- **`volatileText`** — the task-list note. Re-sent each turn; never cached.
+
+**THE DATE IS COMPOSED OUTSIDE THE PROVIDER BRANCH — do not relitigate.**
+`buildCurrentDateNote` is joined into `stableText` alongside the budget note,
+NOT threaded into `buildDefaultInstructions`. There are three supported
+instruction paths — the hosted default, `buildLocalDefaultInstructions` for the
+built-in local model, and a caller-supplied `instructions` override — and only
+the first takes options. Injecting there left the other two shipping dateless
+prompts; the local one arguably needs it most, since a small local model is the
+least able to recover from not knowing the date.
+
+Nothing in the prompt used to state the day. A model with no date does not
+abstain — it substitutes its training cutoff or a guess. An observed run
+reasoned "Today's date is unknown but likely later" and then wrote a fabricated
+date, three days off, into DURABLE working memory. It is also load-bearing for
+an instruction AGENTS.md already gives (treat dated material under
+`docs/superpowers/` and `docs/archive/` as historical evidence), which is
+unfollowable without a date to compare against.
+
+**DATE ONLY, and LOCAL.** A clock time would invalidate the cached prefix on
+every turn; a date moves at most once a day. And the day is the user's, not
+UTC: Brainstrike is local-first, so the process clock IS the user's clock, and
+`toISOString()` would state tomorrow's date to anyone east of UTC in their early
+morning. The format is `en-CA` (whose short date IS ISO 8601) plus the weekday
+name — `03/04/2026` denotes two different days depending on the reader.
+
+The clock is INJECTED (`composeRuntimeInstructions({ now })`) so the composed
+instructions stay a pure function of their inputs. The paired guard drives
+`createMastraAgentRuntime` with frozen time and asserts the date reaches
+`config.instructions`; asserting `buildCurrentDateNote` directly would prove
+only that it renders a date it was handed.
+
 ## RUN-CREATION SEAM: WHAT MAY COMPOSE AROUND IT (BST-1115 W5 T4b)
 
 `useAssistantRequestLifecycle.prepareRequestData` is the single place a run
@@ -2303,6 +3032,30 @@ see the version ceiling in mastra-boundary.md).
   Mastra). The tool still accepts the LEGACY bare `string | string[]`
   (AskUserAnswer) so runs suspended before the envelope migration stay
   resumable; multi-select joins with ", ".
+
+The renderer structurally narrows both tools' `suspendPayload` before displaying
+or resuming it. An absent payload (`undefined` or durable JSON `null`) retains
+the generic actionable fallback for legacy suspended runs. Core plan terms
+(`title`, `overview`, and the steps array)
+and the `askUser` question/options must be readable. Plan step titles and askUser
+options are decision terms, so one unreadable entry makes the decision
+unapprovable/unanswerable; unreadable advisory plan fields (`risks`,
+`verification`, or a step `detail`) remain omitted. A present non-array option
+list, an unknown `selectionMode`, or a selection mode without readable options
+likewise makes the question unanswerable rather than silently changing its
+interaction mode. An unreadable core payload renders a diagnostic failed alert
+with a scrollable raw-payload view capped at 4,000 serialized characters. The
+same bounded serialization is logged once per run/tool-call identity across
+renderer remounts; the raw malformed object never bypasses that cap. The process-local
+identity cache is capped at 64 entries with deterministic oldest-entry eviction;
+tests reset it explicitly rather than depending on file order. The user may
+safely reject an unreadable plan (never approve it). A readable question whose
+choice controls drift remains an explicit failed alert, shows the bounded raw
+payload, and offers a clearly-labelled free-text answer through the schema's
+supported string arm; it never guesses a choice interaction. If the question
+itself is unreadable there is no safe typed answer and no durable run event
+explaining the dead end, so its alert remains visible and cannot be dismissed or
+answered.
 
 **Transport table (parallel to approval):**
 

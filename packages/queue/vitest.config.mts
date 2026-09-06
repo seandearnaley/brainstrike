@@ -1,5 +1,6 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
@@ -18,6 +19,7 @@ export default defineConfig({
     exclude: ['dist', 'node_modules'],
     globals: true,
     include: ['test/**/*.spec.ts', 'src/**/*.test.ts'],
+    reporters: ['default', new LostTestFileReporter()],
     restoreMocks: true,
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
   },

@@ -30,12 +30,29 @@ class FakeUtilityProcess extends EventEmitter {
 }
 
 const forkMock = vi.hoisted(() => vi.fn());
+const loggerWarnMock = vi.hoisted(() => vi.fn());
+const loggerErrorMock = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
   utilityProcess: {
     fork: forkMock,
   },
 }));
+
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      debug: vi.fn(),
+      error: loggerErrorMock,
+      fatal: vi.fn(),
+      info: vi.fn(),
+      trace: vi.fn(),
+      warn: loggerWarnMock,
+    }),
+  };
+});
 
 function latestProcess(): FakeUtilityProcess {
   const value = forkMock.mock.results.at(-1)?.value;
@@ -56,6 +73,8 @@ describe('ParserHostManager', () => {
     vi.resetModules();
     forkMock.mockReset();
     forkMock.mockImplementation(() => new FakeUtilityProcess());
+    loggerWarnMock.mockReset();
+    loggerErrorMock.mockReset();
   });
   afterEach(() => {
     vi.resetModules();
@@ -135,6 +154,123 @@ describe('ParserHostManager', () => {
       throw new Error('expected failure');
     }
     expect(response.error).toMatch(/timeout/i);
+  });
+
+  it('logs a late response at warn instead of dropping it silently', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js', requestTimeoutMs: 10 });
+
+    const response = await manager.parse(baseRequest);
+    expect(response.ok).toBe(false);
+    loggerWarnMock.mockClear();
+
+    // The host finished after the manager gave up: that completion must be
+    // visible in logs, never vanish.
+    latestProcess().reply({ ok: true, requestId: 'req-1', root: { type: 'Program' } });
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ requestId: 'req-1' })
+    );
+  });
+
+  it('logs a malformed host message at warn as a shape summary, never the payload', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+
+    const parsePromise = manager.parse(baseRequest);
+    const host = latestProcess();
+    // Parser traffic carries user source text and ASTs; the log must describe
+    // the frame, not reproduce it.
+    host.emit('message', { content: 'const secret = "user source text";', type: 'noise' });
+
+    expect(loggerWarnMock).toHaveBeenCalledWith('Ignored malformed parser host message', {
+      keyCount: 2,
+      keys: ['content', 'type'],
+      messageType: 'object',
+      type: 'noise',
+    });
+    expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain('user source text');
+
+    host.reply({ ok: true, requestId: 'req-1', root: { type: 'Program' } });
+    await expect(parsePromise).resolves.toMatchObject({ ok: true });
+  });
+
+  it('bounds the shape summary when the shape itself carries the payload', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+
+    const parsePromise = manager.parse(baseRequest);
+    const host = latestProcess();
+    // A mis-serialized frame can put source text in `type` or in the keys
+    // themselves, so counts are exact but the strings behind them are capped.
+    const source = `const secret = "${'x'.repeat(400)}";`;
+    host.emit('message', {
+      type: source,
+      [source]: 1,
+      ...Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`, i])),
+    });
+
+    const [, summary] = loggerWarnMock.mock.calls.at(-1) as [string, Record<string, unknown>];
+    expect(summary['keyCount']).toBe(42);
+    expect(summary['keys']).toHaveLength(20);
+    for (const key of summary['keys'] as string[]) {
+      expect(key.length).toBeLessThanOrEqual(65);
+    }
+    expect((summary['type'] as string).length).toBeLessThanOrEqual(65);
+    expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain('x'.repeat(400));
+
+    host.reply({ ok: true, requestId: 'req-1', root: { type: 'Program' } });
+    await expect(parsePromise).resolves.toMatchObject({ ok: true });
+  });
+
+  it('summarizes a null, primitive and array frame by shape alone', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+
+    const parsePromise = manager.parse(baseRequest);
+    const host = latestProcess();
+    host.emit('message', null);
+    host.emit('message', 'const secret = "user source text";');
+    // An array reports its length only: naming its indices would be as
+    // unbounded as the payload itself.
+    host.emit('message', ['user source text', 'more']);
+
+    const summaries = loggerWarnMock.mock.calls.map((call) => call[1]);
+    expect(summaries).toEqual(
+      expect.arrayContaining([
+        { messageType: 'null' },
+        { messageType: 'string' },
+        { length: 2, messageType: 'array' },
+      ])
+    );
+    expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain('user source text');
+
+    host.reply({ ok: true, requestId: 'req-1', root: { type: 'Program' } });
+    await expect(parsePromise).resolves.toMatchObject({ ok: true });
+  });
+
+  it('logs a fork failure at error and still answers with ok: false', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+    const forkFailure = new Error('utilityProcess.fork failed: entry missing');
+    forkMock.mockImplementationOnce(() => {
+      throw forkFailure;
+    });
+
+    const response = await manager.parse(baseRequest);
+
+    expect(response).toMatchObject({ ok: false });
+    expect(loggerErrorMock).toHaveBeenCalledWith('Parser host request could not be sent', {
+      error: forkFailure,
+      requestId: 'req-1',
+    });
+
+    // A failed fork is never cached, so the next request forks again rather
+    // than wedging the manager on a host that was never created.
+    const retry = manager.parse(baseRequest);
+    latestProcess().reply({ ok: true, requestId: 'req-1', root: { type: 'Program' } });
+    await expect(retry).resolves.toMatchObject({ ok: true });
   });
 
   it('stop() kills the host and rejects pending requests', async () => {

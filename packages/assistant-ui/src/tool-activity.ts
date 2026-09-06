@@ -29,7 +29,7 @@ export interface ToolActivitySummary {
   activeArg: string | null;
   /** Display name of the currently-running tool, when one is running. */
   activeLabel: string | null;
-  /** Tool calls that ended incomplete (timeout / abort / thrown). */
+  /** Tool calls that ended incomplete or returned an explicit error result. */
   failedCount: number;
   /** Tool calls still running. */
   runningCount: number;
@@ -39,9 +39,8 @@ export interface ToolActivitySummary {
 
 /**
  * Reduce a turn's chain-of-thought parts to a compact tool-activity summary.
- * Pure: only failure-by-status is counted here (a tool that "completes" with an
- * error result still surfaces its error in the expanded card, so it is not
- * double-counted as a header-level failure).
+ * Count canonical status/error flags once per call; never infer failure from
+ * arbitrary domain fields. The collapsed header must expose failed tool results.
  */
 export function summarizeToolActivity(parts: readonly unknown[]): ToolActivitySummary {
   let stepCount = 0;
@@ -62,7 +61,7 @@ export function summarizeToolActivity(parts: readonly unknown[]): ToolActivitySu
       activeLabel = partToolName(part);
       const argsText = typeof part['argsText'] === 'string' ? part['argsText'] : undefined;
       activeArg = extractPrimaryArg(part['args'], argsText)?.display ?? null;
-    } else if (status === 'incomplete') {
+    } else if (status === 'incomplete' || part['isError'] === true) {
       failedCount++;
     }
   }

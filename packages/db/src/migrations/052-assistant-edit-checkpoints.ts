@@ -38,6 +38,7 @@ export const migration052AssistantEditCheckpoints: Migration = {
 
     DROP TABLE IF EXISTS brainstrike_assistant_edit_checkpoints;
   `,
+  ledgerKey: 'custom-052-assistant-edit-checkpoints',
   name: 'assistant_edit_checkpoints',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_edit_checkpoints (

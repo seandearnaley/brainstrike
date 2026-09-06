@@ -63,6 +63,14 @@ const BALANCED_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
   '.vercel',
   '.parcel-cache',
   '.vite',
+  // A repo-local pnpm content-addressable store. Present in the full-root
+  // SAFETY list from the start but missing here, which is incoherent: full-root
+  // is the more permissive preset. The gap blinded every workspace tool — a
+  // store of ~82k files is 1.6x the workspace walk's 50,000-file cap on its own,
+  // so the walk exhausted its budget inside the store (alphabetically ahead of
+  // `apps/`, `docs/`, `packages/`) and globs returned 0 matches for patterns
+  // that plainly match. Pinned by the preset-coherence test.
+  '.pnpm-store',
   '.venv',
   'venv',
   '__pycache__',
@@ -105,6 +113,17 @@ const FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
   'temp',
   'out',
   'target',
+]);
+
+/**
+ * DERIVED from the set above, never hand-copied (review of #2596). The
+ * preset-coherence test iterates this, so a second literal would guard only the
+ * names someone remembered to paste into it — which is precisely the omission
+ * that let `.pnpm-store` through in the first place. Deriving makes the two
+ * incapable of drifting apart.
+ */
+export const FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENT_NAMES: readonly string[] = Object.freeze([
+  ...FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENTS,
 ]);
 
 /**
@@ -161,22 +180,65 @@ const SPECIAL_TEXT_PREFIXES = [
   '.editorconfig',
 ];
 
-// Nested-path exclusions the segment matcher can't express. `.claude/worktrees`
-// holds throwaway git worktree copies of the whole repo (Claude Code creates
-// them); indexing them duplicates the entire corpus and pollutes semantic
-// search with near-identical hits. Excluding the two-segment path — rather than
-// the `.claude` segment — keeps the useful rest of `.claude` (skills, commands,
-// settings, memory) indexable. Applied to both presets: for balanced it is a
-// content decision, for full-root a safety exclusion like node_modules.
-const EXCLUDED_DIRECTORY_PATH_PREFIXES = ['.claude/worktrees'] as const;
+// Nested-path exclusions the segment matcher can't express. These directories
+// hold linked worktree copies of the whole repo; indexing them duplicates the
+// corpus and pollutes semantic search with near-identical hits. Excluding the
+// two-segment paths — rather than all of `.claude` or `.brainstrike` — keeps
+// their useful config trees indexable. Applied to both presets: for balanced
+// this is a content decision, for full-root a safety exclusion like node_modules.
+const EXCLUDED_DIRECTORY_PATH_PREFIXES = ['.claude/worktrees', '.brainstrike/worktrees'] as const;
 
 /**
  * BST-1246 companion to the segments export: the nested-path exclusions the
- * segment matcher can't express (`.claude/worktrees`), applied by both presets.
+ * segment matcher can't express, applied by both presets.
  */
 export const UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES: readonly string[] = Object.freeze([
   ...EXCLUDED_DIRECTORY_PATH_PREFIXES,
 ]);
+
+/**
+ * Watcher-facing forms of the same exclusions (BST-1342), both derived from
+ * {@link UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES} so the "same rule as
+ * the index side" claim is structural. Worktree churn flooding FSEvents was
+ * the trigger for the 2026-08-17 run-5189 DB-saturation failure: every
+ * overflow invalidated the root and each full refresh re-reconciled the
+ * whole tree.
+ *
+ * Event FILTERING must stay root-relative (relativize, then reuse
+ * {@link isExcludedBackgroundIndexingPath}) — a subscription root opened
+ * INSIDE an excluded tree must watch normally. The native predicate below
+ * exists for exactly that root-gating decision, not for event filtering.
+ */
+export const UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS: readonly string[] = Object.freeze(
+  UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES.flatMap((prefix) => [
+    `**/${prefix}`,
+    `**/${prefix}/**`,
+  ])
+);
+
+const NATIVE_SEPARATOR = String.raw`[\\/]`;
+const UNCONDITIONAL_EXCLUDED_NATIVE_PATH_REGEX = new RegExp(
+  `(?:^|${NATIVE_SEPARATOR})(?:${UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES.map((prefix) =>
+    prefix
+      .split('/')
+      .map((segment) => segment.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`))
+      .join(NATIVE_SEPARATOR)
+  ).join('|')})(?:$|${NATIVE_SEPARATOR})`,
+  'i'
+);
+
+/**
+ * True when a NATIVE path (posix or windows separators, any case — the `i`
+ * flag deliberately mirrors `matchesExcludedPathPrefix`'s lowercasing)
+ * contains an unconditionally excluded tree at any depth. Segment-anchored:
+ * near-miss names (`.claude/worktrees-backup`, `x.claude/worktrees`) never
+ * match. Use it to gate a WHOLE SUBSCRIPTION ROOT ("is this root itself
+ * inside an excluded tree?"); per-event filtering must relativize and reuse
+ * {@link isExcludedBackgroundIndexingPath} instead.
+ */
+export function isUnconditionalExcludedNativePath(path: string): boolean {
+  return UNCONDITIONAL_EXCLUDED_NATIVE_PATH_REGEX.test(path);
+}
 
 const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
 const HARD_EXCLUDED_DIRECTORY_SUFFIXES = ['.app', '.framework'];

@@ -29,6 +29,10 @@ import {
 } from '../terminal-ipc-handlers';
 import type { WorkspaceRootResolver } from '../workspace-root-cwd';
 
+// chmod-based EACCES fixtures don't deny root (uid 0) — same idiom as
+// agent-ignore-boundary-holes.test.ts's `canDenyReads`.
+const canDenyReads = process.platform !== 'win32' && process.getuid?.() !== 0;
+
 const createdDirs: string[] = [];
 
 async function makeDir(prefix = 'brainstrike-terminal-ipc-'): Promise<string> {
@@ -95,6 +99,10 @@ function castOwner(
   return owner as unknown as Parameters<ReturnType<typeof createTerminalIpcHandlers>['create']>[0];
 }
 
+function quotePosixShellArg(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 /** Poll `predicate` until true or timeout; returns whether it became true. */
 async function waitFor(predicate: () => boolean, timeoutMs = 4000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
@@ -105,6 +113,25 @@ async function waitFor(predicate: () => boolean, timeoutMs = 4000): Promise<bool
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   return predicate();
+}
+
+/** Read a child-owned readiness file once it exists and contains a value. */
+async function waitForFile(pathname: string, timeoutMs = 4000): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const value = await fsPromises.readFile(pathname, 'utf8');
+      if (value.length > 0) {
+        return value;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return null;
 }
 
 /** True if a process with `pid` is currently alive. */
@@ -184,6 +211,168 @@ describe('terminal IPC handlers — cwd containment', () => {
     }
     expect(spawn).not.toHaveBeenCalled();
   });
+
+  it('spawns in a subdirectory of the root when a contained cwd is supplied', async () => {
+    const dir = await makeDir();
+    const nested = path.join(dir, '.claude', 'worktrees', 'bright-fox');
+    await fsPromises.mkdir(nested, { recursive: true });
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
+    });
+    const owner = new FakeWebContents(1);
+
+    const created = await handlers.create(castOwner(owner), { cwd: nested, rootId: 'root-id' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      throw new Error(created.error);
+    }
+    // The REPORTED cwd is the nested checkout, not the containing root — the
+    // whole point of the parameter (a nested worktree must not get the parent
+    // repo's shell).
+    expect(created.value.cwd).toBe(await fsPromises.realpath(nested));
+    handlers.destroy({ terminalId: created.value.terminalId }, owner.id);
+  });
+
+  it('rejects a cwd outside the root without spawning', async () => {
+    const dir = await makeDir();
+    const outside = await makeDir();
+    const spawn = vi.fn();
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
+      spawn: spawn as never,
+    });
+
+    const result = await handlers.create(castOwner(new FakeWebContents(1)), {
+      cwd: outside,
+      rootId: 'root-id',
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/outside the open folder/);
+    }
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('rejects a sibling-prefix cwd that only looks contained', async () => {
+    // `<root>-evil` starts with `<root>` as a STRING but is not inside it. A
+    // naive `startsWith(rootCwd)` check passes this; the separator-anchored
+    // check does not. This is the falsifier for the containment predicate.
+    const dir = await makeDir();
+    const sibling = `${dir}-evil`;
+    await fsPromises.mkdir(sibling, { recursive: true });
+    createdDirs.push(sibling);
+    const spawn = vi.fn();
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
+      spawn: spawn as never,
+    });
+
+    const result = await handlers.create(castOwner(new FakeWebContents(1)), {
+      cwd: sibling,
+      rootId: 'root-id',
+    });
+    expect(result.ok).toBe(false);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('rejects a relative, empty or non-directory cwd without spawning', async () => {
+    const dir = await makeDir();
+    const file = path.join(dir, 'hello.ts');
+    await fsPromises.writeFile(file, 'export const value = 1;\n');
+    const spawn = vi.fn();
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
+      spawn: spawn as never,
+    });
+    const owner = new FakeWebContents(1);
+
+    const relative = await handlers.create(castOwner(owner), { cwd: 'sub', rootId: 'root-id' });
+    expect(relative.ok).toBe(false);
+    if (!relative.ok) {
+      expect(relative.error).toMatch(/absolute/);
+    }
+    const empty = await handlers.create(castOwner(owner), { cwd: '   ', rootId: 'root-id' });
+    expect(empty.ok).toBe(false);
+    if (!empty.ok) {
+      expect(empty.error).toMatch(/non-empty cwd/);
+    }
+    const notDir = await handlers.create(castOwner(owner), { cwd: file, rootId: 'root-id' });
+    expect(notDir.ok).toBe(false);
+    if (!notDir.ok) {
+      expect(notDir.error).toMatch(/not a directory/);
+    }
+    const missing = await handlers.create(castOwner(owner), {
+      cwd: path.join(dir, 'nope'),
+      rootId: 'root-id',
+    });
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) {
+      expect(missing.error).toMatch(/no longer exists/);
+    }
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  // BST-1457 PR review: a non-ENOENT realpath/stat failure (EACCES, ELOOP, …)
+  // must never embed the offending absolute path in the error returned over
+  // IPC — the module's own docblock forbids it, and use-terminal-session.ts
+  // logs this string at error level (warn+) and shows it in a toast.
+  it.skipIf(!canDenyReads)(
+    'returns a path-free, categorized error for a non-ENOENT resolution failure (EACCES)',
+    async () => {
+      const dir = await makeDir();
+      const restricted = path.join(dir, 'restricted');
+      await fsPromises.mkdir(restricted);
+      const nested = path.join(restricted, 'nested');
+      // Deny traversal into `restricted` so realpath(nested) fails EACCES,
+      // not ENOENT — the branch under test.
+      await fsPromises.chmod(restricted, 0o000);
+      const spawn = vi.fn();
+      const handlers = createTerminalIpcHandlers({
+        resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
+        spawn: spawn as never,
+      });
+
+      try {
+        const result = await handlers.create(castOwner(new FakeWebContents(1)), {
+          cwd: nested,
+          rootId: 'root-id',
+        });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error).toMatch(/EACCES/);
+          expect(result.error).not.toContain(dir);
+          expect(result.error).not.toContain(restricted);
+          expect(result.error).not.toContain(nested);
+        }
+        expect(spawn).not.toHaveBeenCalled();
+      } finally {
+        // Restore permissions so the afterEach `rm(recursive)` can clean up.
+        await fsPromises.chmod(restricted, 0o700);
+      }
+    }
+  );
+
+  // BST-1457 PR review: when the mounted root is itself a filesystem root
+  // (`/`), it is already sep-terminated. Appending another `path.sep` turns
+  // the containment prefix into `//`, which no real descendant can ever
+  // start with — every open-in-terminal request would be misreported as
+  // "outside the open folder". Root=`/` is a real fixture here (any absolute
+  // path is contained under it), not a mock.
+  it('accepts a contained cwd when the root is the filesystem root ("/")', async () => {
+    const dir = await makeDir();
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: path.sep, rootId: 'root-id' }]),
+    });
+    const owner = new FakeWebContents(1);
+
+    const created = await handlers.create(castOwner(owner), { cwd: dir, rootId: 'root-id' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      throw new Error(created.error);
+    }
+    expect(created.value.cwd).toBe(await fsPromises.realpath(dir));
+    handlers.destroy({ terminalId: created.value.terminalId }, owner.id);
+  });
 });
 
 describe('terminal IPC handlers — real pty lifecycle', () => {
@@ -245,7 +434,7 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
     // Regression: tree-kill walks descendants by parent-pid, so a child that is
     // disowned/nohup'd and re-parents to PID 1 when the shell dies escapes a
     // leader-first kill. killTerminalTree runs the tree-kill walk (shell still
-    // alive) + a process-group kill to close that gap. Probe is deterministic.
+    // alive) + a process-group kill to close that gap.
     const dir = await makeDir();
     const handlers = createTerminalIpcHandlers({
       resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
@@ -257,17 +446,32 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
       throw new Error(`create failed: ${created.error}`);
     }
     const { terminalId } = created.value;
+    const readyPath = path.join(dir, 'child-ready');
+    const childScriptPath = path.join(dir, 'long-lived-child.cjs');
+    await fsPromises.writeFile(
+      childScriptPath,
+      "const fs = require('node:fs');\nconst tmp = process.argv[2] + '.tmp';\nfs.writeFileSync(tmp, String(process.pid));\nfs.renameSync(tmp, process.argv[2]);\nsetTimeout(() => process.exit(0), 600_000);\n"
+    );
 
-    // Start a nohup'd background sleep, disown it, and print its pid. nohup makes
-    // it ignore SIGHUP (so node-pty's leader SIGHUP can't reap it); disown +
-    // job control put it in its OWN process group — the orphan the reviewer found.
+    // The child itself writes readiness only after Node has successfully exec'd
+    // and established its long-lived event loop. A shell-owned `$!` marker alone
+    // races child startup: under process pressure the attempted child can exit
+    // before the test observes it, producing a dead pid unrelated to destroy.
+    // nohup makes the live child ignore SIGHUP; disown/job control put it in its
+    // own process group — the orphan that terminal destroy must reap.
     handlers.write(
-      { data: 'nohup sleep 600 >/dev/null 2>&1 & C=$!; disown $C; echo CHILD=$C\r', terminalId },
+      {
+        data: `nohup ${quotePosixShellArg(process.execPath)} ${quotePosixShellArg(childScriptPath)} ${quotePosixShellArg(readyPath)} >/dev/null 2>&1 & C=$!; disown $C; echo DISOWNED=$C\r`,
+        terminalId,
+      },
       owner.id
     );
-    await waitFor(() => /CHILD=\d+/.test(owner.aggregatedData));
-    const childPid = Number(owner.aggregatedData.match(/CHILD=(\d+)/)?.[1]);
+    expect(await waitFor(() => /DISOWNED=\d+/.test(owner.aggregatedData))).toBe(true);
+    const readyPid = await waitForFile(readyPath);
+    expect(readyPid).not.toBeNull();
+    const childPid = Number(readyPid);
     expect(Number.isInteger(childPid)).toBe(true);
+    expect(owner.aggregatedData).toMatch(new RegExp(`DISOWNED=${childPid}\\b`));
     expect(isPidAlive(childPid)).toBe(true);
 
     const destroyResult = handlers.destroy({ terminalId }, owner.id);

@@ -4,7 +4,10 @@
  * feeds to the supervisor Agent. See docs/agents/assistant-subagents.md for the
  * delegation contract.
  */
-import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import {
+  type AssistantPersonaDefinition,
+  delegationDescriptionForPersona,
+} from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import type { Agent, ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
@@ -68,6 +71,7 @@ export function resolvePersonaRuntimeParts(params: {
     logger,
     permissionSnapshot: params.permissionSnapshot,
     personas: params.personas ?? [],
+    provider: params.provider,
     resolvedToolResultBudget: params.resolvedToolResultBudget,
     resolvePinnedModel: params.resolvePinnedModel,
     toolNameMap: params.toolNameMap,
@@ -77,7 +81,7 @@ export function resolvePersonaRuntimeParts(params: {
     delegationToolPersonas: personaBuild.delegationToolPersonas,
     hasSubAgents: Object.keys(personaBuild.subAgents).length > 0,
     instructionPersonaSummaries: Array.from(personaBuild.personasById.values(), (persona) => ({
-      description: persona.description,
+      description: delegationDescriptionForPersona(persona),
       id: persona.id,
       label: persona.label,
     })),

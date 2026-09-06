@@ -218,14 +218,21 @@ export function useChangeset(
   // pinned run never refetches behind the user's back.
   const liveRefreshNonce = useChangesNavigationStore((state) => state.liveRefreshNonce);
 
-  // EXTERNAL GIT ACTIVITY (BST-1161, spec §6): the main-process git-metadata
-  // watcher pushes `changes:invalidated` when a terminal commit/fetch/worktree
-  // add touches a repository. Only a `git-scope` changeset re-resolves on it —
-  // and only on ITS OWN repository's nonce (an unmapped event counts for every
-  // repo, see the store). Snapshot-sourced changesets pin 0: external git
-  // activity cannot change what a captured turn contains. Same shape as the
-  // two inputs above: a `loadView` dependency, never a second effect.
-  useChangesLiveRefreshSubscription();
+  // LIVE GIT SCOPE (BST-1161 + BST-1180): the shared renderer subscription
+  // consumes both git-metadata pushes and canonical root-scoped file-explorer
+  // refresh events. A mounted git scope registers the exact root/repository /
+  // worktree tuple needed to map working-tree changes without loading
+  // inventory or refreshing an unrelated repository. Snapshot changesets
+  // register nothing and pin 0: neither signal can change captured content.
+  useChangesLiveRefreshSubscription(
+    stableChangeset?.kind === 'git-scope' && rootId
+      ? {
+          repositoryRoot: stableChangeset.repositoryRoot,
+          rootId,
+          worktreePath: stableChangeset.worktreePath,
+        }
+      : null
+  );
   const gitInvalidationNonce = useChangesLiveRefreshStore((state) =>
     stableChangeset?.kind === 'git-scope'
       ? selectGitScopeRefreshNonce(state, stableChangeset.repositoryRoot)

@@ -10,12 +10,7 @@
     "types": [
       "node"
     ],
-    "strictNullChecks": true,
-    "paths": {
-      "@brainstrike/tokenization": [
-        "../tokenization/dist/index.d.ts"
-      ]
-    }
+    "strictNullChecks": true
   },
   "include": [
     "src/**/*"
@@ -24,10 +19,5 @@
     "dist",
     "node_modules",
     "**/*.test.ts"
-  ],
-  "references": [
-    {
-      "path": "../tokenization"
-    }
   ]
 }

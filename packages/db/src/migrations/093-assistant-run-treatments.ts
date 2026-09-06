@@ -32,6 +32,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration093AssistantRunTreatments: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_assistant_run_treatments;',
+  ledgerKey: 'custom-093-assistant-run-treatments',
   name: 'assistant_run_treatments',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_run_treatments (

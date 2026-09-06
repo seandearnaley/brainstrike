@@ -1,0 +1,39 @@
+{
+  "extends": "../config/tsconfig/base.json",
+  "compilerOptions": {
+    "composite": true,
+    "declarationDir": "dist",
+    "incremental": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "strictNullChecks": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+  },
+  "exclude": [
+    "dist",
+    "node_modules",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/__tests__/**"
+  ],
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../assistant-contract"
+    },
+    {
+      "path": "../assistant-ui"
+    },
+    {
+      "path": "../logging"
+    },
+    {
+      "path": "../mcp-app-host"
+    },
+    {
+      "path": "../ui"
+    }
+  ]
+}

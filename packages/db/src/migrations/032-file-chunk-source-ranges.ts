@@ -8,6 +8,7 @@ export const migration032FileChunkSourceRanges: Migration = {
       DROP COLUMN IF EXISTS end_line,
       DROP COLUMN IF EXISTS start_line;
   `,
+  ledgerKey: 'custom-032-file-chunk-source-ranges',
   name: 'file_chunk_source_ranges',
   up: `
     ALTER TABLE file_chunks

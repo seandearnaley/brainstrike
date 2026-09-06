@@ -80,6 +80,17 @@ const SENTINEL_INSERTS = [
   `INSERT INTO brainstrike_assistant_run_usage
      (id, thread_id, run_id, resource_id, model, provider)
      VALUES ('sentinel-usage', 'sentinel-thread', 'sentinel-run', 'sentinel-resource', 'm', 'p')`,
+  `INSERT INTO brainstrike_mcp_task_authorities
+     (authority_epoch, server_id, resource, principal_id, runtime_id, connection_generation,
+      created_at, updated_at)
+     VALUES ('0199a77b-f000-7000-8000-000000000001', 'sentinel-server',
+      'https://example.com/mcp', 'sentinel-principal', 'sentinel-runtime', 1, NOW(), NOW())`,
+  `INSERT INTO brainstrike_mcp_tasks
+     (authority_epoch, server_id, resource, principal_id, task_id, status, history,
+      created_at, updated_at)
+     VALUES ('0199a77b-f000-7000-8000-000000000001', 'sentinel-server',
+      'https://example.com/mcp', 'sentinel-principal', 'sentinel-task', 'working',
+      jsonb_build_array(jsonb_build_object('at', NOW(), 'status', 'working')), NOW(), NOW())`,
   `INSERT INTO brainstrike_assistant_task_lists (thread_id, resource_id)
      VALUES ('sentinel-thread', 'sentinel-resource')`,
   `INSERT INTO brainstrike_assistant_edit_checkpoints
@@ -140,6 +151,20 @@ const TEST_MASTRA_RESET_TABLES = [
   'mastra_vectors',
 ] as const;
 
+/**
+ * Migration 117 (BST-1651) moved Mastra's four MEMORY relations into the
+ * chain, so a migrated database already has them; only `mastra_vectors` is
+ * still created lazily, by Mastra's vector store.
+ */
+const TEST_MASTRA_MIGRATED_TABLES = [
+  'mastra_messages',
+  'mastra_observational_memory',
+  'mastra_threads',
+  'mastra_resources',
+] as const;
+
+const TEST_MASTRA_LAZY_TABLES = ['mastra_vectors'] as const;
+
 describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
   let db: PGlite;
 
@@ -174,6 +199,8 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_assistant_run_errors')).toBe(0);
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
     expect(await countRows('brainstrike_assistant_run_usage')).toBe(0);
+    expect(await countRows('brainstrike_mcp_tasks')).toBe(0);
+    expect(await countRows('brainstrike_mcp_task_authorities')).toBe(0);
     expect(await countRows('brainstrike_assistant_task_lists')).toBe(0);
     expect(await countRows('brainstrike_assistant_edit_checkpoints')).toBe(0);
     expect(await countRows('brainstrike_assistant_message_parents')).toBe(0);
@@ -185,28 +212,45 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_workspace_snapshots')).toBe(0);
   }
 
-  async function assertMastraResetTablesAbsent(): Promise<void> {
-    for (const table of TEST_MASTRA_RESET_TABLES) {
+  async function assertMastraRelationPresence(): Promise<void> {
+    for (const table of TEST_MASTRA_MIGRATED_TABLES) {
       const result = await db.query<{ present: boolean }>(
         `SELECT to_regclass('${table}') IS NOT NULL AS present`
       );
-      expect(result.rows[0]?.present, table).toBe(false);
+      expect(result.rows[0]?.present, `${table} is migration-backed`).toBe(true);
+    }
+    for (const table of TEST_MASTRA_LAZY_TABLES) {
+      const result = await db.query<{ present: boolean }>(
+        `SELECT to_regclass('${table}') IS NOT NULL AS present`
+      );
+      expect(result.rows[0]?.present, `${table} is lazily created`).toBe(false);
     }
   }
 
   async function seedMastraResetTables(): Promise<void> {
+    // The four memory relations are migration-backed now (117), so this seeds
+    // ROWS into their real shapes rather than inventing one-column stand-ins.
     await db.exec(`
-      CREATE TABLE mastra_messages (id text PRIMARY KEY);
-      INSERT INTO mastra_messages (id) VALUES ('message-1');
+      INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt")
+      VALUES ('thread-1', 'workspace-a', 'Thread', NOW(), NOW());
 
-      CREATE TABLE mastra_observational_memory (id text PRIMARY KEY);
-      INSERT INTO mastra_observational_memory (id) VALUES ('observation-1');
+      INSERT INTO mastra_messages (id, thread_id, content, role, type, "createdAt")
+      VALUES ('message-1', 'thread-1', '{}'::jsonb, 'user', 'text', NOW());
 
-      CREATE TABLE mastra_threads (id text PRIMARY KEY);
-      INSERT INTO mastra_threads (id) VALUES ('thread-1');
+      INSERT INTO mastra_resources (id, "createdAt", "updatedAt")
+      VALUES ('resource-1', NOW(), NOW());
 
-      CREATE TABLE mastra_resources (id text PRIMARY KEY);
-      INSERT INTO mastra_resources (id) VALUES ('resource-1');
+      INSERT INTO mastra_observational_memory (
+        id, "lookupKey", scope, "activeObservations", "originType", config,
+        "generationCount", "pendingMessageTokens", "totalTokensObserved",
+        "observationTokenCount", "isObserving", "isReflecting",
+        "isBufferingObservation", "isBufferingReflection", "lastBufferedAtTokens",
+        "createdAt", "updatedAt"
+      )
+      VALUES (
+        'observation-1', 'workspace-a', 'resource', '', 'agent', '{}'::jsonb,
+        0, 0, 0, 0, FALSE, FALSE, FALSE, FALSE, 0, NOW(), NOW()
+      );
 
       CREATE TABLE mastra_vectors (
         index_name text NOT NULL,
@@ -267,8 +311,8 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('view_filter_presets')).toBe(presetSeeds);
   });
 
-  it('commits the direct clear when all lazy Mastra relations are absent', async () => {
-    await assertMastraResetTablesAbsent();
+  it('commits the direct clear when the lazy Mastra relations are absent', async () => {
+    await assertMastraRelationPresence();
 
     const { result } = renderHook(
       () => ({ clearData: useClearAllData(), repo: useFileRecordRepository() }),
@@ -283,8 +327,8 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     await assertSentinelsCleared();
   });
 
-  it('commits the factory-reset purge when all lazy Mastra relations are absent', async () => {
-    await assertMastraResetTablesAbsent();
+  it('commits the factory-reset purge when the lazy Mastra relations are absent', async () => {
+    await assertMastraRelationPresence();
 
     const { result } = renderHook(
       () => ({ factoryReset: useFactoryReset(), repo: useFileRecordRepository() }),

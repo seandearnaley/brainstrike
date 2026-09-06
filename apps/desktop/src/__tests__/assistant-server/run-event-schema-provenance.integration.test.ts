@@ -37,7 +37,7 @@ import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from '@brainstrike/ass
 // subpath, same convention as hook-run-outcome.integration.test.ts; placement
 // is interim per R04 (BST-984).
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
-import { wasmLoader } from '@brainstrike/db';
+import { migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';
 import { observeDesktopAssistantRunEvents } from '../../assistant-server/run-persistence';
@@ -79,13 +79,13 @@ async function* singleRunEventStream(): AsyncGenerator<StreamChunk> {
 }
 
 describe('main-process run-event schema provenance', () => {
-  it('createThreadRun creates the run-event relations before it can return an id', async () => {
+  it('createThreadRun cannot return an id unless the run-event relations exist', async () => {
     const db = await wasmLoader.createPGlite(`memory://run-event-provenance-mint-${Date.now()}`);
     try {
       // Seed ONLY the Mastra parent tables, so the FK target exists while the
-      // assistant bootstrap has not run. `createThreadRun` must therefore be
-      // isolated here: routing through `repository.createThread` first would
-      // bootstrap the schema itself and make this assertion unfalsifiable.
+      // assistant relations do not. Since BST-1651 the repository PROBES for
+      // its schema instead of creating it, so this is the un-migrated case and
+      // it must fail by name rather than quietly bootstrapping.
       await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
       await db.query(
         `INSERT INTO ${MASTRA_MEMORY_TABLES.threads}
@@ -104,17 +104,27 @@ describe('main-process run-event schema provenance', () => {
       expect(await tableExists(db, 'brainstrike_assistant_run_events')).toBe(false);
 
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
-      const run = await repository.createThreadRun({
+      const runInput = {
         id: 'run-1',
         model: 'gpt-5.2',
         provider: 'openai',
         resourceId: 'workspace-a',
-        runtimeKind: 'hosted',
+        runtimeKind: 'hosted' as const,
         threadId: 'thread-1',
-      });
+      };
+      await expect(repository.createThreadRun(runInput)).rejects.toThrow(
+        /brainstrike_assistant_thread_runs/
+      );
+      // And it created nothing on the way out.
+      expect(await tableExists(db, 'brainstrike_assistant_thread_runs')).toBe(false);
+
+      await migrate(db);
+      const run = await repository.createThreadRun(runInput);
 
       // Holding a runId therefore IMPLIES both relations exist — which is the
-      // whole safety argument for the un-guarded main-process inserts.
+      // whole safety argument for the un-guarded main-process inserts. The
+      // implication used to hold because `createThreadRun` created them; it now
+      // holds because `createThreadRun` refuses to proceed without them.
       expect(run.id).toBe('run-1');
       expect(await tableExists(db, 'brainstrike_assistant_thread_runs')).toBe(true);
       expect(await tableExists(db, 'brainstrike_assistant_run_events')).toBe(true);
@@ -144,6 +154,104 @@ describe('main-process run-event schema provenance', () => {
       };
 
       await expect(drainStream()).rejects.toThrow(/brainstrike_assistant_run_events/);
+    } finally {
+      await db.close();
+    }
+  });
+});
+
+describe('duration_ms column contract', () => {
+  // Field regression (2026-08-23, 22P02): tool events stamped with FRACTIONAL
+  // performance.now() durations failed every persist — "invalid input syntax
+  // for type integer: \"15.73333299998194\"" — punching holes in the durable
+  // timeline. The producer seam now rounds (withRunEventDuration); this pair
+  // pins BOTH halves against the real column: an integer duration persists,
+  // and the column genuinely rejects a fractional one — proving the
+  // producer-side rounding is load-bearing, not decorative.
+  it('persists an integer durationMs and the column rejects a fractional one', async () => {
+    const db = await wasmLoader.createPGlite(`memory://run-event-duration-${Date.now()}`);
+    try {
+      await migrate(db);
+      await db.query(
+        `INSERT INTO ${MASTRA_MEMORY_TABLES.threads}
+          (id, "resourceId", title, metadata, "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+        [
+          'thread-dur',
+          'workspace-a',
+          'Seeded thread',
+          JSON.stringify({ source: 'brainstrike' }),
+          new Date(),
+          new Date(),
+        ]
+      );
+      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+      await repository.createThreadRun({
+        id: 'run-dur',
+        model: 'gpt-5.2',
+        provider: 'openai',
+        resourceId: 'workspace-a',
+        runtimeKind: 'hosted',
+        threadId: 'thread-dur',
+      });
+
+      async function* durationEventStream(): AsyncGenerator<StreamChunk> {
+        yield {
+          event: {
+            durationMs: 16,
+            id: 'event-dur-1',
+            kind: 'tool.completed',
+            label: 'Tool completed',
+            status: 'completed',
+            timestamp: '2026-08-23T10:00:00.000Z',
+          },
+          type: 'run-event',
+        };
+      }
+      for await (const _chunk of observeDesktopAssistantRunEvents(
+        durationEventStream(),
+        'run-dur',
+        [],
+        async () => db
+      )) {
+        // drain; persistence settles at flush
+      }
+      const persisted = await db.query(
+        'SELECT duration_ms FROM brainstrike_assistant_run_events WHERE id = $1',
+        ['event-dur-1']
+      );
+      expect((persisted.rows as readonly { duration_ms: number }[])[0]?.duration_ms).toBe(16);
+
+      // CONTROL through the REAL writer (review of #2626): a fractional
+      // durationMs fed to observeDesktopAssistantRunEvents — the exact
+      // producer→writer path the field regression took — is rejected by the
+      // INTEGER column with the same 22P02 the field saw. This is what makes
+      // the producer-side rounding provably load-bearing: the writer binds
+      // event.durationMs straight through, so integrality must hold upstream.
+      async function* fractionalEventStream(): AsyncGenerator<StreamChunk> {
+        yield {
+          event: {
+            durationMs: 15.733_332_999_981_94,
+            id: 'event-dur-frac',
+            kind: 'tool.completed',
+            label: 'Tool completed',
+            status: 'completed',
+            timestamp: '2026-08-23T10:00:01.000Z',
+          },
+          type: 'run-event',
+        };
+      }
+      const drainFractional = async (): Promise<void> => {
+        for await (const _chunk of observeDesktopAssistantRunEvents(
+          fractionalEventStream(),
+          'run-dur',
+          [],
+          async () => db
+        )) {
+          // flush surfaces the persistence failure
+        }
+      };
+      await expect(drainFractional()).rejects.toThrow(/invalid input syntax for type integer/);
     } finally {
       await db.close();
     }

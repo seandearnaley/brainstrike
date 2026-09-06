@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GEMMA4_E2B_MODEL_ID } from '../local-llm.js';
 import {
-  ANTHROPIC_REASONING_EFFORTS,
   OPENAI_FAMILY_DEFAULT_EFFORTS,
   resolveModelReasoningSupport,
   resolveReasoningControlsAvailability,
@@ -59,6 +58,16 @@ describe('resolveModelReasoningSupport', () => {
 });
 
 describe('resolveReasoningControlsAvailability', () => {
+  it('keeps Ox Alpha mandatory and excludes an Off effort', () => {
+    expect(resolveReasoningControlsAvailability('openrouter', 'stealth/ox-alpha')).toEqual({
+      available: true,
+      defaultEffort: 'max',
+      efforts: ['max', 'high', 'low'],
+      family: 'openrouter',
+      mandatory: true,
+    });
+  });
+
   it('constrains Kimi K3 to its published efforts and optional Off control', () => {
     expect(resolveReasoningControlsAvailability('openrouter', 'moonshotai/kimi-k3')).toEqual({
       available: true,
@@ -73,6 +82,16 @@ describe('resolveReasoningControlsAvailability', () => {
       available: true,
       defaultEffort: 'high',
       efforts: ['xhigh', 'high', 'none'],
+      family: 'openrouter',
+    });
+  });
+
+  it('offers only Off for Nemotron on/off reasoning without live metadata', () => {
+    expect(
+      resolveReasoningControlsAvailability('openrouter', 'nvidia/nemotron-3.5-lightning')
+    ).toEqual({
+      available: true,
+      efforts: ['none'],
       family: 'openrouter',
     });
   });
@@ -138,19 +157,53 @@ describe('resolveReasoningControlsAvailability', () => {
     });
   });
 
-  it('offers anthropic efforts plus the thinking toggle family', () => {
-    expect(resolveReasoningControlsAvailability('anthropic', 'claude-sonnet-5')).toEqual({
+  it.each([
+    ['claude-fable-5', ['low', 'medium', 'high', 'xhigh', 'max']],
+    ['claude-opus-5', ['low', 'medium', 'high', 'xhigh', 'max']],
+    ['claude-opus-4-8', ['low', 'medium', 'high', 'xhigh', 'max']],
+    ['claude-sonnet-5', ['low', 'medium', 'high', 'xhigh', 'max']],
+    ['claude-sonnet-4-6', ['low', 'medium', 'high', 'max']],
+  ] as const)('offers the documented Anthropic ladder for %s', (modelId, efforts) => {
+    expect(resolveReasoningControlsAvailability('anthropic', modelId)).toEqual({
       available: true,
-      efforts: ANTHROPIC_REASONING_EFFORTS,
+      defaultEffort: 'high',
+      efforts,
       family: 'anthropic',
     });
   });
+
+  it('offers Haiku thinking without an effort ladder', () => {
+    expect(resolveReasoningControlsAvailability('anthropic', 'claude-haiku-4-5')).toEqual({
+      available: true,
+      efforts: [],
+      family: 'anthropic',
+    });
+  });
+
+  it.each([undefined, 'claude-not-in-catalog'])(
+    'keeps the Thinking toggle but withholds the ladder without a declared model: %s',
+    (modelId) => {
+      // A persisted legacy budget is still sent for such an id (see
+      // anthropic-provider-options.test.ts), so the toggle that clears it must
+      // stay reachable; only the effort ladder has nothing to be judged against.
+      expect(resolveReasoningControlsAvailability('anthropic', modelId)).toEqual({
+        available: true,
+        efforts: [],
+        family: 'anthropic',
+      });
+    }
+  );
 
   it('offers google thinking levels, restricted for the Gemini 3 Pro line', () => {
     expect(resolveReasoningControlsAvailability('google', 'gemini-3.5-flash')).toEqual({
       available: true,
       family: 'google',
       levels: ['minimal', 'low', 'medium', 'high'],
+    });
+    expect(resolveReasoningControlsAvailability('google', 'gemini-3.7-flash')).toEqual({
+      available: true,
+      family: 'google',
+      levels: ['low', 'medium', 'high'],
     });
     expect(resolveReasoningControlsAvailability('google', 'gemini-3.1-pro-preview')).toEqual({
       available: true,

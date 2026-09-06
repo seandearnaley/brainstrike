@@ -9,6 +9,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockSession = {
   defaultSession: {
+    on: vi.fn(),
+    setPermissionCheckHandler: vi.fn(),
+    setPermissionRequestHandler: vi.fn(),
     webRequest: {
       onHeadersReceived: vi.fn(),
     },

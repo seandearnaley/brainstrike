@@ -3,6 +3,7 @@ import {
   isNativeToolId,
   isSkillNativeToolId,
   NATIVE_TOOL_DEFAULTS,
+  NATIVE_TOOL_ID,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
@@ -10,6 +11,8 @@ import { type MastraDBMessage, MessageList, type ToolsInput } from '@mastra/core
 import { ToolSearchProcessor } from '@mastra/core/processors';
 import { MASTRA_THREAD_ID_KEY } from '@mastra/core/request-context';
 import type { Tool } from '@mastra/core/tools';
+import { describeAvailableDeferredCapabilityFamilies } from './deferred-capability-families';
+import { createDeferredToolCatalog, LIST_AVAILABLE_TOOLS_ID } from './deferred-tool-catalog';
 import { createMastraAgentError } from './mastra-agent-error';
 
 const logger = createLogger('MastraToolDiscovery');
@@ -83,8 +86,11 @@ export function resolveToolDiscoverySurface(
     // callable progressive-disclosure controls. Keep those three eager; hiding
     // them behind search_tools would make Mastra's own injected instructions
     // point at unavailable tools.
+    // Artifact continuations are also direct runtime instructions. Keep the
+    // authorized reader callable without a separate discovery round trip.
+    const isArtifactReader = originalId === NATIVE_TOOL_ID.readToolOutputArtifact;
     const isDeferredNative =
-      !isProviderDefinedTool &&
+      !(isProviderDefinedTool || isArtifactReader) &&
       isNativeToolId(originalId) &&
       !isSkillNativeToolId(originalId) &&
       NATIVE_TOOL_DEFAULTS[originalId].loadingTier !== 'critical';
@@ -114,6 +120,10 @@ export function resolveToolDiscoverySurface(
 type ToolSearchStepArgs = Parameters<ToolSearchProcessor['processInputStep']>[0];
 type ToolSearchStepResult = Awaited<ReturnType<ToolSearchProcessor['processInputStep']>>;
 type SearchTool = ToolSearchStepResult['tools']['search_tools'];
+type CatalogTool = ReturnType<typeof createDeferredToolCatalog>;
+type DiscoveryStepResult = Omit<ToolSearchStepResult, 'tools'> & {
+  tools: ToolSearchStepResult['tools'] & { [LIST_AVAILABLE_TOOLS_ID]: CatalogTool };
+};
 
 export interface ToolDiscoverySearchObservation {
   readonly query: string;
@@ -126,8 +136,42 @@ export interface ToolDiscoverySearchObservation {
 
 type ToolDiscoverySearchObserver = (observation: ToolDiscoverySearchObservation) => void;
 
-const SEARCH_TOOL_DESCRIPTION =
-  'Search deferred capabilities, including open workspace roots and focused context, persistent sessions, semantic or LSP inspection, web, skills, and embeddings. Matches load automatically for the next turn.';
+/**
+ * The model-facing description of `search_tools` itself — the OTHER place a
+ * model looks to decide whether searching for a capability is worthwhile
+ * (review of #2625: this carried a second, stale hand-written list that never
+ * mentioned canvas or skill scripts). Derived per run from the ACTUAL deferred
+ * set through the same family table as the instructions' discovery line, so
+ * the two surfaces cannot disagree and neither can advertise a capability the
+ * run cannot load.
+ */
+function buildSearchToolDescription(
+  deferredTools: ToolsInput,
+  toolNameMap: ReadonlyMap<string, string>
+): string {
+  const originalIds = new Set(
+    Object.keys(deferredTools).map((sanitizedId) => toolNameMap.get(sanitizedId) ?? sanitizedId)
+  );
+  const families = describeAvailableDeferredCapabilityFamilies(originalIds);
+  const familiesClause = families.length > 0 ? ` this run: ${families}` : '';
+  return `Search deferred capabilities${familiesClause}, including MCP tools. Returns at most 3 ranked matches, not a complete inventory. For available tools use list_available_tools; to load a listed tool, query its exact name. Matches load automatically and are callable on your next step in this same response.`;
+}
+
+/**
+ * The model-facing sentence in a successful `search_tools` result. Mastra's
+ * own copy says the match is "available on your next turn"; in chat
+ * vocabulary a turn is a user message, and on 2026-09-02 a live run took it
+ * that way: the loaded definition was in the very next step, yet the model
+ * ended its reply with "I'll create the Linear issue once the ticket
+ * integration finishes loading" (finishReason `stop`, no call ever sent).
+ * Brainstrike owns this executor, so the sentence is Brainstrike's.
+ */
+function describeLoadedSearchResult(
+  loadedToolNames: readonly string[],
+  catalogSize: number
+): string {
+  return `Found and loaded ${loadedToolNames.length} tool(s): ${loadedToolNames.join(', ')}. These are ranked matches, not the complete catalog of ${catalogSize} eligible deferred tools. Use list_available_tools to enumerate available capabilities; a tool absent from these matches may still be available. Loaded matches are callable on your next step in this same response: use them when needed and do not end your reply to wait for loading.`;
+}
 
 function readSearchQuery(args: readonly unknown[]): string | undefined {
   const input = args[0];
@@ -138,10 +182,15 @@ function readSearchQuery(args: readonly unknown[]): string | undefined {
   return typeof query === 'string' ? query : undefined;
 }
 
+interface ParsedSearchResult extends Pick<ToolDiscoverySearchObservation, 'rankedResults'> {
+  /** Sanitized ids exactly as the model must call them, in ranked order. */
+  readonly loadedNames: readonly string[];
+}
+
 function readSearchResult(
   value: unknown,
   toolNameMap: ReadonlyMap<string, string>
-): Pick<ToolDiscoverySearchObservation, 'rankedResults'> | undefined {
+): ParsedSearchResult | undefined {
   if (!value || typeof value !== 'object') {
     return;
   }
@@ -150,6 +199,7 @@ function readSearchResult(
     return;
   }
   const rankedResults: { score: number; toolId: string }[] = [];
+  const loadedNames: string[] = [];
   for (const result of results) {
     if (!result || typeof result !== 'object') {
       return;
@@ -159,15 +209,18 @@ function readSearchResult(
       return;
     }
     rankedResults.push({ score, toolId: toolNameMap.get(name) ?? name });
+    loadedNames.push(name);
   }
-  return { rankedResults };
+  return { loadedNames, rankedResults };
 }
 
 function wrapSearchTelemetry(
   searchTool: SearchTool,
   stepNumber: number | undefined,
   toolNameMap: ReadonlyMap<string, string>,
-  notify: ToolDiscoverySearchObserver
+  notify: ToolDiscoverySearchObserver,
+  description: string,
+  catalogSize: number
 ): SearchTool {
   const execute = searchTool.execute;
   if (!execute) {
@@ -183,7 +236,7 @@ function wrapSearchTelemetry(
   descriptors.description = {
     configurable: descriptionDescriptor?.configurable ?? true,
     enumerable: descriptionDescriptor?.enumerable ?? true,
-    value: SEARCH_TOOL_DESCRIPTION,
+    value: description,
     writable:
       descriptionDescriptor && 'writable' in descriptionDescriptor
         ? descriptionDescriptor.writable
@@ -215,6 +268,8 @@ function wrapSearchTelemetry(
       };
       notify(observation);
       if (searchResult.rankedResults.length === 0) {
+        // Mastra's own "No tools found matching …" copy stays: there is
+        // nothing to call, so the same-response sentence would be a lie.
         logger.info('Mastra tool discovery search missed', {
           code: 'mastra_tool_discovery_catalog_miss',
           queryLength: query.length,
@@ -228,7 +283,17 @@ function wrapSearchTelemetry(
         rankedResults: searchResult.rankedResults,
         stepNumber,
       });
-      return result;
+      // The names come from the parse above (the same object readSearchResult
+      // validated), not from a second cast. Only the sentence changes; the
+      // ranked list is returned untouched.
+      const loadedResult = result as Extract<
+        Awaited<ReturnType<typeof execute>>,
+        { readonly results: unknown }
+      >;
+      return {
+        ...loadedResult,
+        message: describeLoadedSearchResult(searchResult.loadedNames, catalogSize),
+      };
     },
     writable:
       executeDescriptor && 'writable' in executeDescriptor ? executeDescriptor.writable : true,
@@ -274,11 +339,14 @@ export class BrainstrikeToolSearchProcessor {
   readonly id = 'tool-search';
   readonly name = 'Brainstrike Tool Search Processor';
   private readonly delegate: ToolSearchProcessor;
+  private readonly catalogSize: number;
+  private readonly catalogTool: CatalogTool;
   private readonly loadPersistedMessages: (() => Promise<readonly MastraDBMessage[]>) | undefined;
   private readonly model: ToolSearchStepArgs['model'];
   private readonly onToolsLoaded: ((tools: ToolsInput) => void) | undefined;
   private readonly previousLoadedByThread = new Map<string, ReadonlySet<string>>();
   private readonly searchObservers = new Set<ToolDiscoverySearchObserver>();
+  private readonly searchToolDescription: string;
   private readonly toolNameMap: ReadonlyMap<string, string>;
 
   constructor(options: {
@@ -293,10 +361,16 @@ export class BrainstrikeToolSearchProcessor {
       storage: 'context',
       tools: options.deferredTools as Record<string, Tool>,
     });
+    this.catalogSize = Object.keys(options.deferredTools).length;
+    this.catalogTool = createDeferredToolCatalog(options.deferredTools, options.toolNameMap);
     this.loadPersistedMessages = options.loadPersistedMessages;
     this.model = options.model;
     this.onToolsLoaded = options.onToolsLoaded;
-    this.toolNameMap = options.toolNameMap;
+    this.searchToolDescription = buildSearchToolDescription(
+      options.deferredTools,
+      options.toolNameMap
+    );
+    this.toolNameMap = new Map(options.toolNameMap);
   }
 
   subscribeSearchObservations(observer: ToolDiscoverySearchObserver): () => void {
@@ -396,16 +470,27 @@ export class BrainstrikeToolSearchProcessor {
     }
   }
 
-  async processInputStep(args: ToolSearchStepArgs): Promise<ToolSearchStepResult> {
+  async processInputStep(args: ToolSearchStepArgs): Promise<DiscoveryStepResult> {
     try {
       const result = await this.delegate.processInputStep(args);
       const baseToolIds = new Set(Object.keys(args.tools ?? {}));
       const loadedSanitizedIds = Object.keys(result.tools).filter(
-        (toolId) => toolId !== 'search_tools' && toolId !== 'load_tool' && !baseToolIds.has(toolId)
+        (toolId) =>
+          toolId !== 'search_tools' &&
+          toolId !== 'load_tool' &&
+          toolId !== LIST_AVAILABLE_TOOLS_ID &&
+          !baseToolIds.has(toolId)
       );
-      const loadedToolIds = loadedSanitizedIds.map(
-        (toolId) => this.toolNameMap.get(toolId) ?? toolId
-      );
+      const loadedToolIds = loadedSanitizedIds.map((toolId) => {
+        const originalId = this.toolNameMap.get(toolId);
+        if (!originalId) {
+          throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
+            context: { phase: 'loaded-tool-mapping', sanitizedId: toolId },
+            detail: 'loaded tool is missing its original-name mapping',
+          });
+        }
+        return originalId;
+      });
       const threadIdValue = args.requestContext?.get(MASTRA_THREAD_ID_KEY);
       if (
         threadIdValue !== undefined &&
@@ -418,22 +503,25 @@ export class BrainstrikeToolSearchProcessor {
       }
       const threadId = typeof threadIdValue === 'string' ? threadIdValue : undefined;
       this.trackLoadedTools(threadId, loadedSanitizedIds, result.tools);
+      const tools = { ...result.tools, [LIST_AVAILABLE_TOOLS_ID]: this.catalogTool };
 
       logger.info('Mastra tool discovery step prepared', {
-        activeDefinitionCount: Object.keys(result.tools).length,
+        activeDefinitionCount: Object.keys(tools).length,
         code: 'mastra_tool_discovery_step',
         loadedToolIds,
         stepNumber: args.stepNumber,
       });
-      result.tools.search_tools = wrapSearchTelemetry(
+      tools.search_tools = wrapSearchTelemetry(
         result.tools.search_tools,
         args.stepNumber,
         this.toolNameMap,
         (observation) => {
           this.notifySearchObservers(observation);
-        }
+        },
+        this.searchToolDescription,
+        this.catalogSize
       );
-      return result;
+      return { ...result, tools };
     } catch (error) {
       if (
         error instanceof Error &&

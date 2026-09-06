@@ -2,7 +2,16 @@ import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useTabFileRestoration } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
 import { type OpenFileInTab, useIdeFileEditor } from '@brainstrike/ui';
-import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react';
+import { useFileContentLoadAuthority } from '../file-content-load-authority-context';
 import { useTabManager } from '../hooks/use-tab-manager';
 import { useEditorViewStateStore } from '../stores/editor-view-state-store';
 import { useTabManagerStore } from '../stores/tab-manager-store';
@@ -10,6 +19,7 @@ import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useTerminalHotkey } from './use-terminal-hotkey';
+import { useWorkspaceOpenFileRefresh } from './use-workspace-open-file-refresh';
 import { useWorkspaceTabHotkeys } from './use-workspace-tab-hotkeys';
 import {
   useWorkspaceTabs,
@@ -44,6 +54,19 @@ export interface WorkspaceTabsProviderProps {
   readonly children: ReactNode;
 }
 
+function canAutoLoadFileContent(
+  canLoadWithoutTree: boolean,
+  compositeKey: string,
+  fileTreeLength: number,
+  rootDescriptors: Readonly<Record<string, unknown>>
+): boolean {
+  if (!canLoadWithoutTree) {
+    return fileTreeLength > 0;
+  }
+  const { folderId } = decodeFileSelection(compositeKey);
+  return rootDescriptors[folderId] !== undefined;
+}
+
 /**
  * Owns all workspace tab orchestration (BST-1258): file-tab lifecycle,
  * restoration/permission flows, app open/close/singleton semantics, selection
@@ -61,8 +84,59 @@ export function WorkspaceTabsProvider({
   const { tabs, openTab, closeTab, setActiveTab, clearTabs } = useTabManager();
   const closeOtherTabs = useTabManagerStore((state) => state.closeOtherTabs);
   const closeTabsToRight = useTabManagerStore((state) => state.closeTabsToRight);
-  const { fileContents, loadingFiles, loadFileContent, fileTree, canLoadWithoutTree } =
-    useFileExplorer();
+  const fileContentLoadAuthority = useFileContentLoadAuthority();
+  const retainedErrorOwnerRef = useRef<object>({});
+
+  // The durable terminal-error projection belongs to the exact open-tab set.
+  // Subscribe below React so tab actions, external hydration, and the 20-tab
+  // eviction limit retire their keys synchronously before another read starts.
+  useLayoutEffect(() => {
+    const owner = retainedErrorOwnerRef.current;
+    const syncRetainedErrorKeys = (): void => {
+      fileContentLoadAuthority.setRetainedErrorKeys(
+        owner,
+        useTabManagerStore.getState().tabs.map((tab) => tab.compositeKey)
+      );
+    };
+    syncRetainedErrorKeys();
+    const unsubscribe = useTabManagerStore.subscribe(syncRetainedErrorKeys);
+    return () => {
+      unsubscribe();
+      fileContentLoadAuthority.setRetainedErrorKeys(owner, []);
+    };
+  }, [fileContentLoadAuthority]);
+
+  const {
+    canLoadWithoutTree,
+    fileContentErrors,
+    fileContents,
+    fileTree,
+    loadFileContent,
+    loadingFiles,
+    reloadFileContents,
+  } = useFileExplorer();
+  const startFileContentLoad = useCallback(
+    (compositeKey: string): void => {
+      void loadFileContent(compositeKey, 'interactive').catch((error: unknown) => {
+        logger.error('Workspace file-content load failed', {
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+          fileCount: 1,
+        });
+      });
+    },
+    [loadFileContent]
+  );
+  const handleRetryFileContent = useCallback(
+    (compositeKey: string): void => {
+      void reloadFileContents([compositeKey], 'interactive').catch((error: unknown) => {
+        logger.error('Workspace file-content retry failed', {
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+          fileCount: 1,
+        });
+      });
+    },
+    [reloadFileContents]
+  );
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
 
   const selection = useWorkspaceTabSelectionStore((s) => s.selection);
@@ -111,6 +185,8 @@ export function WorkspaceTabsProvider({
   const { tabStatuses, requestTabPermission, getStatusMessage, isRestoring } =
     useTabFileRestoration(tabs);
 
+  useWorkspaceOpenFileRefresh({ reloadFileContents, tabs });
+
   // Track in-flight permission requests to ignore double-clicks.
   const permissionRequestsInProgressRef = useRef<Set<string>>(new Set());
   // Guard async post-await work against firing on an unmounted component (the
@@ -145,7 +221,7 @@ export function WorkspaceTabsProvider({
       try {
         const granted = await requestTabPermission(compositeKey);
         if (isMountedRef.current && granted) {
-          void loadFileContent(compositeKey);
+          startFileContentLoad(compositeKey);
         }
       } catch (err) {
         logger.error('Failed to request file permission', {
@@ -156,7 +232,7 @@ export function WorkspaceTabsProvider({
         permissionRequestsInProgressRef.current.delete(compositeKey);
       }
     },
-    [requestTabPermission, loadFileContent]
+    [requestTabPermission, startFileContentLoad]
   );
 
   const handleSelectFileTab = useCallback(
@@ -287,7 +363,14 @@ export function WorkspaceTabsProvider({
     if (!tab) {
       return;
     }
-    if (!canLoadWithoutTree && fileTree.length === 0) {
+    if (
+      !canAutoLoadFileContent(
+        canLoadWithoutTree,
+        tab.compositeKey,
+        fileTree.length,
+        rootDescriptors
+      )
+    ) {
       return;
     }
     if (fileContents[tab.compositeKey] !== undefined) {
@@ -296,21 +379,31 @@ export function WorkspaceTabsProvider({
     if (loadingFiles.has(tab.compositeKey)) {
       return;
     }
+    // A terminal per-key failure is an explicit retry boundary. Re-entering
+    // the automatic loader as soon as loading clears would create an unbounded
+    // fail/render/retry loop and could erase the visible error without user or
+    // filesystem activity. The next canonical refresh clears this key's error
+    // at the logical request boundary and performs the retry.
+    if (fileContentErrors.has(tab.compositeKey)) {
+      return;
+    }
     const status = tabStatuses.get(tab.compositeKey);
     // Skip auto-load if the tab needs an explicit user gesture for permission.
     if (status && status.status !== 'restored') {
       return;
     }
-    void loadFileContent(tab.compositeKey);
+    startFileContentLoad(tab.compositeKey);
   }, [
     selection,
     tabs,
     fileContents,
+    fileContentErrors,
     loadingFiles,
     tabStatuses,
     canLoadWithoutTree,
     fileTree,
-    loadFileContent,
+    rootDescriptors,
+    startFileContentLoad,
   ]);
 
   // Sync the latest snapshots into refs so the open-file callback can read them without
@@ -360,10 +453,10 @@ export function WorkspaceTabsProvider({
         fileContentsRef.current[compositeKey] === undefined &&
         !loadingFilesRef.current.has(compositeKey)
       ) {
-        void loadFileContent(compositeKey);
+        startFileContentLoad(compositeKey);
       }
     },
-    [openTab, selectFile, loadFileContent, setTarget, invalidatePendingSelection]
+    [openTab, selectFile, startFileContentLoad, setTarget, invalidatePendingSelection]
   );
 
   useTerminalHotkey(apps, handleOpenApp);
@@ -422,6 +515,7 @@ export function WorkspaceTabsProvider({
   const value = useMemo<WorkspaceTabsValue>(
     () => ({
       apps,
+      fileContentErrors,
       fileContents,
       getTabStatusMessage: getStatusMessage,
       handleOpenFileInTab,
@@ -434,6 +528,7 @@ export function WorkspaceTabsProvider({
       onCloseFileTabsToRight: handleCloseFileTabsToRight,
       onCloseOtherFileTabs: handleCloseOtherFileTabs,
       onOpenApp: handleOpenApp,
+      onRetryFileContent: handleRetryFileContent,
       onSelectFileTab: handleSelectFileTab,
       openApps,
       rootDescriptors,
@@ -443,6 +538,7 @@ export function WorkspaceTabsProvider({
     }),
     [
       apps,
+      fileContentErrors,
       fileContents,
       getStatusMessage,
       handleOpenFileInTab,
@@ -455,6 +551,7 @@ export function WorkspaceTabsProvider({
       handleCloseFileTabsToRight,
       handleCloseOtherFileTabs,
       handleOpenApp,
+      handleRetryFileContent,
       handleSelectFileTab,
       openApps,
       rootDescriptors,

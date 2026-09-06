@@ -538,6 +538,149 @@ export async function assertSettingsModalClosed(page: Page, caller: string): Pro
   }
 }
 
+/**
+ * Every Radix floating surface that participates in the DismissableLayer stack.
+ * Portals append at mount, so the LAST match in document order is the layer
+ * that opened most recently.
+ */
+const FLOATING_LAYER_SELECTOR = [
+  '[data-slot="dialog-content"]',
+  '[data-slot="select-content"]',
+  '[data-slot="popover-content"]',
+  '[data-slot="dropdown-menu-content"]',
+  '[data-slot="context-menu-content"]',
+].join(', ');
+
+type LayerReadiness =
+  | 'no-modal-beneath'
+  | 'not-registered'
+  | 'not-topmost'
+  | 'ready'
+  | 'target-missing';
+
+/**
+ * Waits until Radix has registered `targetSelector` as the topmost layer, so a
+ * dismissal aimed at it cannot be routed somewhere else.
+ *
+ * `DismissableLayer` keeps its stack in a module-level `Set` that it mutates in
+ * an EFFECT but reads during RENDER, so a freshly mounted layer paints one
+ * frame at `index === -1`: `pointer-events: none` on the layer that just
+ * opened. Keyboard dismissal keys off the same stack, so an Escape inside that
+ * window goes to the layer UNDERNEATH. In Settings that closes the whole modal
+ * and unmounts the nested surface with it — both panels vanish and the
+ * assertion sees zero. Measured on `settings-modal-layering`: the pre-settle
+ * snapshot appeared in 3 of 6 runs and correlated exactly with the failure.
+ *
+ * Readiness is `pointer-events: auto` ON THE TARGET, not a shape imposed on the
+ * whole stack. Radix computes `index >= indexOf(highestLayerWithOutsidePointer
+ * EventsDisabled)`, so an unregistered layer resolves `none` and a registered
+ * one resolves `auto` — for modal and NON-modal layers alike. Requiring "every
+ * layer beneath is none" would be wrong: `Popover` is a bare
+ * `PopoverPrimitive.Root` (`packages/ui/src/popover.tsx`), i.e. Radix's default
+ * `modal={false}`, so it never disables outside pointer events and the dialog
+ * under it keeps `auto` forever. `DialogContent`, `SelectContent` and
+ * `DropdownMenu` (Radix default `modal={true}`) do disable them.
+ *
+ * Naming the target is what keeps this from passing vacuously: a predicate over
+ * "whatever currently matches" is satisfied by the dialog alone whenever the
+ * new layer has not mounted yet — precisely the window it exists to close.
+ *
+ * When `targetSelector` can match more than one open layer (nested dialogs both
+ * carry `data-slot="dialog-content"`), the caller must first assert the new one
+ * exists — `expect(panels).toHaveCount(2)` — because "last match" cannot tell
+ * "not open yet" from "open".
+ *
+ * Two known limits, neither reachable from the current callers:
+ * - "last match is topmost" assumes the layer PORTALS to `document.body`.
+ *   `packages/ui/src/model-picker/model-picker.tsx:86` deliberately sets
+ *   `portal={false}` to stay inside the parent Dialog's RemoveScroll allow-list;
+ *   such a layer sits inside its dialog in document order, so with two dialogs
+ *   open the ordering premise breaks.
+ * - Radix submenu surfaces (`*-sub-content`) are not listed: they are not
+ *   separate DismissableLayers, and adding them unverified would be guesswork.
+ */
+export async function waitForFloatingLayerStack(
+  page: Page,
+  targetSelector: string,
+  timeout = 5000
+): Promise<void> {
+  const readiness = (): Promise<LayerReadiness> =>
+    page.evaluate(
+      ([all, target]: readonly string[]): LayerReadiness => {
+        const layers = Array.from(document.querySelectorAll(all as string));
+        // LAST match, not first: the target is by definition the most recently
+        // opened layer, and a slot like `dialog-content` matches every dialog on
+        // screen. `querySelector` would resolve to the one UNDERNEATH.
+        const node = Array.from(document.querySelectorAll(target as string)).at(-1);
+        if (!node) {
+          return 'target-missing';
+        }
+        if (layers.at(-1) !== node) {
+          return 'not-topmost';
+        }
+        // Radix sets this while ANY layer disables outside pointer events. With
+        // no such layer the `auto` check below is trivially true and would wait
+        // on nothing, so say that instead of reporting a false ready.
+        // Radix sets this while ANY layer disables outside pointer events, and
+        // only then does it write `pointerEvents` on the layers themselves. With
+        // no such layer there is no signal at all, so say that rather than
+        // reporting a false ready.
+        if (document.body.style.pointerEvents !== 'none') {
+          return 'no-modal-beneath';
+        }
+        // Radix's OWN bookkeeping, read from the inline style it writes on the
+        // layer node — not the computed value. Computed style is not a
+        // registration signal: `model-picker.tsx` hardcodes `pointer-events-auto`
+        // on its PopoverContent, which would read `auto` before registration,
+        // and a `portal={false}` layer inherits whatever its ancestor dialog has.
+        return (node as HTMLElement).style.pointerEvents === 'auto' ? 'ready' : 'not-registered';
+      },
+      [FLOATING_LAYER_SELECTOR, targetSelector] as const
+    );
+
+  const deadline = Date.now() + timeout;
+  let last: LayerReadiness = 'target-missing';
+
+  while (Date.now() < deadline) {
+    // Deliberately not `waitForFunction`: its rejection is indistinguishable
+    // from a navigation tearing down the execution context, and reporting that
+    // as a layer-ownership defect sends the next reader down the wrong path.
+    last = await readiness();
+    if (last === 'ready') {
+      return;
+    }
+    if (last === 'no-modal-beneath') {
+      throw new Error(
+        `waitForFloatingLayerStack("${targetSelector}") needs a modal layer open beneath the target — ` +
+          'Radix only assigns pointer-events while some layer disables outside pointer events, so ' +
+          'there is no readiness signal to wait on here and the wait would pass vacuously.'
+      );
+    }
+    await page.waitForTimeout(25);
+  }
+
+  const measured = await page.evaluate(
+    (selector: string) =>
+      Array.from(document.querySelectorAll(selector)).map((layer) => ({
+        inlinePointerEvents: (layer as HTMLElement).style.pointerEvents || '(unset)',
+        slot: layer.getAttribute('data-slot'),
+        zIndex: globalThis.getComputedStyle(layer).zIndex,
+      })),
+    FLOATING_LAYER_SELECTOR
+  );
+
+  const reason: Record<Exclude<LayerReadiness, 'no-modal-beneath' | 'ready'>, string> = {
+    'not-registered': `"${targetSelector}" is topmost but never gained pointer-events. A PERMANENT stall here is a real layer-ownership defect, not a timing problem.`,
+    'not-topmost': `"${targetSelector}" is open but is not the last floating layer in document order — something opened above it.`,
+    'target-missing': `Nothing matched "${targetSelector}" — the interaction that should have opened it probably did not.`,
+  };
+
+  throw new Error(
+    `waitForFloatingLayerStack("${targetSelector}") gave up after ${timeout}ms: ${reason[last]} ` +
+      `Measured layers: ${JSON.stringify(measured)}.`
+  );
+}
+
 export async function openSettingsModal(page: Page): Promise<void> {
   const expect = await getPlaywrightExpect();
 

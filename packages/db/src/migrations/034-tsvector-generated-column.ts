@@ -48,6 +48,7 @@ export const migration034TsvectorGeneratedColumn: Migration = {
       SET content_tsvector = to_tsvector('english', coalesce(content, ''))
       WHERE content_tsvector IS NULL;
   `,
+  ledgerKey: 'custom-034-tsvector-generated-column',
   name: 'tsvector_generated_column',
   up: `
     -- Drop the legacy trigger + function if present (no-op on the drizzle path).

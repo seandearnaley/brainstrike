@@ -22,17 +22,18 @@ export function decodeFileSelection(compositeKey: string): {
   folderId: string;
   path: string;
 } {
-  if (!compositeKey?.includes(SEPARATOR)) {
+  if (typeof compositeKey !== 'string') {
     throw new Error('Invalid composite key format');
   }
-  const [folderId, ...pathParts] = compositeKey.split(SEPARATOR);
-
-  // Although the check above should prevent this, satisfy TS that folderId is a string
-  if (typeof folderId !== 'string') {
-    throw new Error('Failed to parse folderId from composite key');
+  const separatorIndex = compositeKey.indexOf(SEPARATOR);
+  if (separatorIndex <= 0 || separatorIndex + SEPARATOR.length >= compositeKey.length) {
+    throw new Error('Invalid composite key format');
   }
 
-  return { folderId, path: pathParts.join(SEPARATOR) };
+  return {
+    folderId: compositeKey.slice(0, separatorIndex),
+    path: compositeKey.slice(separatorIndex + SEPARATOR.length),
+  };
 }
 
 /**
@@ -50,18 +51,14 @@ export function isPathSelectedInFolder(
  * Gets all selected paths for a specific folder
  */
 export function getSelectedPathsForFolder(
-  selectedPaths: Set<string>,
+  selectedPaths: ReadonlySet<string>,
   folderId: string
 ): Set<string> {
   const paths = new Set<string>();
   for (const compositeKey of selectedPaths) {
-    try {
-      const decoded = decodeFileSelection(compositeKey);
-      if (decoded.folderId === folderId) {
-        paths.add(decoded.path);
-      }
-    } catch {
-      // Skip invalid composite keys
+    const decoded = decodeFileSelection(compositeKey);
+    if (decoded.folderId === folderId) {
+      paths.add(decoded.path);
     }
   }
   return paths;

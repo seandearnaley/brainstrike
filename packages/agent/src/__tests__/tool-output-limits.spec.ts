@@ -115,6 +115,31 @@ describe('resolveScaledToolResultBudget', () => {
     });
   });
 
+  it('resolves an UNKNOWN provider id to the ANCHOR tier, visibly logged, instead of throwing', () => {
+    // build-persona-subagents passes `persona.model.provider as ProviderId`
+    // UNVALIDATED (PR #2513 review, finding 1). An out-of-registry provider id
+    // must reach the documented warn+anchor fallback — never a TypeError that
+    // the persona resolver's try/catch turns into a silently dropped persona.
+    let result: ReturnType<typeof resolveToolResultBudgetForModel> | undefined;
+    const fallbackLogs = collectFallbackWarnLog(() => {
+      result = resolveToolResultBudgetForModel(
+        'not-a-registered-provider' as Parameters<typeof resolveToolResultBudgetForModel>[0],
+        'persona-pinned-model'
+      );
+    });
+    expect(result).toEqual(resolveScaledToolResultBudget(131_072));
+    expect(fallbackLogs).toHaveLength(1);
+    const context = fallbackLogs[0]?.args.find(
+      (arg): arg is Record<string, unknown> => typeof arg === 'object' && arg !== null
+    );
+    expect(context).toMatchObject({
+      code: 'tool_result_budget_unknown_model_fallback',
+      fallbackContextWindow: 131_072,
+      modelId: 'persona-pinned-model',
+      providerId: 'not-a-registered-provider',
+    });
+  });
+
   it('resolves a KNOWN catalog model to its declared window, unaffected by the fallback path', () => {
     const fallbackLogs = collectFallbackWarnLog(() => {
       const result = resolveToolResultBudgetForModel('anthropic', 'claude-haiku-4-5');
@@ -442,5 +467,70 @@ describe('fitItemsToCharBudget', () => {
 
   it('uses the native budget by default', () => {
     expect(NATIVE_TOOL_RESULT_CHAR_BUDGET).toBeLessThan(12_000);
+  });
+});
+
+describe('delegation result compaction', () => {
+  // Field failure (2026-08-24): an agent-explore delegation whose child made
+  // dozens of tool calls rendered "Completed · 0 tool calls" on reload. The
+  // delegation result got the generic 3000-token budget, ONE oversized child
+  // result blew it, trimCollectionToBudget returned undefined (even a single
+  // item did not fit), and the preview fallback dropped subAgentToolResults
+  // wholesale — the only per-child record the reopened card can read. The
+  // card renders ONLY toolName/toolCallId/isError/args, so the raw child
+  // result bodies carry nothing the UI needs: project them away BEFORE
+  // bounding and the list survives any realistic budget.
+  const hugeChildResult = { body: 'x'.repeat(20_000) };
+
+  it('keeps compact per-child rows when a raw child result would blow the budget', () => {
+    const bounded = boundToolOutputForModel('agent-explore', {
+      subAgentToolResults: [
+        {
+          args: { path: 'src/big.ts' },
+          isError: false,
+          result: hugeChildResult,
+          toolCallId: 'child-1',
+          toolName: 'readWorkspaceFile',
+        },
+        {
+          args: { query: 'topology' },
+          isError: true,
+          result: { error: 'boom' },
+          toolCallId: 'child-2',
+          toolName: 'grepSearch',
+        },
+      ],
+      text: 'child answer',
+    });
+
+    const output = bounded.output as {
+      subAgentToolResults?: readonly {
+        isError?: boolean;
+        result?: unknown;
+        toolCallId?: string;
+        toolName?: string;
+      }[];
+      text?: string;
+    };
+    expect(output.text).toBe('child answer');
+    expect(output.subAgentToolResults).toHaveLength(2);
+    expect(output.subAgentToolResults?.[0]).toMatchObject({
+      toolCallId: 'child-1',
+      toolName: 'readWorkspaceFile',
+    });
+    expect(output.subAgentToolResults?.[1]).toMatchObject({ isError: true, toolCallId: 'child-2' });
+    // The raw child result bodies are gone — the card never renders them.
+    expect(JSON.stringify(output)).not.toContain('xxxx');
+    expect(JSON.stringify(output).length).toBeLessThanOrEqual(12_000);
+  });
+
+  it('leaves non-delegation tools untouched by the projection', () => {
+    // Falsification: an ordinary tool whose output happens to carry a
+    // subAgentToolResults-shaped key keeps its data (the trimmable-collection
+    // path still applies as before).
+    const bounded = boundToolOutputForModel('grepSearch', {
+      matches: [{ line: 1, text: 'small' }],
+    });
+    expect(bounded.output).toMatchObject({ matches: [{ line: 1, text: 'small' }] });
   });
 });

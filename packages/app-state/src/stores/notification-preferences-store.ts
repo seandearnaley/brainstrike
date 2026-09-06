@@ -31,6 +31,10 @@ export const NOTIFICATION_EVENT_KINDS = [
   'runFinished',
   'runFailed',
   'toolApprovalRequired',
+  // Forge observations (BST-1391, W4). Default ON like every other kind, so
+  // turning the master switch on gives the user everything at once.
+  'prOpened',
+  'prChecks',
 ] as const;
 
 export type NotificationEventKind = (typeof NOTIFICATION_EVENT_KINDS)[number];
@@ -58,6 +62,8 @@ const STORE_VERSION = 1 as const;
 
 function defaultEvents(): NotificationEventToggles {
   return {
+    prChecks: true,
+    prOpened: true,
     runFailed: true,
     runFinished: true,
     toolApprovalRequired: true,

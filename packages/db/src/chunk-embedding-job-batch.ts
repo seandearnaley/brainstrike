@@ -2,7 +2,10 @@ import type {
   EmbeddingProviderType,
   ProviderDimensionParameter,
 } from '@brainstrike/indexing-contract';
-import { buildEmbedJobDedupeKey } from '@brainstrike/indexing-contract';
+import {
+  buildEmbeddingJobInputHashes,
+  buildEmbedJobDedupeKey,
+} from '@brainstrike/indexing-contract';
 import type { FileChunkInsert } from './models/file-chunk.js';
 import { type EnqueueParams, JobQueue } from './queue/job-queue.js';
 import { FileChunkRepository } from './repositories/file-chunk-repository.js';
@@ -32,7 +35,9 @@ function assertPositiveInteger(value: number, message: string): void {
   }
 }
 
-function buildEmbeddingJobParams(args: InsertChunksAndEnqueueEmbeddingJobsArgs): EnqueueParams[] {
+async function buildEmbeddingJobParams(
+  args: InsertChunksAndEnqueueEmbeddingJobsArgs
+): Promise<EnqueueParams[]> {
   const modelKey = requireNonEmptyString(
     args.model,
     'Cannot enqueue embedding jobs without a model key.'
@@ -45,7 +50,13 @@ function buildEmbeddingJobParams(args: InsertChunksAndEnqueueEmbeddingJobsArgs):
   const provider = args.provider ?? null;
   const dimensionParameter = args.dimensionParameter ?? null;
 
-  return args.chunks.map((chunk) => {
+  const embeddingInputHashes = await buildEmbeddingJobInputHashes(
+    args.chunks.map(({ contentHash }) => contentHash),
+    modelKey,
+    provider
+  );
+
+  return args.chunks.map((chunk, index) => {
     const chunkId = requireNonEmptyString(
       chunk.id,
       'Cannot enqueue embedding job for chunk without id.'
@@ -54,6 +65,10 @@ function buildEmbeddingJobParams(args: InsertChunksAndEnqueueEmbeddingJobsArgs):
       throw new Error(
         `Cannot enqueue embedding job for chunk '${chunkId}' with mismatched file record id.`
       );
+    }
+    const embeddingInputHash = embeddingInputHashes[index];
+    if (!embeddingInputHash) {
+      throw new Error(`Missing embedding input hash for chunk '${chunkId}'.`);
     }
     return {
       // Canonical embed-job key, shared with the @brainstrike/pipeline enqueue
@@ -64,11 +79,13 @@ function buildEmbeddingJobParams(args: InsertChunksAndEnqueueEmbeddingJobsArgs):
       payload: {
         chunkId,
         dimensionParameter,
+        embeddingInputHash,
         embeddingSetId,
         expectedDimension: args.targetDimension,
         fileRecordId: args.fileRecordId,
         modelKey,
         provider,
+        sourceContentHash: chunk.contentHash,
       },
       queue: 'embeddings',
     };
@@ -90,6 +107,6 @@ export async function insertChunksAndEnqueueEmbeddingJobs(
     const chunkRepository = new FileChunkRepository(tx as never);
     await chunkRepository.insertManyWithTx(tx as never, [...args.chunks]);
     const queue = new JobQueue(tx);
-    await queue.enqueueBatch(buildEmbeddingJobParams(args));
+    await queue.enqueueBatch(await buildEmbeddingJobParams(args));
   });
 }

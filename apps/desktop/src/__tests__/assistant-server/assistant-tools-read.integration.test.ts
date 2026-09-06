@@ -228,6 +228,61 @@ describe('assistant-tools read tools', () => {
     }
   });
 
+  it('REFUSES an in-root SYMLINK whose target is agent-ignored (BST-1432)', async () => {
+    // The boundary has to be evaluated on the file that gets READ, not on the
+    // string that was asked for. `resolveWorkspaceAbsolutePath` returns the
+    // realpath'd target as `absolutePath` and the normalized REQUEST as
+    // `workspacePath`; checking the latter means an ordinary in-root symlink
+    // walks straight through. Containment passes (the target is inside the
+    // root), the guard is asked about the alias, and the read returns the
+    // secret. Aliasing, not retargeting — the lock does not help.
+    const workspaceRootPath = await createWorkspaceFixture();
+    await fsPromises.mkdir(path.join(workspaceRootPath, 'secrets'), { recursive: true });
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'secrets', 'api-key.env'),
+      'SECRET=hunter2\n',
+      'utf8'
+    );
+    await fsPromises.writeFile(path.join(workspaceRootPath, '.llmignore'), 'secrets/\n', 'utf8');
+    await fsPromises.mkdir(path.join(workspaceRootPath, 'notes'), { recursive: true });
+    await fsPromises.symlink(
+      path.join(workspaceRootPath, 'secrets', 'api-key.env'),
+      path.join(workspaceRootPath, 'notes', 'leak.md')
+    );
+
+    const tools = buildDesktopAssistantTools({
+      ...singleRootRuntime(workspaceRootPath),
+      memory: { resourceId: 'workspace', threadId: 'thread-symlink' },
+    } as RuntimeData);
+    const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+
+    await expect(executeTool({ context: { path: '/notes/leak.md' } })).rejects.toThrow(
+      /excluded by an agent ignore file/i
+    );
+  });
+
+  it('REFUSES a path excluded by .llmignore, and says why (BST-1432)', async () => {
+    // Refusal, not empty content. A read that silently returns nothing teaches
+    // the model the file is empty, and it will report that as fact — a
+    // fabricated claim about the user's code, and the worst outcome for a
+    // boundary whose value is that the user can predict what the agent saw.
+    const workspaceRootPath = await createWorkspaceFixture();
+    await fsPromises.writeFile(path.join(workspaceRootPath, '.llmignore'), 'src/lib/\n', 'utf8');
+
+    const tools = buildDesktopAssistantTools({
+      ...singleRootRuntime(workspaceRootPath),
+      memory: { resourceId: 'workspace', threadId: 'thread-llmignore' },
+    } as RuntimeData);
+    const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+
+    await expect(executeTool({ context: { path: '/src/lib/math.ts' } })).rejects.toThrow(
+      /excluded by an agent ignore file/i
+    );
+    // A sibling outside the rule still reads, so the refusal is the RULE
+    // biting rather than the workspace being broken.
+    await expect(executeTool({ context: { path: '/src/main.ts' } })).resolves.toBeDefined();
+  });
+
   it('reads a line-numbered workspace file page with a short continuation handle', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
@@ -419,7 +474,16 @@ describe('assistant-tools read tools', () => {
 
       expect(page.content.length).toBeLessThanOrEqual(100);
       expect(page.truncated).toBe(true);
-      expect(readFileSpy).not.toHaveBeenCalled();
+      // Asserted against the TARGET file specifically, not the call count. The
+      // invariant here is that a bounded page never slurps a 1.9MB source
+      // through `readFile` — it reads through a handle. The agent-ignore guard
+      // (BST-1432) probes for small `.llmignore`/`.brainstrikeignore` files on
+      // the same path, which is a bounded, constant-size read of a DIFFERENT
+      // file and does not weaken this.
+      const targetPath = path.join(workspaceRootPath, 'src', 'near-limit.txt');
+      expect(readFileSpy.mock.calls.filter(([target]) => String(target) === targetPath)).toEqual(
+        []
+      );
     } finally {
       readFileSpy.mockRestore();
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
@@ -2969,26 +3033,45 @@ describe('assistant-tools read tools', () => {
     expect(getDatabaseMock).not.toHaveBeenCalled();
   });
 
-  it('rejects invalid directory payloads instead of crashing', async () => {
+  it('treats a provider-null directory path as omission and rejects malformed payloads', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceDirectory');
 
-    await expect(
-      executeTool({
-        path: null,
-      } as unknown as { path: string })
-    ).rejects.toThrow();
+    try {
+      const expectedRootListing = {
+        count: 3,
+        entries: [
+          { path: '/src', type: 'directory' },
+          { path: '/src/main.ts', type: 'file' },
+          { path: '/README.md', type: 'file' },
+        ],
+        offset: 0,
+        path: '/',
+        rootName: path.basename(workspaceRootPath),
+        totalEntries: 3,
+        totalMatchedFiles: 2,
+        truncated: false,
+      };
+      const rootListing = await executeTool({ path: null } as never);
+      expect(rootListing).toEqual(expectedRootListing);
 
-    await expect(
-      executeTool({
-        context: {
-          path: null,
-        },
-      } as unknown as { path: string })
-    ).rejects.toThrow();
+      const contextRootListing = await executeTool({ context: { path: null } } as never);
+      expect(contextRootListing).toEqual(expectedRootListing);
 
-    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      await expect(executeTool({ path: 42 } as never)).rejects.toThrow();
+
+      await expect(
+        executeTool({
+          context: {
+            path: null,
+            unexpected: true,
+          },
+        } as never)
+      ).rejects.toThrow();
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
   });
 
   it('rejects binary files for text reads', async () => {

@@ -48,8 +48,10 @@ const EXPECTED_DEFERRED_NAMESPACES = {
   ],
   workspace: [
     'brainstrike.deleteWorkspaceFile',
+    'brainstrike.listWorktrees',
     'brainstrike.manageCanvas',
     'brainstrike.manageTaskList',
+    'brainstrike.manageWorktree',
     'brainstrike.renameWorkspaceFile',
   ],
 } as const;

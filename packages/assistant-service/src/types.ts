@@ -15,8 +15,10 @@ export type AssistantRoute =
   | 'cancel'
   | 'openrouter-model'
   | 'resume'
+  | 'run-status'
   | 'steer'
   | 'suspended-runs'
+  | 'verify-provider'
   | 'not-found';
 export interface AssistantRequestPayload {
   assistantMessageId?: string;

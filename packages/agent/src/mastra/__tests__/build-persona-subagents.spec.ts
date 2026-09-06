@@ -126,6 +126,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAllowSnapshot,
       personas: [explorePersona],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
@@ -147,6 +148,32 @@ describe('buildPersonaSubAgents', () => {
     expect(keys.some((key) => key.startsWith('agent-'))).toBe(false);
   });
 
+  it('gives the child a description carrying its DERIVED step budget', async () => {
+    // The wiring proof, not the arithmetic one. Mastra turns a child Agent's
+    // `description` into the `agent-<id>` tool description, which is the only
+    // thing the supervisor reads when sizing a delegation. A regression that
+    // passed `persona.description` straight through would restore the
+    // undisclosed-budget bug while `delegationDescriptionForPersona`'s own unit
+    // tests stayed green — so this asserts the value that actually reaches the
+    // model, on a persona whose cap (8) differs from any built-in's.
+    const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
+    const result = buildPersonaSubAgents({
+      guardedTools,
+      languageModel: fakeModel,
+      logger: noopLogger,
+      permissionSnapshot: readAllowSnapshot,
+      personas: [explorePersona],
+      provider: 'openai',
+      resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      toolNameMap,
+    });
+
+    const child = assertDefined(result.subAgents['explore'], 'Expected explore subagent');
+    const description = await child.getDescription();
+    expect(description).toContain('Explore persona');
+    expect(description).toContain('at most 8 steps');
+  });
+
   it('registers no subagent when the policy gates every persona tool to ask (read:ask)', () => {
     const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
     const result = buildPersonaSubAgents({
@@ -155,6 +182,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAskSnapshot,
       personas: [explorePersona],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
@@ -180,6 +208,7 @@ describe('buildPersonaSubAgents', () => {
         logger: noopLogger,
         permissionSnapshot: undefined,
         personas: [hostilePersona],
+        provider: 'openai',
         resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
         toolNameMap,
       })
@@ -194,6 +223,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: undefined,
       personas: [explorePersona],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
@@ -217,6 +247,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAllowSnapshot,
       personas: [explorePersona],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
@@ -242,6 +273,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAllowSnapshot,
       personas: [pinned],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       resolvePinnedModel: (persona) => {
         resolvedPins.push(persona.model);
@@ -265,6 +297,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAllowSnapshot,
       personas: [explorePersona],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       resolvePinnedModel: () => {
         resolverCalls += 1;
@@ -300,6 +333,7 @@ describe('buildPersonaSubAgents', () => {
       logger,
       permissionSnapshot: readAllowSnapshot,
       personas: [pinned, explorePersona],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       resolvePinnedModel: () => {
         throw new Error('missing_api_key');
@@ -333,6 +367,7 @@ describe('buildPersonaSubAgents', () => {
       logger,
       permissionSnapshot: readAllowSnapshot,
       personas: [pinned],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
@@ -426,6 +461,7 @@ describe('buildPersonaSubAgents', () => {
         logger: noopLogger,
         permissionSnapshot: readAllowSnapshot,
         personas: [makeDomainPersona({ modelId: GEMMA4_E2B_MODEL_ID, provider: 'local' })],
+        provider: 'openai',
         resolvedToolResultBudget: largeParentBudget,
         resolvePinnedModel: () => fakeModel,
         toolNameMap,
@@ -449,6 +485,7 @@ describe('buildPersonaSubAgents', () => {
         logger: noopLogger,
         permissionSnapshot: readAllowSnapshot,
         personas: [makeDomainPersona({ modelId: 'gpt-5.6-sol', provider: 'openai' })],
+        provider: 'openai',
         resolvedToolResultBudget: smallParentBudget,
         resolvePinnedModel: () => pinnedLargeModel,
         toolNameMap,
@@ -471,6 +508,7 @@ describe('buildPersonaSubAgents', () => {
         logger: noopLogger,
         permissionSnapshot: readAllowSnapshot,
         personas: [makeDomainPersona()],
+        provider: 'openai',
         resolvedToolResultBudget: parentBudget,
         toolNameMap,
       });

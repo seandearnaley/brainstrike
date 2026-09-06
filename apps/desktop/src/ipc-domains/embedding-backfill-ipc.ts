@@ -22,6 +22,11 @@ import {
   recoverRuntimeDatabaseCorruption,
 } from './runtime-database-corruption';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 interface RegisterEmbeddingBackfillIpcHandlersOptions {
   readonly embeddingHostManager: EmbeddingHostManager | undefined;
   readonly flushPendingLiveUpdates: () => void;
@@ -69,13 +74,19 @@ export function registerEmbeddingBackfillIpcHandlers({
 }: RegisterEmbeddingBackfillIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke('embeddings', EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL, async () => {
-    cancelAllDesktopEmbeddingBackfills();
-  });
+  registry.registerUnauthenticatedInvoke(
+    'embeddings',
+    EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
+    async () => {
+      cancelAllDesktopEmbeddingBackfills();
+    }
+  );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'embeddings',
     EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, embeddingSetId: unknown) => {
       if (typeof embeddingSetId !== 'string' || embeddingSetId.trim().length === 0) {
         throw new Error('Embedding backfill cancellation requires a non-empty embeddingSetId.');
@@ -84,9 +95,10 @@ export function registerEmbeddingBackfillIpcHandlers({
     }
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'embeddings',
     EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (event, embeddingSetId: unknown) => {
       try {
         return await withCorruptionRecovery(
@@ -125,8 +137,11 @@ export function registerEmbeddingBackfillIpcHandlers({
     }
   );
 
-  registry.registerInvoke('embeddings', EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL, async () =>
-    getDesktopEmbeddingBackfillsInFlight()
+  registry.registerUnauthenticatedInvoke(
+    'embeddings',
+    EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
+    async () => getDesktopEmbeddingBackfillsInFlight()
   );
 
   return () => registry.unregisterAll();

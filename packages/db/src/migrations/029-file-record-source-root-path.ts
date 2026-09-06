@@ -8,6 +8,7 @@ export const migration029FileRecordSourceRootPath: Migration = {
     ALTER TABLE file_records
       DROP COLUMN IF EXISTS source_root_path;
   `,
+  ledgerKey: 'custom-029-file-record-source-root-path',
   name: 'file_record_source_root_path',
   up: `
     ALTER TABLE file_records

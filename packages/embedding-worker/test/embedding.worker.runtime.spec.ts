@@ -1,9 +1,22 @@
 import {
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
 } from '@brainstrike/indexing-contract';
+import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { EmbedWorkerRequest, EmbedWorkerSuccess } from '../src';
+import type {
+  EmbedWorkerBatch,
+  EmbedWorkerComplete,
+  EmbedWorkerRequest,
+  EmbedWorkerSuccess,
+} from '../src';
+import {
+  EMBEDDING_WORKER_TEST_RUNTIME_AUTOMATION,
+  EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY,
+  EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_MARKER,
+  EMBEDDING_WORKER_TEST_RUNTIME_PHASE_KEY,
+} from '../src/test-runtime-bootstrap';
 
 const workerEmitMock = vi.fn();
 const transferMock = vi.fn(function TransferStub<T>(value: T) {
@@ -87,6 +100,8 @@ vi.mock('@huggingface/transformers', () => ({
 describe('embedding worker runtime', () => {
   beforeEach(() => {
     vi.resetModules();
+    Reflect.deleteProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY);
+    Reflect.deleteProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_PHASE_KEY);
     workerEmitMock.mockReset();
     pipelineMock.mockReset();
     transferMock.mockClear();
@@ -140,6 +155,80 @@ describe('embedding worker runtime', () => {
     }
     assertion();
   };
+
+  function installTestRuntime(runtime: Record<string, unknown>): void {
+    Object.defineProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY, {
+      configurable: true,
+      value: {
+        automation: EMBEDDING_WORKER_TEST_RUNTIME_AUTOMATION,
+        marker: EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_MARKER,
+        takeRuntime: () => ({ runtime, webGpuClassProxy: true }),
+      },
+    });
+  }
+
+  describe('webdriver test runtime validation', () => {
+    it('boots the production worker from a valid fixed runtime without importing Transformers', async () => {
+      transformersImportState.error = new Error('Transformers import must remain unused');
+      const extractor = vi.fn(async () => Float32Array.from([0.25, 0.75]));
+      const injectedPipeline = vi.fn(async () => extractor);
+      installTestRuntime({
+        env: { allowRemoteModels: false },
+        pipeline: injectedPipeline,
+        tensorConstructor: MockTensor,
+      });
+
+      await expect(import('../src/embedding.worker')).resolves.toBeDefined();
+      const runEmbedding = registeredHandlers.runEmbedding;
+      if (!runEmbedding) {
+        throw new Error('Expected the production worker to register its embedding handler.');
+      }
+      await expect(
+        runEmbedding({
+          deviceHint: 'wasm',
+          id: 'injected-runtime-proof',
+          model: 'bge-m3',
+          texts: ['offline probe'],
+          truncateDim: 2,
+          type: 'embed',
+        })
+      ).resolves.toMatchObject({ id: 'injected-runtime-proof', type: 'result' });
+      expect(injectedPipeline).toHaveBeenCalledOnce();
+      expect(extractor).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      {
+        error: 'Embedding worker test runtime is missing env, pipeline, or Tensor.',
+        name: 'a missing environment',
+        runtime: { pipeline: vi.fn(), tensorConstructor: MockTensor },
+      },
+      {
+        error: 'Embedding worker test runtime is missing env, pipeline, or Tensor.',
+        name: 'a missing pipeline loader',
+        runtime: { env: { allowRemoteModels: false }, tensorConstructor: MockTensor },
+      },
+      {
+        error: 'Embedding worker test runtime is missing env, pipeline, or Tensor.',
+        name: 'a missing Tensor constructor',
+        runtime: { env: { allowRemoteModels: false }, pipeline: vi.fn() },
+      },
+      {
+        error: 'Embedding worker test runtime must disable remote models.',
+        name: 'remote model loading',
+        runtime: {
+          env: { allowRemoteModels: true },
+          pipeline: vi.fn(),
+          tensorConstructor: MockTensor,
+        },
+      },
+    ])('rejects $name before registering the worker', async ({ error, runtime }) => {
+      installTestRuntime(runtime);
+
+      await expect(import('../src/embedding.worker')).rejects.toThrow(error);
+      expect(registeredHandlers.runEmbedding).toBeUndefined();
+    });
+  });
 
   describe('global error handlers', () => {
     it('sets up onerror handler in worker context', async () => {
@@ -523,6 +612,141 @@ describe('embedding worker runtime', () => {
     );
   });
 
+  it('bounds a long maximum-dimension stream to one acknowledged batch and exact bytes', async () => {
+    const batchSize = 8;
+    const dimensions = MAX_EMBEDDING_DIMENSION;
+    const requestId = 'stream-max-dimension-stress';
+    const texts = Array.from({ length: 64 }, (_, index) => `document-${index}`);
+    const expectedBatchCount = texts.length / batchSize;
+    const expectedBytesPerBatch = batchSize * dimensions * Float32Array.BYTES_PER_ELEMENT;
+    const expectedTotalBytes = texts.length * dimensions * Float32Array.BYTES_PER_ELEMENT;
+    const messageListeners = new Set<(event: MessageEvent<unknown>) => void>();
+    const postMessage = vi.fn();
+    vi.stubGlobal('self', {
+      addEventListener: vi.fn((type: string, listener: (event: MessageEvent<unknown>) => void) => {
+        if (type === 'message') {
+          messageListeners.add(listener);
+        }
+      }),
+      onerror: undefined,
+      onunhandledrejection: undefined,
+      postMessage,
+    });
+
+    let inferenceBatchCount = 0;
+    pipelineMock.mockResolvedValue(async (slice: readonly string[]) => {
+      inferenceBatchCount += 1;
+      return slice.map(() => new Float32Array(dimensions).fill(1));
+    });
+    await import('../src/embedding.worker');
+
+    const [handleMessage] = [...messageListeners];
+    if (!handleMessage) {
+      throw new Error('Expected worker message handler to be registered');
+    }
+
+    handleMessage({
+      data: {
+        request: {
+          deviceHint: 'wasm',
+          id: requestId,
+          maxBatchSize: batchSize,
+          model: 'bge-m3',
+          targetDimension: dimensions,
+          texts,
+          type: 'embed',
+        },
+        type: 'stream-embed',
+      },
+    } as MessageEvent<unknown>);
+
+    let observedTotalBytes = 0;
+    for (let batchIndex = 0; batchIndex < expectedBatchCount; batchIndex += 1) {
+      await waitForAssertion(() =>
+        expect(
+          postMessage.mock.calls.some(
+            ([message]) => (message as { readonly type?: unknown }).type === 'batch'
+          )
+        ).toBe(true)
+      );
+      const batchCall = postMessage.mock.calls.find(
+        ([message]) => (message as { readonly type?: unknown }).type === 'batch'
+      );
+      if (!batchCall) {
+        throw new Error(`Expected streamed batch ${batchIndex}`);
+      }
+      const batch = batchCall[0] as EmbedWorkerBatch;
+      const transferList = batchCall[1] as readonly ArrayBuffer[];
+
+      expect(batch).toMatchObject({
+        batchIndex,
+        endIndex: (batchIndex + 1) * batchSize,
+        id: requestId,
+        peakVectorsInFlight: batchSize,
+        startIndex: batchIndex * batchSize,
+        transferBytes: expectedBytesPerBatch,
+        type: 'batch',
+        vectorsInFlight: batchSize,
+      });
+      expect(batch.vectors).toHaveLength(batchSize);
+      expect(batch.vectors.every((vector) => vector.length === dimensions)).toBe(true);
+      const uniqueVectorBuffers = new Set(batch.vectors.map((vector) => vector.buffer));
+      // Identity (===) rather than deep equality: the mock vectors are
+      // byte-identical, so a deep compare is satisfied by COPIES of the
+      // buffers — the double-allocation topology this assertion forbids.
+      // Together these two force transferList to be exactly a permutation of
+      // the vectors' actual backing stores.
+      expect(transferList).toHaveLength(uniqueVectorBuffers.size);
+      expect(batch.vectors.every((vector) => transferList.includes(vector.buffer))).toBe(true);
+      expect(transferList.reduce((sum, buffer) => sum + buffer.byteLength, 0)).toBe(
+        expectedBytesPerBatch
+      );
+
+      observedTotalBytes += batch.transferBytes;
+      await flushMicrotasks();
+      expect(inferenceBatchCount).toBe(batchIndex + 1);
+      expect(
+        postMessage.mock.calls.filter(
+          ([message]) => (message as { readonly type?: unknown }).type === 'batch'
+        )
+      ).toHaveLength(1);
+
+      postMessage.mockClear();
+      handleMessage({
+        data: {
+          batchIndex,
+          id: requestId,
+          type: 'stream-ack',
+        },
+      } as MessageEvent<unknown>);
+    }
+
+    await waitForAssertion(() =>
+      expect(
+        postMessage.mock.calls.some(
+          ([message]) => (message as { readonly type?: unknown }).type === 'complete'
+        )
+      ).toBe(true)
+    );
+    const completeCall = postMessage.mock.calls.find(
+      ([message]) => (message as { readonly type?: unknown }).type === 'complete'
+    );
+    if (!completeCall) {
+      throw new Error('Expected stream completion');
+    }
+    const complete = completeCall[0] as EmbedWorkerComplete;
+    expect(complete).toMatchObject({
+      id: requestId,
+      metadata: {
+        batchSize,
+        dimensions,
+      },
+      type: 'complete',
+    });
+    expect(inferenceBatchCount).toBe(expectedBatchCount);
+    expect(observedTotalBytes).toBe(expectedTotalBytes);
+  });
+
   it('notifies active streaming requests before closing on WebGPU device loss', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
     const telemetryPostMessage = vi.fn();
@@ -704,6 +928,172 @@ describe('embedding worker runtime', () => {
     return registeredHandlers.runEmbedding;
   }
 
+  it('isolates request control from sibling worker telemetry', async () => {
+    const channels = new Map<string, Set<PeerBroadcastChannel>>();
+    class PeerBroadcastChannel {
+      readonly name: string;
+      onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
+
+      constructor(name: string) {
+        this.name = name;
+        const peers = channels.get(name) ?? new Set<PeerBroadcastChannel>();
+        peers.add(this);
+        channels.set(name, peers);
+      }
+
+      close(): void {
+        channels.get(this.name)?.delete(this);
+      }
+
+      postMessage(data: unknown): void {
+        for (const peer of channels.get(this.name) ?? []) {
+          if (peer !== this) {
+            peer.onmessage?.({ data } as MessageEvent<unknown>);
+          }
+        }
+      }
+    }
+    vi.stubGlobal('BroadcastChannel', PeerBroadcastChannel as unknown as typeof BroadcastChannel);
+    vi.stubGlobal('location', {
+      hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=peer-telemetry`,
+    });
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}peer-worker-a`);
+    await import('../src/embedding.worker');
+    expect(registeredHandlers.runEmbedding).toBeTypeOf('function');
+
+    vi.resetModules();
+    Reflect.deleteProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_PHASE_KEY);
+    registeredHandlers.runEmbedding = undefined;
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}peer-worker-b`);
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0]));
+    const runPeerEmbedding = await loadWorker();
+    const telemetryPeers = [...(channels.get('peer-telemetry') ?? [])];
+    expect(telemetryPeers).toHaveLength(2);
+
+    telemetryPeers[0]?.postMessage({
+      message: 'peer worker lifetime failure',
+      type: 'worker-lifetime-error',
+      workerInstanceId: 'peer-worker-a',
+    });
+
+    await expect(
+      runPeerEmbedding({
+        deviceHint: 'wasm',
+        id: 'peer-worker-b-task',
+        model: 'bge-m3',
+        texts: ['healthy peer'],
+        truncateDim: 2,
+        type: 'embed',
+      })
+    ).resolves.toMatchObject({ id: 'peer-worker-b-task', type: 'result' });
+    expect(
+      channels.get(`peer-telemetry${EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX}`)
+    ).toHaveLength(2);
+  });
+
+  it('clears a fast-path cancellation before a request id is reused', async () => {
+    const channels = new Map<
+      string,
+      { onmessage: ((event: MessageEvent<unknown>) => void) | null }
+    >();
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}fast-abort-worker`);
+    vi.stubGlobal('location', {
+      hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=fast-abort-channel`,
+    });
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
+        readonly postMessage = vi.fn();
+
+        constructor(name: string) {
+          channels.set(name, this);
+        }
+
+        readonly close = vi.fn();
+      } as unknown as typeof BroadcastChannel
+    );
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0]));
+    const runEmbedding = await loadWorker();
+    const controlChannel = channels.get(
+      `fast-abort-channel${EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX}`
+    );
+    controlChannel?.onmessage?.({
+      data: { id: 'reused-request-id', type: 'cancel-request' },
+    } as MessageEvent<unknown>);
+    const request = {
+      deviceHint: 'wasm' as const,
+      id: 'reused-request-id',
+      model: 'bge-m3',
+      texts: ['request'],
+      truncateDim: 2,
+      type: 'embed' as const,
+    };
+
+    await expect(runEmbedding(request)).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(runEmbedding(request)).resolves.toMatchObject({
+      id: 'reused-request-id',
+      type: 'result',
+    });
+  });
+
+  it('stops between batches on request abort and reuses the warmed worker pipeline', async () => {
+    let controlChannel: { onmessage: ((event: MessageEvent<unknown>) => void) | null } | undefined;
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}graceful-abort-worker`);
+    vi.stubGlobal('location', {
+      hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=graceful-abort-channel`,
+    });
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
+        readonly postMessage = vi.fn();
+
+        constructor() {
+          controlChannel = this;
+        }
+      } as unknown as typeof BroadcastChannel
+    );
+
+    const extractor = vi.fn(async () => {
+      if (extractor.mock.calls.length === 1) {
+        controlChannel?.onmessage?.({
+          data: { id: 'graceful-abort', type: 'cancel-request' },
+        } as MessageEvent<unknown>);
+      }
+      return new Float32Array([1, 0]);
+    });
+    pipelineMock.mockResolvedValue(extractor);
+    const runEmbedding = await loadWorker();
+
+    await expect(
+      runEmbedding({
+        deviceHint: 'wasm',
+        id: 'graceful-abort',
+        maxBatchSize: 1,
+        model: 'bge-m3',
+        texts: ['one', 'two', 'three'],
+        truncateDim: 2,
+        type: 'embed',
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(extractor).toHaveBeenCalledTimes(1);
+
+    await expect(
+      runEmbedding({
+        deviceHint: 'wasm',
+        id: 'after-graceful-abort',
+        maxBatchSize: 1,
+        model: 'bge-m3',
+        texts: ['still warm'],
+        truncateDim: 2,
+        type: 'embed',
+      })
+    ).resolves.toMatchObject({ id: 'after-graceful-abort', type: 'result' });
+    expect(pipelineMock).toHaveBeenCalledTimes(1);
+    expect(extractor).toHaveBeenCalledTimes(2);
+  });
+
   it('retries worker bootstrap after a transformers import failure', async () => {
     const runEmbedding = await loadWorker();
 
@@ -771,7 +1161,7 @@ describe('embedding worker runtime', () => {
       );
       const runEmbedding = await loadWorker();
 
-      await runEmbedding({
+      const result = await runEmbedding({
         deviceHint: 'wasm',
         id: 'pack-transfer',
         model: 'bge-m3',
@@ -789,6 +1179,10 @@ describe('embedding worker runtime', () => {
       const transferList = call[1] as readonly ArrayBuffer[];
       expect(transferList).toHaveLength(1);
       expect(transferList[0]).toBeInstanceOf(ArrayBuffer);
+      // Identity, not just shape: the single transferred buffer must BE the
+      // packed backing store every returned vector is a view over — a copy
+      // (`.slice(0)`) satisfies the two assertions above.
+      expect(result.vectors.every((vector) => vector.buffer === transferList[0])).toBe(true);
     });
 
     it('transfers original vector buffers when uneven dimensions skip packing', async () => {
@@ -810,7 +1204,13 @@ describe('embedding worker runtime', () => {
       expect(transferMock).toHaveBeenCalledTimes(1);
       const call = transferMock.mock.calls[0] as readonly unknown[];
       const transferList = call[1] as readonly ArrayBuffer[];
-      expect(transferList).toEqual(result.vectors.map((vector) => vector.buffer));
+      // Positional identity (===), not toEqual: this test guards the
+      // skip-packing fallback whose entire point is transferring the
+      // ORIGINALS — deep equality would accept byte-identical copies.
+      expect(transferList).toHaveLength(result.vectors.length);
+      expect(result.vectors.every((vector, index) => transferList[index] === vector.buffer)).toBe(
+        true
+      );
     });
 
     it('does not invoke Transfer when there are no vectors to return', async () => {

@@ -70,6 +70,9 @@ function installGitBridge(): void {
     aheadBehind: vi.fn(async () => ok({ ahead: 0, behind: 0, hasUpstream: false, upstream: null })),
     commit: vi.fn(async () => ok({ branch: 'main', commit: 'abc1234' })),
     commitFiles: vi.fn(async () => ok([])),
+    createBranch: vi.fn(async (_rootId: string, params: { branch: string }) =>
+      ok({ branch: params.branch })
+    ),
     diff: vi.fn(async () => ok({ path: '', staged: false, truncated: false, unifiedDiff: '' })),
     fetch: vi.fn(async () => ok({ output: '' })),
     history: vi.fn(async () => ok({ commits: [], hasMore: false, limit: 100, offset: 0 })),

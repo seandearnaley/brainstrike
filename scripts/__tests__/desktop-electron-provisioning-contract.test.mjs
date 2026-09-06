@@ -6,7 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const workflowPaths = ['.github/workflows/test.yml', '.github/workflows/desktop-e2e.yml'];
+const workflowPaths = [
+  '.github/workflows/test.yml',
+  '.github/workflows/desktop-e2e.yml',
+  '.github/workflows/mcp-verification.yml',
+];
+// mcp-verification.yml is deliberately included: its provisioning steps must
+// also never reintroduce the unused ~/.cache/electron cache location.
 const electronCacheConfigPaths = [...workflowPaths, '.github/actions/setup-workspace/action.yml'];
 const desktopSetupJobs = [
   { job: 'desktop-e2e', relativePath: '.github/workflows/test.yml', turboCache: 'false' },
@@ -84,7 +90,7 @@ test('desktop workflows and their shared action do not cache the unused Electron
   }
 });
 
-test('all three provisioning steps use the container-safe runner temp fallback', () => {
+test('every provisioning step uses the container-safe runner temp fallback', () => {
   const provisioningSteps = workflowPaths.flatMap((relativePath) =>
     allSteps(loadWorkflow(relativePath))
       .filter(({ name }) => name === 'Provision Electron binary')
@@ -93,8 +99,8 @@ test('all three provisioning steps use the container-safe runner temp fallback',
 
   assert.equal(
     provisioningSteps.length,
-    3,
-    'expected smoke plus two regression provisioning sites'
+    7,
+    'expected native packaging, smoke, two regression, and three official-conformance provisioning sites'
   );
   for (const { relativePath, run } of provisioningSteps) {
     assert.equal(typeof run, 'string', `${relativePath} provisioning must remain a shell step`);
@@ -104,4 +110,39 @@ test('all three provisioning steps use the container-safe runner temp fallback',
     assert.match(run, /unzip[^\n]+"\$ELECTRON_ZIP"/);
     assert.doesNotMatch(run, /\$\{RUNNER_TEMP\}\/electron\.zip/);
   }
+});
+
+test('native packaging provisions one retrying Electron archive and reuses it', () => {
+  const steps = loadWorkflow('.github/workflows/test.yml').jobs['native-electron']?.steps;
+  assert.ok(Array.isArray(steps), 'test.yml has no steps for native-electron');
+
+  const provisionIndex = steps.findIndex(({ name }) => name === 'Provision Electron binary');
+  const nativeTestIndex = steps.findIndex(
+    ({ name }) => name === 'Load the native capability in Electron'
+  );
+  const packageIndex = steps.findIndex(({ name }) => name === 'Package the desktop application');
+  assert.ok(provisionIndex > -1, 'native-electron has no explicit Electron provisioning step');
+  assert.ok(
+    provisionIndex < nativeTestIndex,
+    'Electron must be provisioned before the native smoke'
+  );
+  assert.ok(provisionIndex < packageIndex, 'Electron must be provisioned before packaging');
+
+  const provisionRun = steps[provisionIndex].run;
+  assert.equal(typeof provisionRun, 'string');
+  assert.match(provisionRun, /ELECTRON_ZIP="\$\{RUNNER_TEMP:-\/tmp\}\/electron\.zip"/);
+  assert.match(
+    provisionRun,
+    /curl[^\n]+--connect-timeout 20[^\n]+--max-time 180[^\n]+--retry 3[^\n]+--retry-all-errors[^\n]+"\$URL"/
+  );
+  assert.match(provisionRun, /unzip[^\n]+"\$ELECTRON_ZIP"/);
+  assert.match(provisionRun, /fs\.constants\.X_OK/);
+  assert.match(provisionRun, /statSync\(p\)\.size===0/);
+  assert.match(provisionRun, /ELECTRON_DIST=\$ELECTRON_ZIP/);
+
+  const packageRun = steps[packageIndex].run;
+  assert.equal(typeof packageRun, 'string');
+  assert.match(packageRun, /set -euo pipefail/);
+  assert.match(packageRun, /test -n "\$\{ELECTRON_DIST:-\}"/);
+  assert.match(packageRun, /--config\.electronDist="\$ELECTRON_DIST"/);
 });

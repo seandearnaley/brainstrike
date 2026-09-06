@@ -102,10 +102,24 @@ describe('Web SettingsPageContent', () => {
     expect(screen.getByText(/No settings matched "missing"/i)).toBeInTheDocument();
   });
 
+  test('registers the Provider Hub without a separate API Keys category', async () => {
+    renderPage();
+
+    const nav = screen.getByRole('navigation', { name: /settings categories/i });
+    expect(within(nav).queryByRole('button', { name: /^API Keys$/i })).not.toBeInTheDocument();
+    // getByRole throws on multiple matches, so this also guards against a duplicate registration.
+    const providersButton = within(nav).getByRole('button', { name: /^Providers$/i });
+    fireEvent.click(providersButton);
+
+    expect(window.location.hash).toBe('#settings/providers');
+    expect(await screen.findByTestId('providers-settings')).toBeInTheDocument();
+    expect(await screen.findByTestId('provider-card-openai')).toBeInTheDocument();
+  });
+
   test('renders model selection when the category is selected', async () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: /Models & Providers/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Model Catalog/i }));
 
     const pane = await screen.findByTestId('settings-category-models');
     expect(within(pane).getByTestId('model-selection-page-mock')).toBeInTheDocument();

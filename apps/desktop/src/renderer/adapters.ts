@@ -1,12 +1,20 @@
-import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import {
+  type DirectoryHandle,
+  type FileHandle,
+  type FileSystemAdapter,
+  isDurableRootId,
+  isFullyQualifiedFileSystemPath,
+} from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type {
   ElectronAPI,
   FileSystemChange,
+  FileSystemWatchBatchMetadata,
   FileSystemWatchEvent,
   FileSystemWatchSignal,
   IFileNode,
+  RecentRootEntry,
   RootDescriptor,
   WatcherHealthEvent,
   WatcherRetryOutcome,
@@ -14,6 +22,13 @@ import type {
 } from '@brainstrike/types';
 
 const logger = createLogger('ElectronRendererAdapters');
+
+function assertExplicitAbsoluteReadPath(value: unknown, label: string): asserts value is string {
+  if (isFullyQualifiedFileSystemPath(value)) {
+    return;
+  }
+  throw new Error(`${label} must be a non-empty absolute path`);
+}
 
 function requireElectronAPI(): ElectronAPI {
   const api = window.electronAPI;
@@ -32,7 +47,10 @@ function requireElectronAPI(): ElectronAPI {
  * every push O(roots) to filter. The shared subscription is created lazily on
  * the first registration and torn down when the last watch unregisters.
  */
-const watchCallbacksById = new Map<string, (changes: FileSystemChange[]) => void>();
+const watchCallbacksById = new Map<
+  string,
+  (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void
+>();
 let sharedWatchUnsubscribe: (() => void) | null = null;
 
 function ensureSharedWatchSubscription(
@@ -43,7 +61,17 @@ function ensureSharedWatchSubscription(
   }
   sharedWatchUnsubscribe = onWatchEvent((event) => {
     const callback = watchCallbacksById.get(event.watchId);
-    if (callback && event.changes.length > 0) {
+    if (!callback) {
+      return;
+    }
+    if (event.filteredChangeBoundaries && event.filteredChangeBoundaries.length > 0) {
+      callback(event.changes, {
+        filteredChangeBoundaries: event.filteredChangeBoundaries,
+        ...(event.filteredChangeBoundariesOverflow === true
+          ? { filteredChangeBoundariesOverflow: true }
+          : {}),
+      });
+    } else if (event.changes.length > 0) {
       callback(event.changes);
     }
   });
@@ -52,7 +80,7 @@ function ensureSharedWatchSubscription(
 function registerWatchCallback(
   onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void,
   watchId: string,
-  callback: (changes: FileSystemChange[]) => void
+  callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void
 ): void {
   ensureSharedWatchSubscription(onWatchEvent);
   watchCallbacksById.set(watchId, callback);
@@ -174,6 +202,19 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
     return requireElectronAPI().fileSystem.addRoot();
   }
 
+  /**
+   * Desktop-only capability (web omits it rather than stubbing): re-mount a
+   * folder main's recent-roots ledger already records as granted. Main rejects
+   * anything else — this is not a general open-any-path door.
+   */
+  async addRootByPath(rootPath: string): Promise<RootDescriptor> {
+    return requireElectronAPI().fileSystem.addRootByPath(rootPath);
+  }
+
+  async listRecentRoots(): Promise<readonly RecentRootEntry[]> {
+    return requireElectronAPI().fileSystem.listRecentRoots();
+  }
+
   async restoreRoots(): Promise<RootDescriptor[]> {
     return requireElectronAPI().fileSystem.restoreRoots();
   }
@@ -204,6 +245,24 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
     return requireElectronAPI().fileSystem.readFileByPath(absolutePath);
   }
 
+  /**
+   * Explicit absolute-path capability. The renderer confines the path to
+   * `rootPath`; main exact-binds `rootId` and that path against the mounted
+   * registry before authorizing the file.
+   */
+  async readFileByAbsolutePath(
+    absolutePath: string,
+    rootPath: string,
+    rootId: string
+  ): Promise<string> {
+    assertExplicitAbsoluteReadPath(rootPath, 'Mounted root path');
+    assertExplicitAbsoluteReadPath(absolutePath, 'Requested file path');
+    if (!isDurableRootId(rootId)) {
+      throw new Error('Mounted root identity must be a durable rootId');
+    }
+    return requireElectronAPI().fileSystem.readFileByAbsolutePath(absolutePath, rootPath, rootId);
+  }
+
   async exists(path: string): Promise<boolean> {
     return requireElectronAPI().fileSystem.exists(path);
   }
@@ -227,7 +286,7 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
    */
   watchDirectory(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void,
+    callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
     onSignal?: (signal: FileSystemWatchSignal) => void
   ): () => void {
     const api = window.electronAPI?.fileSystem;

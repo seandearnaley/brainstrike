@@ -29,7 +29,6 @@ const baseArgs = {
     topP: 0.9,
   },
   observationalMemorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
-  permissionPolicyRequest: undefined,
   providerOptions: { openai: { reasoningEffort: 'medium' } },
   requestedReasoningEffort: 'medium' as const,
   runtimeWorkspaceContext: null,

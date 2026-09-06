@@ -163,6 +163,16 @@ describe('useBackgroundTokenIndexer', () => {
     await waitFor(() => {
       const worker = mockWorkers[0]!;
       expect(worker.postMessage).toHaveBeenCalledTimes(1);
+      expect(worker.postMessage).toHaveBeenCalledWith({
+        requests: [
+          expect.objectContaining({
+            cachedFileSize: 128,
+            cachedHash: 'hash',
+            compositeKey: 'folder|@|file.txt',
+          }),
+        ],
+        type: 'index-batch',
+      });
     });
 
     // Simulate a skipped result (hash matched) coming back from the worker.
@@ -309,6 +319,54 @@ describe('useBackgroundTokenIndexer', () => {
     });
     await expect(indexPromise).resolves.toBeUndefined();
     await waitFor(() => expect(result.current.isIndexing).toBe(false));
+  });
+
+  it('does not emit error telemetry for an expected binary exclusion', async () => {
+    const onFileError = vi.fn();
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        mode: 'accurate',
+        onFileError,
+        store: null,
+      })
+    );
+    await markWorkerReady();
+
+    let indexPromise!: Promise<void>;
+    act(() => {
+      indexPromise = result.current.indexFiles([
+        {
+          compositeKey: 'folder|@|image.bin',
+          filePath: 'image.bin',
+          folderId: 'folder',
+        },
+      ]);
+    });
+    await waitFor(() => expect(mockWorkers[0]?.postMessage).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      mockWorkers[0]?.emitEvent('message', {
+        data: {
+          compositeKey: 'folder|@|image.bin',
+          error: 'Binary file - cannot count tokens',
+          id: '1',
+          reason: 'binary',
+          type: 'error',
+        },
+      } as MessageEvent);
+    });
+
+    expect(onFileError).toHaveBeenCalledWith(
+      'folder|@|image.bin',
+      'Binary file - cannot count tokens',
+      'binary'
+    );
+    expect(mockEmitIndexingError).not.toHaveBeenCalled();
+    expect(mockLogger.debug).toHaveBeenCalledWith('Background token indexer excluded file', {
+      compositeKey: 'folder|@|image.bin',
+      reason: 'binary',
+    });
+    await expect(indexPromise).resolves.toBeUndefined();
   });
 
   it('keeps content-level tokenization failures file-scoped', async () => {

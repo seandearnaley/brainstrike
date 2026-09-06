@@ -296,4 +296,58 @@ describe('processDirectoryEntry', () => {
     expect(calledWith.platform).toBe('electron');
     expect(calledWith._internal).toBe(entryHandle);
   });
+
+  it('preserves a durable rootId stamped on a child handle', async () => {
+    const directoryHandle = createMockDirectoryHandle('electron');
+    const entry: IFileNode = {
+      ...createMockDirectoryEntry('mydir', 'mydir'),
+      handle: {
+        kind: 'directory',
+        name: 'mydir',
+        rootId: 'stamped-child-root-id',
+      } as unknown as FileSystemDirectoryHandle,
+    };
+    const rootHandle = createMockDirectoryHandle('electron');
+
+    const readTree = vi.fn().mockResolvedValue([]);
+    const sortFileNodes = vi.fn((nodes: IFileNode[]) => nodes);
+
+    await processDirectoryEntry(
+      entry,
+      '/parent',
+      directoryHandle,
+      rootHandle,
+      'root',
+      readTree,
+      sortFileNodes
+    );
+
+    const calledWith = readTree.mock.calls[0]![0] as DirectoryHandle;
+    expect(calledWith.rootId).toBe('stamped-child-root-id');
+  });
+
+  it('inherits the parent directory handle rootId when the child handle is unstamped', async () => {
+    const directoryHandle: DirectoryHandle = {
+      ...createMockDirectoryHandle('electron'),
+      rootId: 'outer-root-id',
+    };
+    const entry = createMockDirectoryEntry('mydir', 'mydir');
+    const rootHandle = createMockDirectoryHandle('electron');
+
+    const readTree = vi.fn().mockResolvedValue([]);
+    const sortFileNodes = vi.fn((nodes: IFileNode[]) => nodes);
+
+    await processDirectoryEntry(
+      entry,
+      '/parent',
+      directoryHandle,
+      rootHandle,
+      'root',
+      readTree,
+      sortFileNodes
+    );
+
+    const calledWith = readTree.mock.calls[0]![0] as DirectoryHandle;
+    expect(calledWith.rootId).toBe('outer-root-id');
+  });
 });

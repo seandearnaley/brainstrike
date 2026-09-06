@@ -28,7 +28,11 @@ describe('provider-factory anthropic prompt caching wiring', () => {
   });
 
   it('wraps hosted Anthropic models so doStream carries the tail cache breakpoint', async () => {
-    const model = createProvider('anthropic', 'test-key', 'claude-sonnet-4-6') as {
+    const model = createProvider(
+      'anthropic',
+      { apiKey: 'test-key', kind: 'api_key' },
+      'claude-sonnet-4-6'
+    ) as {
       doStream: (params: unknown) => Promise<unknown>;
       modelId: string;
     };

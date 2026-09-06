@@ -10,6 +10,7 @@ export const migration022EnableDefaultEmbeddingModels: Migration = {
     UPDATE models SET is_enabled = false WHERE id = 'Xenova/all-MiniLM-L6-v2';
     UPDATE models SET is_enabled = false WHERE id = 'Xenova/bge-small-en-v1.5';
   `,
+  ledgerKey: 'custom-022-enable-default-embedding-models',
   name: 'enable_default_embedding_models',
   up: `
     -- Enable the default local embedding model (small and fast)

@@ -78,6 +78,7 @@ function renderBody() {
         content={'const x = 1;'}
         isLoading={false}
         isRestoring={false}
+        onRetryContent={vi.fn()}
         rootPath="/root"
         status={undefined}
         tab={{

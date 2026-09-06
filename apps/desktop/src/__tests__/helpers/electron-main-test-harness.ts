@@ -1,4 +1,4 @@
-import { vi } from 'vitest';
+import { type Mock, vi } from 'vitest';
 
 type IpcMainHandler = (...args: unknown[]) => unknown;
 type IpcMainListener = (...args: unknown[]) => unknown;
@@ -110,6 +110,9 @@ const electronMainMockSurface = {
   session: {
     ...electronTestStub.session,
     defaultSession: {
+      on: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+      setPermissionRequestHandler: vi.fn(),
       webRequest: { onHeadersReceived: vi.fn() },
     },
     fromPartition: vi.fn(() => ({
@@ -226,4 +229,92 @@ export function resetElectronMainTestHarness(): void {
 export function setMockWebContents(contents: readonly unknown[]): void {
   mockAllWebContents.length = 0;
   mockAllWebContents.push(...contents);
+}
+
+export interface RecordedRendererEvent {
+  readonly channel: string;
+  readonly payload: unknown;
+}
+
+type RendererSendMock = Mock<(channel: string, payload?: unknown) => void>;
+
+export interface RecordingWindow {
+  /** Every `webContents.send` this window received, in call order. */
+  readonly events: RecordedRendererEvent[];
+  readonly id: number;
+  isDestroyed(): boolean;
+  /** Payloads delivered on `channel`, in call order. */
+  payloadsFor(channel: string): unknown[];
+  /**
+   * Clears BOTH records of the traffic — the `events` log and the mock's own
+   * call log. They are two views of the same sends, so clearing one alone
+   * (`vi.clearAllMocks()` empties the call log but not `events`;
+   * `events.length = 0` does the reverse) leaves a window that answers
+   * `toHaveBeenCalledTimes` and `payloadsFor` differently. Clears in place, so
+   * an alias taken earlier (`const sentEvents = window.events`) stays valid.
+   */
+  reset(): void;
+  /** Same mock as `webContents.send`, hoisted for terser assertions. */
+  readonly send: RendererSendMock;
+  readonly webContents: {
+    readonly id: number;
+    isDestroyed(): boolean;
+    readonly send: RendererSendMock;
+  };
+}
+
+let nextRecordingWindowId = 1;
+
+/**
+ * A `BrowserWindow`-shaped stand-in that records what main sent to the
+ * renderer.
+ *
+ * Every main -> renderer broadcast in this app iterates
+ * `BrowserWindow.getAllWindows()` (`ipc-mcp.ts`, `mcp/lifecycle-control.ts`,
+ * `ipc-domains/db-ipc.ts`, `assistant-server/workspace-context-tools.ts` and
+ * eight sites in `main.ts`), and every one is a `for (const window of …)` loop.
+ * A test that asserts what the renderer was told therefore needs at least one
+ * window in that listing: with `getAllWindows: () => []` the loop body never
+ * runs, and the assertion — `.not.toHaveBeenCalled()` above all — passes
+ * whether or not production sends anything (BST-1622).
+ *
+ * The harness default stays `[]` on purpose. Most desktop tests never look at
+ * renderer traffic, and an empty listing is the honest stub for them; hand one
+ * of these to `getAllWindows` only in the tests that do look.
+ *
+ * `scripts/desktop-window-broadcast-assertion-guard.mjs` enforces the pairing.
+ */
+export function createRecordingWindow(
+  options: {
+    /** Model a window torn down mid-broadcast: senders must skip it. */
+    destroyed?: boolean;
+    id?: number;
+    webContentsDestroyed?: boolean;
+    webContentsId?: number;
+  } = {}
+): RecordingWindow {
+  const events: RecordedRendererEvent[] = [];
+  const windowId = options.id ?? nextRecordingWindowId++;
+  const webContentsId = options.webContentsId ?? windowId;
+  const destroyed = options.destroyed === true;
+  const send: RendererSendMock = vi.fn((channel: string, payload?: unknown) => {
+    events.push({ channel, payload });
+  });
+  return {
+    events,
+    id: windowId,
+    isDestroyed: () => destroyed,
+    payloadsFor: (channel: string) =>
+      events.filter((event) => event.channel === channel).map((event) => event.payload),
+    reset: () => {
+      events.length = 0;
+      send.mockClear();
+    },
+    send,
+    webContents: {
+      id: webContentsId,
+      isDestroyed: () => options.webContentsDestroyed ?? destroyed,
+      send,
+    },
+  };
 }

@@ -80,9 +80,10 @@ describe('assistant UI panel architecture', () => {
     // EditComposer's Input is disabled alongside the Send button while the
     // budget cap blocks sends — Enter in the input is a submit path too.
     // This panel accreted several independent features that each threaded a
-    // small prop/renderer through it: the multi-root operating-root chip (WS6;
-    // <OperatingRootChip /> mounts as a sibling at the top of the composer
-    // stack), the approval/suspend outcome chip (WS2), the context-breakdown
+    // small prop/renderer through it: the composer workspace bar (BST-1396;
+    // <WorkspaceBar /> mounts as a sibling at the top of the composer stack,
+    // replacing WS6's <OperatingRootChip /> one-for-one), the approval/suspend
+    // outcome chip (WS2), the context-breakdown
     // seam + null-renderer registration (context-ring WS8; assistantContext-
     // BreakdownDataUI mirrors assistantShellOutputDataUI's `render: () => null`
     // so the transient part never surfaces as a stray element), and the
@@ -102,6 +103,58 @@ describe('assistant UI panel architecture', () => {
     // clipboard/error handling all live in that module; this file only
     // imports + renders it.
     expect(source.split('\n').length).toBeLessThanOrEqual(1880);
+  });
+
+  it('keeps the composer workspace bar an app-shell-rendered SLOT above the context meter', () => {
+    // BST-1396: the workspace bar (folder · branch) replaces the WS6
+    // operating-root chip. It is a SIBLING at the top of the composer stack —
+    // never nested inside ThreadContextMeter, which is reworked separately.
+    //
+    // The prop is a ReactNode SLOT, not the bar's props: app-shell renders the
+    // bar host (`WorkspaceBarHost`, which owns useWorkspaceBar's two
+    // live-refresh subscriptions), so a git push no longer re-renders the
+    // 1800-line wrapper that composed those props. This package stays
+    // store-free either way — it just no longer needs the props' shape.
+    const source = readSource('assistant-ui-panel.tsx');
+    expect(source).toContain('workspaceBar?: ReactNode');
+    // The bar is NOT constructed here any more; only the slot is rendered.
+    expect(source).not.toContain('<WorkspaceBar');
+    expect(source).not.toContain("from './workspace-bar/workspace-bar'");
+
+    const composerShellStart = source.indexOf('className="bs-composer-shell"');
+    expect(composerShellStart).toBeGreaterThan(-1);
+    const composerShellSource = source.slice(composerShellStart);
+    const workspaceBarStart = composerShellSource.indexOf('{workspaceBar ?? null}');
+    const contextMeterStart = composerShellSource.indexOf('<ThreadContextMeter');
+    expect(workspaceBarStart).toBeGreaterThan(-1);
+    expect(workspaceBarStart).toBeLessThan(contextMeterStart);
+
+    // The chip it replaces is gone for good — including its prop.
+    expect(source).not.toContain('OperatingRootChip');
+    expect(source).not.toContain('operatingRoot');
+
+    // The bar module and its types stay exported for the app-shell host.
+    expect(readSource('workspace-bar/workspace-bar.tsx')).toContain('export const WorkspaceBar');
+    const indexSource = readSource('index.ts');
+    expect(indexSource).toContain("from './workspace-bar/workspace-bar'");
+    for (const exported of [
+      'WorkspaceBar,',
+      'type WorkspaceBarBaseRefOption,',
+      'type WorkspaceBarBranchMenu,',
+      'type WorkspaceBarBranchRow,',
+      'type WorkspaceBarCheckout,',
+      'type WorkspaceBarCreateWorktreeRequest,',
+      'type WorkspaceBarMode,',
+      'type WorkspaceBarProps,',
+      'type WorkspaceBarRecentRoot,',
+      'type WorkspaceBarReveal,',
+      'type WorkspaceBarRoot,',
+      'type WorkspaceBarWorktreeOption,',
+      'type WorkspaceBarWorktreePicker,',
+      'type WorkspaceBarWorktreeSummary,',
+    ]) {
+      expect(indexSource).toContain(exported);
+    }
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
@@ -243,7 +296,8 @@ describe('assistant UI panel architecture', () => {
     // The tool-components map (by_name + Fallback) is extracted to
     // CHAIN_OF_THOUGHT_TOOL_COMPONENTS in todo-progress.tsx to stay under the
     // source-file budget above; assert the wiring there instead of inline.
-    expect(localChainOfThoughtSource).toContain('tools: CHAIN_OF_THOUGHT_TOOL_COMPONENTS');
+    expect(localChainOfThoughtSource).toContain('Fallback: ActivityToolPart');
+    expect(source).toContain('CHAIN_OF_THOUGHT_TOOL_COMPONENTS.by_name[props.toolName]');
     expect(readSource('todo-progress.tsx')).toContain('Fallback: ToolFallback');
   });
 

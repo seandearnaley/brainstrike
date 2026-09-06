@@ -3,9 +3,9 @@ import type { FileExplorerPage } from './page-objects/file-explorer-page';
 import { bootstrapFileExplorer } from './utils/file-explorer-setup';
 import type { FileTree } from './utils/mock-fs';
 
-// NOTE: extensions must match the explorer's default include filters
-// ('*.tsx', '*.ts', '*.js', '*.jsx', '*.json' — see DEFAULT view filters in
-// packages/types/src/file-explorer-types.ts); .md files are hidden by default.
+// Extensions here are arbitrary: DEFAULT_STATE.includeFilters is empty (include
+// filters are opt-in), so nothing in this fixture is filtered out. See
+// packages/types/src/file-explorer-state-types.ts.
 const tree: FileTree = {
   docs: {
     'notes.ts': null,

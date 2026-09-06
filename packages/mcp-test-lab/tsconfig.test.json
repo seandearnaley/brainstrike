@@ -1,0 +1,30 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Tests intentionally use extensionless relative imports under Vitest's
+    // bundler. Production src is independently checked and emitted as NodeNext.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "incremental": false,
+    "noEmit": true,
+    "rootDir": ".",
+    // Upstream fixture declarations are not the test target; src remains fully
+    // library-checked by the first type-check command above.
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "types": [
+      "node",
+      "vitest/globals"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    "__tests__/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

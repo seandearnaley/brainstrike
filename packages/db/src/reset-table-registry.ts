@@ -85,11 +85,19 @@ const BRAINSTRIKE_RESET_TABLES = [
   // Calibration evidence survives restart, but never a true fresh start.
   'brainstrike_token_estimate_calibration',
   'brainstrike_diagnostic_events',
+  // Forge PR cache (migration 110, BST-1391). FK-less, main-written, and it
+  // names remote repositories and branch topology — a "true fresh start" must
+  // not carry it forward. It rebuilds from `gh` on the next observation.
+  'brainstrike_forge_prs',
   // Sync-the-mind op-log seam (migration 079, BST-993). Clearing the mind
   // clears its op-log: pre-sync there is no peer the ops could replay to,
   // and a reset that kept tombstones for data it just destroyed would carry
   // "deletes" of rows that never existed on the fresh database.
   'brainstrike_mind_ops',
+  // Principal-bound MCP Tasks handles and durable authority epochs (migration 114, BST-1562).
+  // Handles precede their authority parent so table-enumerating resets respect the FK.
+  'brainstrike_mcp_tasks',
+  'brainstrike_mcp_task_authorities',
   'brainstrike_thread_message_index',
   'brainstrike_thread_search_state',
   // Shadow-git snapshot ledger (migration 081, BST-1164). Turn↔commit-oid
@@ -99,6 +107,11 @@ const BRAINSTRIKE_RESET_TABLES = [
   // factory reset) and are unreachable from web, where these rows would
   // otherwise dangle forever.
   'brainstrike_workspace_snapshots',
+  // Managed-worktree ledger (migration 109, BST-1390). The ROWS are cleared;
+  // the worktree DIRECTORIES on disk are a separate, explicitly-confirmed step
+  // in factory reset (see platform-contracts.md) — a reset must never silently
+  // delete a folder full of the user's uncommitted work.
+  'brainstrike_worktrees',
 ] as const;
 
 /** Indexing/workspace data owned by the Drizzle schema. */
@@ -157,6 +170,11 @@ export type ResetTable =
  * const — because module-scope initializers run at bundle chunk
  * initialization, where the contract chunk is not guaranteed to have evaluated
  * (`scripts/verify-mastra-schema-init-order.mjs`, BST-558/#1988).
+ *
+ * Four of the six are migration-backed since BST-1651 (migration 117). Only
+ * `mastra_vectors` and `mastra_workflow_snapshot` are still created lazily, by
+ * Mastra's vector store and workflow storage respectively — see
+ * {@link getLazyMastraResetTables}.
  */
 export function getMastraResetTables(): readonly MastraResetTable[] {
   return [
@@ -169,7 +187,17 @@ export function getMastraResetTables(): readonly MastraResetTable[] {
   ];
 }
 
-/** The full 35-relation reset set (20 Brainstrike + 9 core + the Mastra six). */
+/**
+ * The Mastra relations that a fully migrated database still does NOT contain,
+ * because nothing but Mastra's own vector store and workflow storage creates
+ * them. The reset-coverage sweep uses this to tell a legitimately-absent
+ * relation from a registry name that has rotted.
+ */
+export function getLazyMastraResetTables(): readonly MastraResetTable[] {
+  return [MASTRA_VECTOR_TABLE, MASTRA_WORKFLOW_TABLE];
+}
+
+/** The full 41-relation reset set (26 Brainstrike + 9 core + the Mastra six). */
 export function getResetTables(): readonly ResetTable[] {
   return [...BRAINSTRIKE_RESET_TABLES, ...CORE_RESET_TABLES, ...getMastraResetTables()];
 }
@@ -208,9 +236,8 @@ export const RESET_EXCLUDED_TABLES = {
   _migrations:
     'schema-validation-only ledger (db-migration-authority); never production, never cleared',
   brainstrike_assistant_run_events:
-    'bootstrap-only DDL (assistant-memory-repository); FK ON DELETE CASCADE from brainstrike_assistant_thread_runs AND mastra_threads',
-  brainstrike_assistant_thread_runs:
-    'bootstrap-only DDL (assistant-memory-repository); FK ON DELETE CASCADE from mastra_threads',
+    'migration 118; FK ON DELETE CASCADE from brainstrike_assistant_thread_runs AND mastra_threads',
+  brainstrike_assistant_thread_runs: 'migration 118; FK ON DELETE CASCADE from mastra_threads',
   brainstrike_thread_search_profiles:
     'singleton search profile — configuration, intentionally survives (platform-contracts)',
   file_relationships: 'FK ON DELETE CASCADE from file_records (migration 003)',

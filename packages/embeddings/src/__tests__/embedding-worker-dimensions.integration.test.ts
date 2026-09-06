@@ -144,9 +144,11 @@ describe('Embedding Worker Dimensions', () => {
       jobType: 'embed_chunk',
       payload: {
         chunkId,
+        embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
         embeddingSetId: setId,
         expectedDimension: 1536,
         modelKey: 'local::large-dim-model',
+        sourceContentHash: 'hash123',
       },
       queue: 'embeddings',
     });

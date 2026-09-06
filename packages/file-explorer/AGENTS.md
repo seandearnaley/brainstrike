@@ -69,11 +69,32 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
 * **Selections**
 
   * `addSelectedFile(folderId, path)` / `removeSelectedFile` / `toggleSelectedFile`
-  * `setSelectedFiles(Set<string>)` (keeps only valid composite keys)
+  * `setSelectedFiles(Set<string>)` validates every composite key before replacement.
   * `addMultipleSelectedFiles(folderId, paths[])` / `removeMultipleSelectedFiles(folderId, paths[])`
-    All enforce `maxSelectionCount` and **trim** if the limit is reduced.
+    Selection-adding actions enforce `maxSelectionCount`; reducing the limit
+    trims the current selection.
+  * `reconcileSelectionWithDirectorySnapshot(s)` consumes complete, root-scoped
+    directory listings after refresh; it removes only selections disproven by
+    those listings and preserves query mode through exclusion overrides. When
+    a query manifest is unavailable, only the exact cached materialized
+    projection may be reconciled; never infer missing manifest membership.
+    Selection is files-only: an authoritative same-path directory proves a
+    selected file was retyped and removes it.
+  * `getSelectionAncestorDirectories(state, folderId, rootPath)` derives the
+    unique parent-first directory boundaries needed after a shallow root
+    refresh by walking selected paths and ancestors only, never the file tree.
+    It preserves each selected path's exact slash/backslash presentation so
+    the result remains an exact normalized-tree key; normalization is only for
+    containment, case comparison, dedupe, and ordering. It is a pure derivation
+    and enforces no selection cap.
+  * `getSelectionProjectionPaths(state, folderId)` is the canonical effective
+    projection reader: focused query roots resolve manifest/overrides, while
+    foreign roots read their explicit folder snapshot. Refresh fencing must
+    reuse it rather than infer projection changes from `selectionVersion`.
   * Encode/decode composite keys through `@brainstrike/file-explorer/selection`.
     Malformed keys throw; callers must not guess or silently coerce them.
+    `getSelectedPathsForFolder` is the canonical folder-scoped strict decoder
+    used by reconciliation and accepts read-only selection sets.
 * **Directory expansion**
 
   * `toggleDirectoryExpansion(path)` (collapsing a parent removes its descendants)
@@ -94,6 +115,14 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
 ## File content cache (LRU) & memory pressure
 
 * In-memory LRU with **\~5 MB cap / 50 entries**; files **>1 MB are skipped** (warned).
+* The LRU is owned by ONE Zustand store instance and is created when that
+  store's `StateCreator` runs. It is never module-global: a retired provider's
+  in-flight read may finish against its retired store/cache, but it cannot
+  repopulate content returned by a replacement store. `clearFileContents`,
+  `clearAllFileContents`, eviction, and cache stats operate only on that same
+  store-owned cache. Renderer factory reset explicitly calls
+  `clearAllFileContents()` on the live provider store because web reset need
+  not reload the page; clearing persisted browser storage alone is not enough.
 * When cache usage exceeds \~**2 MB** we **filter `fileContents` in state** to: current file + \~10 most recent, while **all content remains in the cache**. Always fetch via `getFileContent()` to avoid reading a filtered-out entry from state.
 * Motivation: avoid multi-MB JSON snapshots on persistence and keep re-renders/lightweight state.
 
@@ -103,6 +132,16 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
 
 * Storage key: **`file-explorer-storage-v4`**. Legacy key **`fileExplorerSettings`** is auto-migrated on startup only when no current-key snapshot exists.
 * We persist only a **partialized** slice (no functions, no cache) and **merge** back into current defaults on hydration. Schema changes use `version` + `migrate`; because this app is still greenfield, older file-explorer snapshots are discarded rather than migrated when their semantics are no longer trusted. See Zustand docs for `persist` options (`partialize`, `merge`, `version`, `migrate`). ([Zustand Documentation][2])
+* Invalid JSON, corrupt same-version shapes, and unsupported versions recover to
+  the empty serialized state and set the ephemeral
+  `persistenceRecoveryNotice`. Missing first-run state and valid hydration do
+  not set it. Consumers atomically drain the notice through
+  `consumePersistenceRecoveryNotice()` so one discarded payload can produce at
+  most one notification; the notice itself is never persisted.
+* Persistence diagnostics are summaries only (counts, booleans, and schema
+  versions). Never log persisted identifiers, root-map keys, paths, raw
+  payloads, or JSON parser errors because parser messages can echo payload
+  fragments.
 * **Never persist large content** (leave it in the LRU). Web Storage is synchronous; large writes/reads can degrade responsiveness—offload to a Worker (below) and keep the payloads small. ([MDN Web Docs][3])
 
 ---

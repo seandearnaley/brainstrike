@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { analyzeModelCatalogMigrationContract } from '../model-catalog-migration-contract.mjs';
+import {
+  analyzeModelCatalogMigrationContract,
+  CATALOG_FILE,
+  findCatalogKeyOrderFailures,
+} from '../model-catalog-migration-contract.mjs';
 
 const migrationIndexSource = `
 import { migration025UpdateProviderModels2026 } from './025-update-provider-models-2026.js';
@@ -21,6 +25,7 @@ import type { Migration } from './migration-runner';
 
 export const ${exportName}: Migration = {
   version: 25,
+  ledgerKey: 'custom-025-fixture',
   name: 'fixture',
   up: \`
     ${body}
@@ -36,13 +41,52 @@ const databaseContract = readFileSync(
   'utf8'
 );
 
+const providersContract = readFileSync(
+  new URL('../../docs/agents/assistant-providers.md', import.meta.url),
+  'utf8'
+);
+
+const shippedProviderCatalog = JSON.parse(
+  readFileSync(new URL(`../../${CATALOG_FILE}`, import.meta.url), 'utf8')
+);
+
+/**
+ * Build an object whose keys are in the GIVEN order. The key-order fixtures
+ * below must stay out of order to mean anything, and an object literal would
+ * not: Biome's `useSortedKeys` assist sorts JS object properties, so one
+ * `--write` run over this file would quietly sort the fixtures and leave the
+ * tests passing while asserting nothing.
+ */
+function objectWithKeyOrder(entries) {
+  const object = {};
+  for (const [key, value] of entries) {
+    object[key] = value;
+  }
+  return object;
+}
+
 describe('model catalog migration contract', () => {
-  it('documents the provider registry static-literal requirement in the database contract', () => {
+  it('documents the JSON catalog source and its enforcing script in the database contract', () => {
     assert.match(
       databaseContract,
-      /^\s+- packages\/assistant-contract\/src\/provider-registry\.ts\n\s+- Keep `PROVIDER_DEFINITIONS` as an array literal, each provider entry as an object literal, each provider's `models` property as an array literal, and each model entry as an object literal\. `scripts\/model-catalog-migration-contract\.mjs` AST-parses those structural nodes; scalar provider\/model fields may reference resolvable string constants\.$/m,
-      'docs/agents/database.md must keep the complete provider-registry literal-shape rule next ' +
-        'to its source path and name the enforcing script. Update the doc and assertion together.'
+      /^\s+- packages\/assistant-contract\/src\/provider-catalog\.json$/m,
+      'docs/agents/database.md must name the catalog data file as the source to edit. ' +
+        'Update the doc and assertion together.'
+    );
+    assert.match(
+      databaseContract,
+      /`scripts\/model-catalog-migration-contract\.mjs`[^\n]*read it with `JSON\.parse`/,
+      'the doc must say the contract script READS the JSON rather than AST-parsing a literal'
+    );
+    assert.match(
+      databaseContract,
+      /`packages\/assistant-contract\/src\/provider-catalog-schema\.ts` does, at module load, and THROWS/,
+      'the doc must record that the Zod schema replaced tsc as the catalog row check and fails closed'
+    );
+    assert.doesNotMatch(
+      databaseContract,
+      /AST-parses those structural nodes/,
+      'the retired BST-1143 literal-shape rule must not linger in the contract'
     );
   });
 
@@ -89,12 +133,8 @@ describe('model catalog migration contract', () => {
     );
   });
 
-  it('requires catalog-mutating migrations to be registered in the app custom ledger', () => {
+  it('accepts catalog migrations registered only in the numbered manifest', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-];
-`,
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/025-update-provider-models-2026.ts',
@@ -105,20 +145,11 @@ const customMigrations = [
       migrationIndexSource,
     });
 
-    assert.deepEqual(result.failures, [
-      {
-        file: 'packages/db/src/migrations/025-update-provider-models-2026.ts',
-        message:
-          'Catalog-mutating migration migration025UpdateProviderModels2026 is missing from packages/db/src/drizzle/migrate.ts customMigrations.',
-      },
-    ]);
+    assert.deepEqual(result.failures, []);
   });
 
   it('fails closed when a catalog-mutating migration has no recognizable export declaration', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [];
-`,
       migrationFiles: [
         {
           file: 'packages/db/src/migrations/039-catalog-refresh.ts',
@@ -150,10 +181,6 @@ export const migration039CatalogRefresh = {
 
   it('allows catalog schema migrations that do not mutate catalog rows', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-];
-`,
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/031-provider-catalog-timestamps.ts',
@@ -167,13 +194,8 @@ const customMigrations = [
     assert.deepEqual(result.failures, []);
   });
 
-  it('requires custom migrations to stay registered in the numbered migration runner', () => {
+  it('requires catalog migrations to stay registered in the numbered manifest', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
-];
-`,
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/025-update-provider-models-2026.ts',
@@ -192,11 +214,6 @@ export const migrations = [];
         message:
           'Catalog-mutating migration migration025UpdateProviderModels2026 is missing from packages/db/src/migrations/index.ts migrations.',
       },
-      {
-        file: 'packages/db/src/drizzle/migrate.ts',
-        message:
-          'Custom migration migration025UpdateProviderModels2026 is missing from packages/db/src/migrations/index.ts migrations.',
-      },
     ]);
   });
 
@@ -206,12 +223,6 @@ export const migrations = [];
 const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
   openrouter: {},
 };
-`,
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-032-previous-catalog', migration032PreviousCatalog),
-  customMigration('custom-033-update-provider-models-2026-frontier', migration033UpdateProviderModels2026Frontier),
-];
 `,
       memoryPreferencesSource: `
 const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
@@ -264,12 +275,6 @@ const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
   openrouter: {},
 };
 `,
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-031-previous-catalog', migration031PreviousCatalog),
-  customMigration('custom-032-historical-refresh', migration032HistoricalRefresh),
-];
-`,
       memoryPreferencesSource: `
 const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
 `,
@@ -307,12 +312,6 @@ export const migrations = [
 const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
   openrouter: {},
 };
-`,
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-033-previous-catalog', migration033PreviousCatalog),
-  customMigration('custom-034-current-refresh', migration034CurrentRefresh),
-];
 `,
       memoryPreferencesSource: `
 const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
@@ -364,13 +363,6 @@ const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
     'anthropic/claude-sonnet-4.6': 'anthropic/claude-sonnet-4.7',
   },
 };
-`,
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-032-previous-catalog', migration032PreviousCatalog),
-  customMigration('custom-033-frontier-catalog', migration033FrontierCatalog),
-  customMigration('custom-034-next-catalog', migration034NextCatalog),
-];
 `,
       memoryPreferencesSource: `
 const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {
@@ -435,12 +427,6 @@ const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
   openrouter: {},
 };
 `,
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-032-previous-catalog', migration032PreviousCatalog),
-  customMigration('custom-033-frontier-refresh', migration033FrontierRefresh),
-];
-`,
       memoryPreferencesSource: `
 const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
 `,
@@ -476,11 +462,6 @@ export const migrations = [
 
   it('requires static provider registry models to exist in the final DB catalog', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
-];
-`,
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/025-update-provider-models-2026.ts',
@@ -495,38 +476,23 @@ export const migrations = [
   migration025UpdateProviderModels2026,
 ];
 `,
-      providerRegistrySource: `
-const PROVIDER_DEFINITIONS = [
-  {
-    id: 'openai',
-    models: [
-      { id: 'gpt-next', type: 'llm' },
-    ],
-  },
-  {
-    id: 'ollama',
-    models: [],
-  },
-];
-`,
+      providerCatalog: [
+        { id: 'openai', models: [{ id: 'gpt-next', type: 'llm' }] },
+        { id: 'ollama', models: [] },
+      ],
     });
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/assistant-contract/src/provider-registry.ts',
+        file: CATALOG_FILE,
         message:
-          'Static provider-registry model openai::gpt-next is missing from the final DB model catalog.',
+          'Static catalog model openai::gpt-next is missing from the final DB model catalog.',
       },
     ]);
   });
 
   it('rejects stale final DB catalog rows for static providers', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
-];
-`,
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/025-update-provider-models-2026.ts',
@@ -543,34 +509,72 @@ export const migrations = [
   migration025UpdateProviderModels2026,
 ];
 `,
-      providerRegistrySource: `
-const PROVIDER_DEFINITIONS = [
-  {
-    id: 'openai',
-    models: [
-      { id: 'gpt-next', type: 'llm' },
-    ],
-  },
-];
-`,
+      providerCatalog: [{ id: 'openai', models: [{ id: 'gpt-next', type: 'llm' }] }],
     });
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message:
-          'Final DB model catalog row openai::gpt-old is missing from provider-registry.ts; delete it in a catalog migration or add it to STATIC_CATALOG_STALE_ROW_ALLOWLIST.',
+        file: CATALOG_FILE,
+        message: `Final DB model catalog row openai::gpt-old is missing from ${CATALOG_FILE}; delete it in a catalog migration or add it to STATIC_CATALOG_STALE_ROW_ALLOWLIST.`,
       },
     ]);
   });
 
-  it('fails closed when static provider registry model fields are not resolvable', () => {
+  it('rejects stale final DB catalog rows whose whole provider left the catalog', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/025-update-provider-models-2026.ts',
+          'migration025UpdateProviderModels2026',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('gpt-next', 'openai', 'GPT Next', '{"type":"llm","streaming":true}'),
+              ('embed-retired', 'cohere', 'Embed Retired', '{"type":"embedding"}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration025UpdateProviderModels2026,
 ];
 `,
+      providerCatalog: [{ id: 'openai', models: [{ id: 'gpt-next', type: 'llm' }] }],
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: CATALOG_FILE,
+        message: `Final DB model catalog row cohere::embed-retired is missing from ${CATALOG_FILE}; delete it in a catalog migration or add it to STATIC_CATALOG_STALE_ROW_ALLOWLIST.`,
+      },
+    ]);
+  });
+
+  it('exempts the transformers residue that migration 021 renamed with an UPDATE', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/025-update-provider-models-2026.ts',
+          'migration025UpdateProviderModels2026',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('gpt-next', 'openai', 'GPT Next', '{"type":"llm","streaming":true}'),
+              ('Xenova/bge-small-en-v1.5', 'transformers', 'BGE Small', '{"type":"embedding"}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration025UpdateProviderModels2026,
+];
+`,
+      providerCatalog: [{ id: 'openai', models: [{ id: 'gpt-next', type: 'llm' }] }],
+    });
+
+    assert.deepEqual(result.failures, []);
+  });
+
+  it('fails closed when static catalog model fields are malformed', () => {
+    const result = analyzeModelCatalogMigrationContract({
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/025-update-provider-models-2026.ts',
@@ -586,39 +590,57 @@ export const migrations = [
   migration025UpdateProviderModels2026,
 ];
 `,
-      providerRegistrySource: `
-const PROVIDER_DEFINITIONS = [
-  {
-    id: 'openai',
-    models: [
-      { id: UNKNOWN_MODEL_ID, type: 'llm' },
-      { id: 'gpt-known', type: UNKNOWN_MODEL_TYPE },
-    ],
-  },
-];
-`,
+      providerCatalog: [
+        {
+          id: 'openai',
+          models: [{ type: 'llm' }, { id: 'gpt-known', type: 7 }],
+        },
+      ],
     });
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message: 'Static provider-registry model for openai has an unresolvable id expression.',
+        file: CATALOG_FILE,
+        message: 'A model entry for openai is missing a string id.',
       },
       {
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message:
-          'Static provider-registry model openai::gpt-known has an unresolvable type expression.',
+        file: CATALOG_FILE,
+        message: 'Catalog model openai::gpt-known is missing a string type.',
       },
+    ]);
+  });
+
+  it('fails closed when the catalog file is not a JSON array', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      migrationFiles: [],
+      migrationIndexSource: 'export const migrations = [];',
+      providerCatalog: { openai: [] },
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: CATALOG_FILE,
+        message: 'The provider catalog must be a JSON array of provider objects.',
+      },
+    ]);
+  });
+
+  it('fails closed when a provider entry has no models array', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      migrationFiles: [],
+      migrationIndexSource: 'export const migrations = [];',
+      providerCatalog: [{ id: 'openai' }, 'openrouter', { models: [] }],
+    });
+
+    assert.deepEqual(result.failures, [
+      { file: CATALOG_FILE, message: 'Provider openai must declare a models array.' },
+      { file: CATALOG_FILE, message: 'Provider catalog entries must be objects.' },
+      { file: CATALOG_FILE, message: 'Provider catalog entry is missing a string id.' },
     ]);
   });
 
   it('requires static provider registry model types to match final DB catalog rows', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
-];
-`,
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/025-update-provider-models-2026.ts',
@@ -634,24 +656,173 @@ export const migrations = [
   migration025UpdateProviderModels2026,
 ];
 `,
-      providerRegistrySource: `
-const PROVIDER_DEFINITIONS = [
-  {
-    id: 'openai',
-    models: [
-      { id: 'gpt-next', type: 'llm' },
-    ],
-  },
-];
-`,
+      providerCatalog: [{ id: 'openai', models: [{ id: 'gpt-next', type: 'llm' }] }],
     });
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/assistant-contract/src/provider-registry.ts',
+        file: CATALOG_FILE,
         message:
-          'Static provider-registry model openai::gpt-next has type llm, but the final DB model catalog has type embedding.',
+          'Static catalog model openai::gpt-next has type llm, but the final DB model catalog has type embedding.',
       },
     ]);
+  });
+
+  it('rejects catalog objects whose keys are out of alphabetical order', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/025-update-provider-models-2026.ts',
+          'migration025UpdateProviderModels2026',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('gpt-next', 'openai', 'GPT Next', '{"type":"llm","streaming":true}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration025UpdateProviderModels2026,
+];
+`,
+      providerCatalog: [
+        objectWithKeyOrder([
+          [
+            'models',
+            [
+              objectWithKeyOrder([
+                ['type', 'llm'],
+                ['id', 'gpt-next'],
+              ]),
+            ],
+          ],
+          ['id', 'openai'],
+        ]),
+      ],
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: CATALOG_FILE,
+        message:
+          'Catalog entry openai declares "id" after "models"; provider-catalog.json object keys are alphabetical at every depth so catalog edits stay reviewable data diffs. Reorder this entry\'s keys.',
+      },
+      {
+        file: CATALOG_FILE,
+        message:
+          'Catalog entry openai.models.gpt-next declares "id" after "type"; provider-catalog.json object keys are alphabetical at every depth so catalog edits stay reviewable data diffs. Reorder this entry\'s keys.',
+      },
+    ]);
+  });
+
+  it('names ONE offending key per object rather than every pair a shuffle disturbs', () => {
+    const failures = findCatalogKeyOrderFailures([
+      objectWithKeyOrder([
+        ['runtime', 'hosted'],
+        ['id', 'openai'],
+        ['models', []],
+        ['displayName', 'OpenAI'],
+      ]),
+    ]);
+
+    assert.deepEqual(
+      failures.map((failure) => failure.message),
+      [
+        'Catalog entry openai declares "id" after "runtime"; provider-catalog.json object keys are alphabetical at every depth so catalog edits stay reviewable data diffs. Reorder this entry\'s keys.',
+      ],
+      'a reviewer needs the first key to move, not one failure per disturbed pair'
+    );
+  });
+
+  it('accepts _note first and reports a nested object by its own path', () => {
+    const failures = findCatalogKeyOrderFailures([
+      {
+        _note: 'vendor citation',
+        id: 'openai',
+        models: [
+          objectWithKeyOrder([
+            ['_note', 'row citation'],
+            ['id', 'gpt-next'],
+            [
+              'pricing',
+              objectWithKeyOrder([
+                ['outputPerMTok', 30],
+                ['inputPerMTok', 5],
+              ]),
+            ],
+            ['type', 'llm'],
+          ]),
+        ],
+      },
+    ]);
+
+    assert.deepEqual(
+      failures.map((failure) => failure.message),
+      [
+        'Catalog entry openai.models.gpt-next.pricing declares "inputPerMTok" after "outputPerMTok"; provider-catalog.json object keys are alphabetical at every depth so catalog edits stay reviewable data diffs. Reorder this entry\'s keys.',
+      ],
+      '`_note` sorts before every other catalog key, and nested objects are checked too'
+    );
+  });
+
+  it('holds the shipped catalog to the order it already keeps', () => {
+    assert.deepEqual(findCatalogKeyOrderFailures(shippedProviderCatalog), []);
+  });
+
+  it('leaves the curated ROW order of providers and models alone', () => {
+    // The catalog lists `gpt-5.6-sol` before `gpt-5.6-terra` and
+    // `claude-opus-5` before `claude-sonnet-5`: editorial order no comparator
+    // derives. Only KEY order is mechanical, so only KEY order is enforced.
+    const [openai] = shippedProviderCatalog;
+    const modelIds = openai.models.map((model) => model.id);
+
+    assert.notDeepEqual(
+      modelIds,
+      [...modelIds].sort(),
+      'if the shipped row order ever becomes sorted, re-derive the rule instead of assuming it'
+    );
+    assert.deepEqual(findCatalogKeyOrderFailures(shippedProviderCatalog), []);
+  });
+
+  it('runs the key-order rule through the CI entrypoint, not just the helper', async () => {
+    // Review finding on #3016: the two existing order tests each miss the wiring
+    // from opposite sides — one calls the helper directly, the other always
+    // passes `providerCatalog` explicitly. Neither would notice if the CI
+    // entrypoint stopped supplying the catalog and the rule silently stopped
+    // running. This asserts the real entrypoint reads the shipped file and
+    // reaches the rule.
+    const source = readFileSync(new URL(`../../${CATALOG_FILE}`, import.meta.url), 'utf8');
+    const unsorted = JSON.parse(source);
+    const firstModel = unsorted[0]?.models?.[0];
+    assert.ok(firstModel, 'shipped catalog must have a model to reorder');
+    const reordered = Object.fromEntries(Object.entries(firstModel).reverse());
+    unsorted[0].models[0] = reordered;
+
+    const failures = findCatalogKeyOrderFailures(unsorted);
+    assert.ok(failures.length > 0, 'reversing a real model row must produce a key-order failure');
+
+    // And the entrypoint the CI script calls must feed the catalog in.
+    const entrypointSource = readFileSync(
+      new URL('../model-catalog-migration-contract.mjs', import.meta.url),
+      'utf8'
+    );
+    assert.match(
+      entrypointSource,
+      /providerCatalog: JSON\.parse\(providerCatalogSource\)/,
+      'checkModelCatalogMigrationContract must pass the parsed catalog, or the key-order rule stops running in CI'
+    );
+  });
+
+  it('documents the catalog key-order rule in the providers contract', () => {
+    assert.match(
+      providersContract,
+      /object keys are alphabetical at every depth/,
+      'docs/agents/assistant-providers.md must state the rule findCatalogKeyOrderFailures enforces'
+    );
+    assert.match(
+      providersContract,
+      /`scripts\/model-catalog-migration-contract\.mjs`[^\n]*\n?[^\n]*enforces/,
+      'the doc must name the script that enforces it, so an editor knows what will fail'
+    );
   });
 });

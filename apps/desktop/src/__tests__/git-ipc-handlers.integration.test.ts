@@ -608,6 +608,64 @@ describe('git IPC runner — pinned repository environment', () => {
     expect(environment['Git_Config']).toBeUndefined();
     expect(environment['git_dir']).toBeUndefined();
   });
+
+  it('lets a per-command ordinary identity override win over the inherited environment', async () => {
+    const repo = await makeRepo();
+    const originalName = process.env['GIT_AUTHOR_NAME'];
+    process.env['GIT_AUTHOR_NAME'] = 'Ambient Author';
+    try {
+      const run = await execFileGitRunner({
+        args: ['var', 'GIT_AUTHOR_IDENT'],
+        cwd: repo,
+        env: {
+          GIT_AUTHOR_EMAIL: 'override@brainstrike.local',
+          GIT_AUTHOR_NAME: 'Override Author',
+        },
+        timeoutMs: 5000,
+      });
+
+      expect(run.exitCode).toBe(0);
+      expect(run.stdout).toContain('Override Author <override@brainstrike.local>');
+      expect(run.stdout).not.toContain('Ambient Author');
+    } finally {
+      if (originalName === undefined) {
+        Reflect.deleteProperty(process.env, 'GIT_AUTHOR_NAME');
+      } else {
+        process.env['GIT_AUTHOR_NAME'] = originalName;
+      }
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    're-applies safety-pinned values after caller environment overrides',
+    async () => {
+      const repo = await makeRepo();
+      const run = await execFileGitRunner({
+        args: ['-c', 'alias.print-env=!env', 'print-env'],
+        cwd: repo,
+        env: {
+          GIT_LITERAL_PATHSPECS: '0',
+          GIT_TERMINAL_PROMPT: '1',
+          LC_ALL: 'caller-locale',
+        },
+        timeoutMs: 5000,
+      });
+
+      expect(run.exitCode).toBe(0);
+      const environment = new Map(
+        run.stdout
+          .trim()
+          .split('\n')
+          .map((line) => {
+            const separator = line.indexOf('=');
+            return [line.slice(0, separator), line.slice(separator + 1)] as const;
+          })
+      );
+      expect(environment.get('GIT_TERMINAL_PROMPT')).toBe('0');
+      expect(environment.get('GIT_LITERAL_PATHSPECS')).toBe('1');
+      expect(environment.get('LC_ALL')).toBe('C');
+    }
+  );
 });
 
 describe('execFileGitRunner — errno discrimination (real runner)', () => {

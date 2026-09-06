@@ -22,8 +22,8 @@ vi.mock('../openai-api-key', () => ({
 }));
 
 vi.mock('../provider-api-key', () => ({
-  readProviderSecretKey: vi.fn(),
-  resolveProviderEnvKey: vi.fn(),
+  // BST-1352: ipc-agent resolves through the shared typed core now.
+  readProviderCredential: vi.fn(),
 }));
 
 const mockSecretsService = {
@@ -33,9 +33,13 @@ const mockSecretsService = {
   saveKey: vi.fn(),
 };
 
-vi.mock('../secrets', () => ({
-  getSecretsService: vi.fn(() => mockSecretsService),
-}));
+vi.mock('../secrets', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../secrets')>();
+  return {
+    ...actual,
+    getSecretsService: vi.fn(() => mockSecretsService),
+  };
+});
 
 describe('registerAgentIpcHandlers', () => {
   beforeEach(() => {
@@ -361,13 +365,16 @@ describe('registerAgentIpcHandlers', () => {
 
       const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
-      const { readProviderSecretKey, resolveProviderEnvKey } = await import('../provider-api-key');
+      const { readProviderCredential } = await import('../provider-api-key');
 
       const mcpConfig = { servers: { testServer: {} } };
       vi.mocked(loadMcpConfig).mockResolvedValue({ config: mcpConfig } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue(undefined);
-      vi.mocked(resolveProviderEnvKey).mockReturnValue(undefined);
-      vi.mocked(readProviderSecretKey).mockResolvedValue('secret-key');
+      vi.mocked(readProviderCredential).mockResolvedValue({
+        key: 'secret-key',
+        source: 'stored',
+        type: 'api_key',
+      });
 
       const messages = [
         {
@@ -387,9 +394,9 @@ describe('registerAgentIpcHandlers', () => {
       await chatHandler({} as IpcMainInvokeEvent, messages, runtime);
 
       expect(mockStreamMastraAgent).toHaveBeenCalledWith(messages, {
+        mcpHost: expect.any(Object),
         runtime: {
           apiKey: 'secret-key',
-          mcpConfig,
           mcpEnabled: false,
           model: 'claude-sonnet-4-6',
           projectId: 'proj-123',
@@ -398,7 +405,7 @@ describe('registerAgentIpcHandlers', () => {
       });
     });
 
-    it('passes filesystem MCP config through to the agent runtime', async () => {
+    it('passes the desktop MCP host through to the agent runtime', async () => {
       const mockStreamMastraAgent = vi.fn().mockReturnValue({
         [Symbol.asyncIterator]: () => ({
           async next() {
@@ -433,12 +440,13 @@ describe('registerAgentIpcHandlers', () => {
       expect(mockStreamMastraAgent).toHaveBeenCalledWith(
         messages,
         expect.objectContaining({
-          runtime: expect.objectContaining({ mcpConfig: rawConfig }),
+          mcpHost: expect.any(Object),
+          runtime: expect.not.objectContaining({ mcpConfig: expect.anything() }),
         })
       );
     });
 
-    it('ignores runtime-supplied MCP config and uses the loaded desktop config', async () => {
+    it('ignores runtime-supplied MCP config and uses the desktop host', async () => {
       const mockStreamMastraAgent = vi.fn().mockReturnValue({
         [Symbol.asyncIterator]: () => ({
           async next() {
@@ -476,10 +484,11 @@ describe('registerAgentIpcHandlers', () => {
       expect(mockStreamMastraAgent).toHaveBeenCalledTimes(1);
       const [, options] = mockStreamMastraAgent.mock.calls[0] as [
         unknown,
-        { runtime: Record<string, unknown> },
+        { mcpHost?: unknown; runtime: Record<string, unknown> },
       ];
       expect(options.runtime['provider']).toBe('openai');
-      expect(options.runtime['mcpConfig']).toEqual(rawConfig);
+      expect(options.runtime['mcpConfig']).toBeUndefined();
+      expect(options.mcpHost).toEqual(expect.any(Object));
     });
 
     it('throws when provider is missing or unsupported', async () => {
@@ -505,11 +514,10 @@ describe('registerAgentIpcHandlers', () => {
 
     it('throws when API key resolution fails', async () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
-      const { resolveProviderEnvKey, readProviderSecretKey } = await import('../provider-api-key');
+      const { readProviderCredential } = await import('../provider-api-key');
 
       vi.mocked(readOpenAIApiKey).mockResolvedValue(undefined);
-      vi.mocked(resolveProviderEnvKey).mockReturnValue(undefined);
-      vi.mocked(readProviderSecretKey).mockResolvedValue(undefined);
+      vi.mocked(readProviderCredential).mockResolvedValue(undefined);
 
       const messages = [
         {

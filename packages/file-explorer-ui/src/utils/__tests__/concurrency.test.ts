@@ -2,6 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { runWithConcurrency } from '../concurrency';
 
+function createDeferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve = (): void => {};
+  const promise = new Promise<void>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
+
 describe('runWithConcurrency', () => {
   it('should process all items and return results in order', async () => {
     const items = [1, 2, 3, 4, 5];
@@ -68,37 +76,64 @@ describe('runWithConcurrency', () => {
     expect(callOrder).toEqual([1, 2, 3]);
   });
 
-  it('should propagate errors from the async function', async () => {
+  it('should drain started peers before rejecting and stop assigning new work after an error', async () => {
     const items = [1, 2, 3];
-    const fn = async (item: number) => {
+    const held = createDeferred();
+    const fn = vi.fn(async (item: number) => {
+      if (item === 1) {
+        await held.promise;
+      }
       if (item === 2) {
         throw new Error('Error on item 2');
       }
       return item * 2;
-    };
+    });
+    let settlement: 'pending' | 'rejected' | 'resolved' = 'pending';
+    const result = runWithConcurrency(items, 2, fn);
+    void result.then(
+      () => {
+        settlement = 'resolved';
+      },
+      () => {
+        settlement = 'rejected';
+      }
+    );
 
-    await expect(runWithConcurrency(items, 3, fn)).rejects.toThrow('Error on item 2');
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(2));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    expect(settlement).toBe('pending');
+    expect(fn).toHaveBeenCalledTimes(2);
+
+    held.resolve();
+    await expect(result).rejects.toThrow('Error on item 2');
+    expect(settlement).toBe('rejected');
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 
-  it('should process chunks sequentially', async () => {
-    const items = [1, 2, 3, 4, 5, 6];
-    const chunkTimestamps: number[][] = [];
-    let currentChunk: number[] = [];
-
-    const fn = async (item: number) => {
-      const now = Date.now();
-      currentChunk.push(now);
-      // When we complete a chunk, record it
-      if (currentChunk.length === 2) {
-        chunkTimestamps.push([...currentChunk]);
-        currentChunk = [];
+  it('should give the next item to a free worker without waiting for a held peer', async () => {
+    const held = createDeferred();
+    const released = createDeferred();
+    const fn = vi.fn(async (item: number) => {
+      if (item === 1) {
+        await held.promise;
+      }
+      if (item === 2) {
+        await released.promise;
       }
       return item;
-    };
+    });
 
-    await runWithConcurrency(items, 2, fn);
+    const result = runWithConcurrency([1, 2, 3], 2, fn);
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(2));
+    released.resolve();
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(3));
 
-    // Should have 3 chunks
-    expect(chunkTimestamps.length).toBe(3);
+    expect(fn.mock.calls[2]?.[0]).toBe(3);
+    held.resolve();
+
+    await expect(result).resolves.toEqual([1, 2, 3]);
   });
 });

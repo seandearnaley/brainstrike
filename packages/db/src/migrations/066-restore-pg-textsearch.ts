@@ -18,6 +18,7 @@ export const migration066RestorePgTextsearch: Migration = {
 
     DROP EXTENSION IF EXISTS pg_textsearch;
   `,
+  ledgerKey: 'custom-066-restore-pg-textsearch',
   // The "_1_2" suffix is historical, kept only to avoid churn — renaming it
   // has NO ledger consequence for any database (#2206 review, verified):
   // the Drizzle ledger keys on the `custom-066-...` id + content hash in

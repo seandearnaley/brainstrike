@@ -1,0 +1,82 @@
+/**
+ * MCP Tasks IPC bridge (BST-1566).
+ *
+ * Mirrors `elicitation-bridge.ts`: the process-local `McpDesktopTaskHost`
+ * owns every task authority; renderers see browser-safe presentations only.
+ * Presentation changes are pushed on `mcp:task:status-changed` to tracked
+ * visible-UI windows, `mcp:task:list` returns the live presentation set, and
+ * `mcp:task:act` runs one card action (recover / cancel) through the host's
+ * presentation controller fence. Action payloads are parsed with the shared
+ * contract parser before they reach the host, and both invoke channels carry
+ * the visible-UI sender policy (same as `mcp:content:*` and elicitation).
+ */
+import {
+  MCP_TASK_LIST_LIMIT,
+  type McpTaskActionResult,
+  type McpTaskListResult,
+  type McpTaskStatusChangedEvent,
+  parseMcpTaskActionRequest,
+  parseMcpTaskListResult,
+} from '@brainstrike/assistant-contract';
+import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import { getTrackedWindowsByRole } from '../window-role';
+import type { McpDesktopTaskHostPort } from './task-host';
+
+export class McpTaskBridgeError extends Error {
+  constructor(readonly code: 'mcp-task-action-malformed') {
+    super(`MCP task action failed: ${code}`);
+    this.name = 'McpTaskBridgeError';
+  }
+}
+
+export interface McpTaskBridgeRuntime {
+  readonly taskHost: Pick<McpDesktopTaskHostPort, 'act' | 'list' | 'subscribe'>;
+}
+
+const MCP_TASK_SENDER_POLICY = { roles: ['visible-ui'] } as const;
+
+function broadcast(channel: string, payload: unknown): void {
+  const cloned = structuredClone(payload);
+  for (const window of getTrackedWindowsByRole('visible-ui')) {
+    if (!window.isDestroyed()) {
+      window.webContents.send(channel, cloned);
+    }
+  }
+}
+
+export function attachMcpTaskBridge(
+  runtime: McpTaskBridgeRuntime,
+  registry: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>
+): () => void {
+  const { taskHost } = runtime;
+  const unsubscribe = taskHost.subscribe((task) => {
+    const event: McpTaskStatusChangedEvent = { task };
+    broadcast(DESKTOP_PRELOAD_IPC_CHANNELS.mcp.taskStatusChanged, event);
+  });
+  registry.registerAuthorizedInvoke(
+    'mcp',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.taskAct,
+    MCP_TASK_SENDER_POLICY,
+    (_event, request: unknown): Promise<McpTaskActionResult> => {
+      let parsed: ReturnType<typeof parseMcpTaskActionRequest>;
+      try {
+        parsed = parseMcpTaskActionRequest(request);
+      } catch {
+        throw new McpTaskBridgeError('mcp-task-action-malformed');
+      }
+      return taskHost.act(parsed);
+    }
+  );
+  registry.registerAuthorizedInvoke(
+    'mcp',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.taskList,
+    MCP_TASK_SENDER_POLICY,
+    (): McpTaskListResult => {
+      const { tasks } = taskHost.list();
+      // The wire schema caps the list; the host keeps at most that many.
+      return parseMcpTaskListResult({ tasks: tasks.slice(-MCP_TASK_LIST_LIMIT) });
+    }
+  );
+  return unsubscribe;
+}

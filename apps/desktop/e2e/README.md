@@ -128,6 +128,87 @@ Tests Inter-Process Communication between main and renderer:
 - Concurrent IPC calls
 - Communication reliability
 
+### 4. Composer Workspace Bar (`workspace-bar.desktop.test.ts`)
+Drives the composer workspace bar against REAL on-disk folders — nothing about
+the bar is mocked (see `docs/agents/workspace-context.md`, MAIN vs FOCUSED):
+- Folder chip visible at a SINGLE root, labelled with the primary root's name.
+- Branch chip (read-only `window.git.status`) shows `main` + `data-dirty` for a
+  real `git init`'d repo, and is ABSENT for a non-git folder.
+- Recents: a path seeded into main's `recentRootsList` ledger re-mounts through
+  the picker-less `fs:addRootByPath` and is recorded as a thread secondary
+  (`+1`).
+- "Add folder…" (OS picker bypassed by `BRAINSTRIKE_E2E_REAL_ROOT_PATH`) mounts
+  globally AND attaches to the thread as a secondary.
+
+Only the first test is `@smoke`; the rest run in the `regression` project. Temp
+folder fixtures come from `utils/git-fixtures.ts` and the ledger seed from
+`utils/seed-root.ts` — both shared with `git-panel.desktop.test.ts`, so the two
+specs cannot drift apart. The web counterpart is `apps/web/e2e/workspace-bar.test.ts`
+(one test, tagged `@web-smoke` so it runs on every PR).
+Web's smaller capability surface (no git bridge, no recents ledger) is pinned
+separately by `apps/web/e2e/workspace-bar.test.ts`.
+
+### 5. Threads Panel Folder Grouping (`threads-panel-folders.desktop.test.ts`)
+Drives the Threads panel's `Group by → Folder` view against a REAL `git init`'d
+folder (see `docs/agents/assistant-persistence.md`, THREAD GROUPS):
+- Folder sections keyed by each thread's primary root, with a live count and a
+  trailing **No folder** section that carries no "New thread here" action.
+- The `⎇ branch` badge on bound rows (real `window.changes` git inventory) and
+  no badge at all on an unbound row.
+- "New thread here" creating a thread born BOUND to that folder (the section's
+  count moves 2 → 3 while "No folder" does not).
+- `Show only → Running` with no runs emptying the list into
+  `threads-filtered-empty-card`, and clearing it restoring every row.
+
+Only the first test is `@smoke`; the second runs in the `regression` project.
+Threads are SEEDED as `mastra_threads` rows via `utils/seed-threads.ts` (the
+shared `electronAPI.db` bridge) because a thread's folder binding is written at
+its FIRST REQUEST — so no product gesture mints a bound thread before one
+exists. That helper also reads the DURABLE `roots.id` back from the database
+(never the adapter root id) and probes `to_regclass('mastra_threads')` rather
+than retrying a failing INSERT. The spec `realpath`s its temp repo on purpose:
+the branch join tries exact path equality FIRST (no symlink resolution) and
+only then the containment-id fallback, so resolving the macOS
+`/var` → `/private/var` tmpdir keeps this spec grading the path join rather
+than the fallback. Root and
+repo fixtures are the shared `utils/git-fixtures.ts` + `utils/seed-root.ts`.
+The web counterpart is `apps/web/e2e/threads-panel-folders.test.ts`
+(one test, `@web-smoke`), which pins the option, the "No folder" catch-all, and
+the absence of both the branch badge and the `window.changes` bridge.
+
+### 6. Composer Worktree Mode (`worktree-mode.desktop.test.ts`)
+Drives the composer's Mode and branch chips against REAL on-disk Git worktrees
+and the real PGlite-backed managed-worktree ledger — `window.worktrees`, Git,
+picker-less mounting, and thread checkout persistence are not mocked:
+- A plain Git checkout shows the enabled `Local` mode chip.
+- The create sheet runs a real `git worktree add`, then moves the thread's
+  primary folder and branch chips into the created checkout.
+- A real worktree below `.codex/worktrees` appears in the existing-worktree
+  picker as a disabled `Codex` row with its reason and **Grant access…** action.
+- Archiving a clean managed worktree removes the real checkout, records its
+  archive ref, and hands the thread back to `Local`.
+- The selected worktree, folder, and branch survive a renderer reload.
+- The branch chip switches the real local checkout to another branch.
+
+Only the Local-chip test is `@smoke`; the other five run in the `regression`
+project. Repository and external-worktree fixtures come from the shared
+`utils/git-fixtures.ts`, while root/PGlite setup uses `utils/seed-root.ts`, the
+same production-chain helpers as `git-panel.desktop.test.ts` and
+`workspace-bar.desktop.test.ts`. The managed directory is redirected to a
+tracked temp directory through the E2E-only `BRAINSTRIKE_E2E_WORKTREE_DIR` hook.
+
+### Packaged MCP Tasks restart (`mcp-task-restart.packaged.desktop.test.ts`)
+
+This focused verifier requires an `electron-builder --dir` artifact. It launches
+that executable twice against one isolated user-data directory and asserts
+`app.isPackaged === true` on both processes. A test-only lazy renderer mode
+composes migration-114 PGlite persistence, the Tasks lifecycle and interaction
+authorities, the bounded presentation controller, and the accessible task card.
+The test covers durable restart recovery, principal/generation fencing,
+remote-observed cancellation, focus restoration, and explicit quiescent close.
+The mode is unavailable outside Desktop test mode and never enables production
+Tasks registration.
+
 ## 🛠 Key Features
 
 ### Dialog Mocking

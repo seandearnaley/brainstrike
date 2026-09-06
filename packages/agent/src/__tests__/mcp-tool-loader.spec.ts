@@ -33,7 +33,7 @@ describe('mcp-tool-loader', () => {
         local_tool: { description: 'local', id: 'local_tool' },
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: undefined,
         mcpConfig: undefined,
         sanitizedLocalTools: localTools,
@@ -50,8 +50,8 @@ describe('mcp-tool-loader', () => {
         local_tool: { description: 'local', id: 'local_tool' },
       };
 
-      const result = await collectCombinedTools({
-        mcpClient: {} as McpRuntimeClient,
+      const { tools: result } = await collectCombinedTools({
+        mcpClient: { configuredServers: [] } as McpRuntimeClient,
         mcpConfig: undefined,
         sanitizedLocalTools: localTools,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
@@ -63,7 +63,7 @@ describe('mcp-tool-loader', () => {
     });
 
     it('returns empty object when no local tools and no MCP', async () => {
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: undefined,
         mcpConfig: undefined,
         sanitizedLocalTools: undefined,
@@ -84,7 +84,7 @@ describe('mcp-tool-loader', () => {
         listTools: vi.fn().mockResolvedValue({}),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: { servers: [] },
         sanitizedLocalTools: localTools,
@@ -111,7 +111,7 @@ describe('mcp-tool-loader', () => {
 
       const toolNameMap = new Map<string, string>();
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -149,7 +149,7 @@ describe('mcp-tool-loader', () => {
         }),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -185,7 +185,7 @@ describe('mcp-tool-loader', () => {
       });
 
       try {
-        const result = await collectCombinedTools({
+        const { tools: result } = await collectCombinedTools({
           mcpClient: mockMcpClient as unknown as McpRuntimeClient,
           mcpConfig: {
             servers: [
@@ -240,7 +240,7 @@ describe('mcp-tool-loader', () => {
         }),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -286,7 +286,7 @@ describe('mcp-tool-loader', () => {
         }),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -327,7 +327,7 @@ describe('mcp-tool-loader', () => {
         }),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -359,7 +359,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -398,7 +398,7 @@ describe('mcp-tool-loader', () => {
         }),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -444,7 +444,7 @@ describe('mcp-tool-loader', () => {
         }),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -485,7 +485,7 @@ describe('mcp-tool-loader', () => {
         }),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -527,7 +527,7 @@ describe('mcp-tool-loader', () => {
         }),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -570,7 +570,7 @@ describe('mcp-tool-loader', () => {
         }),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -629,7 +629,7 @@ describe('mcp-tool-loader', () => {
         }),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -688,7 +688,7 @@ describe('mcp-tool-loader', () => {
         }),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -743,7 +743,7 @@ describe('mcp-tool-loader', () => {
         }),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -779,7 +779,7 @@ describe('mcp-tool-loader', () => {
         ),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -810,7 +810,7 @@ describe('mcp-tool-loader', () => {
         listToolsetsWithErrors: vi.fn().mockRejectedValue(new Error('Connection failed')),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -841,7 +841,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -871,7 +871,7 @@ describe('mcp-tool-loader', () => {
         listTools: vi.fn().mockResolvedValue(mockMcpTools),
       };
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -900,7 +900,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -929,7 +929,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -986,7 +986,19 @@ describe('mcp-tool-loader', () => {
       expect(settled).toBe(false);
 
       await vi.advanceTimersByTimeAsync(1);
-      await expect(resultPromise).resolves.toEqual({});
+      // The honoured override also reaches the skip it reports, so the run
+      // records WHICH ceiling it lost against rather than a bare "no tools".
+      await expect(resultPromise).resolves.toEqual({
+        mcpDiscoverySkips: [
+          {
+            reason: 'mcp_tool_discovery_timeout: timeout_10',
+            scope: 'client',
+            serverNames: ['server'],
+            timeoutMs: 10,
+          },
+        ],
+        tools: {},
+      });
       expect(settled).toBe(true);
     });
 
@@ -997,7 +1009,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -1026,7 +1038,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -1053,7 +1065,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -1088,7 +1100,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -1126,7 +1138,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -1155,7 +1167,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -1185,7 +1197,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -1218,7 +1230,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -1260,7 +1272,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         durableArtifactSettlement: true,
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
@@ -1300,7 +1312,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -1342,7 +1354,7 @@ describe('mcp-tool-loader', () => {
           },
         });
 
-        const result = await collectCombinedTools({
+        const { tools: result } = await collectCombinedTools({
           durableArtifactSettlement,
           mcpClient: mockMcpClient as unknown as McpRuntimeClient,
           mcpConfig: {
@@ -1383,7 +1395,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -1420,7 +1432,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -1461,7 +1473,7 @@ describe('mcp-tool-loader', () => {
         },
       });
 
-      const result = await collectCombinedTools({
+      const { tools: result } = await collectCombinedTools({
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
@@ -1482,6 +1494,158 @@ describe('mcp-tool-loader', () => {
       await expect(tool.execute()).rejects.toThrow(
         'MCP multimodal content must contain only object parts'
       );
+    });
+  });
+
+  describe('discovery skip reporting (BST-1602)', () => {
+    const stdioServer = (name: string) => ({ command: 'echo', name, transport: 'stdio' as const });
+
+    it('reports a client-scope skip and logs at warn when discovery rejects', async () => {
+      const logRecords: LogRecord[] = [];
+      const removeLogListener = addLogListener((record) => logRecords.push(record));
+      const mockMcpClient = {
+        listTools: vi.fn(),
+        // "Connection closed" is one of the two reasons the deleted
+        // `pickMcpDiscoveryLogMethod` demoted to `debug`.
+        listToolsetsWithErrors: vi.fn().mockRejectedValue(new Error('Connection closed')),
+      };
+
+      try {
+        const result = await collectCombinedTools({
+          mcpClient: mockMcpClient as unknown as McpRuntimeClient,
+          mcpConfig: { servers: [stdioServer('alpha'), stdioServer('beta')] },
+          sanitizedLocalTools: undefined,
+          scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
+          timeoutOverrideMs: undefined,
+          toolNameMap: new Map(),
+        });
+
+        // ONE skip for one lost race, naming both servers — never two skips.
+        expect(result.mcpDiscoverySkips).toEqual([
+          {
+            reason: 'Connection closed',
+            scope: 'client',
+            serverNames: ['alpha', 'beta'],
+            timeoutMs: 5000,
+          },
+        ]);
+        expect(logRecords).toContainEqual(
+          expect.objectContaining({
+            level: 'warn',
+            message: 'MCP tool discovery skipped',
+            scope: 'MastraAgentMcpTools',
+          })
+        );
+      } finally {
+        removeLogListener();
+      }
+    });
+
+    it('reports a client-scope skip and logs at warn when discovery times out', async () => {
+      vi.useFakeTimers();
+      const logRecords: LogRecord[] = [];
+      const removeLogListener = addLogListener((record) => logRecords.push(record));
+      const mockMcpClient = {
+        listTools: vi.fn(),
+        listToolsetsWithErrors: vi.fn().mockReturnValue(new Promise(() => undefined)),
+      };
+
+      try {
+        const resultPromise = collectCombinedTools({
+          mcpClient: mockMcpClient as unknown as McpRuntimeClient,
+          mcpConfig: { servers: [stdioServer('alpha')] },
+          sanitizedLocalTools: undefined,
+          scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
+          timeoutOverrideMs: undefined,
+          toolNameMap: new Map(),
+        });
+        await vi.advanceTimersByTimeAsync(5000);
+        const result = await resultPromise;
+
+        expect(result.mcpDiscoverySkips).toEqual([
+          {
+            reason: 'mcp_tool_discovery_timeout: timeout_5000',
+            scope: 'client',
+            serverNames: ['alpha'],
+            timeoutMs: 5000,
+          },
+        ]);
+        // The second reason the deleted heuristic demoted to `debug`.
+        expect(logRecords).toContainEqual(
+          expect.objectContaining({ level: 'warn', message: 'MCP tool discovery skipped' })
+        );
+      } finally {
+        removeLogListener();
+      }
+    });
+
+    it('reports one server-scope skip per failing server and logs each at warn', async () => {
+      const logRecords: LogRecord[] = [];
+      const removeLogListener = addLogListener((record) => logRecords.push(record));
+      const mockMcpClient = createMockMcpClient(
+        { alpha: { search: { description: 'search', id: 'search' } } },
+        { beta: 'Connection closed' }
+      );
+
+      try {
+        const result = await collectCombinedTools({
+          mcpClient: mockMcpClient as unknown as McpRuntimeClient,
+          mcpConfig: { servers: [stdioServer('alpha'), stdioServer('beta')] },
+          sanitizedLocalTools: undefined,
+          scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
+          timeoutOverrideMs: undefined,
+          toolNameMap: new Map(),
+        });
+
+        expect(result.tools).toHaveProperty('alpha_search');
+        expect(result.mcpDiscoverySkips).toEqual([
+          { reason: 'Connection closed', scope: 'server', serverName: 'beta', timeoutMs: 5000 },
+        ]);
+        expect(logRecords).toContainEqual(
+          expect.objectContaining({
+            level: 'warn',
+            message: 'MCP server tool discovery skipped',
+          })
+        );
+      } finally {
+        removeLogListener();
+      }
+    });
+
+    it('reports no skips when discovery is healthy', async () => {
+      const mockMcpClient = createMockMcpClient({
+        alpha: { search: { description: 'search', id: 'search' } },
+      });
+
+      const result = await collectCombinedTools({
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
+        mcpConfig: { servers: [stdioServer('alpha')] },
+        sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
+        timeoutOverrideMs: undefined,
+        toolNameMap: new Map(),
+      });
+
+      expect(result.mcpDiscoverySkips).toEqual([]);
+    });
+
+    it('bounds a long reason before it becomes durable metadata', async () => {
+      const mockMcpClient = {
+        listTools: vi.fn(),
+        listToolsetsWithErrors: vi.fn().mockRejectedValue(new Error('x'.repeat(500))),
+      };
+
+      const result = await collectCombinedTools({
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
+        mcpConfig: { servers: [stdioServer('alpha')] },
+        sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
+        timeoutOverrideMs: undefined,
+        toolNameMap: new Map(),
+      });
+
+      // 199 + the ellipsis: the bound is a TOTAL, ellipsis included.
+      expect(result.mcpDiscoverySkips[0]?.reason).toBe(`${'x'.repeat(199)}\u2026`);
     });
   });
 });

@@ -226,6 +226,15 @@ export function extractProject(command) {
 // so the caller can report/skip them explicitly instead of silently dropping
 // them.
 export function classifyCommand(command) {
+  if (/^node\s+\S*verify-test-tsconfig-program\.mjs(?:\s|$)/u.test(command)) {
+    const project = extractProject(command);
+    if (!project) {
+      throw new Error(
+        `The test-tsconfig verifier command has no project: "${command}". Refusing to compare a default project the verifier does not run.`
+      );
+    }
+    return { command, kind: 'noEmit', project };
+  }
   if (!command.startsWith('tsc')) {
     return { command, kind: 'non-tsc' };
   }

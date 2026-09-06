@@ -95,6 +95,11 @@ export const CI_GATES_NOT_RUN_LOCALLY = [
   },
   {
     reason:
+      'Linux-x64 CI provisioning for the Native Electron Package job; the deterministic workflow contract covers its retry, verification, ordering, and archive-reuse semantics locally.',
+    step: 'native-electron › Provision Electron binary',
+  },
+  {
+    reason:
       'Part of the Native Electron Package job, excluded as a unit — see the "Package the desktop application" entry.',
     step: 'native-electron › Load the native capability in Electron',
   },
@@ -113,6 +118,26 @@ export const CI_GATES_NOT_RUN_LOCALLY = [
       'Part of the Native Electron Package job, excluded as a unit — see the "Package the desktop application" entry.',
     step: 'native-electron › Load the packaged @parcel/watcher binding in Electron (BST-568)',
   },
+  {
+    reason:
+      'Part of the platform-specific Native Electron Package job, excluded as a unit — run `pnpm --filter @brainstrike/desktop run test:e2e:mcp-packaged` to build and verify the current developer-platform package explicitly.',
+    step: 'native-electron › Verify packaged MCP core lifecycle',
+  },
+  {
+    reason:
+      'Part of the platform-specific Native Electron Package job, excluded as a unit — run `pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-apps-bridge` against a developer-platform package explicitly.',
+    step: 'native-electron › Verify packaged MCP Apps bridge',
+  },
+  {
+    reason:
+      'Part of the platform-specific Native Electron Package job, excluded as a unit — package with VITE_MCP_TASK_HARNESS=1 and run `pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-tasks` against that developer-platform package explicitly.',
+    step: 'native-electron › Verify packaged MCP Tasks lifecycle',
+  },
+  {
+    reason:
+      'Part of the platform-specific Native Electron Package job, excluded as a unit — run `pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-apps` against a developer-platform package explicitly.',
+    step: 'native-electron › Verify packaged MCP Apps lifecycle',
+  },
 ];
 
 /** CI run steps covered by each local plan step. */
@@ -123,6 +148,7 @@ export const CI_GATE_PLAN_IDS = new Map([
   ['static › Script tests', ['script-tests']],
   ['static › Lint', ['lint']],
   ['static › Type check', ['type-check']],
+  ['static › MCP representative verification', ['mcp-verification']],
   ['unit-shard › Pull request affected unit tests', ['unit-tests']],
   ['unit-shard › Pull request affected integration tests', ['integration-tests']],
   ['unit-shard › Push and manual unit tests', ['unit-tests']],
@@ -314,6 +340,11 @@ export function buildPlan(options = {}) {
     id: 'type-check',
     label: 'type-check',
   });
+  plan.push({
+    command: 'pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json',
+    id: 'mcp-verification',
+    label: 'MCP representative verification',
+  });
 
   // --- Build -------------------------------------------------------------
   plan.push({
@@ -342,13 +373,13 @@ export function buildPlan(options = {}) {
   // split with the same concurrency caps mirrors the CI phase split.
   plan.push({
     command:
-      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=4 --summarize --log-order=grouped',
+      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-test-command.mjs -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=4 --summarize --log-order=grouped',
     id: 'unit-tests',
     label: 'test',
   });
   plan.push({
     command:
-      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:integration --concurrency=2 --summarize --log-order=grouped',
+      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-test-command.mjs -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:integration --concurrency=2 --summarize --log-order=grouped',
     id: 'integration-tests',
     label: 'test:integration',
   });

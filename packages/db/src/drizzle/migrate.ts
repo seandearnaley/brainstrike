@@ -10,85 +10,8 @@
 import { createLogger } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 import { assertNoLegacyMigrationLedger } from '../architecture/db-migration-authority.js';
-import { migration015ModelRegistry } from '../migrations/015-model-registry.js';
-import { migration020LocalLlmModels } from '../migrations/020-local-llm-models.js';
-import { migration021RenameTransformersToLocal } from '../migrations/021-rename-transformers-to-local.js';
-import { migration022EnableDefaultEmbeddingModels } from '../migrations/022-enable-default-embedding-models.js';
-import { migration023FixLocalProviderEnabled } from '../migrations/023-fix-local-provider-enabled.js';
-import { migration024FixLlmToolCalling } from '../migrations/024-fix-llm-tool-calling.js';
-import { migration025UpdateProviderModels2026 } from '../migrations/025-update-provider-models-2026.js';
-import { migration026UpdateProviderModels2026V2 } from '../migrations/026-update-provider-models-2026-v2.js';
-import { migration027ViewFilterPresets } from '../migrations/027-view-filter-presets.js';
-import { migration028GemmaLocalLlm } from '../migrations/028-gemma-local-llm.js';
-import { migration030CollectionIndexingStats } from '../migrations/030-collection-indexing-stats.js';
-import { migration032FileChunkSourceRanges } from '../migrations/032-file-chunk-source-ranges.js';
-import { migration033UpdateProviderModels2026Frontier } from '../migrations/033-update-provider-models-2026-frontier.js';
-import { migration034TsvectorGeneratedColumn } from '../migrations/034-tsvector-generated-column.js';
-import { migration035Uuidv7PrimaryKeys } from '../migrations/035-uuidv7-primary-keys.js';
-import { migration036WorkspaceIndexSystemRole } from '../migrations/036-workspace-index-system-role.js';
-import { migration037FileRecordMtimeMs } from '../migrations/037-file-record-mtime-ms.js';
-import { migration038PgTrgmGrepIndex } from '../migrations/038-pg-trgm-grep-index.js';
-import { migration039RootsTable } from '../migrations/039-roots-table.js';
-import { migration040RetireSourceRootPath } from '../migrations/040-retire-source-root-path.js';
-import { migration041RootsPathIdentity } from '../migrations/041-roots-path-identity.js';
-import { migration042JobQueueChunkId } from '../migrations/042-job-queue-chunk-id.js';
-import { migration043JobQueueEmbeddingSetId } from '../migrations/043-job-queue-embedding-set-id.js';
-import { migration044DimensionIndexSuspensions } from '../migrations/044-dimension-index-suspensions.js';
-import { migration045DimensionIndexMaintenance } from '../migrations/045-dimension-index-maintenance.js';
-import { migration046AssistantRunUsage } from '../migrations/046-assistant-run-usage.js';
-import { migration047RunUsageRootId } from '../migrations/047-run-usage-root-id.js';
-import { migration048FileRecordsNameTrgm } from '../migrations/048-file-records-name-trgm.js';
-import { migration049JobQueueMetrics } from '../migrations/049-job-queue-metrics.js';
-import { migration050AssistantTaskLists } from '../migrations/050-assistant-task-lists.js';
-import { migration051PromptLibrary } from '../migrations/051-prompt-library.js';
-import { migration052AssistantEditCheckpoints } from '../migrations/052-assistant-edit-checkpoints.js';
-import { migration053Bm25ContentIndex } from '../migrations/053-bm25-content-index.js';
-import { migration054AssistantThreadGroups } from '../migrations/054-assistant-thread-groups.js';
-import { migration055AssistantMessageParents } from '../migrations/055-assistant-message-parents.js';
-import { migration056AssistantThreadGroupPresentation } from '../migrations/056-assistant-thread-group-presentation.js';
-import { migration057UpdateProviderModels202607 } from '../migrations/057-update-provider-models-2026-07.js';
-import { migration058ProviderBilledCost } from '../migrations/058-provider-billed-cost.js';
-import { migration059AssistantThreadGroupIcons } from '../migrations/059-assistant-thread-group-icons.js';
-import { migration060OpenRouterSparkKimiK3 } from '../migrations/060-openrouter-spark-kimi-k3.js';
-import { migration061ModelVisionCapability } from '../migrations/061-model-vision-capability.js';
-import { migration062AssistantRunOutcomes } from '../migrations/062-assistant-run-outcomes.js';
-import { migration063IndexConsolidation } from '../migrations/063-index-consolidation.js';
-import { migration064JobQueueOutcomeMetrics } from '../migrations/064-job-queue-outcome-metrics.js';
-import { migration065QuarantinePgTextsearch } from '../migrations/065-quarantine-pg-textsearch.js';
-import { migration066RestorePgTextsearch } from '../migrations/066-restore-pg-textsearch.js';
-import { migration067ThreadSearchIndex } from '../migrations/067-thread-search-index.js';
-import { migration068ToolOutputArtifacts } from '../migrations/068-tool-output-artifacts.js';
-import { migration069RunUsageCacheTokens } from '../migrations/069-run-usage-cache-tokens.js';
-import { migration070MinimaxM3Vision } from '../migrations/070-minimax-m3-vision.js';
-import { migration071OpenRouterJulyCodingModels } from '../migrations/071-openrouter-july-coding-models.js';
-import { migration072OpenRouterLing3Flash } from '../migrations/072-openrouter-ling-3-flash.js';
-import { migration073DiagnosticEvents } from '../migrations/073-diagnostic-events.js';
-import { migration074AgentReadonlyRole } from '../migrations/074-agent-readonly-role.js';
-import { migration075FileSymbols } from '../migrations/075-file-symbols.js';
-import { migration076AssistantRunErrors } from '../migrations/076-assistant-run-errors.js';
-import { migration077RunUsageKind } from '../migrations/077-run-usage-kind.js';
-import { migration078JobQueueDedupeActiveIndex } from '../migrations/078-job-queue-dedupe-active-index.js';
-import { migration079MindOpsLog } from '../migrations/079-mind-ops-log.js';
-import { migration080AssistantMessageTombstones } from '../migrations/080-assistant-message-tombstones.js';
-import { migration081WorkspaceSnapshots } from '../migrations/081-workspace-snapshots.js';
-import { migration082CanvasDocuments } from '../migrations/082-canvas-documents.js';
-import { migration083ToolCallTelemetry } from '../migrations/083-tool-call-telemetry.js';
-import { migration084AssistantToolProjectionRewrites } from '../migrations/084-assistant-tool-projection-rewrites.js';
-import { migration085ToolCallTelemetryOccurredAtIndex } from '../migrations/085-tool-call-telemetry-occurred-at-index.js';
-import { migration086TokenEstimateCalibration } from '../migrations/086-token-estimate-calibration.js';
-import { migration087ToolProjectionRewriteKinds } from '../migrations/087-tool-projection-rewrite-kinds.js';
-import { migration088AssistantCompactionRanges } from '../migrations/088-assistant-compaction-ranges.js';
-import { migration089TokenEstimateCalibrationResolvedBudgets } from '../migrations/089-token-estimate-calibration-resolved-budgets.js';
-import { migration090CompactionSummaryRunUsageKind } from '../migrations/090-compaction-summary-run-usage-kind.js';
-import { migration091TokenEstimateCalibrationPromptBaseline } from '../migrations/091-token-estimate-calibration-prompt-baseline.js';
-import { migration092ToolCallTelemetrySubstrateSplit } from '../migrations/092-tool-call-telemetry-substrate-split.js';
-import { migration093AssistantRunTreatments } from '../migrations/093-assistant-run-treatments.js';
-import { migration094OpenRouterGemini37Flash } from '../migrations/094-openrouter-gemini-3-7-flash.js';
-import { migration095AssistantThreadWorkspaces } from '../migrations/095-assistant-thread-workspaces.js';
-import { migration096OpenRouterQwen3827B } from '../migrations/096-openrouter-qwen-3-8-27b.js';
-import { migration097OpenRouterQwen38TwoPointFourT } from '../migrations/097-openrouter-qwen-3-8-2-4t-a95b.js';
-import { migration098OpenRouterQwen38Max } from '../migrations/098-openrouter-qwen-3-8-max.js';
-import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
+import { migrations } from '../migrations/index.js';
+import type { Migration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
 // Using import attribute for Node.js 22+ ESM compatibility
@@ -96,7 +19,7 @@ import migrationsManifest from './migrations.json' with { type: 'json' };
 
 const logger = createLogger('DrizzleMigrate');
 
-interface Migration {
+interface DrizzleMigration {
   hash: string;
   name: string;
   sql: string;
@@ -105,7 +28,7 @@ interface Migration {
 
 interface MigrationManifest {
   generatedAt: string;
-  migrations: Migration[];
+  migrations: DrizzleMigration[];
   version: number;
 }
 
@@ -146,7 +69,7 @@ async function getAppliedMigrations(db: PGlite): Promise<Set<string>> {
 
 function assertNoStaleDrizzleMigrationLedger(
   applied: ReadonlySet<string>,
-  migrations: readonly Migration[]
+  migrations: readonly DrizzleMigration[]
 ): void {
   const knownHashes = new Set(migrations.map((migration) => migration.hash));
   const staleHashes = [...applied].filter((hash) => !knownHashes.has(hash));
@@ -166,158 +89,49 @@ async function recordMigration(db: PGlite, hash: string): Promise<void> {
   await db.query(`INSERT INTO "${MIGRATIONS_TABLE}" (hash) VALUES ($1)`, [hash]);
 }
 
-type SqlBackedMigration = LegacyMigration & {
-  readonly up: string;
-};
+// These numbered migrations are already represented by the immutable
+// drizzle-kit snapshot. In particular, 008 remains numbered-only (ADR-0002).
+const FOLDED_INTO_DRIZZLE_SNAPSHOT: ReadonlySet<number> = new Set([
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 29, 31,
+]);
 
-function isSqlBackedMigration(migration: LegacyMigration): migration is SqlBackedMigration {
-  return typeof migration.up === 'string';
-}
-
-function customMigration(hash: string, migration: LegacyMigration): Migration {
-  if (!isSqlBackedMigration(migration)) {
+function toDrizzleMigration(migration: Migration): DrizzleMigration {
+  if (typeof migration.up !== 'string') {
     throw new Error(`Drizzle migration "${migration.name}" must be a SQL string.`);
   }
 
   return {
-    hash,
+    hash: migration.ledgerKey,
     name: migration.name,
     sql: migration.up,
     version: String(migration.version),
   };
 }
 
-// Append-only by design. Once a custom migration hash can be written to the
-// Drizzle ledger, removing or rewriting it must make greenfield startup fail
-// through the stale-hash guard rather than guessing a compatible history.
-const customMigrations: Migration[] = [
-  customMigration('custom-015-model-registry-seed', migration015ModelRegistry),
-  customMigration('custom-020-local-llm-models', migration020LocalLlmModels),
-  customMigration('custom-021-rename-transformers-to-local', migration021RenameTransformersToLocal),
-  customMigration(
-    'custom-022-enable-default-embedding-models',
-    migration022EnableDefaultEmbeddingModels
-  ),
-  customMigration('custom-023-fix-local-provider-enabled', migration023FixLocalProviderEnabled),
-  customMigration('custom-024-fix-llm-tool-calling', migration024FixLlmToolCalling),
-  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
-  customMigration(
-    'custom-026-update-provider-models-2026-v2',
-    migration026UpdateProviderModels2026V2
-  ),
-  customMigration('custom-027-view-filter-presets-seed', migration027ViewFilterPresets),
-  customMigration('custom-028-gemma-local-llm', migration028GemmaLocalLlm),
-  customMigration('custom-030-collection-indexing-stats', migration030CollectionIndexingStats),
-  customMigration('custom-032-file-chunk-source-ranges', migration032FileChunkSourceRanges),
-  customMigration(
-    'custom-033-update-provider-models-2026-frontier',
-    migration033UpdateProviderModels2026Frontier
-  ),
-  customMigration('custom-034-tsvector-generated-column', migration034TsvectorGeneratedColumn),
-  customMigration('custom-035-uuidv7-primary-keys', migration035Uuidv7PrimaryKeys),
-  customMigration('custom-036-workspace-index-system-role', migration036WorkspaceIndexSystemRole),
-  customMigration('custom-037-file-record-mtime-ms', migration037FileRecordMtimeMs),
-  customMigration('custom-038-pg-trgm-grep-index', migration038PgTrgmGrepIndex),
-  customMigration('custom-039-roots-table', migration039RootsTable),
-  customMigration('custom-040-retire-source-root-path', migration040RetireSourceRootPath),
-  customMigration('custom-041-roots-path-identity', migration041RootsPathIdentity),
-  customMigration('custom-042-job-queue-chunk-id', migration042JobQueueChunkId),
-  customMigration('custom-043-job-queue-embedding-set-id', migration043JobQueueEmbeddingSetId),
-  customMigration('custom-044-dimension-index-suspensions', migration044DimensionIndexSuspensions),
-  customMigration('custom-045-dimension-index-maintenance', migration045DimensionIndexMaintenance),
-  customMigration('custom-046-assistant-run-usage', migration046AssistantRunUsage),
-  customMigration('custom-047-run-usage-root-id', migration047RunUsageRootId),
-  customMigration('custom-048-file-records-name-trgm', migration048FileRecordsNameTrgm),
-  customMigration('custom-049-job-queue-metrics', migration049JobQueueMetrics),
-  customMigration('custom-050-assistant-task-lists', migration050AssistantTaskLists),
-  customMigration('custom-051-prompt-library', migration051PromptLibrary),
-  customMigration('custom-052-assistant-edit-checkpoints', migration052AssistantEditCheckpoints),
-  customMigration('custom-053-bm25-content-index', migration053Bm25ContentIndex),
-  customMigration('custom-054-assistant-thread-groups', migration054AssistantThreadGroups),
-  customMigration('custom-055-assistant-message-parents', migration055AssistantMessageParents),
-  customMigration(
-    'custom-056-assistant-thread-group-presentation',
-    migration056AssistantThreadGroupPresentation
-  ),
-  customMigration(
-    'custom-057-update-provider-models-2026-07',
-    migration057UpdateProviderModels202607
-  ),
-  customMigration('custom-058-provider-billed-cost', migration058ProviderBilledCost),
-  customMigration('custom-059-assistant-thread-group-icons', migration059AssistantThreadGroupIcons),
-  customMigration('custom-060-openrouter-spark-kimi-k3', migration060OpenRouterSparkKimiK3),
-  customMigration('custom-061-model-vision-capability', migration061ModelVisionCapability),
-  customMigration('custom-062-assistant-run-outcomes', migration062AssistantRunOutcomes),
-  customMigration('custom-063-index-consolidation', migration063IndexConsolidation),
-  customMigration('custom-064-job-queue-outcome-metrics', migration064JobQueueOutcomeMetrics),
-  customMigration('custom-065-quarantine-pg-textsearch', migration065QuarantinePgTextsearch),
-  customMigration('custom-066-restore-pg-textsearch', migration066RestorePgTextsearch),
-  customMigration('custom-067-thread-search-index', migration067ThreadSearchIndex),
-  customMigration('custom-068-tool-output-artifacts', migration068ToolOutputArtifacts),
-  customMigration('custom-069-run-usage-cache-tokens', migration069RunUsageCacheTokens),
-  customMigration('custom-070-minimax-m3-vision', migration070MinimaxM3Vision),
-  customMigration(
-    'custom-071-openrouter-july-coding-models',
-    migration071OpenRouterJulyCodingModels
-  ),
-  customMigration('custom-072-openrouter-ling-3-flash', migration072OpenRouterLing3Flash),
-  customMigration('custom-073-diagnostic-events', migration073DiagnosticEvents),
-  customMigration('custom-074-agent-readonly-role', migration074AgentReadonlyRole),
-  customMigration('custom-075-file-symbols', migration075FileSymbols),
-  customMigration('custom-076-assistant-run-errors', migration076AssistantRunErrors),
-  customMigration('custom-077-run-usage-kind', migration077RunUsageKind),
-  customMigration(
-    'custom-078-job-queue-dedupe-active-index',
-    migration078JobQueueDedupeActiveIndex
-  ),
-  customMigration('custom-079-mind-ops-log', migration079MindOpsLog),
-  customMigration(
-    'custom-080-assistant-message-tombstones',
-    migration080AssistantMessageTombstones
-  ),
-  customMigration('custom-081-workspace-snapshots', migration081WorkspaceSnapshots),
-  customMigration('custom-082-canvas-documents', migration082CanvasDocuments),
-  customMigration('custom-083-tool-call-telemetry', migration083ToolCallTelemetry),
-  customMigration(
-    'custom-084-assistant-tool-projection-rewrites',
-    migration084AssistantToolProjectionRewrites
-  ),
-  customMigration(
-    'custom-085-tool-call-telemetry-occurred-at-index',
-    migration085ToolCallTelemetryOccurredAtIndex
-  ),
-  customMigration('custom-086-token-estimate-calibration', migration086TokenEstimateCalibration),
-  customMigration(
-    'custom-087-tool-projection-rewrite-kinds',
-    migration087ToolProjectionRewriteKinds
-  ),
-  customMigration('custom-088-assistant-compaction-ranges', migration088AssistantCompactionRanges),
-  customMigration(
-    'custom-089-token-estimate-calibration-resolved-budgets',
-    migration089TokenEstimateCalibrationResolvedBudgets
-  ),
-  customMigration(
-    'custom-090-compaction-summary-run-usage-kind',
-    migration090CompactionSummaryRunUsageKind
-  ),
-  customMigration(
-    'custom-091-token-estimate-calibration-prompt-baseline',
-    migration091TokenEstimateCalibrationPromptBaseline
-  ),
-  customMigration(
-    'custom-092-tool-call-telemetry-substrate-split',
-    migration092ToolCallTelemetrySubstrateSplit
-  ),
-  customMigration('custom-093-assistant-run-treatments', migration093AssistantRunTreatments),
-  customMigration('custom-094-openrouter-gemini-3-7-flash', migration094OpenRouterGemini37Flash),
-  customMigration('custom-095-assistant-thread-workspaces', migration095AssistantThreadWorkspaces),
-  customMigration('custom-096-openrouter-qwen-3-8-27b', migration096OpenRouterQwen3827B),
-  customMigration(
-    'custom-097-openrouter-qwen-3-8-2-4t-a95b',
-    migration097OpenRouterQwen38TwoPointFourT
-  ),
-  customMigration('custom-098-openrouter-qwen-3-8-max', migration098OpenRouterQwen38Max),
-];
+// Append-only persisted keys live on the numbered migrations. The shipped
+// keys are frozen independently in drizzle-ledger-keys.test.ts. Keys are
+// scattered across one file per migration, so uniqueness is enforced here at
+// derivation time: a cloned migration that kept its source's ledgerKey would
+// otherwise be silently skipped on every profile that already recorded it.
+function deriveCustomMigrations(source: readonly Migration[]): DrizzleMigration[] {
+  const derived: DrizzleMigration[] = [];
+  const seenLedgerKeys = new Set<string>();
+  for (const migration of source) {
+    if (FOLDED_INTO_DRIZZLE_SNAPSHOT.has(migration.version)) {
+      continue;
+    }
+    if (seenLedgerKeys.has(migration.ledgerKey)) {
+      throw new Error(
+        `Drizzle migration "${migration.name}" reuses ledger key "${migration.ledgerKey}"; ledger keys must be unique.`
+      );
+    }
+    seenLedgerKeys.add(migration.ledgerKey);
+    derived.push(toDrizzleMigration(migration));
+  }
+  return derived;
+}
+
+export const customMigrations: DrizzleMigration[] = deriveCustomMigrations(migrations);
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
 
@@ -582,7 +396,7 @@ function isMissingDrizzleMigrationsLedgerError(error: unknown): boolean {
  * Applies a single migration within a transaction.
  * Handles rollback on failure and preserves the original error.
  */
-async function applySingleMigration(db: PGlite, migration: Migration): Promise<void> {
+async function applySingleMigration(db: PGlite, migration: DrizzleMigration): Promise<void> {
   try {
     await db.query('BEGIN');
 
@@ -735,4 +549,4 @@ export async function resetMigrations(db: PGlite): Promise<void> {
   }
 }
 
-export type { Migration, MigrationManifest, MigrationResult };
+export type { DrizzleMigration as Migration, MigrationManifest, MigrationResult };

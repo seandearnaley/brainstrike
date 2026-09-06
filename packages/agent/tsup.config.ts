@@ -1,7 +1,9 @@
 import { defineConfig } from 'tsup';
 
 const assistantContractExternal = /^@brainstrike\/assistant-contract(?:\/.*)?$/;
-const modelContextProtocolSdkExternal = /^@modelcontextprotocol\/sdk(?:\/.*)?$/;
+const agentMcpClientExternal = /^@brainstrike\/agent\/mcp-client$/;
+const modelContextProtocolV2External =
+  /^@modelcontextprotocol\/(?:client|core|node|server|server-legacy)(?:\/.*)?$/;
 
 const hostedWebEntries = ['src/hosted-web.ts', 'src/request-boundary.ts'];
 const broadEntries = [
@@ -10,6 +12,8 @@ const broadEntries = [
   'src/code-execution.ts',
   'src/fence-executor.ts',
   'src/mcp-client.ts',
+  'src/test-fixtures/mcp-host-lifecycle.ts',
+  'src/mcp-tasks.ts',
   'src/local-llm.ts',
   'src/browser-safe.ts',
   'src/tool-metadata.ts',
@@ -21,10 +25,18 @@ const broadEntries = [
   'src/pglite-mastra-memory/schema.ts',
 ];
 const sharedExternal = [
-  modelContextProtocolSdkExternal,
+  agentMcpClientExternal,
+  modelContextProtocolV2External,
   // Node-only: spawns platform sandbox tooling and proxy servers. Bundling it
   // would drag that into every consumer, including browser entries.
   '@anthropic-ai/sandbox-runtime',
+  // Node-only (BST-1353): the AWS default credential chain reads `~/.aws`,
+  // spawns `credential_process` children, and talks to IMDS. Externalized so
+  // esbuild can never inline it into a browser entry — the module that
+  // imports it (providers/aws-credential-chain.ts) is reachable only from the
+  // Node entrypoints, and this keeps that true by construction rather than by
+  // import discipline alone.
+  '@aws-sdk/credential-providers',
   '@brainstrike/types',
   '@electric-sql/pglite',
   '@mastra/core',
@@ -73,6 +85,11 @@ export default defineConfig((_options) => [
     // that default, not as an instant break — and do not add new ones:
     // `scripts/verify-hosted-web-bundle.mjs` fails the build on any beyond the
     // four already recorded there.
-    noExternal: [assistantContractExternal, '@brainstrike/types'],
+    noExternal: [
+      assistantContractExternal,
+      '@brainstrike/mcp-app-host',
+      '@brainstrike/mcp-tasks-extension',
+      '@brainstrike/types',
+    ],
   },
 ]);

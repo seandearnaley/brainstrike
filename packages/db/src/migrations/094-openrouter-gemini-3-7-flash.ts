@@ -8,6 +8,7 @@ export const migration094OpenRouterGemini37Flash: Migration = {
       AND id = 'google/gemini-3.7-flash';
     UPDATE models SET sort_order = sort_order - 1 WHERE provider_id = 'openrouter';
   `,
+  ledgerKey: 'custom-094-openrouter-gemini-3-7-flash',
   name: 'openrouter_gemini_3_7_flash',
   up: `
     UPDATE models SET sort_order = sort_order + 1 WHERE provider_id = 'openrouter';

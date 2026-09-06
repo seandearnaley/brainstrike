@@ -329,7 +329,10 @@ export class WorkerStorage {
       const result = await this.sendMessage('load', key);
       return result as T | null;
     } catch (error) {
-      logger.error('Worker getItem failed:', error);
+      logger.error('Worker getItem failed', {
+        errorName: error instanceof Error ? error.name : typeof error,
+        key,
+      });
       const rawValue = await this.storageAdapter.getItem(key);
       if (!rawValue) {
         return null;

@@ -1,4 +1,3 @@
-import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
 import type { HookTrustRequest, RuntimeData } from '@brainstrike/assistant-contract';
 import type {
   RuntimeAssistantMemorySettings,
@@ -39,12 +38,6 @@ interface UseAssistantThreadRequestDataArgs {
   readonly memoryResourceId: string | undefined;
   readonly modelSettings: RuntimeData['modelSettings'] | undefined;
   readonly observationalMemorySettings: RuntimeAssistantObservationalMemorySettings;
-  /**
-   * Opt-in permission snapshot; only set (non-undefined) when the user enabled
-   * enforcement AND this is the desktop data-stream transport. Passthrough
-   * otherwise.
-   */
-  readonly permissionPolicyRequest: PermissionToolGateSnapshotInput | undefined;
   /** Plan mode (opt-in); forwarded to the request only when `true`. */
   readonly planMode?: boolean;
   readonly providerOptions: Record<string, unknown> | undefined;
@@ -101,7 +94,6 @@ export function useAssistantThreadRequestData({
   memoryResourceId,
   modelSettings,
   observationalMemorySettings,
-  permissionPolicyRequest,
   planMode,
   providerOptions,
   requestedReasoningEffort,
@@ -139,7 +131,6 @@ export function useAssistantThreadRequestData({
         memoryResourceId,
         memorySettings: runtimeMemorySettings,
         modelSettings,
-        permissionPolicyRequest,
         ...(planMode ? { planMode: true } : {}),
         providerOptions,
         requestedReasoningEffort,
@@ -165,7 +156,6 @@ export function useAssistantThreadRequestData({
       memoryOptions,
       memoryResourceId,
       modelSettings,
-      permissionPolicyRequest,
       planMode,
       providerOptions,
       requestedReasoningEffort,

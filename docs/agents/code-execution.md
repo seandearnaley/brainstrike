@@ -521,7 +521,11 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
     `python_checksum_mismatch`, `python_unpack_failed`) kept disjoint from
     the seam's and fence's codes, so `run_python` can distinguish "no
     interpreter" from "no sandbox". There is no PATH-python fallback in any
-    state.
+    state. In development the desktop composition root locates the checked-in
+    manifest and archive directory from the emitted `dist/main.js` module path,
+    not `app.getAppPath()` (which is already `dist/` for direct-file E2E
+    launches); packaged macOS builds use electron-builder's
+    `<Resources>/python-runtime` resource.
 - **Always-deny-read** (`ALWAYS_DENY_READ_PATHS`, applied on top of every
   policy): `.ssh`, `.aws`, `.gnupg`, `.config/gcloud`, `.config/gh`, `.kube`,
   `.docker`, `.netrc`, `.npmrc`, `.pypirc` — resolved to ABSOLUTE paths from
@@ -594,10 +598,38 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   a queue from a hung fence. If the whole budget elapses while queued, nothing
   is spawned and `FenceQueueTimeoutError` is thrown — never a fabricated
   `ExecResult` for code that did not run.
-- **Timeout kills the whole process TREE, and no path settles before the group
-  is down.** Children are spawned `detached: true` (so the child is a
+- **Timeout kills the whole process TREE, and no successful path settles before
+  the group is down.** Children are spawned `detached: true` (so the child is a
   process-group leader) and the timeout signals the negative pid: SIGTERM,
-  then SIGKILL after 500 ms. `timedOut` is set; the exit code is
+  then SIGKILL after 500 ms. Sending SIGKILL is not itself proof of teardown:
+  settlement waits up to 500 ms for a signal-0 probe to report `ESRCH` for the
+  process group, so a runnable descendant cannot land one final side effect
+  after a successful result. That confirmation is bounded because a zombie,
+  uninterruptible process, or `EPERM` probe must not deadlock the process-global
+  execution queue.
+
+  **`EPERM` FROM THE PROBE IS INCONCLUSIVE, NOT A DENIAL — do not relitigate.**
+  Every member of the group is our own descendant running as us, so a genuine
+  permission failure is impossible; the same reasoning is recorded at
+  `apps/desktop/src/terminal-ipc-handlers.ts` for its own group kill. What
+  `EPERM` reports is the post-reap race — the leader is a just-SIGKILLed zombie
+  and the kernel refuses to route a group signal through it. Measured against
+  the real sandbox fence on macOS, the group reaches `ESRCH` about 7 ms later.
+  Treating that first `EPERM` as fatal rejected EVERY normal teardown on that
+  host (the BST-1437 follow-up).
+
+  So `EPERM` polls on exactly like `alive`, and ONLY `ESRCH` returns. Returning
+  early on `EPERM` would be unsound in the other direction, however it is
+  corroborated: a process group can outlive its leader, so "the leader is gone"
+  never proves the group is empty. An `EPERM` that survives the whole window is
+  still a teardown failure, so the fail-closed guarantee is unchanged — a
+  tracked group is released only by `ESRCH`. Failure rejects with `FenceProcessGroupTeardownError`; a
+  completed `ExecResult` is attached as `outcome`, while cancellation remains
+  an `ExecAbortedError` with the teardown error as its `cause` and partial output
+  intact. The failed group remains tracked, and later executions fail closed
+  before installing another process-global policy until `ESRCH` proves it gone.
+  The timeout path shares one memoized SIGKILL confirmation rather than starting
+  a second poll from its hard backstop. `timedOut` is set; the exit code is
   `128 + signum` when no code is available. Settling on `'close'` alone would
   be a bug: a descendant that detaches its stdio closes our pipes while still
   running, so an early settle would clear the pending SIGKILL and return with
