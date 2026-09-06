@@ -15,10 +15,7 @@
     ],
     "displayName": "OpenAI",
     "docsUrl": "https://platform.openai.com/api-keys",
-    "envKeys": [
-      "BRAINSTRIKE_OPENAI_API_KEY",
-      "OPENAI_API_KEY"
-    ],
+    "envKeys": ["BRAINSTRIKE_OPENAI_API_KEY", "OPENAI_API_KEY"],
     "id": "openai",
     "keyFormatHint": "sk-...",
     "models": [
@@ -269,15 +266,10 @@
       "llm": true,
       "streaming": true
     },
-    "deprecatedEnvKeys": [
-      "AI_ANTHROPIC_API_KEY"
-    ],
+    "deprecatedEnvKeys": ["AI_ANTHROPIC_API_KEY"],
     "displayName": "Anthropic",
     "docsUrl": "https://console.anthropic.com/settings/keys",
-    "envKeys": [
-      "BRAINSTRIKE_ANTHROPIC_API_KEY",
-      "ANTHROPIC_API_KEY"
-    ],
+    "envKeys": ["BRAINSTRIKE_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"],
     "id": "anthropic",
     "keyFormatHint": "sk-ant-...",
     "models": [
@@ -285,13 +277,7 @@
         "_note": "Vendor OFFERED ladder and default; retrieved 2026-09-04:\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/about-claude/models/overview",
         "anthropicReasoning": {
           "defaultEffort": "high",
-          "supportedEfforts": [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ]
+          "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
         },
         "contextWindow": 1000000,
         "id": "claude-fable-5",
@@ -313,13 +299,7 @@
         "_note": "Vendor OFFERED ladder and default; retrieved 2026-09-04:\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/about-claude/models/overview",
         "anthropicReasoning": {
           "defaultEffort": "high",
-          "supportedEfforts": [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ]
+          "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
         },
         "contextWindow": 1000000,
         "id": "claude-opus-5",
@@ -342,13 +322,7 @@
         "_note": "Vendor OFFERED ladder and default; retrieved 2026-09-04:\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/about-claude/models/overview",
         "anthropicReasoning": {
           "defaultEffort": "high",
-          "supportedEfforts": [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ]
+          "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
         },
         "contextWindow": 200000,
         "id": "claude-opus-4-8",
@@ -371,13 +345,7 @@
         "_note": "Vendor OFFERED ladder and default; retrieved 2026-09-04:\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/about-claude/models/overview\nAnthropic introductory rate through 2026-08-31.",
         "anthropicReasoning": {
           "defaultEffort": "high",
-          "supportedEfforts": [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ]
+          "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
         },
         "contextWindow": 1000000,
         "default": true,
@@ -401,12 +369,7 @@
         "_note": "Vendor OFFERED ladder and default; retrieved 2026-09-04:\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/about-claude/models/overview",
         "anthropicReasoning": {
           "defaultEffort": "high",
-          "supportedEfforts": [
-            "low",
-            "medium",
-            "high",
-            "max"
-          ]
+          "supportedEfforts": ["low", "medium", "high", "max"]
         },
         "contextWindow": 200000,
         "id": "claude-sonnet-4-6",
@@ -454,16 +417,10 @@
       "llm": true,
       "streaming": true
     },
-    "deprecatedEnvKeys": [
-      "GOOGLE_API_KEY",
-      "AI_GOOGLE_API_KEY"
-    ],
+    "deprecatedEnvKeys": ["GOOGLE_API_KEY", "AI_GOOGLE_API_KEY"],
     "displayName": "Google AI Studio",
     "docsUrl": "https://aistudio.google.com/app/apikey",
-    "envKeys": [
-      "BRAINSTRIKE_GOOGLE_API_KEY",
-      "GOOGLE_GENERATIVE_AI_API_KEY"
-    ],
+    "envKeys": ["BRAINSTRIKE_GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"],
     "id": "google",
     "keyNotes": "Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.",
     "models": [
@@ -595,15 +552,10 @@
       "llm": true,
       "streaming": true
     },
-    "deprecatedEnvKeys": [
-      "AI_OPENROUTER_API_KEY"
-    ],
+    "deprecatedEnvKeys": ["AI_OPENROUTER_API_KEY"],
     "displayName": "OpenRouter",
     "docsUrl": "https://openrouter.ai/settings/keys",
-    "envKeys": [
-      "BRAINSTRIKE_OPENROUTER_API_KEY",
-      "OPENROUTER_API_KEY"
-    ],
+    "envKeys": ["BRAINSTRIKE_OPENROUTER_API_KEY", "OPENROUTER_API_KEY"],
     "id": "openrouter",
     "keyFormatHint": "sk-or-v1-...",
     "models": [
@@ -611,16 +563,10 @@
         "_note": "Official Qwen release material owns the Qwen3.8 Flash identity,\ntext/image/video input, text output, optional xhigh/medium/low\nreasoning ladder, and xhigh default. OpenRouter Models API owns the\nfixed route's 1M/131,072 ceilings, tools/structured-output support,\nand gateway pricing, retrieved 2026-08-30 (BST-1516). The output fact\nis a hard maximum, not a default combined reasoning + answer window.",
         "contextWindow": 1000000,
         "id": "qwen/qwen3.8-flash",
-        "inputModalities": [
-          "text",
-          "image",
-          "video"
-        ],
+        "inputModalities": ["text", "image", "video"],
         "label": "Qwen3.8 Flash (OpenRouter)",
         "maxOutputTokens": 131072,
-        "outputModalities": [
-          "text"
-        ],
+        "outputModalities": ["text"],
         "pricing": {
           "inputPerMTok": 0.15,
           "outputPerMTok": 0.47
@@ -629,11 +575,7 @@
           "defaultEffort": "xhigh",
           "defaultEnabled": true,
           "mandatory": false,
-          "supportedEfforts": [
-            "xhigh",
-            "medium",
-            "low"
-          ]
+          "supportedEfforts": ["xhigh", "medium", "low"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -653,11 +595,7 @@
           "defaultEffort": "max",
           "defaultEnabled": true,
           "mandatory": true,
-          "supportedEfforts": [
-            "max",
-            "high",
-            "low"
-          ]
+          "supportedEfforts": ["max", "high", "low"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -677,11 +615,7 @@
           "defaultEffort": "max",
           "defaultEnabled": true,
           "mandatory": true,
-          "supportedEfforts": [
-            "max",
-            "high",
-            "low"
-          ]
+          "supportedEfforts": ["max", "high", "low"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -701,11 +635,7 @@
           "defaultEffort": "xhigh",
           "defaultEnabled": true,
           "mandatory": false,
-          "supportedEfforts": [
-            "xhigh",
-            "medium",
-            "low"
-          ]
+          "supportedEfforts": ["xhigh", "medium", "low"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -725,11 +655,7 @@
           "defaultEffort": "xhigh",
           "defaultEnabled": true,
           "mandatory": true,
-          "supportedEfforts": [
-            "xhigh",
-            "medium",
-            "low"
-          ]
+          "supportedEfforts": ["xhigh", "medium", "low"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -749,13 +675,7 @@
           "defaultEffort": "xhigh",
           "defaultEnabled": true,
           "mandatory": true,
-          "supportedEfforts": [
-            "xhigh",
-            "high",
-            "medium",
-            "low",
-            "minimal"
-          ]
+          "supportedEfforts": ["xhigh", "high", "medium", "low", "minimal"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -773,9 +693,7 @@
         },
         "reasoning": {
           "mandatory": false,
-          "supportedEfforts": [
-            "none"
-          ]
+          "supportedEfforts": ["none"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -795,11 +713,7 @@
           "defaultEffort": "medium",
           "defaultEnabled": true,
           "mandatory": true,
-          "supportedEfforts": [
-            "high",
-            "medium",
-            "low"
-          ]
+          "supportedEfforts": ["high", "medium", "low"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -852,12 +766,7 @@
         "reasoning": {
           "defaultEffort": "medium",
           "mandatory": true,
-          "supportedEfforts": [
-            "high",
-            "medium",
-            "low",
-            "minimal"
-          ]
+          "supportedEfforts": ["high", "medium", "low", "minimal"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -875,12 +784,7 @@
         "reasoning": {
           "defaultEffort": "minimal",
           "mandatory": true,
-          "supportedEfforts": [
-            "high",
-            "medium",
-            "low",
-            "minimal"
-          ]
+          "supportedEfforts": ["high", "medium", "low", "minimal"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -952,12 +856,7 @@
           "defaultEffort": "high",
           "defaultEnabled": true,
           "mandatory": true,
-          "supportedEfforts": [
-            "xhigh",
-            "high",
-            "medium",
-            "low"
-          ]
+          "supportedEfforts": ["xhigh", "high", "medium", "low"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -974,11 +873,7 @@
         "reasoning": {
           "defaultEffort": "high",
           "mandatory": true,
-          "supportedEfforts": [
-            "high",
-            "medium",
-            "low"
-          ]
+          "supportedEfforts": ["high", "medium", "low"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -997,13 +892,7 @@
           "defaultEffort": "medium",
           "defaultEnabled": true,
           "mandatory": true,
-          "supportedEfforts": [
-            "xhigh",
-            "high",
-            "medium",
-            "low",
-            "minimal"
-          ]
+          "supportedEfforts": ["xhigh", "high", "medium", "low", "minimal"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1020,13 +909,7 @@
         "reasoning": {
           "defaultEffort": "medium",
           "mandatory": true,
-          "supportedEfforts": [
-            "xhigh",
-            "high",
-            "medium",
-            "low",
-            "minimal"
-          ]
+          "supportedEfforts": ["xhigh", "high", "medium", "low", "minimal"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1047,11 +930,7 @@
           "defaultEffort": "max",
           "defaultEnabled": true,
           "mandatory": false,
-          "supportedEfforts": [
-            "max",
-            "high",
-            "low"
-          ],
+          "supportedEfforts": ["max", "high", "low"],
           "vendorDefaultOutputTokens": 131072
         },
         "supportsStreaming": true,
@@ -1141,10 +1020,7 @@
           "defaultEffort": "high",
           "defaultEnabled": true,
           "mandatory": false,
-          "supportedEfforts": [
-            "xhigh",
-            "high"
-          ]
+          "supportedEfforts": ["xhigh", "high"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1419,21 +1295,14 @@
       "llm": false,
       "streaming": false
     },
-    "deprecatedEnvKeys": [
-      "AI_COHERE_API_KEY"
-    ],
+    "deprecatedEnvKeys": ["AI_COHERE_API_KEY"],
     "displayName": "Cohere",
     "docsUrl": "https://dashboard.cohere.com/api-keys",
-    "envKeys": [
-      "BRAINSTRIKE_COHERE_API_KEY",
-      "COHERE_API_KEY"
-    ],
+    "envKeys": ["BRAINSTRIKE_COHERE_API_KEY", "COHERE_API_KEY"],
     "id": "cohere",
     "models": [
       {
-        "availableDimensions": [
-          1024
-        ],
+        "availableDimensions": [1024],
         "default": true,
         "defaultDimension": 1024,
         "id": "embed-english-v3.0",
@@ -1441,9 +1310,7 @@
         "type": "embedding"
       },
       {
-        "availableDimensions": [
-          1024
-        ],
+        "availableDimensions": [1024],
         "defaultDimension": 1024,
         "id": "embed-multilingual-v3.0",
         "supportsStandardDimension": true,
@@ -1460,21 +1327,14 @@
       "llm": false,
       "streaming": false
     },
-    "deprecatedEnvKeys": [
-      "AI_VOYAGE_API_KEY"
-    ],
+    "deprecatedEnvKeys": ["AI_VOYAGE_API_KEY"],
     "displayName": "Voyage AI",
     "docsUrl": "https://dashboard.voyageai.com/organization/api-keys",
-    "envKeys": [
-      "BRAINSTRIKE_VOYAGE_API_KEY",
-      "VOYAGE_API_KEY"
-    ],
+    "envKeys": ["BRAINSTRIKE_VOYAGE_API_KEY", "VOYAGE_API_KEY"],
     "id": "voyage",
     "models": [
       {
-        "availableDimensions": [
-          1024
-        ],
+        "availableDimensions": [1024],
         "default": true,
         "defaultDimension": 1024,
         "id": "voyage-3",
@@ -1482,9 +1342,7 @@
         "type": "embedding"
       },
       {
-        "availableDimensions": [
-          512
-        ],
+        "availableDimensions": [512],
         "defaultDimension": 512,
         "id": "voyage-3-lite",
         "supportsStandardDimension": false,
@@ -1503,10 +1361,7 @@
     },
     "displayName": "Amazon Bedrock",
     "docsUrl": "https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html",
-    "envKeys": [
-      "BRAINSTRIKE_BEDROCK_API_KEY",
-      "AWS_BEARER_TOKEN_BEDROCK"
-    ],
+    "envKeys": ["BRAINSTRIKE_BEDROCK_API_KEY", "AWS_BEARER_TOKEN_BEDROCK"],
     "id": "bedrock",
     "keyNotes": "Use an Amazon Bedrock API key (bearer token) from the AWS console. IAM SigV4 credentials and AWS profiles are not supported yet. Requests also need an AWS region: set AWS_REGION or store it with the key.",
     "models": [

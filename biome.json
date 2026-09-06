@@ -24,6 +24,7 @@
       "!**/*.db",
       "!**/*.json",
       "!**/*.jsonc",
+      "packages/assistant-contract/src/provider-catalog.json",
       "!**/*.css",
       "!**/*.md",
       "!**/*.html",
