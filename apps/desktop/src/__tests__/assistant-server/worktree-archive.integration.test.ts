@@ -55,6 +55,32 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
 
   const buildService = () => buildTestService({ db, managedDirectory, repo });
 
+  /**
+   * Seed a running run on `threadId` through the REAL relations (117/118).
+   * These two cases used to `CREATE TABLE IF NOT EXISTS` a three-column
+   * stand-in for `brainstrike_assistant_thread_runs`, back when that table was
+   * bootstrap-only DDL the migration chain never created. The chain owns it
+   * now, so the stand-in silently no-opped and its three-column INSERT met the
+   * real table's NOT NULLs. The archive blocker reads a run's status for a
+   * thread, so seeding the real row exercises it against the production column
+   * set and its `mastra_threads` foreign key rather than a lookalike.
+   */
+  const seedRunningRun = async (threadId: string, runId: string): Promise<void> => {
+    await db.query(
+      `INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt")
+       VALUES ($1, 'workspace-archive', $2, NOW(), NOW())`,
+      [threadId, `Thread ${threadId}`]
+    );
+    await db.query(
+      `INSERT INTO brainstrike_assistant_thread_runs
+         (id, resource_id, thread_id, provider, model, runtime_kind, status,
+          started_at, created_at, updated_at)
+       VALUES ($1, 'workspace-archive', $2, 'anthropic', 'test-model', 'hosted', 'running',
+               NOW(), NOW(), NOW())`,
+      [runId, threadId]
+    );
+  };
+
   beforeEach(async () => {
     runningBlockerCopy.replacement = null;
     db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
@@ -357,10 +383,6 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
     });
 
     it('REFUSES while the owning thread has a running run, even with force', async () => {
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_runs (
-          id text PRIMARY KEY, thread_id text NOT NULL, status text NOT NULL
-        )`);
       const service = buildService();
       const created = await service.create({
         baseRef: 'main',
@@ -373,9 +395,7 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       if (!created.ok) {
         return;
       }
-      await db.query(
-        "INSERT INTO brainstrike_assistant_thread_runs (id, thread_id, status) VALUES ('run-1','t-busy','running')"
-      );
+      await seedRunningRun('t-busy', 'run-1');
       const refused = await service.archive({
         force: true,
         worktreeId: created.value.worktree.id,
@@ -386,10 +406,6 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
     });
 
     it('REFUSES force structurally when a running-run blocker copy is reworded', async () => {
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_runs (
-          id text PRIMARY KEY, thread_id text NOT NULL, status text NOT NULL
-        )`);
       const service = buildService();
       const created = await service.create({
         baseRef: 'main',
@@ -402,9 +418,7 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       if (!created.ok) {
         return;
       }
-      await db.query(
-        "INSERT INTO brainstrike_assistant_thread_runs (id, thread_id, status) VALUES ('run-reworded','t-busy-reworded','running')"
-      );
+      await seedRunningRun('t-busy-reworded', 'run-reworded');
       runningBlockerCopy.replacement = 'Running-work copy deliberately changed.';
 
       const refused = await service.archive({
