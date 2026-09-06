@@ -82,7 +82,7 @@
     "serve": "^14.2.6",
     "shiki": "catalog:",
     "tailwindcss": "catalog:",
-    "terser": "^5.50.0",
+    "terser": "^5.51.2",
     "tiktoken": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
