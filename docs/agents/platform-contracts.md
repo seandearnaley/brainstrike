@@ -81,12 +81,15 @@ Error binding keys (`err` and `error`):
 - Do **not** add a second redaction pass inside the serializer. Two redaction
   implementations that can disagree is a worse failure mode than one plus a
   guarded boundary — the leak would then depend on which path a caller took.
-- The boundary is enforced, not just documented: nothing exports a raw Pino
-  logger, and `createLogger` returns a six-method wrapper that routes through
-  `logInternal`. `error-serializer.test.ts` fails if either stops being true,
-  and pins the un-redacted direct-to-Pino behavior so the hazard is visible
-  rather than theoretical. If a change ever makes direct Pino access
-  redaction-safe, flip that test and update this ruling with it.
+- The boundary is enforced, not just documented. `error-serializer.test.ts`
+  scans the package **entry point** (`index.ts`, not just `logger.ts`) for any
+  exported Pino logger, and drives a real `createLogger(...).error(...)` with a
+  token-bearing Error to prove the call actually routes through `logInternal`
+  and comes back `[REDACTED]` — a wrapper's *shape* proves nothing about where
+  its methods write. Both guards are mutation-checked. The suite also pins the
+  un-redacted direct-to-Pino behavior so the hazard stays visible rather than
+  theoretical; if a change ever makes direct Pino access redaction-safe, flip
+  that test and update this ruling with it.
 
 Scoped loggers:
 - createLogger('FileImporter')

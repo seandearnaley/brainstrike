@@ -1,7 +1,7 @@
 import { runInNewContext } from 'node:vm';
 import pino from 'pino';
 import { describe, expect, it } from 'vitest';
-import * as loggerModule from '../logger.js';
+import * as packageEntryPoint from '../index.js';
 import {
   __loggerTesting,
   addLogListener,
@@ -390,14 +390,17 @@ describe('the redaction boundary around direct pino access', () => {
   });
 
   it('exposes no raw pino logger anywhere on the public surface', () => {
-    const leaked = Object.entries(loggerModule)
+    // Scans the package ENTRY POINT, not just `logger.ts`: consumers import
+    // `@brainstrike/logging`, and `index.ts` re-exports several modules. A
+    // logger.ts-only scan would miss a leak added to any of the others.
+    const leaked = Object.entries(packageEntryPoint)
       .filter(([, exported]) => looksLikePinoLogger(exported))
       .map(([name]) => name);
 
     expect(leaked).toEqual([]);
   });
 
-  it('hands callers a wrapper that routes through logInternal, not a pino logger', () => {
+  it('hands callers a wrapper, not a pino logger', () => {
     const scoped = createLogger('Bst1663');
 
     expect(Object.keys(scoped).sort()).toEqual([
@@ -409,6 +412,31 @@ describe('the redaction boundary around direct pino access', () => {
       'warn',
     ]);
     expect(looksLikePinoLogger(scoped)).toBe(false);
+  });
+
+  it('routes a scoped logger call through logInternal, redaction included', () => {
+    // The wrapper's *shape* proves nothing about where its methods write. This
+    // drives a real `createLogger(...).error(...)` and reads what came out.
+    // `emitLogRecord` runs at the end of `logInternal`, so if those methods ever
+    // wrote straight to pino, no record would arrive and this fails.
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      records.push(record);
+    });
+    try {
+      createLogger('Bst1663Routing').error('auth failed', {
+        error: Object.assign(new Error('unauthorized'), { token: 'super-secret' }),
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    expect(records).toHaveLength(1);
+    const bindings = records[0]?.args.at(-1) as Record<string, unknown> | undefined;
+    const logged = bindings?.['error'] as Record<string, unknown> | undefined;
+
+    expect(logged?.['token']).toBe('[REDACTED]');
+    expect(logged?.['message']).toBe('unauthorized');
   });
 
   it('redacts a sensitive error property through the supported entry point', () => {
