@@ -265,6 +265,47 @@ describe('resolveValidatedPath', () => {
     }
   });
 
+  // BST-1386: with neither HOME nor USERPROFILE set, the user-directory check
+  // deliberately fails open — a containerised or CI environment legitimately
+  // has no home directory, and blocking every path would be worse than
+  // skipping the check. Every other sensitive-user-directory test above is
+  // `skipIf(!home)` and reads the real machine's HOME, so nothing exercised
+  // the absent branch and mutating its guard to `false` survived: the mutant
+  // falls through to `path.join(undefined, '.ssh')` and throws instead of
+  // returning a result.
+  //
+  // The assertion is deliberately made on a path the check WOULD reject if a
+  // home directory existed, so it pins the fail-open decision rather than
+  // merely proving the call does not throw. `platform` is pinned so the unix
+  // system-directory check behaves identically on every CI runner.
+  it('resolves a would-be sensitive user path when HOME and USERPROFILE are absent', async () => {
+    const originalHome = process.env['HOME'];
+    const originalUserProfile = process.env['USERPROFILE'];
+
+    vi.stubEnv('HOME', undefined as unknown as string);
+    vi.stubEnv('USERPROFILE', undefined as unknown as string);
+
+    try {
+      const wouldBeSensitive = path.join(tempDir, '.ssh', 'id_rsa');
+
+      const result = await resolveValidatedPath({
+        blockSensitiveDirectories: true,
+        platform: 'linux',
+        requestedPath: wouldBeSensitive,
+      });
+
+      expect(result).toEqual({ ok: true, path: path.resolve(wouldBeSensitive) });
+    } finally {
+      if (originalHome !== undefined) {
+        process.env['HOME'] = originalHome;
+      }
+      if (originalUserProfile !== undefined) {
+        process.env['USERPROFILE'] = originalUserProfile;
+      }
+      vi.unstubAllEnvs();
+    }
+  });
+
   it.skipIf(!home || isWin32)('rejects symlinks pointing to sensitive directories', async () => {
     const symlinkPath = path.join(tempDir, 'sneaky-link');
     const sshDir = path.join(home!, '.ssh');
