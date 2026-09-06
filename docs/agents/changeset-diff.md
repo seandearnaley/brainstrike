@@ -168,8 +168,8 @@ DELETED in T4 along with its `journal-content-expired:` /
 machine-readable prefix (`snapshot-engine-unavailable:`,
 `changeset-snapshot-missing:`, `changeset-snapshot-capture-failed:`,
 `outside-roots-unsupported:`, `base-ref-unresolved:`, `head-unborn:`,
-`commit-id-unresolved:`, `unmerged-path:`, `runs-unavailable:`,
-`run-anchor-missing:`) so the UI can branch on it — see
+`commit-id-unresolved:`, `unmerged-path:`, `run-anchor-missing:`) so the UI
+can branch on it — see
 `changeset-diff-service.ts`'s top doc comment for the authoritative list.
 
 **`changeset-snapshot-view.ts`** resolves `agent-run`/`run-range` as REF-PAIR

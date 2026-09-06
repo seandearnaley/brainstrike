@@ -13,8 +13,6 @@ export interface AssistantThreadRunReaperDatabase {
 
 export interface ThreadRunReapReport {
   readonly reaped: readonly { readonly id: string; readonly threadId: string }[];
-  /** True when the renderer bootstrap has never run on this profile. */
-  readonly runsTableMissing: boolean;
 }
 
 /**
@@ -22,22 +20,24 @@ export interface ThreadRunReapReport {
  *
  * A row is provably orphaned only when it predates this process/renderer boot,
  * less a clock-skew guard band. Desktop invokes this at main-process startup;
- * web invokes it after renderer schema bootstrap and before subscribing the
- * Threads panel to active runs. Both runtimes therefore share one predicate
- * and one visible terminal transition.
+ * web invokes it once the Threads panel's repository has loaded, and before
+ * subscribing that panel to active runs. Both runtimes therefore share one
+ * predicate and one visible terminal transition.
+ *
+ * NO ABSENCE HANDLING, deliberately (BST-1651). Migration 118 owns
+ * `brainstrike_assistant_thread_runs`, and neither caller can hand this sweep
+ * a handle that predates migrations: desktop's `getDatabase()` awaits
+ * `migrate()` before it resolves, and web's `schemaReady` gate means the
+ * thread repository's schema probe has already passed on that handle. The
+ * `to_regclass` probe that used to open this function reported a
+ * `runsTableMissing: true` sweep for a database that was never migrated —
+ * which desktop logged at `info`. An unmigrated database now raises 42P01 and
+ * reaches each caller's own error path instead.
  */
 export async function reapOrphanedAssistantThreadRuns(
   db: AssistantThreadRunReaperDatabase,
   bootedAt: Date
 ): Promise<ThreadRunReapReport> {
-  const probe = await db.query<{ oid: string | null }>('SELECT to_regclass($1)::text AS oid', [
-    RUNS_TABLE,
-  ]);
-  const probedOid = probe.rows[0]?.oid;
-  if (probedOid === null || probedOid === undefined) {
-    return { reaped: [], runsTableMissing: true };
-  }
-
   // Stamp the reap instant, never NULL: rewind range fallback logic treats a
   // NULL completed_at as still in-range, which would pull this failed row into
   // every later rewind range for its thread. The ledger duration therefore
@@ -52,8 +52,5 @@ export async function reapOrphanedAssistantThreadRuns(
     [reapBefore, ORPHANED_THREAD_RUN_ERROR, completedAt]
   );
 
-  return {
-    reaped: result.rows.map((row) => ({ id: row.id, threadId: row.threadId })),
-    runsTableMissing: false,
-  };
+  return { reaped: result.rows.map((row) => ({ id: row.id, threadId: row.threadId })) };
 }
