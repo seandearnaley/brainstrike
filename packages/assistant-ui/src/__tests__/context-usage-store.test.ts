@@ -119,10 +119,8 @@ describe('context usage store', () => {
   });
 
   it('claiming a settle window twice returns the SAME state, so nothing re-renders', () => {
-    // Load-bearing, not cosmetic: the argument that a concurrent second run-finish
-    // cannot strand the marker depends on this branch returning the identical object,
-    // so zustand's `Object.is` check short-circuits the notify. A `{ ...state }` here
-    // would notify every meter subscriber on every duplicate finish.
+    // A `{ ...state }` here would notify every meter subscriber — including the
+    // streaming message list — on every duplicate run-finish.
     useContextUsageStore.getState().beginLiveRunUsageSettle('t1');
     const afterFirst = useContextUsageStore.getState();
 
@@ -132,22 +130,43 @@ describe('context usage store', () => {
     expect(useContextUsageStore.getState().settlingRunUsageByThread).toEqual({ t1: true });
   });
 
+  it('ONE release ends a window claimed twice, so a duplicate finish strands nothing', () => {
+    // The invariant the idempotency above exists to serve, asserted end-to-end rather
+    // than argued in prose: a concurrent second finish claims again, and the first
+    // release to land clears the marker for good. A refcounted marker would strand it
+    // here and hold the reader gate open on an idle thread.
+    useContextUsageStore.getState().beginLiveRunUsageSettle('t1');
+    useContextUsageStore.getState().beginLiveRunUsageSettle('t1');
+
+    useContextUsageStore.getState().clearLiveRunUsage('t1');
+
+    expect(useContextUsageStore.getState().settlingRunUsageByThread).toStrictEqual({});
+  });
+
   it('releases a settle claim taken for a run that recorded no steps', () => {
-    // A run finishing with no step usage claims the window with no live sum behind it.
-    // The release only reaches it because the early-return tests the settling key as
-    // well as the live one — without that the marker survives every zero-step run and
-    // goes on to expose the next stranded sum on that thread.
+    // No live sum behind the claim: the release reaches it only because the
+    // early-return tests the settling key as well as the live one.
     useContextUsageStore.getState().beginLiveRunUsageSettle('t1');
     expect(useContextUsageStore.getState().liveRunUsageByThread['t1']).toBeUndefined();
 
     useContextUsageStore.getState().clearLiveRunUsage('t1');
 
-    expect(useContextUsageStore.getState().settlingRunUsageByThread).toEqual({});
+    // `toStrictEqual`, not `toEqual`: the latter ignores an `undefined` value, so a
+    // release that ASSIGNED `undefined` rather than omitting the key would pass while
+    // the record grew one dead key per thread for the life of the session.
+    expect(useContextUsageStore.getState().settlingRunUsageByThread).toStrictEqual({});
   });
 
   it('resetContextUsageStore clears breakdown records (session/factory reset)', () => {
     useContextUsageStore.getState().recordBreakdown('t1', { invalid: true });
+    useContextUsageStore.getState().recordLiveStepUsage('t1', { inputTokens: 5, outputTokens: 5 });
+    useContextUsageStore.getState().beginLiveRunUsageSettle('t1');
+
     resetContextUsageStore();
+
     expect(useContextUsageStore.getState().breakdownByThread).toEqual({});
+    // Every new persistent map is wired into reset (AGENTS.md platform contract).
+    expect(useContextUsageStore.getState().liveRunUsageByThread).toStrictEqual({});
+    expect(useContextUsageStore.getState().settlingRunUsageByThread).toStrictEqual({});
   });
 });
