@@ -1,4 +1,3 @@
-import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
   type AnthropicProviderOptions,
   BEDROCK_BUDGET_TOKENS_BY_EFFORT,
@@ -511,16 +510,15 @@ export function buildAssistantRequestData(args: {
   memorySettings: RuntimeAssistantMemorySettings;
   modelSettings: RuntimeData['modelSettings'] | undefined;
   /**
-   * Serializable permission snapshot from the permission-policy store, attached
-   * ONLY when the user has opted into enforcement. When absent (the default),
-   * the server receives no policy and the runtime tool map is unchanged
-   * (passthrough). The caller is responsible for gating this to `enforce:true`.
-   */
-  permissionPolicyRequest: PermissionToolGateSnapshotInput | undefined;
-  /**
-   * Plan mode (opt-in). Attached ONLY when `true` (presence-means-on, like
-   * `permissionPolicyRequest`); the server constrains the tool map and prepends
-   * the plan-mode instructions. Absent → normal run.
+   * Plan mode (opt-in). Attached ONLY when `true` (presence-means-on); the
+   * server constrains the tool map and prepends the plan-mode instructions.
+   * Absent → normal run.
+   *
+   * NOTE: `permissionPolicyRequest` is deliberately NOT built here. Its sole
+   * producer is `prepareRequestData` (hooks/use-assistant-request-lifecycle.ts),
+   * which reads the live permission-policy store at request-composition time
+   * and sets the field unconditionally — a render-time value would always be
+   * overwritten, so building one here would only cost a subscription (BST-1652).
    */
   planMode?: boolean;
   providerOptions: Record<string, unknown> | undefined;
@@ -645,7 +643,6 @@ export function buildAssistantRequestData(args: {
 interface OptInRequestFields {
   experimentAssignment?: RuntimeData['experimentAssignment'];
   hookTrustRequest?: HookTrustRequest | undefined;
-  permissionPolicyRequest?: PermissionToolGateSnapshotInput | undefined;
   planMode?: boolean;
   requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
   selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
@@ -664,11 +661,6 @@ function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRe
   // when resolved provider options carry a catalog-selected wire effort.
   if (fields.requestedReasoningEffort) {
     data['requestedReasoningEffort'] = fields.requestedReasoningEffort;
-  }
-  // Permission enforcement is OPT-IN: presence means "enforce"; the server
-  // re-checks `enforce` and adds server-owned tool risk classification.
-  if (fields.permissionPolicyRequest) {
-    data['permissionPolicyRequest'] = fields.permissionPolicyRequest;
   }
   // Hook-trust attestation: only on the data-stream transport; server re-hashes disk.
   if (fields.hookTrustRequest) {

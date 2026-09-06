@@ -1,4 +1,3 @@
-import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { describe, expect, it, vi } from 'vitest';
@@ -592,7 +591,6 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: { maxOutputTokens: 512 },
-      permissionPolicyRequest: undefined,
       providerOptions: { openai: { reasoningEffort: 'medium' } },
       selectedMemoryThreadId: 'thread-1',
       selectionData: { filePaths: ['src/a.ts'], folderId: 'folder-a' },
@@ -634,8 +632,15 @@ describe('assistant runtime helpers', () => {
     expect(data).not.toHaveProperty('permissionPolicyRequest');
   });
 
-  it('attaches permissionPolicyRequest only when an opt-in snapshot is provided', () => {
-    const baseArgs = {
+  // BST-1652: the render-time builder must never produce a permission snapshot.
+  // `prepareRequestData` (use-assistant-request-lifecycle.ts) is the sole
+  // producer — it reads the live store at request-composition time and sets the
+  // field unconditionally, so anything built here would be overwritten while
+  // still costing the wrapper a store subscription. Its own suite
+  // ("permission-policy freshness at the request-composition seam") pins the
+  // producing half; this pins that no second producer reappears here.
+  it('never attaches permissionPolicyRequest (owned by the request-composition seam)', () => {
+    const data = buildAssistantRequestData({
       agentLoopSettings: { maxSteps: 6 },
       enabledNativeToolIds: [],
       hostedMemoryBackendAvailable: false,
@@ -649,26 +654,9 @@ describe('assistant runtime helpers', () => {
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
-    };
-
-    const withoutSnapshot = buildAssistantRequestData({
-      ...baseArgs,
-      permissionPolicyRequest: undefined,
     });
-    expect(withoutSnapshot).not.toHaveProperty('permissionPolicyRequest');
 
-    const snapshot: PermissionToolGateSnapshotInput = {
-      enforce: true,
-      perToolOverrides: {},
-      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
-      sessionGrants: ['execute'],
-      yolo: false,
-    };
-    const withSnapshot = buildAssistantRequestData({
-      ...baseArgs,
-      permissionPolicyRequest: snapshot,
-    });
-    expect(withSnapshot['permissionPolicyRequest']).toEqual(snapshot);
+    expect(data).not.toHaveProperty('permissionPolicyRequest');
   });
 
   it('attaches planMode only when true (presence-means-on, no false residue)', () => {
@@ -680,7 +668,6 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
@@ -705,7 +692,6 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
@@ -767,7 +753,6 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
@@ -806,7 +791,6 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
@@ -870,7 +854,6 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
@@ -899,7 +882,6 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
@@ -926,7 +908,6 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: ['src/a.ts'], folderId: 'root-a', otherRootsCount: 3 },
@@ -945,7 +926,6 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: ['src/a.ts'], folderId: 'root-a', otherRootsCount: 0 },
