@@ -806,7 +806,7 @@ describe('useAssistantRequestLifecycle', () => {
       expect(prepared['permissionPolicyRequest']).toBeUndefined();
     });
 
-    it('a fresh enforce=OFF drops a stale snapshot inherited from requestData (presence-means-on)', async () => {
+    it('a fresh enforce=OFF drops a stale snapshot inherited from requestData', async () => {
       usePermissionPolicyStore.getState().setEnforce(false);
       const repository = createRepositoryStub({
         createThreadRun: vi.fn(async (input) => ({
@@ -841,6 +841,46 @@ describe('useAssistantRequestLifecycle', () => {
       const prepared = await act(async () => result.current.prepareRequestData());
 
       expect(prepared['permissionPolicyRequest']).toBeUndefined();
+    });
+
+    it('leaves the key PRESENT with an undefined value, dropped only by JSON', async () => {
+      // The opted-out posture is expressed as an explicit `undefined`, NOT by
+      // omitting the key — this producer is not presence-means-on. Consumers
+      // must read the VALUE; `'permissionPolicyRequest' in prepared` is true
+      // here even though enforcement is off. The field only disappears at the
+      // renderer -> server JSON boundary. Documented on the field declaration
+      // in `packages/agent/src/types.ts` and in `docs/agents/assistant-runtime.md`.
+      usePermissionPolicyStore.getState().setEnforce(false);
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-wire-shape',
+          status: 'running',
+        })),
+      });
+
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: true,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      expect('permissionPolicyRequest' in prepared).toBe(true);
+      expect(prepared['permissionPolicyRequest']).toBeUndefined();
+      expect('permissionPolicyRequest' in JSON.parse(JSON.stringify(prepared))).toBe(false);
     });
   });
 });

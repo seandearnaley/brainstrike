@@ -2098,7 +2098,20 @@ Flow (desktop assistant server → agent runtime):
    `getPermissionToolGateSnapshotInput()` against the LIVE store and sets
    `permissionPolicyRequest` unconditionally — to the snapshot when
    `permissionEnforceable` (the desktop data-stream transport) and `enforce`,
-   otherwise to `undefined`, which `JSON.stringify` drops. That fresh read is
+   otherwise to `undefined`, which `JSON.stringify` drops. That last clause is a
+   JSON-BOUNDARY ASSUMPTION, not the presence-means-on rule some neighbouring
+   opt-in fields (`subagentPersonasRequest`) use: the key is always present on
+   the producer's object and only disappears because serialization omits
+   `undefined` values. Consumers must therefore read the VALUE and pass it to
+   `resolveRequestPermissionPolicy` (which treats an absent key and an explicit
+   `undefined` identically); a `'permissionPolicyRequest' in runtimeData` check
+   would see the opted-out case as "present" and silently change enforcement.
+   Pinned from both ends: "leaves the key PRESENT with an undefined value"
+   (`use-assistant-request-lifecycle.test.ts`) fixes the producer's shape, and
+   the "wire-shape contract" cases
+   (`packages/agent/src/__tests__/permission-policy-request.spec.ts`) fix the
+   resolver's indifference to it.
+   That fresh read is
    what closes the grant→resume race ("Always allow" flips the store and
    approves the pending call in the SAME synchronous handler, with no re-render
    in between). Consequently `buildAssistantRequestData` deliberately does NOT

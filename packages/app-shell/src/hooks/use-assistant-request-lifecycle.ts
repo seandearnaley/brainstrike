@@ -378,8 +378,10 @@ export function useAssistantRequestLifecycle({
       // `ask` and could re-prompt until a later re-render. Read the live store
       // posture here so the grant takes effect on THIS run. `permissionEnforceable`
       // mirrors the wrapper's transport gate (only the data-stream server
-      // enforces); `enforce` is read fresh. Presence-means-on: set `undefined`
-      // (never a stale object) so an off/opted-out posture drops off the wire.
+      // enforces); `enforce` is read fresh. The key is written UNCONDITIONALLY
+      // — `undefined` (never a stale object) for an off/opted-out posture, which
+      // `JSON.stringify` drops at the wire boundary. Consumers must check the
+      // VALUE; `'permissionPolicyRequest' in data` is TRUE here even when off.
       const freshPermissionSnapshot = getPermissionToolGateSnapshotInput();
       const freshPermissionPolicyRequest =
         permissionEnforceable && freshPermissionSnapshot.enforce

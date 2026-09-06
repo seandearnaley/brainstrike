@@ -226,6 +226,58 @@ describe('resolveRequestPermissionPolicy', () => {
   });
 });
 
+/**
+ * Wire-shape contract for `RuntimeData['permissionPolicyRequest']`.
+ *
+ * The sole producer (`prepareRequestData` in
+ * `packages/app-shell/src/hooks/use-assistant-request-lifecycle.ts`) writes the
+ * key UNCONDITIONALLY — the snapshot when enforceable + opted in, otherwise an
+ * explicit `undefined` that `JSON.stringify` drops. On the producer's object the
+ * key is therefore PRESENT-and-undefined while every consumer reads the VALUE,
+ * so a `'permissionPolicyRequest' in runtimeData` guard would read an opted-out
+ * request as "opted in". These cases pin the resolver half (absent key and
+ * explicit `undefined` are indistinguishable to it, and an opted-in snapshot
+ * still survives serialization); the producer half — that the opted-out object
+ * really does carry the key — is pinned by "leaves the key PRESENT with an
+ * undefined value" in
+ * `packages/app-shell/src/__tests__/use-assistant-request-lifecycle.test.ts`.
+ */
+describe('permissionPolicyRequest wire-shape contract (absent key vs explicit undefined)', () => {
+  // `| undefined` is REQUIRED here: the repo runs `exactOptionalPropertyTypes`,
+  // under which a plain `?:` property rejects an explicit `undefined`. The
+  // producer escapes that check only because `prepareRequestData` is typed
+  // `Record<string, unknown>` — see the block comment above.
+  interface RuntimeDataFieldReader {
+    permissionPolicyRequest?: AssistantPermissionPolicyRequest | undefined;
+  }
+
+  const enforcing: AssistantPermissionPolicyRequest = {
+    enforce: true,
+    policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
+  };
+
+  const absentKey: RuntimeDataFieldReader = {};
+  const explicitUndefined: RuntimeDataFieldReader = { permissionPolicyRequest: undefined };
+
+  it('resolves the two opted-out shapes identically (passthrough)', () => {
+    expect(resolveRequestPermissionPolicy(absentKey.permissionPolicyRequest)).toBeUndefined();
+    expect(
+      resolveRequestPermissionPolicy(explicitUndefined.permissionPolicyRequest)
+    ).toBeUndefined();
+  });
+
+  it('still carries an opted-in snapshot across the JSON boundary', () => {
+    const serialized = JSON.parse(
+      JSON.stringify({ permissionPolicyRequest: enforcing } satisfies RuntimeDataFieldReader)
+    ) as RuntimeDataFieldReader;
+
+    const snapshot = resolveRequestPermissionPolicy(serialized.permissionPolicyRequest);
+
+    expect(snapshot?.policies).toEqual(enforcing.policies);
+    expect(snapshot?.defaultRisk).toBe('mcp');
+  });
+});
+
 describe('runtime gate fed by resolveRequestPermissionPolicy (real Mastra loop)', () => {
   async function runWithToolCall(args: {
     permissionPolicy: ReturnType<typeof resolveRequestPermissionPolicy>;

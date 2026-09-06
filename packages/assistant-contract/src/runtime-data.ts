@@ -357,7 +357,11 @@ export interface RuntimeData {
    * `submitPlan`/`askUser` survive because they are classified `read`, not
    * because they suspend) and prepends a PLAN-MODE instruction block, so the model
    * investigates and proposes a plan for approval before any changes. Sent over
-   * the wire ONLY when `true` (presence-means-on, like `permissionPolicyRequest`).
+   * the wire ONLY when `true` — but by two different mechanisms, so read the
+   * VALUE, never key presence: `use-assistant-thread-request-data.ts` OMITS the
+   * key, while `use-assistant-request-lifecycle.ts` (which overwrites it) sets
+   * an explicit `undefined` that `JSON.stringify` drops. Same caveat applies to
+   * `permissionPolicyRequest`, whose producer ALWAYS writes the key.
    * Excluded for the built-in local provider. Agent-only enforcement.
    */
   planMode?: boolean;

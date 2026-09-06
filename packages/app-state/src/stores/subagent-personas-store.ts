@@ -4,10 +4,15 @@
  * A master `delegationEnabled` switch plus per-persona disables (by persona
  * id, built-in or user-defined). The renderer attaches the availability
  * request to the assistant request ONLY when something diverges from the
- * defaults (presence-means-non-default — mirrors `permissionPolicyRequest` /
- * `planMode`); the desktop assistant server applies it when resolving the
+ * defaults; the desktop assistant server applies it when resolving the
  * per-request persona set. A preference, not a security boundary: it can only
  * REDUCE the persona set.
+ *
+ * This field genuinely IS presence-means-non-default — every writer omits the
+ * key via conditional spread, so `in` and a value check agree. Do NOT
+ * generalize that to `permissionPolicyRequest` or `planMode`: their
+ * request-lifecycle producer always writes the key and relies on
+ * `JSON.stringify` dropping an explicit `undefined`.
  *
  * Structure mirrors permission-policy-store.ts (create + persist + migrate +
  * partialize + factory-reset helper).
