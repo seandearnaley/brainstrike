@@ -446,6 +446,16 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
+  /** `activeBackfill` is one slot per service: a stale continuation clearing it
+   * unconditionally unsubscribes whichever run replaced it. */
+  private clearActiveBackfillIfOwnedBy(unsubscribe: (() => void) | null): void {
+    if (this.activeBackfill && this.activeBackfill.unsubscribe !== unsubscribe) {
+      return;
+    }
+    this.activeBackfill?.unsubscribe?.();
+    this.activeBackfill = null;
+  }
+
   private cancelHostBackgroundBackfills(args: {
     exceptEmbeddingSetId?: string;
     inFlightBackfills: readonly BackgroundBackfillSnapshot[];
@@ -987,8 +997,7 @@ export class WorkspaceCollectionSyncService {
       source: 'background-indexing',
     });
     if ('canceled' in enqueueResult) {
-      this.activeBackfill?.unsubscribe?.();
-      this.activeBackfill = null;
+      this.clearActiveBackfillIfOwnedBy(unsubscribeBackfillProgress);
       // Desktop main now resolves a benign { canceled: true } for a deliberate
       // cancellation instead of rejecting the IPC call. Re-raise it locally as an
       // abort so the existing upstream cancellation handling (isAbortError →
@@ -998,6 +1007,16 @@ export class WorkspaceCollectionSyncService {
       throw createAbortError('Embedding backfill was canceled before it started.');
     }
     const { requestId } = enqueueResult;
+    // Everything below is keyed by embedding set, and `cancelBackfill` takes only
+    // that id, so a continuation resuming after a replacement claimed the set would
+    // clobber or cancel the replacement instead of its own run. Checked live, after
+    // the await, against the tracked slot: ours, or empty because a stop cleared it
+    // and nothing replaced it. The backfill controller is NOT the token — a
+    // replacement pass clears it on completion while its durable run keeps going.
+    const ownsBackfillSlot =
+      this.activeBackfill === null ||
+      this.activeBackfill.unsubscribe === unsubscribeBackfillProgress;
+
     // The stop-before-the-run-existed orphan (BST-1654 follow-up). A `cancel()`
     // that lands while this enqueue is in flight enumerates the host BEFORE the
     // run exists, so its sweep cannot see it, and the desktop host drops the
@@ -1006,10 +1025,21 @@ export class WorkspaceCollectionSyncService {
     // by a deliberate stop or a superseding sync (never by `detach()`), so an
     // abort here means this brand-new run is already orphaned: cancel it.
     if (args.backfillAbortSignal.aborted) {
-      this.activeBackfill?.unsubscribe?.();
-      this.activeBackfill = null;
-      await this.deps.cancelBackfill(args.collection.id);
+      unsubscribeBackfillProgress?.();
+      if (ownsBackfillSlot) {
+        this.clearActiveBackfillIfOwnedBy(unsubscribeBackfillProgress);
+        await this.deps.cancelBackfill(args.collection.id);
+      }
       throw createAbortError('Embedding backfill was canceled while it was being enqueued.');
+    }
+    // `detach()` aborts the renderer loop but deliberately spares the durable run.
+    // Publishing after it would re-arm `activeBackfill` and an "embedding pending"
+    // status on a service whose progress subscription is already gone, so the
+    // completion event can never land and the UI keeps a finished run on screen.
+    if (args.abortSignal.aborted || !ownsBackfillSlot) {
+      unsubscribeBackfillProgress?.();
+      throwIfAborted(args.abortSignal);
+      throw createAbortError('A replacement sync took over this embedding set.');
     }
     if (terminalBackfillRequestId === requestId) {
       throwIfAborted(args.abortSignal);

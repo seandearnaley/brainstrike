@@ -18,6 +18,11 @@ export interface CancelSupersededBackgroundBackfillsDeps {
  * attempted; only then do the failures surface, aggregated, so a stop that
  * could not be fully delivered still rejects at the caller instead of looking
  * like it worked.
+ *
+ * The awaits stay serialized deliberately. `Promise.allSettled` reads as the
+ * tidier form and lints cleaner, but it collapses this into a single microtask
+ * turn and that shifts the interleaving the QoS permit tests pin. The set is a
+ * handful of cancels on a stop path, so there is nothing to win here.
  */
 export async function cancelSupersededBackgroundBackfills(
   deps: CancelSupersededBackgroundBackfillsDeps,

@@ -4486,5 +4486,179 @@ describe('WorkspaceCollectionSyncService', () => {
       expect(callLog).toContain('run-exists');
       expect(callLog.slice(callLog.indexOf('run-exists'))).toContain('cancel:set-1');
     });
+
+    /**
+     * BST-1654 follow-up (review round 4): the mirror hazard the orphan cancel
+     * created. `activeBackfill` is one slot and `cancelBackfill` takes only an
+     * embedding-set id, so a continuation that resumes after a *replacement*
+     * sync claimed the set cancels the replacement's run instead of its own —
+     * a quick pause/resume or retrigger stops the indexing it just restarted.
+     */
+    it('does not cancel the replacement run when a superseded enqueue resolves late', async () => {
+      const callLog: string[] = [];
+      let releaseFirstEnqueue: () => void = () => undefined;
+      const firstEnqueueLanded = new Promise<void>((resolve) => {
+        releaseFirstEnqueue = resolve;
+      });
+      let enqueueCount = 0;
+      const deps = createDeps({
+        cancelBackfill: vi.fn(async (embeddingSetId: string) => {
+          callLog.push(`cancel:${embeddingSetId}`);
+        }),
+        enqueueBackfill: vi.fn(async () => {
+          enqueueCount += 1;
+          if (enqueueCount === 1) {
+            await firstEnqueueLanded;
+            callLog.push('superseded-enqueue-resolved');
+            return { requestId: 'background-indexing-backfill:superseded' };
+          }
+          callLog.push('replacement-exists');
+          return { requestId: 'background-indexing-backfill:replacement' };
+        }) as unknown as WorkspaceCollectionSyncServiceDependencies['enqueueBackfill'],
+        fileContentProcessor: {
+          processFiles: vi.fn(async () => ({
+            [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
+          })),
+        },
+        getBackfillsInFlight: vi.fn(async () => []),
+        subscribeToBackfillProgress: vi.fn(() => () => {}),
+      });
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      const superseded = service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      });
+      await vi.waitFor(() => expect(enqueueCount).toBe(1));
+
+      // The replacement claims the set while the first enqueue is still pending.
+      await service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      });
+      await vi.waitFor(() => expect(callLog).toContain('replacement-exists'));
+
+      releaseFirstEnqueue();
+      await superseded;
+
+      // Superseding the first pass legitimately cancels ITS run. What must never
+      // happen is a cancel landing after the replacement's run exists: the id is
+      // the only handle, so that cancel would stop the run just restarted.
+      expect(callLog).toContain('superseded-enqueue-resolved');
+      expect(callLog.slice(callLog.indexOf('replacement-exists'))).not.toContain('cancel:set-1');
+      expect(deps.setStatus).toHaveBeenLastCalledWith(
+        expect.objectContaining({ backfillRequestId: 'background-indexing-backfill:replacement' })
+      );
+    });
+
+    /**
+     * BST-1654 follow-up (review round 4): the same ownership hazard on the
+     * benign-cancel path. Desktop main resolves `{ canceled: true }` rather than
+     * rejecting, so a superseded pass reaches its cleanup normally — and
+     * `activeBackfill` is one slot, so clearing it unconditionally unsubscribes
+     * whichever run replaced it and the UI stops seeing that run's progress.
+     */
+    it('leaves the replacement subscription alone when a superseded enqueue reports canceled', async () => {
+      const unsubscribes: ReturnType<typeof vi.fn>[] = [];
+      let releaseFirstEnqueue: () => void = () => undefined;
+      const firstEnqueueLanded = new Promise<void>((resolve) => {
+        releaseFirstEnqueue = resolve;
+      });
+      let enqueueCount = 0;
+      const deps = createDeps({
+        enqueueBackfill: vi.fn(async () => {
+          enqueueCount += 1;
+          if (enqueueCount === 1) {
+            await firstEnqueueLanded;
+            return { canceled: true };
+          }
+          return { requestId: 'background-indexing-backfill:replacement' };
+        }) as unknown as WorkspaceCollectionSyncServiceDependencies['enqueueBackfill'],
+        fileContentProcessor: {
+          processFiles: vi.fn(async () => ({
+            [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
+          })),
+        },
+        getBackfillsInFlight: vi.fn(async () => []),
+        subscribeToBackfillProgress: vi.fn(() => {
+          const unsubscribe = vi.fn();
+          unsubscribes.push(unsubscribe);
+          return unsubscribe;
+        }),
+      });
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      const superseded = service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      });
+      await vi.waitFor(() => expect(enqueueCount).toBe(1));
+
+      await service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      });
+      await vi.waitFor(() => expect(unsubscribes.length).toBe(2));
+
+      releaseFirstEnqueue();
+      await superseded;
+
+      expect(unsubscribes[1]).not.toHaveBeenCalled();
+    });
+
+    /**
+     * BST-1654 follow-up (review round 4): `detach()` deliberately spares the
+     * durable run, which means the enqueue now resolves normally on a service
+     * the requester has already torn down. Publishing from that continuation
+     * re-arms `activeBackfill` and an "embedding pending" status after the
+     * progress subscription is gone, so the completion event can never land and
+     * the discarded service leaves a finished run on screen forever.
+     */
+    it('publishes nothing from an enqueue that resolves after the requester detached', async () => {
+      let releaseEnqueue: () => void = () => undefined;
+      const enqueueLanded = new Promise<void>((resolve) => {
+        releaseEnqueue = resolve;
+      });
+      const deps = createDeps({
+        enqueueBackfill: vi.fn(async () => {
+          await enqueueLanded;
+          return { requestId: 'background-indexing-backfill:detached' };
+        }) as unknown as WorkspaceCollectionSyncServiceDependencies['enqueueBackfill'],
+        fileContentProcessor: {
+          processFiles: vi.fn(async () => ({
+            [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
+          })),
+        },
+        getBackfillsInFlight: vi.fn(async () => []),
+        subscribeToBackfillProgress: vi.fn(() => () => {}),
+      });
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      const syncing = service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      });
+      await vi.waitFor(() => expect(deps.enqueueBackfill).toHaveBeenCalled());
+
+      await service.detach();
+      releaseEnqueue();
+      await syncing;
+
+      expect(deps.setStatus).not.toHaveBeenCalledWith(
+        expect.objectContaining({ backfillRequestId: 'background-indexing-backfill:detached' })
+      );
+      // Detach releases only local work: the durable run must survive it.
+      expect(deps.cancelBackfill).not.toHaveBeenCalled();
+    });
   });
 });
