@@ -54,16 +54,27 @@ function asSchema(value: unknown): JsonSchema | undefined {
     : undefined;
 }
 
-/** `anyOf`/`oneOf` branches, with JSON `null` branches (Zod `.nullable()`/`.nullish()`) dropped. */
+/**
+ * `anyOf`/`oneOf` branches, with JSON `null` branches (Zod `.nullable()`/
+ * `.nullish()`) dropped.
+ *
+ * Returns `undefined` — not `[]` — when nothing survives the drop, because the
+ * caller tests the result for truthiness. A union of nothing but `null` has no
+ * displayable type, and an empty list here would take it down the branch path
+ * and silently resolve it as `object`. `undefined` falls through to the switch,
+ * which throws. Same rule in `typeArrayBranches`, so both spellings of "null and
+ * nothing else" fail identically.
+ */
 function unionBranches(schema: JsonSchema): readonly JsonSchema[] | undefined {
   const raw = schema['oneOf'] ?? schema['anyOf'];
   if (!Array.isArray(raw)) {
     return;
   }
-  return raw.flatMap((branch) => {
+  const branches = raw.flatMap((branch) => {
     const candidate = asSchema(branch);
     return candidate && candidate['type'] !== 'null' ? [candidate] : [];
   });
+  return branches.length > 0 ? branches : undefined;
 }
 
 /**
@@ -82,7 +93,8 @@ function typeArrayBranches(schema: JsonSchema): readonly JsonSchema[] | undefine
   if (!Array.isArray(raw)) {
     return;
   }
-  return raw.flatMap((entry) => (entry === 'null' ? [] : [{ ...schema, type: entry }]));
+  const branches = raw.flatMap((entry) => (entry === 'null' ? [] : [{ ...schema, type: entry }]));
+  return branches.length > 0 ? branches : undefined;
 }
 
 interface ResolvedType {
@@ -108,6 +120,10 @@ function resolveType(schema: JsonSchema, path: string): ResolvedType {
   if ('const' in schema) {
     return { enumValues: [String(schema['const'])], type: 'enum' };
   }
+  // `anyOf`/`oneOf` wins when a schema carries BOTH it and a type array. Both
+  // together are legal JSON Schema; the union keyword is the more specific
+  // statement, and Zod emits exactly one of the two, so this only arbitrates
+  // hand-authored input.
   const branches = unionBranches(schema) ?? typeArrayBranches(schema);
   if (branches) {
     const resolved = branches.map((branch) => resolveType(branch, path));

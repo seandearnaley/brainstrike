@@ -310,7 +310,30 @@ describe('native tool input schema catalog', () => {
       PROVIDER_JSON_SCHEMA_OPTIONS
     );
     expect(intersection).not.toHaveProperty('allOf');
+    // Assert the merge POSITIVELY too. `not.toHaveProperty('allOf')` alone would
+    // also pass if a future Zod expressed the intersection some third way —
+    // `$ref`, `unevaluatedProperties` — which would invalidate the comment above
+    // just as thoroughly as a return to `allOf`.
+    expect(intersection).toMatchObject({
+      properties: { left: { type: 'string' }, right: { type: 'string' } },
+      type: 'object',
+    });
     expect(collectUnsupportedProviderSchemaShapes(intersection, 'merged')).toEqual([]);
+  });
+
+  // The bump changes the WIRE, not just the inspector: every `.nullable()` /
+  // `.nullish()` field in the catalog now serializes as a JSON Schema type array
+  // instead of an `anyOf`. The sweep below would keep passing either way, because
+  // nothing in it carried a type-array case — so this pins both halves: that the
+  // installed Zod really emits the new spelling for a catalog-shaped field, and
+  // that provider normalization accepts it.
+  it('accepts the type-array nullable spelling that reaches providers', () => {
+    const nullable = z.toJSONSchema(
+      z.object({ root: z.string().nullable().describe('open-folder id') }),
+      PROVIDER_JSON_SCHEMA_OPTIONS
+    );
+    expect(nullable.properties?.['root']).toMatchObject({ type: ['string', 'null'] });
+    expect(collectUnsupportedProviderSchemaShapes(nullable, 'nullable')).toEqual([]);
   });
 
   it('rejects unsupported provider-normalization shapes with tool and JSON paths', () => {
