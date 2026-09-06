@@ -5,6 +5,7 @@ import { listProviderLlmModels } from '../provider-registry.js';
 describe('direct Anthropic registry reasoning ladders', () => {
   it.each([
     ['claude-fable-5', ['low', 'medium', 'high', 'xhigh', 'max']],
+    ['claude-opus-5', ['low', 'medium', 'high', 'xhigh', 'max']],
     ['claude-opus-4-8', ['low', 'medium', 'high', 'xhigh', 'max']],
     ['claude-sonnet-5', ['low', 'medium', 'high', 'xhigh', 'max']],
     ['claude-sonnet-4-6', ['low', 'medium', 'high', 'max']],
@@ -26,7 +27,7 @@ describe('direct Anthropic registry reasoning ladders', () => {
     const ladders = listProviderLlmModels('anthropic').flatMap((model) =>
       model.anthropicReasoning ? [model.anthropicReasoning] : []
     );
-    expect(ladders).toHaveLength(4);
+    expect(ladders).toHaveLength(5);
     for (const ladder of ladders) {
       expect(ladder.supportedEfforts).toContain(ladder.defaultEffort);
       let previous = -1;

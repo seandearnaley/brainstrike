@@ -595,12 +595,20 @@
   in `LlmModelDefinition.anthropicReasoning` (BST-847), typed `AnthropicEffort`
   and separate from the OpenAI-vocabulary `reasoning` block. It is recorded
   from vendor documentation, never derived from union membership: Fable 5,
-  Opus 4.8, and Sonnet 5 offer `low|medium|high|xhigh|max`; Sonnet 4.6 offers
+  Opus 5, Opus 4.8, and Sonnet 5 offer `low|medium|high|xhigh|max`; Sonnet 4.6 offers
   `low|medium|high|max` (NO `xhigh`). Each defaults to `high`. Haiku 4.5
   declares NO effort ladder: effort is unsupported, while thinking keeps the
   legacy `enabled` + `budgetTokens` form. Sources, retrieved **2026-09-04**:
   https://platform.claude.com/docs/en/build-with-claude/effort and
   https://platform.claude.com/docs/en/about-claude/models/overview.
+  Opus 5 rejects thinking disabled with `xhigh` or `max`; the supported-effort
+  path emits adaptive thinking. Switching Thinking off clears effort and budget;
+  for Opus 5 only, cleared settings explicitly emit `thinking.type: disabled`
+  because omission enables thinking by default on this model. Other models keep
+  their existing omission behavior. Its
+  direct catalog row is seeded disabled (migration 116), preserving existing
+  user toggles. Pricing includes $10/MTok for one-hour cache writes, retained
+  here because the registry represents only the five-minute cache-write rate.
   `resolveReasoningControlsAvailability` reads the declared ladder/default;
   Haiku gets an empty ladder so its Effort row disappears while its Thinking
   toggle remains. A missing or uncatalogued id (direct Anthropic uses the

@@ -565,6 +565,31 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           defaultEffort: 'high',
           supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         },
+        contextWindow: 1_000_000,
+        id: 'claude-opus-5',
+        label: 'Claude Opus 5',
+        maxOutputTokens: 128_000,
+        nativeToolSearch: 'anthropic',
+        pricing: {
+          cacheReadPerMTok: 0.5,
+          cacheWritePerMTok: 6.25,
+          inputPerMTok: 5,
+          outputPerMTok: 25,
+        },
+        promptCaching: 'anthropic',
+        supportsStreaming: true,
+        tagline: 'For complex agentic coding and enterprise work',
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        // Vendor OFFERED ladder and default; retrieved 2026-09-04:
+        // https://platform.claude.com/docs/en/build-with-claude/effort
+        // https://platform.claude.com/docs/en/about-claude/models/overview
+        anthropicReasoning: {
+          defaultEffort: 'high',
+          supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        },
         contextWindow: 200_000,
         id: 'claude-opus-4-8',
         label: 'Claude Opus 4.8',

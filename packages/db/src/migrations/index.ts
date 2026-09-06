@@ -114,6 +114,7 @@ import { migration112WorktreeSetupReason } from './112-worktree-setup-reason.js'
 import { migration113OpenRouterQwen38Flash } from './113-openrouter-qwen-3-8-flash.js';
 import { migration114McpTasks } from './114-mcp-tasks.js';
 import { migration115McpTaskAuthority } from './115-mcp-task-authority.js';
+import { migration116AnthropicClaudeOpus5 } from './116-anthropic-claude-opus-5.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -234,6 +235,7 @@ export const migrations: Migration[] = [
   migration113OpenRouterQwen38Flash,
   migration114McpTasks,
   migration115McpTaskAuthority,
+  migration116AnthropicClaudeOpus5,
 ];
 
 // Export base migrations (without chunks table) for test environments

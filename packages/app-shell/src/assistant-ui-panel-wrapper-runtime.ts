@@ -1598,7 +1598,8 @@ function buildAnthropicOptions(
   // carries no `display`, so it is left exactly as configured. Otherwise the
   // modern adaptive form carries `display`, which defaults to `omitted`
   // provider-side — the reason Claude runs showed no thinking at all. Only
-  // emitted alongside a chosen effort so cleared settings yield no options.
+  // emitted alongside a chosen effort. Opus 5 thinks when options are omitted,
+  // so cleared UI settings explicitly disable it after clearing effort.
   const thinking: AnthropicProviderOptions['thinking'] | undefined =
     typeof settings.anthropicThinkingBudgetTokens === 'number'
       ? {
@@ -1610,7 +1611,9 @@ function buildAnthropicOptions(
             display: resolveReasoningVisible(settings) ? 'summarized' : 'omitted',
             type: 'adaptive',
           }
-        : undefined;
+        : modelName === 'claude-opus-5'
+          ? { type: 'disabled' }
+          : undefined;
   return buildOptionalOptions<AnthropicProviderOptions>([
     ['effort', effort],
     ['thinking', thinking],

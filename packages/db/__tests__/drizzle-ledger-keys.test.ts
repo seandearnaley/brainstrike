@@ -123,7 +123,7 @@ it('preserves the original customMigration object shape', () => {
   });
 });
 
-it('upgrades an existing old-ledger database with zero re-applied migrations', async () => {
+it('opens an existing ledger with zero re-applied migrations', async () => {
   const db = new PGlite({ extensions: TEST_ENGINE_EXTENSIONS });
   try {
     // Use the shipped table definition, independent of ensureMigrationsTable.
@@ -138,6 +138,9 @@ it('upgrades an existing old-ledger database with zero re-applied migrations', a
     const hashes = [
       ...migrationsManifest.migrations.map((migration) => migration.hash),
       ...shippedLedgerKeys,
+      // Later additions are already applied in this replay fixture. The frozen
+      // prefix above remains independent of the derived manifest.
+      ...customMigrations.slice(shippedLedgerKeys.length).map((migration) => migration.hash),
     ];
     for (const hash of hashes) {
       await db.query('INSERT INTO __drizzle_migrations (hash) VALUES ($1)', [hash]);
