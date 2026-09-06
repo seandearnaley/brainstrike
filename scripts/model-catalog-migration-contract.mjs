@@ -182,7 +182,7 @@ export const CATALOG_FILE = 'packages/assistant-contract/src/provider-catalog.js
  * must never be reported as an empty catalog, which would silently pass every
  * downstream comparison.
  */
-function readProviderCatalogModels(catalog) {
+export function readProviderCatalogModels(catalog) {
   const failures = [];
   const providerIds = new Set();
   const rows = [];
@@ -261,7 +261,7 @@ function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function summarizeMigrationFile(file) {
+export function summarizeMigrationFile(file) {
   const exportName = extractMigrationExportName(file.source);
   const upSql = extractMigrationUpSql(file);
   return {
@@ -578,7 +578,7 @@ function collectDeletedRowsRequiringRemaps(migrationSummaries) {
   return deletedRows.filter((row) => !rowRemainsInFinalSnapshot(row, snapshot));
 }
 
-function buildFinalCatalogSnapshot(migrationSummaries) {
+export function buildFinalCatalogSnapshot(migrationSummaries) {
   const snapshot = new Map();
 
   for (const migration of migrationSummaries) {
@@ -748,7 +748,7 @@ export function analyzeModelCatalogMigrationContract(input) {
   };
 }
 
-async function readMigrationFiles(rootDir) {
+export async function readMigrationFiles(rootDir) {
   const migrationsDir = path.join(rootDir, 'packages/db/src/migrations');
   const entries = await readdir(migrationsDir);
   const migrationFiles = entries.filter((entry) => /^\d{3}-.*\.ts$/.test(entry)).sort();
