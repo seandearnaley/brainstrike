@@ -1,6 +1,5 @@
 import type {
   WorkspaceCollectionSyncChunkingProgress,
-  WorkspaceCollectionSyncScanSummary,
   WorkspaceCollectionSyncStatusPatch,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import type {
@@ -37,7 +36,10 @@ import type { FileSystemChange } from '@brainstrike/types';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { validateRootFolderCacheRequest } from './root-folder-cache-reconciliation';
-import { cancelSupersededBackgroundBackfills } from './workspace-collection-sync-cancel';
+import {
+  cancelSupersededBackgroundBackfills,
+  classifyEnqueueContinuation,
+} from './workspace-collection-sync-cancel';
 import {
   type ChunkingRedispatchTerminalError,
   ChunkingRedispatchTracker,
@@ -46,6 +48,7 @@ import {
 } from './workspace-collection-sync-import';
 import {
   createAbortError,
+  createScanSummary,
   createThrottledProgressReporter,
   dispatchQueueDrainedEvent,
   isAbortError,
@@ -242,14 +245,18 @@ export class WorkspaceCollectionSyncService {
   private readonly terminalChunkingErrorsByScope = new Map<string, TerminalChunkingErrorScope>();
   private currentAbortController: AbortController | null = null;
   /**
-   * Scoped to the host-owned backfill, deliberately NOT to the renderer loop
-   * (BST-1654 follow-up). On web there is no host process: `enqueueBackfill`
-   * resolves only when the run finishes and merges this signal into the run
-   * itself, so aborting it kills the backfill. `detach()` must therefore leave
-   * this alone — aborting the renderer loop's controller is enough to release
-   * local work — while `cancel()` and a superseding `sync()` still abort it.
+   * Scoped to the host-owned backfill, deliberately NOT the renderer loop (BST-1654
+   * follow-up). Web has no host process: `enqueueBackfill` resolves only when the run
+   * finishes and merges this signal into it, so aborting this kills the backfill.
+   * `detach()` must leave it alone; `cancel()` and a superseding `sync()` abort it.
    */
   private currentBackfillAbortController: AbortController | null = null;
+  /**
+   * The set the CURRENT pass is syncing — assigned before its first await, cleared by
+   * every stop. The only ownership signal armed early enough to tell a stale
+   * continuation a replacement for its own set is under way.
+   */
+  private currentSyncCollectionId: string | null = null;
   private runId = 0;
 
   constructor(private readonly deps: WorkspaceCollectionSyncServiceDependencies) {}
@@ -356,24 +363,12 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
-  private createScanSummary(
-    prepared: Pick<
-      PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
-    >
-  ): WorkspaceCollectionSyncScanSummary {
-    return {
-      changedFiles: prepared.changes.length,
-      discoveredFiles: prepared.totalFiles,
-      excludedEntries: prepared.excludedEntries,
-      truncatedDirectories: prepared.truncatedDirectoryPaths.length,
-      unchangedFiles: prepared.unchangedCount,
-    };
-  }
-
   private async resetActiveWork(options: { cancelTrackedBackfill: boolean }): Promise<void> {
     this.currentAbortController?.abort();
     this.currentAbortController = null;
+    // No pass owns a set after a stop: leaving it set would make `cancel()` read as
+    // "a replacement is running" and the orphan it exists to kill would survive.
+    this.currentSyncCollectionId = null;
 
     // Only a deliberate stop reaches the run itself. `detach()` leaves the
     // backfill controller intact and unaborted so a web run — whose promise IS
@@ -446,14 +441,17 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
-  /** `activeBackfill` is one slot per service: a stale continuation clearing it
-   * unconditionally unsubscribes whichever run replaced it. */
-  private clearActiveBackfillIfOwnedBy(unsubscribe: (() => void) | null): void {
-    if (this.activeBackfill && this.activeBackfill.unsubscribe !== unsubscribe) {
-      return;
+  /**
+   * The single way a pass lets go of its backfill tracking: unsubscribe once, and clear
+   * the one-per-service `activeBackfill` slot only when it still holds THIS pass's entry
+   * — clearing it unconditionally unsubscribes whichever run replaced it. A nullish
+   * token never claims the slot; two passes that got none are not the same pass.
+   */
+  private releaseBackfillTracking(unsubscribe: (() => void) | null): void {
+    unsubscribe?.();
+    if (unsubscribe && this.activeBackfill?.unsubscribe === unsubscribe) {
+      this.activeBackfill = null;
     }
-    this.activeBackfill?.unsubscribe?.();
-    this.activeBackfill = null;
   }
 
   private cancelHostBackgroundBackfills(args: {
@@ -748,7 +746,7 @@ export class WorkspaceCollectionSyncService {
       pauseReasons: [],
       processedFiles: prepared.unchangedCount,
       queuedFiles: prepared.changes.length,
-      scanSummary: this.createScanSummary(prepared),
+      scanSummary: createScanSummary(prepared),
     });
   }
 
@@ -856,7 +854,7 @@ export class WorkspaceCollectionSyncService {
         ? {
             processedFiles: args.summary.totalFiles,
             queuedFiles: 0,
-            scanSummary: this.createScanSummary(args.summary),
+            scanSummary: createScanSummary(args.summary),
           }
         : {
             queuedFiles: 0,
@@ -915,7 +913,7 @@ export class WorkspaceCollectionSyncService {
       processedFiles: args.summary.totalFiles,
       queuedFiles: 0,
       queueProgress: null,
-      scanSummary: this.createScanSummary(args.summary),
+      scanSummary: createScanSummary(args.summary),
       state: 'embedding',
     });
   }
@@ -969,7 +967,7 @@ export class WorkspaceCollectionSyncService {
           managedCollectionName: args.collection.name ?? null,
           requestId: progress.requestId,
           rootPath: args.rootPath,
-          scanSummary: this.createScanSummary(args.summary),
+          scanSummary: createScanSummary(args.summary),
           state: 'embedding',
           total: progress.total,
           ...(progress.message ? { message: progress.message } : {}),
@@ -997,7 +995,7 @@ export class WorkspaceCollectionSyncService {
       source: 'background-indexing',
     });
     if ('canceled' in enqueueResult) {
-      this.clearActiveBackfillIfOwnedBy(unsubscribeBackfillProgress);
+      this.releaseBackfillTracking(unsubscribeBackfillProgress);
       // Desktop main now resolves a benign { canceled: true } for a deliberate
       // cancellation instead of rejecting the IPC call. Re-raise it locally as an
       // abort so the existing upstream cancellation handling (isAbortError →
@@ -1007,37 +1005,30 @@ export class WorkspaceCollectionSyncService {
       throw createAbortError('Embedding backfill was canceled before it started.');
     }
     const { requestId } = enqueueResult;
-    // Everything below is keyed by embedding set, and `cancelBackfill` takes only
-    // that id, so a continuation resuming after a replacement claimed the set would
-    // clobber or cancel the replacement instead of its own run. Checked live, after
-    // the await, against the tracked slot: ours, or empty because a stop cleared it
-    // and nothing replaced it. The backfill controller is NOT the token — a
-    // replacement pass clears it on completion while its durable run keeps going.
-    const ownsBackfillSlot =
-      this.activeBackfill === null ||
-      this.activeBackfill.unsubscribe === unsubscribeBackfillProgress;
-
-    // The stop-before-the-run-existed orphan (BST-1654 follow-up). A `cancel()`
-    // that lands while this enqueue is in flight enumerates the host BEFORE the
-    // run exists, so its sweep cannot see it, and the desktop host drops the
-    // signal at the IPC boundary rather than honouring it — the run comes back
-    // alive with nothing left to stop it. The backfill signal is aborted only
-    // by a deliberate stop or a superseding sync (never by `detach()`), so an
-    // abort here means this brand-new run is already orphaned: cancel it.
-    if (args.backfillAbortSignal.aborted) {
-      unsubscribeBackfillProgress?.();
-      if (ownsBackfillSlot) {
-        this.clearActiveBackfillIfOwnedBy(unsubscribeBackfillProgress);
-        await this.deps.cancelBackfill(args.collection.id);
+    // `currentSyncCollectionId` is set synchronously at the top of `sync()`, so it is
+    // already armed while a replacement is still scanning; the tracked slot and the
+    // backfill controller are both armed too late to close that window.
+    // `classifyEnqueueContinuation` documents what each outcome means.
+    const continuation = classifyEnqueueContinuation({
+      backfillAborted: args.backfillAbortSignal.aborted,
+      loopAborted: args.abortSignal.aborted,
+      supersededForThisSet:
+        this.currentSyncCollectionId === args.collection.id &&
+        this.currentBackfillAbortController?.signal !== args.backfillAbortSignal,
+    });
+    if (continuation !== 'proceed') {
+      this.releaseBackfillTracking(unsubscribeBackfillProgress);
+      if (continuation === 'cancel-orphan') {
+        // A refused cancel must not turn a deliberate stop into a sync FAILURE: every
+        // other exit here throws an abort, and upstream classifies on that.
+        await this.deps.cancelBackfill(args.collection.id).catch((error: unknown) => {
+          this.deps.log?.warn('Failed to cancel an orphaned background indexing backfill', {
+            embeddingSetId: args.collection.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+        throw createAbortError('Embedding backfill was canceled while it was being enqueued.');
       }
-      throw createAbortError('Embedding backfill was canceled while it was being enqueued.');
-    }
-    // `detach()` aborts the renderer loop but deliberately spares the durable run.
-    // Publishing after it would re-arm `activeBackfill` and an "embedding pending"
-    // status on a service whose progress subscription is already gone, so the
-    // completion event can never land and the UI keeps a finished run on screen.
-    if (args.abortSignal.aborted || !ownsBackfillSlot) {
-      unsubscribeBackfillProgress?.();
       throwIfAborted(args.abortSignal);
       throw createAbortError('A replacement sync took over this embedding set.');
     }
@@ -1091,7 +1082,7 @@ export class WorkspaceCollectionSyncService {
       processedFiles: summary.unchangedCount,
       queuedFiles: summary.changes.length,
       queueProgress: null,
-      scanSummary: this.createScanSummary(summary),
+      scanSummary: createScanSummary(summary),
       state: 'importing',
     });
   }
@@ -1299,7 +1290,7 @@ export class WorkspaceCollectionSyncService {
       phase: 'import',
     });
     this.setImportingStatus(args.context, prepared);
-    const scanSummary = this.createScanSummary(prepared);
+    const scanSummary = createScanSummary(prepared);
     let latestImportProgress: EnhancedImportProgress | null = null;
 
     // Progress fires once per FILE READ — thousands of times on a large
@@ -1385,6 +1376,7 @@ export class WorkspaceCollectionSyncService {
 
   async sync(request: WorkspaceCollectionSyncRequest): Promise<void> {
     const currentRunId = ++this.runId;
+    this.currentSyncCollectionId = request.enabled ? request.managedCollectionId : null;
     this.retainTerminalChunkingErrorsForCollection(
       request.enabled ? request.managedCollectionId : null
     );

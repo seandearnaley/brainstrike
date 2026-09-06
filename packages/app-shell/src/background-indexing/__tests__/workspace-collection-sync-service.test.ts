@@ -4488,6 +4488,68 @@ describe('WorkspaceCollectionSyncService', () => {
     });
 
     /**
+     * BST-1654 follow-up (review round 4): the orphan a set-scoped guard must NOT
+     * abandon. A stop sweeps a host that cannot yet report pass A's run, then a sync
+     * for a DIFFERENT set begins. A's enqueue resolves, creating a real run for its
+     * own set — and that other pass's sweep already ran, before this run existed, so
+     * nothing else will stop it. Reading "another pass holds the slot" as "not mine to
+     * cancel" is how a paused indexer keeps burning.
+     */
+    it('still cancels its own orphan when the replacement is for another set', async () => {
+      const callLog: string[] = [];
+      let releaseEnqueue: () => void = () => undefined;
+      const enqueueLanded = new Promise<void>((resolve) => {
+        releaseEnqueue = resolve;
+      });
+      let enqueueCount = 0;
+      const deps = createDeps({
+        cancelBackfill: vi.fn(async (embeddingSetId: string) => {
+          callLog.push(`cancel:${embeddingSetId}`);
+        }),
+        enqueueBackfill: vi.fn(async () => {
+          enqueueCount += 1;
+          if (enqueueCount === 1) {
+            await enqueueLanded;
+            callLog.push('orphan-run-exists');
+            return { requestId: 'background-indexing-backfill:orphan' };
+          }
+          return { requestId: 'background-indexing-backfill:other-set' };
+        }) as unknown as WorkspaceCollectionSyncServiceDependencies['enqueueBackfill'],
+        fileContentProcessor: {
+          processFiles: vi.fn(async () => ({
+            [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
+          })),
+        },
+        getBackfillsInFlight: vi.fn(async () => []),
+        subscribeToBackfillProgress: vi.fn(() => () => {}),
+      });
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      const orphaned = service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      });
+      await vi.waitFor(() => expect(enqueueCount).toBe(1));
+
+      // The stop sweeps a host with nothing to report, then a different set takes over.
+      await service.cancel();
+      await service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-2',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      });
+
+      releaseEnqueue();
+      await orphaned;
+
+      expect(callLog).toContain('orphan-run-exists');
+      expect(callLog.slice(callLog.indexOf('orphan-run-exists'))).toContain('cancel:set-1');
+    });
+
+    /**
      * BST-1654 follow-up (review round 4): the mirror hazard the orphan cancel
      * created. `activeBackfill` is one slot and `cancelBackfill` takes only an
      * embedding-set id, so a continuation that resumes after a *replacement*
@@ -4612,6 +4674,12 @@ describe('WorkspaceCollectionSyncService', () => {
       await superseded;
 
       expect(unsubscribes[1]).not.toHaveBeenCalled();
+
+      // The slot must still HOLD the replacement, not merely have left its
+      // subscription alive: a stale pass that nulls the tracking silently strands the
+      // replacement's subscription, and the next teardown has nothing left to release.
+      await service.detach();
+      expect(unsubscribes[1]).toHaveBeenCalled();
     });
 
     /**
