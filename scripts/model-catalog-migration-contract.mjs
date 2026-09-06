@@ -84,30 +84,6 @@ function unwrapExpression(node) {
   return node;
 }
 
-function stringLiteralOrConstValue(node, constants) {
-  const value = unwrapExpression(node);
-  if (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) {
-    return value.text;
-  }
-  if (ts.isIdentifier(value)) {
-    return constants.get(value.text) ?? null;
-  }
-  return null;
-}
-
-function getObjectProperty(objectLiteral, propertyName) {
-  for (const property of objectLiteral.properties) {
-    if (!ts.isPropertyAssignment(property)) {
-      continue;
-    }
-
-    if (getPropertyNameText(property.name) === propertyName) {
-      return property.initializer;
-    }
-  }
-  return null;
-}
-
 function extractStringRecord(source, constName, fileName) {
   const initializer = findConstObjectLiteral(source, constName, fileName);
   const record = new Map();
@@ -193,139 +169,72 @@ function extractMigrationUpSql(file) {
   return upSql;
 }
 
-function extractStringConstExports(source, fileName) {
-  const sourceFile = parseTypeScriptSource(source, fileName);
-  const constants = new Map();
+export const CATALOG_FILE = 'packages/assistant-contract/src/provider-catalog.json';
 
-  for (const [name, value] of extractStringConstDeclarationsFromSourceFile(sourceFile, {
-    exportedOnly: true,
-  })) {
-    constants.set(name, value);
-  }
-
-  return constants;
-}
-
-function extractStringConstDeclarationsFromSourceFile(sourceFile, options = {}) {
-  const exportedOnly = options.exportedOnly ?? false;
-  const constants = new Map();
-
-  function visit(node) {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer &&
-      node.parent &&
-      ts.isVariableDeclarationList(node.parent) &&
-      node.parent.parent &&
-      ts.isVariableStatement(node.parent.parent)
-    ) {
-      const value = stringLiteralInitializerValue(node.initializer);
-      const exported = node.parent.parent.modifiers?.some(
-        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
-      );
-      if ((!exportedOnly || exported) && value !== null) {
-        constants.set(node.name.text, value);
-      }
-    }
-
-    ts.forEachChild(node, visit);
-  }
-
-  visit(sourceFile);
-  return constants;
-}
-
-function extractProviderRegistryModels(source, constants = new Map()) {
-  const sourceFile = parseTypeScriptSource(source, 'provider-registry.ts');
-  const localConstants = extractStringConstDeclarationsFromSourceFile(sourceFile);
-  const resolvedConstants = new Map([...constants, ...localConstants]);
-  let providerDefinitions = null;
-
-  function visit(node) {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === 'PROVIDER_DEFINITIONS' &&
-      node.initializer
-    ) {
-      providerDefinitions = unwrapExpression(node.initializer);
-      return;
-    }
-
-    ts.forEachChild(node, visit);
-  }
-
-  visit(sourceFile);
-
+/**
+ * Read the static catalog rows from `provider-catalog.json` (BST-1650). This
+ * used to walk the TypeScript AST of `provider-registry.ts` and resolve
+ * identifier-valued fields against exported string constants; the catalog is
+ * data now, so the walk is a plain traversal and the "unresolvable expression"
+ * failure class no longer exists.
+ *
+ * Structural problems still fail CLOSED — a catalog this function cannot read
+ * must never be reported as an empty catalog, which would silently pass every
+ * downstream comparison.
+ */
+function readProviderCatalogModels(catalog) {
   const failures = [];
   const providerIds = new Set();
   const rows = [];
   const claimedModelKeys = new Set();
 
-  if (!(providerDefinitions && ts.isArrayLiteralExpression(providerDefinitions))) {
+  if (!Array.isArray(catalog)) {
     failures.push({
-      file: 'packages/assistant-contract/src/provider-registry.ts',
-      message:
-        'PROVIDER_DEFINITIONS must be a static array literal for model catalog contract validation.',
+      file: CATALOG_FILE,
+      message: 'The provider catalog must be a JSON array of provider objects.',
     });
     return { claimedModelKeys, failures, providerIds, rows };
   }
 
-  for (const providerNode of providerDefinitions.elements) {
-    const provider = unwrapExpression(providerNode);
-    if (!ts.isObjectLiteralExpression(provider)) {
-      failures.push({
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message:
-          'PROVIDER_DEFINITIONS entries must be object literals for model catalog validation.',
-      });
+  for (const provider of catalog) {
+    if (!isPlainObject(provider)) {
+      failures.push({ file: CATALOG_FILE, message: 'Provider catalog entries must be objects.' });
       continue;
     }
 
-    const providerIdNode = getObjectProperty(provider, 'id');
-    const providerId = providerIdNode
-      ? stringLiteralOrConstValue(providerIdNode, resolvedConstants)
-      : null;
-    if (!providerId) {
+    const providerId = provider.id;
+    if (typeof providerId !== 'string') {
       failures.push({
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message: 'Static provider-registry provider has an unresolvable id expression.',
+        file: CATALOG_FILE,
+        message: 'Provider catalog entry is missing a string id.',
       });
       continue;
     }
     providerIds.add(providerId);
 
-    const modelsInitializer = getObjectProperty(provider, 'models');
-    const modelsNode = modelsInitializer ? unwrapExpression(modelsInitializer) : null;
-    if (!(modelsNode && ts.isArrayLiteralExpression(modelsNode))) {
+    if (!Array.isArray(provider.models)) {
       failures.push({
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message: `Static provider-registry provider ${providerId} models must be a static array literal.`,
+        file: CATALOG_FILE,
+        message: `Provider ${providerId} must declare a models array.`,
       });
       continue;
     }
 
-    for (const modelNode of modelsNode.elements) {
-      const model = unwrapExpression(modelNode);
-      if (!ts.isObjectLiteralExpression(model)) {
+    for (const model of provider.models) {
+      if (!isPlainObject(model)) {
         failures.push({
-          file: 'packages/assistant-contract/src/provider-registry.ts',
-          message: `Static provider-registry model for ${providerId} must be an object literal.`,
+          file: CATALOG_FILE,
+          message: `Model entries for ${providerId} must be objects.`,
         });
         continue;
       }
 
-      const modelIdNode = getObjectProperty(model, 'id');
-      const modelTypeNode = getObjectProperty(model, 'type');
-      const id = modelIdNode ? stringLiteralOrConstValue(modelIdNode, resolvedConstants) : null;
-      const type = modelTypeNode
-        ? stringLiteralOrConstValue(modelTypeNode, resolvedConstants)
-        : null;
+      const id = typeof model.id === 'string' ? model.id : null;
+      const type = typeof model.type === 'string' ? model.type : null;
       if (!id) {
         failures.push({
-          file: 'packages/assistant-contract/src/provider-registry.ts',
-          message: `Static provider-registry model for ${providerId} has an unresolvable id expression.`,
+          file: CATALOG_FILE,
+          message: `A model entry for ${providerId} is missing a string id.`,
         });
       }
       if (id) {
@@ -333,10 +242,10 @@ function extractProviderRegistryModels(source, constants = new Map()) {
       }
       if (!type) {
         failures.push({
-          file: 'packages/assistant-contract/src/provider-registry.ts',
+          file: CATALOG_FILE,
           message: id
-            ? `Static provider-registry model ${modelKey({ id, providerId })} has an unresolvable type expression.`
-            : `Static provider-registry model for ${providerId} has an unresolvable type expression.`,
+            ? `Catalog model ${modelKey({ id, providerId })} is missing a string type.`
+            : `A model entry for ${providerId} is missing a string type.`,
         });
       }
       if (id && type) {
@@ -346,6 +255,10 @@ function extractProviderRegistryModels(source, constants = new Map()) {
   }
 
   return { claimedModelKeys, failures, providerIds, rows };
+}
+
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function summarizeMigrationFile(file) {
@@ -698,13 +611,12 @@ function buildFinalCatalogSnapshot(migrationSummaries) {
 }
 
 function findStaticProviderRegistryFailures(input, migrationSummaries) {
-  if (!input.providerRegistrySource) {
+  if (input.providerCatalog === undefined) {
     return [];
   }
 
-  const constants = new Map(Object.entries(input.providerRegistryConstants ?? {}));
   const finalCatalog = buildFinalCatalogSnapshot(migrationSummaries);
-  const registry = extractProviderRegistryModels(input.providerRegistrySource, constants);
+  const registry = readProviderCatalogModels(input.providerCatalog);
   const failures = [...registry.failures];
 
   for (const row of registry.rows) {
@@ -715,13 +627,13 @@ function findStaticProviderRegistryFailures(input, migrationSummaries) {
 
     if (catalogRow?.providerId === row.providerId) {
       failures.push({
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message: `Static provider-registry model ${modelKey(row)} has type ${row.type}, but the final DB model catalog has type ${catalogRow.type ?? 'unknown'}.`,
+        file: CATALOG_FILE,
+        message: `Static catalog model ${modelKey(row)} has type ${row.type}, but the final DB model catalog has type ${catalogRow.type ?? 'unknown'}.`,
       });
     } else {
       failures.push({
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message: `Static provider-registry model ${modelKey(row)} is missing from the final DB model catalog.`,
+        file: CATALOG_FILE,
+        message: `Static catalog model ${modelKey(row)} is missing from the final DB model catalog.`,
       });
     }
   }
@@ -737,8 +649,8 @@ function findStaticProviderRegistryFailures(input, migrationSummaries) {
     }
 
     failures.push({
-      file: 'packages/assistant-contract/src/provider-registry.ts',
-      message: `Final DB model catalog row ${key} is missing from provider-registry.ts; delete it in a catalog migration or add it to STATIC_CATALOG_STALE_ROW_ALLOWLIST.`,
+      file: CATALOG_FILE,
+      message: `Final DB model catalog row ${key} is missing from ${CATALOG_FILE}; delete it in a catalog migration or add it to STATIC_CATALOG_STALE_ROW_ALLOWLIST.`,
     });
   }
 
@@ -858,8 +770,7 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
     migrationIndexSource,
     assistantPreferencesSource,
     memoryPreferencesSource,
-    providerRegistrySource,
-    localLlmSource,
+    providerCatalogSource,
   ] = await Promise.all([
     readMigrationFiles(rootDir),
     readFile(path.join(rootDir, 'packages/db/src/migrations/index.ts'), 'utf8'),
@@ -871,8 +782,7 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
       path.join(rootDir, 'packages/app-state/src/stores/assistant-memory-preferences-store.ts'),
       'utf8'
     ),
-    readFile(path.join(rootDir, 'packages/assistant-contract/src/provider-registry.ts'), 'utf8'),
-    readFile(path.join(rootDir, 'packages/assistant-contract/src/local-llm.ts'), 'utf8'),
+    readFile(path.join(rootDir, CATALOG_FILE), 'utf8'),
   ]);
 
   return analyzeModelCatalogMigrationContract({
@@ -880,10 +790,7 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
     memoryPreferencesSource,
     migrationFiles,
     migrationIndexSource,
-    providerRegistryConstants: Object.fromEntries(
-      extractStringConstExports(localLlmSource, 'packages/assistant-contract/src/local-llm.ts')
-    ),
-    providerRegistrySource,
+    providerCatalog: JSON.parse(providerCatalogSource),
   });
 }
 

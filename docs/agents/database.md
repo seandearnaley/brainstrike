@@ -225,8 +225,10 @@ Adding, removing, or renaming a supported AI model is a multi-layer change. Upda
 
 When changing the model catalog:
 1. Update the static registry (single source of truth):
-   - packages/assistant-contract/src/provider-registry.ts
-   - Keep `PROVIDER_DEFINITIONS` as an array literal, each provider entry as an object literal, each provider's `models` property as an array literal, and each model entry as an object literal. `scripts/model-catalog-migration-contract.mjs` AST-parses those structural nodes; scalar provider/model fields may reference resolvable string constants.
+   - packages/assistant-contract/src/provider-catalog.json
+   - The catalog is DATA (BST-1650), not a TypeScript literal. `scripts/model-catalog-migration-contract.mjs` and `scripts/__tests__/provider-env-keys-mirror-contract.test.mjs` read it with `JSON.parse`; the earlier requirement to keep `PROVIDER_DEFINITIONS` AST-parseable (BST-1143) is retired, and no catalog field may reference a constant, because JSON cannot. Comments moved to optional `_note` strings, which `parseProviderCatalog` strips before any consumer sees a definition.
+   - Because JSON widens under `resolveJsonModule`, `tsc` no longer checks catalog rows: `packages/assistant-contract/src/provider-catalog-schema.ts` does, at module load, and THROWS. It is a `strictObject` schema, so an unknown or misspelled key fails rather than being dropped. `provider-catalog-schema.test.ts` pins the schema against the `ProviderDefinition` / `LlmModelDefinition` / `EmbeddingModelDefinition` interfaces in BOTH directions, so schema-vs-type drift is a type-check failure.
+   - `packages/assistant-contract/src/provider-registry.ts` keeps the types and the accessors. A catalog-only edit still re-hashes the package and everything downstream of it — Turbo hashes JSON inputs exactly like `.ts` inputs (measured in BST-1650). The move buys reviewability and script access, NOT build time.
 2. Add a numbered DB migration that upserts/deletes catalog rows with a `ledgerKey`, and add it to `packages/db/src/migrations/index.ts`; the Drizzle ledger is derived.
    - `ledgerKey` is the persisted `__drizzle_migrations.hash` and must never change once shipped.
    - `packages/db/src/drizzle/migrate.ts` derives `customMigrations` from the numbered manifest, excluding 001–014, 016–019, 029, and 031 folded into the immutable drizzle-kit snapshot. Migration 008 remains numbered-only (ADR-0002).
@@ -252,8 +254,10 @@ When changing the model catalog:
      as new remap obligations.
 5. Add new `packages/db/__tests__/**/*.test.{ts,tsx}` files without a lane-registry edit. The `unit` Vitest project discovers that tree recursively; required Unit and nightly coverage both supply the complete `DB_TEST_SHARD=1/2` + `2/2` set to that project, where Vitest applies its native shard. The value is a DB-task environment input, never a Turbo CLI passthrough argument. Nightly rejoins Vitest blob reports with `--merge-reports`, so coverage is one native union rather than whichever serial lane wrote last. `scripts/__tests__/db-test-discovery-contract.test.mjs` pins the recursive include, browser exclusion, nested discovery, and a minimum 150-file floor, with mutations proving each assertion can fail. The former regex manifest and its two derived lane scripts were deleted in BST-1046; do not recreate a registration map for test placement.
 6. Every LLM model entry MUST declare `contextWindow` (and `maxOutputTokens` when documented) in
-   packages/assistant-contract/src/provider-registry.ts — compile-enforced, static-registry-only
-   (no DB migration). It drives the thread context meter and the auto-derived
+   packages/assistant-contract/src/provider-catalog.json — schema-enforced at module load
+   (BST-1650 moved this from a compile error to a `parseProviderCatalog` throw; it still fails
+   closed, and any test that imports the registry surfaces it), static-registry-only (no DB
+   migration). It drives the thread context meter and the auto-derived
    `agentLoop.inputTokenLimit` (see packages/assistant-contract/src/context-budget.ts).
 7. `tagline` on a registry LLM entry is OPTIONAL, registry-only composer copy: it renders as
    the model's one-line description in the composer model menu. The DB catalog's own
@@ -261,7 +265,8 @@ When changing the model catalog:
    sources on purpose (no migration needed for registry tagline changes). Omit rather than
    invent copy: taglineless models render name-only.
 8. Every LLM model entry MUST also declare `vision` ('supported' | 'unsupported'; never
-   'unknown' in the static registry — pinned by provider-registry-vision.test.ts). It gates the
+   'unknown' in the static registry — schema-enforced as above, and pinned by
+   provider-registry-vision.test.ts). It gates the
    composer image-attachment affordance per selected model. Unlike `contextWindow`, this one IS
    mirrored into the DB catalog: new model rows must include `"vision"` in the capabilities
    jsonb (migration 061 backfilled existing rows), and frontier-models-migration.test.ts fails

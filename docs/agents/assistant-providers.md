@@ -237,8 +237,8 @@
     | bedrock    | `BRAINSTRIKE_BEDROCK_API_KEY`     | `AWS_BEARER_TOKEN_BEDROCK`     | —                                                                                   |
     | tavily     | `BRAINSTRIKE_TAVILY_API_KEY`      | `TAVILY_API_KEY`               | —                                                                                   |
 
-    The registry (`provider-registry.ts` `envKeys` + `deprecatedEnvKeys`) is
-    the single source of truth. Deprecated names obey three invariants, all
+    The registry (`provider-catalog.json` `envKeys` + `deprecatedEnvKeys`,
+    typed by `provider-registry.ts`) is the single source of truth. Deprecated names obey three invariants, all
     tested: they stay in the desktop `.env` allow-list forever (an
     unrecognized name rejects the WHOLE file, so removal would brick existing
     user files); they stay in the child-env credential scrubber forever (a
@@ -1072,8 +1072,9 @@ When changing this flow, update this doc.
 ### Provider registry auth metadata (BST-1349)
 
 `ProviderDefinition` in
-`packages/assistant-contract/src/provider-registry.ts` carries per-provider
-auth metadata; the registry is the ONLY source for it:
+`packages/assistant-contract/src/provider-registry.ts` types the per-provider
+auth metadata, and `provider-catalog.json` carries the values (BST-1650); the
+registry is the ONLY source for it:
 
 - `authType: 'api_key' | 'oauth_subscription' | 'aws' | 'none'` — REQUIRED on
   every provider. `'none'` marks the keyless providers (`local`, `ollama`,
