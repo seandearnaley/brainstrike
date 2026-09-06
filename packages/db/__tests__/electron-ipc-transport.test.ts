@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Desktop-transport reset contract, exercised through the REAL
  * `createElectronIpcTransport` rather than a fake (BST-1653).
@@ -13,8 +14,13 @@
  * already pins the sibling rule for a `resetLocal` that reports failure
  * ("surfaces desktop hard reset failure instead of falling back to direct
  * PGlite"); these cover the capability-probe half of it.
+ *
+ * The `node` pragma is load-bearing: `installBridge` stubs the WHOLE `window`, which
+ * would strip the DOM under a jsdom default. Stating it here keeps the file's
+ * assumption local rather than inherited from project config a future edit could change.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { DatabaseRuntime, DatabaseTransport } from '../src/database-runtime';
 import { createDatabaseRuntime } from '../src/database-runtime';
 import { createElectronIpcTransport } from '../src/electron-ipc-transport';
 
@@ -31,7 +37,44 @@ function installBridge(bridge: Record<string, unknown>): void {
   vi.stubGlobal('window', { electronAPI: { db: bridge } });
 }
 
-afterEach(() => {
+/**
+ * A stand-in for `pglite-direct`: the terminal transport, always available, whose OWN
+ * reset IS the runtime's local leg — hence `hardReset()` returning `false` here is
+ * legitimate where it would be a lie for the desktop bridge.
+ */
+function createTerminalTransport(): DatabaseTransport & { readonly purged: () => number } {
+  let purges = 0;
+  return {
+    cleanupAfterReset: () => Promise.resolve(),
+    clearAllData: () => Promise.resolve({ cleared: true }) as never,
+    clearQueuesAndEmbeddingSets: () => Promise.resolve(),
+    detachConnection: () => null,
+    hardReset: () => Promise.resolve(false),
+    hasOpenConnection: () => true,
+    isAvailable: () => true,
+    kind: 'pglite-direct',
+    open: () => Promise.resolve(null),
+    purgeAndClose: () => {
+      purges += 1;
+      return Promise.resolve();
+    },
+    purged: () => purges,
+  };
+}
+
+let activeRuntime: DatabaseRuntime | null = null;
+
+function trackRuntime(runtime: DatabaseRuntime): DatabaseRuntime {
+  activeRuntime = runtime;
+  return runtime;
+}
+
+afterEach(async () => {
+  // Runtimes install watchdog and drain machinery; leaving one running leaks it into
+  // the next test — and test 1 leaves its runtime having just failed a reset with the
+  // capability disabled, so any background probe of it fails too.
+  await activeRuntime?.dispose();
+  activeRuntime = null;
   vi.unstubAllGlobals();
 });
 
@@ -46,9 +89,11 @@ describe('createElectronIpcTransport', () => {
     const resetLocal = vi.fn(() => Promise.resolve({ success: true }));
     installBridge(createBridge({ resetLocal }));
     let enabled = true;
-    const runtime = createDatabaseRuntime({
-      transports: [createElectronIpcTransport({ isEnabled: () => enabled })],
-    });
+    const runtime = trackRuntime(
+      createDatabaseRuntime({
+        transports: [createElectronIpcTransport({ isEnabled: () => enabled })],
+      })
+    );
     runtime.start();
     await runtime.initialize();
     expect(runtime.getState().initializationStatus).toBe('ready');
@@ -61,15 +106,56 @@ describe('createElectronIpcTransport', () => {
 
   it('fails a reset LOUDLY when the bridge exposes no resetLocal', async () => {
     installBridge(createBridge());
-    const runtime = createDatabaseRuntime({
-      transports: [createElectronIpcTransport({ isEnabled: () => true })],
-    });
+    const runtime = trackRuntime(
+      createDatabaseRuntime({
+        transports: [createElectronIpcTransport({ isEnabled: () => true })],
+      })
+    );
+    runtime.start();
+    await runtime.initialize();
+    // Without this the rejection below could come from an uninitialized runtime rather
+    // than from the missing-`resetLocal` branch the test names.
+    expect(runtime.getState().initializationStatus).toBe('ready');
+
+    await expect(runtime.factoryReset()).rejects.toThrow(/reset bridge is unavailable/);
+  });
+
+  it('hard-resets through the bridge and never runs the local purge leg', async () => {
+    // The happy half. Every other case here is a failure, so an over-eager tightening
+    // of the probe could make EVERY desktop reset throw and this file would stay green.
+    const resetLocal = vi.fn(() => Promise.resolve({ success: true }));
+    installBridge(createBridge({ resetLocal }));
+    const runtime = trackRuntime(
+      createDatabaseRuntime({
+        transports: [createElectronIpcTransport({ isEnabled: () => true })],
+      })
+    );
+    runtime.start();
+    await runtime.initialize();
+    expect(runtime.getState().initializationStatus).toBe('ready');
+
+    await expect(runtime.factoryReset()).resolves.toBeUndefined();
+    expect(resetLocal).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a web reset to the terminal transport instead of throwing on a disabled bridge', async () => {
+    // The one way this change could regress a shipping surface. `hardReset()` now
+    // THROWS where it used to return false, and the safety argument for that is that
+    // it is only ever called on the ALREADY-SELECTED transport. If the runtime instead
+    // iterated the configured transports, every web factory reset — where the electron
+    // entry is legitimately unavailable — would throw rather than fall through.
+    installBridge(createBridge());
+    const terminal = createTerminalTransport();
+    const runtime = trackRuntime(
+      createDatabaseRuntime({
+        transports: [createElectronIpcTransport({ isEnabled: () => false }), terminal],
+      })
+    );
     runtime.start();
     await runtime.initialize();
 
-    await expect(runtime.factoryReset()).rejects.toThrow(
-      'Electron database reset bridge is unavailable.'
-    );
+    await expect(runtime.factoryReset()).resolves.toBeUndefined();
+    expect(terminal.purged()).toBe(1);
   });
 
   it('rejects purgeAndClose rather than reporting a purge the renderer cannot perform', async () => {
