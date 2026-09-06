@@ -921,12 +921,20 @@ seams, per surface:
   covered by `DatabaseTransportOpenContext.isDisposed`). A failed idle join
   aborts/skips the close loudly — never close over a drain you could not
   complete; past the seal the close is committed and unsubscribe failures
-  warn and proceed. Pinned by
+  warn and proceed. A DESKTOP reset never reaches that leg: the main process
+  owns the database, so `electron-ipc-transport.ts` THROWS from both
+  `hardReset()` (when its capability probe fails after the transport was
+  already selected) and `purgeAndClose()` rather than handing the runtime a
+  local purge that would resolve having destroyed nothing — the caller reloads
+  on success, so a fall-through there is a factory reset that silently keeps
+  the profile. Pinned by
   `packages/db/__tests__/db-reset-drain.test.ts` and
   `packages/db/__tests__/database-runtime.test.ts` (the invariants, with fake
-  transports and no React); `factory-reset.test.tsx` and
-  `db-provider-lifecycle.test.tsx` stay as the thin mount-level wiring
-  checks.
+  transports and no React) plus
+  `packages/db/__tests__/electron-ipc-transport.test.ts` (the desktop
+  transport's own reset contract, with the real transport);
+  `factory-reset.test.tsx` and `db-provider-lifecycle.test.tsx` stay as the
+  thin mount-level wiring checks.
 
 ### The test snapshot `globalSetup` lives on ONE project — do not hoist it
 
