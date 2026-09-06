@@ -8,11 +8,11 @@
  * per-request persona set. A preference, not a security boundary: it can only
  * REDUCE the persona set.
  *
- * This field genuinely IS presence-means-non-default — every writer omits the
- * key via conditional spread, so `in` and a value check agree. Do NOT
- * generalize that to `permissionPolicyRequest` or `planMode`: their
- * request-lifecycle producer always writes the key and relies on
- * `JSON.stringify` dropping an explicit `undefined`.
+ * Presence-means-non-default: every writer omits the key via conditional
+ * spread, so a key check and a value check agree for THIS field. Not every
+ * opt-in request field works that way — see the wire-shape note on
+ * `permissionPolicyRequest` in `packages/agent/src/types.ts` before copying
+ * this pattern.
  *
  * Structure mirrors permission-policy-store.ts (create + persist + migrate +
  * partialize + factory-reset helper).

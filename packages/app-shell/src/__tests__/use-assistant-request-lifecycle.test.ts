@@ -843,13 +843,12 @@ describe('useAssistantRequestLifecycle', () => {
       expect(prepared['permissionPolicyRequest']).toBeUndefined();
     });
 
-    it('leaves the key PRESENT with an undefined value, dropped only by JSON', async () => {
-      // The opted-out posture is expressed as an explicit `undefined`, NOT by
-      // omitting the key — this producer is not presence-means-on. Consumers
-      // must read the VALUE; `'permissionPolicyRequest' in prepared` is true
-      // here even though enforcement is off. The field only disappears at the
-      // renderer -> server JSON boundary. Documented on the field declaration
-      // in `packages/agent/src/types.ts` and in `docs/agents/assistant-runtime.md`.
+    it('leaves the opt-in keys PRESENT with undefined values, dropped only by JSON', async () => {
+      // This producer is NOT presence-means-on: an off posture is an explicit
+      // `undefined`, so the key is here and only the JSON boundary removes it.
+      // Rationale on the field declaration in `packages/agent/src/types.ts`.
+      // `planMode` is written the same way, so it is pinned here too — the
+      // stale claim this PR removes was itself an unpinned comment.
       usePermissionPolicyStore.getState().setEnforce(false);
       const repository = createRepositoryStub({
         createThreadRun: vi.fn(async (input) => ({
@@ -880,7 +879,17 @@ describe('useAssistantRequestLifecycle', () => {
 
       expect('permissionPolicyRequest' in prepared).toBe(true);
       expect(prepared['permissionPolicyRequest']).toBeUndefined();
-      expect('permissionPolicyRequest' in JSON.parse(JSON.stringify(prepared))).toBe(false);
+      // planModeAvailable=false above, so this is the off posture for planMode.
+      expect('planMode' in prepared).toBe(true);
+      expect(prepared['planMode']).toBeUndefined();
+
+      // Assert the serialized payload directly rather than round-tripping it:
+      // this is the wire boundary, not a deep clone, and `structuredClone`
+      // would KEEP both undefined-valued keys.
+      const wirePayload = JSON.stringify(prepared);
+
+      expect(wirePayload).not.toContain('"permissionPolicyRequest"');
+      expect(wirePayload).not.toContain('"planMode"');
     });
   });
 });

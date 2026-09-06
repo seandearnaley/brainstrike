@@ -27,7 +27,7 @@ import {
   type AssistantPermissionPolicyRequest,
   resolveRequestPermissionPolicy,
 } from '../mastra/permission-policy-request';
-import type { StreamChunk } from '../types';
+import type { RuntimeData, StreamChunk } from '../types';
 
 const { modelHolder } = vi.hoisted(() => ({
   modelHolder: { current: undefined as LanguageModelV2 | undefined },
@@ -227,28 +227,22 @@ describe('resolveRequestPermissionPolicy', () => {
 });
 
 /**
- * Wire-shape contract for `RuntimeData['permissionPolicyRequest']`.
- *
- * The sole producer (`prepareRequestData` in
- * `packages/app-shell/src/hooks/use-assistant-request-lifecycle.ts`) writes the
- * key UNCONDITIONALLY — the snapshot when enforceable + opted in, otherwise an
- * explicit `undefined` that `JSON.stringify` drops. On the producer's object the
- * key is therefore PRESENT-and-undefined while every consumer reads the VALUE,
- * so a `'permissionPolicyRequest' in runtimeData` guard would read an opted-out
- * request as "opted in". These cases pin the resolver half (absent key and
- * explicit `undefined` are indistinguishable to it, and an opted-in snapshot
- * still survives serialization); the producer half — that the opted-out object
- * really does carry the key — is pinned by "leaves the key PRESENT with an
- * undefined value" in
+ * Wire-shape contract for `RuntimeData['permissionPolicyRequest']` — the
+ * RESOLVER half. Full rationale lives on the field declaration in `../types.ts`;
+ * the PRODUCER half is pinned by "leaves the key PRESENT with an undefined
+ * value" in
  * `packages/app-shell/src/__tests__/use-assistant-request-lifecycle.test.ts`.
+ *
+ * In short: the producer always writes the key, so consumers must read the
+ * VALUE. These cases pin that the resolver cannot tell an absent key from an
+ * explicit `undefined`, and that an opted-in snapshot survives serialization.
  */
 describe('permissionPolicyRequest wire-shape contract (absent key vs explicit undefined)', () => {
-  // `| undefined` is REQUIRED here: the repo runs `exactOptionalPropertyTypes`,
-  // under which a plain `?:` property rejects an explicit `undefined`. The
-  // producer escapes that check only because `prepareRequestData` is typed
-  // `Record<string, unknown>` — see the block comment above.
+  // Value type tracks `RuntimeData` so a contract change breaks this test; the
+  // `| undefined` widening is local, because `exactOptionalPropertyTypes` makes
+  // a plain `?:` property reject the explicit `undefined` the producer writes.
   interface RuntimeDataFieldReader {
-    permissionPolicyRequest?: AssistantPermissionPolicyRequest | undefined;
+    permissionPolicyRequest?: RuntimeData['permissionPolicyRequest'] | undefined;
   }
 
   const enforcing: AssistantPermissionPolicyRequest = {
@@ -267,14 +261,17 @@ describe('permissionPolicyRequest wire-shape contract (absent key vs explicit un
   });
 
   it('still carries an opted-in snapshot across the JSON boundary', () => {
+    // Models the renderer → server transport, NOT a deep clone: `structuredClone`
+    // would PRESERVE an undefined-valued key and defeat the point of the pin.
     const serialized = JSON.parse(
       JSON.stringify({ permissionPolicyRequest: enforcing } satisfies RuntimeDataFieldReader)
     ) as RuntimeDataFieldReader;
 
     const snapshot = resolveRequestPermissionPolicy(serialized.permissionPolicyRequest);
 
+    // Round-trip fidelity only — `defaultRisk` and the rest of the resolver's
+    // output are covered by the `resolveRequestPermissionPolicy` suite above.
     expect(snapshot?.policies).toEqual(enforcing.policies);
-    expect(snapshot?.defaultRisk).toBe('mcp');
   });
 });
 
