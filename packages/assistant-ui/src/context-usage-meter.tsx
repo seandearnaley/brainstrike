@@ -216,9 +216,9 @@ export const ContextUsageMeter = ({
   // app-shell writer with the SAME thread key contract as recordUsage.
   const breakdownState = useContextUsageStore((s) => s.breakdownByThread[key]);
   // In-flight run's billed step usage (BST-953 live tick) — added to the
-  // durable cumulative figure until the run's own row lands and the wrapper
-  // clears it (see context-usage-store.ts).
-  const liveRunUsage = useContextUsageStore((s) => s.liveRunUsageByThread[key]);
+  // durable cumulative figure until the run's own row lands and the settle
+  // path clears it (see context-usage-store.ts).
+  const recordedLiveRunUsage = useContextUsageStore((s) => s.liveRunUsageByThread[key]);
   const [open, setOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -278,6 +278,13 @@ export const ContextUsageMeter = ({
   // usage — is what the chip leads with; context-window occupancy stays on
   // the ring and inside the popover. Absent cumulative data (web / an
   // unhydrated thread) falls back to the context fraction.
+  //
+  // BST-1652: the sum is only "in-flight" while a run actually is. A run the
+  // user switched away from mid-stream may never settle, stranding its partial
+  // sum on that thread key; `isRunning` is the reader-side truth, so the
+  // strandedness is derived away here rather than swept by an effect on the
+  // writer side (an effect runs after paint — one frame of phantom tokens).
+  const liveRunUsage = isRunning === true ? recordedLiveRunUsage : undefined;
   const liveTokens = liveRunUsage ? liveRunUsage.inputTokens + liveRunUsage.outputTokens : 0;
   const trigger = resolveTriggerDisplay({
     cumulativeUsage,

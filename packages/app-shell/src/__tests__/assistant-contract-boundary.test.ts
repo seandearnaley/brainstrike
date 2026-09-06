@@ -61,7 +61,7 @@ describe('app-shell assistant contract boundary', () => {
    *    lines back while still passing — which is precisely the banked headroom
    *    this test exists to prevent.
    */
-  const WRAPPER_LINE_BUDGET = 1732;
+  const WRAPPER_LINE_BUDGET = 1727;
   const WRAPPER_TEST_LINE_BUDGET = 2097;
 
   function expectShrinkOnly(source: string, budget: number, label: string): void {

@@ -1457,17 +1457,12 @@ export function AssistantUiPanelWrapper({
     void refreshCumulativeUsage();
   }, [refreshCumulativeUsage]);
 
-  // A thread that just became selected cannot have an in-flight accumulation
-  // of its own (runs stream on the selected thread), so any lingering live
-  // sum on it is a stranded remainder — e.g. steps recorded before the user
-  // switched away mid-run (review fix: the switch re-keys handleStepUsage to
-  // the new thread, so the old thread's partial sum would otherwise persist
-  // until an unrelated later run cleared it). Keyed ONLY on the thread id —
-  // the refresh effect above also refires on pricing/repo identity changes,
-  // which must not wipe a genuinely live sum mid-run.
-  useEffect(() => {
-    useContextUsageStore.getState().clearLiveRunUsage(selectedMemoryThreadId ?? 'active');
-  }, [selectedMemoryThreadId]);
+  // No thread-switch sweep of the live sum (BST-1652): a stranded partial sum
+  // from a run the user switched away from is derived away AT THE READER,
+  // which gates it on the thread's `isRunning` (context-usage-meter.tsx). An
+  // effect could only clear it after paint — one frame of phantom tokens for a
+  // returning user — so `clearLiveRunUsage` is now purely handleUsage's
+  // settle-path clear.
 
   // OM informational stats (observed tokens + compaction saved). Desktop-only:
   // gated on the durable-assistant capability (NOT raw PGlite presence — web has

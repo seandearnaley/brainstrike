@@ -272,7 +272,7 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
         .getState()
         .recordLiveStepUsage('t1', { inputTokens: 90_000, outputTokens: 10_000 });
     });
-    render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} />);
+    render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} isRunning={true} />);
     const trigger = screen.getByTestId('context-usage-trigger');
     expect(trigger).toHaveTextContent(/1\.2M tokens/);
     expect(trigger).toHaveTextContent(/live/);
@@ -282,6 +282,28 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
     expect(screen.queryByTestId('context-usage-trigger-cost')).not.toBeInTheDocument();
     openMeterPopover();
     expect(screen.getByTestId('context-usage-cost')).toHaveTextContent(/excl\. live/);
+  });
+
+  it('ignores a stranded live sum when no run is in flight (BST-1652)', () => {
+    // A run the user switched away from mid-flight leaves a partial sum on its
+    // thread key that nothing settles. `isRunning` is the reader-side truth:
+    // no run in flight ⇒ no live tokens, so the chip is the durable total with
+    // its cost, and the popover never claims a live component.
+    act(() => {
+      useContextUsageStore
+        .getState()
+        .recordLiveStepUsage('t1', { inputTokens: 90_000, outputTokens: 10_000 });
+    });
+    render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} isRunning={false} />);
+    const trigger = screen.getByTestId('context-usage-trigger');
+    expect(trigger).toHaveTextContent(/1\.1M tokens/);
+    expect(trigger).not.toHaveTextContent(/live/);
+    expect(screen.getByTestId('context-usage-trigger-cost')).toHaveTextContent(/\$12\.50/);
+    openMeterPopover();
+    const popoverTotal = screen.getByTestId('context-usage-thread-total-tokens');
+    expect(popoverTotal).toHaveTextContent(/Thread total · 1\.1M tokens/);
+    expect(popoverTotal).not.toHaveTextContent(/\(live\)/);
+    expect(screen.getByTestId('context-usage-cost')).not.toHaveTextContent(/excl\. live/);
   });
 
   it('shows the live headline during a NEW thread first run (zero durable baseline)', () => {
@@ -303,7 +325,7 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
         .getState()
         .recordLiveStepUsage('t1', { inputTokens: 12_000, outputTokens: 400 });
     });
-    render(<ContextUsageMeter {...props} cumulativeUsage={zeroBaseline} />);
+    render(<ContextUsageMeter {...props} cumulativeUsage={zeroBaseline} isRunning={true} />);
     const trigger = screen.getByTestId('context-usage-trigger');
     expect(trigger).toHaveTextContent(/12\.4K tokens/);
     expect(trigger).toHaveTextContent(/live/);
