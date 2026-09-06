@@ -785,6 +785,9 @@ importers:
         specifier: ^19.2.8
         version: 19.2.8(react@19.2.8)
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../../packages/test-utils
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.63.0
