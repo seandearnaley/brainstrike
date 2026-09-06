@@ -90,7 +90,9 @@ function startWebStartupReap(database: DbHandle, store: WebStartupReapStore): vo
       // snapshot. `schemaReady` (the repository has loaded for this resource,
       // so its schema probe passed) is a WEAKER guarantee than desktop's
       // `getDatabase()`-awaits-`migrate()`, so it is not load-bearing here —
-      // the outcome does not depend on it.
+      // the outcome does not depend on it. That is NOT licence to drop the
+      // gate: `canReadRuns` also gates the live query below, which must not
+      // subscribe before the repository has loaded for this resource.
       const report = await reapOrphanedAssistantThreadRuns(database, getRendererBootedAt());
       if (report.reaped.length > 0) {
         logger.info('Web startup marked orphaned assistant runs failed', {

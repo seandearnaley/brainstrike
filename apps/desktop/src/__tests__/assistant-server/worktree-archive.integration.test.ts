@@ -551,10 +551,15 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       }
       const { worktree } = created.value;
       const underlying = asLedgerDatabase(db);
+      // Counted, not just intercepted: `sql.includes(...)` would also catch a
+      // FUTURE archive-path read of the same relation, and this test would go
+      // green having exercised that one instead of the in-flight gate.
+      let interceptedRunReads = 0;
       const failingLedger: WorktreeLedgerDatabase = {
         async query(sql, params) {
           // Exactly what an unmigrated database does to `hasRunningThread`.
           if (sql.includes('brainstrike_assistant_thread_runs')) {
+            interceptedRunReads += 1;
             throw Object.assign(
               new Error('relation "brainstrike_assistant_thread_runs" does not exist'),
               { code: '42P01' }
@@ -571,6 +576,14 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       const refused = await service.archive({ worktreeId: worktree.id });
 
       expect(refused.ok).toBe(false);
+      // Pinned to the CAUSE, not just to failure. `ok === false` alone would
+      // still hold if `archive` started refusing earlier for an unrelated
+      // reason (setup drift, a path check) — and so would the survival
+      // assertion below, leaving the test green while no longer exercising
+      // this seam at all.
+      expect(refused.ok === false && refused.error).toMatch(/brainstrike_assistant_thread_runs/);
+      // Exactly one read reached the gate, so the refusal came from there.
+      expect(interceptedRunReads).toBe(1);
       // The point of the test: nothing was removed and nothing was archived.
       expect(existsSync(worktree.path)).toBe(true);
       const ledger = createWorktreeLedger(() => Promise.resolve(underlying));
