@@ -635,6 +635,24 @@ describe('startWorkspaceCoverageAudit cancellation and failure', () => {
     expect(recoveryAttemptKey).toBeNull();
   });
 
+  it('abandons an unverifiable outcome when currency is lost after the walk', async () => {
+    // The post-walk gate is a SINGLE check covering both branches: an
+    // unverifiable outcome must be dropped on a stale audit exactly like a
+    // real target list.
+    setTree(ROOT_PATH, ['src/index.ts'], [`${ROOT_PATH}/src`]);
+    let calls = 0;
+    const { recoveryAttemptKey, statuses } = await runAudit({
+      isCurrent: () => {
+        calls += 1;
+        return calls < 2;
+      },
+    });
+
+    expect(readFullTreeWithOptionsMock).toHaveBeenCalledTimes(1);
+    expect(statuses).toEqual([]);
+    expect(recoveryAttemptKey).toBeNull();
+  });
+
   it('surfaces a walk failure as an error status instead of a coverage verdict', async () => {
     readFullTreeWithOptionsMock.mockRejectedValue(new Error('adapter exploded'));
 

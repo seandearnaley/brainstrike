@@ -353,15 +353,16 @@ async function runWorkspaceCoverageAudit(args: {
     return null;
   }
   const targets = await buildCoverageAuditTargets(args);
-  if (args.isCurrent()) {
-    if (isCoverageAuditOutcome(targets)) {
-      return targets;
-    }
-  } else {
-    return null;
-  }
+  // ONE post-walk currency gate, covering both an unverifiable outcome and a
+  // real target list. `isCurrent` is a pure closure read
+  // (`!disposed && activeAuditToken === auditToken` in the provider) and no
+  // await separates it from what follows, so a second adjacent call could
+  // never answer differently — BST-1654 removed that duplicate.
   if (!args.isCurrent()) {
     return null;
+  }
+  if (isCoverageAuditOutcome(targets)) {
+    return targets;
   }
   // Compare SETS of relative paths, not counts: the DB is the source of truth
   // for what was indexed, and the on-disk walk for what should be. The set
