@@ -10,7 +10,7 @@
  * runs without React, and putting logic back here puts it back out of reach.
  */
 import type React from 'react';
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { createDatabaseRuntime } from './database-runtime.js';
 import { DbContext, type DbContextValue } from './db-context.js';
 import { getDefaultDbPath } from './default-db-path.js';
@@ -24,12 +24,14 @@ interface DbProviderProps {
 }
 
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
-  // Props are read through refs so the runtime — built once per mount — always
-  // sees the CURRENT prop, exactly like the old `useCallback` closures did.
-  const dbPathRef = useRef<string | undefined>(dbPath);
-  dbPathRef.current = dbPath;
-  const useElectronIPCRef = useRef<boolean | undefined>(useElectronIPC);
-  useElectronIPCRef.current = useElectronIPC;
+  // Both props are MOUNT-TIME configuration: the runtime and its transports are
+  // built once per mount, so a later change could only take effect if a
+  // transport were re-opened, which would silently swap the database out from
+  // under live repositories. Every call site passes a constant
+  // (`useElectronIPC={true}`, a module-level path, or a literal), so capturing
+  // here states the real contract instead of implying a liveness nothing wants.
+  // Reading them through a ref assigned during render is also what React
+  // forbids (`no-ref-current-in-render`).
 
   // Lazy useState initializer, not useRef(create()): a ref initializer
   // expression would rebuild-and-discard the runtime on every render
@@ -39,9 +41,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const [runtime] = useState(() =>
     createDatabaseRuntime({
       transports: [
-        createElectronIpcTransport({ isEnabled: () => useElectronIPCRef.current === true }),
+        createElectronIpcTransport({ isEnabled: () => useElectronIPC === true }),
         createPgliteDirectTransport({
-          getDataDir: () => dbPathRef.current ?? getDefaultDbPath(),
+          getDataDir: () => dbPath ?? getDefaultDbPath(),
         }),
       ],
     })
