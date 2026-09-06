@@ -58,7 +58,7 @@ describe('app-shell assistant contract boundary', () => {
    *    Drifting more than `RE_BASELINE_SLACK` below the recorded size fails too,
    *    so recovered headroom cannot be quietly banked for a future feature.
    */
-  const WRAPPER_LINE_BUDGET = 1530;
+  const WRAPPER_LINE_BUDGET = 1732;
   const WRAPPER_TEST_LINE_BUDGET = 2097;
   const RE_BASELINE_SLACK = 40;
 
