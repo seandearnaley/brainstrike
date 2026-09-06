@@ -14,7 +14,15 @@
  * - ADD-ONLY. A catalog row that DISAPPEARED needs `MODEL_ID_MIGRATIONS` and
  *   `MEMORY_MODEL_TARGET_MIGRATIONS` decisions and a user-visible remap notice
  *   (BST-565). Those are judgement calls, so a pending removal is reported as
- *   a hard error instead of being generated.
+ *   a hard error instead of being generated — including the whole-provider
+ *   case, where every one of that provider's rows disappeared at once. Only
+ *   `isHistoricalCatalogResidue` rows are exempt, and that predicate is
+ *   imported from the contract checker so the two tools cannot disagree about
+ *   which rows are residue.
+ * - An id the DB catalog already holds under a different provider or type is
+ *   a hard error too. It is not an addition: `models.id` is the upsert's
+ *   conflict target, so generating one would overwrite a live row on the way
+ *   up and DELETE a pre-existing row on the way down.
  * - Only columns the catalog actually carries are emitted. `tagline` and
  *   `best_for` feed the db-explorer from their OWN source (database.md rule 7)
  *   and are left NULL for a human to author — never invented from the
@@ -34,6 +42,7 @@ import { pathToFileURL } from 'node:url';
 import {
   buildFinalCatalogSnapshot,
   CATALOG_FILE,
+  isHistoricalCatalogResidue,
   readMigrationFiles,
   summarizeMigrationFile,
 } from './model-catalog-migration-contract.mjs';
@@ -232,15 +241,15 @@ export function planModelCatalogMigration({
   const catalogRows = collectCatalogRows(providerCatalog);
   const catalogKeys = new Set(catalogRows.map(modelKey));
 
-  // Scope removals to providers the catalog still declares, exactly as
-  // `findStaticProviderRegistryFailures` does. The snapshot is a static
-  // reconstruction from migration SQL and does not model provider RENAMES
-  // (migration 021 moved `transformers` rows to `local` with an UPDATE), so
-  // rows under a retired provider id are reconstruction residue, not a
-  // pending catalog deletion.
-  const catalogProviderIds = new Set(providerCatalog.map((provider) => provider.id));
+  // `isHistoricalCatalogResidue` is the SAME predicate
+  // `findStaticProviderRegistryFailures` applies, imported rather than
+  // reimplemented: it covers the `transformers` rows migration 021 renamed with
+  // an UPDATE the operation extractor does not model, plus anything the
+  // checker's stale-row allowlist forgives. A provider that simply left the
+  // catalog is NOT residue — that is a whole-provider deletion, and skipping it
+  // would leave stale DB rows behind while persisted user selections dangle.
   const removals = [...snapshot.values()].filter(
-    (row) => catalogProviderIds.has(row.providerId) && !catalogKeys.has(modelKey(row))
+    (row) => !(catalogKeys.has(modelKey(row)) || isHistoricalCatalogResidue(row))
   );
   if (removals.length > 0) {
     throw new Error(
@@ -250,10 +259,38 @@ export function planModelCatalogMigration({
     );
   }
 
-  const additions = catalogRows.filter((row) => {
+  // `models.id` is the primary key the upsert conflicts on, so an id the DB
+  // already holds under a DIFFERENT provider or type is not an addition: the
+  // generated `ON CONFLICT (id) DO UPDATE` would overwrite that row's
+  // capabilities and the generated `down` would DELETE a row that predates the
+  // migration. Neither is reversible, so refuse instead of misclassifying.
+  const conflicts = [];
+  const additions = [];
+  for (const row of catalogRows) {
     const existing = snapshot.get(row.id);
-    return !(existing && existing.providerId === row.providerId && existing.type === row.type);
-  });
+    if (!existing) {
+      additions.push(row);
+      continue;
+    }
+    if (existing.providerId === row.providerId && existing.type === row.type) {
+      continue;
+    }
+    conflicts.push({ existing, row });
+  }
+  if (conflicts.length > 0) {
+    throw new Error(
+      'This generator is add-only, and these catalog rows reuse an id the DB model catalog ' +
+        'already holds under a different provider or type. The upsert would overwrite that row ' +
+        'and the generated down migration would delete it, so hand-author a reversible ' +
+        'migration instead:\n' +
+        conflicts
+          .map(
+            ({ existing, row }) =>
+              `  - ${row.id}: the catalog declares ${row.providerId}/${row.type}, the DB model catalog has ${existing.providerId}/${existing.type}`
+          )
+          .join('\n')
+    );
+  }
   if (additions.length === 0) {
     return { additions: [], migration: null };
   }

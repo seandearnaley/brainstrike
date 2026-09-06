@@ -495,6 +495,59 @@ export const migrations = [
     ]);
   });
 
+  it('rejects stale final DB catalog rows whose whole provider left the catalog', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/025-update-provider-models-2026.ts',
+          'migration025UpdateProviderModels2026',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('gpt-next', 'openai', 'GPT Next', '{"type":"llm","streaming":true}'),
+              ('embed-retired', 'cohere', 'Embed Retired', '{"type":"embedding"}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration025UpdateProviderModels2026,
+];
+`,
+      providerCatalog: [{ id: 'openai', models: [{ id: 'gpt-next', type: 'llm' }] }],
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: CATALOG_FILE,
+        message: `Final DB model catalog row cohere::embed-retired is missing from ${CATALOG_FILE}; delete it in a catalog migration or add it to STATIC_CATALOG_STALE_ROW_ALLOWLIST.`,
+      },
+    ]);
+  });
+
+  it('exempts the transformers residue that migration 021 renamed with an UPDATE', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/025-update-provider-models-2026.ts',
+          'migration025UpdateProviderModels2026',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('gpt-next', 'openai', 'GPT Next', '{"type":"llm","streaming":true}'),
+              ('Xenova/bge-small-en-v1.5', 'transformers', 'BGE Small', '{"type":"embedding"}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration025UpdateProviderModels2026,
+];
+`,
+      providerCatalog: [{ id: 'openai', models: [{ id: 'gpt-next', type: 'llm' }] }],
+    });
+
+    assert.deepEqual(result.failures, []);
+  });
+
   it('fails closed when static catalog model fields are malformed', () => {
     const result = analyzeModelCatalogMigrationContract({
       migrationFiles: [

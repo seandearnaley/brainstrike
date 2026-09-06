@@ -24,7 +24,19 @@ const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set(['openai', 'anthropic', 'googl
 // catalog refresh. Earlier migrations are historical input used to reconstruct
 // the catalog snapshot; future deletions from this version onward are enforced.
 const REMOVED_MODEL_REMAP_CONTRACT_START_VERSION = 33;
-const STATIC_CATALOG_STALE_ROW_ALLOWLIST = new Set([]);
+export const STATIC_CATALOG_STALE_ROW_ALLOWLIST = new Set([]);
+// Providers whose final-snapshot rows are RECONSTRUCTION RESIDUE rather than a
+// pending catalog deletion. Migration 021 renamed `transformers` to `local`
+// with `UPDATE models SET provider_id = ...`, and the operation extractor
+// models only INSERT/DELETE, so every pre-021 row survives in the snapshot
+// under a provider id no catalog has declared since.
+//
+// This list is CLOSED. Any OTHER provider vanishing from the catalog is a real
+// deletion that owes a catalog migration plus MODEL_ID_MIGRATIONS /
+// MEMORY_MODEL_TARGET_MIGRATIONS decisions (BST-565); exempting it because its
+// id is simply absent would leave stale DB rows behind while persisted user
+// selections dangle.
+export const RETIRED_PROVIDER_RESIDUE_IDS = new Set(['transformers']);
 
 function extractMigrationExportName(source) {
   return source.match(MIGRATION_EXPORT_PATTERN)?.[1] ?? null;
@@ -184,7 +196,6 @@ export const CATALOG_FILE = 'packages/assistant-contract/src/provider-catalog.js
  */
 export function readProviderCatalogModels(catalog) {
   const failures = [];
-  const providerIds = new Set();
   const rows = [];
   const claimedModelKeys = new Set();
 
@@ -193,7 +204,7 @@ export function readProviderCatalogModels(catalog) {
       file: CATALOG_FILE,
       message: 'The provider catalog must be a JSON array of provider objects.',
     });
-    return { claimedModelKeys, failures, providerIds, rows };
+    return { claimedModelKeys, failures, rows };
   }
 
   for (const provider of catalog) {
@@ -210,7 +221,6 @@ export function readProviderCatalogModels(catalog) {
       });
       continue;
     }
-    providerIds.add(providerId);
 
     if (!Array.isArray(provider.models)) {
       failures.push({
@@ -254,7 +264,7 @@ export function readProviderCatalogModels(catalog) {
     }
   }
 
-  return { claimedModelKeys, failures, providerIds, rows };
+  return { claimedModelKeys, failures, rows };
 }
 
 function isPlainObject(value) {
@@ -515,6 +525,22 @@ function modelKey(row) {
   return `${row.providerId}::${row.id}`;
 }
 
+/**
+ * Is this final-snapshot row historical residue rather than a catalog row
+ * somebody deleted?
+ *
+ * `scripts/gen-model-catalog-migration.mjs` imports this so the checker and the
+ * generator can never disagree about which rows are residue: a row one of them
+ * waves through and the other treats as a pending deletion would either block
+ * generation permanently or hide a removal the checker is meant to catch.
+ */
+export function isHistoricalCatalogResidue(row) {
+  return (
+    RETIRED_PROVIDER_RESIDUE_IDS.has(row.providerId) ||
+    STATIC_CATALOG_STALE_ROW_ALLOWLIST.has(modelKey(row))
+  );
+}
+
 function memoryModelTarget(row) {
   if (row.providerId === 'openrouter') {
     return `openrouter/${row.id}`;
@@ -640,11 +666,10 @@ function findStaticProviderRegistryFailures(input, migrationSummaries) {
 
   for (const row of finalCatalog.values()) {
     const key = modelKey(row);
-    if (
-      !registry.providerIds.has(row.providerId) ||
-      registry.claimedModelKeys.has(key) ||
-      STATIC_CATALOG_STALE_ROW_ALLOWLIST.has(key)
-    ) {
+    // A provider missing from the catalog entirely is NOT a reason to skip:
+    // that is the whole-provider deletion case, and it owes the same migration
+    // and remap decisions as a single removed row.
+    if (registry.claimedModelKeys.has(key) || isHistoricalCatalogResidue(row)) {
       continue;
     }
 

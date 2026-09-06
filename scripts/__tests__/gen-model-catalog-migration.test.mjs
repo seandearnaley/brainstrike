@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { planModelCatalogMigration } from '../gen-model-catalog-migration.mjs';
-import { analyzeModelCatalogMigrationContract } from '../model-catalog-migration-contract.mjs';
+import {
+  analyzeModelCatalogMigrationContract,
+  STATIC_CATALOG_STALE_ROW_ALLOWLIST,
+} from '../model-catalog-migration-contract.mjs';
 
 /**
  * BST-1650: the generator turns the ADD half of the catalog/`models` mirroring
@@ -43,6 +46,22 @@ export const migration025UpdateProviderModels2026: Migration = {
 const SEEDED_OPENAI_ROW = seedMigration(`
   INSERT INTO models (id, provider_id, name, capabilities) VALUES
     ('gpt-seeded', 'openai', 'GPT Seeded', '{"type":"llm","streaming":true,"vision":true}');
+`);
+
+const SEEDED_OPENAI_AND_COHERE_ROWS = seedMigration(`
+  INSERT INTO models (id, provider_id, name, capabilities) VALUES
+    ('gpt-seeded', 'openai', 'GPT Seeded', '{"type":"llm","streaming":true,"vision":true}'),
+    ('embed-retired', 'cohere', 'Embed Retired', '{"type":"embedding","defaultDimension":1024}');
+`);
+
+// Migration 021 renamed the `transformers` provider to `local` with an UPDATE,
+// which the operation extractor does not model, so every `transformers` row
+// survives in the reconstructed snapshot under a provider id no catalog has
+// declared since. That — and only that — is reconstruction residue.
+const SEEDED_TRANSFORMERS_RESIDUE = seedMigration(`
+  INSERT INTO models (id, provider_id, name, capabilities) VALUES
+    ('gpt-seeded', 'openai', 'GPT Seeded', '{"type":"llm","streaming":true,"vision":true}'),
+    ('Xenova/bge-small-en-v1.5', 'transformers', 'BGE Small', '{"type":"embedding","defaultDimension":384}');
 `);
 
 function llmModel(overrides = {}) {
@@ -170,6 +189,86 @@ describe('gen-model-catalog-migration', () => {
           providerCatalog: catalog([llmModel()]),
         }),
       { message: /add-only[\s\S]*openai::gpt-seeded/ }
+    );
+  });
+
+  it('refuses to generate when an ENTIRE provider disappeared from the catalog', () => {
+    assert.throws(
+      () =>
+        planModelCatalogMigration({
+          migrationFiles: [SEEDED_OPENAI_AND_COHERE_ROWS],
+          migrationIndexSource: MIGRATION_INDEX_SOURCE,
+          providerCatalog: catalog([SEEDED_CATALOG_MODEL]),
+        }),
+      { message: /add-only[\s\S]*cohere::embed-retired/ },
+      'dropping a whole provider is a deletion needing remap decisions, not residue'
+    );
+  });
+
+  it('still exempts the transformers residue migration 021 renamed with an UPDATE', () => {
+    const result = plan([], { migrationFiles: [SEEDED_TRANSFORMERS_RESIDUE] });
+
+    assert.equal(result.migration, null);
+  });
+
+  it('honours the contract checker stale-row allowlist instead of refusing to run', () => {
+    const planInput = {
+      migrationFiles: [SEEDED_OPENAI_ROW],
+      migrationIndexSource: MIGRATION_INDEX_SOURCE,
+      providerCatalog: catalog([llmModel()]),
+    };
+    STATIC_CATALOG_STALE_ROW_ALLOWLIST.add('openai::gpt-seeded');
+
+    try {
+      assert.deepEqual(
+        analyzeModelCatalogMigrationContract(planInput).failures.map((failure) => failure.message),
+        ['Static catalog model openai::gpt-new is missing from the final DB model catalog.'],
+        'the allowlist must suppress the stale-row failure for the contract checker'
+      );
+
+      const { migration } = planModelCatalogMigration(planInput);
+
+      assert.match(migration.source, /'gpt-new',/);
+    } finally {
+      STATIC_CATALOG_STALE_ROW_ALLOWLIST.delete('openai::gpt-seeded');
+    }
+  });
+
+  it('refuses a catalog row whose type changed on an id the DB catalog already has', () => {
+    assert.throws(
+      () =>
+        planModelCatalogMigration({
+          migrationFiles: [SEEDED_OPENAI_ROW],
+          migrationIndexSource: MIGRATION_INDEX_SOURCE,
+          providerCatalog: catalog([
+            { defaultDimension: 1536, id: 'gpt-seeded', type: 'embedding' },
+          ]),
+        }),
+      { message: /gpt-seeded[\s\S]*openai\/embedding[\s\S]*openai\/llm/ },
+      'the upsert would overwrite the existing row and the down would delete it'
+    );
+  });
+
+  it('refuses a catalog row whose provider differs from the DB row holding that id', () => {
+    assert.throws(
+      () =>
+        planModelCatalogMigration({
+          migrationFiles: [SEEDED_TRANSFORMERS_RESIDUE],
+          migrationIndexSource: MIGRATION_INDEX_SOURCE,
+          providerCatalog: [
+            { id: 'openai', models: [SEEDED_CATALOG_MODEL] },
+            {
+              id: 'local',
+              models: [
+                { defaultDimension: 384, id: 'Xenova/bge-small-en-v1.5', type: 'embedding' },
+              ],
+            },
+          ],
+        }),
+      {
+        message: /Xenova\/bge-small-en-v1\.5[\s\S]*local\/embedding[\s\S]*transformers\/embedding/,
+      },
+      'a residue-provider row still holds the id, so the down would delete a pre-existing row'
     );
   });
 
