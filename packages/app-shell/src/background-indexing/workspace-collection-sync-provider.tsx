@@ -1595,7 +1595,11 @@ export function WorkspaceCollectionSyncProvider({
         syncLoopGenerationRef.current += 1;
         syncLoopActiveRef.current = false;
         pendingSyncScopeRef.current = null;
-        void service.cancel();
+        // Reported, not fire-and-forget: cancel now asks the host to stop
+        // untracked background-indexing runs (BST-1654) and can reject.
+        void service.cancel().catch((error) => {
+          reportAsyncError('cancel', error);
+        });
         setSyncStatus({
           activeRootPath: rootDirectoryHandle.path,
           currentFilePath: null,

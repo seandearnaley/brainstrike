@@ -270,12 +270,14 @@ export class WorkspaceCollectionSyncService {
 
   /**
    * Deliberate stop — pause, disable, or a restart that must not overlap the
-   * previous pass. Aborts the renderer-side loop AND cancels the host-owned
-   * backfill this service enqueued.
+   * previous pass. Aborts the renderer-side loop, cancels the host-owned
+   * backfill this service enqueued, AND cancels any `background-indexing` run
+   * the host still has in flight that nothing is tracking (BST-1654).
    */
   async cancel(): Promise<void> {
     this.runId += 1;
     await this.resetActiveWork({ cancelTrackedBackfill: true });
+    await this.cancelUntrackedBackgroundBackfills();
   }
 
   /**
@@ -289,6 +291,10 @@ export class WorkspaceCollectionSyncService {
    * Using `cancel()` here is what silently killed a user's backfill on
    * navigation — and, because the owning effect's cleanup also re-runs on
    * service-identity churn, on ordinary dependency changes too.
+   *
+   * Detaching drops tracking, never authority: `cancel()` and the disabled
+   * `sync()` path enumerate the host's in-flight runs, so a pause or disable
+   * arriving on a later instance still stops a run detached from here.
    */
   async detach(): Promise<void> {
     this.runId += 1;
@@ -421,7 +427,7 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
-  private async cancelSupersededBackgroundBackfills(args: {
+  private async cancelHostBackgroundBackfills(args: {
     exceptEmbeddingSetId?: string;
     inFlightBackfills: Array<{
       embeddingSetId: string;
@@ -432,6 +438,25 @@ export class WorkspaceCollectionSyncService {
     for (const embeddingSetId of getSupersededBackgroundBackfillIds(args)) {
       await this.deps.cancelBackfill(embeddingSetId);
     }
+  }
+
+  /**
+   * Cancellation authority must not live in `this.activeBackfill` (BST-1654).
+   * `detach()` deliberately drops local tracking while the host run continues,
+   * so an explicit stop that arrives afterwards — a pause or a disable, usually
+   * on a fresh provider instance that never enqueued anything — has nothing
+   * tracked to kill. Ask the host what is still running instead and cancel
+   * every `source: 'background-indexing'` run it reports; runs owned by anyone
+   * else (manual backfills, request ids without the background prefix) are left
+   * alone. Without this, a user's explicit stop leaves embedding and database
+   * work burning, which is the failure the workspace-indexing contract forbids.
+   *
+   * Rejects rather than degrading: a stop that could not be delivered must
+   * surface at the caller, never look like it worked.
+   */
+  private async cancelUntrackedBackgroundBackfills(): Promise<void> {
+    const inFlightBackfills = await this.deps.getBackfillsInFlight();
+    await this.cancelHostBackgroundBackfills({ inFlightBackfills });
   }
 
   /**
@@ -1059,7 +1084,11 @@ export class WorkspaceCollectionSyncService {
     request: WorkspaceCollectionSyncRequest;
   }): Promise<ResolvedSyncContext | null> {
     if (!args.request.enabled) {
+      // Disabling is an explicit stop, so it cannot return before asking the
+      // host what is in flight (BST-1654): the run this provider instance
+      // detached from is not in `previousTrackedBackfill`.
       await this.cancelTrackedBackfill(args.previousTrackedBackfill);
+      await this.cancelUntrackedBackgroundBackfills();
       this.setDisabledStatus(args.request);
       return null;
     }
@@ -1358,7 +1387,7 @@ export class WorkspaceCollectionSyncService {
       canReusePreviousBackfill,
       previousTrackedBackfill,
     });
-    await this.cancelSupersededBackgroundBackfills({
+    await this.cancelHostBackgroundBackfills({
       inFlightBackfills,
       ...(recoveredBackfill ? { exceptEmbeddingSetId: context.collection.id } : {}),
     });

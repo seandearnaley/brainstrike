@@ -137,6 +137,16 @@ Vector device preference is ONE canonical record (BST-1380):
      killed a user's backfill on navigation. The next `sync()` re-attaches via
      `selectRecoverableBackgroundBackfill`; `useResyncOnReturnToVisibility`
      remains the recovery path for hard teardowns only.
+   - Detaching drops tracking, never cancellation authority. An explicit pause
+     or disable cancels in-flight `background-indexing` runs regardless of which
+     provider instance is mounted, so `cancel()` and the disabled `sync()` path
+     both enumerate `getBackfillsInFlight()` and cancel every run whose request
+     id carries the `background-indexing-backfill:` prefix — a detached run is
+     in no instance's `activeBackfill`, and the instance that sees the stop is
+     usually a fresh one tracking nothing. Runs the prefix does not claim are
+     left alone, and an undeliverable stop rejects instead of reporting success.
+     Never make `detach()` the answer to a deliberate stop: trading the
+     navigation bug for "pause does not stop indexing" is the worse half.
    - A backfill suspends the dimension HNSW index before enqueueing. Every
      interruption after that point, including producer faults and timeouts,
      must either restore the index immediately when the scoped set has drained
