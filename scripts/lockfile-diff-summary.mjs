@@ -37,6 +37,7 @@ const SECTION = /^([A-Za-z_$][\w.-]*):\s*$/;
 const BLOCK = /^ {2}(?:'([^']+)'|([^'\s][^:]*)):$/;
 const EDGE = /^ {6}(?:'([^']+)'|([^'\s][^:]*)): (\S.*)$/;
 const EDGE_SECTION = 'snapshots';
+const DIFF_LINE = /^[ +-]/;
 // Edges are grouped by the transition they make, which is what a reviewer asks
 // about: `undici: 7.28.0 => 7.29.1 (4 edges)` settles a lift in one line where
 // four separate lines only repeat themselves. It also bounds the section by
@@ -70,6 +71,7 @@ export function splitPackageKey(key) {
  */
 export function collectEdges(lines) {
   const edges = [];
+  let unclassified = 0;
   let section = null;
   let parent = null;
   let removed = new Map();
@@ -98,7 +100,7 @@ export function collectEdges(lines) {
       parent = null;
       continue;
     }
-    if (!/^[ +-]/.test(line)) {
+    if (!DIFF_LINE.test(line)) {
       continue;
     }
     const body = line.slice(1);
@@ -117,17 +119,41 @@ export function collectEdges(lines) {
       parent = splitPackageKey(block[1] ?? block[2]);
       continue;
     }
-    if (section !== EDGE_SECTION || line[0] === ' ') {
+    if (line[0] === ' ') {
       continue;
     }
     const edge = EDGE.exec(body);
-    if (edge) {
-      (line[0] === '+' ? added : removed).set(edge[1] ?? edge[2], edge[3]);
+    if (!edge) {
+      continue;
     }
+    // A hunk whose header named no section cannot be classified either way.
+    // Dropping these while still printing a confident total would under-report
+    // in silence, which is the one failure mode worth spending a line on.
+    if (section === null) {
+      unclassified += 1;
+      continue;
+    }
+    if (section !== EDGE_SECTION) {
+      continue;
+    }
+    (line[0] === '+' ? added : removed).set(edge[1] ?? edge[2], edge[3]);
   }
   flush();
-  return edges;
+  return { edges, unclassified };
 }
+
+const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
+
+// Package identifiers are ASCII, and code-unit order is the same everywhere.
+// localeCompare without an explicit locale follows the runtime's ICU data, so a
+// small-icu build would cut the capped list differently — and the parent roll
+// below already sorts by code unit, so the two would disagree.
+const byKey = (a, b) => {
+  if (a === b) {
+    return 0;
+  }
+  return a < b ? -1 : 1;
+};
 
 /**
  * Render repointed edges grouped by the version transition they make. Parents
@@ -135,7 +161,12 @@ export function collectEdges(lines) {
  * silence about a parent is honest, while borrowing one from another block
  * would be confidently wrong.
  */
-function summarizeEdges(edges) {
+function summarizeEdges({ edges, unclassified }) {
+  const skipped = unclassified
+    ? [
+        `  ${plural(unclassified, 'changed dependency line')} in hunks with no section header, not classified`,
+      ]
+    : [];
   const groups = new Map();
   for (const { from, name, parent, to } of edges) {
     const key = `${name}: ${from} => ${to}`;
@@ -147,34 +178,39 @@ function summarizeEdges(edges) {
     }
     groups.set(key, group);
   }
+  // The caveat qualifies edges, so it is only worth its bytes when there are
+  // any. This section is emitted on every summary, and a summary only replaces
+  // hunks it shrinks: standing prose here narrows what gets summarized at all.
+  if (!groups.size) {
+    return ['dependency edges repointed: 0 (snapshots only)', ...skipped];
+  }
   const size = (group) => group.parents.length + group.anonymous;
-  const heading = groups.size
-    ? `dependency edges repointed: ${edges.length} across ${groups.size} transition${groups.size === 1 ? '' : 's'}`
-    : 'dependency edges repointed: 0';
   // Widest transition first: a lift or a dedupe is why this section exists, and
   // it is the one carrying the most edges.
-  const ordered = [...groups].sort((a, b) => size(b[1]) - size(a[1]) || a[0].localeCompare(b[0]));
+  const ordered = [...groups].sort((a, b) => size(b[1]) - size(a[1]) || byKey(a[0], b[0]));
   const lines = ordered.slice(0, TRANSITIONS_LISTED).map(([key, group]) => {
     const named = [...group.parents].sort();
     const tail = [];
     if (named.length > PARENTS_LISTED) {
-      tail.push(`and ${named.length - PARENTS_LISTED} more parents`);
+      tail.push(`and ${plural(named.length - PARENTS_LISTED, 'more parent')}`);
     }
     if (group.anonymous) {
       tail.push(`${group.anonymous} with no parent in this diff`);
     }
-    const total = size(group);
     const owners = [...named.slice(0, PARENTS_LISTED), ...tail].join(', ');
-    return `  ${key} (${total} edge${total === 1 ? '' : 's'}): ${owners}`;
+    return `  ${key} (${plural(size(group), 'edge')}): ${owners}`;
   });
   const rest = ordered.slice(TRANSITIONS_LISTED);
   const overflow = rest.reduce((sum, [, group]) => sum + size(group), 0);
   return [
-    heading,
+    `dependency edges repointed: ${edges.length} across ${plural(groups.size, 'transition')}`,
     '(a parent resolving to a version this diff neither adds nor removes, so the',
     'lists above cannot show it; snapshots only, parents named only where shown)',
     ...lines,
-    ...(rest.length ? [`  and ${rest.length} more transitions covering ${overflow} edges`] : []),
+    ...(rest.length
+      ? [`  and ${plural(rest.length, 'more transition')} covering ${plural(overflow, 'edge')}`]
+      : []),
+    ...skipped,
   ];
 }
 

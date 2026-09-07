@@ -1160,7 +1160,21 @@ lines, because the section is bounded by distinct transitions rather than by
 edge count. Both axes are capped anyway (`TRANSITIONS_LISTED`, `PARENTS_LISTED`)
 since a wide update widens the transition list too, and the cut is by sort
 order, so re-reading a re-pushed PR yields the same list rather than an
-accident of hunk order. Every one of those guards is mutation-verified: each was
+accident of hunk order — compared by code unit rather than `localeCompare`,
+whose collation follows the runtime's ICU data.
+
+Two things this deliberately does not report, both consequences of flushing at
+every hunk boundary. A removal and an addition of the same dependency that land
+in *different* hunks are never paired, so a line that both moved far and changed
+version is missed; pairing across that gap would cost the attribution guarantee,
+which is the worse trade. And a hunk whose header names no section cannot be
+classified at all — that shape is not expected, since `gh pr diff` derives the
+trailer from the nearest column-0 line and this file's line 1 is
+`lockfileVersion:` — but if it occurs, the changed dependency lines are counted
+and stated rather than dropped behind a confident total. With no repointed edges
+the section costs a single line, because it is emitted on every summary and a
+summary only replaces hunks it shrinks: standing prose here would narrow what
+gets summarized at all. Every one of those guards is mutation-verified: each was
 confirmed to fail against a deliberate regression before being trusted.
 
 Every other file passes through byte for byte, and a header the splitter cannot
