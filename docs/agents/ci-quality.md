@@ -1116,6 +1116,35 @@ of any `structured_output` round trip, and a unit test asserts the CLI's stdin
 is a file descriptor whose content is the prompt while no argument carries diff
 text.
 
+**Generated files are summarized, and it is said out loud.** Before anything is
+measured, `scripts/lockfile-diff-summary.mjs` replaces `pnpm-lock.yaml` hunks in
+the captured diff with a derived summary: packages added, removed, and
+version-changed; packages left on more than one version among the entries the
+diff adds; and any introduced `resolution:` that is not an `{integrity: ...}`
+hash, which would mean a tarball, git, or directory source and is currently zero
+in this tree. Measured on #3029, 401 KiB of lockfile becomes 13 KiB, and the
+whole diff 410 KiB becomes 22 KiB. The summary carries more signal than the
+hunks it replaces: it named 22 packages sitting on multiple resolved versions,
+which is the `@codemirror/state` duplicate-resolution class that survived two
+rebases in #3036 and needed a hand-written guard test.
+
+Every other file passes through byte for byte, and a header the splitter cannot
+parse falls through as "not summarized" rather than being summarized against the
+wrong path. Matching is on basename, so `docs/pnpm-lock.yaml.md` is untouched. A
+lockfile change smaller than its own summary keeps its exact hunks. Importer
+`specifier:` changes are not lost, because they mirror each `package.json`,
+whose diffs are complete.
+
+This is the one place the review is shown something other than `gh pr diff`, so
+it is never silent: preparation states the substitution and its byte counts in
+the prompt and tells the model not to claim line-level coverage of the replaced
+hunks, and the trusted reporter repeats it in the published disposition so a
+human reading the review knows what the reviewer was given. The prompt names at
+most `SUBSTITUTIONS_LISTED` files and aggregates the rest: the prompt has no
+size limit any more, but a per-file list would still spend context on paths
+rather than on the summaries. Nothing else is ever substituted, and no partial
+review is published in place of a refused one.
+
 What bounds the diff now is the model's context window alone, at a
 `DIFF_BYTE_CEILING` of 512 KiB. Unlike `MAX_ARG_STRLEN` this is a chosen margin
 rather than a measured cliff: roughly 145k tokens at the ~3.5 bytes/token that
