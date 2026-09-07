@@ -15,6 +15,36 @@ const HEADER = /^diff --git a\/(\S+) b\/(\S+)$/;
 const ENTRY = /^([+-]) {2}(?:'([^']+)'|([^'\s][^:]*)):$/;
 const RESOLUTION = /^\+\s+resolution: \{/;
 const REGISTRY_RESOLUTION = /^\+\s+resolution: \{integrity:/;
+// A repointed edge is a parent whose `dependencies:` now resolves to a
+// different version that already existed in the lockfile. Neither end is an
+// added or removed entry, so the entry lists above are structurally blind to
+// it — which is exactly the shape of a dedupe or a security lift. #3053 lifted
+// undici 7.28.0 -> 7.29.1 that way and the summary could only show unrelated
+// 6.28.1/8.10.2 additions, reading as the subtree leaving the 7.x line.
+//
+// Resolved edges sit at six spaces inside `snapshots:`. The section is what
+// scopes them, not the enclosing `dependencies:` key: with -U3 a block key four
+// lines above a changed edge falls outside the hunk, and #3053's flagship hunk
+// carried neither its key nor its `dependencies:` line. Section is recoverable
+// where those are not, because git's funcname trailer names the nearest
+// column-0 line and a lockfile's are exactly its section markers. Scoping by
+// section is also sufficient: inside `snapshots:` every six-space `name: value`
+// line is a resolved edge, since `transitivePeerDependencies` emits only
+// `- item` list entries. `packages:` peerDependencies sit at the same depth but
+// hold ranges, so they must not be read as resolutions.
+const HUNK = /^@@ [^@]*@@ ?(.*)$/;
+const SECTION = /^([A-Za-z_$][\w.-]*):\s*$/;
+const BLOCK = /^ {2}(?:'([^']+)'|([^'\s][^:]*)):$/;
+const EDGE = /^ {6}(?:'([^']+)'|([^'\s][^:]*)): (\S.*)$/;
+const EDGE_SECTION = 'snapshots';
+// Edges are grouped by the transition they make, which is what a reviewer asks
+// about: `undici: 7.28.0 => 7.29.1 (4 edges)` settles a lift in one line where
+// four separate lines only repeat themselves. It also bounds the section by
+// distinct transitions rather than by edge count, so a dedupe repointing
+// hundreds of edges still costs a flat handful of lines. Both axes are capped
+// anyway, because a wide update can widen the transition list too.
+const TRANSITIONS_LISTED = 12;
+const PARENTS_LISTED = 4;
 
 /**
  * Split `name@version` out of a lockfile key. The peer suffix carries its own
@@ -29,6 +59,123 @@ export function splitPackageKey(key) {
     return null;
   }
   return { name: bare.slice(0, at), version: bare.slice(at + 1) };
+}
+
+/**
+ * Pair removed and added dependency lines within each snapshot block into
+ * repointed edges. Pairing is by dependency name, never by position: a
+ * positional pairing would marry an unrelated removal to an unrelated addition
+ * and report a graph change that did not happen. A name on only one side is an
+ * edge added or dropped outright, which the entry lists already carry.
+ */
+export function collectEdges(lines) {
+  const edges = [];
+  let section = null;
+  let parent = null;
+  let removed = new Map();
+  let added = new Map();
+  // Always called before `parent` is reassigned, so pending lines are paired
+  // against the block that was in scope when they were read. Reversing that
+  // order shifts every attribution by one block, plausibly and silently.
+  const flush = () => {
+    for (const [name, from] of removed) {
+      const to = added.get(name);
+      if (to !== undefined && to !== from) {
+        edges.push({ from, name, parent, to });
+      }
+    }
+    removed = new Map();
+    added = new Map();
+  };
+  for (const line of lines) {
+    const hunk = HUNK.exec(line);
+    if (hunk) {
+      // Hunks are not contiguous, so nothing about the block in scope survives
+      // one. Holding a parent across it would name the wrong package, which is
+      // worse than naming none: it is confidently wrong.
+      flush();
+      section = SECTION.exec(hunk[1])?.[1] ?? null;
+      parent = null;
+      continue;
+    }
+    if (!/^[ +-]/.test(line)) {
+      continue;
+    }
+    const body = line.slice(1);
+    const marker = SECTION.exec(body);
+    if (marker) {
+      flush();
+      section = marker[1];
+      parent = null;
+      continue;
+    }
+    const block = BLOCK.exec(body);
+    if (block) {
+      flush();
+      // splitPackageKey, never a bare lastIndexOf('@'): the peer suffix on
+      // `@codemirror/view@6.1.0(@codemirror/state@6.5.2)` carries its own '@'.
+      parent = splitPackageKey(block[1] ?? block[2]);
+      continue;
+    }
+    if (section !== EDGE_SECTION || line[0] === ' ') {
+      continue;
+    }
+    const edge = EDGE.exec(body);
+    if (edge) {
+      (line[0] === '+' ? added : removed).set(edge[1] ?? edge[2], edge[3]);
+    }
+  }
+  flush();
+  return edges;
+}
+
+/**
+ * Render repointed edges grouped by the version transition they make. Parents
+ * are named where the diff showed a block key and counted where it did not:
+ * silence about a parent is honest, while borrowing one from another block
+ * would be confidently wrong.
+ */
+function summarizeEdges(edges) {
+  const groups = new Map();
+  for (const { from, name, parent, to } of edges) {
+    const key = `${name}: ${from} => ${to}`;
+    const group = groups.get(key) ?? { anonymous: 0, parents: [] };
+    if (parent) {
+      group.parents.push(`${parent.name}@${parent.version}`);
+    } else {
+      group.anonymous += 1;
+    }
+    groups.set(key, group);
+  }
+  const size = (group) => group.parents.length + group.anonymous;
+  const heading = groups.size
+    ? `dependency edges repointed: ${edges.length} across ${groups.size} transition${groups.size === 1 ? '' : 's'}`
+    : 'dependency edges repointed: 0';
+  // Widest transition first: a lift or a dedupe is why this section exists, and
+  // it is the one carrying the most edges.
+  const ordered = [...groups].sort((a, b) => size(b[1]) - size(a[1]) || a[0].localeCompare(b[0]));
+  const lines = ordered.slice(0, TRANSITIONS_LISTED).map(([key, group]) => {
+    const named = [...group.parents].sort();
+    const tail = [];
+    if (named.length > PARENTS_LISTED) {
+      tail.push(`and ${named.length - PARENTS_LISTED} more parents`);
+    }
+    if (group.anonymous) {
+      tail.push(`${group.anonymous} with no parent in this diff`);
+    }
+    const total = size(group);
+    const owners = [...named.slice(0, PARENTS_LISTED), ...tail].join(', ');
+    return `  ${key} (${total} edge${total === 1 ? '' : 's'}): ${owners}`;
+  });
+  const rest = ordered.slice(TRANSITIONS_LISTED);
+  const overflow = rest.reduce((sum, [, group]) => sum + size(group), 0);
+  return [
+    heading,
+    '(a parent resolving to a version this diff neither adds nor removes, so the',
+    'lists above cannot show it; snapshots only, parents named only where shown)',
+    ...lines,
+    ...(rest.length ? [`  and ${rest.length} more transitions covering ${overflow} edges`] : []),
+  ];
 }
 
 function collect(section) {
@@ -59,6 +206,7 @@ function collect(section) {
 
 function summarizeSection(section, path) {
   const { added, foreign, removed } = collect(section);
+  const edges = collectEdges(section);
   const names = [...new Set([...added.keys(), ...removed.keys()])].sort();
   const changes = names.map((name) => {
     const to = [...(added.get(name) ?? [])].sort();
@@ -88,6 +236,8 @@ function summarizeSection(section, path) {
     `packages on more than one version among the entries this diff ADDS: ${duplicates.length}`,
     '(a lower bound: a version this diff leaves untouched does not appear in it)',
     ...duplicates,
+    '',
+    ...summarizeEdges(edges),
     '',
     `non-registry resolutions introduced: ${foreign.length}`,
     ...foreign.map((line) => `  ${line}`),

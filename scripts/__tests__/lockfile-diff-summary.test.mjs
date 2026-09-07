@@ -24,13 +24,39 @@ function entry(sign, name, version) {
   ].join('\n');
 }
 
-function lockfile(body) {
+function lockfileHunks(...hunks) {
   return `diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
 index 3333333..4444444 100644
 --- a/pnpm-lock.yaml
 +++ b/pnpm-lock.yaml
-@@ -1,10 +1,10 @@
-${body}`;
+${hunks.join('\n')}`;
+}
+
+function lockfile(body) {
+  return lockfileHunks(`@@ -1,10 +1,10 @@\n${body}`);
+}
+
+// A hunk as `gh pr diff` emits it. git's funcname trailer names the nearest
+// preceding column-0 line, which in a pnpm lockfile is always the section
+// marker: all ten hunks of #3053 carried `packages:` or `snapshots:`. That
+// trailer is the only thing that identifies the section, because a block key
+// four or more lines above a changed dependency falls outside -U3 context.
+function hunk(trailer, ...body) {
+  return `@@ -1,9 +1,9 @@ ${trailer}:\n${body.join('\n')}`;
+}
+
+// The summary only replaces hunks it shrinks, so a fixture needs bulk before
+// the substitution happens at all. This padding carries no resolved edges: it
+// sits in `packages:`, where six-space lines are peer ranges.
+function padding(count = 40) {
+  return hunk(
+    'packages',
+    Array.from(
+      { length: count },
+      (_, index) =>
+        `${entry('-', `filler-${index}`, '1.0.0')}\n${entry('+', `filler-${index}`, '2.0.0')}`
+    ).join('\n')
+  );
 }
 
 test('a peer suffix does not steal the version, and unversioned keys are ignored', () => {
@@ -49,10 +75,14 @@ test('a peer suffix does not steal the version, and unversioned keys are ignored
 });
 
 test('every non-lockfile byte survives untouched', () => {
+  // Built from `entry`, not from bare keys: the compression comes from the
+  // detail lines each real entry carries, and the summary's fixed prose is a
+  // standing cost that an all-headers fixture leaves no room for.
   const diff = `${code}${lockfile(
-    Array.from({ length: 60 }, (_, index) => `-  pkg-${index}@1.0.0:\n+  pkg-${index}@2.0.0:`).join(
-      '\n'
-    )
+    Array.from(
+      { length: 60 },
+      (_, index) => `${entry('-', `pkg-${index}`, '1.0.0')}\n${entry('+', `pkg-${index}`, '2.0.0')}`
+    ).join('\n')
   )}\n${code.replace('src/app.ts', 'src/other.ts')}`;
   const { diff: out, replacements } = summarizeLockfileDiff(diff);
   assert.equal(replacements.length, 1);
@@ -121,4 +151,275 @@ test('a path merely containing the lockfile name is matched by basename, not sub
 ${Array.from({ length: 40 }, (_, index) => `${entry('-', `dep-${index}`, '1.0.0')}\n${entry('+', `dep-${index}`, '2.0.0')}`).join('\n')}
 `;
   assert.deepEqual(summarizeLockfileDiff(decoy), { diff: decoy, replacements: [] });
+});
+
+test('a repointed edge is reported with the parent the diff shows', () => {
+  // #3053 lifted undici 7.28.0 -> 7.29.1 by repointing edges at an entry that
+  // was already in the lockfile. Neither end is an added or removed entry, so
+  // the lists above this section are structurally blind to it: the reviewer saw
+  // only unrelated 6.28.1/8.10.2 additions and read them as the subtree leaving
+  // the 7.x line, then had to ask for `pnpm why undici` by hand.
+  const { diff: out } = summarizeLockfileDiff(
+    lockfileHunks(
+      hunk(
+        'snapshots',
+        "   '@ai-sdk/provider-utils@5.0.32(zod@4.5.4)':",
+        '     dependencies:',
+        '       eventsource-parser: 3.1.0',
+        '-      undici: 7.28.0',
+        '+      undici: 7.29.1',
+        '       zod: 4.5.4'
+      ),
+      padding()
+    )
+  );
+  assert.match(out, /dependency edges repointed: 1 across 1 transition/);
+  assert.match(out, /undici: 7\.28\.0 => 7\.29\.1 \(1 edge\): @ai-sdk\/provider-utils@5\.0\.32/);
+});
+
+test('an optionalDependencies edge repointing is reported too', () => {
+  // #3053 repointed one under `optionalDependencies:` (electron's undici).
+  // Reporting only `dependencies:` would drop it silently.
+  const { diff: out } = summarizeLockfileDiff(
+    lockfileHunks(
+      hunk(
+        'snapshots',
+        '   electron@40.4.0:',
+        '     optionalDependencies:',
+        '-      undici: 7.28.0',
+        '+      undici: 7.29.1'
+      ),
+      padding()
+    )
+  );
+  assert.match(out, /undici: 7\.28\.0 => 7\.29\.1 \(1 edge\): electron@40\.4\.0/);
+});
+
+test('a hunk boundary does not carry a parent into the next hunk', () => {
+  // Hunks are not contiguous. #3053's flagship hunk contained neither its block
+  // key nor its `dependencies:` line — both sat outside -U3 context. Holding the
+  // previous hunk's parent would attribute the edge to the wrong package, which
+  // is worse than not naming one: it is confidently wrong.
+  const { diff: out } = summarizeLockfileDiff(
+    lockfileHunks(
+      hunk(
+        'snapshots',
+        "   '@actions/http-client@4.0.1':",
+        '     dependencies:',
+        '       tunnel: 0.0.6',
+        '-      undici: 6.28.0',
+        '+      undici: 6.28.1'
+      ),
+      hunk(
+        'snapshots',
+        '       eventsource-parser: 3.1.0',
+        '-      undici: 7.28.0',
+        '+      undici: 7.29.1',
+        '       zod: 4.5.4'
+      ),
+      padding()
+    )
+  );
+  assert.match(out, /dependency edges repointed: 2 across 2 transitions/);
+  assert.match(out, /undici: 6\.28\.0 => 6\.28\.1 \(1 edge\): @actions\/http-client@4\.0\.1/);
+  assert.doesNotMatch(
+    out,
+    /undici: 7\.28\.0 => 7\.29\.1 \(1 edge\): @actions/,
+    'a parent from a previous hunk must never be attributed to this one'
+  );
+  assert.match(out, /undici: 7\.28\.0 => 7\.29\.1 \(1 edge\): 1 with no parent in this diff/);
+});
+
+test('peer ranges outside the snapshots section are not read as resolved edges', () => {
+  // `packages:` entries carry `peerDependencies:` at the same six-space depth,
+  // but those values are ranges, not resolved versions. Reporting one as a
+  // repointed edge would invent a graph change that did not happen.
+  const { diff: out } = summarizeLockfileDiff(
+    lockfileHunks(
+      hunk(
+        'packages',
+        "   '@codemirror/view@6.1.0':",
+        '     peerDependencies:',
+        "-      '@codemirror/state': ^6.0.0",
+        "+      '@codemirror/state': ^6.5.0"
+      ),
+      padding()
+    )
+  );
+  assert.match(out, /dependency edges repointed: 0/);
+  assert.doesNotMatch(out, /\^6\.0\.0 => \^6\.5\.0/);
+});
+
+test('a peer suffix on a parent key does not steal the parent version', () => {
+  // The same false-green class splitPackageKey exists for: a bare
+  // lastIndexOf('@'), or printing the raw key, reads or shows the peer's
+  // version where the parent's belongs.
+  const { diff: out } = summarizeLockfileDiff(
+    lockfileHunks(
+      hunk(
+        'snapshots',
+        "   '@codemirror/view@6.1.0(@codemirror/state@6.5.2)':",
+        '     dependencies:',
+        '-      style-mod: 4.1.0',
+        '+      style-mod: 4.1.2'
+      ),
+      padding()
+    )
+  );
+  assert.match(out, /style-mod: 4\.1\.0 => 4\.1\.2 \(1 edge\): @codemirror\/view@6\.1\.0$/m);
+  assert.doesNotMatch(out, /@codemirror\/state@6\.5\.2/);
+});
+
+test('an edge added or dropped outright is not reported as a repointing', () => {
+  // Pairing by position rather than by name would read an unrelated removal and
+  // addition as one edge moving. A whole added or removed snapshot block is
+  // already visible in the entry lists above.
+  const { diff: out } = summarizeLockfileDiff(
+    lockfileHunks(
+      hunk(
+        'snapshots',
+        "   '@actions/http-client@4.0.1':",
+        '     dependencies:',
+        '-      tunnel: 0.0.6',
+        '+      undici: 6.28.1'
+      ),
+      padding()
+    )
+  );
+  assert.match(out, /dependency edges repointed: 0/);
+  assert.doesNotMatch(out, /tunnel: 0\.0\.6 => 6\.28\.1/);
+});
+
+test('a transition names its parents up to a cap and counts the rest', () => {
+  // One transition can carry hundreds of edges in a dedupe. The transition line
+  // is what the reviewer needs; the parent roll is detail, so it is the part
+  // that gets capped.
+  const { diff: out } = summarizeLockfileDiff(
+    lockfileHunks(
+      ...Array.from({ length: 30 }, (_, index) =>
+        hunk(
+          'snapshots',
+          `   parent-${String(index).padStart(2, '0')}@1.0.0:`,
+          '     dependencies:',
+          '-      shared-dep: 1.0.0',
+          '+      shared-dep: 2.0.0'
+        )
+      ),
+      padding()
+    )
+  );
+  assert.match(out, /dependency edges repointed: 30 across 1 transition/);
+  assert.match(
+    out,
+    /shared-dep: 1\.0\.0 => 2\.0\.0 \(30 edges\): parent-00@1\.0\.0, parent-01@1\.0\.0, parent-02@1\.0\.0, parent-03@1\.0\.0, and 26 more parents$/m
+  );
+});
+
+test('the transition list itself is capped and the remainder counted', () => {
+  // Grouping bounds the section by distinct transitions rather than by edges,
+  // but a wide `pnpm update` can still produce many. An unbounded list would
+  // spend on repetition the context this script exists to save.
+  // Emitted in reverse so insertion order and sorted order disagree: which
+  // transitions survive the cap must be a decision, not an accident of the
+  // order the hunks happened to arrive in. A reviewer re-reading a re-pushed
+  // PR should see the same list.
+  const { diff: out } = summarizeLockfileDiff(
+    lockfileHunks(
+      ...Array.from({ length: 20 }, (_, offset) => {
+        const index = String(19 - offset).padStart(2, '0');
+        return hunk(
+          'snapshots',
+          `   parent-${index}@1.0.0:`,
+          '     dependencies:',
+          `-      dep-${index}: 1.0.0`,
+          `+      dep-${index}: 2.0.0`
+        );
+      }),
+      padding()
+    )
+  );
+  assert.match(out, /dependency edges repointed: 20 across 20 transitions/);
+  const listed = out.split('\n').filter((line) => /[=]> 2\.0\.0 \(1 edge\)/.test(line));
+  assert.equal(listed.length, 12, 'the transition list must stop at the cap');
+  assert.match(out, /dep-00: 1\.0\.0 => 2\.0\.0/);
+  assert.match(out, /dep-11: 1\.0\.0 => 2\.0\.0/);
+  assert.doesNotMatch(out, /dep-12: 1\.0\.0 => 2\.0\.0/, 'the cap must cut by sort order');
+  assert.match(out, /and 8 more transitions covering 8 edges/);
+});
+
+test('a reordered dependency line is not reported as a repointing', () => {
+  // A line that moves within a block is emitted as a removal and an addition of
+  // the same text. Both sides carry the same version, so nothing was repointed.
+  const { diff: out } = summarizeLockfileDiff(
+    lockfileHunks(
+      hunk(
+        'snapshots',
+        "   '@actions/http-client@4.0.1':",
+        '     dependencies:',
+        '-      undici: 6.28.0',
+        '       tunnel: 0.0.6',
+        '+      undici: 6.28.0'
+      ),
+      padding()
+    )
+  );
+  assert.match(out, /dependency edges repointed: 0/);
+  assert.doesNotMatch(out, /undici: 6\.28\.0 => 6\.28\.0/);
+});
+
+test('an edge is still reported when the hunk shows neither its key nor dependencies:', () => {
+  // The exact shape of #3053's flagship hunk (@@ -14848,7 +14852,7 @@ snapshots:):
+  // the block key sat six lines above the changed dependency and `dependencies:`
+  // five, so -U3 context carried neither. Scoping edges by the enclosing
+  // `dependencies:` key rather than by the section drops this edge entirely —
+  // the one edge the whole section exists to surface.
+  const { diff: out } = summarizeLockfileDiff(
+    lockfileHunks(
+      hunk(
+        'snapshots',
+        '       eventsource-parser: 3.1.0',
+        '-      undici: 7.28.0',
+        '+      undici: 7.29.1',
+        '       zod: 4.5.4'
+      ),
+      padding()
+    )
+  );
+  assert.match(out, /dependency edges repointed: 1 across 1 transition/);
+  assert.match(out, /undici: 7\.28\.0 => 7\.29\.1 \(1 edge\): 1 with no parent in this diff/);
+});
+
+test('two blocks in one hunk each keep their own parent', () => {
+  // #3053's first snapshots hunk spanned three blocks. Pairing pending lines
+  // against the parent that replaced them, rather than the one in scope when
+  // they were read, shifts every attribution by one block — and a fixture with
+  // a single block per hunk cannot tell the difference.
+  const { diff: out } = summarizeLockfileDiff(
+    lockfileHunks(
+      hunk(
+        'snapshots',
+        "   '@actions/http-client@3.0.2':",
+        '     dependencies:',
+        '       tunnel: 0.0.6',
+        '-      undici: 6.28.0',
+        '+      undici: 6.28.1',
+        ' ',
+        '   vercel@50.1.0:',
+        '     dependencies:',
+        '       tar-stream: 3.1.7',
+        '-      undici: 7.28.0',
+        '+      undici: 7.29.1'
+      ),
+      padding()
+    )
+  );
+  assert.match(out, /dependency edges repointed: 2 across 2 transitions/);
+  assert.match(out, /undici: 6\.28\.0 => 6\.28\.1 \(1 edge\): @actions\/http-client@3\.0\.2/);
+  assert.match(out, /undici: 7\.28\.0 => 7\.29\.1 \(1 edge\): vercel@50\.1\.0/);
+  assert.doesNotMatch(
+    out,
+    /undici: 6\.28\.0 => 6\.28\.1 \(1 edge\): vercel/,
+    'attribution must not shift forward'
+  );
+  assert.doesNotMatch(out, /undici: 7\.28\.0 => 7\.29\.1 \(1 edge\): @actions/);
 });
