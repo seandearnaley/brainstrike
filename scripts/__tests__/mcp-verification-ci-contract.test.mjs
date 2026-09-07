@@ -299,6 +299,9 @@ test('living contracts publish the exact local and CI commands', () => {
   // our own descendants is the post-reap race, so it must neither fail the
   // invocation nor be read as success.
   assert.match(conformanceContract, /`ESRCH` is the only proof the group is gone/u);
+  // The ruling is portable; the kernel mechanism behind it is not. Recording
+  // only the Darwin half would mislead the next reader into pinning EPERM.
+  assert.match(conformanceContract, /The ruling ports but its mechanism does not/u);
 });
 
 test('living contracts link official conformance evidence and require dispatch URLs in PRs', () => {

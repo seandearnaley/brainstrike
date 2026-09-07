@@ -29,6 +29,7 @@ export const OFFICIAL_AUTH_SCENARIOS = OFFICIAL_AUTH_BASELINE_SCENARIOS;
 export const OFFICIAL_MODERN_AUTH_SCENARIOS = OFFICIAL_AUTH_MODERN_CLOSEOUT_SCENARIOS;
 export const OFFICIAL_ALPHA10_AUTH_SCENARIOS_BY_PROTOCOL = OFFICIAL_AUTH_SCENARIOS_BY_PROTOCOL;
 const WINDOWS_JOB_CLEANUP_TIMEOUT_MS = 2000;
+const POSIX_GROUP_TEARDOWN_CONFIRMATION_MS = 2000;
 const WINDOWS_JOB_POLL_INTERVAL_MS = 10;
 export const OFFICIAL_DIAGNOSTIC_MAX_LINES = 40;
 const OFFICIAL_DIAGNOSTIC_MAX_LINE_CHARS = 512;
@@ -475,16 +476,20 @@ function createCleanupFailure(invocationId, failure, cleanupCause) {
 /**
  * Signal a whole POSIX process group and classify the kernel's answer.
  *
- * `ESRCH` is the only proof the group is gone. `EPERM` is NOT a denial: every
- * member is our own descendant running as us, so a genuine permission failure
- * is impossible here. It reports the post-reap race instead — a group whose
- * remaining members are all killed-but-unreaped zombies still exists, but the
- * kernel finds nothing to route a group signal through and POSIX-mode `kill(2)`
- * answers EPERM rather than ESRCH. That state is transient (measured: ESRCH
+ * `ESRCH` is the only proof the group is gone. `EPERM` is normally NOT a
+ * denial: it reports the post-reap race, in which the group's remaining
+ * members are all killed-but-unreaped zombies. Kernels disagree on how that
+ * window looks, so the RULING ports but the mechanism does not — Darwin's
+ * `killpg1()` drops zombies from its signalable count and answers EPERM, while
+ * Linux keeps them in the group until `release_task()` and simply succeeds.
+ * Either way the group is not gone. The state is transient (measured: ESRCH
  * follows within ~10ms) and is exactly what the confirmation loop is for, so
  * 'unsignalable' polls on like 'alive' rather than short-circuiting either way.
  * Returning early on it would be unsound in the other direction, because a
- * process group outlives its leader. Same ruling as
+ * process group outlives its leader. A genuinely permanent EPERM — a
+ * descendant that changed credentials, or a reused pid owned by someone else —
+ * therefore surfaces as the bounded confirmation failure below, which names
+ * the state it gave up on. Same ruling as
  * `packages/agent/src/fence/fence-executor.ts`.
  */
 function signalPosixProcessGroup(pid, signal) {
@@ -503,20 +508,27 @@ function signalPosixProcessGroup(pid, signal) {
 }
 
 export async function killPosixProcessGroup(pid, signal) {
-  if (signalPosixProcessGroup(pid, signal) === 'gone') {
+  let state = signalPosixProcessGroup(pid, signal);
+  if (state === 'gone') {
     return;
   }
   if (signal !== 'SIGKILL') {
     return;
   }
-  const deadline = Date.now() + 2000;
+  const deadline = Date.now() + POSIX_GROUP_TEARDOWN_CONFIRMATION_MS;
   while (Date.now() < deadline) {
-    if (signalPosixProcessGroup(pid, 0) === 'gone') {
+    state = signalPosixProcessGroup(pid, 0);
+    if (state === 'gone') {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error('Official MCP conformance process-group teardown could not be confirmed');
+  // Name the state we gave up on: a group still 'unsignalable' at the deadline
+  // is a real permission failure, not the post-reap race, and the two need to
+  // be distinguishable in CI logs.
+  throw new Error(
+    `Official MCP conformance process-group teardown could not be confirmed; the group was still ${state} after ${POSIX_GROUP_TEARDOWN_CONFIRMATION_MS}ms`
+  );
 }
 
 export function runOfficialClientInvocation(
