@@ -19,6 +19,7 @@ function fixture(
     baseRef = 'main',
     baseRepo = 'owner/repo',
     diffBytes = 0,
+    lockfilePackages = 0,
     focus = 'Verify the workflow trust boundary',
   } = {}
 ) {
@@ -66,6 +67,22 @@ function fixture(
     calls.push(args);
     if (args[0] === 'pr' && args[1] === 'diff') {
       const small = 'diff --git a/test.txt b/test.txt\n+sample\n';
+      if (lockfilePackages > 0) {
+        const entries = Array.from({ length: lockfilePackages }, (_, index) =>
+          ['-', '+']
+            .map((sign, bump) =>
+              [
+                `${sign}  dep-${index}@${bump + 1}.0.0:`,
+                `${sign}    resolution: {integrity: sha512-dep${index}v${bump}==}`,
+                `${sign}    engines: {node: '>=18'}`,
+                `${sign}    peerDependencies:`,
+                `${sign}      react: ^19.0.0`,
+              ].join('\n')
+            )
+            .join('\n')
+        ).join('\n');
+        return `${small}diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml\n@@ -1,4 +1,4 @@\n${entries}\n`;
+      }
       return diffBytes > 0 ? `${small}+${'x'.repeat(diffBytes)}\n` : small;
     }
     if (args[0] === 'pr' && args[1] === 'comment') {
@@ -419,4 +436,57 @@ test('publication failure cannot become completed coverage and does not blindly 
 test('optional CLI probe is import-safe and does not require Claude in default tests', async () => {
   const probe = await import('../probe-claude-review-tools.mjs');
   assert.equal(typeof probe.main, 'function');
+});
+
+test('generated lockfile hunks are summarized, and the substitution is stated to the model', (t) => {
+  const f = fixture(t, { lockfilePackages: 900 });
+  assert.equal(prepareReview(f), 0);
+  const captured = f.capturedDiff();
+  // The hand-written file survives byte for byte; the generated one does not.
+  assert.ok(captured.includes('diff --git a/test.txt b/test.txt\n+sample\n'));
+  assert.ok(!captured.includes('peerDependencies'), 'lockfile hunks must not survive');
+  assert.match(captured, /dep-899: 1\.0\.0 -> 2\.0\.0/);
+  // Stated, not silent: the prompt tells the model what it is holding.
+  const outputs = readFileSync(f.env.GITHUB_OUTPUT, 'utf8');
+  assert.match(outputs, /GENERATED-FILE SUBSTITUTION: pnpm-lock\.yaml/);
+  assert.match(outputs, /do not claim line-level coverage of the replaced hunks/);
+});
+
+test('a dependency PR that the old budget refused now fits and is reviewed', (t) => {
+  // 900 packages is ~190 KiB of lockfile hunks: over the retired 100 KiB prompt
+  // budget, and still worth shrinking well under the context-window ceiling.
+  const f = fixture(t, { lockfilePackages: 900 });
+  assert.equal(prepareReview(f), 0);
+  assert.match(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'), /eligible<<[^\n]+\ntrue\n/);
+  const request = JSON.parse(
+    readFileSync(path.join(f.env.RUNNER_TEMP, 'claude-review-request.json'), 'utf8')
+  );
+  const [replaced] = request.substitutions;
+  assert.equal(replaced.path, 'pnpm-lock.yaml');
+  assert.ok(
+    replaced.originalBytes > 100 * 1024,
+    `only ${replaced.originalBytes} bytes of lockfile`
+  );
+  assert.ok(
+    replaced.summaryBytes * 4 < replaced.originalBytes,
+    'summary must be a large reduction'
+  );
+});
+
+test('the published disposition tells a human what the reviewer was actually given', (t) => {
+  const f = fixture(t, { lockfilePackages: 900 });
+  assert.equal(prepareReview(f), 0);
+  assert.equal(reportReview(f), 0);
+  assert.match(f.summary(), /Claude review completed/);
+  assert.match(f.summary(), /Reviewed diff note:/);
+  assert.match(f.summary(), /`pnpm-lock\.yaml` hunks \(\d+ bytes\) were replaced/);
+  assert.match(f.summary(), /Every other file was supplied in full/);
+});
+
+test('a PR with no generated files says nothing about substitution', (t) => {
+  const f = fixture(t);
+  assert.equal(prepareReview(f), 0);
+  assert.equal(reportReview(f), 0);
+  assert.doesNotMatch(f.summary(), /Reviewed diff note/);
+  assert.doesNotMatch(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'), /GENERATED-FILE SUBSTITUTION/);
 });

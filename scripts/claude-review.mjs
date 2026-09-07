@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { summarizeLockfileDiff } from './lockfile-diff-summary.mjs';
 
 // Read is the model's only capability and --tools is the hard cap: it fixes the
 // built-in set from the CLI and ignores user, project, and local settings, so no
@@ -201,23 +202,32 @@ export function prepareReview({
       required: ['head_sha', 'base_sha', 'scope', 'completed', 'review'],
       type: 'object',
     };
-    const diffBytes = Buffer.byteLength(diff, 'utf8');
+    // Generated lockfile hunks are replaced by a derived summary before anything
+    // is measured, so the ceiling applies to reviewable content rather than to
+    // pnpm's bookkeeping. The substitution is recorded on the request and stated
+    // in both the prompt and the published disposition; it is never silent.
+    const { diff: reviewDiff, replacements } = summarizeLockfileDiff(diff);
+    request.substitutions = replacements;
+    const diffBytes = Buffer.byteLength(reviewDiff, 'utf8');
     if (diffBytes > DIFF_BYTE_CEILING) {
       request.disposition = 'incomplete';
       request.reason = `The captured diff is too large to review in one pass: ${Math.ceil(diffBytes / 1024)} KiB against a ${DIFF_BYTE_CEILING / 1024} KiB ceiling, which the model's context window sets. Split this PR into reviewable layers; no narrower diff is substituted and no partial review is published.`;
       return 0;
     }
-    const diffLines = diff.split('\n').length;
+    const diffLines = reviewDiff.split('\n').length;
     const diffFile = capturedDiffPath(env);
     mkdirSync(captureDir(env), { recursive: true });
-    writeFileSync(diffFile, diff);
+    writeFileSync(diffFile, reviewDiff);
+    const substitution = replacements.length
+      ? `\nGENERATED-FILE SUBSTITUTION: ${replacements.map((entry) => `${entry.path} — ${entry.originalBytes} bytes of hunks replaced by a ${entry.summaryBytes}-byte derived summary`).join('; ')}. Each summary appears inline where that file appears. Review it as supplied, and do not claim line-level coverage of the replaced hunks. Every other file is complete.\n`
+      : '';
     const prompt = `REPO: ${request.repository}
 PR NUMBER: ${request.number}
 REQUESTED HEAD: ${request.head}
 BASE: ${request.base}
 SCOPE: ${request.scope}
 FOCUS: ${request.focus}
-
+${substitution}
 The exact pull request diff is on disk at ${diffFile} — ${diffBytes} bytes, ${diffLines} lines. Trusted orchestration captured it with gh pr diff and checked the live head and base before and after capture, so it is the snapshot named above and the only material you may review.
 
 Read that file with the Read tool, which is the only tool you have. Read it in full before reporting: if a read returns truncated or partial content, continue from the next offset until you have all ${diffLines} lines. Never review a prefix. If you cannot obtain the whole file, set completed=false and say why.
@@ -296,7 +306,10 @@ export function reportReview({ env = process.env, gh = ghCommand } = {}) {
     disposition === 'skipped'
       ? `\n\nTrusted targeted invocation (after this workflow is present on the default branch):\n\n\`${dispatchCommand(request)}\`\n\nObserve the review-round budget; never close/reopen the PR or restart Test to request review.`
       : '';
-  let body = `## ${title}\n\nRequested head: \`${request.head}\`\n\nBase: \`${request.base}\`\n\nScope: ${request.scope}\n\n${reason}${invocation}\n\nWorkflow: ${request.runUrl}\n`;
+  const substitution = request.substitutions?.length
+    ? `\n\nReviewed diff note: ${request.substitutions.map((entry) => `\`${entry.path}\` hunks (${entry.originalBytes} bytes) were replaced by a ${entry.summaryBytes}-byte derived summary of package, duplicate-version, and non-registry-resolution changes. Every other file was supplied in full.`).join(' ')}`
+    : '';
+  let body = `## ${title}\n\nRequested head: \`${request.head}\`\n\nBase: \`${request.base}\`\n\nScope: ${request.scope}\n\n${reason}${substitution}${invocation}\n\nWorkflow: ${request.runUrl}\n`;
   // Invalid request identity must fail visibly, without posting on an unrelated PR.
   if (
     /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(request.repository) &&
