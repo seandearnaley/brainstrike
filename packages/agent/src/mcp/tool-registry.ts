@@ -3,6 +3,22 @@ import type { ToolsInput } from '@mastra/core/agent';
 
 const logger = createLogger('ToolRegistry');
 
+/**
+ * What `register` reads from a discovered tool: its model-facing metadata,
+ * nothing executable. Executable Mastra/AI SDK tools satisfy it structurally,
+ * and so do the desktop's persisted discovery records, which carry no
+ * executor at all. (Typing this as Mastra's `ToolsInput` was only ever true
+ * by accident: through 1.59 the provider-defined member had an open index
+ * signature; 1.64 requires an `id` there.)
+ */
+export interface McpRegistrableTool {
+  readonly description?: string | undefined;
+  readonly inputSchema?: unknown;
+}
+
+/** Discovery metadata records or live Mastra/AI SDK tool definitions. */
+export type McpRegistrableTools = Readonly<Record<string, McpRegistrableTool | ToolsInput[string]>>;
+
 export interface McpToolMetadata {
   description?: string;
   discoveredAt: number;
@@ -113,7 +129,7 @@ export class ToolRegistry {
   /**
    * Register tools from an MCP server
    */
-  register(serverName: string, tools: ToolsInput, filterConfig?: ToolFilterConfig): void {
+  register(serverName: string, tools: McpRegistrableTools, filterConfig?: ToolFilterConfig): void {
     const toolIds = new Set<string>();
     const discoveredAt = Date.now();
 
@@ -300,18 +316,15 @@ export class ToolRegistry {
     };
   }
 
-  private extractDescription(tool: unknown): string | undefined {
-    if (tool && typeof tool === 'object' && 'description' in tool) {
+  private extractDescription(tool: McpRegistrableTools[string]): string | undefined {
+    if ('description' in tool && tool.description !== undefined) {
       return String(tool.description);
     }
     return;
   }
 
-  private extractInputSchema(tool: unknown): unknown {
-    if (tool && typeof tool === 'object' && 'inputSchema' in tool) {
-      return tool.inputSchema;
-    }
-    return;
+  private extractInputSchema(tool: McpRegistrableTools[string]): unknown {
+    return 'inputSchema' in tool ? tool.inputSchema : undefined;
   }
 
   private isToolEnabledByDefault(toolId: string, filterConfig?: ToolFilterConfig): boolean {
