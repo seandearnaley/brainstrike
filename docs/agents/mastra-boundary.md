@@ -318,7 +318,7 @@ Scale of the current gap, re-measured against the 1.64.0
 
 Members are the `type:` literals of each union; Handled counts the
 `'mapped'` entries of `MASTRA_STATIC_CHUNK_DISPOSITIONS` among them. By that
-same method the installed 1.59.0 dist measures 44 / 18 (the earlier 43 / 17
+same method the previously installed 1.59.0 dist measures 44 / 18 (the earlier 43 / 17
 predates 1.59 and its line references no longer resolved). 1.64 therefore
 adds exactly two `AgentChunkType` members, `custom` and `reasoning-file`, and
 changes nothing handled: the compile-time guard caught both, as designed, and

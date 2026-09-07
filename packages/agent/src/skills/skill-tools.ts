@@ -28,21 +28,19 @@ export { SKILL_ACTIVATION_RESULT_TOKEN_BUDGET };
 export const SKILL_TOOL_IDS = ['skill', 'skill_read', 'skill_search'] as const;
 
 /**
- * Appended to every skill activation result. Names `brainstrike.runSkillScript`
- * by exact id — which is a DEFERRED tool on hosted discovery runs — so it must
+ * Appended to every skill activation result. Names the skill-script runner by
+ * its MODEL-FACING id (`brainstrike_runSkillScript`, never the dotted canonical
+ * id: `sanitizeTools` rewrites `id` too, and `load_tool` matches exactly —
+ * review of #3049). Natives are sanitized before any MCP tool joins the map,
+ * so the sanitizer's base form IS the registered name; a hash suffix only ever
+ * lands on a later colliding registrant.
+ *
+ * The runner is a DEFERRED tool on hosted discovery runs, so the guidance must
  * carry its own recovery path: without the load_tool clause, a model that
  * checks its visible tools concludes the tool does not exist and works around
  * via executeCommand, bypassing the typed skill-script policy layer (field
  * failure 2026-08-23). On non-discovery runs the tool is eager and the clause
  * is inert.
- */
-/**
- * The MODEL-FACING names (review of #3049): the runtime registers native tools
- * under their sanitized ids (`brainstrike_runSkillScript`, never the dotted
- * canonical id — `sanitizeTools` rewrites `id` too), and `load_tool` matches
- * exactly. Natives are sanitized before any MCP tool joins the map, so the
- * sanitizer's base form IS the registered name; a hash suffix only ever lands
- * on a later colliding registrant.
  */
 const RUN_SKILL_SCRIPT_MODEL_NAME = sanitizeToolName(
   NATIVE_TOOL_REGISTRIES.nativeToolId.runSkillScript

@@ -196,8 +196,10 @@ function describeSearchMatches(matchedToolNames: readonly string[], catalogSize:
  * passes through verbatim: there is nothing to call.
  */
 const LOAD_TOOL_NEXT_TURN_PATTERN = /\b(?:will be )?available on your next turns?\b/g;
+// Kept clause-shaped (no colon) so it also reads inside Mastra's batch
+// sentence: "Loaded: a — <clause> | Not found: c".
 const LOAD_TOOL_SAME_RESPONSE_CLAUSE =
-  'callable on your next step in this same response: keep going and call it right away; do not end your reply to wait for loading';
+  'callable on your next step in this same response (keep going and call it now; do not end your reply to wait for loading)';
 
 function describeLoadResult(message: string): string {
   return message.replace(LOAD_TOOL_NEXT_TURN_PATTERN, LOAD_TOOL_SAME_RESPONSE_CLAUSE);
