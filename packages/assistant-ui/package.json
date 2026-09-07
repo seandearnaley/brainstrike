@@ -48,6 +48,14 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./assistant-link-capabilities": {
+      "types": "./dist/assistant-link-capabilities.d.ts",
+      "import": "./dist/assistant-link-capabilities.js"
+    },
+    "./assistant-link-capabilities-provider": {
+      "types": "./dist/assistant-link-capabilities-provider.d.ts",
+      "import": "./dist/assistant-link-capabilities-provider.js"
+    },
     "./context-usage-store": {
       "types": "./dist/context-usage-store.d.ts",
       "import": "./dist/context-usage-store.js"

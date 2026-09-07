@@ -1,4 +1,10 @@
 export { TooltipIconButton, type TooltipIconButtonProps } from '@brainstrike/ui';
+export {
+  type AssistantLinkCapabilities,
+  type AssistantLinkOpenResult,
+  useAssistantLinkCapabilities,
+} from './assistant-link-capabilities';
+export { AssistantLinkCapabilitiesProvider } from './assistant-link-capabilities-provider';
 export * from './assistant-run-event-derivation';
 export * from './assistant-run-timeline';
 export * from './assistant-ui-panel';
