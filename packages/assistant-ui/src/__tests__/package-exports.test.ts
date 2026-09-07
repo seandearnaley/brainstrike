@@ -29,6 +29,10 @@ describe('@brainstrike/assistant-ui package contract', () => {
     expect(Object.keys(manifest.exports).sort()).toEqual(
       [
         '.',
+        // Leaf module: app-shell imports the link context from HERE, not the
+        // root barrel, so providing it cannot drag the lazy panel graph
+        // (assistant-ui-panel, react-markdown, Shiki) into the eager chunk.
+        './assistant-link-capabilities-provider',
         './context-usage-store',
         './follow-up-queue-store',
         './mcp-task-bridge-context',

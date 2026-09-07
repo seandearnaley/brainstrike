@@ -10,11 +10,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  type AssistantLinkCapabilities,
-  AssistantLinkCapabilitiesProvider,
-} from '../assistant-link-capabilities';
+import type { AssistantLinkCapabilities } from '../assistant-link-capabilities';
+import { AssistantLinkCapabilitiesProvider } from '../assistant-link-capabilities-provider';
 import { AssistantMessageText } from '../assistant-message-text';
+import { MarkdownLink } from '../markdown-link';
 
 vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
 
@@ -79,8 +78,9 @@ function stubCapabilities(): {
   return { capabilities: { openLink }, openLink };
 }
 
-// The markdown renderer behind AssistantMessageText is lazy-loaded; the dynamic
-// import can outrun findBy*'s 1s default on a loaded CI runner.
+// The markdown renderer behind AssistantMessageText is lazy-loaded; on a loaded
+// CI runner that dynamic import can take longer than findBy*'s 1s default. This
+// is a CEILING, not a cost: findBy* resolves the moment the element appears.
 const FIND_TIMEOUT_MS = 10_000;
 const TEST_TIMEOUT_MS = 15_000;
 
@@ -205,4 +205,81 @@ describe('assistant markdown links', () => {
     },
     TEST_TIMEOUT_MS
   );
+  it(
+    'lets a same-document fragment link scroll instead of routing it',
+    async () => {
+      const { capabilities, openLink } = stubCapabilities();
+      // remarkGfm footnotes render as <a href="#user-content-fn-1">, and
+      // Electron's `will-navigate` explicitly does NOT fire for in-page
+      // navigation ("Use did-navigate-in-page for this purpose"), so these
+      // links were never fenced. Hijacking them would BREAK working behavior.
+      renderAssistantMarkdown('Jump to [the section](#details).', capabilities);
+
+      const link = await screen.findByRole(
+        'link',
+        { name: 'the section' },
+        { timeout: FIND_TIMEOUT_MS }
+      );
+      await userEvent.click(link);
+
+      expect(openLink).not.toHaveBeenCalled();
+      expect(observed?.defaultPrevented).toBe(false);
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  it(
+    'routes a middle-click, which fires auxclick rather than click',
+    async () => {
+      const { capabilities, openLink } = stubCapabilities();
+      renderAssistantMarkdown('See [the docs](https://example.com/docs) for more.', capabilities);
+
+      const link = await screen.findByRole(
+        'link',
+        { name: 'the docs' },
+        { timeout: FIND_TIMEOUT_MS }
+      );
+      await userEvent.pointer({ keys: '[MouseMiddle]', target: link });
+
+      await waitFor(() => {
+        expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/docs');
+      });
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  it('leaves right-click alone so the context menu and "Copy link address" work', async () => {
+    const { capabilities, openLink } = stubCapabilities();
+    render(
+      <AssistantLinkCapabilitiesProvider capabilities={capabilities}>
+        <MarkdownLink href="https://example.com/docs">the docs</MarkdownLink>
+      </AssistantLinkCapabilitiesProvider>
+    );
+
+    // auxclick fires for the secondary button too; opening the link on a
+    // right-click would be worse than the bug being fixed.
+    await userEvent.pointer({ keys: '[MouseRight]', target: screen.getByRole('link') });
+
+    expect(openLink).not.toHaveBeenCalled();
+  });
+
+  it('cannot have its preventDefault invariant overridden by an upstream onClick', async () => {
+    const { capabilities, openLink } = stubCapabilities();
+    const upstream = vi.fn();
+    render(
+      <AssistantLinkCapabilitiesProvider capabilities={capabilities}>
+        {/* biome-ignore lint/a11y/useValidAnchor: exercising a hostile prop */}
+        <MarkdownLink href="https://example.com/docs" onClick={upstream}>
+          the docs
+        </MarkdownLink>
+      </AssistantLinkCapabilitiesProvider>
+    );
+
+    await userEvent.click(screen.getByRole('link'));
+
+    await waitFor(() => {
+      expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/docs');
+    });
+    expect(observed?.defaultPrevented).toBe(true);
+  });
 });

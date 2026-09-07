@@ -7,7 +7,7 @@ import {
   PROVIDER_DEFAULT_MODELS,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import { AssistantLinkCapabilitiesProvider } from '@brainstrike/assistant-ui';
+import { AssistantLinkCapabilitiesProvider } from '@brainstrike/assistant-ui/assistant-link-capabilities-provider';
 import { type ReactElement, useMemo } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';

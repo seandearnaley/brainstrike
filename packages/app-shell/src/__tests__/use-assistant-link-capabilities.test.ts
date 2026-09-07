@@ -43,7 +43,11 @@ describe('useAssistantLinkCapabilitiesValue', () => {
   });
 
   it('opens an http link with window.open on web', async () => {
-    const open = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    setPlatform(undefined);
+    // Per HTML spec step 18, `window.open` with `noopener` + `_blank` returns
+    // null even when the window opened. The return value therefore carries no
+    // success/failure information and must NOT be read as one.
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
 
     const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
 
@@ -77,14 +81,44 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     expect(toastMock).toHaveBeenCalledTimes(1);
   });
 
-  it('toasts when a popup blocker swallows the web link', async () => {
-    vi.spyOn(window, 'open').mockReturnValue(null);
+  it('surfaces a window.open throw rather than reporting success', async () => {
+    setPlatform(undefined);
+    vi.spyOn(window, 'open').mockImplementation(() => {
+      throw new Error('blocked');
+    });
 
     const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
     const outcome = await result.current.openLink('https://example.com/docs');
 
     expect(outcome.ok).toBe(false);
     expect(toastMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not turn a rejecting desktop bridge back into a dead click', async () => {
+    // An IPC channel torn down mid-call REJECTS; it does not resolve
+    // { ok: false }. If that rejection escapes, the toast never runs and the
+    // user gets exactly the silent dead click this whole change removes.
+    const openExternal = vi.fn().mockRejectedValue(new Error('IPC channel closed'));
+    setPlatform(fullBridge({ openExternal }));
+
+    const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
+    const outcome = await result.current.openLink('https://example.com/docs');
+
+    expect(outcome.ok).toBe(false);
+    expect(toastMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells the user WHY the link did not open', async () => {
+    const openExternal = vi.fn();
+    setPlatform(fullBridge({ openExternal }));
+
+    const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
+    await result.current.openLink('packages/utils/src/foo.ts');
+
+    const [payload] = toastMock.mock.calls[0] as [{ description?: string }];
+    // "Could not open link" plus a bare URL leaves the user guessing between an
+    // unsupported protocol, a relative path, and a platform failure.
+    expect(payload.description).toMatch(/protocol|invalid|url/i);
   });
 
   it('keeps a stable identity across renders so memoized markdown does not remount', () => {

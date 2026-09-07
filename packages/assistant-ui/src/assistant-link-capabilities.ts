@@ -1,4 +1,11 @@
-import { createContext, type ReactNode, use } from 'react';
+import { createContext, use } from 'react';
+
+/** Outcome of a link open. Named (not inline) so a future field cannot drift
+ * between this contract and the host that implements it. */
+export interface AssistantLinkOpenResult {
+  readonly error?: string;
+  readonly ok: boolean;
+}
 
 /**
  * How the assistant panel asks its host to open a link.
@@ -15,25 +22,15 @@ import { createContext, type ReactNode, use } from 'react';
  * that could drift from the one the main process actually enforces.
  */
 export interface AssistantLinkCapabilities {
-  /** Open a link. Resolves `{ ok: false, error }` on refusal or failure — the host surfaces it. */
-  readonly openLink: (url: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Open a link. Resolves `{ ok: false, error }` on refusal or failure — the host surfaces it. Must never reject. */
+  readonly openLink: (url: string) => Promise<AssistantLinkOpenResult>;
 }
 
-const AssistantLinkCapabilitiesContext = createContext<AssistantLinkCapabilities | null>(null);
-
-export function AssistantLinkCapabilitiesProvider({
-  capabilities,
-  children,
-}: {
-  readonly capabilities: AssistantLinkCapabilities;
-  readonly children: ReactNode;
-}) {
-  return (
-    <AssistantLinkCapabilitiesContext.Provider value={capabilities}>
-      {children}
-    </AssistantLinkCapabilitiesContext.Provider>
-  );
-}
+/** Consumed via the hook below; the provider component lives in its own module
+ * so Fast Refresh keeps working (a file may not export both). */
+export const AssistantLinkCapabilitiesContext = createContext<AssistantLinkCapabilities | null>(
+  null
+);
 
 /** Nullable by design: an absent provider is a wiring bug that must be loud in
  * the logs, never a silent no-op click and never a licence to let the anchor
