@@ -147,8 +147,9 @@ const liveChildProcesses = new Map<number, ChildProcess>();
  * group and `process.kill(-pid, signal)` signals the WHOLE group (the shell AND
  * every grandchild it forked) in one call — the orphan-prevention guarantee.
  * `tree-kill` is the cross-platform backstop (it walks the child tree itself and
- * is the only mechanism on Windows, which has no negative-pid groups). A kill
- * failure is logged, never swallowed (no-silent-fallbacks).
+ * is the only mechanism on Windows, which has no negative-pid groups). A real
+ * kill failure is logged, never swallowed (no-silent-fallbacks) — but see
+ * `groupSettled` below for the two codes that are NOT failures.
  *
  * KNOWN, ACCEPTED LIMITATION: a process that deliberately double-forks /
  * daemonizes (setsid → reparents to PID 1 in its own new process group) escapes
@@ -159,16 +160,29 @@ const liveChildProcesses = new Map<number, ChildProcess>();
  * (tests, builds, git, package managers) do not daemonize, so this is acceptable.
  */
 function killProcessTree(pid: number, signal: NodeJS.Signals): void {
-  let groupKilled = false;
+  // "Settled" = the tree is signalled or already gone, so nothing is wrong and
+  // a tree-kill error afterwards is the expected already-dead race rather than
+  // a fallback that failed to land.
+  let groupSettled = false;
   try {
     // Negative pid → signal the whole process group (POSIX). Requires the child
     // to have been spawned detached so it leads its own group.
     process.kill(-pid, signal);
-    groupKilled = true;
+    groupSettled = true;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    // ESRCH = the group is already gone (normal once the child has exited).
-    if (code !== 'ESRCH') {
+    // Two codes mean "already gone", not "failed":
+    //   ESRCH — the group no longer exists (normal once the child has exited).
+    //   EPERM — the group still exists but its remaining members are all
+    //     killed-but-unreaped zombies, which Darwin's killpg1() drops from its
+    //     signalable count and reports as unsignalable rather than absent.
+    //     (Linux keeps them in the group and simply succeeds, so this arm is
+    //     Darwin-observable only.) Every member is our own descendant running
+    //     as us, so a genuine denial is not the explanation. Same ruling as
+    //     `packages/agent/src/fence/fence-executor.ts` and the conformance
+    //     driver's `killPosixProcessGroup` (BST-1674).
+    groupSettled = code === 'ESRCH' || code === 'EPERM';
+    if (!groupSettled) {
       logger.warn('Process-group kill failed; falling back to tree-kill', {
         code,
         pid,
@@ -179,9 +193,9 @@ function killProcessTree(pid: number, signal: NodeJS.Signals): void {
   // Always also run tree-kill: it covers Windows (no process groups) and any
   // grandchild that escaped the group (rare, but the recipe is belt-and-braces).
   treeKill(pid, signal, (error) => {
-    // Only log when the group kill ALSO did not land and the failure is not the
-    // expected "already dead" race after a successful kill (no-silent-fallbacks).
-    if (!groupKilled && error && !/no such process/i.test(error.message)) {
+    // Only log when the group kill ALSO did not settle and the failure is not
+    // the expected "already dead" race (no-silent-fallbacks).
+    if (!groupSettled && error && !/no such process/i.test(error.message)) {
       logger.warn('tree-kill failed', { error: error.message, pid, signal });
     }
   });

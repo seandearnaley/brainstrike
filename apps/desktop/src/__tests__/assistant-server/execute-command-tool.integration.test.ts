@@ -565,6 +565,127 @@ describe('disposeLiveChildProcesses — shutdown reaping', () => {
     // The run still settles (killed → close event) so we never leak a promise.
     await run;
   });
+
+  // A group whose only remaining members are killed-but-unreaped zombies still
+  // EXISTS, so teardown is not a failure — it is the normal post-reap window.
+  // Darwin's killpg1() drops zombies from its signalable count and reports that
+  // as EPERM; Linux keeps them in the group and simply succeeds. Only Darwin
+  // exercises the EPERM branch, so the precondition is kernel-appropriate; the
+  // portable claim is that a teardown of an already-dead tree logs nothing.
+  it('does not log a kill failure when the group holds only unreaped members', async () => {
+    const root = await makeWorkspace();
+    const pidFile = path.join(root, 'zombie.pid');
+    const run = runExecuteCommand(
+      { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
+      singleRoot(root)
+    );
+    let shellPid = Number.NaN;
+    const pidDeadline = Date.now() + 3000;
+    while (Date.now() < pidDeadline) {
+      try {
+        const raw = (await fsPromises.readFile(pidFile, 'utf8')).trim();
+        if (raw.length > 0) {
+          shellPid = Number.parseInt(raw, 10);
+          break;
+        }
+      } catch {
+        // pid file not written yet
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(Number.isInteger(shellPid)).toBe(true);
+    loggerWarnMock.mockReset();
+
+    const unreapedState = process.platform === 'darwin' ? 'EPERM' : 'alive';
+    process.kill(-shellPid, 'SIGKILL');
+    // Spin rather than await: blocking the event loop keeps this process from
+    // reaping the child, holding the group in the exact state teardown races
+    // against instead of letting it settle to ESRCH first.
+    const spinDeadline = Date.now() + 1000;
+    let groupState: string | undefined;
+    while (Date.now() < spinDeadline) {
+      try {
+        process.kill(-shellPid, 0);
+        groupState = 'alive';
+      } catch (error) {
+        groupState = (error as NodeJS.ErrnoException).code ?? 'unknown';
+      }
+      if (groupState === unreapedState) {
+        break;
+      }
+    }
+    expect(groupState).toBe(unreapedState);
+
+    disposeLiveChildProcesses();
+    await run;
+    // Let the asynchronous tree-kill callback land before asserting silence.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const warned = loggerWarnMock.mock.calls.map(([message]) => message);
+    expect(warned).not.toContain('Process-group kill failed; falling back to tree-kill');
+    expect(warned).not.toContain('tree-kill failed');
+  });
+
+  // The other direction: silencing ESRCH/EPERM must not silence a REAL failure,
+  // or the no-silent-fallbacks guarantee is gone. Signal codes other than those
+  // two cannot be provoked with a real process we own, so the syscall is stubbed
+  // for the group signal only.
+  it('still logs a group-kill failure that is not the already-gone window', async () => {
+    const root = await makeWorkspace();
+    const pidFile = path.join(root, 'realfail.pid');
+    const run = runExecuteCommand(
+      { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
+      singleRoot(root)
+    );
+    let shellPid = Number.NaN;
+    const pidDeadline = Date.now() + 3000;
+    while (Date.now() < pidDeadline) {
+      try {
+        const raw = (await fsPromises.readFile(pidFile, 'utf8')).trim();
+        if (raw.length > 0) {
+          shellPid = Number.parseInt(raw, 10);
+          break;
+        }
+      } catch {
+        // pid file not written yet
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(Number.isInteger(shellPid)).toBe(true);
+    loggerWarnMock.mockReset();
+
+    const realKill = process.kill.bind(process);
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(((
+      targetPid: number,
+      killSignal?: string | number
+    ) => {
+      if (targetPid < 0) {
+        const denied = new Error('kill EACCES') as NodeJS.ErrnoException;
+        denied.code = 'EACCES';
+        throw denied;
+      }
+      return realKill(targetPid, killSignal as NodeJS.Signals);
+    }) as typeof process.kill);
+    try {
+      disposeLiveChildProcesses();
+    } finally {
+      killSpy.mockRestore();
+    }
+
+    expect(loggerWarnMock.mock.calls.map(([message]) => message)).toContain(
+      'Process-group kill failed; falling back to tree-kill'
+    );
+
+    // tree-kill still ran as the real fallback, so the tree is going down; make
+    // certain of it rather than leaving a 30s sleep behind on a failed run.
+    try {
+      realKill(-shellPid, 'SIGKILL');
+    } catch {
+      // already reaped by the tree-kill fallback
+    }
+    expect(await waitForPidDead(shellPid)).toBe(true);
+    await run;
+  });
 });
 
 // A tiny smoke test that the shell really executes node, proving the tool is
