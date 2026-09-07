@@ -1565,10 +1565,47 @@ hands over the message components.
   flush and fires the engine's `scrollToBottom` after appending; a reader who
   scrolled up is never yanked. Do not "simplify" this away as redundant with
   the engine's own resize re-stick — that path loses the clamp-ordering race.
+- **A `scroll` event the engine itself authored never disengages follow.**
+  A `measure` write claims the `scrollTop` it MOVED to (`unechoedWriteTop`) and
+  the scroll listener swallows that one echo. A scroll event carries no position
+  of its own — `handleScroll` reads LIVE geometry — and `measure` writes
+  `scrollTop` synchronously and judges the result in the same breath, clearing
+  `pendingFollow`, while the browser dispatches that write's event a task
+  LATER. Resize the viewport in between and the leftover event is judged
+  against dimensions the engine has never measured ("not at bottom, position
+  did not move down"), which is indistinguishable from a reader parked above
+  the end; follow then disengaged with no user act and never recovered,
+  because `measure` only re-sticks while pinned. The chip row mounting
+  (shrinks the viewport from OUTSIDE the scroller) plus a streamed chunk
+  (grows the content inside it) is exactly that window, and neither fires a
+  scroll event of its own. Two rules follow, both load-bearing:
+  **authorship is the discriminator, not movement** — scroll events coalesce,
+  so a user round trip to the end and back arrives as ONE event whose net
+  movement against the last PROCESSED position is zero (the tier-switch suite
+  relies on that event still disengaging); and **`lastScrollTop` is not the
+  position before the current event**, it is the last one `handleScroll`
+  processed. This was a ~9% `Browser tests` flake in
+  `follow-up-queue-repin.browser.test.tsx`, always landing exactly
+  `Δclient + Δscroll` px short of the bottom.
+  Two placement rules keep the claim honest, and neither is optional.
+  It is made in `measure` and NOT in `write`, because the justification for
+  swallowing an echo is the synchronous `handleScroll` that only `measure`
+  performs: the explicit-request writes (`scrollToBottom` — the jump button and
+  the BST-1039 dispatch re-pin — and `jumpToBottomInstant`) never judge, so
+  their echo is the ONLY thing that can re-pin the thread. Swallowing it leaves
+  the jump button stuck on, which the default CSS smooth scroll hides and a
+  **reduced-motion** user (`scroll-behavior: auto`, so the write lands
+  synchronously) hits immediately — that is the third case in the paired suite.
+  And only a write that MOVED the position is claimed: a no-op write dispatches
+  no scroll event, so its claim could never be consumed and would linger until
+  some unrelated event happened to land on that exact pixel.
 
 Paired tests: `packages/assistant-ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`
 (real Chromium against the real follow engine: pinned/unpinned button states,
-click-to-bottom, growth below vs ABOVE the reading position, anchor scoping),
+click-to-bottom, growth below vs ABOVE the reading position, anchor scoping,
+and the own-write echo — that suite forces the squeeze, the growth and the
+stale event into ONE synchronous task so neither observer can have measured,
+which is the interleaving CI produced under load),
 the BST-896 case in `assistant-ui-panel-architecture.test.ts`, which pins the
 plain-div scroller, the engine wiring, the absent `behavior`, and the scoped
 CSS rule, and `follow-up-queue-repin.browser.test.tsx` (BST-1039: real chips +
