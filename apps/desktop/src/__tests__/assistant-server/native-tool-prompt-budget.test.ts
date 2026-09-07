@@ -182,6 +182,19 @@ vi.mock('../../db-main', () => ({
 // 10246 measurement at the band's MIDPOINT.
 const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_396;
 const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 10_096;
+// BST-1667 TRIM (ceiling UNCHANGED at 5000 — the number is a live contract in
+// docs/agents/assistant-providers.md, assistant-runtime.md, and
+// workspace-context.md). Tool discovery moved to Mastra's manual loading, so
+// the composed discovery line now teaches TWO controls — `load_tool` for an
+// exact name and `search_tools` for a capability query — and first measured
+// 5024. Trim-first was applied to that line only: articles and hedges
+// dropped, "call search_tools with a concise query, then load_tool for the
+// match" tightened, the miss exit shortened to "check the catalog for an
+// exact name first" (its 'If the search finds nothing' pin kept), and the
+// same-response parenthetical kept its pinned 'not a later user message'.
+// Measured 4997 (see #3049 review): 3 tokens of headroom. The next addition
+// to the discovery line must trim before it lands; a raise here needs the
+// three contracts moved in the same change.
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // Floor for the critical initial surface (measured 2157 per the
 // queryDiagnostics note above): a silent drop of a critical-tier tool fails

@@ -131,15 +131,22 @@ below are LIVE.
    consumer. For the built-in local provider this signal crosses
    `LlmHostChatModel → LocalLlmHostClient → LlmHostManager`, removes the exact
    pending request, and sends the hidden renderer's cancel command.
-   When watchdog expiry or caller Stop aborts a memory-backed turn, the stream
-   adapter persists the user input plus completed visible tool work from
-   Mastra's live `MessageList`, marks the assistant row
-   `[Assistant turn aborted before completion.]`, and excludes the incomplete
-   tail before runtime disposal. Stop therefore cannot resurrect execution on
-   the next turn. The same finalizer covers approval and suspended-tool resume
-   streams, while Mastra read-only memory remains write-free. Ordinary
-   completion still uses Mastra's finish writer only; teardown never performs a
-   second normal write.
+   When watchdog expiry or caller Stop aborts a memory-backed turn, Mastra
+   (>= 1.62) itself persists the cancelled run's transcript through its
+   `MessageHistory` output processor — completed tool work and any partial
+   text, partial tool calls filtered — without awaiting that write. The stream
+   adapter's abort seam (`mastra/aborted-turn-persistence.ts`) then persists
+   the user input, every assistant message with its partial text RETAINED, and
+   only COMPLETED tool invocations from Mastra's live `MessageList`, appends
+   `[Assistant turn aborted before completion.]` as the last text part, and
+   awaits the save before runtime disposal. Incomplete tool calls are the one
+   thing excluded, so Stop cannot resurrect execution on the next turn; the
+   awaited save is also the join that keeps Mastra's floating write from racing
+   storage close (contract and measurements in
+   `docs/agents/assistant-persistence.md`). The same finalizer covers approval
+   and suspended-tool resume streams, while Mastra read-only memory remains
+   write-free. Ordinary completion still uses Mastra's finish writer only;
+   teardown never performs a second normal write.
 
 4. **Mastra error-processor layer (LIVE)** —
    `packages/agent/src/mastra/error-processors.ts`, wired into `new Agent` +
@@ -709,7 +716,7 @@ The hosted surface is guarded at both sides of Mastra's conversion boundary.
 The authored full-registry red baseline must fit within 7,900 `o200k_base`
 tokens. The live actual Mastra/OpenRouter core surface and resolved instructions
 must fit within 5,000 tokens, materially below the retired 11,500-token eager
-boundary. Live hosted first requests add Mastra's compact `search_tools` control;
+boundary. Live hosted first requests add Mastra's `search_tools` and `load_tool` controls;
 deferred post-gate definitions are appended on later steps.
 The production-equivalent fixture enables a representative workspace skill so
 both numbers include the three default skill tools, conditional skills
@@ -911,11 +918,16 @@ runtime is reusable, since `dispose()` only shuts down mastra + the MCP client.
   `agent.stream` carrying the original request plus everything the stalled
   attempt produced, read from Mastra's in-memory `messageList` on the stream
   result. Bounded by `BRAINSTRIKE_STREAM_STALL_ATTEMPTS` (default 2).
-- **Why the message list, not memory.** An aborted stream persists NOTHING to
-  `mastra_messages` — measured, not assumed (BST-1415): not the completed tool
-  calls, not even the user's message. That is also why re-sending the original
-  request in a continuation is safe rather than duplicative: the continuation is
-  the turn's only writer.
+- **Why the message list, not memory.** On core 1.59 an aborted stream
+  persisted NOTHING to `mastra_messages` — measured, not assumed (BST-1415):
+  not the completed tool calls, not even the user's message. Mastra >= 1.62
+  (BST-1667) changed that: its `MessageHistory` output processor persists the
+  aborted attempt's transcript, partial tool calls filtered, without awaiting
+  it — so the continuation is no longer the turn's only writer. The message
+  list stays the recovery source because it is complete and synchronous, and
+  re-sending the original request in a continuation stays non-duplicative
+  because Mastra's `saveMessages` upserts by message id; the recovered-stall
+  proof asserts exactly one user row and no abort marker.
 - **`readProducedMessages()` returns `undefined` vs `[]` and the difference is
   SAFETY-CRITICAL.** `[]` means the attempt genuinely produced nothing (a stall
   before the first step), so continuing from the request alone re-runs nothing.

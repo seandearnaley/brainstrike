@@ -347,7 +347,7 @@ composition root in `apps/desktop/src/assistant-server/assistant-tools.ts`.
     `run_python` is fail-safe omitted entirely (a pause that cannot resume
     must never be armed) — which also keeps it off Hosted Web.
   - **run_python lives in the DEFERRED `execution` discovery namespace**: a
-    scripted test model must load it via `search_tools` first, or the
+    scripted test model must load it via `load_tool` (exact name) first, or the
     ToolNotFoundError it gets is the discovery surface working, not a
     suspension bug (see the Gate B integration proof's comment).
   - **Testing the deny is easy to get VACUOUSLY right.** srt enforces

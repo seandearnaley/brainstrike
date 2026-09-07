@@ -179,12 +179,7 @@ function createScriptedToolCallModel(args: {
       }
       const promptHasToolResult =
         Array.isArray(options.prompt) && options.prompt.some((message) => message.role === 'tool');
-
-      if (promptHasToolResult) {
-        args.onToolResultPrompt?.(options.prompt);
-        if (toolCallIndex > 0 && toolCallIndex < toolCallIds.length) {
-          return emitNextToolCall();
-        }
+      const finalText = () => {
         const id = 'text-final';
         return Promise.resolve({
           stream: streamParts([
@@ -195,9 +190,28 @@ function createScriptedToolCallModel(args: {
             { finishReason: 'stop', type: 'finish', usage: USAGE },
           ]),
         });
-      }
+      };
 
-      return emitNextToolCall();
+      if (promptHasToolResult) {
+        // A visible tool result (this turn's, or a prior turn's replayed
+        // history) answers directly — that is how the non-re-execution proofs
+        // observe that the model SAW the persisted work.
+        args.onToolResultPrompt?.(options.prompt);
+        if (toolCallIndex > 0 && toolCallIndex < toolCallIds.length) {
+          return emitNextToolCall();
+        }
+        return finalText();
+      }
+      if (toolCallIndex < toolCallIds.length) {
+        return emitNextToolCall();
+      }
+      // Script spent and no raw tool result in view: with @mastra/memory >= 1.28
+      // an observation cycle that activates between steps replaces the raw
+      // tool result in the prompt with observations (its documented job).
+      // Answering from those observations is the real model's behavior;
+      // re-emitting the tool call was the fixture's, and it exhausted the
+      // script.
+      return finalText();
     },
     modelId: 'fake-model',
     provider: 'fake',
@@ -357,6 +371,102 @@ function createOpenAIRequestCaptureModel(onRequestBody: (body: unknown) => void)
  * A trivially compliant model for observational-memory observation calls:
  * always answers with a short observation, both streaming and non-streaming.
  */
+/**
+ * The observer's text, in the XML section shape `@mastra/memory`'s
+ * `parseObserverOutput` reads. A bare sentence parses to zero observations.
+ */
+const OBSERVER_OUTPUT_TEXT =
+  '<observations>\n- The user asked about Paris weather.\n</observations>';
+
+/**
+ * Provider wire fixtures MUST deliver the runtime shape (boundary-fixture
+ * rule). `@mastra/memory`'s observer calls `agent.stream(...)`, so the wire
+ * receives `stream: true` and the SDK parses Server-Sent Events. Before core
+ * 1.64 a JSON chat-completion body answered that streaming request with zero
+ * parsed events and the observer finished "other" with no text — silently
+ * (a false green). Core 1.64 raises on an empty "other" finish, which is how
+ * the drift surfaced.
+ */
+function sseResponse(frames: readonly Record<string, unknown>[], done: boolean): Response {
+  const body =
+    frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join('') +
+    (done ? 'data: [DONE]\n\n' : '');
+  return new Response(body, {
+    headers: { 'content-type': 'text/event-stream' },
+    status: 200,
+  });
+}
+
+/** OpenAI-compatible chat-completions streaming frames (OpenRouter). */
+function chatCompletionStream(id: string, model: string, text: string): Response {
+  const base = { created: 1_753_600_000, id, model, object: 'chat.completion.chunk' };
+  return sseResponse(
+    [
+      {
+        ...base,
+        choices: [{ delta: { content: text, role: 'assistant' }, finish_reason: null, index: 0 }],
+      },
+      {
+        ...base,
+        choices: [{ delta: {}, finish_reason: 'stop', index: 0 }],
+        usage: { completion_tokens: 9, prompt_tokens: 42, total_tokens: 51 },
+      },
+    ],
+    true
+  );
+}
+
+/** OpenAI Responses API streaming events (the `openai` provider case). */
+function responsesApiStream(model: string, text: string): Response {
+  const itemId = 'msg_observer_1';
+  const part = { annotations: [], text, type: 'output_text' };
+  const item = {
+    content: [part],
+    id: itemId,
+    role: 'assistant',
+    status: 'completed',
+    type: 'message',
+  };
+  const response = {
+    created_at: 1_753_600_000,
+    id: 'resp_observer_1',
+    model,
+    object: 'response',
+    output: [item],
+    status: 'completed',
+    usage: { input_tokens: 42, output_tokens: 9, total_tokens: 51 },
+  };
+  const position = { content_index: 0, item_id: itemId, output_index: 0 };
+  return sseResponse(
+    [
+      { response: { ...response, output: [], status: 'in_progress' }, type: 'response.created' },
+      {
+        item: { ...item, content: [], status: 'in_progress' },
+        output_index: 0,
+        type: 'response.output_item.added',
+      },
+      { ...position, part: { ...part, text: '' }, type: 'response.content_part.added' },
+      { ...position, delta: text, type: 'response.output_text.delta' },
+      { ...position, text, type: 'response.output_text.done' },
+      { ...position, part, type: 'response.content_part.done' },
+      { item, output_index: 0, type: 'response.output_item.done' },
+      { response, type: 'response.completed' },
+    ],
+    false
+  );
+}
+
+async function readJsonBody(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Record<string, unknown>> {
+  const rawBody =
+    typeof init?.body === 'string'
+      ? init.body
+      : await new Request(input as RequestInfo, init).text();
+  return JSON.parse(rawBody) as Record<string, unknown>;
+}
+
 function createFakeObservationModel(delayMs = 0): LanguageModelV2 {
   const text = 'Observed: the user asked about Paris weather.';
   const wait = () => new Promise<void>((resolve) => setTimeout(resolve, delayMs));
@@ -469,6 +579,21 @@ const OM_TINY_THRESHOLD_SETTINGS: RuntimeAssistantMemorySettings = {
   },
 };
 
+/**
+ * Every memory a turn created, joined before the suite closes PGlite.
+ * Observational memory keeps observing/reflecting in the background after a
+ * turn returns; `Memory.settled()` (Mastra >= 1.62) is the join point, and
+ * without it those statements race `database.close()` — the BST-1320 hazard
+ * class (a wedge on PGlite 0.5.x when the statement is in flight, a clean
+ * "PGlite is closed" rejection when it lands after).
+ */
+const memoriesToSettle: MastraMemory[] = [];
+
+async function settleTrackedMemories(): Promise<void> {
+  const pending = memoriesToSettle.splice(0);
+  await Promise.all(pending.map((memory) => memory.settled()));
+}
+
 async function runTurnWithMemory(args: {
   assistantMessageId?: string;
   database: PGlite;
@@ -530,6 +655,7 @@ async function runTurnWithMemory(args: {
     >;
   }
   const { memory, storage } = await createPgliteMastraMemory(memoryFactoryOptions);
+  memoriesToSettle.push(memory);
   args.onMemoryCreated?.(memory);
 
   const weatherTool = createTool({
@@ -644,7 +770,11 @@ describe('mastra memory persistence through the live stream path', () => {
   });
 
   afterEach(async () => {
-    await database.close();
+    try {
+      await settleTrackedMemories();
+    } finally {
+      await database.close();
+    }
   });
 
   it('persists a user-cancelled turn without incomplete work or tool re-execution', async () => {
@@ -704,10 +834,10 @@ describe('mastra memory persistence through the live stream path', () => {
     expect(toolExecutions).toBe(1);
   }, 30_000);
 
-  it('persists a watchdog-aborted turn without incomplete work', async () => {
+  it('persists a watchdog-aborted turn without incomplete tool work; Mastra retains the partial text tail', async () => {
     const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
     const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
-    const partialText = 'The watchdog must exclude this incomplete answer.';
+    const partialText = 'The watchdog cut this answer short.';
     const threadId = 'thread-watchdog-aborted-turn';
     let toolExecutions = 0;
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
@@ -731,12 +861,21 @@ describe('mastra memory persistence through the live stream path', () => {
       });
 
       const abortedRows = await listThreadMessages(database, threadId);
-      expect(abortedRows.map((row) => row.role)).toEqual(['user', 'assistant']);
+      // Mastra >= 1.62 persists a cancelled run's transcript through its
+      // MessageHistory output processor, and on a watchdog abort that write
+      // lands: the stalled attempt's partial text is its own assistant row.
+      // Brainstrike's seam keeps the completed tool work, filters incomplete
+      // tool calls, and appends the marker; it no longer excludes the tail.
+      // Ordering is not a race: Mastra issues that write on the abort, before
+      // the stream terminates, and PGlite executes statements FIFO on the one
+      // connection, so the seam's awaited save (issued after termination)
+      // cannot complete ahead of it.
+      expect(abortedRows.map((row) => row.role)).toEqual(['user', 'assistant', 'assistant']);
       const abortedRecord = JSON.stringify(abortedRows);
       expect(abortedRecord).toContain('call-watchdog');
       expect(abortedRecord).toContain('temperatureC');
       expect(abortedRecord.toLowerCase()).toContain('aborted before completion');
-      expect(abortedRecord).not.toContain(partialText);
+      expect(abortedRecord).toContain(partialText);
       expect(toolExecutions).toBe(1);
     } finally {
       if (previousToolTimeout === undefined) {
@@ -1528,30 +1667,17 @@ describe('mastra memory persistence through the live stream path', () => {
       if (!url.includes('openrouter.ai')) {
         return realFetch(input as RequestInfo, init);
       }
-      const rawBody =
-        typeof init?.body === 'string'
-          ? init.body
-          : await new Request(input as RequestInfo, init).text();
-      openrouterRequests.push({ body: JSON.parse(rawBody) as Record<string, unknown>, url });
-      return new Response(
-        JSON.stringify({
-          choices: [
-            {
-              finish_reason: 'stop',
-              index: 0,
-              message: {
-                content: 'Observed: the user asked about Paris weather.',
-                role: 'assistant',
-              },
-            },
-          ],
-          created: 1_753_600_000,
-          id: 'gen-observer-1',
-          model: 'google/gemini-2.5-flash',
-          object: 'chat.completion',
-          usage: { completion_tokens: 9, prompt_tokens: 42, total_tokens: 51 },
-        }),
-        { headers: { 'content-type': 'application/json' }, status: 200 }
+      const body = await readJsonBody(input, init);
+      openrouterRequests.push({ body, url });
+      if (body['stream'] !== true) {
+        throw new Error(
+          `observer wire expected a streaming request, got stream=${String(body['stream'])}`
+        );
+      }
+      return chatCompletionStream(
+        'gen-observer-1',
+        'google/gemini-2.5-flash',
+        OBSERVER_OUTPUT_TEXT
       );
     });
 
@@ -1604,28 +1730,18 @@ describe('mastra memory persistence through the live stream path', () => {
         return realFetch(input as RequestInfo, init);
       }
       openaiRequests.push({ url });
-      // Minimal OpenAI chat-completions-shaped response; the responses-API
-      // shape is also tolerated by the router's OpenAI-compatible client.
-      return new Response(
-        JSON.stringify({
-          choices: [
-            {
-              finish_reason: 'stop',
-              index: 0,
-              message: {
-                content: 'Observed: the user asked about Paris weather.',
-                role: 'assistant',
-              },
-            },
-          ],
-          created: 1_753_600_000,
-          id: 'chatcmpl-observer-1',
-          model: 'gpt-5.4-mini',
-          object: 'chat.completion',
-          usage: { completion_tokens: 9, prompt_tokens: 42, total_tokens: 51 },
-        }),
-        { headers: { 'content-type': 'application/json' }, status: 200 }
-      );
+      // The `openai` provider case routes to the Responses API (provider-factory
+      // invariant), so the wire answers with Responses streaming events.
+      if (!url.includes('/responses')) {
+        throw new Error(`observer wire expected the Responses API, got ${url}`);
+      }
+      const body = await readJsonBody(input, init);
+      if (body['stream'] !== true) {
+        throw new Error(
+          `observer wire expected a streaming request, got stream=${String(body['stream'])}`
+        );
+      }
+      return responsesApiStream('gpt-5.4-mini', OBSERVER_OUTPUT_TEXT);
     });
 
     try {

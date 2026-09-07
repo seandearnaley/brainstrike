@@ -98,4 +98,80 @@ describe('aborted turn persistence', () => {
     expect(JSON.stringify(savedMessages[0])).not.toContain('call-unfinished');
     expect(JSON.stringify(savedMessages[0])).toContain('aborted before completion');
   });
+
+  it('retains partial text after completed tool work and appends the marker after it (Mastra >= 1.62 cancel persistence)', async () => {
+    const savedMessages: MastraDBMessage[][] = [];
+    const memory = {
+      createThread: vi.fn(),
+      getThreadById: vi.fn().mockResolvedValue({ id: 'thread-abort-test' }),
+      saveMessages: vi.fn(async ({ messages }: { messages: MastraDBMessage[] }) => {
+        savedMessages.push(messages);
+        return { messages };
+      }),
+    } as unknown as MastraMemory;
+    const messageList = {
+      drainUnsavedMessages: () => [
+        message({
+          content: { format: 2, parts: [{ text: 'Run the tool.', type: 'text' }] },
+          id: 'user-abort-test',
+          role: 'user',
+        }),
+        message({
+          content: {
+            format: 2,
+            parts: [
+              { type: 'step-start' },
+              {
+                toolInvocation: {
+                  args: { path: 'complete.ts' },
+                  result: { text: 'complete' },
+                  state: 'result',
+                  toolCallId: 'call-complete',
+                  toolName: 'read_file',
+                },
+                type: 'tool-invocation',
+              },
+              { type: 'step-start' },
+              { text: 'The answer starts here and', type: 'text' },
+              {
+                toolInvocation: {
+                  args: { path: 'unfinished.ts' },
+                  state: 'call',
+                  toolCallId: 'call-unfinished',
+                  toolName: 'read_file',
+                },
+                type: 'tool-invocation',
+              },
+            ],
+          },
+          id: 'assistant-partial',
+          role: 'assistant',
+        }),
+      ],
+    } as unknown as MessageList;
+
+    const persistence = createAbortedTurnPersistence({
+      assistantMessageId: 'assistant-abort-test',
+      memory,
+      runtimeData: {
+        memory: { resourceId: 'resource-abort-test', threadId: 'thread-abort-test' },
+      } as RuntimeData,
+      shouldPersist: () => true,
+    });
+    await persistence.attachMessageList(messageList);
+    await persistence.finalize();
+
+    const assistant = savedMessages[0]?.find((saved) => saved.id === 'assistant-partial');
+    const partTypes = assistant?.content.parts.map((part) =>
+      part.type === 'text' ? `text:${part.text}` : part.type
+    );
+    expect(partTypes).toEqual([
+      'step-start',
+      'tool-invocation',
+      'step-start',
+      'text:The answer starts here and',
+      'text:[Assistant turn aborted before completion.]',
+    ]);
+    expect(JSON.stringify(savedMessages[0])).not.toContain('call-unfinished');
+  });
 });

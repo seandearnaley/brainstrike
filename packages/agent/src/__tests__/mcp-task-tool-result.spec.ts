@@ -201,7 +201,9 @@ describe('projectMcpTaskToolModelOutput', () => {
 
   it('fits the run domain budget through the projection pipeline at the smallest budget', async () => {
     const tool = {
+      description: 'Remote export task tool.',
       execute: async () => undefined,
+      id: 'remote.export',
       toModelOutput: projectMcpTaskToolModelOutput,
     };
     const smallestBudget = resolveScaledToolResultBudget(1);

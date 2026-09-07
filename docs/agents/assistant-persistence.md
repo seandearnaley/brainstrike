@@ -211,27 +211,53 @@ contracts keep reloaded threads identical to live ones:
      the invocation itself with `state:'result'`; the execution and replay
      paths must never maintain independent guarded-error code lists.
 
-Mastra deliberately skips its normal finish writer when an abort signal wins.
-For terminal watchdog aborts and user cancellation only, `agent-streaming.ts`
-therefore owns one bounded abort-finalization seam over Mastra's public live
-`MessageList`: it drains the unsaved user input, retains response parts only
-through the last completed tool invocation, drops non-renderable snapshots and
-all incomplete tool/text work, appends the model-visible
-`[Assistant turn aborted before completion.]` marker, and awaits
-`Memory.saveMessages` before disposing the per-run runtime — including when a
-recovery continuation fails during construction. A text-only partial response
-has no completed work and is intentionally omitted under Contract A. Initial,
-approval-resume, and suspended-tool resume streams share this Brainstrike-owned
-terminal seam; read-only memory streams skip it and remain write-free. If the
-snapshot write itself fails, the seam emits the structured
+Mastra deliberately skips its normal finish writer (`executeOnFinish`) when an
+abort signal wins. Since Mastra >= 1.62 (upstream #22243; BST-1667 moved core
+to 1.64.0) that is no longer the whole story: the `MessageHistory` output
+processor persists a cancelled run's transcript through normal output
+processing (`processOutputResult` → `persistMessages` →
+`storage.saveMessages`, partial tool calls filtered), the
+`persistPartialOnAbort` opt-in is gone because cancellation persistence is no
+longer optional, and that write is NOT awaited by the aborted loop. Measured on
+the live-loop PGlite proof
+(`packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts`):
+a user Stop landing right after a tool result carries the completed tool work
+and no partial text; a watchdog abort persists the stalled attempt's partial
+text as its OWN assistant row; an approval-resume cancel persists the partial
+text. For terminal watchdog aborts and user cancellation only,
+`packages/agent/src/mastra/aborted-turn-persistence.ts` (created by
+`createRuntimeAbortedTurnPersistence` in `turn-attempts.ts`) therefore owns one
+bounded abort-finalization seam over Mastra's public live `MessageList`: it
+drains the unsaved messages, keeps the user input and every assistant message,
+REMOVES tool invocations that never completed (Mastra filters partial tool calls
+from its own write and the seam must not re-introduce one, or Stop could
+resurrect execution on the next turn), RETAINS partial text (dropping it cannot
+remove the row Mastra already wrote, and a snapshot that disagrees with the UI
+transcript is the BST-1415 failure), drops assistant messages left with only
+`step-start`, appends the model-visible
+`[Assistant turn aborted before completion.]` marker as the last text part of
+the last retained assistant message (or as a standalone assistant message when
+none remains), and awaits `Memory.saveMessages` before disposing the per-run
+runtime — including when a recovery continuation fails during construction.
+Re-saving ids Mastra already wrote is an upsert of identical content. Under
+Contract A the partial text tail is therefore RETAINED; only incomplete TOOL
+work is excluded. The awaited save is also load-bearing as a join: with
+`shouldPersist` forced false (measured 2026-09-06), Mastra's floating
+abort-time write raced the PGlite `close()` in suite teardown and wedged the
+vitest worker at 100% CPU — the BST-1320 mechanism. Initial, approval-resume,
+and suspended-tool resume streams share this Brainstrike-owned terminal seam;
+read-only memory streams skip it and remain write-free. If the snapshot write
+itself fails, the seam emits the structured
 `mastra_agent_aborted_turn_persist_failed` server error and preserves the turn's
 existing terminal chunks and cleanup instead of throwing after termination. A
 normally finished turn marks the seam closed before teardown, leaving Mastra's
 existing writer exactly-once. The live-loop PGlite proof covers normal
 completion, watchdog abort, user Stop, resumed streams, next-turn recall, and
-non-reexecution of completed tools. An individual provider attempt that stalls
-but is replaced by a successful continuation is not an aborted turn and does
-not persist an abort snapshot; abort finalization runs only when the turn itself
+non-reexecution of completed tools; the unit proof
+(`packages/agent/src/__tests__/aborted-turn-persistence.spec.ts`, two cases)
+pins the content rule. An individual provider attempt that stalls but is
+replaced by a successful continuation is not an aborted turn and does not
+persist an abort snapshot; abort finalization runs only when the turn itself
 becomes terminal.
 
 3. **Edited-prompt branch topology:** Mastra remains the only writer of message

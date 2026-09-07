@@ -4049,7 +4049,8 @@ cursor at its unique occurrence on the requested line; a repeated occurrence
 still requires the exact `<<<` fragment form. A wrong-line markerless identifier
 returns bounded candidate line numbers for an explicit retry and never silently
 moves the request. Its catalog description spells out the `LSP` acronym so the
-common `search_tools("lsp")` query loads it.
+common `search_tools("lsp")` query finds it; `load_tool` then loads it by exact
+name.
 The desktop LSP pool is keyed by the durable database `roots.id` returned by
 workspace-tool resolution. Root disconnect therefore evicts every LSP pool
 entry using the durable ids returned by the path-keyed database transition,
@@ -4894,14 +4895,24 @@ retains a typed reason, keeping an adapter mismatch distinct from a catalog miss
 permission denial, and host unavailability. OpenAI's native `tool_search` is
 model-gated, not inferred from `provider === "openai"`. Anthropic native search
 likewise preserves provider search/tool-reference history. Live Mastra catalog
-search uses `storage: 'context'`, `search.autoLoad: true`, and `topK: 3`.
-The pinned `@mastra/core@1.59.0` patch selects an exact registered ID before
-BM25 candidate trimming, preserving the SDK search filter and context-store
-activation. Exact selection loads only that tool; fuzzy queries retain the
-three-match ranking limit. Both ESM and CJS distributions carry the same fix.
-Remove the patch only when an upstream version passes the adversarial exact-name
-regression in `tool-search-runtime.spec.ts`. No extra model tool or round trip
-is introduced.
+search uses `storage: 'context'` and `search: { autoLoad: false, topK: 3 }` —
+Mastra's manual-loading mode (BST-1667). `search_tools` is discovery only: it
+returns at most three ranked matches and loads nothing. `load_tool` is Mastra's
+canonical exact-name selection (`toolName` or `toolNames[]`, "Did you mean"
+suggestions on a miss, the same SDK search filter and context-store
+activation) and loads exactly the named tools. Every discovery step offers, in
+this key order: `search_tools`, `load_tool`, the loaded deferred tools, then
+`list_available_tools`. Model-facing flow: exact name known (instructions,
+catalog, skill activation) → `load_tool` → call; capability only →
+`search_tools` → `load_tool` → call. The trade-off is deliberate and stated
+honestly: fuzzy discovery now costs one extra model step versus the retired
+auto-load, while an exact load costs the same step it always did and loads one
+tool. Do not re-enable `search.autoLoad: true`: per Mastra's own option docs
+that mode withholds `load_tool`, and the BST-1628 workaround — a pnpm patch on
+`@mastra/core@1.59.0` splicing exact-name selection into `search_tools`' BM25
+path — was a misuse of the search control, not a missing upstream feature.
+That patch and its `patchedDependencies` entry are deleted; the repo carries
+zero pnpm patches again.
 Search results are ranked selections, never an inventory. The 2026-09-04
 Linear failure had all 61 tools in the eligible deferred catalog, but a broad
 query returned three label/status tools and the model declared issue operations
@@ -4917,7 +4928,7 @@ the matching count returns the empty end page; an offset beyond it reports a typ
 The name map is total for eligible tools and snapshotted per processor; missing
 mappings fail visibly at construction or loaded-tool projection.
 Models enumerate with it and
-use an exact listed name in `search_tools` to load a capability. Inventory
+load a capability with `load_tool` using an exact listed name. Inventory
 results never enter Mastra's loaded-tool state; search results and instructions
 explicitly distinguish ranked matches from the complete catalog. No new store,
 remote round trip, or eligibility path is introduced. Processor tests cover
@@ -4936,9 +4947,9 @@ Haiku against the real processor and fails visibly when either provider key is
 absent.
 
 Hosted default instructions add the discovery guidance only when the runtime
-actually installs `BrainstrikeToolSearchProcessor`. They tell the model to call
-`search_tools` for deferred capability families before substituting eager glob
-or shell tools.
+actually installs `BrainstrikeToolSearchProcessor`. They tell the model to load
+deferred capability families — `load_tool` by exact name, or `search_tools`
+then `load_tool` — before substituting eager glob or shell tools.
 
 **THE DISCOVERY SURFACES NAME EVERY ELIGIBLE DEFERRED FAMILY — AND ONLY
 ELIGIBLE ONES.** A deferred capability the prompt never names is a tool the
@@ -4955,20 +4966,22 @@ per run from `deferred-capability-families.ts`, the single source; the
 native tool (`loadingTier !== 'critical'`, skill ids force-cored) belongs to
 a family, that eligible families are named, and that ineligible ones are not.
 The line also states that a tool NAMED by the instructions or a skill
-activation but not loaded is reachable via `search_tools` — the prompt names
+activation but not loaded is reachable via `load_tool` by exact name — the prompt names
 tools by exact id (`toolNameMap` spans both surfaces) that are not in the
 model's callable list until discovered, and without that sentence the model
 resolves the contradiction the wrong way.
 `BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE` (appended to every skill activation
 result, with its space RESERVED inside the activation budget so truncation
 can never slice it off) carries the same recovery clause for
-`runSkillScript`, self-gated on `search_tools` being available.
+`runSkillScript`, self-gated on `load_tool` being available.
 
 **"NEXT TURN" MEANS THE NEXT MODEL STEP OF THE SAME RESPONSE — say so
-explicitly.** Mastra's `search_tools` copy (its injected system line, its
-tool description, and its result message) says a match is "available on your
-next turn". In chat vocabulary a turn is a user message. The 2026-09-02 live
-Linear write proof failed on exactly that reading: `search_tools` loaded
+explicitly.** Mastra's loading copy says a loaded tool is "available on your
+next turn" (under the retired auto-load it was `search_tools`' system line,
+description, and result; under manual loading it is `load_tool`'s success
+result). In chat vocabulary a turn is a user message. The 2026-09-02 live
+Linear write proof failed on exactly that reading: `search_tools` (then
+auto-loading) loaded
 `linear.save_issue`, the loaded definition was in the very next step
 (`mastra_tool_discovery_step` reported it), and the model still ended its
 reply with "I'll create the Linear issue once the ticket integration finishes
@@ -4977,17 +4990,20 @@ chat that "stopped after the tool call" with no error anywhere. No runtime
 layer was involved. Every Brainstrike-owned surface therefore says "callable
 on your next step in this same response" and forbids ending the reply to
 wait: the instructions' discovery line pins the meaning of "next turn", the
-`search_tools` description says "same response", the skill execution
-guidance says the same, and `wrapSearchTelemetry` REPLACES Mastra's result
-sentence with `describeLoadedSearchResult` (ranked list untouched). Mastra's
-injected system line is the one surface Brainstrike does not own; the
-instructions' definition is what neutralizes it. Pinned by
+`search_tools` result (`describeSearchMatches`, ranked list untouched) says
+matches are not loaded yet and to call `load_tool` with the exact name, the
+skill execution guidance says the same, and `wrapLoadTool` rewrites Mastra's
+`load_tool` success sentence (`describeLoadResult`) while leaving its failure
+copy — not found, "Did you mean" — verbatim, since there is nothing to call.
+Mastra's injected system line is the one surface Brainstrike does not own; in
+manual mode it says only that tools must be loaded before use, and the
+instructions' definition is what neutralizes any "next turn" reading. Pinned by
 `default-instructions.spec.ts`, `tool-search-runtime.spec.ts`, and
 `skill-tools.spec.ts`.
 
 **THE BATCHING EXEMPTION LIVES ON THE BATCHING LINE — do not relitigate.** A
-loaded match is callable only on the FOLLOWING model step, so batching `search_tools`
-with slow calls strands the discovery for their whole duration: an observed run
+loaded tool is callable only on the FOLLOWING model step, so batching `search_tools`
+or `load_tool` with slow calls strands the discovery for their whole duration: an observed run
 issued it alongside two delegations that took ~15 minutes each, then spent three
 `search_tools` calls locating one tool the user had named explicitly. The
 exemption is therefore carried by `buildParallelCallInstruction`, NOT only by
@@ -4999,7 +5015,7 @@ CONDITIONAL on discovery being installed, so a run without it is never told
 about a tool it does not have. Stated once: repeating it on the discovery line
 spends prompt budget saying the same thing.
 
-Making a match callable in the turn that found it is Mastra's tool-search
+Making a loaded tool callable on the step after `load_tool` is Mastra's tool-search
 contract, not ours; the ordering advice is the half Brainstrike owns. The live matrix passes that processor through Mastra
 `runEvals.targetOptions`: Brainstrike owns input processors at the per-call
 stream seam, so targeting the bare Agent without those options is not a valid
@@ -5024,22 +5040,22 @@ resume lookup to return both without durable recall. If a future Mastra release
 permits a partial non-empty set, update the adapter to merge the post-gate
 durable and delegate sets deterministically; do not add a speculative fallback.
 
-Mastra owns the fixed `search_tools` catalog meta-tool id; Brainstrike owns
-`list_available_tools`. When a surviving
+Mastra owns the fixed `search_tools` and `load_tool` catalog meta-tool ids;
+Brainstrike owns `list_available_tools`. When a surviving
 eager/core or deferred definition has an original id whose canonical sanitized
-form is either reserved id (including `search.tools` and
-`list.available.tools`), a run with deferred catalog
+form is any of the three reserved ids (including `search.tools`, `load.tool`,
+and `list.available.tools`), a run with deferred catalog
 discovery throws `mastra_agent_tool_name_collision` before constructing the
 Agent. The error reports only the original, sanitized, and reserved ids. A run
 with no deferred definitions installs no catalog processor and preserves a
-caller-owned `search_tools`; never rename the collision, disable discovery, or
-widen the eager surface silently.
-Brainstrike configures `search.autoLoad: true`, so Mastra omits its optional
-`load_tool` meta-tool and a caller-owned `load_tool` (including `load.tool`
-after sanitization) remains valid alongside catalog discovery. If discovery is
-ever changed to manual loading, reserve `load_tool` and update the compatibility
-tests in that same change.
-Persisted `search_tools` results reconstruct loaded definitions after restart;
+caller-owned `search_tools` or `load_tool`; never rename the collision, disable
+discovery, or widen the eager surface silently.
+`load_tool` joined the reserved set in BST-1667 when discovery moved to manual
+loading (`search.autoLoad: false`); `MASTRA_CATALOG_META_TOOL_IDS` in
+`runtime-assembly/tool-pipeline.ts` is the single list, and the compatibility
+tests cover all three ids.
+Persisted `load_tool` results (and legacy auto-load `search_tools` results on
+threads recorded before BST-1667) reconstruct loaded definitions after restart;
 approval and suspended-tool resume rehydrate those definitions from the durable
 Mastra thread before the paused call reaches execution. Anonymous calls never
 share a default store. A loaded-set shrink within one runtime/thread (for
@@ -5168,8 +5184,8 @@ test's comment ledger. The live actual Mastra/OpenRouter core surface and
 resolved instructions must stay between 2,000 and 5,000 tokens, materially
 below the retired 11,500-token eager boundary. A real
 Mastra-loop capture separately proves the first provider request contains that
-core plus `search_tools` and `list_available_tools`, and that a later request appends the discovered
-definition. Dynamically loaded definitions are append-only within the active
+core plus `search_tools`, `load_tool`, and `list_available_tools`, and that a later request appends the
+definition loaded by `load_tool`. Dynamically loaded definitions are append-only within the active
 context and counted by the last-position token limiter.
 
 Both count schemas and instructions for their declared surfaces, not descriptions

@@ -9,8 +9,8 @@ each deferred to. The historical audit those tickets cite now lives at
 `docs/archive/mastra-agent-system-docs-catch-up-2026-05-29.md` (moved by BST-750,
 #1963); it recorded the deferral, never a decision.
 
-Verified against `@mastra/core@1.59.0` and `@mastra/memory@1.26.0` — the only
-installed `@mastra/*` packages (`@mastra/schema-compat` is transitive).
+Verified against `@mastra/core@1.64.0` and `@mastra/memory@1.28.2` — the only
+installed `@mastra/*` packages (`@mastra/schema-compat@1.3.8` is transitive).
 
 ## SCOPE AND STATUS
 
@@ -235,7 +235,7 @@ Mastra output is adapted into it. Mastra's AI SDK UI stream and route layer is
 not adopted, regardless of AI SDK version.**
 
 The accepted baseline is AI SDK v7 provider packages (provider v4) with
-`@mastra/core` 1.59. Brainstrike adopts their model/provider capabilities while
+`@mastra/core` 1.64. Brainstrike adopts their model/provider capabilities while
 continuing to own HTTP transport, stream mapping, persistence, and UI contracts.
 
 Two stages, and both are Brainstrike-owned:
@@ -306,14 +306,23 @@ still casts to a *local* `MastraStreamPart` interface rather than importing
 Mastra's union, so the compiler cannot see drift at all. Fixing that is the
 substance of this policy.
 
-Scale of the current gap, measured against `dist/stream/types.d.ts:994`:
+Scale of the current gap, re-measured against the 1.64.0
+`dist/stream/types.d.ts:1048` (`ChunkType`) for BST-1667:
 
 | Union | Members | Handled |
 | --- | --- | --- |
-| `AgentChunkType` (`:769`) | 43 | 17 |
-| `WorkflowStreamEvent` (`:898`) | 11 | 0 |
-| `NetworkChunkType` (`:683`) | 27 | 0 |
-| `DataChunkType` (`:676`) | `data-${string}` | 2 Brainstrike-owned |
+| `AgentChunkType` (`:807`) | 46 | 18 |
+| `WorkflowStreamEvent` (`:949`) | 11 | 0 |
+| `NetworkChunkType` (`:721`) | 27 | 0 |
+| `DataChunkType` (`:714`) | `data-${string}` | 2 Brainstrike-owned |
+
+Members are the `type:` literals of each union; Handled counts the
+`'mapped'` entries of `MASTRA_STATIC_CHUNK_DISPOSITIONS` among them. By that
+same method the previously installed 1.59.0 dist measures 44 / 18 (the earlier 43 / 17
+predates 1.59 and its line references no longer resolved). 1.64 therefore
+adds exactly two `AgentChunkType` members, `custom` and `reasoning-file`, and
+changes nothing handled: the compile-time guard caught both, as designed, and
+each is dispositioned `ignored`.
 
 The static inventory records an explicit `'mapped' | 'ignored'` disposition,
 not mere presence. An unhandled dynamic-family member has no disposition and
@@ -610,7 +619,33 @@ with zero `require`/`import` of it in any `.js`/`.cjs`. No HTTP surface is
 gained, so R1 stands unchanged. Both browser bundles still externalize
 `@mastra/core` and `/^@mastra\//`.
 
-### `@mastra/memory` IS HELD AT 1.26.0 — DO NOT BUMP IT WITH CORE (BST-1320)
+### `@mastra/memory` hold at 1.26.0 (BST-1320) — SUPERSEDED BY BST-1667
+
+**Superseded by BST-1667 (2026-09-06):** `@mastra/memory` is now pinned at
+1.28.2 alongside `@mastra/core` ^1.64.0. The record below is the 1.26.0/1.26.2
+A/B as measured on core 1.59.0 and is kept as the diagnosis of the
+observational-memory stall; it no longer describes the installed pin.
+
+**Measured on core 1.64.0 + memory 1.28.2 (2026-09-06, BST-1667):** (1) the
+race's SOURCE identified below — core's unawaited post-run `DELETE FROM
+mastra_workflow_snapshot` — is gone in core 1.64: `deleteRunSnapshots()` is
+awaited before `safeClose(controller)` on every terminal path of the agentic
+loop (timeout, failed, non-suspended, success), so that statement can no longer
+be in flight when a caller closes after consuming the stream. (2) Mastra >= 1.62
+adds `Memory.settled()` ("Resolve once all background work this memory started
+has finished… Callers that own the storage connection should await this before
+closing it"); in `@mastra/memory` it joins the observational-memory engine's
+background observer/reflector work, and
+`mastra-memory-persistence.integration.spec.ts` now awaits it in `afterEach`
+before `database.close()` — a run without it logged
+`[OM] Async buffered reflection failed: Error: PGlite is closed`, the
+clean-rejection arm of the same race. (3) The full `packages/agent` unit and
+integration lanes ran to completion on this pin with no wedge (integration
+245s, 37 files). (4) The hazard is NOT gone in general: forcing the abort seam
+in `packages/agent/src/mastra/aborted-turn-persistence.ts` off (`shouldPersist`
+false) still wedged the worker, so the seam's awaited `saveMessages` remains a
+required join on abort paths, and `MessageHistory`'s abort-time write is not
+covered by `settled()`. pglite#1084 and mastra#21617 below remain open upstream.
 
 `@mastra/core` moved to ^1.59.0 here; `@mastra/memory` deliberately did NOT move
 with it. **1.26.2 hangs the observational-memory suite forever.** Measured A/B,
