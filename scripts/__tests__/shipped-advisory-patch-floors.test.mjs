@@ -28,6 +28,15 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 // should pick the patched version unaided; this guard exists for when it does
 // not, because here silence and safety look identical.
 //
+// SUPERSEDES `undici-7x-patch-floor.test.mjs`, deleted in the same commit. That
+// file guarded undici alone; this table is a strict superset of it — same 7.x
+// scoping, same 7.29.0 floor, plus fast-uri and js-yaml — and it carries the
+// loud-parse assertion the old file gained in review. The pairing is spelled out
+// here because a deletion and its replacement are only self-evidently safe when
+// a reader can see both: the two were briefly on main together after a squash
+// re-added the old file (its delete shared no history with main's copy), and
+// neither PR diff revealed it.
+//
 // Remedy when this fails: `pnpm update <package> -r` — but scope it to the line
 // the entry covers when one is given, e.g. `pnpm update "undici@^7" -r`. The
 // bare repo-wide form also moves copies on other major lines (it moved undici
