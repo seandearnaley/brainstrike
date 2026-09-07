@@ -441,6 +441,14 @@ dropping the file.
   "sandbox-runtime dependencies are missing". That is the whole point of the
   check: a green `Unit` alone would have been consistent with 27 quiet skips.
 
+  On citing a run at all: a bump log can never name the run for its own final
+  head, because writing the citation creates a new head. The evidence of record
+  is therefore the run for the commit that **moved the pin** — everything after
+  it in the PR is prose, and prose cannot change sandbox behaviour. Re-confirmed
+  anyway on the following head `e0554f73` (run 34144370721, same job and step):
+  `✓ fence-escape-resistance.integration.spec.ts (32 tests) 22120ms`, zero
+  skips. A future bumper should cite the pin-moving commit and stop there.
+
   One honest caveat the Linux run itself logged, twice: `~/.ssh does not exist
   on this host, so the allowWrite/allowRead containment refusal was proven only
   as "refused"`, not as "refused *for re-opening a store*". The CI runner has no
