@@ -2,7 +2,7 @@
 // Usage: node scripts/probe-claude-review-tools.mjs /absolute/path/to/claude
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -14,8 +14,19 @@ export async function main({ claudeBinary: binary }) {
   const version = execFileSync(binary, ['--version'], { encoding: 'utf8' }).trim();
   assert.equal(version, '2.1.261 (Claude Code)', 'Use the version installed by the pinned action.');
   const directory = mkdtempSync(path.join(tmpdir(), 'claude-review-tools-'));
+  const workspace = path.join(directory, 'workspace');
+  const captureDirectory = path.join(directory, 'capture');
+  const outside = path.join(directory, 'outside');
+  for (const created of [workspace, captureDirectory, outside]) {
+    mkdirSync(created, { recursive: true });
+  }
   const privateData = 'PRIVATE_FILE_MUST_NOT_BE_READ';
-  writeFileSync(path.join(directory, 'private.txt'), privateData);
+  const privateFile = path.join(outside, 'private.txt');
+  writeFileSync(privateFile, privateData);
+  // The diff the model is supposed to reach, and the only file it should reach.
+  const capturedData = 'diff --git a/x b/x\n+CAPTURED_DIFF_MUST_BE_READ\n';
+  const capturedFile = path.join(captureDirectory, 'captured-diff.txt');
+  writeFileSync(capturedFile, capturedData);
   const requests = [];
   const result = { reviewed: true };
   const server = http.createServer(async (request, response) => {
@@ -30,15 +41,29 @@ export async function main({ claudeBinary: binary }) {
     }
     const data = JSON.parse(body);
     requests.push(data);
-    const first = requests.length === 1;
-    const content = first
-      ? {
-          id: 'toolu_attempt',
-          input: { command: `cat ${directory}/private.txt` },
-          name: 'Bash',
-          type: 'tool_use',
-        }
-      : { id: 'toolu_result', input: result, name: 'StructuredOutput', type: 'tool_use' };
+    const content =
+      requests.length === 1
+        ? {
+            id: 'toolu_bash',
+            input: { command: `cat ${privateFile}` },
+            name: 'Bash',
+            type: 'tool_use',
+          }
+        : requests.length === 2
+          ? {
+              id: 'toolu_outside',
+              input: { file_path: privateFile },
+              name: 'Read',
+              type: 'tool_use',
+            }
+          : requests.length === 3
+            ? {
+                id: 'toolu_capture',
+                input: { file_path: capturedFile },
+                name: 'Read',
+                type: 'tool_use',
+              }
+            : { id: 'toolu_result', input: result, name: 'StructuredOutput', type: 'tool_use' };
     const message = {
       content: [],
       id: `msg_${requests.length}`,
@@ -83,8 +108,10 @@ export async function main({ claudeBinary: binary }) {
         '--model',
         'claude-opus-5',
         '--max-turns',
-        '3',
+        '6',
         ...claudeReviewToolArgs,
+        '--add-dir',
+        captureDirectory,
         '--json-schema',
         JSON.stringify({
           additionalProperties: false,
@@ -96,7 +123,7 @@ export async function main({ claudeBinary: binary }) {
         'json',
       ],
       {
-        cwd: directory,
+        cwd: workspace,
         // Fake credential and localhost API only. Never inherit real provider credentials.
         env: {
           ANTHROPIC_API_KEY: 'local-test-key',
@@ -104,6 +131,7 @@ export async function main({ claudeBinary: binary }) {
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
           CLAUDE_CONFIG_DIR: directory,
           DISABLE_AUTOUPDATER: '1',
+          HOME: directory,
           PATH: process.env.PATH,
           SHELL: process.env.SHELL,
           USER: process.env.USER,
@@ -127,23 +155,31 @@ export async function main({ claudeBinary: binary }) {
     assert.equal(code, 0, `CLI failed: ${stderr}\n${stdout}`);
     assert.equal(
       requests.length,
-      2,
-      'Expected one denied tool call followed by structured completion.'
+      4,
+      'Expected Bash denied, out-of-grant Read denied, in-grant Read served, then completion.'
     );
+    // Read is a capability the review now needs; Bash and everything else in the
+    // built-in set must stay absent, because --tools is the only hard cap.
     for (const request of requests) {
-      assert.deepEqual(
-        request.tools.map((tool) => tool.name),
-        ['StructuredOutput']
-      );
+      assert.deepEqual(request.tools.map((tool) => tool.name).sort(), ['Read', 'StructuredOutput']);
     }
     assert.match(JSON.stringify(requests[1].messages), /No such tool available: Bash/);
+    // Read exists, so the boundary is now the directory grant rather than the
+    // tool list: a path outside the working directory and the capture directory
+    // must still fail, and its contents must never reach the model.
     assert.ok(
       !JSON.stringify(requests).includes(privateData),
-      'The CLI must not read the private file.'
+      'Read must not serve a file outside the working and capture directories.'
+    );
+    // The positive half: the handoff must actually deliver the captured diff,
+    // or the review would silently have nothing to review.
+    assert.ok(
+      JSON.stringify(requests[3].messages).includes('CAPTURED_DIFF_MUST_BE_READ'),
+      'Read must serve the captured diff from the granted capture directory.'
     );
     assert.deepEqual(JSON.parse(stdout).structured_output, result);
     console.log(
-      `${version}: Bash execution rejected; private file unread; only StructuredOutput exposed; structured completion passed.`
+      `${version}: Bash absent; out-of-grant read refused; captured diff served from the granted directory; only Read and StructuredOutput exposed; structured completion passed.`
     );
   } finally {
     server.closeAllConnections();

@@ -19,6 +19,7 @@ function fixture(
     baseRef = 'main',
     baseRepo = 'owner/repo',
     diffBytes = 0,
+    focus = 'Verify the workflow trust boundary',
   } = {}
 ) {
   const dir = mkdtempSync(path.join(tmpdir(), 'claude-review-'));
@@ -31,7 +32,7 @@ function fixture(
     state: 'open',
   };
   const event = {
-    inputs: { expected_head: head, focus: 'Verify the workflow trust boundary', pr_number: '42' },
+    inputs: { expected_head: head, focus, pr_number: '42' },
     pull_request: pr,
     repository: { default_branch: 'main' },
   };
@@ -49,6 +50,7 @@ function fixture(
     GITHUB_SHA: trusted,
     GITHUB_STEP_SUMMARY: path.join(dir, 'summary'),
     GITHUB_WORKFLOW_REF: `owner/repo/.github/workflows/claude-code-review.yml@${eventName === 'workflow_dispatch' ? 'refs/heads/main' : 'refs/pull/42/merge'}`,
+    GITHUB_WORKSPACE: path.join(dir, 'workspace'),
     REVIEW_OUTPUT: JSON.stringify({
       base_sha: base,
       completed: true,
@@ -79,6 +81,8 @@ function fixture(
   };
   return {
     calls,
+    capturedDiff: () =>
+      readFileSync(path.join(dir, 'claude-review-capture', 'captured-diff.txt'), 'utf8'),
     env,
     event,
     gh,
@@ -145,7 +149,7 @@ test('a pull_request run must execute its own merge ref, not some other ref', (t
 });
 
 test('an oversized diff is refused visibly with its size instead of crashing the action', (t) => {
-  const f = fixture(t, { diffBytes: 120 * 1024 });
+  const f = fixture(t, { diffBytes: 520 * 1024 });
   assert.equal(prepareReview(f), 0);
   assert.match(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'), /eligible<<[^\n]+\nfalse\n/);
   assert.equal(reportReview(f), 1);
@@ -196,7 +200,7 @@ test('targeted trusted dispatch can review workflow self-change without PR code 
   const outputs = readFileSync(f.env.GITHUB_OUTPUT, 'utf8');
   assert.match(outputs, /eligible<<[^\n]+\ntrue\n/);
   assert.match(outputs, /Verify the workflow trust boundary/);
-  assert.match(outputs, /captured diff/);
+  assert.match(outputs, /captured-diff\.txt/);
   assert.equal(reportReview(f), 0);
   assert.match(f.summary(), /Scope: targeted/);
 });
@@ -302,17 +306,74 @@ test('truncated changed-file inventory cannot hide an orchestration change', (t)
   assert.match(f.summary(), /changed-file inventory is incomplete/);
 });
 
-test('review has no model execution or file tools and returns structured output', (t) => {
+test('review grants Read and nothing else, and only over the capture directory', (t) => {
   const f = fixture(t, { eventName: 'workflow_dispatch' });
   prepareReview(f);
   const outputs = readFileSync(f.env.GITHUB_OUTPUT, 'utf8');
   assert.doesNotMatch(outputs, /mcp__github_inline_comment__/);
-  assert.match(outputs, /--tools=/);
+  // --tools is the hard cap on the built-in set; assert the exact pair, because
+  // "--tools" "Read,Bash" would still satisfy a bare /--tools/ match.
+  assert.match(outputs, /"--tools" "Read" "--allowedTools" "Read"/);
+  assert.doesNotMatch(outputs, /"Bash"/);
   assert.match(outputs, /--disallowedTools" "mcp__\*"/);
   assert.match(outputs, /--strict-mcp-config/);
   assert.match(outputs, /--json-schema/);
-  assert.match(outputs, /CAPTURED DIFF/);
-  assert.match(outputs, /diff --git/);
+  // Exactly one directory is granted, it is the capture directory, and it lives
+  // under RUNNER_TEMP rather than in the PR-authored workspace checkout.
+  const granted = [...outputs.matchAll(/"--add-dir" "([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(granted, [path.join(f.env.RUNNER_TEMP, 'claude-review-capture')]);
+  // The PR-authored checkout is never the capture location: a path there could
+  // already be occupied by the very diff under review.
+  assert.notEqual(f.env.RUNNER_TEMP, f.env.GITHUB_WORKSPACE);
+  for (const directory of granted) {
+    assert.ok(
+      !directory.startsWith(f.env.GITHUB_WORKSPACE),
+      `${directory} is inside the workspace`
+    );
+  }
+});
+
+test('the diff travels as a file, byte-identical, and never through the prompt', (t) => {
+  const f = fixture(t, { diffBytes: 120 * 1024 });
+  // 120 KiB was refused outright under the environment-variable budget.
+  assert.equal(prepareReview(f), 0);
+  assert.match(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'), /eligible<<[^\n]+\ntrue\n/);
+  const captured = f.capturedDiff();
+  assert.match(captured, /^diff --git a\/test\.txt b\/test\.txt\n/);
+  assert.ok(Buffer.byteLength(captured, 'utf8') > 120 * 1024);
+  const outputs = readFileSync(f.env.GITHUB_OUTPUT, 'utf8');
+  // The prompt names the file and its exact size, and carries none of its content.
+  assert.doesNotMatch(outputs, /diff --git/);
+  assert.match(outputs, new RegExp(`${Buffer.byteLength(captured, 'utf8')} bytes`));
+  assert.match(outputs, /captured-diff\.txt/);
+  assert.match(outputs, /Read it in full/);
+});
+
+test('the prompt stays far below the environment cap even at maximum focus', (t) => {
+  // Nothing in the prompt scales with the PR any more, so the 128 KiB
+  // MAX_ARG_STRLEN cap is unreachable by construction rather than by budget.
+  // This fails the moment diff content re-enters the prompt, which is the only
+  // way that cap could come back.
+  const f = fixture(t, {
+    diffBytes: 400 * 1024,
+    eventName: 'workflow_dispatch',
+    focus: 'F'.repeat(2000),
+  });
+  assert.equal(prepareReview(f), 0);
+  const emitted = /prompt<<(\S+)\n([\s\S]*?)\n\1\n/.exec(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'));
+  assert.ok(emitted, 'the prepared prompt must be emitted');
+  assert.ok(
+    Buffer.byteLength(emitted[2], 'utf8') < 8 * 1024,
+    `prompt grew to ${Buffer.byteLength(emitted[2], 'utf8')} bytes`
+  );
+  assert.ok(Buffer.byteLength(f.capturedDiff(), 'utf8') > 400 * 1024);
+});
+
+test('a focus beyond the fixed cap is refused before Claude runs', (t) => {
+  const f = fixture(t, { eventName: 'workflow_dispatch', focus: 'F'.repeat(2001) });
+  assert.equal(prepareReview(f), 1);
+  assert.equal(reportReview(f), 1);
+  assert.match(f.summary(), /at most 2000 characters/);
 });
 
 for (const invalid of [
