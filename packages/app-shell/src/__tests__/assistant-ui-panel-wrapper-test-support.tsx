@@ -410,12 +410,10 @@ vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', async (impo
     activeTab: string;
     openSettings: () => void;
     setActiveTab: (tab: string) => void;
-    settingsOpen: boolean;
   }>((set) => ({
     activeTab: 'explorer',
-    openSettings: () => set({ settingsOpen: true }),
+    openSettings: () => set({ activeTab: 'settings' }),
     setActiveTab: (tab: string) => set({ activeTab: tab }),
-    settingsOpen: false,
   }));
 
   return {

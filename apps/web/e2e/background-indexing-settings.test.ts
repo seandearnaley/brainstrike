@@ -134,7 +134,7 @@ test.describe('Background indexing settings (web) @stateful @web-settings-state'
     await openSearchIndexingSettings(page);
     await selectManagedCollection(page, collectionName);
 
-    await home.closeSettings();
+    await home.leaveSettings();
     await home.navigateToHome();
     await ensureDatabasePanelVisible(page);
 

@@ -6,9 +6,9 @@ import { expect, test } from './fixtures/electron-fixture';
  * now live inside the provider card they belong to, so every credential
  * assertion here first expands that card.
  *
- * Note the settings-modal contract: while the dialog is open, an unscoped
- * `getByRole` can match the app sidebar behind it, so nav lookups stay scoped
- * to the "Settings categories" navigation.
+ * Nav lookups stay scoped to the "Settings categories" navigation so the app
+ * rail's own "Settings" button (Settings is a nav-rail route, BST-1668) can
+ * never satisfy a category locator.
  */
 async function openProvidersCategory(window: Page): Promise<void> {
   await expect(window.getByRole('navigation', { name: 'Settings categories' })).toBeVisible();
@@ -56,8 +56,9 @@ test.describe('Provider Hub Settings', { tag: '@smoke' }, () => {
     await expect(window.getByTestId('credential-replace-openai')).toHaveCount(0);
     await expect(window.getByTestId('credential-remove-openai')).toHaveCount(0);
 
-    await window.keyboard.press('Escape');
-    await expect(window.getByRole('navigation', { name: 'Settings categories' })).not.toBeVisible();
+    // Settings is a nav-rail route (BST-1668): leave it the way a user does,
+    // via the rail, not with Escape (which only ever dismissed the old dialog).
+    await homePage.leaveSettings();
 
     const modelPicker = window.getByTestId('composer-model-menu-trigger');
     await expect(modelPicker).toBeEnabled();
@@ -157,7 +158,7 @@ test.describe('Provider Hub Settings', { tag: '@smoke' }, () => {
     await keyInput.fill('tvly-discarded');
     await window.keyboard.press('Escape');
 
-    // The editor closed, nothing saved, and the settings dialog stayed open.
+    // The editor closed, nothing saved, and the settings route stayed active.
     await expect(window.getByTestId('credential-editor-tavily')).toHaveCount(0);
     await expect(window.getByTestId('credential-status-tavily')).toContainText('Not set');
     await expect(window.getByRole('navigation', { name: 'Settings categories' })).toBeVisible();

@@ -1,13 +1,14 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import {
-  assertSettingsModalClosed,
-  closeSettingsModal,
+  activateSidebarNavigation,
   contextExplorerActiveNavLocator,
-  openSettingsModal,
+  leaveSettingsPage,
+  mainNavigationButtonLocator,
+  openSettingsPage,
   profileMenuButtonLocator,
+  settingsHeadingLocator,
   settingsMenuItemLocator,
-  settingsModalHeadingLocator,
   type WaitForAppLoadOptions,
   waitForAppLoad,
   waitForContextExplorerPage,
@@ -31,17 +32,16 @@ export class HomePage {
   }
 
   get settingsHeading(): Locator {
-    return settingsModalHeadingLocator(this.page);
+    return settingsHeadingLocator(this.page);
   }
 
   get contextExplorerNavButton(): Locator {
-    return this.page.getByRole('button', { exact: true, name: 'Context Explorer' });
+    return mainNavigationButtonLocator(this.page, 'Context Explorer');
   }
 
   /**
-   * Settings is launched from the account/profile dropdown, not the sidebar.
-   * `RootLayoutContent` filters the `/settings` item out of `navigationItems`,
-   * so no top-level Settings nav button exists.
+   * The account/profile dropdown also carries a "Settings…" entry that lands on
+   * the same route as the nav-rail item.
    */
   get profileMenuButton(): Locator {
     return profileMenuButtonLocator(this.page);
@@ -62,23 +62,21 @@ export class HomePage {
   }
 
   async navigateToSettings(): Promise<void> {
-    await openSettingsModal(this.page);
+    await openSettingsPage(this.page);
     await waitForSettingsPage(this.page);
   }
 
   /**
-   * Dismiss the Settings modal and wait for it to unmount. Fails loudly when the
-   * modal is not actually open so callers cannot drift out of sync with the UI.
+   * Leave the Settings route for the Context Explorer and wait for the settings
+   * page to be hidden. Fails loudly when Settings is not the active route so
+   * callers cannot drift out of sync with the UI.
    */
-  async closeSettings(): Promise<void> {
-    await closeSettingsModal(this.page);
+  async leaveSettings(): Promise<void> {
+    await leaveSettingsPage(this.page);
   }
 
   async navigateToHome(): Promise<void> {
-    // Surface an open modal explicitly instead of silently dismissing it, which
-    // would let a test pass with the UI in an unexpected state.
-    await assertSettingsModalClosed(this.page, 'navigateToHome()');
-    await this.contextExplorerNavButton.click();
+    await activateSidebarNavigation(this.page, 'Context Explorer');
     await waitForContextExplorerPage(this.page);
   }
 }

@@ -92,7 +92,7 @@
     Tavily: `TAVILY_API_KEY`), a `Stored` / `Env (VAR)` / muted `Not set`
     status, and for stored keys the non-secret `…last4` + saved-date
     fingerprint. Editing is an inline expanded row (Enter saves, Escape
-    cancels via a window-capture listener so the settings dialog stays open;
+    cancels via a window-capture listener so no enclosing surface reacts;
     registry `keyNotes`/`keyFormatHint`/`docsUrl` render inside the editor).
     Env rows are read-only with a lock — the env var is authoritative, so
     mutation buttons never render inert. The `aws` authType renders a TWO-MODE
@@ -2527,7 +2527,7 @@ The consent surface is one IPC seam plus one app-wide modal:
   presentation with `mcp-elicitation-presenter-unavailable`; with no listener
   attached an inbound request fails closed the same way. There is no auto-accept.
 - `McpElicitationHost` (`@brainstrike/settings-ui`, mounted app-wide in
-  app-shell's root layout beside the Settings dialog) resolves the three bridge
+  app-shell's root layout beside the shell routes) resolves the three bridge
   members by capability, queues presentations oldest-first, and renders one
   `McpElicitationDialog` at a time. The dialog is non-dismissible (no corner
   close, Escape and outside clicks ignored), names the provenance in its
