@@ -770,8 +770,11 @@ describe('mastra memory persistence through the live stream path', () => {
   });
 
   afterEach(async () => {
-    await settleTrackedMemories();
-    await database.close();
+    try {
+      await settleTrackedMemories();
+    } finally {
+      await database.close();
+    }
   });
 
   it('persists a user-cancelled turn without incomplete work or tool re-execution', async () => {
@@ -863,6 +866,10 @@ describe('mastra memory persistence through the live stream path', () => {
       // lands: the stalled attempt's partial text is its own assistant row.
       // Brainstrike's seam keeps the completed tool work, filters incomplete
       // tool calls, and appends the marker; it no longer excludes the tail.
+      // Ordering is not a race: Mastra issues that write on the abort, before
+      // the stream terminates, and PGlite executes statements FIFO on the one
+      // connection, so the seam's awaited save (issued after termination)
+      // cannot complete ahead of it.
       expect(abortedRows.map((row) => row.role)).toEqual(['user', 'assistant', 'assistant']);
       const abortedRecord = JSON.stringify(abortedRows);
       expect(abortedRecord).toContain('call-watchdog');

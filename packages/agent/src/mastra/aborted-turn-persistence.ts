@@ -51,8 +51,9 @@ function assistantContent(parts: MastraMessagePart[]): MastraMessageContentV2 {
  * docs/agents/mastra-boundary.md).
  *
  * Content rule: everything Mastra persists is kept — re-saving the same ids is
- * an upsert of identical content — EXCEPT tool invocations that never
- * completed. Mastra filters partial tool calls from its own write, and this
+ * an upsert of the same parts, deliberately re-stamped with a `createdAt` at
+ * or after "now" so the snapshot orders last — EXCEPT tool invocations that
+ * never completed. Mastra filters partial tool calls from its own write, and this
  * seam must not re-introduce one, or Stop could resurrect execution on the
  * next turn. Partial text is retained: dropping it here cannot remove the row
  * Mastra already wrote, and a snapshot that disagrees with the UI's transcript

@@ -272,6 +272,58 @@ describe('BrainstrikeToolSearchProcessor', () => {
       alreadyLoaded: [DEFERRED_TOOL_ID],
       notFound: ['brainstrike_nope'],
     });
+    // Mastra's batch result shape the wrapper reads (review of #3049).
+    expect(typeof batch?.message).toBe('string');
+    expect(typeof batch?.success).toBe('boolean');
+  });
+
+  it('rewrites the copy of a mixed batch that loaded something even though Mastra reports success:false', async () => {
+    const secondTool = createTool({
+      description: 'Read a file from the active workspace.',
+      execute: async () => ({ content: 'hello' }),
+      id: SECOND_DEFERRED_TOOL_ID,
+      inputSchema: z.object({}),
+    });
+    const processor = new BrainstrikeToolSearchProcessor({
+      deferredTools: {
+        [DEFERRED_TOOL_ID]: createDeferredTool(),
+        [SECOND_DEFERRED_TOOL_ID]: secondTool,
+      },
+      model: 'openai/gpt-5.6-terra',
+      toolNameMap: new Map([
+        [DEFERRED_TOOL_ID, 'brainstrike.listWorkspaceContext'],
+        [SECOND_DEFERRED_TOOL_ID, 'brainstrike.readWorkspaceFile'],
+      ]),
+    });
+    const args = createStepArgs({ threadId: 'mixed-batch' });
+    const { tools } = await processor.processInputStep(args);
+    const batch = await tools.load_tool.execute?.({
+      toolNames: [SECOND_DEFERRED_TOOL_ID, 'brainstrike_nope'],
+    });
+    expect(batch).toMatchObject({
+      loaded: [SECOND_DEFERRED_TOOL_ID],
+      notFound: ['brainstrike_nope'],
+      success: false,
+    });
+    expect(batch?.message).toContain('next step in this same response');
+    expect(batch?.message).not.toContain('next turn');
+    const next = await processor.processInputStep({ ...args, stepNumber: 1 });
+    expect(Object.keys(next.tools)).toContain(SECOND_DEFERRED_TOOL_ID);
+  });
+
+  it('refuses an exact name that is eligible but not in the deferred catalog', async () => {
+    // load_tool can only select from the post-gate catalog the processor was
+    // built with; a core (eager) tool or a gated-out tool is simply absent,
+    // so exact-name loading widens nothing the fuzzy path did not already
+    // reach (review of #3049).
+    const processor = createProcessor();
+    const args = createStepArgs({ threadId: 'ineligible' });
+    const { tools } = await processor.processInputStep(args);
+    await expect(
+      tools.load_tool.execute?.({ toolName: 'brainstrike_executeCommand' })
+    ).resolves.toMatchObject({ success: false, toolName: 'brainstrike_executeCommand' });
+    const next = await processor.processInputStep({ ...args, stepNumber: 1 });
+    expect(Object.keys(next.tools)).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
   });
 
   it('pages a 61-tool catalog and loads an exact name from the last page', async () => {

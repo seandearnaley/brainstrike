@@ -317,10 +317,12 @@ Scale of the current gap, re-measured against the 1.64.0
 | `DataChunkType` (`:714`) | `data-${string}` | 2 Brainstrike-owned |
 
 Members are the `type:` literals of each union; Handled counts the
-`'mapped'` entries of `MASTRA_STATIC_CHUNK_DISPOSITIONS` among them. 1.64
-added two `AgentChunkType` members over 1.59, `custom` and `reasoning-file`;
-the compile-time guard caught both, as designed, and each is dispositioned
-`ignored`.
+`'mapped'` entries of `MASTRA_STATIC_CHUNK_DISPOSITIONS` among them. By that
+same method the installed 1.59.0 dist measures 44 / 18 (the earlier 43 / 17
+predates 1.59 and its line references no longer resolved). 1.64 therefore
+adds exactly two `AgentChunkType` members, `custom` and `reasoning-file`, and
+changes nothing handled: the compile-time guard caught both, as designed, and
+each is dispositioned `ignored`.
 
 The static inventory records an explicit `'mapped' | 'ignored'` disposition,
 not mere presence. An unhandled dynamic-family member has no disposition and
@@ -617,7 +619,7 @@ with zero `require`/`import` of it in any `.js`/`.cjs`. No HTTP surface is
 gained, so R1 stands unchanged. Both browser bundles still externalize
 `@mastra/core` and `/^@mastra\//`.
 
-### `@mastra/memory` IS HELD AT 1.26.0 — DO NOT BUMP IT WITH CORE (BST-1320)
+### `@mastra/memory` hold at 1.26.0 (BST-1320) — SUPERSEDED BY BST-1667
 
 **Superseded by BST-1667 (2026-09-06):** `@mastra/memory` is now pinned at
 1.28.2 alongside `@mastra/core` ^1.64.0. The record below is the 1.26.0/1.26.2

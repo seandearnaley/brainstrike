@@ -316,15 +316,23 @@ export class ToolRegistry {
     };
   }
 
+  // The values are discovery output from external MCP servers or persisted
+  // desktop records: the interface is a compile-time contract over
+  // runtime-shaped data, so the object guard stays (review of #3049).
   private extractDescription(tool: McpRegistrableTools[string]): string | undefined {
-    if ('description' in tool && tool.description !== undefined) {
+    if (
+      tool &&
+      typeof tool === 'object' &&
+      'description' in tool &&
+      tool.description !== undefined
+    ) {
       return String(tool.description);
     }
     return;
   }
 
   private extractInputSchema(tool: McpRegistrableTools[string]): unknown {
-    return 'inputSchema' in tool ? tool.inputSchema : undefined;
+    return tool && typeof tool === 'object' && 'inputSchema' in tool ? tool.inputSchema : undefined;
   }
 
   private isToolEnabledByDefault(toolId: string, filterConfig?: ToolFilterConfig): boolean {

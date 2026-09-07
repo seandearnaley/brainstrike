@@ -16,6 +16,7 @@ import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import { createSkillTools } from '@mastra/core/workspace';
 import type { z } from 'zod';
+import { sanitizeToolName } from '../mastra/tool-sanitizer';
 import {
   NATIVE_TOOL_RESULT_TOKEN_BUDGET,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
@@ -35,8 +36,22 @@ export const SKILL_TOOL_IDS = ['skill', 'skill_read', 'skill_search'] as const;
  * failure 2026-08-23). On non-discovery runs the tool is eager and the clause
  * is inert.
  */
-export const BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE =
-  '\n\nBrainstrike execution: run listed skill scripts with brainstrike.runSkillScript using literal args and mounted root/cwd — if that tool is not currently loaded, load it with load_tool using that exact name when available (it becomes callable on your next step in this same response — keep going and call it). Use brainstrike.writeWorkspaceFile for project writes; never construct shell heredocs. If the tool cannot be loaded or a script is declined, continue with native workspace tools and do not retry.';
+/**
+ * The MODEL-FACING names (review of #3049): the runtime registers native tools
+ * under their sanitized ids (`brainstrike_runSkillScript`, never the dotted
+ * canonical id — `sanitizeTools` rewrites `id` too), and `load_tool` matches
+ * exactly. Natives are sanitized before any MCP tool joins the map, so the
+ * sanitizer's base form IS the registered name; a hash suffix only ever lands
+ * on a later colliding registrant.
+ */
+const RUN_SKILL_SCRIPT_MODEL_NAME = sanitizeToolName(
+  NATIVE_TOOL_REGISTRIES.nativeToolId.runSkillScript
+);
+const WRITE_WORKSPACE_FILE_MODEL_NAME = sanitizeToolName(
+  NATIVE_TOOL_REGISTRIES.nativeToolId.writeWorkspaceFile
+);
+
+export const BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE = `\n\nBrainstrike execution: run listed skill scripts with ${RUN_SKILL_SCRIPT_MODEL_NAME} using literal args and mounted root/cwd — if that tool is not currently loaded, load it with load_tool using that exact name when available (it becomes callable on your next step in this same response — keep going and call it). Use ${WRITE_WORKSPACE_FILE_MODEL_NAME} for project writes; never construct shell heredocs. If the tool cannot be loaded or a script is declined, continue with native workspace tools and do not retry.`;
 
 /** Mirrors countTokensHeuristic (4 chars/token) — same unit as the guard. */
 const APPROX_CHARS_PER_TOKEN = 4;

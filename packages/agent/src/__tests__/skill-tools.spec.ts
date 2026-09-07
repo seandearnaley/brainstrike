@@ -61,8 +61,8 @@ describe('createAssistantSkillTools', () => {
     const tools = createAssistantSkillTools(inlineEngine('Run scripts/palette.mjs if useful.'));
     const output = String(await executeTool(tools.skill, { name: 'test-skill' }));
 
-    expect(output).toContain('brainstrike.runSkillScript');
-    expect(output).toContain('brainstrike.writeWorkspaceFile');
+    expect(output).toContain('brainstrike_runSkillScript');
+    expect(output).toContain('brainstrike_writeWorkspaceFile');
     expect(output).toMatch(/declined.*continue.*native workspace tools/is);
     expect(output).not.toMatch(/absolute skill path/i);
   });
@@ -154,6 +154,11 @@ describe('activation execution guidance', () => {
     const { BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE } = await import('../skills/skill-tools');
     expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toContain('load_tool');
     expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).not.toContain('search_tools');
+    // load_tool matches the REGISTERED (sanitized) id exactly; the dotted
+    // canonical id would return "not found" (review of #3049).
+    expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toContain('brainstrike_runSkillScript');
+    expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toContain('brainstrike_writeWorkspaceFile');
+    expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).not.toContain('brainstrike.runSkillScript');
     expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toContain('same response');
     expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).not.toContain('next turn');
   });

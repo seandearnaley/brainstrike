@@ -188,18 +188,18 @@ function describeSearchMatches(matchedToolNames: readonly string[], catalogSize:
 
 /**
  * Same correction for `load_tool`: Mastra's success copy ends "available on
- * your next turn". Failure copy (not found, "Did you mean") is left verbatim —
- * there is nothing to call, so the same-response sentence would be a lie.
+ * your next turn", in both its single form and its batch form ("Loaded: a, b
+ * — available on your next turn | Not found: c"). The replacement keys on
+ * that phrase, not on `success`: a mixed batch reports `success: false` while
+ * genuinely loading the found names, and those ARE callable next step
+ * (review of #3049). Copy without the phrase — a plain miss, "Did you mean" —
+ * passes through verbatim: there is nothing to call.
  */
-const LOAD_TOOL_NEXT_TURN_PATTERN = /\b(?:will be )?available on your next turn\b/g;
+const LOAD_TOOL_NEXT_TURN_PATTERN = /\b(?:will be )?available on your next turns?\b/g;
 const LOAD_TOOL_SAME_RESPONSE_CLAUSE =
   'callable on your next step in this same response: keep going and call it right away; do not end your reply to wait for loading';
 
 function describeLoadResult(message: string): string {
-  if (!LOAD_TOOL_NEXT_TURN_PATTERN.test(message)) {
-    return message;
-  }
-  LOAD_TOOL_NEXT_TURN_PATTERN.lastIndex = 0;
   return message.replace(LOAD_TOOL_NEXT_TURN_PATTERN, LOAD_TOOL_SAME_RESPONSE_CLAUSE);
 }
 
@@ -244,18 +244,20 @@ function readSearchResult(
   return { matchedNames, rankedResults };
 }
 
+/** The executor type a meta-tool declares, with the optional `undefined` removed. */
+type ExecuteOf<T> = T extends { readonly execute?: infer E } ? NonNullable<E> : never;
+
 /**
  * Clone a Mastra meta-tool with a replaced executor (and optionally a replaced
  * description) while preserving every other own property descriptor and the
  * prototype. Mastra's `createTool` returns an object whose executor closes
  * over the step, so the original executor stays reachable — it is only
  * wrapped. Descriptor flags are copied from the original property when it
- * exists; `execute` is typed as `unknown` here because the wrapper is built
- * from `Parameters<typeof execute>` at the call site.
+ * exists; the replacement executor is typed against the tool's own `execute`.
  */
 function cloneMetaTool<T extends object>(
   tool: T,
-  overrides: { readonly description?: string; readonly execute: unknown }
+  overrides: { readonly description?: string; readonly execute: ExecuteOf<T> }
 ): T {
   const descriptors: Record<string, PropertyDescriptor> = Object.getOwnPropertyDescriptors(tool);
   const executeDescriptor = descriptors['execute'];
@@ -388,9 +390,6 @@ function wrapLoadTool(loadTool: LoadTool, stepNumber: number | undefined): LoadT
         stepNumber,
         success: loadResult.success,
       });
-      if (!loadResult.success) {
-        return result;
-      }
       // Only the sentence changes; Mastra's `toolName` / `loaded` fields —
       // which its context store parses to derive the loaded set — are
       // returned untouched.
@@ -605,7 +604,7 @@ export class BrainstrikeToolSearchProcessor {
       }
       const threadId = typeof threadIdValue === 'string' ? threadIdValue : undefined;
       this.trackLoadedTools(threadId, loadedSanitizedIds, result.tools);
-      const loadTool = result.tools.load_tool;
+      const loadTool = result.tools[LOAD_TOOL_ID];
       if (!loadTool) {
         throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
           context: { phase: 'load-tool-construction', stepNumber: args.stepNumber },

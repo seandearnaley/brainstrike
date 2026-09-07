@@ -365,7 +365,7 @@ function buildParallelCallInstruction(
   // a tool the run does not register would advertise a capability that is not
   // there, which is the confusion this whole line exists to prevent.
   return toolDiscoveryEnabled
-    ? `${base} — never search_tools or load_tool, whose results load only NEXT turn, so load before long-running work.`
+    ? `${base} — never search_tools or load_tool, whose results are usable only NEXT turn, so load before long-running work.`
     : `${base}.`;
 }
 
@@ -526,7 +526,7 @@ function buildToolDiscoveryInstruction(
   // exact id that are not in the model's callable list until discovered.
   const families = describeAvailableDeferredCapabilityFamilies(availableOriginalToolIds);
   const familiesClause = families.length > 0 ? `: ${families}` : '';
-  return `Some capabilities are deferred${familiesClause}. For the deferred inventory, including MCP tools, use list_available_tools and follow nextOffset until null. When a tool you need is not loaded — including one these instructions, the catalog, or a skill activation names — call load_tool with its exact name (toolNames for several)${alternativesClause}; when you only know the capability, call search_tools with a concise query, then load_tool for the match. Search returns at most three ranked matches, not the complete catalog; never infer that other tools are unavailable from a search result. If the search finds nothing, inspect the catalog for an exact name before concluding the capability is unavailable. Loaded tools become callable on your next step within this same response ("next turn" in tool results means that step, not a later user message): keep going and call them right away; never end your reply to wait for a tool to load.`;
+  return `Some capabilities are deferred${familiesClause}. For the deferred inventory (MCP tools included) use list_available_tools; follow nextOffset until null. When a needed tool is not loaded — one these instructions, the catalog, or a skill activation names — load_tool its exact name${alternativesClause}; when you only know the capability, search_tools with a concise query, then load_tool the match. Search returns at most three ranked matches, not the complete catalog, so never infer other tools are unavailable. If the search finds nothing, check the catalog for an exact name first. Loaded tools are callable on your next step within this same response ("next turn" in tool results means that step, not a later user message): call them right away; never end your reply to wait for a load.`;
 }
 
 /**
