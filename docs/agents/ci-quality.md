@@ -1116,6 +1116,39 @@ of any `structured_output` round trip, and a unit test asserts the CLI's stdin
 is a file descriptor whose content is the prompt while no argument carries diff
 text.
 
+**The diff is delimited, not encoded.** It is embedded raw between a
+`BEGIN`/`END` pair carrying a `CAPTURED-DIFF-<uuid>` marker generated for that
+run, and the reviewer is told the text is unescaped and that a run of
+backslashes is exactly what the source file contains.
+
+It was previously embedded as `JSON.stringify(diff)` under a `CAPTURED DIFF
+(JSON STRING):` header. That was load-bearing when the prompt travelled through
+`GITHUB_OUTPUT`, whose heredoc framing is line-sensitive: collapsing the diff to
+a single escaped line made a delimiter collision impossible. Delivering the
+prompt on stdin removed that transport — the only values reaching
+`GITHUB_OUTPUT` now are the literals `true` and `false` — and the encoding then
+only cost fidelity. JSON doubles every backslash, so escape-dense source reaches
+the reviewer as runs it must halve exactly once by inspection. On #3054 a review
+halved them twice and reported a confident, detailed, entirely wrong finding:
+that a regex had lost two escapes, making `[^:'(\s]` exclude the letter `s`.
+The source was correct and the reasoning was sound about the text it was shown;
+the transport had mangled it. Cost is not the argument — the encoding adds only
+about 2% to an ordinary diff. Fidelity is. This is the same class as
+`PROMPT_BYTE_BUDGET`: a mechanism kept past the constraint that justified it.
+
+The boundary stays unforgeable because the diff is untrusted. Diff content
+cannot predict the run's UUID, and `prepareReview` enforces that rather than
+assuming it: a diff containing the generated marker is refused with an
+**incomplete** disposition instead of being framed ambiguously. The UUID is
+injectable so the refusal is exercised by a test rather than argued from
+probability. A forged `END CAPTURED-DIFF-…` line inside a diff is content, and
+a test asserts the real marker still appears exactly twice and closes the
+prompt. Do not restore JSON encoding, and do not replace the fence with a fixed
+string: a constant marker is forgeable by any diff that contains it. Tests in
+`scripts/__tests__/claude-review.test.mjs` pin byte-for-byte delivery of
+backslash-dense content, the forgery attempt, the delimiter-collision refusal,
+and a diff with no trailing newline; every one was mutation-verified.
+
 **Generated files are summarized, and it is said out loud.** Before anything is
 measured, `scripts/lockfile-diff-summary.mjs` replaces `pnpm-lock.yaml` hunks in
 the captured diff with a derived summary: packages added, removed, and
