@@ -128,3 +128,136 @@ describe('ThreadScrollFollowProvider', () => {
     unmount();
   });
 });
+
+/**
+ * The echo guard is a pure state machine over (claimed position, live
+ * geometry), so it is unit-testable against a scripted scroller — the browser
+ * suite owns the real-geometry ordering proof
+ * (assistant-scroll-to-bottom.browser.test.tsx). Both matter: this file pins
+ * WHICH event disengages, that one pins that the interleaving is reachable.
+ */
+interface ScriptedScroller {
+  readonly element: HTMLElement;
+  readonly resize: (next: { clientHeight?: number; scrollHeight?: number }) => void;
+  readonly scrollTop: () => number;
+  readonly userScrollTo: (top: number) => void;
+}
+
+const createScriptedScroller = (scrollHeight: number, clientHeight: number): ScriptedScroller => {
+  let currentScrollHeight = scrollHeight;
+  let currentClientHeight = clientHeight;
+  let currentTop = 0;
+  const element = document.createElement('div');
+  Object.defineProperties(element, {
+    clientHeight: { get: () => currentClientHeight },
+    scrollHeight: { get: () => currentScrollHeight },
+    scrollTop: {
+      get: () => currentTop,
+      set: (next: number) => {
+        currentTop = Math.max(0, Math.min(next, currentScrollHeight - currentClientHeight));
+      },
+    },
+  });
+  Object.defineProperty(element, 'scrollTo', {
+    value: (options: ScrollToOptions): void => {
+      element.scrollTop = options.top ?? currentTop;
+    },
+  });
+  return {
+    element,
+    resize: (next) => {
+      currentScrollHeight = next.scrollHeight ?? currentScrollHeight;
+      currentClientHeight = next.clientHeight ?? currentClientHeight;
+    },
+    scrollTop: () => currentTop,
+    userScrollTo: (top) => {
+      element.scrollTop = top;
+    },
+  };
+};
+
+describe('own-write echo guard (BST-1039)', () => {
+  const attachScripted = (scroller: ScriptedScroller) => {
+    const { result, unmount } = renderHook(useThreadScrollFollow, { wrapper: FollowProvider });
+    const follow = result.current;
+    const detach = follow.attach(scroller.element);
+    const callback = mutationCallback;
+    if (!callback) {
+      throw new Error('Thread scroll follow did not attach its mutation observer.');
+    }
+    const observeContentChange = (): void => {
+      callback(
+        [{ attributeName: null, type: 'characterData' } as unknown as MutationRecord],
+        {} as unknown as MutationObserver
+      );
+    };
+    return { detach, follow, observeContentChange, unmount };
+  };
+
+  test('swallows the echo of its own moving write, then re-sticks through the resize', () => {
+    const scroller = createScriptedScroller(1000, 100);
+    const { detach, follow, observeContentChange, unmount } = attachScripted(scroller);
+
+    // A moving follow write: this is the one whose echo is still in flight.
+    scroller.resize({ scrollHeight: 1100 });
+    observeContentChange();
+    expect(scroller.scrollTop()).toBe(1000);
+
+    // The viewport is squeezed and the content grows before that echo lands —
+    // geometry no observer has measured yet.
+    scroller.resize({ clientHeight: 35, scrollHeight: 1130 });
+    scroller.element.dispatchEvent(new Event('scroll'));
+
+    // The event moved nothing the engine did not already judge, so follow holds
+    // and the next measurement re-sticks to the new bottom.
+    expect(follow.getIsAtBottom()).toBe(true);
+    observeContentChange();
+    expect(scroller.scrollTop()).toBe(1095);
+
+    detach();
+    unmount();
+  });
+
+  test('disengages on a reader scroll delivered in that same window', () => {
+    const scroller = createScriptedScroller(1000, 100);
+    const { detach, follow, observeContentChange, unmount } = attachScripted(scroller);
+
+    scroller.resize({ scrollHeight: 1100 });
+    observeContentChange();
+    scroller.resize({ clientHeight: 35, scrollHeight: 1130 });
+
+    // Same unmeasured-geometry window, but the reader moved the position.
+    scroller.userScrollTo(0);
+    scroller.element.dispatchEvent(new Event('scroll'));
+
+    expect(follow.getIsAtBottom()).toBe(false);
+    detach();
+    unmount();
+  });
+
+  test('leaves no claim behind when a write moves nothing', () => {
+    const scroller = createScriptedScroller(1000, 100);
+    const { detach, follow, observeContentChange, unmount } = attachScripted(scroller);
+
+    scroller.resize({ scrollHeight: 1100 });
+    observeContentChange();
+    expect(scroller.scrollTop()).toBe(1000);
+
+    // Dimensions change but the bottom does not move, so this write is a no-op
+    // and the browser dispatches no scroll event for it. Claiming here would
+    // leave an unconsumable claim parked on 1000.
+    scroller.resize({ clientHeight: 150, scrollHeight: 1150 });
+    observeContentChange();
+    expect(scroller.scrollTop()).toBe(1000);
+
+    // Content grows without a measurement, so 1000 is no longer the bottom, and
+    // a reader event lands on exactly that pixel — a coalesced round trip. A
+    // lingering claim would swallow it and the next measure would yank them.
+    scroller.resize({ scrollHeight: 1250 });
+    scroller.element.dispatchEvent(new Event('scroll'));
+
+    expect(follow.getIsAtBottom()).toBe(false);
+    detach();
+    unmount();
+  });
+});
