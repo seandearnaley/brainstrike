@@ -484,9 +484,12 @@ export function mainNavigationLocator(page: Page) {
   return page.getByRole('navigation', { exact: true, name: 'Main navigation' });
 }
 
-/** The nav-rail Settings item — the canonical way onto the route. */
-export function settingsNavButtonLocator(page: Page) {
-  return mainNavigationLocator(page).getByRole('button', { exact: true, name: 'Settings' });
+/** The rail destinations specs navigate to. */
+export type MainNavigationItem = 'Context Explorer' | 'Settings';
+
+/** ONE definition of a rail item's button — scoped to the rail landmark. */
+export function mainNavigationButtonLocator(page: Page, label: MainNavigationItem) {
+  return mainNavigationLocator(page).getByRole('button', { exact: true, name: label });
 }
 
 /**
@@ -737,14 +740,11 @@ export async function activateAppearanceThemeButton(
  */
 export async function activateSidebarNavigation(
   page: Page,
-  label: 'Context Explorer' | 'Settings'
+  label: MainNavigationItem
 ): Promise<void> {
   const expect = await getPlaywrightExpect();
 
-  const navigationButton = mainNavigationLocator(page).getByRole('button', {
-    exact: true,
-    name: label,
-  });
+  const navigationButton = mainNavigationButtonLocator(page, label);
   await expect(navigationButton).toBeVisible();
   await expect(navigationButton).toBeEnabled();
   // Playwright's native click retries kept racing this sidebar's rerender path.

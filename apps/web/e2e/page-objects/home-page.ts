@@ -1,13 +1,14 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import {
+  activateSidebarNavigation,
   contextExplorerActiveNavLocator,
   leaveSettingsPage,
+  mainNavigationButtonLocator,
   openSettingsPage,
   profileMenuButtonLocator,
   settingsHeadingLocator,
   settingsMenuItemLocator,
-  settingsNavButtonLocator,
   type WaitForAppLoadOptions,
   waitForAppLoad,
   waitForContextExplorerPage,
@@ -34,13 +35,8 @@ export class HomePage {
     return settingsHeadingLocator(this.page);
   }
 
-  /** The nav-rail Settings item (BST-1668: Settings is a full app tab again). */
-  get settingsNavButton(): Locator {
-    return settingsNavButtonLocator(this.page);
-  }
-
   get contextExplorerNavButton(): Locator {
-    return this.page.getByRole('button', { exact: true, name: 'Context Explorer' });
+    return mainNavigationButtonLocator(this.page, 'Context Explorer');
   }
 
   /**
@@ -80,7 +76,7 @@ export class HomePage {
   }
 
   async navigateToHome(): Promise<void> {
-    await this.contextExplorerNavButton.click();
+    await activateSidebarNavigation(this.page, 'Context Explorer');
     await waitForContextExplorerPage(this.page);
   }
 }

@@ -21,11 +21,13 @@ import {
  * The assertions below are route-independent: the anchor-geometry defect
  * comes from the trigger's own `:active` transform, the compiled-CSS check
  * proves Tailwind actually emitted the popup-layer utility (a runtime-composed
- * `z-[${n}]` produces no CSS and computes to `auto`), and "choosing an option
- * applies it" is the functional floor for any popup on this surface.
+ * `z-[${n}]` produces no CSS and computes to `auto`) AND that it out-ranks a
+ * real, measured dialog panel, and "choosing an option applies it" is the
+ * functional floor for any popup on this surface.
  */
 
 const SELECT_LISTBOX = '[data-slot="select-content"]';
+const DIALOG_PANEL = '[data-slot="dialog-content"]';
 
 /** Computed z-index of a live element, read from the compiled stylesheet. */
 async function computedZIndex(page: Page, selector: string): Promise<number> {
@@ -144,21 +146,49 @@ test.describe('Settings popup anchoring @stateful @web-settings-state', () => {
     expect(geometry.gapBelowTrigger).toBeLessThan(12);
   });
 
-  test('the open listbox carries an emitted popup-layer z-index in compiled CSS', async ({
-    page,
-  }) => {
-    await openSearchIndexingCategory(page);
+  /**
+   * BST-963's rule, measured two-sided in compiled CSS: a popup out-ranks a
+   * dialog panel. Both values are read live from real elements — the Log
+   * Viewer's "Details" dialog (opened from the Logging category) and the
+   * Indexing-policy listbox — so a scale change that lifts dialogs past popups
+   * fails here even though no constant in this file names either tier.
+   * `computedZIndex` rejects `auto`, so a class Tailwind never emitted fails
+   * by name rather than as a later stacking symptom.
+   */
+  test('the open listbox out-ranks a measured dialog panel in compiled CSS', async ({ page }) => {
+    await new HomePage(page).goto({ waitForDatabase: false });
+    await openSettingsPage(page);
+    await waitForSettingsPage(page);
+    await page.getByRole('button', { name: 'Logging & Diagnostics' }).click();
 
+    // Startup emits several records at the default level, but say so
+    // explicitly — an empty viewer would otherwise surface as a bare timeout.
+    const detailsButtons = page.getByRole('button', { name: /^View details for / });
+    await expect(
+      detailsButtons.first(),
+      'The Log Viewer rendered no records, so there is no "Details" dialog to measure. This spec needs at least one log row after resetAppState + reload.'
+    ).toBeVisible({ timeout: 30_000 });
+    await detailsButtons.first().click();
+
+    const panel = page.locator(DIALOG_PANEL);
+    await expect(panel).toBeVisible({ timeout: 15_000 });
+    await waitForFloatingLayerStack(page, DIALOG_PANEL);
+    const panelZ = await computedZIndex(page, DIALOG_PANEL);
+
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0, { timeout: 15_000 });
+
+    await page.getByRole('button', { name: 'Search & Indexing' }).click();
     await page.getByRole('combobox', { name: 'Indexing policy' }).click();
     const listbox = page.locator(SELECT_LISTBOX);
     await expect(listbox).toBeVisible({ timeout: 15_000 });
     await waitForFloatingLayerStack(page, SELECT_LISTBOX);
+    const listboxZ = await computedZIndex(page, SELECT_LISTBOX);
 
-    // `computedZIndex` rejects `auto`, so a missing class fails here by name
-    // rather than as a later, unrelated stacking symptom. The positive bound
-    // is the BST-963 rule: popups out-rank every dialog tier (the top tier is
-    // 65 — see `packages/ui/src/layers.ts`).
-    expect(await computedZIndex(page, SELECT_LISTBOX)).toBeGreaterThan(65);
+    expect(
+      listboxZ,
+      `The popup layer (${listboxZ}) does not out-rank the dialog panel (${panelZ}) — a Select opened inside any dialog would paint behind it (BST-963).`
+    ).toBeGreaterThan(panelZ);
   });
 
   test('choosing an option inside Settings applies it', { tag: '@web-smoke' }, async ({ page }) => {

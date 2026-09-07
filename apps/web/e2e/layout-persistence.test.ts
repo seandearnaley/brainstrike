@@ -1,7 +1,6 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import {
-  activateSidebarNavigation,
   CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR,
   CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
   CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
@@ -375,7 +374,6 @@ test.describe('IDE Layout Persistence', () => {
 
       // Navigate back to Context Explorer
       await leaveSettingsPage(page);
-      await activateSidebarNavigation(page, 'Context Explorer');
       await waitForContextExplorerPage(page);
 
       // Verify panel is still visible (state persisted)
@@ -393,7 +391,6 @@ test.describe('IDE Layout Persistence', () => {
       await waitForSettingsPage(page);
 
       await leaveSettingsPage(page);
-      await activateSidebarNavigation(page, 'Context Explorer');
       await waitForContextExplorerPage(page);
 
       await expect(rightPanel).not.toBeVisible();

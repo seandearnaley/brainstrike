@@ -2,7 +2,6 @@ import { expect, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import {
   activateAppearanceThemeButton,
-  activateSidebarNavigation,
   contextExplorerActiveNavLocator,
   leaveSettingsPage,
   openSettingsPage,
@@ -64,7 +63,6 @@ test.describe('Theme Switching', () => {
 
     // Navigate back to Context Explorer to test persistence
     await leaveSettingsPage(page);
-    await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
 
     // Verify dark theme persists
@@ -82,7 +80,6 @@ test.describe('Theme Switching', () => {
 
     // Test persistence again
     await leaveSettingsPage(page);
-    await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
     await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
     await expect(htmlElement).not.toHaveClass(/dark/);
@@ -99,7 +96,6 @@ test.describe('Theme Switching', () => {
 
     // Navigate back to Context Explorer
     await leaveSettingsPage(page);
-    await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
 
     // Get the theme toggle button in navigation (aria-label changes based on current theme)
@@ -137,7 +133,6 @@ test.describe('Theme Switching', () => {
 
     // Navigate to verify no errors occurred
     await leaveSettingsPage(page);
-    await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
 
     // Reopen settings to verify system is still selected
@@ -180,7 +175,6 @@ test.describe('Theme Switching', () => {
     // Preview mode does not serve /settings directly on hard reload, so return
     // to the app root before verifying reload persistence.
     await leaveSettingsPage(page);
-    await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
 
     await page.reload();
