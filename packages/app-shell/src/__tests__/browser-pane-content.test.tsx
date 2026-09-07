@@ -171,16 +171,16 @@ describe('BrowserPaneContent', () => {
     await waitFor(() => expect(bridge.listTabs).toHaveBeenCalled());
   });
 
-  it('occludes the native view when the Settings modal opens (pane DOM still laid out)', async () => {
-    // settingsOpen is the one occlusion source that can be true while the
-    // browser route is active — the rect stays non-zero, so only the explicit
-    // signal (not a zero-rect) hides the view. Guards against a future refactor
-    // that derives occlusion from the rect alone.
+  it('occludes the native view when the shell navigates to Settings (BST-1668)', async () => {
+    // Settings is a shell route, so leaving for it is the same signal as any
+    // other tab switch: `activeTab` moves off 'browser'. The pane's own DOM is
+    // only toggled hidden by the shell (keep-mounted), so the explicit route
+    // signal — not a zero rect — is what must hide the native view.
     render(<BrowserPaneContent />);
     await waitFor(() => expect(bridge.setBounds).toHaveBeenCalled());
     bridge.setOccluded.mockClear();
 
-    usePanelLayoutStore.getState().setSettingsOpen(true);
+    usePanelLayoutStore.getState().openSettings();
     await waitFor(() => expect(bridge.setOccluded).toHaveBeenCalledWith(true));
   });
 

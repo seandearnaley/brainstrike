@@ -80,6 +80,7 @@ const mockHandlers = {
     panelConstraints: { mainContentMinSize?: string; rightPanelMinSize?: string } | undefined;
     panelIdPrefix: string | undefined;
   }>,
+  navigationPaths: [] as string[],
   onNavigationClick: (_path: string) => {},
   onOpenSettings: () => {},
   panelLayoutChanges: [] as Array<(state: PanelLayoutState) => void>,
@@ -90,16 +91,25 @@ const mockHandlers = {
 vi.mock('../app-layout', () => ({
   AppLayout: ({
     children,
+    config,
+    currentPath,
     onNavigationClick,
     onOpenSettings,
   }: {
     children: React.ReactNode;
+    config: { navigationItems: ReadonlyArray<{ path: string }> };
+    currentPath: string;
     onNavigationClick: (path: string) => void;
     onOpenSettings: () => void;
   }) => {
+    mockHandlers.navigationPaths = config.navigationItems.map((item) => item.path);
     mockHandlers.onNavigationClick = onNavigationClick;
     mockHandlers.onOpenSettings = onOpenSettings;
-    return <div data-testid="app-layout">{children}</div>;
+    return (
+      <div data-current-path={currentPath} data-testid="app-layout">
+        {children}
+      </div>
+    );
   },
 }));
 
@@ -248,6 +258,7 @@ vi.mock('../database-panel', () => ({
 describe('RootLayoutContent', () => {
   beforeEach(() => {
     rendererLongTaskTelemetry.reset();
+    mockHandlers.navigationPaths = [];
     mockHandlers.onNavigationClick = vi.fn();
     mockHandlers.onOpenSettings = vi.fn();
     mockHandlers.ideLayoutProps = [];
@@ -255,7 +266,6 @@ describe('RootLayoutContent', () => {
     mockHandlers.promptManagerSuspended = false;
     usePanelLayoutStore.setState({
       activeTab: 'explorer',
-      settingsOpen: false,
       showConsole: false,
       showLeftPanel: true,
       showRightPanel: false,
@@ -409,66 +419,85 @@ describe('RootLayoutContent', () => {
     expect(screen.queryByTestId('connected-prompt-manager')).not.toBeInTheDocument();
   });
 
-  it('opens settings as a modal while keeping the app workspace visible', () => {
+  it('routes settings as a full shell tab that replaces the explorer surface (BST-1668)', () => {
     renderComponent();
+
+    // Not mounted until first opened, same as every other keep-mounted route.
+    expect(screen.queryByTestId('settings-route')).not.toBeInTheDocument();
 
     act(() => {
       mockHandlers.onOpenSettings();
     });
 
-    expect(screen.getByTestId('agent-sidebar-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
-    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    const settingsRoute = screen.getByTestId('settings-route');
+    expect(settingsRoute).not.toHaveClass('hidden');
+    expect(settingsRoute).toHaveAttribute('aria-hidden', 'false');
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
+    // A tab, not an overlay: nothing is layered, and the explorer is hidden
+    // underneath exactly like it is behind git/notes/browser.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
+    expect(screen.getByTestId('app-layout')).toHaveAttribute('data-current-path', '/settings');
   });
 
-  it('opens the settings modal when an existing caller selects the settings tab', () => {
+  it('selects the settings route when an existing caller sets the settings tab', () => {
     renderComponent();
 
     act(() => {
       usePanelLayoutStore.getState().setActiveTab('settings');
     });
 
-    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('settings-route')).not.toHaveClass('hidden');
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
-    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
+    expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
   });
 
-  it('keeps the current shell tab active when settings opens and closes', async () => {
-    // BST-1270: Terminal left the shell-route system for the workspace tab
-    // strip, so the git route now pins this behavior.
+  it('reaches settings from the nav rail like git and notes', () => {
+    renderComponent();
+
+    act(() => {
+      mockHandlers.onNavigationClick('/settings');
+    });
+
+    expect(usePanelLayoutStore.getState().activeTab).toBe('settings');
+    expect(screen.getByTestId('settings-route')).not.toHaveClass('hidden');
+  });
+
+  it('keeps the settings nav item in the rail, ordered after every other route', () => {
+    renderComponent({
+      navigationItems: [
+        { icon: () => <div />, name: 'Context Explorer', path: '/' },
+        { icon: () => <div />, name: 'Settings', path: '/settings' },
+        { icon: () => <div />, name: 'Notes', path: '/notes' },
+      ],
+    });
+
+    // The wrappers append capability-gated routes AFTER the shared list, so
+    // the shell owns the rule that Settings is the last rail item.
+    expect(mockHandlers.navigationPaths).toEqual(['/', '/notes', '/settings']);
+  });
+
+  it('switches between settings and another shell tab without unmounting either', () => {
     usePanelLayoutStore.setState({ activeTab: 'git' });
-    const user = userEvent.setup();
     renderComponent({ gitPageContent: <div data-testid="git-page">Git</div> });
 
     act(() => {
       usePanelLayoutStore.getState().openSettings();
     });
-    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
-
-    await user.click(screen.getByRole('button', { name: 'Close' }));
-
-    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
-    expect(usePanelLayoutStore.getState().activeTab).toBe('git');
-    expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
-  });
-
-  it('closes settings when navigating to another shell tab', () => {
-    renderComponent({ gitPageContent: <div data-testid="git-page">Git</div> });
-
-    act(() => {
-      mockHandlers.onOpenSettings();
-    });
-    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('settings-route')).not.toHaveClass('hidden');
+    expect(screen.getByTestId('git-route')).toHaveClass('hidden');
 
     act(() => {
       mockHandlers.onNavigationClick('/git');
     });
 
-    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(usePanelLayoutStore.getState().activeTab).toBe('git');
     expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
+    // Keep-mounted contract, same as notes: hidden, not gone.
+    const settingsRoute = screen.getByTestId('settings-route');
+    expect(settingsRoute).toHaveClass('hidden');
+    expect(settingsRoute).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('settings-page')).toBeInTheDocument();
   });
 
   it('mounts the notes route when the notes nav item is selected', () => {
@@ -547,7 +576,7 @@ describe('RootLayoutContent', () => {
     }
   });
 
-  it('closes and reopens settings without replacing the workspace', async () => {
+  it('preserves settings page state across leaving and returning to the tab', async () => {
     const user = userEvent.setup();
 
     function StatefulSettingsPage() {
@@ -575,14 +604,18 @@ describe('RootLayoutContent', () => {
 
     await user.type(screen.getByTestId('settings-input'), 'persist me');
 
-    await user.click(screen.getByRole('button', { name: 'Close' }));
-    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    act(() => {
+      mockHandlers.onNavigationClick('/');
+    });
+    expect(screen.getByTestId('settings-route')).toHaveClass('hidden');
     expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
 
     await act(async () => mockHandlers.onOpenSettings());
 
-    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByTestId('settings-input')).toHaveValue('');
+    // The modal unmounted its content on close; a keep-mounted route keeps
+    // in-progress edits exactly like the git/notes surfaces do.
+    expect(screen.getByTestId('settings-route')).not.toHaveClass('hidden');
+    expect(screen.getByTestId('settings-input')).toHaveValue('persist me');
   });
 
   it('debounces size-only explorer layout updates and keeps the latest size payload', () => {

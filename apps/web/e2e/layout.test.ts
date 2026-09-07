@@ -53,7 +53,7 @@ test.describe('Application Layout', () => {
     // active-page marker drops out of the accessibility tree while Settings is up.
     await expect(home.contextExplorerPageMarker).not.toBeVisible();
 
-    await home.closeSettings();
+    await home.leaveSettings();
 
     // Verify Context Explorer is active again
     await waitForContextExplorerPage(page);

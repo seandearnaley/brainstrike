@@ -573,6 +573,8 @@ Three invariants hold, asserted in `packages/ui/src/__tests__/layers.test.ts`:
    scale: Settings became a modal in #1626 while Select/Popover/DropdownMenu/
    ContextMenu/Tooltip were all still on `z-50` and `DialogContent` had moved
    to `z-[51]`, so a Select opened in Settings painted behind an opaque panel.
+   (Settings is a nav-rail route again since BST-1668, so that specific
+   reproduction no longer exists — the invariant stands for every dialog.)
 
 Two traps worth knowing before you debug this class of bug again:
 
@@ -580,7 +582,10 @@ Two traps worth knowing before you debug this class of bug again:
   the dialog panel while an inner layer is open, so `elementFromPoint` returns
   the option, Playwright's actionability checks pass, and a click succeeds — on
   a dropdown the user cannot see. Functional assertions do not catch it; assert
-  stacking or occlusion (`apps/web/e2e/settings-modal-layering.test.ts`).
+  stacking or occlusion. The BST-963 occlusion probe lived in the old
+  `settings-modal-layering` spec; it was retired with the Settings modal in
+  BST-1668 because a route cannot occlude a popup, so reproduce that shape
+  against whichever dialog you are debugging.
 - **Values must be literal strings.** Tailwind emits only classes its scanner
   can see, and `packages/ui/styles.css` exposes this package via `@source`. A
   runtime-composed `` z-[${n}] `` produces no CSS at all and silently computes
@@ -610,7 +615,7 @@ That instant is POINTERDOWN — Radix opens on pointerdown, not click, so the
 trigger is still `:active`. `packages/ui/src/globals.css` applies
 `transform: scale(0.97)` to `.kinetic-depress:active`, and `SelectTrigger`
 carries that class. Measured on the 718x40 "Indexing policy" trigger in the
-Settings modal at 1440x900: the anchor was published as 696.46 x 38.80 —
+Settings surface at 1440x900: the anchor was published as 696.46 x 38.80 —
 718 x 0.97 and 40 x 0.97 exactly — and the listbox rendered 21.5px too narrow
 and 11px inside the field's left edge.
 
@@ -634,7 +639,7 @@ Rules:
 
 Guards: `packages/ui/src/__tests__/kinetic-depress-popup-anchors.test.ts` pins
 the selector; the geometry assertion in
-`apps/web/e2e/settings-modal-layering.test.ts` ("bound to its trigger, not to a
+`apps/web/e2e/settings-popup-anchoring.test.ts` ("bound to its trigger, not to a
 scaled phantom") pins the rendered result in a real browser.
 
 ### Layer registration is not synchronous
@@ -647,10 +652,10 @@ for one that is, and nothing at all while no layer disables outside pointer
 events.
 
 Keyboard dismissal keys off the same stack, so an Escape inside that window is
-routed to the layer UNDERNEATH the one just opened — in Settings that closes the
-modal and unmounts the nested surface with it. Measured on
-`settings-modal-layering`: the pre-settle snapshot appeared in 3 of 6 runs and
-correlated exactly with the failure. The window is ~20ms.
+routed to the layer UNDERNEATH the one just opened — while Settings was a modal
+that closed the modal and unmounted the nested surface with it. Measured on the
+old `settings-modal-layering` spec: the pre-settle snapshot appeared in 3 of 6
+runs and correlated exactly with the failure. The window is ~20ms.
 
 E2E waits on this with `waitForFloatingLayerStack(page, targetSelector)` in
 `apps/web/e2e/utils/layout-helpers.ts`. Two rules if you extend it:

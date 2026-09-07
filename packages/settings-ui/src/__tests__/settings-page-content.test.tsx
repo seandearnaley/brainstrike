@@ -57,7 +57,9 @@ describe('SettingsPageContent', () => {
       />
     );
 
-    expect(screen.queryByRole('heading', { name: 'Settings' })).not.toBeInTheDocument();
+    // The page owns its own title (BST-1668): Settings is a shell route, not
+    // a dialog whose DialogTitle supplied the heading.
+    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
     expect(screen.getByTestId('theme-settings')).toBeInTheDocument();
 
     const nav = screen.getByRole('navigation', { name: /settings categories/i });

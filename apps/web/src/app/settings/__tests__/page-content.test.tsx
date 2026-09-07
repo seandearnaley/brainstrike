@@ -77,7 +77,7 @@ describe('Web SettingsPageContent', () => {
   test('renders navigation and defaults to appearance category', () => {
     renderPage();
 
-    expect(screen.queryByRole('heading', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Appearance' })).toBeInTheDocument();
 
     const nav = screen.getByRole('navigation', { name: /settings categories/i });

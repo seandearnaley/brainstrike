@@ -9,25 +9,24 @@ import { expect, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import {
   activateAppearanceThemeButton,
-  closeSettingsModal,
   ensureRightPanelVisible,
-  openSettingsModal,
+  leaveSettingsPage,
+  openSettingsPage,
   waitForAppearanceSection,
   waitForAppLoad,
   waitForSettingsPage,
 } from './utils/layout-helpers';
 
 /**
- * Open Settings (the profile-launched modal — BST-1023/1024/1025: the old
- * sidebar `Settings` button was removed in #1626, so every launch routes
- * through the canonical layout-helpers flow) and ASSERT the appearance
- * section is active (these specs depend on Appearance being the default
- * category). The modal STAYS open for the CSS-variable assertions below:
- * they read document-level computed styles, which the dialog does not
- * affect.
+ * Open Settings (the nav-rail route — BST-1023/1024/1025 pinned every launch
+ * to the canonical layout-helpers flow, and BST-1668 made Settings a full app
+ * tab again) and ASSERT the appearance section is active (these specs depend
+ * on Appearance being the default category). The route STAYS active for the
+ * CSS-variable assertions below: they read document-level computed styles,
+ * which the active tab does not affect.
  */
 async function openAppearanceSettings(page: Page): Promise<void> {
-  await openSettingsModal(page);
+  await openSettingsPage(page);
   await waitForSettingsPage(page);
   await waitForAppearanceSection(page);
 }
@@ -60,7 +59,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should load CSS variables in light mode', async ({ page }) => {
-    // Switch to light mode via the Settings modal's appearance section
+    // Switch to light mode via the Settings route's appearance section
     await openAppearanceSettings(page);
     await clickSettingsThemeButton(page, 'Light');
     await waitForThemeApplied(page, 'light');
@@ -290,9 +289,8 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
-    // "Navigate back" is closing the modal: Settings is a dialog over the
-    // explorer, not a route, and the sidebar is aria-hidden while it is open.
-    await closeSettingsModal(page);
+    // Navigate back to the explorer route.
+    await leaveSettingsPage(page);
 
     // Open tools panel (assistant panel)
     await ensureRightPanelVisible(page);
@@ -317,7 +315,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
-    await closeSettingsModal(page);
+    await leaveSettingsPage(page);
     await ensureRightPanelVisible(page);
     await page.waitForTimeout(200);
 

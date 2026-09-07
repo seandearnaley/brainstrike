@@ -1,7 +1,6 @@
 import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import {
   type PanelTab,
-  selectVisibleSurface,
   usePanelLayoutStore,
 } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
@@ -28,9 +27,6 @@ import type { QueueAdapter } from '@brainstrike/queue';
 import { McpElicitationHost } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-host';
 import {
   ActionRegistryProvider,
-  Dialog,
-  DialogContent,
-  DialogTitle,
   IdeLayout,
   PanelLayoutProvider,
   type PanelLayoutState,
@@ -212,12 +208,27 @@ function resolveActiveTabForPath(path: string): PanelTab {
   return NAV_PATH_TO_TAB[path] ?? 'explorer';
 }
 
+const SETTINGS_NAV_PATH = '/settings';
+
 /**
- * A capability-gated route (git/changes/terminal/notes) that, once first
- * opened, STAYS mounted and only toggles hidden — so its watchers/scan
- * state/scroll position survive later tab switches. `content` is `undefined`
- * when the app wrapper never constructed the surface at all (capability
- * absent); this renders nothing in that case, same as an unopened tab.
+ * Nav-rail order: every route the wrappers contribute, then Settings last.
+ * The wrappers append their capability-gated routes (notes/git/browser) AFTER
+ * the shared `navigationItems` list, which places Settings second; the shell
+ * owns the rail, so it owns the rule that Settings closes the list.
+ */
+function orderNavigationItems(items: readonly NavigationItem[]): NavigationItem[] {
+  const settings = items.filter((item) => item.path === SETTINGS_NAV_PATH);
+  const routes = items.filter((item) => item.path !== SETTINGS_NAV_PATH);
+  return [...routes, ...settings];
+}
+
+/**
+ * A shell route (git/notes/browser/settings) that, once first opened, STAYS
+ * mounted and only toggles hidden — so its watchers/scan state/scroll
+ * position/in-progress edits survive later tab switches. `content` is
+ * `undefined` when the app wrapper never constructed the surface at all
+ * (capability absent); this renders nothing in that case, same as an
+ * unopened tab.
  * Extracted out of `RootLayoutContent`'s own JSX (rather than four inline
  * ternaries) to keep that already-large component's cognitive complexity
  * under the lint budget.
@@ -571,19 +582,13 @@ export function RootLayoutContent({
   databaseTabChunkingMode = 'local',
   preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
-  const activeTab = usePanelLayoutStore((state) => state.activeTab);
+  const shellTab = usePanelLayoutStore((state) => state.activeTab);
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
-  const settingsOpen = usePanelLayoutStore((state) => state.settingsOpen);
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
-  const setSettingsOpen = usePanelLayoutStore((state) => state.setSettingsOpen);
   const setState = usePanelLayoutStore((state) => state.setState);
-  const shellTab = activeTab === 'settings' ? 'explorer' : activeTab;
   const [mountedTabs, setMountedTabs] = useState<ReadonlySet<PanelTab>>(() => new Set([shellTab]));
   const appConfig = useMemo(
-    () =>
-      createAppConfig({
-        navigationItems: navigationItems.filter((item) => item.path !== '/settings'),
-      }),
+    () => createAppConfig({ navigationItems: orderNavigationItems(navigationItems) }),
     [navigationItems]
   );
   // useMemo with [] is correct: the preload bridge exists before React mounts,
@@ -595,15 +600,12 @@ export function RootLayoutContent({
   // footer link (packages/ui, gated on this same context) renders null without it.
   const changesReviewValue = useChangesReviewValue(changesPageContent, setActiveTab);
   const rewindValue = useRewindValue(changesPageContent);
-  // BST-1281: the settings-overlay precedence rule has exactly one definition,
-  // in the panel-layout store, so this shell and `useDocumentTitle` cannot drift
-  // apart — the tab chrome, the telemetry route and the document title are all
-  // derived from the same value.
-  const visibleSurface = selectVisibleSurface({ activeTab, settingsOpen });
-  const settingsVisible = visibleSurface === 'settings';
+  // Settings is a shell route like every other tab (BST-1668), so the tab
+  // chrome, the telemetry route and `useDocumentTitle` all derive from the
+  // one `activeTab` value and cannot drift apart.
   // Assignment (not a cast) so `PanelTab ⊆ RendererDiagnosticSurface` stays a
   // compile-time check as either union gains members.
-  const diagnosticSurface: RendererDiagnosticSurface = visibleSurface;
+  const diagnosticSurface: RendererDiagnosticSurface = shellTab;
   const longTaskContext = useMemo(
     () => ({ enabledFeatureFlags: diagnosticFeatureFlags ?? null, route: diagnosticSurface }),
     [diagnosticFeatureFlags, diagnosticSurface]
@@ -628,25 +630,9 @@ export function RootLayoutContent({
     });
   }, [shellTab]);
 
-  const handleSettingsOpenChange = useCallback(
-    (open: boolean) => {
-      setSettingsOpen(open);
-      if (!open && activeTab === 'settings') {
-        setActiveTab('explorer');
-      }
-    },
-    [activeTab, setActiveTab, setSettingsOpen]
-  );
-
   const handleNavigationClick = useCallback(
-    (path: string) => {
-      if (path === '/settings') {
-        openSettings();
-        return;
-      }
-      setActiveTab(resolveActiveTabForPath(path));
-    },
-    [openSettings, setActiveTab]
+    (path: string) => setActiveTab(resolveActiveTabForPath(path)),
+    [setActiveTab]
   );
   const panelState = usePanelLayoutStore(
     (state) => ({
@@ -681,7 +667,7 @@ export function RootLayoutContent({
       <ChangesReviewProvider value={changesReviewValue}>
         {/* Binds the assistant panel's "Restore to before this message"
             affordance (BST-1115). The modal it raises is mounted below, as a
-            lexical SIBLING of the Settings dialog rather than inside any
+            lexical SIBLING of every shell route rather than inside any
             surface, because both entry points (assistant panel, Changes
             header) must land in the same one. */}
         <RewindProvider value={rewindValue}>
@@ -723,16 +709,6 @@ export function RootLayoutContent({
                       />
                     </PanelLayoutProvider>
                   </div>
-                  <Dialog onOpenChange={handleSettingsOpenChange} open={settingsVisible}>
-                    <DialogContent
-                      aria-describedby={undefined}
-                      className="h-[min(780px,calc(100vh-3rem))] max-h-[calc(100vh-3rem)] w-[min(1180px,calc(100vw-3rem))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/70 bg-background p-0 shadow-[0_32px_96px_-24px_rgba(0,0,0,0.55)] sm:max-w-none"
-                      overlayClassName="bg-background/55 backdrop-blur-md"
-                    >
-                      <DialogTitle className="sr-only">Settings</DialogTitle>
-                      {settingsPageContent}
-                    </DialogContent>
-                  </Dialog>
                   {/* MCP elicitation consent is app-wide (BST-1584): desktop main
                     pushes server input requests here regardless of route, and the
                     host renders nothing when the preload bridge is absent. */}
@@ -764,6 +740,15 @@ export function RootLayoutContent({
                     mountedTabs={mountedTabs}
                     shellTab={shellTab}
                     tab="browser"
+                  />
+                  {/* Settings is a full shell tab (BST-1668): same keep-mounted
+                    contract as the routes above, so in-progress edits survive
+                    a trip to another tab. */}
+                  <KeepMountedRoute
+                    content={settingsPageContent}
+                    mountedTabs={mountedTabs}
+                    shellTab={shellTab}
+                    tab="settings"
                   />
                 </SearchEmbedderProvider>
               </EmbeddingRuntimeProvider>

@@ -125,7 +125,7 @@
     "test:e2e:lane:import-indexing": "unset NO_COLOR; pnpm exec playwright test e2e/database-import-backfill.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-import-indexing\"",
     "test:e2e:lane:indexing": "unset NO_COLOR; pnpm exec playwright test e2e/workspace-index-background-indexing.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-indexing\"",
     "test:e2e:lane:production-csp": "unset NO_COLOR; pnpm exec playwright test e2e/production-csp.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-production-csp\"",
-    "test:e2e:lane:settings-state": "unset NO_COLOR; pnpm exec playwright test e2e/background-indexing-settings.test.ts e2e/settings-models-and-providers.test.ts e2e/settings-modal-layering.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-settings-state\"",
+    "test:e2e:lane:settings-state": "unset NO_COLOR; pnpm exec playwright test e2e/background-indexing-settings.test.ts e2e/settings-models-and-providers.test.ts e2e/settings-popup-anchoring.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-settings-state\"",
     "test:e2e:lane:smoke": "unset NO_COLOR; pnpm exec playwright test --project=functional --grep \"@web-smoke\" --workers=2 --max-failures=1 --global-timeout=600000",
     "test:e2e:perf": "unset NO_COLOR; pnpm exec playwright test --project=performance",
     "test:e2e:ui": "unset NO_COLOR; pnpm exec playwright test --ui",

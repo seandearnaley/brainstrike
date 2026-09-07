@@ -3,9 +3,9 @@ import { resetAppState } from './utils/app-state';
 import {
   activateAppearanceThemeButton,
   activateSidebarNavigation,
-  closeSettingsModal,
   contextExplorerActiveNavLocator,
-  openSettingsModal,
+  leaveSettingsPage,
+  openSettingsPage,
   waitForAppearanceSection,
   waitForAppLoad,
   waitForContextExplorerPage,
@@ -34,8 +34,8 @@ test.describe('Theme Switching', () => {
   });
 
   test('should switch themes via settings page and persist across navigation', async ({ page }) => {
-    // Open the Settings modal
-    await openSettingsModal(page);
+    // Open the Settings route
+    await openSettingsPage(page);
     await waitForSettingsPage(page);
 
     // Verify theme controls are visible - use settings-specific selectors to avoid nav button conflicts
@@ -63,7 +63,7 @@ test.describe('Theme Switching', () => {
     await expect(htmlElement).toHaveClass(/dark/);
 
     // Navigate back to Context Explorer to test persistence
-    await closeSettingsModal(page);
+    await leaveSettingsPage(page);
     await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
 
@@ -71,7 +71,7 @@ test.describe('Theme Switching', () => {
     await expect(htmlElement).toHaveClass(/dark/);
 
     // Reopen Settings
-    await openSettingsModal(page);
+    await openSettingsPage(page);
     await waitForSettingsPage(page);
 
     // Test switching to Light theme (use settings-specific selector)
@@ -81,7 +81,7 @@ test.describe('Theme Switching', () => {
     await expect(htmlElement).not.toHaveClass(/dark/);
 
     // Test persistence again
-    await closeSettingsModal(page);
+    await leaveSettingsPage(page);
     await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
     await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
@@ -90,7 +90,7 @@ test.describe('Theme Switching', () => {
 
   test('should toggle theme via navigation button', async ({ page }) => {
     // First, set a known theme state via settings to avoid system theme ambiguity
-    await openSettingsModal(page);
+    await openSettingsPage(page);
     await waitForSettingsPage(page);
 
     // Set to light theme explicitly (use settings-specific selector)
@@ -98,7 +98,7 @@ test.describe('Theme Switching', () => {
     await page.waitForTimeout(100);
 
     // Navigate back to Context Explorer
-    await closeSettingsModal(page);
+    await leaveSettingsPage(page);
     await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
 
@@ -125,7 +125,7 @@ test.describe('Theme Switching', () => {
 
   test('should handle system theme preference', async ({ page }) => {
     // Open Settings
-    await openSettingsModal(page);
+    await openSettingsPage(page);
     await waitForSettingsPage(page);
 
     // Click System theme button (use settings-specific selector)
@@ -136,12 +136,12 @@ test.describe('Theme Switching', () => {
     // that the system option is selectable and doesn't cause errors
 
     // Navigate to verify no errors occurred
-    await closeSettingsModal(page);
+    await leaveSettingsPage(page);
     await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
 
     // Reopen settings to verify system is still selected
-    await openSettingsModal(page);
+    await openSettingsPage(page);
     await waitForSettingsPage(page);
 
     // The system button should still be available and clickable
@@ -152,7 +152,7 @@ test.describe('Theme Switching', () => {
 
   test('should maintain theme consistency across page reloads', async ({ page }) => {
     // Set to dark theme (use settings-specific selector)
-    await openSettingsModal(page);
+    await openSettingsPage(page);
     await activateAppearanceThemeButton(page, 'Dark');
     await page.waitForTimeout(100);
 
@@ -169,7 +169,7 @@ test.describe('Theme Switching', () => {
     await expect(htmlElement).toHaveClass(/dark/);
 
     // Reopen settings to test light theme
-    await openSettingsModal(page);
+    await openSettingsPage(page);
     await waitForSettingsPage(page);
 
     // Switch back to light and test reload persistence (use settings-specific selector)
@@ -179,7 +179,7 @@ test.describe('Theme Switching', () => {
 
     // Preview mode does not serve /settings directly on hard reload, so return
     // to the app root before verifying reload persistence.
-    await closeSettingsModal(page);
+    await leaveSettingsPage(page);
     await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
 

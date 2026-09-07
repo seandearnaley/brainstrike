@@ -5,12 +5,12 @@ import {
   CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR,
   CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
   CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
-  closeSettingsModal,
   contextExplorerActiveNavLocator,
   ensureRightPanelVisible,
   getContextExplorerRightResizeHandle,
   getPanelElements,
-  openSettingsModal,
+  leaveSettingsPage,
+  openSettingsPage,
   waitForAppLoad,
   waitForContextExplorerPage,
   waitForSettingsPage,
@@ -354,7 +354,7 @@ test.describe('IDE Layout Persistence', () => {
     // packages/app-shell/src/root-layout-content.tsx — `mountedTabs` plus the
     // `explorer-route`/`notes-route` wrappers), so no route switch remounts the
     // explorer. What these two tests actually assert today is that opening and
-    // dismissing the Settings modal leaves the explorer panel state untouched.
+    // leaving the Settings route leaves the explorer panel state untouched.
     // Real reload-based persistence coverage lives in the describe blocks above.
     test('should handle navigation between pages while preserving layout', async ({ page }) => {
       // Start with panel visible (default state)
@@ -369,12 +369,12 @@ test.describe('IDE Layout Persistence', () => {
       await page.getByTestId('show-explorer-panel').click();
       await expect(rightPanel).toBeVisible();
 
-      // Open Settings (a modal over the explorer, not a route)
-      await openSettingsModal(page);
+      // Open Settings (a keep-mounted route beside the explorer, BST-1668)
+      await openSettingsPage(page);
       await waitForSettingsPage(page);
 
       // Navigate back to Context Explorer
-      await closeSettingsModal(page);
+      await leaveSettingsPage(page);
       await activateSidebarNavigation(page, 'Context Explorer');
       await waitForContextExplorerPage(page);
 
@@ -389,10 +389,10 @@ test.describe('IDE Layout Persistence', () => {
       await page.getByTestId('hide-explorer-panel').click();
       await expect(rightPanel).not.toBeVisible();
 
-      await openSettingsModal(page);
+      await openSettingsPage(page);
       await waitForSettingsPage(page);
 
-      await closeSettingsModal(page);
+      await leaveSettingsPage(page);
       await activateSidebarNavigation(page, 'Context Explorer');
       await waitForContextExplorerPage(page);
 

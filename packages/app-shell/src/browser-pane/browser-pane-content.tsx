@@ -36,11 +36,10 @@ export function BrowserPaneContent(): ReactElement {
   const activeTab = useBrowserTabsStore(selectActiveBrowserTab);
 
   const activeShellTab = usePanelLayoutStore((state) => state.activeTab);
-  const settingsOpen = usePanelLayoutStore((state) => state.settingsOpen);
   const paletteOpen = useCommandPaletteStore((state) => state.isOpen);
   const quickOpenOpen = useQuickOpenStore((state) => state.isOpen);
   const routeActive = activeShellTab === 'browser';
-  const occluded = !routeActive || settingsOpen || paletteOpen || quickOpenOpen;
+  const occluded = !routeActive || paletteOpen || quickOpenOpen;
 
   // The URL input follows the active tab's url unless the user is editing.
   // `draft === null` means "follow the active tab" (derived, no sync effect);

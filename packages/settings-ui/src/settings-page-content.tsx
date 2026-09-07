@@ -240,7 +240,7 @@ export function SettingsPageContent({
         <div className="border-border/60 border-b px-4 pt-4 pb-3">
           <div className="flex items-center gap-2 px-1">
             <Settings aria-hidden="true" className="size-4 text-muted-foreground" />
-            <span className="font-medium text-sm">Settings</span>
+            <h1 className="font-medium text-sm">Settings</h1>
           </div>
           <div className="relative mt-3">
             <SettingsSearchIcon />
@@ -315,7 +315,7 @@ export function SettingsPageContent({
             className="mx-auto max-w-3xl space-y-7"
             data-testid={`settings-category-${activeCategory.id}`}
           >
-            <div className="border-border/60 border-b pr-10 pb-5">
+            <div className="border-border/60 border-b pb-5">
               <h2 className="font-semibold text-xl tracking-tight">{activeCategory.title}</h2>
               {activeCategory.description ? (
                 <p className="mt-1.5 max-w-2xl text-muted-foreground text-sm leading-relaxed">

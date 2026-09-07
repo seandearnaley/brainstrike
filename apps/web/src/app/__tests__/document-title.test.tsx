@@ -11,8 +11,8 @@ import SettingsPageContent from '../settings/page-content';
  * are mounted.
  *
  * `packages/app-shell/src/root-layout-content.tsx` keeps every visited tab
- * mounted (`mountedTabs`) and renders the settings surface in a dialog on top
- * of the explorer route — so two page components really are alive at once. The
+ * mounted (`mountedTabs`), the settings route included — so two page
+ * components really are alive at once. The
  * old markup gave each of them its own `<Helmet>` and relied on
  * react-helmet-async 2.x deduping the tags across instances. 3.x delegates to
  * React 19's native document metadata, which does not dedupe (React documents
@@ -98,7 +98,7 @@ describe('web document title (single writer)', () => {
   beforeEach(() => {
     window.location.hash = '';
     act(() => {
-      usePanelLayoutStore.setState({ activeTab: 'explorer', settingsOpen: false });
+      usePanelLayoutStore.setState({ activeTab: 'explorer' });
     });
   });
 
@@ -117,7 +117,7 @@ describe('web document title (single writer)', () => {
     expect(document.title).toBe('BrainStrike.ai - Home');
   });
 
-  test('still renders exactly one title when the settings overlay opens over them', () => {
+  test('still renders exactly one title when the settings route is selected', () => {
     render(<TwoMountedTabs />);
 
     act(() => {
