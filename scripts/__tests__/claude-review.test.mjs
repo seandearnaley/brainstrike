@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { prepareReview, reportReview } from '../claude-review.mjs';
+import { claudeReviewToolArgs, prepareReview, reportReview, runReview } from '../claude-review.mjs';
 
 const head = 'a'.repeat(40);
 const base = 'b'.repeat(40);
@@ -19,6 +19,7 @@ function fixture(
     baseRef = 'main',
     baseRepo = 'owner/repo',
     diffBytes = 0,
+    focus = 'Verify the workflow trust boundary',
   } = {}
 ) {
   const dir = mkdtempSync(path.join(tmpdir(), 'claude-review-'));
@@ -31,12 +32,11 @@ function fixture(
     state: 'open',
   };
   const event = {
-    inputs: { expected_head: head, focus: 'Verify the workflow trust boundary', pr_number: '42' },
+    inputs: { expected_head: head, focus, pr_number: '42' },
     pull_request: pr,
     repository: { default_branch: 'main' },
   };
   const env = {
-    ACTION_CONCLUSION: actionConclusion,
     ACTION_OUTCOME: 'success',
     GITHUB_EVENT_NAME: eventName,
     GITHUB_EVENT_PATH: path.join(dir, 'event.json'),
@@ -49,16 +49,22 @@ function fixture(
     GITHUB_SHA: trusted,
     GITHUB_STEP_SUMMARY: path.join(dir, 'summary'),
     GITHUB_WORKFLOW_REF: `owner/repo/.github/workflows/claude-code-review.yml@${eventName === 'workflow_dispatch' ? 'refs/heads/main' : 'refs/pull/42/merge'}`,
-    REVIEW_OUTPUT: JSON.stringify({
-      base_sha: base,
-      completed: true,
-      head_sha: head,
-      review: 'The requested scope was reviewed; no findings.',
-      scope: eventName === 'workflow_dispatch' ? 'targeted' : 'whole PR',
-    }),
+    GITHUB_WORKSPACE: path.join(dir, 'workspace'),
     RUNNER_TEMP: dir,
   };
   writeFileSync(env.GITHUB_EVENT_PATH, JSON.stringify(event));
+  // Stand in for runReview having already written its result file.
+  const resultFile = path.join(dir, 'claude-review-result.json');
+  const recordResult = (structuredOutput, conclusion = actionConclusion) =>
+    writeFileSync(resultFile, JSON.stringify({ conclusion, reason: '', structuredOutput }));
+  const defaultReview = {
+    base_sha: base,
+    completed: true,
+    head_sha: head,
+    review: 'The requested scope was reviewed; no findings.',
+    scope: eventName === 'workflow_dispatch' ? 'targeted' : 'whole PR',
+  };
+  recordResult(JSON.stringify(defaultReview));
   const calls = [];
   const gh = (args) => {
     calls.push(args);
@@ -79,14 +85,15 @@ function fixture(
   };
   return {
     calls,
+    defaultReview,
     env,
     event,
     gh,
     gitHead: () => trusted,
-    noReview: () => {
-      env.REVIEW_OUTPUT = '';
-    },
+    noReview: () => recordResult(''),
     pr,
+    prompt: () => readFileSync(path.join(dir, 'claude-review-capture', 'prompt.txt'), 'utf8'),
+    recordResult,
     summary: () => readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8'),
     updateEvent: () => writeFileSync(env.GITHUB_EVENT_PATH, JSON.stringify(event)),
   };
@@ -119,7 +126,7 @@ test('a stacked layer based on another branch of this repository is reviewed aga
   const f = fixture(t, { baseRef: 'feat/parent-layer' });
   assert.equal(prepareReview(f), 0);
   assert.match(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'), /eligible<<[^\n]+\ntrue\n/);
-  assert.match(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'), new RegExp(`BASE: ${base}`));
+  assert.match(f.prompt(), new RegExp(`BASE: ${base}`));
   assert.equal(reportReview(f), 0);
   assert.match(f.summary(), /Claude review completed/);
 });
@@ -145,7 +152,7 @@ test('a pull_request run must execute its own merge ref, not some other ref', (t
 });
 
 test('an oversized diff is refused visibly with its size instead of crashing the action', (t) => {
-  const f = fixture(t, { diffBytes: 120 * 1024 });
+  const f = fixture(t, { diffBytes: 520 * 1024 });
   assert.equal(prepareReview(f), 0);
   assert.match(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'), /eligible<<[^\n]+\nfalse\n/);
   assert.equal(reportReview(f), 1);
@@ -195,8 +202,8 @@ test('targeted trusted dispatch can review workflow self-change without PR code 
   assert.equal(prepareReview(f), 0);
   const outputs = readFileSync(f.env.GITHUB_OUTPUT, 'utf8');
   assert.match(outputs, /eligible<<[^\n]+\ntrue\n/);
-  assert.match(outputs, /Verify the workflow trust boundary/);
-  assert.match(outputs, /captured diff/);
+  assert.match(f.prompt(), /Verify the workflow trust boundary/);
+  assert.match(f.prompt(), /CAPTURED DIFF/);
   assert.equal(reportReview(f), 0);
   assert.match(f.summary(), /Scope: targeted/);
 });
@@ -302,17 +309,68 @@ test('truncated changed-file inventory cannot hide an orchestration change', (t)
   assert.match(f.summary(), /changed-file inventory is incomplete/);
 });
 
-test('review has no model execution or file tools and returns structured output', (t) => {
-  const f = fixture(t, { eventName: 'workflow_dispatch' });
-  prepareReview(f);
+test('the prompt is never an argument and never a step output', (t) => {
+  const f = fixture(t, { diffBytes: 400 * 1024 });
+  assert.equal(prepareReview(f), 0);
   const outputs = readFileSync(f.env.GITHUB_OUTPUT, 'utf8');
-  assert.doesNotMatch(outputs, /mcp__github_inline_comment__/);
-  assert.match(outputs, /--tools=/);
-  assert.match(outputs, /--disallowedTools" "mcp__\*"/);
-  assert.match(outputs, /--strict-mcp-config/);
-  assert.match(outputs, /--json-schema/);
-  assert.match(outputs, /CAPTURED DIFF/);
-  assert.match(outputs, /diff --git/);
+  // The only thing the step tells the workflow is whether to run at all.
+  assert.match(outputs, /eligible<<[^\n]+\ntrue\n/);
+  assert.doesNotMatch(outputs, /diff --git/);
+  assert.doesNotMatch(outputs, /prompt<</);
+  assert.doesNotMatch(outputs, /claude_args<</);
+  // The diff belongs in the prompt again once the prompt has no size limit.
+  assert.match(f.prompt(), /CAPTURED DIFF \(JSON STRING\):/);
+  assert.ok(Buffer.byteLength(f.prompt(), 'utf8') > 400 * 1024);
+});
+
+test('the CLI receives the prompt on stdin, with no tools and nothing in argv', (t) => {
+  const f = fixture(t, { diffBytes: 200 * 1024 });
+  assert.equal(prepareReview(f), 0);
+  const calls = [];
+  const spawn = (command, args, options) => {
+    const descriptor = options.stdio[0];
+    // Read while the descriptor is still open: this proves it pointed at the
+    // prompt at spawn time, which is the property the whole design rests on.
+    calls.push({
+      args,
+      command,
+      stdin: typeof descriptor === 'number' ? readFileSync(descriptor, 'utf8') : null,
+      stdinIsDescriptor: typeof descriptor === 'number',
+    });
+    return { status: 0, stdout: JSON.stringify({ structured_output: f.defaultReview }) };
+  };
+  assert.equal(runReview({ ...f, spawn }), 0);
+  const [call] = calls;
+  assert.ok(call.stdinIsDescriptor, 'stdin must be the prompt file descriptor');
+  assert.equal(call.stdin, f.prompt());
+  // Nothing in argv carries prompt or diff content, at any size.
+  for (const arg of call.args) {
+    assert.ok(!arg.includes('diff --git'), `argv carried diff content: ${arg.slice(0, 60)}`);
+    assert.ok(!arg.includes('CAPTURED DIFF'), `argv carried the prompt: ${arg.slice(0, 60)}`);
+    assert.ok(Buffer.byteLength(arg, 'utf8') < 8 * 1024, `argv entry of ${arg.length} bytes`);
+  }
+  // Zero tools: the Read grant existed only to work around the old env limit.
+  assert.ok(call.args.includes('--tools='));
+  assert.ok(!call.args.includes('--add-dir'));
+  assert.ok(!call.args.includes('Read'));
+  assert.equal(claudeReviewToolArgs[0], '--tools=');
+});
+
+test('a CLI failure is recorded and cannot become completed coverage', (t) => {
+  const f = fixture(t);
+  assert.equal(prepareReview(f), 0);
+  const spawn = () => ({ status: 1, stderr: 'turn cap reached', stdout: '' });
+  assert.equal(runReview({ ...f, spawn }), 1);
+  assert.equal(reportReview(f), 1);
+  assert.match(f.summary(), /Claude auto-review did not complete/);
+  assert.match(f.summary(), /turn cap reached/);
+});
+
+test('a focus beyond the fixed cap is refused before Claude runs', (t) => {
+  const f = fixture(t, { eventName: 'workflow_dispatch', focus: 'F'.repeat(2001) });
+  assert.equal(prepareReview(f), 1);
+  assert.equal(reportReview(f), 1);
+  assert.match(f.summary(), /at most 2000 characters/);
 });
 
 for (const invalid of [
@@ -326,7 +384,7 @@ for (const invalid of [
   test(`invalid model output is rejected before any completed review is published: ${JSON.stringify(invalid)}`, (t) => {
     const f = fixture(t);
     prepareReview(f);
-    f.env.REVIEW_OUTPUT = JSON.stringify({ ...JSON.parse(f.env.REVIEW_OUTPUT), ...invalid });
+    f.recordResult(JSON.stringify({ ...f.defaultReview, ...invalid }));
     assert.equal(reportReview(f), 1);
     assert.match(f.summary(), /did not return a complete structured review/);
     assert.ok(

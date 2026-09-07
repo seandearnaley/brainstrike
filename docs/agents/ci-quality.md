@@ -1043,13 +1043,15 @@ Claude Auto Review runs on `pull_request` (`opened`, `ready_for_review`,
   ignores drafts, and removes the draft-open-then-ready double review. A PR
   opened ready, converted to draft, and marked ready again is reviewed twice;
   that round trip is rare and not worth guarding.
-- The action receives `github_token: ${{ github.token }}`, which
-  `setupGitHubToken()` returns before any App exchange, so no event type can
-  depend on that endpoint's allowlist; the job carries no `id-token` grant.
-  Nothing needs an App identity: the model runs with zero tools and the
-  trusted reporter publishes with `github.token`. The action's own
-  write-permission check still runs on every PR event regardless of token
-  source; preparation's same-repository head guard is belt-and-braces on top.
+- There is no App-token exchange to depend on, because there is no action: the
+  job installs the pinned Claude Code CLI and runs it directly. That removes
+  the OIDC allowlist question (claude-code-action#713) structurally rather than
+  routing around it with `github_token`. `secrets.CLAUDE_CODE_OAUTH_TOKEN` is
+  the only secret in scope and reaches the CLI as its own credential; the job
+  carries no `id-token` grant; the trusted reporter publishes with
+  `github.token`. Losing the action also loses its write-permission check, so
+  preparation's same-repository head guard is now load-bearing rather than
+  belt-and-braces.
 
 **Trust model, stated honestly.** Under `pull_request`, this workflow file and
 `scripts/claude-review.mjs` execute from the PR's merge commit — PR-author
@@ -1089,13 +1091,45 @@ batch. Review energy is front-loaded; later rounds trend nitpicky. Restacking
 retargets a child to `main` fires `edited`, which triggers nothing — correct,
 there is nothing new to review.
 
-**Size ceiling.** The action carries the prompt in several environment
-variables at once and Linux caps one at 128 KiB (`MAX_ARG_STRLEN`); above it
-the step dies at spawn with `Argument list too long` and no disposition
-(observed at 131 KiB and 188 KiB; 84 KiB passed). Preparation therefore
-refuses a prompt over a 100 KiB budget with an **incomplete** disposition
-that states both numbers and says to split the PR. No narrower diff is ever
-substituted; a PR that size needs splitting, not a shorter review.
+**Size ceiling.** There is no environment ceiling, because nothing about the
+prompt enters the environment. The review does not use
+`anthropics/claude-code-action`: its only prompt input is `prompt`, which
+`action.yml` carries into the runner through environment variables — `PROMPT`,
+and again JSON-escaped inside `ALL_INPUTS` — where Linux caps a single variable
+at 128 KiB (`MAX_ARG_STRLEN`). Above it the step died at spawn with `Argument
+list too long` and no disposition (observed at 131 KiB and 188 KiB; 84 KiB
+passed). There is no file input either: `run.ts` writes the prompt to
+`$RUNNER_TEMP/claude-prompts/`, and `create-prompt` `rm -rf`s that directory
+first, so pre-populating it is defeated by design; `execution_file` is an
+output. That cap once bounded the review at a 100 KiB prompt budget, which a
+dependency PR reached on lockfile churn alone — #3029 was refused at 410 KiB
+with 9 KiB of non-lockfile content.
+
+Preparation writes the whole prompt, diff included, to
+`$RUNNER_TEMP/claude-review-capture/prompt.txt`, and `runReview` opens that file
+and hands the descriptor to the CLI as stdin. A pipe has no size limit, so the
+prompt is never measured against an argument or environment bound, and
+`PROMPT_BYTE_BUDGET` is gone rather than raised. Do not reintroduce the action
+to "simplify" this; it would silently restore the ceiling. The contract test
+asserts the absence of `uses: …claude-code-action`, of any `prompt:` input, and
+of any `structured_output` round trip, and a unit test asserts the CLI's stdin
+is a file descriptor whose content is the prompt while no argument carries diff
+text.
+
+What bounds the diff now is the model's context window alone, at a
+`DIFF_BYTE_CEILING` of 512 KiB. Unlike `MAX_ARG_STRLEN` this is a chosen margin
+rather than a measured cliff: roughly 145k tokens at the ~3.5 bytes/token that
+diff text runs, leaving a 200k window room for the system prompt and the
+structured output. Over it, preparation refuses with an **incomplete**
+disposition stating both numbers. No narrower diff is ever substituted and no
+partial review is published; a PR that size needs splitting, not a shorter
+review.
+
+The result comes back the same way. `runReview` records the CLI's structured
+output to `$RUNNER_TEMP/claude-review-result.json` and the reporter reads it
+from disk; only the step's own `outcome` travels as an environment variable.
+Carrying the review text back through one would reintroduce the same class of
+limit in the other direction.
 
 Automatic review retains the `opened`, `ready_for_review`, and `reopened`
 lifecycle and omits `synchronize`. Changes to the workflow or its orchestration
@@ -1119,13 +1153,37 @@ the trusted dispatch above for coverage and obtain human review. Local contract
 fixtures are not proof that a live Claude review completed.
 
 `scripts/claude-review.mjs` captures `gh pr diff`, checking the live head and
-base before and after capture. It sends that snapshot directly as prompt data.
-Claude has no file, shell, network, or GitHub tools: `--tools=` disables built-ins,
-`--disallowedTools "mcp__*"` denies MCP tools, strict empty MCP configuration
-prevents other servers loading, and slash commands are disabled. Only the
-schema's `StructuredOutput` tool remains. Do not replace this with `allowedTools`
-plus `dontAsk`: read-only commands remain available under that permission mode.
+base before and after capture, then writes that snapshot to a file under
+`$RUNNER_TEMP` and streams it to the CLI on stdin. Orchestration keeps the
+fetch, which is what makes the exact-head guarantee possible: a model running
+`gh pr diff` itself — the vendor's documented review pattern — would leave
+nothing able to attest what was reviewed, and the pinned `head_sha` would
+become a claim the model echoes rather than a fact. Only the delivery mechanism
+departs from the reference architecture; the trust boundary is unchanged.
+
+Claude has no file, shell, network, or GitHub tools: `--tools=` empties the
+built-in set and ignores user, project, and local settings, so it is the hard
+cap and no permission rule can widen it; `--disallowedTools "mcp__*"` denies MCP
+tools, strict empty MCP configuration prevents other servers loading, and slash
+commands are disabled. Only the schema's `StructuredOutput` tool remains. Do not
+replace this with `allowedTools` plus `dontAsk`: that restores the whole
+built-in set and read-only commands remain available under that permission mode.
 The model and 80-turn ceiling remain unchanged.
+
+An earlier revision of this change granted `Read` so the model could open a
+diff file, because the prompt could not carry one. Delivering the prompt on
+stdin removed the reason, and the grant with it: there is no `--add-dir`, no
+capture file for the model to open, and no widening of what it can reach. Prefer
+this ordering generally — when a limit forces a capability grant, check whether
+the limit is real before accepting the grant.
+
+`scripts/probe-claude-review-tools.mjs` verifies the boundary behaviorally
+against the exact CLI version the workflow installs, delivering its prompt on
+stdin the way production does: `Bash` rejected as an unavailable tool, a private
+file left unread, only `StructuredOutput` exposed. A contract test pins the
+probe's asserted version to the workflow's install pin, so the probe cannot
+certify a build CI never runs. Update the probe with any change to the tool
+arguments.
 
 Claude returns completed/head/base/scope fields and review text. Trusted
 orchestration validates the exact request, rechecks live head/base, and posts

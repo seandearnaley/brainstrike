@@ -2,7 +2,7 @@
 // Usage: node scripts/probe-claude-review-tools.mjs /absolute/path/to/claude
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdtempSync, openSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -12,7 +12,7 @@ import { claudeReviewToolArgs } from './claude-review.mjs';
 export async function main({ claudeBinary: binary }) {
   assert.ok(binary && path.isAbsolute(binary), 'Supply the absolute path to Claude Code 2.1.261.');
   const version = execFileSync(binary, ['--version'], { encoding: 'utf8' }).trim();
-  assert.equal(version, '2.1.261 (Claude Code)', 'Use the version installed by the pinned action.');
+  assert.equal(version, '2.1.261 (Claude Code)', 'Use the version the workflow pins.');
   const directory = mkdtempSync(path.join(tmpdir(), 'claude-review-tools-'));
   const privateData = 'PRIVATE_FILE_MUST_NOT_BE_READ';
   writeFileSync(path.join(directory, 'private.txt'), privateData);
@@ -75,11 +75,18 @@ export async function main({ claudeBinary: binary }) {
 
   try {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const promptFile = path.join(directory, 'prompt.txt');
+    writeFileSync(
+      promptFile,
+      'Review only this supplied text and return the requested structured result.'
+    );
+    // Production streams the prompt from a file descriptor. Exercise that, not a
+    // convenience string: passing it in argv here would test a path we do not ship.
+    const promptFd = openSync(promptFile, 'r');
     const child = spawn(
       binary,
       [
         '-p',
-        'Review only this supplied text and return the requested structured result.',
         '--model',
         'claude-opus-5',
         '--max-turns',
@@ -108,9 +115,10 @@ export async function main({ claudeBinary: binary }) {
           SHELL: process.env.SHELL,
           USER: process.env.USER,
         },
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: [promptFd, 'pipe', 'pipe'],
       }
     );
+    closeSync(promptFd);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (data) => {
@@ -142,8 +150,13 @@ export async function main({ claudeBinary: binary }) {
       'The CLI must not read the private file.'
     );
     assert.deepEqual(JSON.parse(stdout).structured_output, result);
+    // argv must carry no prompt text at all; the prompt reached the CLI on stdin.
+    assert.ok(
+      !JSON.stringify(process.argv).includes('Review only this supplied text'),
+      'The prompt must never appear in an argument.'
+    );
     console.log(
-      `${version}: Bash execution rejected; private file unread; only StructuredOutput exposed; structured completion passed.`
+      `${version}: prompt delivered on stdin; Bash execution rejected; private file unread; only StructuredOutput exposed; structured completion passed.`
     );
   } finally {
     server.closeAllConnections();
