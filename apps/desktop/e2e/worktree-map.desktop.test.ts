@@ -513,9 +513,9 @@ test.describe('Worktree Map (desktop)', () => {
       const shim = requireModelProviderShim();
       shim.setScript({
         // brainstrike.manageWorktree is Mastra-deferred (mastra_tool_discovery_surface
-        // logs it under deferredToolIds, not coreToolIds) — discoveryQuery makes
-        // the shim call search_tools first so Mastra loads it before this call.
-        discoveryQuery: 'worktree',
+        // logs it under deferredToolIds, not coreToolIds) — deferredTool makes
+        // the shim call load_tool first so Mastra loads it before this call.
+        deferredTool: true,
         finalText: 'Created the worktree.',
         toolCall: {
           arguments: { action: 'create', branch: 'bs/agent-created', name: 'agent-created' },

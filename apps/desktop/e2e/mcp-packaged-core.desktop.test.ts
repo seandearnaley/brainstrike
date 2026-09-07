@@ -504,7 +504,7 @@ async function executeElicitationTool(
   modelProvider: Awaited<ReturnType<typeof startModelProviderShim>>
 ): Promise<void> {
   modelProvider.setScript({
-    discoveryQuery: 'elicit confirm',
+    deferredTool: true,
     finalText: 'Packaged MCP elicitation completed.',
     toolCall: {
       arguments: { text: ELICITATION_TOOL_PAYLOAD },
@@ -676,7 +676,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
       }),
     ]);
     const modelProvider = await startModelProviderShim({
-      discoveryQuery: 'legacy echo',
+      deferredTool: true,
       finalText: 'Packaged MCP tool completed.',
       toolCall: {
         arguments: { text: ASSISTANT_TOOL_PAYLOAD },

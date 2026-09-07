@@ -2127,6 +2127,8 @@ describe('mastra streaming integration', () => {
   it.each([
     { originalToolId: 'search_tools', sanitizedToolId: 'search_tools' },
     { originalToolId: 'search.tools', sanitizedToolId: 'search_tools' },
+    { originalToolId: 'load_tool', sanitizedToolId: 'load_tool' },
+    { originalToolId: 'load.tool', sanitizedToolId: 'load_tool' },
     { originalToolId: 'list_available_tools', sanitizedToolId: 'list_available_tools' },
     { originalToolId: 'list.available.tools', sanitizedToolId: 'list_available_tools' },
   ])(
@@ -2172,28 +2174,6 @@ describe('mastra streaming integration', () => {
     expect(Object.keys(agentInstances[0]?.config.tools ?? {})).toEqual(['search_tools']);
     expect(runtime.toolSearchProcessor).toBeUndefined();
   });
-
-  it.each(['load_tool', 'load.tool'])(
-    'preserves caller-owned %s when auto-load catalog discovery is installed',
-    async (originalToolId) => {
-      const runtime = await createMastraAgentRuntime({
-        runtime: { apiKey: 'key', provider: 'openai' },
-        tools: {
-          'brainstrike.listWorkspaceContext': {
-            description: 'List the current workspace context.',
-            id: 'brainstrike.listWorkspaceContext',
-          },
-          [originalToolId]: {
-            description: 'Caller-owned load helper.',
-            id: originalToolId,
-          },
-        },
-      });
-
-      expect(agentInstances[0]?.config.tools).toHaveProperty('load_tool');
-      expect(runtime.toolSearchProcessor).toBeDefined();
-    }
-  );
 
   it('rejects a deferred MCP tool whose canonical id collides with search_tools', async () => {
     setMcpToolsets({

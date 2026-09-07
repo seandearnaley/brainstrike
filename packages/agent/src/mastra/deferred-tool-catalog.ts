@@ -76,7 +76,7 @@ export function createDeferredToolCatalog(
 
   return createTool({
     description:
-      'List eligible deferred tools, including MCP tools, without loading their schemas. Use for questions about what tools are available. Filter by name prefix (for example linear). Follow nextOffset until null for the complete inventory. To use a listed tool, search_tools with its exact name first.',
+      'List eligible deferred tools, including MCP tools, without loading their schemas. Use for questions about what tools are available. Filter by name prefix (for example linear). Follow nextOffset until null for the complete inventory. To use a listed tool, call load_tool with its exact name first.',
     execute: async ({ prefix, offset = 0 }) => {
       const normalizedPrefix = prefix?.toLowerCase();
       const matches = normalizedPrefix

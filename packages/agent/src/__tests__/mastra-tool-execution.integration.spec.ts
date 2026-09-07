@@ -257,7 +257,9 @@ async function closeHttpMcpFixture(
 /**
  * A scripted LanguageModelV2: first turn emits a single tool call; once the
  * prompt contains the tool result (role "tool"), it emits a final text answer.
- * This is the minimal real-model contract the Mastra loop drives.
+ * This is the minimal real-model contract the Mastra loop drives. With
+ * `discover`, an extra leading turn loads the deferred tool by exact name via
+ * Mastra's `load_tool` meta-tool so it is callable on the next step.
  */
 function createScriptedToolCallModel(args: {
   continueWithTool?: (
@@ -290,9 +292,9 @@ function createScriptedToolCallModel(args: {
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
             {
-              input: JSON.stringify({ query: args.toolName }),
-              toolCallId: `${args.toolCallId}-search`,
-              toolName: 'search_tools',
+              input: JSON.stringify({ toolName: args.toolName }),
+              toolCallId: `${args.toolCallId}-load`,
+              toolName: 'load_tool',
               type: 'tool-call',
             },
             { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
@@ -1474,7 +1476,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     );
   });
 
-  it('enumerates, discovers, auto-loads, and executes a deferred native tool through the real loop', async () => {
+  it('enumerates, discovers, loads via load_tool, and executes a deferred native tool through the real loop', async () => {
     const executions: string[] = [];
     const offeredToolNames: string[][] = [];
     let turn = 0;
@@ -1532,9 +1534,9 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
             stream: enqueue([
               { type: 'stream-start', warnings: [] },
               {
-                input: JSON.stringify({ query: 'brainstrike_listWorkspaceContext' }),
-                toolCallId: 'call-search-1',
-                toolName: 'search_tools',
+                input: JSON.stringify({ toolName: 'brainstrike_listWorkspaceContext' }),
+                toolCallId: 'call-load-1',
+                toolName: 'load_tool',
                 type: 'tool-call',
               },
               { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
@@ -1593,12 +1595,13 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       chunks.push(chunk);
     }
 
-    expect(offeredToolNames[0]).toEqual(['search_tools', 'list_available_tools']);
-    expect(offeredToolNames[1]).toEqual(['search_tools', 'list_available_tools']);
-    expect(offeredToolNames[2]).toEqual(['search_tools', 'list_available_tools']);
-    expect(offeredToolNames[3]).toEqual(['search_tools', 'list_available_tools']);
+    expect(offeredToolNames[0]).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
+    expect(offeredToolNames[1]).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
+    expect(offeredToolNames[2]).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
+    expect(offeredToolNames[3]).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
     expect(offeredToolNames[4]).toEqual([
       'search_tools',
+      'load_tool',
       'brainstrike_listWorkspaceContext',
       'list_available_tools',
     ]);

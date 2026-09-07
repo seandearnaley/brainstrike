@@ -29,14 +29,14 @@ export const SKILL_TOOL_IDS = ['skill', 'skill_read', 'skill_search'] as const;
 /**
  * Appended to every skill activation result. Names `brainstrike.runSkillScript`
  * by exact id — which is a DEFERRED tool on hosted discovery runs — so it must
- * carry its own recovery path: without the search_tools clause, a model that
+ * carry its own recovery path: without the load_tool clause, a model that
  * checks its visible tools concludes the tool does not exist and works around
  * via executeCommand, bypassing the typed skill-script policy layer (field
  * failure 2026-08-23). On non-discovery runs the tool is eager and the clause
  * is inert.
  */
 export const BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE =
-  '\n\nBrainstrike execution: run listed skill scripts with brainstrike.runSkillScript using literal args and mounted root/cwd — if that tool is not currently loaded, load it with search_tools when available (matches become callable on your next step in this same response — keep going and call it). Use brainstrike.writeWorkspaceFile for project writes; never construct shell heredocs. If the tool cannot be loaded or a script is declined, continue with native workspace tools and do not retry.';
+  '\n\nBrainstrike execution: run listed skill scripts with brainstrike.runSkillScript using literal args and mounted root/cwd — if that tool is not currently loaded, load it with load_tool using that exact name when available (it becomes callable on your next step in this same response — keep going and call it). Use brainstrike.writeWorkspaceFile for project writes; never construct shell heredocs. If the tool cannot be loaded or a script is declined, continue with native workspace tools and do not retry.';
 
 /** Mirrors countTokensHeuristic (4 chars/token) — same unit as the guard. */
 const APPROX_CHARS_PER_TOKEN = 4;

@@ -272,7 +272,9 @@ function settleRuntimeToolOutputs(params: {
   });
 }
 
-const MASTRA_CATALOG_META_TOOL_IDS = new Set(['search_tools', 'list_available_tools']);
+// `load_tool` is reserved since BST-1667: manual loading exposes Mastra's
+// exact-selection meta-tool on every discovery step.
+const MASTRA_CATALOG_META_TOOL_IDS = new Set(['search_tools', 'load_tool', 'list_available_tools']);
 
 function assertCatalogMetaToolNamesAvailable(params: {
   eligibleTools: ToolsInput;

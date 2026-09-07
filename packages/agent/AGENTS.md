@@ -329,12 +329,14 @@ ticket's divergence map), not from git history of the deleted files.
 
 ### Remote tools via MCP
 
-Hosted runs keep MCP schemas deferred. `search_tools` loads at most three
-ranked matches; `list_available_tools` enumerates the same eligible deferred catalog
-without loading schemas or invoking servers. It returns 50 entries per page
-with matching totals, `nextOffset`, and explicit description truncation. Both
-controls are reserved when discovery is installed. Inventory membership is
-per runtime and inherits all existing permission/capability gates.
+Hosted runs keep MCP schemas deferred. `search_tools` returns at most three
+ranked matches without loading them; `load_tool` loads a tool by exact name
+(`toolName` or `toolNames[]`); `list_available_tools` enumerates the same
+eligible deferred catalog without loading schemas or invoking servers. It
+returns 50 entries per page with matching totals, `nextOffset`, and explicit
+description truncation. All three controls are reserved when discovery is
+installed. Inventory membership is per runtime and inherits all existing
+permission/capability gates.
 
 The Model‑Context Protocol allows tool providers to be run as separate  
 processes or remote HTTP services and discovered at runtime. You can configure

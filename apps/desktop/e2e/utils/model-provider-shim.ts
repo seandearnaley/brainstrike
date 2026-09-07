@@ -30,14 +30,14 @@ export interface ModelProviderScript {
    * Set when `toolCall` targets a Mastra-deferred tool (present in
    * `deferredToolIds`, not `coreToolIds` — see the `mastra_tool_discovery_surface`
    * log). Deferred tools are not in the model's active tool definitions until
-   * Mastra's own `search_tools` meta-tool loads them for the NEXT turn
+   * Mastra's `load_tool` meta-tool loads them for the NEXT turn
    * (`tool-search-runtime.ts`'s `processInputStep`); calling one directly
-   * fails fast with no execution. When set, the shim emits a `search_tools`
-   * call FIRST — Mastra's runtime resolves the match and produces the
-   * tool-result server-side, no shim-authored content needed — then emits
-   * `toolCall` once a tool-result for that turn comes back.
+   * fails fast with no execution. When set, the shim emits a `load_tool`
+   * call FIRST with `{ toolName: toolCall.name }` — Mastra's runtime produces
+   * the tool-result server-side, no shim-authored content needed — then emits
+   * `toolCall` once one tool-result for that turn comes back, then `finalText`.
    */
-  readonly discoveryQuery?: string;
+  readonly deferredTool?: true;
   readonly finalText: string;
   readonly toolCall: ScriptedToolCall;
 }
@@ -121,19 +121,20 @@ function countToolResultMessages(messages: unknown[] | undefined): number {
 
 /**
  * Decide what this turn emits from the number of tool-result messages seen
- * so far. Without `discoveryQuery` this is the original 2-turn shape
- * (toolCall, then finalText). With it, a `search_tools` call is inserted
- * first so Mastra loads the deferred `toolCall` target before it is called.
+ * so far. Without `deferredTool` this is the original 2-turn shape
+ * (toolCall, then finalText). With it, a `load_tool` call is inserted first
+ * so Mastra loads the deferred `toolCall` target by exact name before it is
+ * called.
  */
 function resolveTurn(
   script: ModelProviderScript,
   toolResultCount: number
 ): { call: ScriptedToolCall } | { finalText: string } {
-  if (!script.discoveryQuery) {
+  if (!script.deferredTool) {
     return toolResultCount === 0 ? { call: script.toolCall } : { finalText: script.finalText };
   }
   if (toolResultCount === 0) {
-    return { call: { arguments: { query: script.discoveryQuery }, name: 'search_tools' } };
+    return { call: { arguments: { toolName: script.toolCall.name }, name: 'load_tool' } };
   }
   if (toolResultCount === 1) {
     return { call: script.toolCall };

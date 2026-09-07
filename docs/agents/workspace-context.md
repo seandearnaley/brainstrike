@@ -465,10 +465,11 @@ exports and (b) unbounded plain-fs readers. **Desktop-only by construction**
   shell heredocs; declining an optional script continues through those native
   tools rather than retrying the approval. Because `runSkillScript` is
   DEFERRED on hosted discovery runs, the activation guidance also carries its
-  own recovery path — load it with `search_tools` when available, callable
-  next turn — otherwise a model that checks its visible tools concludes the
-  named tool does not exist and works around via `executeCommand`, bypassing
-  this whole policy layer (2026-08-23 field failure; see the
+  own recovery path — load it with `load_tool` by exact name when available,
+  callable on the next step of the same response — otherwise a model that
+  checks its visible tools concludes the named tool does not exist and works
+  around via `executeCommand`, bypassing this whole policy layer (2026-08-23
+  field failure; see the
   discovery-coverage rule in `docs/agents/assistant-providers.md`). The
   guidance's space is RESERVED inside the activation budget
   (`withBoundedActivationAndGuidance`): bounding used to run AFTER the append,
@@ -716,7 +717,7 @@ in the canonical description and Zod schema registries documented in
 workflow and invariants below once. The authored full-registry fixture remains
 guarded at 7,900 `o200k_base` tokens. The live actual Mastra/OpenRouter core and
 resolved instructions are guarded at 5,000 tokens, materially below the retired
-11,500-token eager boundary. Live hosted requests add `search_tools`; deferred
+11,500-token eager boundary. Live hosted requests add `search_tools` and `load_tool`; deferred
 tool mechanics arrive with the dynamically loaded definition. The fixture uses
 the real hosted registry, a default-enabled representative workspace skill,
 resolved conditional guidance, and first-turn `SkillsProcessor` metadata; see
