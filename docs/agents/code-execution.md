@@ -462,12 +462,22 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   red until the suite is re-greened on macOS AND Linux; see
   `packages/agent/src/__tests__/fence-escape-resistance.README.md` for the
   required procedure and the guarantee/non-guarantee list. **CI supplies the
-  Linux half as of BST-1316** — `unit-shard` installs `bwrap`/`socat`/ripgrep
-  and clears `kernel.apparmor_restrict_unprivileged_userns` — but a green Unit
-  check is not evidence on its own: confirm the suite RAN rather than emitting
-  `describeHostSkipReason()`. **CI supplies no macOS half at all** (no macOS
-  runner), so that one is always a local run, and the bump log has to say which
-  platforms actually ran rather than which were assumed.
+  Linux half as of BST-1316**: the `unit-shard` job installs
+  `bwrap`/`socat`/ripgrep and clears
+  `kernel.apparmor_restrict_unprivileged_userns`. Note the lane naming, because
+  it is easy to look in the wrong place: this is an `*.integration.spec.ts`
+  suite, but the job that runs it is the one whose check reads **`Unit
+  (<shard>)`** — that job runs `test` AND `test:integration`, and the
+  escape-resistance file lands in **`Unit (rest)`**, under the step *Pull
+  request affected integration tests*. A green `Unit` is not evidence on its
+  own: open that step and confirm the suite RAN rather than emitting
+  `describeHostSkipReason()` — the file line should read `✓
+  fence-escape-resistance.integration.spec.ts (32 tests)` with no
+  `SUITE SKIPPED`. Note also that a CI runner has no credential stores, so the
+  `~/.ssh` containment cases prove only "refused" there and get their
+  full-strength form from the macOS half. **CI supplies no macOS half at all**
+  (no macOS runner), so that one is always a local run, and the bump log has to
+  say which platforms actually ran rather than which were assumed.
 - **Platforms: darwin + linux only.** `isFenceSupported()` is the probe and
   `createFenceExecutorFactory()` returns `undefined` on anything else, so an
   unsupported host simply has no `fence` capability and `resolveCodeExecutor`

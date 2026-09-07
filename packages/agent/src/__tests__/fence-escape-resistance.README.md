@@ -362,38 +362,61 @@ dropping the file.
 ### Bump log
 
 - **0.0.73 → 0.0.75 (BST-1669, 2026-09-07).** Two upstream releases.
-  **Platforms that actually ran: macOS locally; Linux from CI** (see below for
-  how the Linux half was confirmed rather than assumed).
+  **Platforms that actually ran: macOS locally (Step 3) and Linux in CI
+  (Step 5).** Both are cited below with counts; neither is assumed.
 
-  **Step 1 — what changed upstream.** Diffed the published 0.0.73 and 0.0.75
-  tarballs rather than reading 0.0.75 alone. Three things moved in the security
-  surface: `macos-sandbox-utils` now folds literal deny paths into generated,
-  anchored regexes instead of emitting one `subpath` filter per path
-  (`groupLiteralDenyPaths`, `SBPL_STRING_MAX_BYTES = 900`,
-  `MIN_DENY_GROUP_SIZE = 4`) — a profile-generation change, i.e. exactly the
-  layer the root-`allowRead` finding lives in; `generate-seccomp-filter` and
-  `linux-sandbox-utils` changed; and a new opt-in `javaAgentJarPath` injects a
-  JVM proxy agent via `JAVA_TOOL_OPTIONS`. srt's README security sections are
-  otherwise **identical** — no guarantee was added or withdrawn. The JVM agent
-  does not reach this fence: it runs Python and Node, never a JVM.
+  **Step 1 — what changed upstream, with a verdict per platform.** Diffed the
+  published 0.0.73 and 0.0.75 tarballs rather than reading 0.0.75 alone.
 
-  **Step 2 — the root-`allowRead` finding survives.** The re-emission test is
-  `literalAllowDirs.some(a => deny.path.startsWith(a + '/'))` and is
-  **byte-identical** between the two tarballs (0.0.73 line 154, 0.0.75 line
-  155). For an allow of `/` that prefix is `//`, which no real path starts
-  with, so the deny is still dropped. Confirmed live: `REFUSES a root-wide
-  allowRead …` passes at 0.0.75. Non-guarantee 8 (`allowRead` beats `denyRead`
-  on an exact collision) is unchanged for the same reason.
+  - *macOS — `macos-sandbox-utils`, the layer this suite's live finding lives
+    in.* Literal deny paths are now folded into generated anchored regexes
+    instead of one `subpath` filter per path (`groupLiteralDenyPaths`,
+    `SBPL_STRING_MAX_BYTES = 900`, `MIN_DENY_GROUP_SIZE = 4`).
+  - *Linux — `generate-seccomp-filter`.* The **only** change is
+    `function getGlobalNpmPaths()` becoming `export function
+    getGlobalNpmPaths()`. A visibility change; not one filter rule moved.
+  - *Linux — `linux-sandbox-utils`.* All 15 changed lines are the new JVM proxy
+    agent: an import, `javaAgentJarPath` added to the params destructure, and a
+    guarded block that pushes `--setenv JAVA_TOOL_OPTIONS`. Nothing touches
+    bind, tmpfs, unshare, deny or allow handling. `buildJavaToolOptions` is
+    passed `unsetEnvVars`, so it respects the denied-env list.
+  - *Both — the JVM agent* (`javaAgentJarPath`, opt-in). It does not reach this
+    fence, which runs Python and Node and never a JVM. The env-isolation case
+    (`lets NO host environment value cross the fence…`) passes on both
+    platforms regardless.
+
+  srt's README security sections are otherwise **identical** — no guarantee
+  added or withdrawn.
+
+  **Step 2 — the root-`allowRead` finding survives.** The re-emission test
+  `literalAllowDirs.some(a => deny.path.startsWith(a + '/'))` is byte-identical
+  between the two tarballs (0.0.73 line 154, 0.0.75 line 155): for an allow of
+  `/` the prefix is `//`, which no real path starts with, so the deny is still
+  dropped. Treat that as corroboration, not proof — 0.0.75 rewrote the code
+  *around* this line, so the load-bearing evidence is the live pass of `REFUSES
+  a root-wide allowRead …` on both platforms. Non-guarantee 8 rides on the same
+  logic and is unchanged for the same reason.
 
   **Step 3 — full macOS run, zero skips.** macOS 26.6.2, arm64, real Seatbelt:
   **31 passed, 1 failed**, the single failure being the version-pin test itself
-  while the constant still read `0.0.73` — which is the intended order, since
-  it proves every substantive case was exercised *before* the pin moved. No
-  `SUITE SKIPPED` and no `NETWORK CASES SKIPPED`, so the network, fork,
-  grandchild, timeout and abort cases all ran. The regex-folded deny paths
-  changed no observable behaviour: `still permits a denyRead NESTED inside an
-  allowRead` and `REFUSES an allowRead that sits directly on an always-denied
-  store` both still hold.
+  while the constant still read `0.0.73` — the intended order, since it proves
+  every substantive case was exercised *before* the pin moved. No
+  `SUITE SKIPPED` and no `NETWORK CASES SKIPPED`. With the pin updated: 32/32.
+
+  **The new deny-grouping path was genuinely exercised, and both of its
+  branches were.** `ALWAYS_DENY_READ_PATHS` is 10 literal entries; 8 of them
+  (`.ssh`, `.aws`, `.gnupg`, `.kube`, `.docker`, `.netrc`, `.npmrc`, `.pypirc`)
+  share the grandparent srt groups on, clearing `MIN_DENY_GROUP_SIZE = 4`, so
+  they emit as a folded regex; the two `.config/*` entries do not reach four and
+  fall to `rest` as literals. So a macOS pass here is evidence about the new
+  folding, not merely evidence that nothing changed for us.
+
+  **The 900-byte cap cannot silently drop a deny.** `groupLiteralDenyPaths`
+  filters over-long names out of a group, drops the group entirely if it then
+  falls under `MIN_DENY_GROUP_SIZE`, and returns
+  `rest: normalizedPaths.filter(p => !grouped.has(p))` — so anything excluded
+  from a regex is still emitted as a literal filter. The cap degrades to the
+  old per-path behaviour, which is the safe direction.
 
   **Step 4 — mutation re-run, srt-sensitive subset: 5/5 still KILLED.** M2
   (glob refusal), M3 (root refusal), M4 (`ALWAYS_DENY_READ_PATHS` dropped), M12
@@ -404,6 +427,27 @@ dropping the file.
   and env behaviour in our own executor, which srt's profile generation cannot
   make redundant; they were **not** re-run, and this entry says so rather than
   claiming 16/16.
+
+  **Step 5 — Linux, from CI, confirmed as executed rather than green.** Job
+  **`Unit (rest)`**, step *Pull request affected integration tests*, in the
+  `Test` run for head `f9041db8`
+  (<https://github.com/seandearnaley/brainstrike/actions/runs/34143026519>):
+
+  ```
+  ✓ src/__tests__/fence-escape-resistance.integration.spec.ts (32 tests) 22288ms
+  ```
+
+  **32 tests, zero skips** — no `SUITE SKIPPED`, no `NETWORK CASES SKIPPED`, no
+  "sandbox-runtime dependencies are missing". That is the whole point of the
+  check: a green `Unit` alone would have been consistent with 27 quiet skips.
+
+  One honest caveat the Linux run itself logged, twice: `~/.ssh does not exist
+  on this host, so the allowWrite/allowRead containment refusal was proven only
+  as "refused"`, not as "refused *for re-opening a store*". The CI runner has no
+  credential stores, so those two containment cases are weaker on Linux than on
+  a developer machine — and the macOS half, where `~/.ssh` exists, is what
+  supplies their full-strength form. The two platforms are complementary here,
+  not redundant.
 
 - **0.0.67 → 0.0.73 (BST-1285).** Six upstream releases, all with published
   release notes. Nothing in them weakens a restriction this suite relies on;
