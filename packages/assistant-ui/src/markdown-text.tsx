@@ -10,6 +10,7 @@ import { stripProviderCitationMarkers } from '@brainstrike/assistant-contract/ci
 import { CodeBlockHeader } from '@brainstrike/ui/code-block';
 import remarkGfm from 'remark-gfm';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
+import { MarkdownLink } from './markdown-link';
 import { SyntaxHighlighterComponent } from './shiki-highlighter';
 
 const REMARK_PLUGINS = [remarkGfm];
@@ -80,6 +81,10 @@ function CodeHeader({ language, code }: CodeHeaderProps) {
 }
 
 const defaultComponents = memoizeMarkdownComponents({
+  // The anchor default is unusable on both platforms (see markdown-link.tsx):
+  // the desktop renderer's navigation fence denies it, and on web it would
+  // navigate the whole app away. Link activation is routed to the host instead.
+  a: MarkdownLink,
   // biome-ignore lint/style/useNamingConvention: assistant-ui expects "CodeHeader" key
   CodeHeader,
   // biome-ignore lint/style/useNamingConvention: assistant-ui expects "SyntaxHighlighter" key

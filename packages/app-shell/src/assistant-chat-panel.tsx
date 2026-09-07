@@ -7,6 +7,7 @@ import {
   PROVIDER_DEFAULT_MODELS,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import { AssistantLinkCapabilitiesProvider } from '@brainstrike/assistant-ui';
 import { type ReactElement, useMemo } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';
@@ -19,6 +20,7 @@ import type {
   AssistantProviderReadError,
 } from './hooks/use-assistant-availability';
 import { useAssistantAvailabilityWithLocal } from './hooks/use-assistant-availability-with-local';
+import { useAssistantLinkCapabilitiesValue } from './use-assistant-link-capabilities';
 
 export interface AssistantChatPanelProps {
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
@@ -40,6 +42,10 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
     () => resolveAssistantProviderSource(status),
     [status]
   );
+  // Links in thread markdown cannot use the anchor default: the desktop
+  // renderer fences navigation and web would tear the SPA down. This is the
+  // host end of that seam (BST-1665).
+  const linkCapabilities = useAssistantLinkCapabilitiesValue();
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="assistant-chat-card">
@@ -79,16 +85,18 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
         )}
         {status.state === 'enabled' && fixedProviderModelsResolution.state !== 'error' && (
           <AssistantProviderSourceProvider source={providerSource}>
-            <AssistantUiPanelWrapperLazy
-              {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-              {...(status.providerErrors
-                ? { providerReadErrors: toProviderReadErrors(status.providerErrors) }
-                : {})}
-              {...(status.providerKeySources
-                ? { providerKeySources: status.providerKeySources }
-                : {})}
-              {...(fixedProviderModels ? { fixedProviderModels } : {})}
-            />
+            <AssistantLinkCapabilitiesProvider capabilities={linkCapabilities}>
+              <AssistantUiPanelWrapperLazy
+                {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+                {...(status.providerErrors
+                  ? { providerReadErrors: toProviderReadErrors(status.providerErrors) }
+                  : {})}
+                {...(status.providerKeySources
+                  ? { providerKeySources: status.providerKeySources }
+                  : {})}
+                {...(fixedProviderModels ? { fixedProviderModels } : {})}
+              />
+            </AssistantLinkCapabilitiesProvider>
           </AssistantProviderSourceProvider>
         )}
       </div>
