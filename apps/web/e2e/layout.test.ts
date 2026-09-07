@@ -49,8 +49,8 @@ test.describe('Application Layout', () => {
     await expect(home.profileMenuButton).toBeEnabled({ timeout: 10_000 });
     await home.navigateToSettings();
 
-    // Radix marks content outside the open dialog `aria-hidden`, so the sidebar's
-    // active-page marker drops out of the accessibility tree while Settings is up.
+    // Settings is a keep-mounted route (BST-1668): the explorer route is
+    // `display: none` underneath it, so its active-page marker is hidden.
     await expect(home.contextExplorerPageMarker).not.toBeVisible();
 
     await home.leaveSettings();

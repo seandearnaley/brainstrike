@@ -477,6 +477,18 @@ describe('RootLayoutContent', () => {
     expect(mockHandlers.navigationPaths).toEqual(['/', '/notes', '/settings']);
   });
 
+  it('refuses a navigation list without the settings rail item instead of hiding Settings', () => {
+    // The shell always mounts the settings route, so a wrapper that forgot the
+    // `/settings` item would leave the route reachable only through the
+    // profile menu / ⌘K with no rail affordance — a silent degradation. Fail
+    // loudly at mount instead.
+    expect(() =>
+      renderComponent({
+        navigationItems: [{ icon: () => <div />, name: 'Context Explorer', path: '/' }],
+      })
+    ).toThrow(/\/settings/);
+  });
+
   it('switches between settings and another shell tab without unmounting either', () => {
     usePanelLayoutStore.setState({ activeTab: 'git' });
     renderComponent({ gitPageContent: <div data-testid="git-page">Git</div> });

@@ -474,9 +474,19 @@ export function settingsMenuItemLocator(page: Page) {
   return page.getByRole('menuitem', { name: /^Settings/ });
 }
 
+/**
+ * The app's left nav rail (`NavigationSidebar`, `aria-label="Main navigation"`).
+ * Every rail-item locator is scoped here so a settings category, a status-bar
+ * control or an empty-state CTA that happens to be named "Settings" or
+ * "Context Explorer" can never turn a navigation into a strict-mode violation.
+ */
+export function mainNavigationLocator(page: Page) {
+  return page.getByRole('navigation', { exact: true, name: 'Main navigation' });
+}
+
 /** The nav-rail Settings item — the canonical way onto the route. */
 export function settingsNavButtonLocator(page: Page) {
-  return page.getByRole('button', { exact: true, name: 'Settings' });
+  return mainNavigationLocator(page).getByRole('button', { exact: true, name: 'Settings' });
 }
 
 /**
@@ -642,21 +652,13 @@ export async function waitForFloatingLayerStack(
  * keep passing on a redundant open.
  */
 export async function openSettingsPage(page: Page): Promise<void> {
-  const expect = await getPlaywrightExpect();
-
   if (await isSettingsPageOpen(page)) {
     throw new Error(
       'openSettingsPage(page) was called while Settings is already the active route. Drop the redundant open, or leaveSettingsPage(page) first.'
     );
   }
 
-  const navButton = settingsNavButtonLocator(page);
-  await expect(navButton).toBeVisible();
-  await expect(navButton).toBeEnabled();
-  // Playwright's native click retries kept racing this sidebar's rerender path
-  // (see activateSidebarNavigation); the assertions above already cover the
-  // actionability checks that matter, so dispatch deterministically.
-  await navButton.dispatchEvent('click');
+  await activateSidebarNavigation(page, 'Settings');
 }
 
 /**
@@ -730,8 +732,8 @@ export async function activateAppearanceThemeButton(
 
 /**
  * Activate a sidebar navigation destination. Settings is a rail item like the
- * rest (BST-1668); prefer {@link openSettingsPage} for it so the redundant-open
- * guard applies.
+ * rest (BST-1668); {@link openSettingsPage} is this plus the redundant-open
+ * guard, and is what specs should call.
  */
 export async function activateSidebarNavigation(
   page: Page,
@@ -739,7 +741,10 @@ export async function activateSidebarNavigation(
 ): Promise<void> {
   const expect = await getPlaywrightExpect();
 
-  const navigationButton = page.getByRole('button', { exact: true, name: label });
+  const navigationButton = mainNavigationLocator(page).getByRole('button', {
+    exact: true,
+    name: label,
+  });
   await expect(navigationButton).toBeVisible();
   await expect(navigationButton).toBeEnabled();
   // Playwright's native click retries kept racing this sidebar's rerender path.

@@ -3,7 +3,6 @@ import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';
 import { resetAppState } from './utils/app-state';
 import {
-  leaveSettingsPage,
   openSettingsPage,
   waitForFloatingLayerStack,
   waitForSettingsPage,
@@ -19,12 +18,33 @@ import {
  * ranking — describe a stacking context that no longer exists (a route sits
  * in the page flow, not in a portal above it) and were retired with the modal.
  *
- * The two assertions below are route-independent: the anchor-geometry defect
- * comes from the trigger's own `:active` transform, and "choosing an option
+ * The assertions below are route-independent: the anchor-geometry defect
+ * comes from the trigger's own `:active` transform, the compiled-CSS check
+ * proves Tailwind actually emitted the popup-layer utility (a runtime-composed
+ * `z-[${n}]` produces no CSS and computes to `auto`), and "choosing an option
  * applies it" is the functional floor for any popup on this surface.
  */
 
 const SELECT_LISTBOX = '[data-slot="select-content"]';
+
+/** Computed z-index of a live element, read from the compiled stylesheet. */
+async function computedZIndex(page: Page, selector: string): Promise<number> {
+  const value = await page.evaluate((sel) => {
+    const node = document.querySelector(sel);
+    if (!node) {
+      throw new Error(`No element matched "${sel}" while reading its z-index.`);
+    }
+    return globalThis.getComputedStyle(node).zIndex;
+  }, selector);
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(
+      `"${selector}" resolved z-index "${value}", not a number. The Tailwind z-utility for this layer was never emitted — check the @source globs in packages/ui/styles.css.`
+    );
+  }
+  return parsed;
+}
 
 async function openSearchIndexingCategory(page: Page): Promise<void> {
   await new HomePage(page).goto({ waitForDatabase: false });
@@ -122,10 +142,23 @@ test.describe('Settings popup anchoring @stateful @web-settings-state', () => {
     expect(Math.abs(geometry.widthDelta)).toBeLessThanOrEqual(1);
     expect(geometry.gapBelowTrigger).toBeGreaterThan(0);
     expect(geometry.gapBelowTrigger).toBeLessThan(12);
+  });
 
-    await page.keyboard.press('Escape');
-    await expect(listbox).toHaveCount(0);
-    await leaveSettingsPage(page);
+  test('the open listbox carries an emitted popup-layer z-index in compiled CSS', async ({
+    page,
+  }) => {
+    await openSearchIndexingCategory(page);
+
+    await page.getByRole('combobox', { name: 'Indexing policy' }).click();
+    const listbox = page.locator(SELECT_LISTBOX);
+    await expect(listbox).toBeVisible({ timeout: 15_000 });
+    await waitForFloatingLayerStack(page, SELECT_LISTBOX);
+
+    // `computedZIndex` rejects `auto`, so a missing class fails here by name
+    // rather than as a later, unrelated stacking symptom. The positive bound
+    // is the BST-963 rule: popups out-rank every dialog tier (the top tier is
+    // 65 — see `packages/ui/src/layers.ts`).
+    expect(await computedZIndex(page, SELECT_LISTBOX)).toBeGreaterThan(65);
   });
 
   test('choosing an option inside Settings applies it', { tag: '@web-smoke' }, async ({ page }) => {
@@ -140,7 +173,5 @@ test.describe('Settings popup anchoring @stateful @web-settings-state', () => {
 
     await expect(trigger).toContainText('Full root');
     await expect(page.locator(SELECT_LISTBOX)).toHaveCount(0);
-
-    await leaveSettingsPage(page);
   });
 });

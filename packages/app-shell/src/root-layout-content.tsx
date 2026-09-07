@@ -215,9 +215,18 @@ const SETTINGS_NAV_PATH = '/settings';
  * The wrappers append their capability-gated routes (notes/git/browser) AFTER
  * the shared `navigationItems` list, which places Settings second; the shell
  * owns the rail, so it owns the rule that Settings closes the list.
+ *
+ * The settings route is always mounted, so a list without the `/settings`
+ * item would silently strip the rail affordance while the route stayed
+ * reachable through the profile menu / ⌘K. Throw instead.
  */
 function orderNavigationItems(items: readonly NavigationItem[]): NavigationItem[] {
   const settings = items.filter((item) => item.path === SETTINGS_NAV_PATH);
+  if (settings.length === 0) {
+    throw new Error(
+      `RootLayoutContent: navigationItems has no '${SETTINGS_NAV_PATH}' item — the Settings route always mounts and needs its nav-rail entry (see @brainstrike/app-shell/navigation).`
+    );
+  }
   const routes = items.filter((item) => item.path !== SETTINGS_NAV_PATH);
   return [...routes, ...settings];
 }

@@ -61,15 +61,26 @@ export class HomePage {
       .getByRole('navigation', { name: 'Settings categories' });
 
     if (!(await settingsNavigation.isVisible())) {
-      await this.page.getByRole('button', { exact: true, name: 'Settings' }).click();
+      await this.mainNavigation.getByRole('button', { exact: true, name: 'Settings' }).click();
     }
 
     await settingsNavigation.waitFor({ state: 'visible', timeout: 10_000 });
   }
 
+  /**
+   * The app's left nav rail. Rail-item clicks are scoped here so a settings
+   * category or status-bar control sharing an accessible name can never
+   * collide with a navigation.
+   */
+  get mainNavigation() {
+    return this.page.getByRole('navigation', { exact: true, name: 'Main navigation' });
+  }
+
   /** Leave the Settings route for the Context Explorer (BST-1668). */
   async leaveSettings() {
-    await this.page.getByRole('button', { exact: true, name: 'Context Explorer' }).click();
+    await this.mainNavigation
+      .getByRole('button', { exact: true, name: 'Context Explorer' })
+      .click();
     await this.page
       .getByTestId('settings-route')
       .getByRole('navigation', { name: 'Settings categories' })
