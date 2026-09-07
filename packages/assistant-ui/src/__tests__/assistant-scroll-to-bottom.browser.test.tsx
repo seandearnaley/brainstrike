@@ -85,6 +85,7 @@ function ScrollHarness({ growth }: { growth: 'above' | 'below' | 'none' }) {
         <div className="assistant-ui-panel">
           <div
             className="bs-thread"
+            data-testid="thread-column"
             style={{
               display: 'flex',
               flexDirection: 'column',
@@ -291,5 +292,100 @@ describe('scroll-anchor scoping (real browser, BST-896)', () => {
       expect(Math.abs(offsetAfter - offsetBefore)).toBeLessThanOrEqual(1);
     });
     expect(viewport.scrollTop).toBe(MESSAGE_HEIGHT_PX * 4 + GROWTH_HEIGHT_PX);
+  });
+});
+
+/**
+ * The engine's OWN write echoing back must never unpin follow (BST-1039).
+ *
+ * `measure` writes `scrollTop` synchronously and judges the result in the same
+ * breath, clearing `pendingFollow`; the browser dispatches that write's
+ * `scroll` event a task LATER. The event carries no position of its own —
+ * `handleScroll` re-reads LIVE geometry — so if the viewport is resized in
+ * between, the leftover event is judged against dimensions the engine has
+ * never measured: "not at bottom, and the position did not move down", which
+ * is indistinguishable from a reader parked above the end. Follow disengaged
+ * with no user act and never came back, because `measure` only re-sticks while
+ * pinned.
+ *
+ * The window is real: the follow-up queue's chip row shrinks the viewport from
+ * OUTSIDE the scroller while a streamed chunk grows the content inside it, and
+ * neither fires a scroll event of its own. It was a ~9% `Browser tests` flake
+ * in follow-up-queue-repin.browser.test.tsx, landing exactly
+ * `SQUEEZE + GROWTH` px short of the bottom every single time.
+ *
+ * Both cases below force that window deterministically — the squeeze, the
+ * growth and the event share ONE synchronous task, so neither observer can
+ * have measured yet — and differ only in WHO moved the position. That is the
+ * whole discriminator, and the second case is why it cannot be "did scrollTop
+ * move": scroll events coalesce, so a user round trip reaches the engine as a
+ * single event whose net movement is zero, and it must still disengage.
+ */
+const STALE_SQUEEZE_PX = 65;
+const STALE_GROWTH_PX = 30;
+
+/**
+ * Shrinks the viewport from OUTSIDE the scroller (what the chip row does —
+ * only the ResizeObserver can see it) and grows the content INSIDE it (what a
+ * streamed chunk does — only the MutationObserver can see it), synchronously,
+ * so the caller can dispatch a scroll event before either observer measures.
+ */
+const squeezeAndGrow = (viewport: HTMLElement): void => {
+  const footer = document.createElement('div');
+  footer.style.flexShrink = '0';
+  footer.style.height = `${STALE_SQUEEZE_PX}px`;
+  screen.getByTestId('thread-column').append(footer);
+  const growth = document.createElement('div');
+  growth.style.flexShrink = '0';
+  growth.style.height = `${STALE_GROWTH_PX}px`;
+  viewport.append(growth);
+};
+
+describe('stale scroll events never unpin follow (real browser, BST-1039)', () => {
+  test("the engine's own write echoing back after a viewport squeeze keeps follow engaged", async () => {
+    render(<ScrollHarness growth="none" />);
+    const viewport = await waitForPinnedThread();
+    const button = getButton();
+    await waitFor(() => {
+      expect(button).toBeDisabled();
+    });
+
+    const scrollTopBefore = viewport.scrollTop;
+    squeezeAndGrow(viewport);
+    // Nothing moved the reading position — the engine still owns it.
+    expect(viewport.scrollTop).toBe(scrollTopBefore);
+    // Deliver the scroll event the engine's own earlier write left queued.
+    viewport.dispatchEvent(new Event('scroll'));
+
+    // Follow survives and re-sticks once the observers land. Before the fix it
+    // sat exactly STALE_SQUEEZE_PX + STALE_GROWTH_PX short, permanently.
+    await waitFor(() => {
+      expect(distanceFromBottom(viewport)).toBeLessThanOrEqual(1);
+    });
+    expect(button).toBeDisabled();
+  });
+
+  test('a reader scrolling in that same window still disengages, and is not yanked back', async () => {
+    render(<ScrollHarness growth="none" />);
+    const viewport = await waitForPinnedThread();
+    const button = getButton();
+    await waitFor(() => {
+      expect(button).toBeDisabled();
+    });
+
+    squeezeAndGrow(viewport);
+    // Identical window, but the READER moved the position. Unmeasured geometry
+    // must not buy follow the benefit of the doubt here: swallowing this event
+    // leaves `isAtBottom` true, and the very next `measure` yanks them back.
+    viewport.scrollTo({ behavior: 'instant', top: 0 });
+    viewport.dispatchEvent(new Event('scroll'));
+
+    await waitFor(() => {
+      expect(button).toBeEnabled();
+    });
+    // Give the deferred measurement a beat to prove it does not re-stick.
+    await new Promise((resolvePause) => setTimeout(resolvePause, 300));
+    expect(viewport.scrollTop).toBe(0);
+    expect(button).toBeEnabled();
   });
 });

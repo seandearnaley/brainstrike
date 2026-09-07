@@ -76,6 +76,11 @@ function createThreadScrollFollow(): ThreadScrollFollow {
   let lastScrollHeight = 0;
   let lastObservedScrollHeight = 0;
   let lastObservedClientHeight = 0;
+  /**
+   * The `scrollTop` the engine last WROTE and has not yet seen echoed back as
+   * a `scroll` event, or null when no write is outstanding. See `onScroll`.
+   */
+  let unechoedWriteTop: number | null = null;
   const stateListeners = new Set<() => void>();
   const requestListeners = new Set<() => void>();
 
@@ -96,6 +101,13 @@ function createThreadScrollFollow(): ThreadScrollFollow {
     } else {
       el.scrollTo({ top: el.scrollHeight });
     }
+    // Claim the position we just landed on, so the browser's `scroll` event for
+    // THIS write is recognisable when it arrives a task later (see `onScroll`).
+    // An 'instant' write lands synchronously, so this is the real target; a CSS
+    // (possibly smooth) write is still animating, so this records the START
+    // position and the claim simply goes unmatched — harmless, because
+    // `pendingFollow` stays true for the whole animation and already guards it.
+    unechoedWriteTop = el.scrollTop;
   };
 
   /**
@@ -106,6 +118,12 @@ function createThreadScrollFollow(): ThreadScrollFollow {
    * clamp's scroll event is dispatched; the upstream bug was precisely that
    * its observer was being reconstructed at that moment and missed the
    * window.
+   *
+   * The related misread that WAS reachable — the engine's own write echoing
+   * back after a resize — is filtered before this runs; see `onScroll` in
+   * `attach`. Nothing here may assume `lastScrollTop` is the position
+   * immediately before the current event: it is the last one this function
+   * PROCESSED, and coalesced events skip over intermediate positions.
    */
   const handleScroll = (el: HTMLElement): void => {
     const nextAtBottom =
@@ -153,6 +171,9 @@ function createThreadScrollFollow(): ThreadScrollFollow {
       lastScrollHeight = el.scrollHeight;
       lastObservedScrollHeight = el.scrollHeight;
       lastObservedClientHeight = el.clientHeight;
+      // A claim belongs to the element that was written; the previous
+      // scroller's echo must never be matched against this one's position.
+      unechoedWriteTop = null;
       let measurementFrame: number | null = null;
       const cancelScheduledMeasurement = (): void => {
         if (measurementFrame === null) {
@@ -170,9 +191,41 @@ function createThreadScrollFollow(): ThreadScrollFollow {
           measure(el);
         });
       };
-      const onScroll = () => handleScroll(el);
+      /**
+       * A `scroll` event carries no position of its own — `handleScroll` reads
+       * LIVE geometry — so an event is only evidence about the state it is
+       * judged against. `measure` writes `scrollTop` synchronously and judges
+       * the result in the same breath (clearing `pendingFollow`), while the
+       * browser dispatches that write's event a task LATER. If the viewport is
+       * resized in between, that leftover event is judged against dimensions
+       * the engine has never measured: "not at bottom, and the position did not
+       * move down" — indistinguishable from a reader parked above the end. That
+       * unpinned follow with no user act, permanently, since `measure` only
+       * re-sticks while pinned (BST-1039: the queue's chip row shrinks the
+       * viewport from OUTSIDE the scroller while a streamed chunk grows the
+       * content inside it, and neither fires a scroll event of its own).
+       *
+       * So a write CLAIMS the position it lands on and the echo is swallowed
+       * once: the synchronous judgement in `measure` already covered it, and
+       * `measure` is what will re-stick through the resize. Authorship is the
+       * discriminator, NOT "did scrollTop move" — scroll events coalesce, so a
+       * user round trip to the end and back reaches this as a single event
+       * whose net movement is zero (the tier-switch suite does exactly that).
+       * Anything the engine did not write is the user's, and is judged.
+       */
+      const onScroll = () => {
+        const isOwnWriteEcho = unechoedWriteTop === el.scrollTop;
+        unechoedWriteTop = null;
+        if (isOwnWriteEcho) {
+          lastScrollTop = el.scrollTop;
+          lastScrollHeight = el.scrollHeight;
+          return;
+        }
+        handleScroll(el);
+      };
       const onUserIntent = () => {
         pendingFollow = false;
+        unechoedWriteTop = null;
         cancelScheduledMeasurement();
       };
       const resizeObserver = new ResizeObserver(() => measure(el));
