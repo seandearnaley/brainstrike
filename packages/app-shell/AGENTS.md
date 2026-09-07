@@ -133,7 +133,7 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
   outright (dead link), and on web the same anchor navigates the SPA away and
   destroys the live thread. `AssistantChatPanel` therefore provides
   `AssistantLinkCapabilitiesProvider` (from the narrow
-  `@brainstrike/assistant-ui/assistant-link-capabilities` subpath — importing it
+  `@brainstrike/assistant-ui/assistant-link-capabilities-provider` subpath (the hook lives alongside it at `.../assistant-link-capabilities`) — importing it
   from the root barrel would pull the lazy panel graph into the eager chunk),
   and `MarkdownLink` routes every off-page activation to `openLink`.
   Ownership split: `packages/assistant-ui` decides only THAT a link was
@@ -146,9 +146,10 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
   anchor default, because `will-navigate` is explicitly not emitted for in-page
   navigation and hijacking them breaks working scroll; and `openLink` must never
   reject, since a rejection escapes the toast and reproduces the original dead
-  click. Paired tests: `__tests__/use-assistant-link-capabilities.test.ts`,
-  `__tests__/assistant-chat-panel-link-wiring.test.tsx`, and
-  `packages/assistant-ui/src/__tests__/markdown-link.test.tsx`.
+  click. Paired tests: `src/__tests__/use-assistant-link-capabilities.test.ts`,
+  `src/__tests__/assistant-chat-panel-link-wiring.test.tsx`,
+  `src/__tests__/assistant-chat-panel-eager-import.test.ts` (pins the narrow
+  import), and `packages/assistant-ui/src/__tests__/markdown-link.test.tsx`.
 * **Threads:** `ThreadsPanel` is a database-backed thread and group surface. It
   uses the `@brainstrike/assistant-data` repositories/stores plus
   `ThreadSearchRepository` from `@brainstrike/db`; persistence, hydration, and

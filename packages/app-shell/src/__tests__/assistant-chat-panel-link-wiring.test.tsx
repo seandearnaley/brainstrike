@@ -1,4 +1,4 @@
-import { useAssistantLinkCapabilities } from '@brainstrike/assistant-ui';
+import { useAssistantLinkCapabilities } from '@brainstrike/assistant-ui/assistant-link-capabilities';
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';

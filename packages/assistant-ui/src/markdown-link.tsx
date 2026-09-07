@@ -52,15 +52,7 @@ export function MarkdownLink({
 
   const activate = useCallback(
     (event: MouseEvent<HTMLAnchorElement>) => {
-      if (!href) {
-        // react-markdown rewrites unsafe schemes to '' rather than dropping the
-        // anchor, so this is reachable. Navigating to '' would reload the app.
-        event.preventDefault();
-        logger.error('Assistant link has no usable href; activation ignored');
-        return;
-      }
-
-      if (isSameDocumentHref(href)) {
+      if (href && isSameDocumentHref(href)) {
         return;
       }
 
@@ -74,14 +66,20 @@ export function MarkdownLink({
         return;
       }
 
-      // The host owns protocol policy and the single visible failure, so every
-      // off-page href goes to it — including relative ones, which must produce
-      // a real "could not open" message rather than a dead click.
-      void capabilities.openLink(href).catch((error: unknown) => {
-        // The contract resolves `{ ok: false, error }` even for a failed open,
-        // so a rejection means a broken host. Never swallow it.
-        logger.error('Assistant link host rejected instead of resolving', { error, href });
-      });
+      // The host owns protocol policy and the single visible failure, so EVERY
+      // off-page href goes to it — relative ones, and the empty string
+      // react-markdown leaves behind when it sanitizes away a `javascript:`
+      // URL. Short-circuiting any of them here would restore the silent dead
+      // click: only the host can show the user why nothing opened.
+      try {
+        // `Promise.resolve` so a host that throws synchronously is caught by
+        // the same handler as one that rejects.
+        void Promise.resolve(capabilities.openLink(href ?? '')).catch((error: unknown) => {
+          logger.error('Assistant link host rejected instead of resolving', { error, href });
+        });
+      } catch (error) {
+        logger.error('Assistant link host threw instead of resolving', { error, href });
+      }
     },
     [capabilities, href]
   );

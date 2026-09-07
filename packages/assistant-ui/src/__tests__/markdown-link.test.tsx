@@ -268,7 +268,6 @@ describe('assistant markdown links', () => {
     const upstream = vi.fn();
     render(
       <AssistantLinkCapabilitiesProvider capabilities={capabilities}>
-        {/* biome-ignore lint/a11y/useValidAnchor: exercising a hostile prop */}
         <MarkdownLink href="https://example.com/docs" onClick={upstream}>
           the docs
         </MarkdownLink>
@@ -280,6 +279,94 @@ describe('assistant markdown links', () => {
     await waitFor(() => {
       expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/docs');
     });
+    expect(observed?.defaultPrevented).toBe(true);
+  });
+  it('routes keyboard activation, not just the mouse', async () => {
+    const { capabilities, openLink } = stubCapabilities();
+    render(
+      <AssistantLinkCapabilitiesProvider capabilities={capabilities}>
+        <MarkdownLink href="https://example.com/docs">the docs</MarkdownLink>
+      </AssistantLinkCapabilitiesProvider>
+    );
+
+    // Enter on a focused anchor dispatches a click, so the same handler covers
+    // it — but a keyboard user losing every link is exactly the kind of
+    // regression a mouse-only suite would never catch.
+    screen.getByRole('link').focus();
+    await userEvent.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/docs');
+    });
+  });
+
+  it('does not let a protocol-relative href slip through the fragment carve-out', async () => {
+    const { capabilities, openLink } = stubCapabilities();
+    render(
+      <AssistantLinkCapabilitiesProvider capabilities={capabilities}>
+        <MarkdownLink href="//evil.example/path">looks relative</MarkdownLink>
+      </AssistantLinkCapabilitiesProvider>
+    );
+
+    await userEvent.click(screen.getByRole('link'));
+
+    // `//host/path` carries no scheme but is NOT same-document: it must be
+    // routed (where the host rejects it), never left to the anchor default.
+    await waitFor(() => {
+      expect(openLink).toHaveBeenCalledExactlyOnceWith('//evil.example/path');
+    });
+    expect(observed?.defaultPrevented).toBe(true);
+  });
+  it('treats a bare "#" as same-document rather than routing it', async () => {
+    const { capabilities, openLink } = stubCapabilities();
+    render(
+      <AssistantLinkCapabilitiesProvider capabilities={capabilities}>
+        <MarkdownLink href="#">top</MarkdownLink>
+      </AssistantLinkCapabilitiesProvider>
+    );
+
+    await userEvent.click(screen.getByRole('link'));
+
+    expect(openLink).not.toHaveBeenCalled();
+  });
+
+  it('routes a sanitized-away href to the host instead of dying silently', async () => {
+    const { capabilities, openLink } = stubCapabilities();
+    // react-markdown rewrites `[x](javascript:alert(1))` to href="" rather than
+    // dropping the anchor. Preventing the default without routing would leave
+    // the user with exactly the silent dead click this seam removes.
+    render(
+      <AssistantLinkCapabilitiesProvider capabilities={capabilities}>
+        <MarkdownLink href="">sanitized</MarkdownLink>
+      </AssistantLinkCapabilitiesProvider>
+    );
+
+    // Queried by text, not role: an anchor with an empty href is exposed as
+    // generic rather than a link — but it is still in the DOM and still
+    // clickable, and clicking it would reload the app.
+    await userEvent.click(screen.getByText('sanitized'));
+
+    await waitFor(() => {
+      expect(openLink).toHaveBeenCalledExactlyOnceWith('');
+    });
+    expect(observed?.defaultPrevented).toBe(true);
+  });
+
+  it('survives a host whose openLink throws synchronously', async () => {
+    const openLink = vi.fn(() => {
+      throw new Error('broken host');
+    });
+    render(
+      <AssistantLinkCapabilitiesProvider
+        capabilities={{ openLink } as unknown as AssistantLinkCapabilities}
+      >
+        <MarkdownLink href="https://example.com/docs">the docs</MarkdownLink>
+      </AssistantLinkCapabilitiesProvider>
+    );
+
+    // A synchronous throw must not escape into React's error boundary and take
+    // the thread down; the contract violation is logged, the click is inert.
+    await expect(userEvent.click(screen.getByRole('link'))).resolves.toBeUndefined();
     expect(observed?.defaultPrevented).toBe(true);
   });
 });

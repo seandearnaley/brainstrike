@@ -46,7 +46,9 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     setPlatform(undefined);
     // Per HTML spec step 18, `window.open` with `noopener` + `_blank` returns
     // null even when the window opened. The return value therefore carries no
-    // success/failure information and must NOT be read as one.
+    // success/failure information and must NOT be read as one. (A blocked
+    // popup also returns null rather than throwing, so blocking is genuinely
+    // unobservable here — accepted, since these run under user activation.)
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
 
     const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
@@ -81,6 +83,8 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     expect(toastMock).toHaveBeenCalledTimes(1);
   });
 
+  // Defense in depth: browsers signal a blocked popup with null, not a throw,
+  // so this path is rare — but the seam must not reject on any of them.
   it('surfaces a window.open throw rather than reporting success', async () => {
     setPlatform(undefined);
     vi.spyOn(window, 'open').mockImplementation(() => {
@@ -108,6 +112,32 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     expect(toastMock).toHaveBeenCalledTimes(1);
   });
 
+  it('does not reject when the bridge resolves an unexpected shape', async () => {
+    // The bridge answer crosses IPC, so it is untyped data at runtime. An
+    // undefined or mangled payload used to make `result.ok` throw, which
+    // rejected `openLink`, skipped the toast, and restored the dead click.
+    const openExternal = vi.fn().mockResolvedValue(undefined);
+    setPlatform(fullBridge({ openExternal }));
+
+    const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
+    const outcome = await result.current.openLink('https://example.com/docs');
+
+    expect(outcome.ok).toBe(false);
+    expect(toastMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reject when the bridge throws a value that cannot be stringified', async () => {
+    const hostile = Object.create(null) as Record<string, never>;
+    const openExternal = vi.fn().mockRejectedValue(hostile);
+    setPlatform(fullBridge({ openExternal }));
+
+    const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
+    const outcome = await result.current.openLink('https://example.com/docs');
+
+    expect(outcome.ok).toBe(false);
+    expect(toastMock).toHaveBeenCalledTimes(1);
+  });
+
   it('tells the user WHY the link did not open', async () => {
     const openExternal = vi.fn();
     setPlatform(fullBridge({ openExternal }));
@@ -118,7 +148,7 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     const [payload] = toastMock.mock.calls[0] as [{ description?: string }];
     // "Could not open link" plus a bare URL leaves the user guessing between an
     // unsupported protocol, a relative path, and a platform failure.
-    expect(payload.description).toMatch(/protocol|invalid|url/i);
+    expect(payload.description).toMatch(/absolute url/i);
   });
 
   it('keeps a stable identity across renders so memoized markdown does not remount', () => {
