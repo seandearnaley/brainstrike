@@ -147,8 +147,10 @@ const liveChildProcesses = new Map<number, ChildProcess>();
  * group and `process.kill(-pid, signal)` signals the WHOLE group (the shell AND
  * every grandchild it forked) in one call — the orphan-prevention guarantee.
  * `tree-kill` is the cross-platform backstop (it walks the child tree itself and
- * is the only mechanism on Windows, which has no negative-pid groups). A kill
- * failure is logged, never swallowed (no-silent-fallbacks).
+ * is the only mechanism on Windows, which has no negative-pid groups). A real
+ * kill failure is logged, never swallowed (no-silent-fallbacks) — tree-kill is
+ * the authority on whether the tree actually died, because a dead group leader
+ * never proves a dead tree.
  *
  * KNOWN, ACCEPTED LIMITATION: a process that deliberately double-forks /
  * daemonizes (setsid → reparents to PID 1 in its own new process group) escapes
@@ -159,16 +161,35 @@ const liveChildProcesses = new Map<number, ChildProcess>();
  * (tests, builds, git, package managers) do not daemonize, so this is acceptable.
  */
 function killProcessTree(pid: number, signal: NodeJS.Signals): void {
-  let groupKilled = false;
   try {
     // Negative pid → signal the whole process group (POSIX). Requires the child
     // to have been spawned detached so it leads its own group.
     process.kill(-pid, signal);
-    groupKilled = true;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    // ESRCH = the group is already gone (normal once the child has exited).
-    if (code !== 'ESRCH') {
+    // Neither code proves a FAILURE on its own, so neither warns here:
+    //   ESRCH — the group no longer exists (normal once the child has exited).
+    //   EPERM — nothing in the group could be signalled. Usually that is the
+    //     post-reap window, where the survivors are killed-but-unreaped zombies
+    //     Darwin's killpg1() drops from its signalable count (Linux keeps them
+    //     in the group and simply succeeds, so this arm is Darwin-observable
+    //     only). But it ALSO covers a LIVE member we may not signal — a `sudo`
+    //     or setuid process an arbitrary user command started — which is a real
+    //     orphan. Unlike the conformance driver's `killPosixProcessGroup`
+    //     (BST-1674), this tool runs arbitrary commands, so "every member is our
+    //     own descendant running as us" does NOT hold here. EPERM is therefore
+    //     inconclusive, never proof of success.
+    // tree-kill below resolves most of that ambiguity: it signals the positive
+    // pid and every descendant individually, so a survivor it can SEE fails
+    // there and is logged with its own error. Its reach is the PPID tree
+    // (`pgrep -P`), not the process group, so a group member whose intermediate
+    // parent already exited — reparented to PID 1 — is invisible to it. That
+    // residual case is why EPERM still emits a debug line: no warn (this window
+    // is usually benign, and warn-noise is what this guard exists to remove),
+    // but never a completely silent teardown either.
+    if (code === 'EPERM') {
+      logger.debug('Process-group kill found nothing signalable', { code, pid, signal });
+    } else if (code !== 'ESRCH') {
       logger.warn('Process-group kill failed; falling back to tree-kill', {
         code,
         pid,
@@ -179,9 +200,10 @@ function killProcessTree(pid: number, signal: NodeJS.Signals): void {
   // Always also run tree-kill: it covers Windows (no process groups) and any
   // grandchild that escaped the group (rare, but the recipe is belt-and-braces).
   treeKill(pid, signal, (error) => {
-    // Only log when the group kill ALSO did not land and the failure is not the
-    // expected "already dead" race after a successful kill (no-silent-fallbacks).
-    if (!groupKilled && error && !/no such process/i.test(error.message)) {
+    // NOT gated on the group kill: a dead group leader does not prove a dead
+    // tree, and the escaped grandchild is the exact case tree-kill exists for.
+    // The already-dead race is filtered by message alone (no-silent-fallbacks).
+    if (error && !/no such process/i.test(error.message)) {
       logger.warn('tree-kill failed', { error: error.message, pid, signal });
     }
   });

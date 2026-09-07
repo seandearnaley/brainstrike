@@ -23,7 +23,13 @@ import {
   runExecuteCommand,
   type ShellOutputStreamPart,
 } from '../../assistant-server/execute-command-tool';
-import { requireTool, requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
+import {
+  readPidWhenWritten,
+  requireTool,
+  requireToolExecute,
+  singleRootRuntime,
+  waitForPidDead,
+} from './_tool-test-helpers';
 
 const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
   loggerInfoMock: vi.fn(),
@@ -68,28 +74,6 @@ function requireExecuteCommandModelOutput(
     throw new Error("Expected tool 'brainstrike.executeCommand' to have a model output projection");
   }
   return (output: unknown) => toModelOutput.call(tool, output) as { type: 'text'; value: string };
-}
-
-/** True only while the OS still has a process with this pid. */
-async function pidIsAlive(pid: number): Promise<boolean> {
-  try {
-    // Signal 0 performs existence/permission checks without delivering a signal.
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
-async function waitForPidDead(pid: number, timeoutMs = 4000): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (!(await pidIsAlive(pid))) {
-      return true;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return !(await pidIsAlive(pid));
 }
 
 beforeEach(() => {
@@ -543,21 +527,7 @@ describe('disposeLiveChildProcesses — shutdown reaping', () => {
       singleRoot(root)
     );
     // Wait for the shell to write its pid.
-    let shellPid = Number.NaN;
-    const deadline = Date.now() + 3000;
-    while (Date.now() < deadline) {
-      try {
-        const raw = (await fsPromises.readFile(pidFile, 'utf8')).trim();
-        if (raw.length > 0) {
-          shellPid = Number.parseInt(raw, 10);
-          break;
-        }
-      } catch {
-        // pid file not written yet
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    expect(Number.isInteger(shellPid)).toBe(true);
+    const shellPid = await readPidWhenWritten(pidFile);
 
     const reaped = disposeLiveChildProcesses();
     expect(reaped).toBeGreaterThanOrEqual(1);
