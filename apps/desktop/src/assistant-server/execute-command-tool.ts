@@ -179,10 +179,17 @@ function killProcessTree(pid: number, signal: NodeJS.Signals): void {
     //     (BST-1674), this tool runs arbitrary commands, so "every member is our
     //     own descendant running as us" does NOT hold here. EPERM is therefore
     //     inconclusive, never proof of success.
-    // Resolving that ambiguity is tree-kill's job below: it signals the positive
-    // pid and every descendant individually, so a member that genuinely survived
-    // fails THERE and is logged with its own error.
-    if (code !== 'ESRCH' && code !== 'EPERM') {
+    // tree-kill below resolves most of that ambiguity: it signals the positive
+    // pid and every descendant individually, so a survivor it can SEE fails
+    // there and is logged with its own error. Its reach is the PPID tree
+    // (`pgrep -P`), not the process group, so a group member whose intermediate
+    // parent already exited — reparented to PID 1 — is invisible to it. That
+    // residual case is why EPERM still emits a debug line: no warn (this window
+    // is usually benign, and warn-noise is what this guard exists to remove),
+    // but never a completely silent teardown either.
+    if (code === 'EPERM') {
+      logger.debug('Process-group kill found nothing signalable', { code, pid, signal });
+    } else if (code !== 'ESRCH') {
       logger.warn('Process-group kill failed; falling back to tree-kill', {
         code,
         pid,

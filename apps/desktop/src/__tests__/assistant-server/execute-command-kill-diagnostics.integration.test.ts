@@ -11,7 +11,6 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { RuntimeData } from '@brainstrike/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   disposeLiveChildProcesses,
@@ -19,7 +18,8 @@ import {
 } from '../../assistant-server/execute-command-tool';
 import { readPidWhenWritten, singleRootRuntime, waitForPidDead } from './_tool-test-helpers';
 
-const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
+const { loggerDebugMock, loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
+  loggerDebugMock: vi.fn(),
   loggerInfoMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
@@ -30,6 +30,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     ...actual,
     createLogger: () => ({
       ...actual.createLogger('test'),
+      debug: loggerDebugMock,
       info: loggerInfoMock,
       warn: loggerWarnMock,
     }),
@@ -46,11 +47,25 @@ async function makeWorkspace(): Promise<string> {
   return real;
 }
 
-function singleRoot(rootPath: string): RuntimeData {
-  return singleRootRuntime(rootPath);
+/**
+ * Poll for a logged warning instead of sleeping a fixed span. tree-kill's
+ * ps/pgrep walk is async, and a fixed wait races the spy restore on a loaded
+ * runner — the real kill would land, the tree would die, and the assertion
+ * would fail for a reason unrelated to what it is testing.
+ */
+async function waitForWarn(message: string, timeoutMs = 5000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (loggerWarnMock.mock.calls.some(([logged]) => logged === message)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return false;
 }
 
 beforeEach(() => {
+  loggerDebugMock.mockReset();
   loggerInfoMock.mockReset();
   loggerWarnMock.mockReset();
 });
@@ -75,7 +90,7 @@ describe('killProcessTree — teardown log diagnostics', () => {
     const pidFile = path.join(root, 'eperm-stub.pid');
     const run = runExecuteCommand(
       { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
-      singleRoot(root)
+      singleRootRuntime(root)
     );
     const shellPid = await readPidWhenWritten(pidFile);
     loggerWarnMock.mockReset();
@@ -107,6 +122,12 @@ describe('killProcessTree — teardown log diagnostics', () => {
     const warned = loggerWarnMock.mock.calls.map(([message]) => message);
     expect(warned).not.toContain('Process-group kill failed; falling back to tree-kill');
     expect(warned).not.toContain('tree-kill failed');
+    // Quiet is not the same as invisible. tree-kill only walks the PPID tree, so
+    // a reparented group member can escape it entirely; the debug line is the
+    // only trace that window leaves and must not be dropped as "noise".
+    expect(loggerDebugMock.mock.calls.map(([message]) => message)).toContain(
+      'Process-group kill found nothing signalable'
+    );
   });
 
   // EPERM is INCONCLUSIVE, not proof of success: this tool runs arbitrary user
@@ -118,7 +139,7 @@ describe('killProcessTree — teardown log diagnostics', () => {
     const pidFile = path.join(root, 'eperm-live.pid');
     const run = runExecuteCommand(
       { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
-      singleRoot(root)
+      singleRootRuntime(root)
     );
     const shellPid = await readPidWhenWritten(pidFile);
     loggerWarnMock.mockReset();
@@ -137,19 +158,26 @@ describe('killProcessTree — teardown log diagnostics', () => {
       denied.code = 'EPERM';
       throw denied;
     }) as typeof process.kill);
+    let loggedTreeKillFailure = false;
     try {
       disposeLiveChildProcesses();
-      // tree-kill's ps/pgrep walk is async; let its callback land.
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      loggedTreeKillFailure = await waitForWarn('tree-kill failed');
     } finally {
       killSpy.mockRestore();
     }
 
-    expect(loggerWarnMock.mock.calls.map(([message]) => message)).toContain('tree-kill failed');
-
-    realKill(-shellPid, 'SIGKILL');
+    // Tear the tree down BEFORE asserting, guarded: the spy denied every kill,
+    // so this test is the one most likely to leave the 30s sleep behind, and an
+    // assertion failure must not be what decides whether it does.
+    try {
+      realKill(-shellPid, 'SIGKILL');
+    } catch {
+      // already reaped
+    }
     expect(await waitForPidDead(shellPid)).toBe(true);
     await run;
+
+    expect(loggedTreeKillFailure).toBe(true);
   });
 
   // The real-kernel proof. Darwin's killpg1() drops zombies from its signalable
@@ -161,7 +189,7 @@ describe('killProcessTree — teardown log diagnostics', () => {
     const pidFile = path.join(root, 'zombie.pid');
     const run = runExecuteCommand(
       { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
-      singleRoot(root)
+      singleRootRuntime(root)
     );
     const shellPid = await readPidWhenWritten(pidFile);
     loggerWarnMock.mockReset();
@@ -205,7 +233,7 @@ describe('killProcessTree — teardown log diagnostics', () => {
     const pidFile = path.join(root, 'realfail.pid');
     const run = runExecuteCommand(
       { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
-      singleRoot(root)
+      singleRootRuntime(root)
     );
     const shellPid = await readPidWhenWritten(pidFile);
     loggerWarnMock.mockReset();

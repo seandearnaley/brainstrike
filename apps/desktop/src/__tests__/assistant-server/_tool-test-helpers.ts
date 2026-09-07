@@ -68,7 +68,7 @@ export function requireToolExecute<TResult = Awaited<ReturnType<ErasedExecute>>>
 }
 
 /** True only while the OS still has a process with this pid. */
-export async function pidIsAlive(pid: number): Promise<boolean> {
+async function pidIsAlive(pid: number): Promise<boolean> {
   try {
     // Signal 0 performs existence/permission checks without delivering a signal.
     process.kill(pid, 0);
@@ -80,17 +80,20 @@ export async function pidIsAlive(pid: number): Promise<boolean> {
 
 /**
  * Read a pid a shell wrote with `echo $$ > file`, tolerating the window before
- * the file exists or is fully flushed. Rejects a partial/non-numeric read
- * rather than yielding a NaN that only a later assertion would catch.
+ * the file exists or is fully flushed. Retries until the contents are numeric
+ * rather than yielding a NaN that only a later assertion would catch, and names
+ * the last non-numeric value it saw so a timeout points at the real cause.
  */
 export async function readPidWhenWritten(pidFile: string, timeoutMs = 3000): Promise<number> {
   const deadline = Date.now() + timeoutMs;
+  let lastSeen: string | undefined;
   while (Date.now() < deadline) {
     try {
       const raw = (await fsPromises.readFile(pidFile, 'utf8')).trim();
       if (/^\d+$/.test(raw)) {
         return Number.parseInt(raw, 10);
       }
+      lastSeen = JSON.stringify(raw);
     } catch (error) {
       // ONLY the "not written yet" race is expected here. A bare catch would
       // swallow real errors and surface them as an opaque timeout instead.
@@ -100,7 +103,10 @@ export async function readPidWhenWritten(pidFile: string, timeoutMs = 3000): Pro
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error(`pid file ${pidFile} was not written within ${timeoutMs}ms`);
+  throw new Error(
+    `pid file ${pidFile} was not readable as a pid within ${timeoutMs}ms` +
+      (lastSeen === undefined ? ' (file never appeared)' : ` (last contents: ${lastSeen})`)
+  );
 }
 
 export async function waitForPidDead(pid: number, timeoutMs = 4000): Promise<boolean> {
