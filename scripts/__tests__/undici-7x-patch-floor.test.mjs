@@ -35,7 +35,12 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 // separate advisories; they are not in a shipped path and are not this guard's
 // business.
 //
-// Remedy when this fails: `pnpm update undici -r`.
+// Remedy when this fails: `pnpm update "undici@^7" -r`. Scoped on purpose — a
+// bare `pnpm update undici -r` also moves the 5.x/6.x/8.x copies under the
+// vercel CLI, @actions/* and node-gyp, landing unrelated resolution drift in the
+// same commit. It did exactly that here (6.28.0 -> 6.28.1, 8.10.0 -> 8.10.2):
+// both forward into already-patched territory and neither on a shipped path,
+// but still churn nobody asked for.
 const MIN_SEVEN_X = [7, 29, 0];
 
 function parseVersion(raw) {
@@ -70,13 +75,21 @@ test('no undici 7.x below the 7.29.0 patch floor reaches the lockfile', () => {
   // lockfile key ever changes, this fails loudly instead of passing vacuously.
   assert.ok(versions.length > 0, 'expected the lockfile to resolve at least one undici');
 
-  const offenders = versions.filter((raw) => {
-    const version = parseVersion(raw);
-    return version !== null && version[0] === 7 && isBelow(version, MIN_SEVEN_X);
-  });
+  // A version this cannot parse must fail loudly rather than be filtered out:
+  // silently skipping it would let a malformed or prerelease spelling slip the
+  // floor, which is precisely what this guard exists to prevent.
+  const sevenX = versions.filter((raw) => raw.startsWith('7.'));
+  const unparseable = sevenX.filter((raw) => parseVersion(raw) === null);
+  assert.deepEqual(
+    unparseable,
+    [],
+    `undici 7.x versions this guard cannot compare: ${unparseable.join(', ')}`
+  );
+
+  const offenders = sevenX.filter((raw) => isBelow(parseVersion(raw), MIN_SEVEN_X));
   assert.deepEqual(
     offenders,
     [],
-    `undici 7.x below 7.29.0 is present (${offenders.join(', ')}); run \`pnpm update undici -r\``
+    `undici 7.x below 7.29.0 is present (${offenders.join(', ')}); run \`pnpm update "undici@^7" -r\``
   );
 });
