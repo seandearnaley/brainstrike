@@ -265,7 +265,7 @@ security test is worse than none.
 
 ## This suite is pinned to an exact srt version
 
-`@anthropic-ai/sandbox-runtime` is pinned to **0.0.73** in the workspace
+`@anthropic-ai/sandbox-runtime` is pinned to **0.0.75** in the workspace
 catalog, and a test in this file asserts the installed version matches.
 
 That is deliberate. The fence's guarantees *are* srt's guarantees, and the live
@@ -360,6 +360,50 @@ dropping the file.
 ---
 
 ### Bump log
+
+- **0.0.73 → 0.0.75 (BST-1669, 2026-09-07).** Two upstream releases.
+  **Platforms that actually ran: macOS locally; Linux from CI** (see below for
+  how the Linux half was confirmed rather than assumed).
+
+  **Step 1 — what changed upstream.** Diffed the published 0.0.73 and 0.0.75
+  tarballs rather than reading 0.0.75 alone. Three things moved in the security
+  surface: `macos-sandbox-utils` now folds literal deny paths into generated,
+  anchored regexes instead of emitting one `subpath` filter per path
+  (`groupLiteralDenyPaths`, `SBPL_STRING_MAX_BYTES = 900`,
+  `MIN_DENY_GROUP_SIZE = 4`) — a profile-generation change, i.e. exactly the
+  layer the root-`allowRead` finding lives in; `generate-seccomp-filter` and
+  `linux-sandbox-utils` changed; and a new opt-in `javaAgentJarPath` injects a
+  JVM proxy agent via `JAVA_TOOL_OPTIONS`. srt's README security sections are
+  otherwise **identical** — no guarantee was added or withdrawn. The JVM agent
+  does not reach this fence: it runs Python and Node, never a JVM.
+
+  **Step 2 — the root-`allowRead` finding survives.** The re-emission test is
+  `literalAllowDirs.some(a => deny.path.startsWith(a + '/'))` and is
+  **byte-identical** between the two tarballs (0.0.73 line 154, 0.0.75 line
+  155). For an allow of `/` that prefix is `//`, which no real path starts
+  with, so the deny is still dropped. Confirmed live: `REFUSES a root-wide
+  allowRead …` passes at 0.0.75. Non-guarantee 8 (`allowRead` beats `denyRead`
+  on an exact collision) is unchanged for the same reason.
+
+  **Step 3 — full macOS run, zero skips.** macOS 26.6.2, arm64, real Seatbelt:
+  **31 passed, 1 failed**, the single failure being the version-pin test itself
+  while the constant still read `0.0.73` — which is the intended order, since
+  it proves every substantive case was exercised *before* the pin moved. No
+  `SUITE SKIPPED` and no `NETWORK CASES SKIPPED`, so the network, fork,
+  grandchild, timeout and abort cases all ran. The regex-folded deny paths
+  changed no observable behaviour: `still permits a denyRead NESTED inside an
+  allowRead` and `REFUSES an allowRead that sits directly on an always-denied
+  store` both still hold.
+
+  **Step 4 — mutation re-run, srt-sensitive subset: 5/5 still KILLED.** M2
+  (glob refusal), M3 (root refusal), M4 (`ALWAYS_DENY_READ_PATHS` dropped), M12
+  (allowWrite store containment) and M13 (exact collision) were each weakened
+  and each named test went red. These are the five whose guards could have been
+  made **redundant** by srt learning to deny on its own — the failure mode a
+  bump introduces. The remaining eleven (M1, M5–M11b) guard process-lifecycle
+  and env behaviour in our own executor, which srt's profile generation cannot
+  make redundant; they were **not** re-run, and this entry says so rather than
+  claiming 16/16.
 
 - **0.0.67 → 0.0.73 (BST-1285).** Six upstream releases, all with published
   release notes. Nothing in them weakens a restriction this suite relies on;

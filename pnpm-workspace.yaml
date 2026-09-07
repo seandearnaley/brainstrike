@@ -27,7 +27,7 @@ cleanupUnusedCatalogs: true
 # measured verdict — so keep rationale beside entries that stay.
 catalog:
   '@ai-sdk/amazon-bedrock': 5.0.76
-  '@anthropic-ai/sandbox-runtime': 0.0.73
+  '@anthropic-ai/sandbox-runtime': 0.0.75
   # BST-1353: the AWS default credential chain (profiles, SSO, process creds,
   # instance/container roles) behind Bedrock's `credentialProvider` seam.
   # Node-only — imported ONLY beside the provider factory, never from the

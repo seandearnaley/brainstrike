@@ -63,11 +63,13 @@ import {
  * srt is a fast-moving research preview and the escapes this suite chases live
  * in ITS profile generation, not ours — the root-wide-allowRead hole below was
  * an off-by-one in how srt 0.0.67 re-emits nested denies, and it is STILL
- * present at 0.0.73 (re-measured on the published tarball in BST-1285). A bump
+ * present at 0.0.75 (re-measured in BST-1669: the re-emission line is byte-
+ * identical between the 0.0.73 and 0.0.75 tarballs, and the live macOS run
+ * below still refuses the root grant). A bump
  * can silently change any of that, so the pin is asserted as a test: bumping
  * srt REQUIRES re-greening this suite, not just the type-check.
  */
-const PINNED_SRT_VERSION = '0.0.73';
+const PINNED_SRT_VERSION = '0.0.75';
 
 /** Per-request output cap; small enough to overflow without minutes of I/O. */
 const MAX_OUTPUT_BYTES = 256 * 1024;
@@ -537,8 +539,10 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
       expect(error.message).toContain('glob');
     });
 
-    it('REFUSES a root-wide allowRead, which srt 0.0.73 does not re-deny under (macOS)', async () => {
-      // BST-1071's live finding, re-measured against 0.0.73 in BST-1285 and
+    it('REFUSES a root-wide allowRead, which srt 0.0.75 does not re-deny under (macOS)', async () => {
+      // BST-1071's live finding, re-measured against 0.0.73 in BST-1285, and
+      // against 0.0.75 in BST-1669 — 0.0.75 rewrote macOS deny-path emission to
+      // fold literal denies into regexes, and left this re-emission test alone,
       // STILL PRESENT. srt re-applies a nested deny on top of a broader
       // allowRead by testing `denied.startsWith(allowed + "/")`; for
       // `allowed === "/"` that compares against "//" and never matches, so on
