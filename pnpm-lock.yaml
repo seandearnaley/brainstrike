@@ -10,8 +10,8 @@ catalogs:
       specifier: 5.0.76
       version: 5.0.76
     '@anthropic-ai/sandbox-runtime':
-      specifier: 0.0.73
-      version: 0.0.73
+      specifier: 0.0.75
+      version: 0.0.75
     '@assistant-ui/react':
       specifier: ~0.15.18
       version: 0.15.18
@@ -1054,7 +1054,7 @@ importers:
         version: 4.0.10
       '@anthropic-ai/sandbox-runtime':
         specifier: 'catalog:'
-        version: 0.0.73
+        version: 0.0.75
       '@aws-sdk/credential-providers':
         specifier: 'catalog:'
         version: 3.1127.0
@@ -3776,8 +3776,8 @@ packages:
   '@antfu/install-pkg@1.1.0':
     resolution: {integrity: sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==}
 
-  '@anthropic-ai/sandbox-runtime@0.0.73':
-    resolution: {integrity: sha512-F608iUirrCqwvInZYGRRgJWDQj0tt6fNVE9aPagpotLJ5LhC4JbrMFIIZww5MFjb+HRCkpE0+xdI79c30tdVYg==}
+  '@anthropic-ai/sandbox-runtime@0.0.75':
+    resolution: {integrity: sha512-oqAKi6QtkT2DpLwFoDCDD757zw2i6ftpLTyV8rNSV9QWF53q2m1JxEs0RYXv2CIXtCoje4RGYQylagn15RKmww==}
     engines: {node: '>=20.11.0'}
     hasBin: true
 
@@ -14889,7 +14889,7 @@ snapshots:
       package-manager-detector: 1.8.0
       tinyexec: 1.2.4
 
-  '@anthropic-ai/sandbox-runtime@0.0.73':
+  '@anthropic-ai/sandbox-runtime@0.0.75':
     dependencies:
       '@pondwader/socks5-server': 1.0.10
       commander: 12.1.0

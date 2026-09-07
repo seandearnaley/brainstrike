@@ -452,19 +452,32 @@ integrates with it directly.
 precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
 `fence-executor.integration.spec.ts` (integration lane, REAL Seatbelt/bwrap).
 
-- **srt version: `@anthropic-ai/sandbox-runtime` pinned EXACTLY to `0.0.73`**
-  (bumped from `0.0.67` in BST-1285) in the workspace catalog (`catalogMode:
-  strict` means every package references the catalog; the catalog entry itself
-  carries no caret). It is a fast-moving beta — re-derive the boundary from its
-  README/`.d.ts` before bumping, never from memory. The escape-resistance suite
-  (BST-1071) ASSERTS this version, so a bump goes red until the suite is
-  re-greened on macOS AND Linux; see
+- **srt version: `@anthropic-ai/sandbox-runtime` pinned EXACTLY to `0.0.75`**
+  (bumped from `0.0.67` in BST-1285, then from `0.0.73` in BST-1669) in the
+  workspace catalog (`catalogMode: strict` means every package references the
+  catalog; the catalog entry itself carries no caret). It is a fast-moving beta
+  — re-derive the boundary from its README/`.d.ts` before bumping, never from
+  memory, and diff the published tarballs rather than reading the new one alone.
+  The escape-resistance suite (BST-1071) ASSERTS this version, so a bump goes
+  red until the suite is re-greened on macOS AND Linux; see
   `packages/agent/src/__tests__/fence-escape-resistance.README.md` for the
-  required procedure and the guarantee/non-guarantee list. **CI cannot supply
-  the Linux half**: no workflow installs `bwrap`/`socat`/ripgrep, so
-  `describeHostSkipReason()` skips the whole suite there and only the ungated
-  version-pin test runs. A Linux re-green has to come from a bubblewrap-equipped
-  host, and the bump log has to say which platforms actually ran.
+  required procedure and the guarantee/non-guarantee list. **CI supplies the
+  Linux half as of BST-1316**: the `unit-shard` job installs
+  `bwrap`/`socat`/ripgrep and clears
+  `kernel.apparmor_restrict_unprivileged_userns`. Note the lane naming, because
+  it is easy to look in the wrong place: this is an `*.integration.spec.ts`
+  suite, but the job that runs it is the one whose check reads **`Unit
+  (<shard>)`** — that job runs `test` AND `test:integration`, and the
+  escape-resistance file lands in **`Unit (rest)`**, under the step *Pull
+  request affected integration tests*. A green `Unit` is not evidence on its
+  own: open that step and confirm the suite RAN rather than emitting
+  `describeHostSkipReason()` — the file line should read `✓
+  fence-escape-resistance.integration.spec.ts (32 tests)` with no
+  `SUITE SKIPPED`. Note also that a CI runner has no credential stores, so the
+  `~/.ssh` containment cases prove only "refused" there and get their
+  full-strength form from the macOS half. **CI supplies no macOS half at all**
+  (no macOS runner), so that one is always a local run, and the bump log has to
+  say which platforms actually ran rather than which were assumed.
 - **Platforms: darwin + linux only.** `isFenceSupported()` is the probe and
   `createFenceExecutorFactory()` returns `undefined` on anything else, so an
   unsupported host simply has no `fence` capability and `resolveCodeExecutor`
@@ -549,16 +562,18 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
 - **A ROOT-WIDE `allowRead` is refused** (`FencePolicyError`), even though it is
   a mere ancestor of the always-denied stores. Ancestors are normally safe
   because srt re-emits the nested deny after the broader allow — but through
-  0.0.73 that re-emission tests `denied.startsWith(allowed + '/')`, which for
+  0.0.75 that re-emission tests `denied.startsWith(allowed + '/')`, which for
   `allowed === '/'` compares against `'//'` and never matches. **Measured on
   macOS (BST-1071): `allowRead: ['/']` made `~/.ssh/*` and the contents of
   `~/.config/gh/hosts.yml` readable from sandboxed code.** Re-measured against
-  0.0.73's generated Seatbelt profile in BST-1285 and UNCHANGED — the root
-  allow is still emitted after the credential deny under last-match-wins — so
-  this refusal remains load-bearing, not redundant. Linux is unaffected
-  (bubblewrap masks denied directories with tmpfs) — re-measured by execution
-  under real bwrap at 0.0.73 in BST-1285 — so CI alone would not have caught it
-  even if CI ran this suite, which it does not. That is why the refusal lives
+  0.0.73's generated Seatbelt profile in BST-1285 and UNCHANGED, and again at
+  0.0.75 in BST-1669, where the re-emission line is byte-identical to 0.0.73's
+  even though 0.0.75 rewrote macOS deny emission to fold literal denies into
+  regexes — the root allow is still emitted after the credential deny under
+  last-match-wins — so this refusal remains load-bearing, not redundant. Linux
+  is unaffected (bubblewrap masks denied directories with tmpfs) — re-measured
+  by execution under real bwrap at 0.0.73 in BST-1285 — so the Linux half CI now
+  runs would not have caught this one on its own. That is why the refusal lives
   in the policy layer, not a platform branch. Every ancestor SHORT of the root
   is still accepted.
 - **Containment compares `realpath` output** — the reference implementation of
