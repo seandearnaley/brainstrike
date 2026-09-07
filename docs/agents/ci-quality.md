@@ -1172,7 +1172,8 @@ classified at all — that shape is not expected, since `gh pr diff` derives the
 trailer from the nearest column-0 line and this file's line 1 is
 `lockfileVersion:` — but if it occurs, the changed dependency lines are counted
 and stated rather than dropped behind a confident total. With no repointed edges
-the section costs a single line, because it is emitted on every summary and a
+the section costs two lines — the count and its blank separator — because it is
+emitted on every summary and a
 summary only replaces hunks it shrinks: standing prose here would narrow what
 gets summarized at all. Every one of those guards is mutation-verified: each was
 confirmed to fail against a deliberate regression before being trusted.

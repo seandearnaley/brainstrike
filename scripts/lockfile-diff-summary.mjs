@@ -162,9 +162,11 @@ const byKey = (a, b) => {
  * would be confidently wrong.
  */
 function summarizeEdges({ edges, unclassified }) {
+  // Qualifies the headline count, so it sits under the headline. Trailing the
+  // transition list at the same indent, it read as one more transition entry.
   const skipped = unclassified
     ? [
-        `  ${plural(unclassified, 'changed dependency line')} in hunks with no section header, not classified`,
+        `(a lower bound: ${plural(unclassified, 'changed dependency line')} in hunks with no section header went unclassified)`,
       ]
     : [];
   const groups = new Map();
@@ -204,13 +206,13 @@ function summarizeEdges({ edges, unclassified }) {
   const overflow = rest.reduce((sum, [, group]) => sum + size(group), 0);
   return [
     `dependency edges repointed: ${edges.length} across ${plural(groups.size, 'transition')}`,
+    ...skipped,
     '(a parent resolving to a version this diff neither adds nor removes, so the',
     'lists above cannot show it; snapshots only, parents named only where shown)',
     ...lines,
     ...(rest.length
       ? [`  and ${plural(rest.length, 'more transition')} covering ${plural(overflow, 'edge')}`]
       : []),
-    ...skipped,
   ];
 }
 
@@ -242,7 +244,7 @@ function collect(section) {
 
 function summarizeSection(section, path) {
   const { added, foreign, removed } = collect(section);
-  const edges = collectEdges(section);
+  const edgeReport = collectEdges(section);
   const names = [...new Set([...added.keys(), ...removed.keys()])].sort();
   const changes = names.map((name) => {
     const to = [...(added.get(name) ?? [])].sort();
@@ -273,7 +275,7 @@ function summarizeSection(section, path) {
     '(a lower bound: a version this diff leaves untouched does not appear in it)',
     ...duplicates,
     '',
-    ...summarizeEdges(edges),
+    ...summarizeEdges(edgeReport),
     '',
     `non-registry resolutions introduced: ${foreign.length}`,
     ...foreign.map((line) => `  ${line}`),

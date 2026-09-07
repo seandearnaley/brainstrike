@@ -526,3 +526,89 @@ test('collectEdges reports the parent split directly', () => {
     { from: '7.28.0', name: 'undici', parent: null, to: '7.29.1' },
   ]);
 });
+
+test('a summary with edges states what it could not classify, above the list', () => {
+  // Both earlier unclassified fixtures produce zero edges, so the note is only
+  // ever rendered by the early return; the spread on the populated path has no
+  // covering fixture. The failure it prevents — a confident total beside
+  // silently dropped lines — is the whole reason the counter exists.
+  const { diff: out } = summarizeLockfileDiff(
+    lockfileHunks(
+      hunk(
+        'snapshots',
+        '   foo@1.0.0:',
+        '     dependencies:',
+        '-      undici: 7.28.0',
+        '+      undici: 7.29.1'
+      ),
+      '@@ -40,9 +40,9 @@\n   bar@1.0.0:\n     dependencies:\n-      lodash: 4.17.20\n+      lodash: 4.17.21',
+      padding()
+    )
+  );
+  assert.match(out, /dependency edges repointed: 1 across 1 transition/);
+  assert.match(out, /a lower bound: 2 changed dependency lines in hunks with no section header/);
+  // It qualifies the headline count, so it belongs under the headline. Trailing
+  // the list at the same indent, it reads as one more transition entry.
+  const lines = out.split('\n');
+  const note = lines.findIndex((line) => line.includes('a lower bound: 2 changed'));
+  const transition = lines.findIndex((line) => line.includes('undici: 7.28.0 => 7.29.1'));
+  assert.ok(note !== -1 && transition !== -1);
+  assert.ok(note < transition, 'the unclassified note must precede the transition list');
+});
+
+test('the widest transition survives the cap even when it arrives last', () => {
+  // Every other multi-transition fixture has all groups at size 1, which leaves
+  // `size(b) - size(a)` inert: reverse it or delete it and nothing fails. It
+  // decides which transitions survive the cap, and the widest is the lift or
+  // dedupe the section exists to surface.
+  const narrow = Array.from({ length: 12 }, (_, index) => {
+    const key = String(index).padStart(2, '0');
+    return hunk(
+      'snapshots',
+      `   parent-${key}@1.0.0:`,
+      '     dependencies:',
+      `-      dep-${key}: 1.0.0`,
+      `+      dep-${key}: 2.0.0`
+    );
+  });
+  // Inserted last, and last alphabetically, so only the size term can save it.
+  const widest = Array.from({ length: 3 }, (_, index) =>
+    hunk(
+      'snapshots',
+      `   wide-${index}@1.0.0:`,
+      '     dependencies:',
+      '-      dep-99: 1.0.0',
+      '+      dep-99: 2.0.0'
+    )
+  );
+  const { diff: out } = summarizeLockfileDiff(lockfileHunks(...narrow, ...widest, padding()));
+  assert.match(out, /dependency edges repointed: 15 across 13 transitions/);
+  assert.match(out, /dep-99: 1\.0\.0 => 2\.0\.0 \(3 edges\)/);
+  const listed = out.split('\n').filter((line) => /[=]> 2\.0\.0 \(\d+ edges?\)/.test(line));
+  assert.equal(listed.length, 12);
+  assert.match(listed[0], /dep-99/, 'the widest transition must lead the list');
+  assert.match(out, /and 1 more transition covering 1 edge/);
+});
+
+test('a transition mixing named, overflow and parentless owners renders in one order', () => {
+  // The owners join concatenates three parts and no fixture has rendered more
+  // than one of them at a time, so comma placement and ordering across the
+  // join are unpinned.
+  const named = Array.from({ length: 5 }, (_, index) =>
+    hunk(
+      'snapshots',
+      `   parent-${index}@1.0.0:`,
+      '     dependencies:',
+      '-      shared: 1.0.0',
+      '+      shared: 2.0.0'
+    )
+  );
+  const anonymous = Array.from({ length: 2 }, () =>
+    hunk('snapshots', '-      shared: 1.0.0', '+      shared: 2.0.0')
+  );
+  const { diff: out } = summarizeLockfileDiff(lockfileHunks(...named, ...anonymous, padding()));
+  assert.match(
+    out,
+    /shared: 1\.0\.0 => 2\.0\.0 \(7 edges\): parent-0@1\.0\.0, parent-1@1\.0\.0, parent-2@1\.0\.0, parent-3@1\.0\.0, and 1 more parent, 2 with no parent in this diff$/m
+  );
+});
