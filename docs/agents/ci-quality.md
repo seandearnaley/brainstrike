@@ -1161,6 +1161,56 @@ hunks it replaces: it named 22 packages sitting on multiple resolved versions,
 which is the `@codemirror/state` duplicate-resolution class that survived two
 rebases in #3036 and needed a hand-written guard test.
 
+**A repointed edge is reported, because the entry lists structurally cannot show
+one.** A dedupe or a security lift leaves both versions already present and only
+moves a parent's `dependencies:` at one of them, so neither end is an added or
+removed entry. #3053 lifted `@ai-sdk/openai > @ai-sdk/provider-utils > undici`
+from 7.28.0 to an already-present 7.29.1, and the entry lists could report only
+`undici: 7.28.0 -> 6.28.1, 8.10.2` — unrelated additions that read as the
+subtree leaving the 7.x line altogether. The reviewer flagged the apparent
+contradiction of the PR's stated remediation and had to ask for `pnpm why
+undici` to be pasted in, because the summary could not answer it. A
+`dependency edges repointed:` section now does: on that PR it reports
+`undici: 7.28.0 => 7.29.1 (4 edges)` and settles the question.
+
+Resolved edges sit at six spaces inside `snapshots:`, and the **section** scopes
+them rather than the enclosing `dependencies:` key. Under `-U3` a block key four
+lines above a changed edge falls outside the hunk — #3053's flagship hunk
+carried neither its key nor its `dependencies:` line — while the section
+survives, because git's funcname trailer names the nearest column-0 line and a
+lockfile's are exactly its section markers. Section scoping is sufficient, since
+inside `snapshots:` every six-space `name: value` line is a resolved edge and
+`transitivePeerDependencies` emits only `- item` entries; it is also necessary,
+since `packages:` `peerDependencies:` sit at the same depth but hold ranges, not
+resolutions. A parent is named only where the diff shows its block key and is
+never carried across a hunk boundary, because a parent from the previous hunk is
+worse than none: it is confidently wrong. Pairing is by dependency name, never
+by position. Parents are split with `splitPackageKey`, so a peer suffix never
+steals the version. Edges are grouped by the transition they make rather than
+listed one per line, which is both the reviewer's actual question and the
+tighter bound: a dedupe repointing hundreds of edges still costs a handful of
+lines, because the section is bounded by distinct transitions rather than by
+edge count. Both axes are capped anyway (`TRANSITIONS_LISTED`, `PARENTS_LISTED`)
+since a wide update widens the transition list too, and the cut is by sort
+order, so re-reading a re-pushed PR yields the same list rather than an
+accident of hunk order — compared by code unit rather than `localeCompare`,
+whose collation follows the runtime's ICU data.
+
+Two things this deliberately does not report, both consequences of flushing at
+every hunk boundary. A removal and an addition of the same dependency that land
+in *different* hunks are never paired, so a line that both moved far and changed
+version is missed; pairing across that gap would cost the attribution guarantee,
+which is the worse trade. And a hunk whose header names no section cannot be
+classified at all — that shape is not expected, since `gh pr diff` derives the
+trailer from the nearest column-0 line and this file's line 1 is
+`lockfileVersion:` — but if it occurs, the changed dependency lines are counted
+and stated rather than dropped behind a confident total. With no repointed edges
+the section costs two lines — the count and its blank separator — because it is
+emitted on every summary and a
+summary only replaces hunks it shrinks: standing prose here would narrow what
+gets summarized at all. Every one of those guards is mutation-verified: each was
+confirmed to fail against a deliberate regression before being trusted.
+
 Every other file passes through byte for byte, and a header the splitter cannot
 parse falls through as "not summarized" rather than being summarized against the
 wrong path. Matching is on basename, so `docs/pnpm-lock.yaml.md` is untouched. A
