@@ -77,8 +77,9 @@ function createThreadScrollFollow(): ThreadScrollFollow {
   let lastObservedScrollHeight = 0;
   let lastObservedClientHeight = 0;
   /**
-   * The `scrollTop` the engine last WROTE and has not yet seen echoed back as
-   * a `scroll` event, or null when no write is outstanding. See `onScroll`.
+   * The `scrollTop` a `measure` write moved to and has not yet seen echoed back
+   * as a `scroll` event, or null when no echo is outstanding. Claimed only in
+   * `measure`; consumed only in `onScroll`.
    */
   let unechoedWriteTop: number | null = null;
   const stateListeners = new Set<() => void>();
@@ -101,13 +102,6 @@ function createThreadScrollFollow(): ThreadScrollFollow {
     } else {
       el.scrollTo({ top: el.scrollHeight });
     }
-    // Claim the position we just landed on, so the browser's `scroll` event for
-    // THIS write is recognisable when it arrives a task later (see `onScroll`).
-    // An 'instant' write lands synchronously, so this is the real target; a CSS
-    // (possibly smooth) write is still animating, so this records the START
-    // position and the claim simply goes unmatched — harmless, because
-    // `pendingFollow` stays true for the whole animation and already guards it.
-    unechoedWriteTop = el.scrollTop;
   };
 
   /**
@@ -153,6 +147,7 @@ function createThreadScrollFollow(): ThreadScrollFollow {
     }
     lastObservedScrollHeight = scrollHeight;
     lastObservedClientHeight = clientHeight;
+    const topBefore = el.scrollTop;
     if (pendingFollow) {
       // Complete an in-flight follow/explicit scroll through the resize.
       write(el);
@@ -162,6 +157,25 @@ function createThreadScrollFollow(): ThreadScrollFollow {
       write(el, 'instant');
     }
     handleScroll(el);
+    // The claim is made HERE, and only here, because the justification for
+    // swallowing an echo is the synchronous `handleScroll` immediately above —
+    // this is the one path that judges its own write in the same breath. The
+    // explicit-request writes (`scrollToBottom`, `jumpToBottomInstant`) do not
+    // judge, so their echo is the ONLY thing that can re-pin the thread and
+    // must never be swallowed; keeping the claim out of `write` makes that
+    // structural rather than a rule someone has to remember.
+    //
+    // Only a write that MOVED the position is claimed. A no-op write (already
+    // at the bottom — the steady state while pinned) dispatches no scroll
+    // event, so its claim could never be consumed and would sit there until
+    // some unrelated event happened to land on that exact pixel. A CSS
+    // (possibly smooth) write has not moved yet either, and is guarded for its
+    // whole animation by `pendingFollow` instead.
+    //
+    // Best-effort by construction: if the browser moves `scrollTop` between the
+    // write and its echo (scroll anchoring, a clamp), the claim simply misses
+    // and the event is judged as it was before this guard existed — no worse.
+    unechoedWriteTop = el.scrollTop === topBefore ? null : el.scrollTop;
   };
 
   return {
@@ -205,13 +219,16 @@ function createThreadScrollFollow(): ThreadScrollFollow {
        * viewport from OUTSIDE the scroller while a streamed chunk grows the
        * content inside it, and neither fires a scroll event of its own).
        *
-       * So a write CLAIMS the position it lands on and the echo is swallowed
-       * once: the synchronous judgement in `measure` already covered it, and
-       * `measure` is what will re-stick through the resize. Authorship is the
-       * discriminator, NOT "did scrollTop move" — scroll events coalesce, so a
-       * user round trip to the end and back reaches this as a single event
-       * whose net movement is zero (the tier-switch suite does exactly that).
-       * Anything the engine did not write is the user's, and is judged.
+       * So a `measure` write CLAIMS the position it moved to and the echo is
+       * swallowed once: the synchronous judgement there already covered it, and
+       * `measure` is what will re-stick through the resize. See the claim site
+       * for why it lives in `measure` and not in `write`.
+       *
+       * Authorship is the discriminator, NOT "did scrollTop move" — scroll
+       * events coalesce, so a user round trip to the end and back reaches this
+       * as a single event whose net movement against the last PROCESSED
+       * position is zero (the tier-switch suite does exactly that, and it must
+       * still disengage). Anything the engine did not write is the user's.
        */
       const onScroll = () => {
         const isOwnWriteEcho = unechoedWriteTop === el.scrollTop;

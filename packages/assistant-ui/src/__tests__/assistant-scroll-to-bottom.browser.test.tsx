@@ -298,47 +298,65 @@ describe('scroll-anchor scoping (real browser, BST-896)', () => {
 /**
  * The engine's OWN write echoing back must never unpin follow (BST-1039).
  *
- * `measure` writes `scrollTop` synchronously and judges the result in the same
- * breath, clearing `pendingFollow`; the browser dispatches that write's
- * `scroll` event a task LATER. The event carries no position of its own —
- * `handleScroll` re-reads LIVE geometry — so if the viewport is resized in
- * between, the leftover event is judged against dimensions the engine has
- * never measured: "not at bottom, and the position did not move down", which
- * is indistinguishable from a reader parked above the end. Follow disengaged
- * with no user act and never came back, because `measure` only re-sticks while
- * pinned.
+ * `measure` writes `scrollTop` and judges the result synchronously; the browser
+ * dispatches that write's `scroll` event a task LATER, and the event carries no
+ * position of its own. Resize the viewport in between and the leftover event is
+ * judged against dimensions no observer has measured, which looked exactly like
+ * a reader parked above the end — follow disengaged with no user act and never
+ * recovered. The full reasoning, and why authorship rather than displacement is
+ * the discriminator, lives on `onScroll` in thread-scroll-follow.tsx.
  *
- * The window is real: the follow-up queue's chip row shrinks the viewport from
- * OUTSIDE the scroller while a streamed chunk grows the content inside it, and
- * neither fires a scroll event of its own. It was a ~9% `Browser tests` flake
- * in follow-up-queue-repin.browser.test.tsx, landing exactly
- * `SQUEEZE + GROWTH` px short of the bottom every single time.
- *
- * Both cases below force that window deterministically — the squeeze, the
- * growth and the event share ONE synchronous task, so neither observer can
- * have measured yet — and differ only in WHO moved the position. That is the
- * whole discriminator, and the second case is why it cannot be "did scrollTop
- * move": scroll events coalesce, so a user round trip reaches the engine as a
- * single event whose net movement is zero, and it must still disengage.
+ * Both cases below reproduce the production ORDERING — a real, still-outstanding
+ * echo from a moving write — and differ only in who moved the position. Getting
+ * a claim to linger some other way would make the first case vacuous, so it
+ * asserts that the write actually moved before relying on it.
  */
 const STALE_SQUEEZE_PX = 65;
 const STALE_GROWTH_PX = 30;
 
+const sizedBlock = (height: number): HTMLElement => {
+  const block = document.createElement('div');
+  block.style.flexShrink = '0';
+  block.style.height = `${height}px`;
+  return block;
+};
+
 /**
- * Shrinks the viewport from OUTSIDE the scroller (what the chip row does —
- * only the ResizeObserver can see it) and grows the content INSIDE it (what a
- * streamed chunk does — only the MutationObserver can see it), synchronously,
- * so the caller can dispatch a scroll event before either observer measures.
+ * Shrinks the viewport from OUTSIDE the scroller, the way the follow-up queue's
+ * chip row does: only the ResizeObserver can see it, and it fires no scroll
+ * event of its own.
  */
-const squeezeAndGrow = (viewport: HTMLElement): void => {
-  const footer = document.createElement('div');
-  footer.style.flexShrink = '0';
-  footer.style.height = `${STALE_SQUEEZE_PX}px`;
-  screen.getByTestId('thread-column').append(footer);
-  const growth = document.createElement('div');
-  growth.style.flexShrink = '0';
-  growth.style.height = `${STALE_GROWTH_PX}px`;
-  viewport.append(growth);
+const squeezeFromOutside = (viewport: HTMLElement): void => {
+  const column = viewport.closest('.bs-thread');
+  if (!column) {
+    throw new Error('expected the scroller to live inside the .bs-thread column');
+  }
+  column.append(sizedBlock(STALE_SQUEEZE_PX));
+};
+
+/**
+ * Grows the content INSIDE the scroller (what a streamed chunk does) and
+ * returns once the MutationObserver's `measure` has re-stuck — which puts a
+ * REAL echo in flight, because the browser dispatches that write's scroll event
+ * only at the next rendering opportunity, and mutation callbacks are
+ * microtasks. Awaiting one microtask therefore lands the caller precisely
+ * between the write and its echo: the production window.
+ */
+const growContentLeavingEchoInFlight = async (viewport: HTMLElement): Promise<number> => {
+  const topBefore = viewport.scrollTop;
+  viewport.append(sizedBlock(STALE_GROWTH_PX));
+  await Promise.resolve();
+  return topBefore;
+};
+
+/** One coalesced animation frame is the engine's deferred measurement; three is
+ * well past it, and unlike a wall-clock sleep this still holds under CI load. */
+const settleMeasurementFrames = async (): Promise<void> => {
+  for (let frame = 0; frame < 3; frame++) {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+  }
 };
 
 describe('stale scroll events never unpin follow (real browser, BST-1039)', () => {
@@ -350,15 +368,20 @@ describe('stale scroll events never unpin follow (real browser, BST-1039)', () =
       expect(button).toBeDisabled();
     });
 
-    const scrollTopBefore = viewport.scrollTop;
-    squeezeAndGrow(viewport);
-    // Nothing moved the reading position — the engine still owns it.
-    expect(viewport.scrollTop).toBe(scrollTopBefore);
-    // Deliver the scroll event the engine's own earlier write left queued.
-    viewport.dispatchEvent(new Event('scroll'));
+    const topBefore = await growContentLeavingEchoInFlight(viewport);
+    // The echo under test must be genuinely outstanding: if this write did not
+    // move the position there is no echo to swallow and the case is vacuous.
+    expect(viewport.scrollTop).toBeGreaterThan(topBefore);
 
-    // Follow survives and re-sticks once the observers land. Before the fix it
-    // sat exactly STALE_SQUEEZE_PX + STALE_GROWTH_PX short, permanently.
+    // Resize before that echo can land. No synthetic event: the browser's own
+    // echo for the write above now arrives against geometry no observer has
+    // measured — the exact interleaving CI produced under load. (A synthetic
+    // one would consume the single-shot claim and leave the real echo to be
+    // judged, which is a test artifact rather than the production sequence.)
+    squeezeFromOutside(viewport);
+
+    // Follow survives and re-sticks. Before the fix it sat exactly
+    // STALE_SQUEEZE_PX + STALE_GROWTH_PX short of the bottom, permanently.
     await waitFor(() => {
       expect(distanceFromBottom(viewport)).toBeLessThanOrEqual(1);
     });
@@ -373,19 +396,47 @@ describe('stale scroll events never unpin follow (real browser, BST-1039)', () =
       expect(button).toBeDisabled();
     });
 
-    squeezeAndGrow(viewport);
-    // Identical window, but the READER moved the position. Unmeasured geometry
-    // must not buy follow the benefit of the doubt here: swallowing this event
-    // leaves `isAtBottom` true, and the very next `measure` yanks them back.
+    await growContentLeavingEchoInFlight(viewport);
+    squeezeFromOutside(viewport);
+    // Identical window, but the READER moved the position, so the event that
+    // lands is theirs — however little it moved against the last PROCESSED
+    // position. Swallowing it would leave `isAtBottom` true and the very next
+    // `measure` would yank them back to the end.
     viewport.scrollTo({ behavior: 'instant', top: 0 });
-    viewport.dispatchEvent(new Event('scroll'));
 
     await waitFor(() => {
       expect(button).toBeEnabled();
     });
-    // Give the deferred measurement a beat to prove it does not re-stick.
-    await new Promise((resolvePause) => setTimeout(resolvePause, 300));
+    // Prove the deferred measurement does not re-stick: it is scheduled on an
+    // animation frame, so outlast it in frames rather than milliseconds.
+    await settleMeasurementFrames();
     expect(viewport.scrollTop).toBe(0);
     expect(button).toBeEnabled();
+  });
+
+  test('an explicit re-pin still lands when scrolling is instant (reduced motion)', async () => {
+    render(<ScrollHarness growth="none" />);
+    const viewport = await waitForPinnedThread();
+    // Reduced-motion users get `scroll-behavior: auto` from globals.css, so the
+    // jump button's write lands SYNCHRONOUSLY. That path does not judge its own
+    // write, which makes the browser's echo the ONLY thing that can re-pin the
+    // thread — swallow it as "the engine's own" and the button never switches
+    // off. The default smooth behaviour hides this, because the write has not
+    // moved the position by the time it returns.
+    viewport.style.scrollBehavior = 'auto';
+    await scrollUpTo(viewport, 0);
+    const button = getButton();
+    await waitFor(() => {
+      expect(button).toBeEnabled();
+    });
+
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(distanceFromBottom(viewport)).toBeLessThanOrEqual(1);
+    });
+    await waitFor(() => {
+      expect(button).toBeDisabled();
+    });
   });
 });

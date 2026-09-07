@@ -1566,8 +1566,8 @@ hands over the message components.
   scrolled up is never yanked. Do not "simplify" this away as redundant with
   the engine's own resize re-stick — that path loses the clamp-ordering race.
 - **A `scroll` event the engine itself authored never disengages follow.**
-  `write` claims the `scrollTop` it lands on (`unechoedWriteTop`) and the
-  scroll listener swallows that one echo. A scroll event carries no position
+  A `measure` write claims the `scrollTop` it MOVED to (`unechoedWriteTop`) and
+  the scroll listener swallows that one echo. A scroll event carries no position
   of its own — `handleScroll` reads LIVE geometry — and `measure` writes
   `scrollTop` synchronously and judges the result in the same breath, clearing
   `pendingFollow`, while the browser dispatches that write's event a task
@@ -1587,6 +1587,18 @@ hands over the message components.
   processed. This was a ~9% `Browser tests` flake in
   `follow-up-queue-repin.browser.test.tsx`, always landing exactly
   `Δclient + Δscroll` px short of the bottom.
+  Two placement rules keep the claim honest, and neither is optional.
+  It is made in `measure` and NOT in `write`, because the justification for
+  swallowing an echo is the synchronous `handleScroll` that only `measure`
+  performs: the explicit-request writes (`scrollToBottom` — the jump button and
+  the BST-1039 dispatch re-pin — and `jumpToBottomInstant`) never judge, so
+  their echo is the ONLY thing that can re-pin the thread. Swallowing it leaves
+  the jump button stuck on, which the default CSS smooth scroll hides and a
+  **reduced-motion** user (`scroll-behavior: auto`, so the write lands
+  synchronously) hits immediately — that is the third case in the paired suite.
+  And only a write that MOVED the position is claimed: a no-op write dispatches
+  no scroll event, so its claim could never be consumed and would linger until
+  some unrelated event happened to land on that exact pixel.
 
 Paired tests: `packages/assistant-ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`
 (real Chromium against the real follow engine: pinned/unpinned button states,
