@@ -28,7 +28,12 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 // should pick the patched version unaided; this guard exists for when it does
 // not, because here silence and safety look identical.
 //
-// Remedy when this fails: `pnpm update <package> -r`.
+// Remedy when this fails: `pnpm update <package> -r` — but scope it to the line
+// the entry covers when one is given, e.g. `pnpm update "undici@^7" -r`. The
+// bare repo-wide form also moves copies on other major lines (it moved undici
+// 6.28.0 -> 6.28.1 and 8.10.0 -> 8.10.2 when this work was done: forward into
+// already-patched territory, neither on a shipped path, but churn nobody asked
+// for).
 //
 // DELIBERATELY NOT GUARDED, and why — `ip-address` and `hono` also had shipped
 // findings cleared (via `@modelcontextprotocol/server-legacy` and
@@ -82,20 +87,28 @@ for (const { name, floor, major } of FLOORS) {
     // shape ever changes, fail loudly rather than pass vacuously.
     assert.ok(versions.length > 0, `expected the lockfile to resolve at least one ${name}`);
 
-    const offenders = versions.filter((raw) => {
+    const inScope = versions.filter((raw) => {
       const version = parseVersion(raw);
-      if (version === null) {
-        return false;
-      }
-      if (major !== undefined && version[0] !== major) {
-        return false;
-      }
-      return isBelow(version, floor);
+      // Major scoping is decided on the leading segment so that an unparseable
+      // version cannot escape the check by failing to parse its own major.
+      const leading = Number.parseInt(raw.split('.')[0], 10);
+      return major === undefined || leading === major || (version !== null && version[0] === major);
     });
+    // A version this cannot compare must fail loudly rather than be filtered
+    // out: silently treating it as compliant is the vacuous pass this guard
+    // exists to prevent.
+    const unparseable = inScope.filter((raw) => parseVersion(raw) === null);
+    assert.deepEqual(
+      unparseable,
+      [],
+      `${name} versions this guard cannot compare: ${unparseable.join(', ')}`
+    );
+
+    const offenders = inScope.filter((raw) => isBelow(parseVersion(raw), floor));
     assert.deepEqual(
       offenders,
       [],
-      `${name} below ${floor.join('.')} is present (${offenders.join(', ')}); run \`pnpm update ${name} -r\``
+      `${name} below ${floor.join('.')} is present (${offenders.join(', ')}); run \`pnpm update ${major === undefined ? name : `${name}@^${major}`} -r\``
     );
   });
 }
