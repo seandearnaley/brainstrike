@@ -52,7 +52,14 @@ export function MarkdownLink({
 
   const activate = useCallback(
     (event: MouseEvent<HTMLAnchorElement>) => {
-      if (href && isSameDocumentHref(href)) {
+      if (href === undefined) {
+        // No href at all is not a link and never navigates, so there is nothing
+        // to rescue. Distinct from href="" (below), which react-markdown
+        // produces for a sanitized-away URL and which DOES navigate.
+        return;
+      }
+
+      if (isSameDocumentHref(href)) {
         return;
       }
 
@@ -74,7 +81,7 @@ export function MarkdownLink({
       try {
         // `Promise.resolve` so a host that throws synchronously is caught by
         // the same handler as one that rejects.
-        void Promise.resolve(capabilities.openLink(href ?? '')).catch((error: unknown) => {
+        void Promise.resolve(capabilities.openLink(href)).catch((error: unknown) => {
           logger.error('Assistant link host rejected instead of resolving', { error, href });
         });
       } catch (error) {

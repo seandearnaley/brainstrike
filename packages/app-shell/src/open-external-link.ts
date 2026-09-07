@@ -56,16 +56,22 @@ function toErrorMessage(error: unknown): string {
 }
 
 /** The bridge crosses an IPC boundary, so its reply is untyped data at runtime:
- * a mangled or `undefined` payload would make callers throw on `result.ok`. */
+ * a mangled or `undefined` payload would make callers throw on `result.ok`.
+ *
+ * BOTH fields are rebuilt, not just `ok`. Callers interpolate `error` into the
+ * toast string, so validating `ok` while trusting `error` would concede the
+ * premise without finishing it: a hostile `error` throws inside the template
+ * literal and rejects a seam that promises never to. */
 function normalizeBridgeResult(value: unknown, url: string): OpenLinkResult {
   if (
     typeof value === 'object' &&
     value !== null &&
     typeof (value as OpenLinkResult).ok === 'boolean'
   ) {
-    return value as OpenLinkResult;
+    const { error, ok } = value as { error?: unknown; ok: boolean };
+    return typeof error === 'string' ? { error, ok } : { ok };
   }
-  logger.error('Shell bridge returned an unexpected result shape', { url, value });
+  logger.error('Shell bridge returned an unexpected result shape', { url });
   return { error: 'Shell bridge returned an unexpected result', ok: false };
 }
 
@@ -113,7 +119,11 @@ export async function openExternalLink(url: string): Promise<OpenLinkResult> {
     window.open(url, '_blank', 'noopener,noreferrer');
     return { ok: true };
   } catch (error) {
-    logger.error('Failed to open link', { error, url });
-    return { error: toErrorMessage(error), ok: false };
+    // Format FIRST: logging the raw value would hand a hostile object to the
+    // serializer, and a throw from inside this catch block rejects the seam —
+    // which is precisely what the non-throwing formatter exists to prevent.
+    const message = toErrorMessage(error);
+    logger.error('Failed to open link', { message, url });
+    return { error: message, ok: false };
   }
 }

@@ -138,6 +138,54 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     expect(toastMock).toHaveBeenCalledTimes(1);
   });
 
+  it('does not leave a dangling separator when the href is empty', async () => {
+    // react-markdown hands us '' for a sanitized-away `javascript:` URL, and
+    // MarkdownLink routes it here rather than dying silently. "<reason> — "
+    // with nothing after the dash reads like a rendering bug.
+    setPlatform(undefined);
+
+    const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
+    await result.current.openLink('');
+
+    const [payload] = toastMock.mock.calls[0] as [{ description?: string }];
+    expect(payload.description).not.toMatch(/[—-]\s*$/);
+    expect(payload.description).toMatch(/absolute url/i);
+  });
+
+  it('does not reject when the bridge returns an unstringifiable error field', async () => {
+    // normalizeBridgeResult validated `ok` but trusted `error`, which the host
+    // then interpolated into the toast string. A null-prototype object there
+    // threw inside the template literal — rejecting the seam, skipping the
+    // toast, and restoring the dead click through a different door.
+    const openExternal = vi.fn().mockResolvedValue({
+      error: Object.create(null) as string,
+      ok: false,
+    });
+    setPlatform(fullBridge({ openExternal }));
+
+    const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
+    const outcome = await result.current.openLink('https://example.com/docs');
+
+    expect(outcome.ok).toBe(false);
+    expect(toastMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reject when the toast itself throws', async () => {
+    toastMock.mockImplementationOnce(() => {
+      throw new Error('toast host exploded');
+    });
+    const openExternal = vi.fn().mockResolvedValue({ error: 'nope', ok: false });
+    setPlatform(fullBridge({ openExternal }));
+
+    const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
+
+    // The contract is stated absolutely, so it must hold even when the only
+    // thing left to fail is the failure reporter.
+    await expect(result.current.openLink('https://example.com/docs')).resolves.toMatchObject({
+      ok: false,
+    });
+  });
+
   it('tells the user WHY the link did not open', async () => {
     const openExternal = vi.fn();
     setPlatform(fullBridge({ openExternal }));

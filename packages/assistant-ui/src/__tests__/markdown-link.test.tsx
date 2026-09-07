@@ -352,6 +352,23 @@ describe('assistant markdown links', () => {
     expect(observed?.defaultPrevented).toBe(true);
   });
 
+  it('leaves an anchor with no href inert instead of toasting at the user', async () => {
+    const { capabilities, openLink } = stubCapabilities();
+    render(
+      <AssistantLinkCapabilitiesProvider capabilities={capabilities}>
+        <MarkdownLink>not a link</MarkdownLink>
+      </AssistantLinkCapabilitiesProvider>
+    );
+
+    await userEvent.click(screen.getByText('not a link'));
+
+    // No href at all is not a link and never navigates, so there is nothing to
+    // rescue — routing it would pop "Could not open link" at someone who
+    // clicked ordinary text. This is distinct from href="", which DOES
+    // navigate (a reload) and therefore must be routed.
+    expect(openLink).not.toHaveBeenCalled();
+  });
+
   it('survives a host whose openLink throws synchronously', async () => {
     const openLink = vi.fn(() => {
       throw new Error('broken host');
