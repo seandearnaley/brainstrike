@@ -295,6 +295,10 @@ test('living contracts publish the exact local and CI commands', () => {
   for (const contract of [conformanceContract, ciContract]) {
     assert.match(contract, /protocol-lab-only/u);
   }
+  // The POSIX teardown ruling is behaviour, not commentary: EPERM on a group of
+  // our own descendants is the post-reap race, so it must neither fail the
+  // invocation nor be read as success.
+  assert.match(conformanceContract, /`ESRCH` is the only proof the group is gone/u);
 });
 
 test('living contracts link official conformance evidence and require dispatch URLs in PRs', () => {

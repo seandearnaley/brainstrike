@@ -309,7 +309,18 @@ BST-1472 verifier project), the outer driver loads the existing
 `@brainstrike/windows-job-native` capability from Desktop and assigns itself to
 its kill-on-close Job Object before the first scenario spawn.
 Every child inherits that owner. Per-invocation cleanup remains isolated on
-POSIX. Sequential Windows runs clean each scenario's descendants before starting
+POSIX, where group teardown is three-valued and must stay that way (do not
+relitigate): `ESRCH` is the only proof the group is gone, while `EPERM` from
+`kill(2)` against a group of our own descendants is inconclusive rather than a
+denial. It reports the post-reap race in which the group's only remaining
+members are killed-but-unreaped zombies the kernel will not route a group
+signal through, so it polls on exactly like a live group. Failing the
+invocation on it surfaced a normal teardown window as a spurious
+`cleanup failed` and could mislabel a passing scenario; reading it as success
+is unsound in the other direction, because a process group outlives its
+leader. Same ruling as `packages/agent/src/fence/fence-executor.ts`, pinned by
+`scripts/__tests__/run-official-mcp-client-conformance-process-group.test.mjs`.
+Sequential Windows runs clean each scenario's descendants before starting
 the next; parallel baseline runs defer cleanup until all siblings in a revision
 wave settle so one scenario cannot terminate another. Authoritative Job membership
 is then checked and remaining descendants are terminated. Timeout, failed start, failed exit

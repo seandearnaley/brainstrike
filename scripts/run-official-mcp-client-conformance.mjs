@@ -472,28 +472,47 @@ function createCleanupFailure(invocationId, failure, cleanupCause) {
   return new Error(`Official MCP conformance ${invocationId} cleanup failed`, { cause });
 }
 
-export async function killPosixProcessGroup(pid, signal) {
+/**
+ * Signal a whole POSIX process group and classify the kernel's answer.
+ *
+ * `ESRCH` is the only proof the group is gone. `EPERM` is NOT a denial: every
+ * member is our own descendant running as us, so a genuine permission failure
+ * is impossible here. It reports the post-reap race instead — a group whose
+ * remaining members are all killed-but-unreaped zombies still exists, but the
+ * kernel finds nothing to route a group signal through and POSIX-mode `kill(2)`
+ * answers EPERM rather than ESRCH. That state is transient (measured: ESRCH
+ * follows within ~10ms) and is exactly what the confirmation loop is for, so
+ * 'unsignalable' polls on like 'alive' rather than short-circuiting either way.
+ * Returning early on it would be unsound in the other direction, because a
+ * process group outlives its leader. Same ruling as
+ * `packages/agent/src/fence/fence-executor.ts`.
+ */
+function signalPosixProcessGroup(pid, signal) {
   try {
     process.kill(-pid, signal);
+    return 'alive';
   } catch (error) {
-    if (!hasErrorCode(error, 'ESRCH')) {
-      throw error;
+    if (hasErrorCode(error, 'ESRCH')) {
+      return 'gone';
     }
+    if (hasErrorCode(error, 'EPERM')) {
+      return 'unsignalable';
+    }
+    throw error;
+  }
+}
+
+export async function killPosixProcessGroup(pid, signal) {
+  if (signalPosixProcessGroup(pid, signal) === 'gone') {
+    return;
   }
   if (signal !== 'SIGKILL') {
     return;
   }
   const deadline = Date.now() + 2000;
   while (Date.now() < deadline) {
-    try {
-      process.kill(-pid, 0);
-    } catch (error) {
-      if (hasErrorCode(error, 'ESRCH')) {
-        return;
-      }
-      if (!hasErrorCode(error, 'EPERM')) {
-        throw error;
-      }
+    if (signalPosixProcessGroup(pid, 0) === 'gone') {
+      return;
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
