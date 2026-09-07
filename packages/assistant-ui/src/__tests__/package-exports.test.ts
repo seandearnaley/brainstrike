@@ -29,6 +29,13 @@ describe('@brainstrike/assistant-ui package contract', () => {
     expect(Object.keys(manifest.exports).sort()).toEqual(
       [
         '.',
+        // Two leaf modules, imported INSTEAD of the root barrel so a host can
+        // provide or read the link seam without dragging the lazy panel graph
+        // (assistant-ui-panel, react-markdown, Shiki) into the eager chunk.
+        // They stay split because a file exporting both a component and a hook
+        // trips react-refresh/only-export-components.
+        './assistant-link-capabilities',
+        './assistant-link-capabilities-provider',
         './context-usage-store',
         './follow-up-queue-store',
         './mcp-task-bridge-context',
