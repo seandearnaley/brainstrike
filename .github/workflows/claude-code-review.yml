@@ -55,32 +55,35 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/claude-review.mjs prepare
 
+      # The review does not use anthropics/claude-code-action. Its only prompt
+      # input is `prompt`, and action.yml carries that into the runner through
+      # environment variables — PROMPT, and again JSON-escaped inside ALL_INPUTS —
+      # where Linux caps a single variable at 128 KiB (MAX_ARG_STRLEN). Invoking
+      # the CLI directly lets the prompt travel on stdin, which is a pipe and has
+      # no size limit, so the ceiling is gone rather than budgeted around. It also
+      # removes the App-token exchange and its OIDC allowlist from the picture
+      # entirely (claude-code-action#713), instead of routing around them.
+      - name: Install the pinned Claude Code CLI
+        if: ${{ steps.request.outputs.eligible == 'true' }}
+        run: npm install --global @anthropic-ai/claude-code@2.1.261
+
+      # The OAuth token is the only secret in scope, and it reaches the CLI as its
+      # own credential. The prompt is not here: it is a file, streamed to stdin by
+      # the script. Nothing that scales with the PR is an argument or a variable.
       - name: Run Claude auto-review
         id: claude-review
         if: ${{ steps.request.outputs.eligible == 'true' }}
         continue-on-error: true
-        # Pin the action whose conclusion/OIDC skip behavior the reporter checks.
-        uses: anthropics/claude-code-action@d75b94d5ad426cb8546e6628b6f5f19b84e5cce1 # v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # Supplying github_token makes the action skip Anthropic's App token
-          # exchange entirely (setupGitHubToken returns OVERRIDE_GITHUB_TOKEN
-          # first), so no event type can trip that endpoint's OIDC allowlist
-          # (claude-code-action#713). Nothing here needs an App identity: the
-          # model runs with zero tools and never reaches GitHub, and the trusted
-          # reporter below publishes with github.token. The action's own
-          # write-permission check still runs on PR events regardless of token
-          # source; the same-repository head guard in scripts/claude-review.mjs
-          # is belt-and-braces on top of it.
-          github_token: ${{ github.token }}
-          prompt: ${{ steps.request.outputs.prompt }}
-          claude_args: ${{ steps.request.outputs.claude_args }}
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: node scripts/claude-review.mjs run
 
       - name: Report exact-head Claude review disposition
         if: ${{ always() }}
         env:
           GH_TOKEN: ${{ github.token }}
+          # The step outcome only. The review text is read from disk by the
+          # reporter, so no payload rides an environment variable in either
+          # direction.
           ACTION_OUTCOME: ${{ steps.claude-review.outcome }}
-          REVIEW_OUTPUT: ${{ steps.claude-review.outputs.structured_output }}
-          ACTION_CONCLUSION: ${{ steps.claude-review.outputs.conclusion }}
         run: node scripts/claude-review.mjs report
