@@ -96,6 +96,29 @@ describe('deriveActivitySteps', () => {
     expect(steps.map((step) => step.state)).toEqual(['waiting', 'cancelled', 'failed', 'failed']);
   });
 
+  it('reads a tool part with no status and no result as running', () => {
+    const steps = deriveActivitySteps(
+      [tool('n', 'brainstrike.executeCommand', { command: 'ls' })],
+      {}
+    );
+    expect(steps[0]?.state).toBe('running');
+  });
+
+  it('maps incomplete with a non-cancelled reason to failed', () => {
+    const steps = deriveActivitySteps(
+      [
+        tool(
+          'e',
+          'brainstrike.executeCommand',
+          { command: 'ls' },
+          { status: { reason: 'error', type: 'incomplete' } }
+        ),
+      ],
+      {}
+    );
+    expect(steps[0]?.state).toBe('failed');
+  });
+
   it('maps reasoning parts to Thinking/Thought steps that never count as tool steps', () => {
     const steps = deriveActivitySteps(
       [reasoning('hmm', 'running'), reasoning('done', 'complete')],
@@ -134,6 +157,11 @@ describe('summarizeActivity', () => {
       {}
     );
     expect(summarizeActivity(steps).live).toBe('Searching foo');
+  });
+
+  it('reads the bare active verb with no trailing space when a running tool has no primary arg', () => {
+    const steps = deriveActivitySteps([tool('b', 'brainstrike.grepSearch', {}, running)], {});
+    expect(summarizeActivity(steps).live).toBe('Searching');
   });
 
   it('prefers a waiting step over a running one and reads Waiting for approval', () => {
@@ -194,6 +222,33 @@ describe('summarizeActivity', () => {
       live: 'Working',
       resting: 'Read, searched',
     });
+  });
+
+  it('reads a singular file count for an edit family with exactly one distinct target', () => {
+    const steps = deriveActivitySteps(
+      [done('1', 'brainstrike.writeWorkspaceFile', { path: 'a.ts' })],
+      {}
+    );
+    expect(summarizeActivity(steps).resting).toBe('Edited 1 file');
+  });
+
+  it('dedupes distinct-target counts on the untruncated arg, not the ellipsised display', () => {
+    // Two paths that share the same first-24/last-39 characters — and so
+    // collapse to the same middle-ellipsised `display` (see
+    // tool-summaries.ts PATH_HEAD_LENGTH/PATH_TAIL_LENGTH) — but differ in
+    // the middle, so they must still count as two distinct files.
+    const prefix = 'p'.repeat(24);
+    const suffix = 's'.repeat(39);
+    const steps = deriveActivitySteps(
+      [
+        done('1', 'brainstrike.writeWorkspaceFile', { path: `${prefix}-alpha-${suffix}` }),
+        done('2', 'brainstrike.writeWorkspaceFile', { path: `${prefix}-beta--${suffix}` }),
+      ],
+      {}
+    );
+    expect(steps[0]?.target).toBe(steps[1]?.target);
+    expect(steps[0]?.targetKey).not.toBe(steps[1]?.targetKey);
+    expect(summarizeActivity(steps).resting).toBe('Edited 2 files');
   });
 
   it('reads Thought for a reasoning-only group and Worked for an empty one', () => {
