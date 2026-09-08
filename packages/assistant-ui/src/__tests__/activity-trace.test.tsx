@@ -83,6 +83,34 @@ describe('ActivityTrace', () => {
     expect(screen.getByTestId('assistant-activity-summary')).not.toHaveTextContent('Read 2 files');
   });
 
+  it('never demotes a model-written override into the meta of a stopped or failed group', () => {
+    const { rerender } = render(
+      <ActivityTrace
+        detail={null}
+        fallbackMs={4000}
+        incompleteReason="cancelled"
+        isActive={false}
+        restingOverride="Checked the three configs"
+        summary={done}
+      />
+    );
+    const summary = screen.getByTestId('assistant-activity-summary');
+    expect(summary).toHaveTextContent('Stopped');
+    expect(summary).not.toHaveTextContent('Checked the three configs');
+    rerender(
+      <ActivityTrace
+        detail={null}
+        fallbackMs={4000}
+        incompleteReason="error"
+        isActive={false}
+        restingOverride="Checked the three configs"
+        summary={done}
+      />
+    );
+    expect(summary).toHaveTextContent('Activity failed');
+    expect(summary).not.toHaveTextContent('Checked the three configs');
+  });
+
   it("keeps Stopped and Activity failed as headlines for the group's own incomplete status", () => {
     const { rerender } = render(
       <ActivityTrace

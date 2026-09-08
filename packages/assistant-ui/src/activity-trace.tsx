@@ -257,7 +257,9 @@ export function ActivityTrace({
   const meta = metaFor(phase, elapsedLabel);
   // An override stands in for the verb summary here too, so a cancelled group
   // still demotes the model's own wording rather than dropping it.
-  const verbMeta = verbMetaFor(phase, restingOverride ?? summary.verbs, summary.counts.steps);
+  // The model-written override replaces the RESTING headline of a finished
+  // group only; a stopped/failed group never demotes it into the meta slot.
+  const verbMeta = verbMetaFor(phase, summary.verbs, summary.counts.steps);
   const steps = stepLabel(summary.counts.steps);
 
   return (

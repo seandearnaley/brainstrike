@@ -1450,8 +1450,11 @@ The resting headline can be overridden by
 (`readActivitySummaryOverride`, `assistant-activity-parts.tsx`): read-only
 today, a non-empty (post-trim) string is used verbatim — validated AND
 rendered trimmed, never with its padding; a non-string or blank value is
-ignored, never coerced. No producer writes this key in this
-repo — it is a seam for a future model-written summary (spec §4.2).
+ignored, never coerced. It replaces the resting headline of a FINISHED
+group only: a stopped or failed group keeps its `Stopped` / `Activity
+failed` headline and never demotes the override into the `· <verbs>` meta
+slot. No producer writes this key in this repo — it is a seam for a future
+model-written summary (spec §4.2).
 
 Layout is fixed-height by design (scroll-anchoring rule, §4.7 of the design
 spec): the status row is `min-height: 2rem` and the phase glyph sits in a
