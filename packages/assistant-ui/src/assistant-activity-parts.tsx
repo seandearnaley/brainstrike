@@ -183,6 +183,10 @@ function ActivityReasoningBlock({
     <ActivityPartLayout>
       <StepRowHeader
         bodyId={panelId}
+        // The panel below is ALWAYS mounted (only its content is gated on
+        // `open`), so unlike the tool / subagent / task cards this row's
+        // `aria-controls` never dangles and stays on in both states.
+        controlsAlwaysMounted
         expanded={open}
         family="other"
         glyph={<ReasoningGlyph isStreaming={isStreaming} />}

@@ -371,8 +371,13 @@ function ToolRunTiming({
       <AssistantThinkingIndicator
         // Shrinkable, unlike the settled duration: a label such as
         // "Receiving input · 999.9 KB · 9m 59s" must truncate in a narrow
-        // pane rather than squeeze the tool name out of its slot.
-        className="min-w-0 max-w-[60%] shrink text-xs tabular-nums"
+        // pane rather than squeeze the target chip out of its slot. That
+        // geometry belongs to the SLOT, not to this indicator, and lives in
+        // `.bs-step-row-timing` (overrides.css): the `max-w-[60%] shrink
+        // min-w-0` this used to carry sat inside the slot, where the
+        // percentage resolved against the slot's own width and `flex-shrink`
+        // was inert (the slot is a block container, not a flex one).
+        className="text-xs tabular-nums"
         data-args-streaming={argsStreaming ? 'true' : undefined}
         label={progressLabel}
         // The row's state glyph already carries the live mark; a second one

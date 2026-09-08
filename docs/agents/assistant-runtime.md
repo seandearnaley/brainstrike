@@ -1515,8 +1515,18 @@ with something to expand renders the row as a real
 IS the toggle label (`Expand details` / `Collapse details`, kept for e2e;
 reasoning's own row instead reads `Show thinking` / `Hide thinking`) while
 its content reaches AT only via `aria-describedby`, never folded into the
-button's own name; `aria-controls` is present while collapsed, the standard
-disclosure pattern. A card with nothing to expand (no body — e.g. a subagent
+button's own name. `aria-expanded` is always present; `aria-controls` is
+emitted ONLY while the element it names is mounted — the convention every
+other disclosure in the package already follows
+(`assistant-run-timeline.tsx`, `assistant-tool-approval-notice.tsx`) — so the
+tool / subagent / task cards, which unmount their body while collapsed, drop
+it there rather than leave a dangling IDREF. A row whose body stays in the
+DOM either way opts back in with `controlsAlwaysMounted`: only the reasoning
+row does, since its `bs-chain-of-thought-panel` is always mounted and only
+its CONTENT is gated on `open` (pinned by `tool-fallback-a11y.test.tsx` and
+the BST-1656 fingerprint in
+`assistant-reasoning-disclosure.behavior.test.tsx`, which compares
+`aria-controls` across a manual toggle). A card with nothing to expand (no body — e.g. a subagent
 delegation with zero child rows) renders the non-interactive form instead, a
 `<div role="group" aria-labelledby>` with no chevron and no `aria-expanded`.
 The raw tool id is visually hidden text OUTSIDE the row's named content span,
@@ -1526,7 +1536,7 @@ the non-interactive row's `aria-labelledby` name alongside its verb and
 target.
 
 State glyphs are named, never colour-only: `STEP_STATE_LABELS`
-(`activity-step-icons.tsx`) is the total `role="img"`/`aria-label` map —
+(`activity-step-tokens.ts`) is the total `role="img"`/`aria-label` map —
 `Completed | Running | Failed | Stopped | Waiting for approval | No answer`
 — over `StepGlyphState` (`ActivityStepState` plus the subagent-only
 `no-answer` arm). A step's state is derived by ONE function only,
@@ -1562,13 +1572,19 @@ pre-existing `assistant-reasoning-indicator` / `assistant-reasoning-static-mark`
 pair rather than the generic glyph. Only the group's LAST running tool row
 shimmers: `ActivityGroup` computes `deriveStepMeta(steps)`
 (`activity-step-meta.ts`) once per snapshot and hands it down through
-`ActivityStepMetaProvider`; `useIsLastRunningStep`
-(`activity-step-context.tsx`) answers `true` outside any provider, so a
+`ActivityStepMetaProvider` (`activity-step-context.tsx`, over the context
+object in `activity-step-meta-context.ts`); `useIsLastRunningStep`
+(`use-is-last-running-step.ts`) answers `true` outside any provider, so a
 standalone running card (rendered without a group) still shimmers. Rows
 reveal with `bs-trace-reveal` and a positional `:nth-child` stagger on
 `.bs-step-list`, capped at 5 (`overrides.css`) — no row carries its own
 index, and a row already visible when a new one arrives does not re-animate
-(the animation runs once per mount).
+(the animation runs once per mount). The `:nth-child` rules set
+`--bs-stagger` on the list's DIRECT children, which are the WRAPPERS
+(`ActivityPartLayout`'s div; two more levels for `ToolFallback`), and the row
+reads it by INHERITANCE — so `.bs-trace-reveal` must default through
+`var(--bs-stagger, 0)` and never declare the property on itself, which would
+shadow the inherited value and flatten every delay to 0.
 
 Reasoning is a step with its own verb pair, `Thinking` / `Thought`
 (`ActivityReasoningBlock`, `assistant-activity-parts.tsx`), rendered through
@@ -1605,8 +1621,10 @@ inside the trace: `AssistantRunTimelineDataPart`
 Those run-event rows are direct children of `.bs-step-list` too — they are
 group-transparent (`groupAssistantActivityPart`), so `AssistantActivityParts`
 renders their `dataRendererUI` straight into the list alongside the
-`ActivityPartLayout`-wrapped step rows, and they are counted by the same
-`:nth-child` stagger; `.bs-step-list`'s own row rhythm (`> * + *` block
+`ActivityPartLayout`-wrapped step rows. They CONSUME `:nth-child` slots —
+shifting the reveal delay of every step row after them one step along — but
+carry no `.bs-trace-reveal` of their own and do not animate;
+`.bs-step-list`'s own row rhythm (`> * + *` block
 margins) makes an exception for them (`.bs-run-timeline`, `overrides.css`) —
 see ui-conventions.md's "Step rows" paragraph for the geometry.
 

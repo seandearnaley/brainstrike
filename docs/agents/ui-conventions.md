@@ -725,7 +725,9 @@ reusable rather than one-off:
 - `.bs-trace-collapse` / `.bs-trace-collapse-inner` — `grid-template-rows: 0fr
   ↔ 1fr` disclosure, no measured heights.
 - `.bs-trace-reveal` — a one-shot fade-up with a `--bs-stagger` index capped
-  at 5; phase 3 wires it to `.bs-step-list`'s step rows (below).
+  at 5, read through `var(--bs-stagger, 0)` because the index is set on an
+  ANCESTOR and inherited (never declared on the revealed element itself, which
+  would shadow it); phase 3 wires it to `.bs-step-list`'s step rows (below).
 - `.bs-trace-detail` — a fixed one-line slot under the header while running,
   so the header's own height never changes (the thread's scroll-anchoring
   rule).
@@ -775,21 +777,31 @@ glyph · chevron, one row per step in part order. A row with a body is a real
 disabled button standing in for "nothing to expand".
 
 Geometry is stylesheet-owned, not utility classes, because the browser
-vitest lane loads no Tailwind preflight (`overrides.css`, ~L975): `.bs-step-row`
+vitest lane loads no Tailwind preflight (`overrides.css`, ~L992): `.bs-step-row`
 itself owns `box-sizing: border-box`, `width: 100%` and `flex: 1 1 0%`; a
 sibling control sharing `.bs-step-row-line` with it (the checkpoint revert
 button) gets `flex: 0 0 auto` from `.bs-step-row-line > :not(.bs-step-row)`;
 `.bs-step-row-chevron` pins the chevron's own box; `.bs-step-row-meta` clamps
 to `9rem` so an unbounded result-summary or root-name chip cannot push the
-row wide. `.bs-step-list` is a BLOCK container by design — the row's own
+row wide. `.bs-step-row-timing` is the one slot that SHRINKS
+(`flex: 0 1 auto`) under a `max-inline-size: 60%` ceiling, with
+`overflow: hidden` + `white-space: nowrap`: the running progress label is
+unbounded at the call site, and those are two separate guards — shrinking
+bounds the slot only while something else competes for the row, the ceiling
+is what keeps a short target legible when nothing does.
+`.bs-step-list` is a BLOCK container by design — the row's own
 width rule is written for a non-flex parent — so inter-row rhythm comes from
 `.bs-step-list > * + *` block margins rather than a flex `gap` (adjoining
 block margins collapse, which is why the value is `0.75rem` and not the
 arithmetic top-up of the layout it replaced). The one exception is
 `.bs-run-timeline`: at Developer detail level, run-event rows render as
 direct children of `.bs-step-list` too (they are group-transparent), so they
-pick up the same `:nth-child`-keyed `--bs-stagger` reveal as the step rows
-beside them, but they keep their own tighter `0.25rem` margin
+CONSUME `:nth-child` slots and shift the `--bs-stagger` of every step row
+after them one step along — but they carry no `.bs-trace-reveal` and do not
+animate. The step rows themselves are never the list's direct children
+either: `--bs-stagger` lands on `ActivityPartLayout`'s wrapper (two more
+levels down for `ToolFallback`) and reaches the row by INHERITANCE. Run-event
+rows keep their own tighter `0.25rem` margin
 (`.bs-step-list > * + .bs-run-timeline`) rather than the step rows' rhythm,
 since they are designed to read as one quiet block. `sr-only` is a Tailwind
 utility with no matching rule in that same lane (it loads only
@@ -799,7 +811,7 @@ account for that visible text, or omit `toolName`
 (`activity-step-row.browser.test.tsx`).
 
 State glyphs follow one naming rule: `role="img"` plus `aria-label` from the
-total `STEP_STATE_LABELS` map (`activity-step-icons.tsx`) — colour alone
+total `STEP_STATE_LABELS` map (`activity-step-tokens.ts`) — colour alone
 never carries the state.
 
 ---

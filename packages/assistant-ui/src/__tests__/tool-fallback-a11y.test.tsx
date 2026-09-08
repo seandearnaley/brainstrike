@@ -50,37 +50,47 @@ describe('ToolFallback Accessibility', () => {
     expect(expandedButton).toHaveAttribute('title', 'test-tool');
   });
 
-  test('aria-controls points to a real DOM element when expanded', async () => {
+  test('aria-controls appears only while the pane it names is mounted, and keeps the same id across toggles', async () => {
     const user = userEvent.setup();
     const { container } = wrap(<ToolFallback {...mockBaseProps} result="test-result" />);
 
+    // `ToolFallback` unmounts its details pane while collapsed, so an
+    // `aria-controls` here would be a dangling IDREF — AT resolves it to
+    // nothing. The package convention (`assistant-run-timeline.tsx`,
+    // `assistant-tool-approval-notice.tsx`) is to emit the attribute only
+    // when the target exists; `aria-expanded="false"` is what announces the
+    // collapsed state. Rows whose body stays mounted (the reasoning row)
+    // opt back in with `controlsAlwaysMounted`.
     const button = screen.getByRole('button', { name: /Expand details/i });
-    // BST-1681: the row keeps a STABLE `aria-controls` across the toggle (the
-    // disclosure pattern — the pane it names is mounted only while expanded,
-    // which `aria-expanded="false"` already announces). What must never drift
-    // is the id it points at once the pane exists; whether that id resolves to
-    // nothing WHILE collapsed is an implementation detail of the pattern, not
-    // a contract, so it is deliberately not pinned here.
-    const controlsId = button.getAttribute('aria-controls');
-    if (controlsId === null || controlsId.length === 0) {
-      throw new Error('the row must name the pane it toggles');
-    }
+    expect(button).not.toHaveAttribute('aria-controls');
     expect(button).toHaveAttribute('aria-expanded', 'false');
 
     await user.click(button);
 
     const expandedButton = screen.getByRole('button', { name: /Collapse details/i });
-    expect(expandedButton).toHaveAttribute('aria-controls', controlsId);
+    const controlsId = expandedButton.getAttribute('aria-controls');
+    if (controlsId === null || controlsId.length === 0) {
+      throw new Error('the expanded row must name the pane it toggles');
+    }
     expect(expandedButton).toHaveAttribute('aria-expanded', 'true');
     expect(container.querySelector(`#${CSS.escape(controlsId)}`)).toBeInTheDocument();
 
     await user.click(expandedButton);
     const collapsedButton = screen.getByRole('button', { name: /Expand details/i });
-    expect(collapsedButton).toHaveAttribute('aria-controls', controlsId);
+    expect(collapsedButton).not.toHaveAttribute('aria-controls');
     expect(collapsedButton).toHaveAttribute('aria-expanded', 'false');
+
+    // The id is stable, not regenerated per expansion: a re-expanded row
+    // names the same pane it named the first time.
+    await user.click(collapsedButton);
+    expect(screen.getByRole('button', { name: /Collapse details/i })).toHaveAttribute(
+      'aria-controls',
+      controlsId
+    );
   });
 
-  test('multiple instances have unique aria-controls IDs', () => {
+  test('multiple instances have unique aria-controls IDs', async () => {
+    const user = userEvent.setup();
     const { container } = wrap(
       <>
         <ToolFallback {...mockBaseProps} result="result-a" toolCallId="call-a" toolName="tool-a" />
@@ -88,7 +98,15 @@ describe('ToolFallback Accessibility', () => {
       </>
     );
 
-    const buttons = screen.getAllByRole('button', { name: /Expand details/i });
+    const collapsed = screen.getAllByRole('button', { name: /Expand details/i });
+    expect(collapsed).toHaveLength(2);
+    // Both panes have to be OPEN for there to be ids to compare: the
+    // attribute is emitted only while the pane it names is mounted.
+    for (const button of collapsed) {
+      await user.click(button);
+    }
+
+    const buttons = screen.getAllByRole('button', { name: /Collapse details/i });
     expect(buttons).toHaveLength(2);
     const [first, second] = buttons;
     expect(first?.getAttribute('aria-controls')).toBeTruthy();

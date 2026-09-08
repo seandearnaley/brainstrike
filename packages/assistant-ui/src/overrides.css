@@ -829,10 +829,16 @@
   overflow: hidden;
 }
 
+/* The stagger index is set on an ANCESTOR (`.bs-step-list`'s nth-child rules
+   below) and reaches the row by inheritance, so the default belongs in the
+   `var()` fallback and NOT in a `--bs-stagger: 0` declaration here: declaring
+   it on the revealed element itself wins over the inherited value on every
+   row that is not itself the list's direct child — which, in production, is
+   every row (see the `.bs-step-list` block). Pinned by the wrapper-shaped
+   stagger case in activity-step-row.browser.test.tsx. */
 .assistant-ui-panel .bs-trace-reveal {
-  --bs-stagger: 0;
   animation: bs-trace-reveal 220ms cubic-bezier(0.23, 1, 0.32, 1) both;
-  animation-delay: calc(min(var(--bs-stagger), 5) * 40ms);
+  animation-delay: calc(min(var(--bs-stagger, 0), 5) * 40ms);
 }
 
 .assistant-ui-panel .bs-trace-detail {
@@ -894,7 +900,18 @@
    stagger is positional: `.bs-step-list` children pick up `--bs-stagger`
    from their nth-child index (capped at 5), so no row needs to know its
    index and a row already visible never re-animates (the animation runs
-   once per mount). */
+   once per mount).
+
+   The DIRECT children here are the wrappers, never the rows themselves —
+   `ActivityPartLayout`'s div for every step, and for `ToolFallback` two more
+   levels (`.bs-tool-timeline` > `.bs-step-row-line`) below that. The row
+   reads the value by INHERITANCE, which is why `.bs-trace-reveal` above
+   defaults through `var(--bs-stagger, 0)` instead of declaring the property
+   on itself: a declaration there would shadow the inherited value and flatten
+   every delay to 0. Run-event rows (`.bs-run-timeline`, Developer detail) are
+   direct children too, so they CONSUME nth-child slots and shift the rows
+   after them one step further along — but they carry no `.bs-trace-reveal`
+   and do not animate. */
 .assistant-ui-panel .bs-step-list > :nth-child(2) {
   --bs-stagger: 1;
 }
@@ -1028,9 +1045,38 @@
 .assistant-ui-panel .bs-step-row-meta,
 .assistant-ui-panel .bs-step-row-timing {
   color: hsl(var(--muted-foreground));
-  flex-shrink: 0;
   font-size: 0.6875rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* Settled durations ("1.2s") are short and bounded, so the meta/timing pair
+   used to share one `flex-shrink: 0`. The RUNNING label is not: "Receiving
+   input · 999.9 KB · 9m 59s" and longer arrive from tool progress, so the
+   timing slot must shrink and truncate rather than push the row past its list
+   or squeeze the target chip out (BST-849's rule, carried into the step row).
+
+   Owned here, not by the indicator's `max-w-[60%] shrink min-w-0` utilities:
+   those sit on the indicator INSIDE this box, where `60%` resolves against
+   this box's own width — it can never bound the box that contains it — and
+   `flex-shrink` is inert there because this box is a block container, not a
+   flex one. The percentage resolves against the row's content box, which IS
+   the flex container. `white-space: nowrap` keeps the label on the row's one
+   line (the row height is a scroll-anchoring contract) so `overflow: hidden`
+   truncates it horizontally instead of wrapping it — and that same
+   `overflow: hidden` is what zeroes this flex item's automatic minimum size,
+   so no `min-inline-size: 0` is needed (measured: adding one changes nothing).
+
+   `flex: 0 1 auto` and `max-inline-size` are SEPARATE guards, one test each in
+   activity-step-row.browser.test.tsx: shrinking only bounds the slot while
+   something else competes for the row ("…shrinks to 60% of the row and
+   truncates"), and the ceiling is what keeps a SHORT target legible when
+   nothing does ("…capped at 60% … when nothing else competes"). */
+.assistant-ui-panel .bs-step-row-timing {
+  flex: 0 1 auto;
+  max-inline-size: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Meta chips carry TOOL RESULT data (the result summary, the resolved root
@@ -1038,6 +1084,7 @@
    so an unclamped chip pushes the row past its list. 9rem is the `max-w-36`
    the pre-BST-1681 card header carried. */
 .assistant-ui-panel .bs-step-row-meta {
+  flex-shrink: 0;
   max-inline-size: 9rem;
   overflow: hidden;
   text-overflow: ellipsis;

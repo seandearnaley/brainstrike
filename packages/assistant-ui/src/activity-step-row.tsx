@@ -8,6 +8,15 @@ import { useIsLastRunningStep } from './use-is-last-running-step';
 export interface StepRowHeaderProps {
   /** id of the body this row toggles; omit when the row has no body (renders a non-interactive row: no button, no chevron, no aria-expanded). */
   readonly bodyId?: string;
+  /**
+   * True when the element named by `bodyId` stays in the DOM while the row is
+   * COLLAPSED — the reasoning row's panel does (only its content is
+   * conditional), the tool / subagent / task cards unmount theirs. Only such a
+   * row may keep `aria-controls` while collapsed; on every other row the
+   * attribute would name an element that does not exist, which AT resolves to
+   * nothing. Default `false`.
+   */
+  readonly controlsAlwaysMounted?: boolean;
   readonly expanded?: boolean;
   readonly family: VerbFamily;
   /** Replaces the state glyph (the reasoning row passes its own indicator / static mark so the phase-1 test ids stay put). */
@@ -46,6 +55,7 @@ interface RowShellProps {
   readonly bodyId: string | undefined;
   readonly children: ReactNode;
   readonly contentId: string;
+  readonly controlsAlwaysMounted: boolean;
   readonly expanded: boolean | undefined;
   readonly label: string;
   readonly onToggle: (() => void) | undefined;
@@ -79,7 +89,6 @@ function RowShell(props: RowShellProps): ReactNode {
   }
   return (
     <button
-      aria-controls={props.bodyId}
       aria-describedby={props.contentId}
       aria-expanded={props.expanded}
       aria-label={props.label}
@@ -89,6 +98,16 @@ function RowShell(props: RowShellProps): ReactNode {
       onClick={props.onToggle}
       title={props.toolName}
       type="button"
+      // `aria-controls` must name an element that EXISTS, so it is emitted
+      // only while the body is mounted — the package convention every other
+      // disclosure here already follows (`assistant-run-timeline.tsx`,
+      // `assistant-tool-approval-notice.tsx`). `aria-expanded` is
+      // unconditional and is what announces the collapsed state. Conditional
+      // spread, not `x ?? undefined`: under `exactOptionalPropertyTypes` an
+      // optional prop may be absent but never explicitly `undefined`.
+      {...(props.expanded === true || props.controlsAlwaysMounted
+        ? { 'aria-controls': props.bodyId }
+        : {})}
     >
       {props.children}
     </button>
@@ -104,6 +123,7 @@ export function StepRowHeader(props: StepRowHeaderProps): ReactNode {
     <RowShell
       bodyId={props.bodyId}
       contentId={contentId}
+      controlsAlwaysMounted={props.controlsAlwaysMounted ?? false}
       expanded={props.expanded}
       label={props.label}
       onToggle={props.onToggle}
