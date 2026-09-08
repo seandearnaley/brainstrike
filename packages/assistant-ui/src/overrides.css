@@ -729,6 +729,98 @@
 }
 
 /**
+ * ACTIVITY TRACE MOTION (phase 2). CSS-only by repo rule. Four primitives:
+ * - .bs-trace-label: a keyed span that fades/slides in when its text changes
+ *   (the caller re-keys the element on the label string).
+ * - .bs-trace-collapse[data-open]: grid-rows disclosure, no measured heights.
+ * - .bs-trace-reveal: one-shot fade-up with a --bs-stagger index capped at 5.
+ * - .bs-trace-detail: a fixed one-line slot under the header while running,
+ *   so the header itself never changes height (scroll-anchoring rule).
+ */
+@keyframes bs-trace-label-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bs-trace-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.assistant-ui-panel .bs-trace-label {
+  animation: bs-trace-label-enter 250ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  display: inline-block;
+  min-width: 0;
+}
+
+.assistant-ui-panel .bs-trace-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.assistant-ui-panel .bs-trace-collapse[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+
+.assistant-ui-panel .bs-trace-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.assistant-ui-panel .bs-trace-reveal {
+  --bs-stagger: 0;
+  animation: bs-trace-reveal 220ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation-delay: calc(min(var(--bs-stagger), 5) * 40ms);
+}
+
+.assistant-ui-panel .bs-trace-detail {
+  color: hsl(var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  height: 1.25rem;
+  line-height: 1.25rem;
+  overflow: hidden;
+  padding-inline: 0.6rem 0.6rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-ui-panel .bs-trace-glyph {
+  transition: transform 160ms ease;
+}
+
+.assistant-ui-panel [aria-expanded="true"] > .bs-trace-glyph {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .bs-trace-label,
+  .assistant-ui-panel .bs-trace-reveal {
+    animation: none;
+  }
+
+  .assistant-ui-panel .bs-trace-collapse,
+  .assistant-ui-panel .bs-trace-glyph {
+    transition: none;
+  }
+}
+
+/**
  * Run-event activity rows: quiet single-line rows (vs the prominent
  * bs-tool-timeline cards). Consecutive rows read as one group — no margins
  * between them, shared hover treatment.
