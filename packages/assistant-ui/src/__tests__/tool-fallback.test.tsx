@@ -88,6 +88,37 @@ describe('ToolFallback', () => {
     expect(screen.queryByText('advisory only')).toBeNull();
   });
 
+  it('keeps an ok: true result carrying an advisory error STRING on the Completed path', () => {
+    // Bot round 1 (Claude Important 1 / Codex P2 #1). The card and the trace
+    // read ONE function (`readResultError`), and it reads the success
+    // discriminator first: a result that says it succeeded never grows failed
+    // chrome or a red error line because it also carries advice in `error`.
+    renderTool({
+      argsText: '{}',
+      result: { error: 'warning: deprecated flag', ok: true },
+      status: { type: 'complete' },
+      toolName: 'lookupStatus',
+    });
+
+    expect(screen.getByRole('img', { name: 'Completed' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Failed' })).toBeNull();
+    expect(screen.queryByText('warning: deprecated flag')).toBeNull();
+  });
+
+  it('renders the error line for a bare error string, with no ok discriminator', () => {
+    // The other side of the same reader: nothing claims success here, so the
+    // stated message IS the failure — Failed chrome plus the message verbatim.
+    renderTool({
+      argsText: '{}',
+      result: { error: 'boom' },
+      status: { type: 'complete' },
+      toolName: 'lookupStatus',
+    });
+
+    expect(screen.getByRole('img', { name: 'Failed' })).toBeInTheDocument();
+    expect(screen.getByText('boom')).toBeInTheDocument();
+  });
+
   it('renders a declined tool call as Stopped — never Completed, never Failed', () => {
     // BST-1282: a call the user declined at its approval gate settles with the
     // shared `DeclinedToolCallResult` envelope. A settled result alone would
@@ -222,6 +253,23 @@ describe('ToolFallback activity step row', () => {
     expect(screen.getByText('Arguments:')).toBeInTheDocument();
   });
 
+  it('falls back to the tool id as the target when the args name none', () => {
+    // Bot round 1, Claude Important 4. `extractPrimaryArg` finds nothing in
+    // `{}`, and a row of "Called legacy.echo" with an empty target slot says
+    // less than the id itself — which the row already carries as sr-only text
+    // and as its `title`, so the chip is the only place it is VISIBLE.
+    const { container } = renderTool({
+      args: {},
+      argsText: '{}',
+      result: { ok: true },
+      status: { type: 'complete' },
+      toolCallId: 'call-no-arg',
+      toolName: 'legacy.echo',
+    });
+
+    expect(container.querySelector('.bs-step-row-target')).toHaveTextContent('legacy.echo');
+  });
+
   it('reads a LIVE paused call (requires-action) as Waiting for approval, with no live mark', () => {
     const { container } = renderTool({
       args: { command: 'rm x' },
@@ -235,7 +283,11 @@ describe('ToolFallback activity step row', () => {
     // The gate is on the USER, not on the model: the row must not shimmer or
     // carry the live mark while it waits.
     expect(container.querySelectorAll('[data-live="true"]')).toHaveLength(0);
-    expect(screen.getByText('Ran', { exact: true })).toBeInTheDocument();
+    // ACTIVE tense (bot round 1, Claude Important 3): the step is in flight,
+    // paused on the user — the done tense would assert "Ran rm x" of a command
+    // that has not run at all. The glyph is what says why it is not moving.
+    expect(screen.getByText('Running', { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText('Ran', { exact: true })).toBeNull();
   });
 
   it('reads a resultless call on a settled message as Completed, like the trace does', () => {

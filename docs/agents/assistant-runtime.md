@@ -1506,7 +1506,19 @@ list (tool calls and reasoning parts) renders as one `StepRowHeader`
 (`StepFamilyIcon`) · verb in tense (`Reading` while running, `Read` once
 settled — the same `active`/`done` pair every `ActivityVerb` carries,
 `activity-verbs.ts`) · target chip · timing slot · state glyph
-(`StepStateGlyph`) · chevron. The row IS the card's own header —
+(`StepStateGlyph`) · chevron. The ACTIVE tense covers `running` AND `waiting`
+(`ACTIVE_TENSE_STATES`, `tool-fallback.tsx`): a call paused at its approval
+gate is in flight, so "Ran rm -rf build" under a Waiting glyph would assert an
+outcome that does not exist — the glyph is what says why the step is standing
+still. Only the settled states (`done`, `failed`, `cancelled`) read the done
+tense; the subagent card's `STEP_VERB` has always mapped waiting to its active
+form. The target chip falls back to the TOOL ID when the args name no primary
+arg (`ToolFallback` passes `primaryArg?.display ?? toolName`), so an
+argument-less MCP call reads "Called legacy.echo · legacy.echo" rather than
+leaving the slot empty; `targetTitle` stays the untruncated primary arg, never
+the id. The timing slot renders only when the caller supplies timing — the
+reasoning and task-list rows pass none, and an empty flex item would still
+spend its gap. The row IS the card's own header —
 `ToolFallback`, `SubagentExecutionCard` and `TaskListToolCard` all render it
 in place of a second header, so a step never shows its verb twice. `RowShell`
 (`activity-step-row.tsx`) splits into the two forms a step can take: a card
@@ -1556,11 +1568,22 @@ nothing else — a resultless call on a settled (`complete`) message falls
 through to `settledResultOverride` and reads `Completed` on every surface
 (not `Unknown`; the reload-after-abandoned-approval residue is persistence
 work, BST-1678, never a renderer guess). A result that STATES its own
-failure is `failed` on every surface too: `statesResultError`
-(`activity-trace-model.ts`) recognises a non-empty `error` string, an
-`ok: false` envelope whose `error.message` explains it, or a result-level
-`isError: true`; an `ok: true` result carrying advisory error metadata stays
-`done`.
+failure is `failed` on every surface too, and `readResultError`
+(`activity-trace-model.ts`) is the ONE reader of that — it answers both
+"does this result state an error" (the state machine's `statesResultError`
+wrapper) and "what does it say" (`ToolFallback`'s error line, via
+`resolveErrorMessage`), because two copies of that shape list had already
+drifted. It reads the success discriminator FIRST: an `ok: true` result stays
+`done` and shows no error line however its `error` member is shaped (string or
+record) — that is advisory domain data. Otherwise it recognises a non-empty
+`error` string, an `ok: false` envelope whose `error.message` explains it, or
+a result-level `isError: true` (which states no message of its own and takes
+`TOOL_EXECUTION_FAILED_MESSAGE`). The part-level `isError` flag is a separate
+branch in the card: a signal about the CALL, not something the result states,
+so it supplies only the generic message. Ordering hazard inside
+`toolStepStateFor`: this branch runs BEFORE `settledResultOverride`, so a
+tool-specific reading can never soften a result that states an error — one
+that must win has to move above the branch, not into the override.
 
 Exactly one live mark renders per running row: the state glyph
 (`StepStateGlyph`'s `running` arm renders `BrainstrikeThinkingMark`, which

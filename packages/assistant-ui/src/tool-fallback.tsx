@@ -14,7 +14,9 @@ import {
 import { StepRowHeader } from './activity-step-row';
 import {
   type ActivityStepState,
+  readResultError,
   runPythonStepState,
+  TOOL_EXECUTION_FAILED_MESSAGE,
   toolStepStateFor,
 } from './activity-trace-model';
 import { verbForTool } from './activity-verbs';
@@ -83,43 +85,45 @@ function resolveCardStatus(
   };
 }
 
+/**
+ * The states whose verb reads in the ACTIVE tense: the step has not finished,
+ * so the done tense would assert an outcome that does not exist yet. `waiting`
+ * belongs here with `running` — an approval gate has not started the call, and
+ * the glyph beside the verb is what says why it is standing still.
+ */
+const ACTIVE_TENSE_STATES: ReadonlySet<ActivityStepState> = new Set<ActivityStepState>([
+  'running',
+  'waiting',
+]);
+
 const isIncompleteStatus = (
   status: ToolStatus
 ): status is ToolStatus & { type: 'incomplete'; error?: unknown; reason?: unknown } =>
   status.type === 'incomplete';
 
-const readResultErrorMessage = (result: ToolResult, isErrorResult = false): string | undefined => {
-  if (typeof result === 'string') {
-    return;
-  }
-  if (!(result && typeof result === 'object')) {
-    return;
-  }
-
-  const record = result as Record<string, unknown>;
-  const error = record['error'];
-  if (typeof error === 'string' && error.length > 0) {
-    return error;
-  }
-  if (record['ok'] === false && error && typeof error === 'object' && !Array.isArray(error)) {
-    const message = (error as Record<string, unknown>)['message'];
-    if (typeof message === 'string' && message.length > 0) {
-      return message;
-    }
-  }
-  if (isErrorResult || record['isError'] === true) {
-    return 'Tool execution failed.';
-  }
-  return;
-};
-
+/**
+ * The card's error LINE, from the same reader the state machine uses.
+ *
+ * `readResultError` (`activity-trace-model.ts`) is the only place that decides
+ * what "this result states an error" means, so the line the card paints and
+ * the `failed` verdict the trace counts can never disagree about a shape
+ * (bot round 1, Claude Important 2 — the card's own copy of the shape list had
+ * already drifted on `ok: true`). The part-level `isError` flag stays a
+ * SEPARATE branch: it is a signal about the call, not something the result
+ * states, so it only supplies the generic message when the result itself
+ * states none.
+ */
 const resolveErrorMessage = (
   status: ToolStatus,
   result: ToolResult,
   isErrorResult: boolean
 ): string | undefined => {
   if (!isIncompleteStatus(status)) {
-    return readResultErrorMessage(result, isErrorResult);
+    const stated = readResultError(result);
+    if (stated !== null) {
+      return stated;
+    }
+    return isErrorResult ? TOOL_EXECUTION_FAILED_MESSAGE : undefined;
   }
 
   if (typeof status.error === 'string') {
@@ -237,10 +241,14 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
     isErrorResult
   );
   const verb = verbForTool(toolName);
-  // A waiting/cancelled/failed step reads the past tense with the glyph
-  // carrying the state — consistent with the trace's resting summary, which
-  // lists failed verbs in the done tense too.
-  const verbLabel = glyphState === 'running' ? verb.active : verb.done;
+  // A cancelled/failed step reads the past tense with the glyph carrying the
+  // state — consistent with the trace's resting summary, which lists failed
+  // verbs in the done tense too. A WAITING step does not: it is in flight,
+  // paused on the user, so it keeps the active tense on every surface (bot
+  // round 1, Claude Important 3 — "Ran rm -rf build" under a Waiting glyph
+  // asserted something that had not happened; the subagent card already read
+  // its waiting rows as "Delegating to <persona>").
+  const verbLabel = ACTIVE_TENSE_STATES.has(glyphState) ? verb.active : verb.done;
   const isRunning = glyphState === 'running';
   const isError = glyphState === 'failed';
   // BST-849: while the model streams a large tool input the card must visibly
@@ -278,7 +286,12 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
           label={isCollapsed ? 'Expand details' : 'Collapse details'}
           state={glyphState}
           stepId={toolCallId}
-          target={primaryArg?.display ?? null}
+          // The tool id when the args name no target (bot round 1, Claude
+          // Important 4): "Called legacy.echo" beside an empty chip slot says
+          // strictly less than the id, which the row otherwise carries only as
+          // sr-only text and a `title`. `targetTitle` stays the untruncated
+          // primary arg, so the tooltip never labels the id as an argument.
+          target={primaryArg?.display ?? toolName}
           timing={
             <ToolRunTiming
               argsStreaming={argsStreaming}

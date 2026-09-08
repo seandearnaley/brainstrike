@@ -149,7 +149,12 @@ export function StepRowHeader(props: StepRowHeaderProps): ReactNode {
           brainstrike.readWorkspaceFile". It stays inside the row so the card
           still carries the raw id as text (the e2e contract). */}
       {props.toolName ? <span className="sr-only">{props.toolName}</span> : null}
-      <span className="bs-step-row-timing">{props.timing}</span>
+      {/* The slot is a flex item with its own gap, so an empty one spends row
+          width on nothing — the reasoning and task-list rows pass no timing at
+          all (bot round 1, Claude Minor 7). Absent, never empty. */}
+      {props.timing === undefined || props.timing === null ? null : (
+        <span className="bs-step-row-timing">{props.timing}</span>
+      )}
       {props.glyph ?? <StepStateGlyph state={props.state} />}
       {props.bodyId ? (
         <ChevronRight aria-hidden="true" className="bs-step-row-chevron bs-trace-glyph size-3.5" />

@@ -170,4 +170,22 @@ describe('TaskListToolCard', () => {
     expect(screen.getByRole('img', { name: 'Failed' })).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: 'Completed' })).not.toBeInTheDocument();
   });
+
+  it('renders the non-interactive row when there is no raw payload to expand', () => {
+    // Bot round 1, Claude Minor 9. The toggle trio travels together, exactly
+    // as it does in ToolFallback: a row whose body would be empty is not a
+    // disclosure at all, and a `<button>` promising details that do not exist
+    // is worse than no button. Args and result are both absent here.
+    renderTaskCard({
+      args: undefined,
+      argsText: undefined,
+      result: undefined,
+      status: { type: 'complete' },
+      toolCallId: 'tasks-empty',
+      toolName: 'brainstrike.manageTaskList',
+    });
+    expect(screen.getByRole('group')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.getByText('Updated tasks')).toBeInTheDocument();
+  });
 });

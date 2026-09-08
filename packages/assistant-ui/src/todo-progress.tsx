@@ -130,14 +130,12 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({
   // that contains it called the same step Stopped/Failed.
   const glyphState = toolStepStateFor({ isError, result, status });
   const isRunning = glyphState === 'running';
+  const hasBody = Boolean(rawArgs) || rawResult !== undefined;
   return (
     <div className="bs-tasklist-tool-card my-1 rounded-md border border-border/60 bg-background/40 text-xs">
       <StepRowHeader
-        bodyId={bodyId}
-        expanded={open}
         family="tasks"
         label={open ? 'Collapse details' : 'Expand details'}
-        onToggle={() => setOpen(!open)}
         state={glyphState}
         // The group's last-running lookup is keyed by `toolCallId`; without it
         // a task-list call that IS the group's last running step would be the
@@ -146,6 +144,14 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({
         target={null}
         toolName={NATIVE_TOOL_ID.manageTaskList}
         verb={isRunning ? 'Updating tasks' : 'Updated tasks'}
+        // The toggle trio travels together, as it does in ToolFallback (bot
+        // round 1, Claude Minor 9): with neither raw args nor a raw result
+        // the body would be empty, so the row renders as its non-interactive
+        // form instead of a button promising details that do not exist.
+        // Conditional spread, not `x ?? undefined`: under
+        // `exactOptionalPropertyTypes` an optional prop may be absent but
+        // never explicitly `undefined`.
+        {...(hasBody ? { bodyId, expanded: open, onToggle: () => setOpen(!open) } : {})}
       />
       {open ? (
         <div className="flex flex-col gap-1 px-2.5 pb-2" id={bodyId}>

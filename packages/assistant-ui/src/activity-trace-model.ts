@@ -72,35 +72,56 @@ function statusOf(part: Record<string, unknown>): { reason?: unknown; type?: unk
   return isRecord(status) ? status : undefined;
 }
 
+/** The message a result-level `isError` flag implies; it states none of its own. */
+export const TOOL_EXECUTION_FAILED_MESSAGE = 'Tool execution failed.';
+
 /**
- * A settled result that STATES its own failure, in the two shapes the tool
- * card's error line has always recognised beyond the guarded envelope
- * (`readResultErrorMessage` in `tool-fallback.tsx`): a non-empty `error`
- * string, an `ok: false` envelope whose `error.message` explains it, and a
- * result-level `isError` flag.
+ * THE reader of "this settled result states its own failure" — and of the
+ * message it states, since those are one question, not two (bot round 1,
+ * Claude Important 2). The card's error line and the trace's failed verdict
+ * used to be two copies of the same shape list (`readResultErrorMessage` in
+ * `tool-fallback.tsx`), and they had already drifted: on an `ok: true`
+ * envelope the message reader returned the advisory string while the state
+ * reader called the step failed.
  *
- * It lives HERE, not only in the card, because both surfaces derive from this
- * function (BST-1681 phase 3): while the card read these as Failed and the
- * trace read them as `done`, one step showed a red error line under a headline
- * that counted it a success. A payload that does not declare failure — an
- * `ok: true` result carrying advisory error metadata — is ordinary domain data
- * and stays `done` (the surviving half of the BST-1679 ruling).
+ * The success discriminator is read FIRST and is final: `ok: true` means the
+ * tool says it succeeded, so an `error` member beside it is advisory domain
+ * data and this returns null — `{ ok: true, error: 'warning: deprecated
+ * flag' }` must never read Failed (the surviving half of the BST-1679
+ * ruling). Otherwise the recognised shapes are the ones the card's error line
+ * has always rendered beyond the guarded envelope: a non-empty `error`
+ * string, an `ok: false` envelope whose `error.message` explains it, and a
+ * result-level `isError` flag, which carries no message of its own and takes
+ * the generic one.
+ *
+ * It lives HERE, not only in the card, because both surfaces derive from it
+ * (BST-1681 phase 3): while the card read these as Failed and the trace read
+ * them as `done`, one step showed a red error line under a headline that
+ * counted it a success.
  */
-function statesResultError(result: unknown): boolean {
+export function readResultError(result: unknown): string | null {
   if (!isRecord(result) || Array.isArray(result)) {
-    return false;
+    return null;
+  }
+  if (result['ok'] === true) {
+    return null;
   }
   const error = result['error'];
   if (typeof error === 'string' && error.length > 0) {
-    return true;
+    return error;
   }
   if (result['ok'] === false && isRecord(error) && !Array.isArray(error)) {
     const message = error['message'];
     if (typeof message === 'string' && message.length > 0) {
-      return true;
+      return message;
     }
   }
-  return result['isError'] === true;
+  return result['isError'] === true ? TOOL_EXECUTION_FAILED_MESSAGE : null;
+}
+
+/** Whether {@link readResultError} finds a stated failure in this result. */
+function statesResultError(result: unknown): boolean {
+  return readResultError(result) !== null;
 }
 
 /**
@@ -199,6 +220,13 @@ export function toolStepStateFor(input: {
   if (status?.type === 'incomplete') {
     return status.reason === 'cancelled' ? 'cancelled' : 'failed';
   }
+  // ORDERING HAZARD (bot round 1, Claude Minor 6): `statesResultError` runs
+  // BEFORE `settledResultOverride`, so a tool whose own settled reading lives
+  // there cannot soften a result that states an error — a `run_python` payload
+  // carrying a non-empty `error` string would read `failed` here and never
+  // reach `runPythonStepState`. That is the right precedence today (a stated
+  // error is a stated error), but a tool-specific reading that needs to WIN
+  // over it has to move above this branch, not into the override.
   if (
     input.isError === true ||
     isGuardedToolError(input.result) ||

@@ -45,6 +45,13 @@ function renderStateIcon(state: StepGlyphState): ReactNode {
         <AlertCircle aria-hidden="true" className="size-4 text-amber-600 dark:text-amber-500" />
       );
     default:
-      return state satisfies never;
+      // Compile-time exhaustiveness as its OWN statement, so the runtime
+      // answer for an unmapped state is rendering nothing — returning the
+      // checked value painted its raw identifier into the row (bot round 1,
+      // Claude Minor 10). A state added to `StepGlyphState` without an arm
+      // here still fails the build.
+      // biome-ignore lint/suspicious/noUnusedExpressions: a type-level exhaustiveness check has no runtime effect by design; the `return null` below is the runtime behaviour.
+      state satisfies never;
+      return null;
   }
 }

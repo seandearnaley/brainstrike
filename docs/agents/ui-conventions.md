@@ -771,13 +771,18 @@ L1 step rows (`docs/agents/assistant-runtime.md` § ACTIVITY GROUPS, "L1 step
 rows / L2 bodies") are the shared `StepRowHeader` grammar
 (`activity-step-row.tsx`) every card inside an activity trace renders through
 — `ToolFallback`, `SubagentExecutionCard`, `TaskListToolCard`, and the
-reasoning block: family icon · verb in tense · target chip · timing · state
-glyph · chevron, one row per step in part order. A row with a body is a real
-`<button>`; a row with none is a non-interactive `role="group"` — never a
-disabled button standing in for "nothing to expand".
+reasoning block: family icon · verb in tense (the active form while the step
+is `running` OR `waiting` — a gated call has not run yet) · target chip (the
+tool id when the args name no primary arg) · timing (rendered only when the
+caller supplies one) · state glyph · chevron, one row per step in part order.
+A row with a body is a real `<button>`; a row with none is a non-interactive
+`role="group"` — never a disabled button standing in for "nothing to expand".
+That includes a `TaskListToolCard` with neither raw args nor a raw result: the
+`bodyId`/`expanded`/`onToggle` trio travels together, exactly as in
+`ToolFallback`.
 
 Geometry is stylesheet-owned, not utility classes, because the browser
-vitest lane loads no Tailwind preflight (`overrides.css`, ~L992): `.bs-step-row`
+vitest lane loads no Tailwind preflight (`overrides.css`): `.bs-step-row`
 itself owns `box-sizing: border-box`, `width: 100%` and `flex: 1 1 0%`; a
 sibling control sharing `.bs-step-row-line` with it (the checkpoint revert
 button) gets `flex: 0 0 auto` from `.bs-step-row-line > :not(.bs-step-row)`;

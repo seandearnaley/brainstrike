@@ -508,6 +508,22 @@ describe('assistant UI panel architecture', () => {
     );
   });
 
+  it('honours reduced motion for the step row REVEAL animation', () => {
+    // Bot round 1, Claude Minor 8. Every step row mounts with
+    // `.bs-trace-reveal` (`RowShell`, both forms) and the phase-2 staggered
+    // entrance rides on it, so this is the second animation a reduced-motion
+    // preference has to stop — and, like the shimmer, it is STYLESHEET-owned
+    // (the browser lane has no Tailwind, so `motion-reduce:` utilities would
+    // be inert there). CDT measured `animation-name: none` on all rows under
+    // the preference; nothing else pins the rule that produces it.
+    const cssSource = readSource('overrides.css');
+    expect(cssSource).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{\s*\.assistant-ui-panel \.bs-trace-label,\s*\.assistant-ui-panel \.bs-trace-reveal \{\s*animation: none;/
+    );
+    // Not vacuous: every row form really does carry the class.
+    expect(readSource('activity-step-row.tsx')).toContain('bs-step-row bs-trace-reveal');
+  });
+
   it('keeps the "static thinking mark" CSS hook confined to assistant-thinking-indicator.tsx', () => {
     // `bs-thinking-mark-static` is BrainstrikeThinkingMark's own `live={false}`
     // class (assistant-thinking-indicator.tsx); every other caller must go

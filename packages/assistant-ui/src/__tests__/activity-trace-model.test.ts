@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { deriveActivitySteps, summarizeActivity, toolStepStateFor } from '../activity-trace-model';
+import {
+  deriveActivitySteps,
+  readResultError,
+  summarizeActivity,
+  TOOL_EXECUTION_FAILED_MESSAGE,
+  toolStepStateFor,
+} from '../activity-trace-model';
 
 const tool = (
   id: string,
@@ -138,6 +144,28 @@ describe('deriveActivitySteps', () => {
             result: { error: { message: 'advisory only' }, ok: true },
             status: { type: 'complete' },
           }
+        ),
+      ],
+      {}
+    );
+    expect(steps[0]?.state).toBe('done');
+    expect(summarizeActivity(steps).counts.failed).toBe(0);
+  });
+
+  it('never infers failure from an advisory error STRING on a successful result', () => {
+    // Bot round 1 (Claude Important 1 / Codex P2 #1): `readResultError` reads
+    // the success discriminator FIRST, so an `ok: true` envelope carrying a
+    // human-readable advisory in `error` is ordinary domain data on every
+    // surface. Reading the string first made this step Failed in the headline
+    // while the card, whose error line renders only under failed chrome,
+    // agreed — both were wrong about a result that says it succeeded.
+    const steps = deriveActivitySteps(
+      [
+        tool(
+          'd',
+          'brainstrike.executeCommand',
+          { command: 'ls' },
+          { result: { error: 'warning: deprecated flag', ok: true }, status: { type: 'complete' } }
         ),
       ],
       {}
@@ -416,8 +444,9 @@ describe('toolStepStateFor', () => {
   });
 
   it('calls the card error shapes failed so both surfaces agree on failure', () => {
-    // The card has always rendered an error line for these three shapes
-    // (`readResultErrorMessage`); before this ruling the trace read them as
+    // The card has always rendered an error line for these three shapes (its
+    // own `readResultErrorMessage`, deleted in bot round 1 in favour of the
+    // shared `readResultError`); before this ruling the trace read them as
     // `done`, so one step could be Failed on the card and a success in the
     // headline.
     expect(toolStepStateFor({ result: { error: 'boom' }, status: { type: 'complete' } })).toBe(
@@ -438,6 +467,15 @@ describe('toolStepStateFor', () => {
     expect(
       toolStepStateFor({
         result: { error: { message: 'advisory only' }, ok: true },
+        status: { type: 'complete' },
+      })
+    ).toBe('done');
+    // The STRING form of the same advisory (bot round 1, Claude Important 1):
+    // `ok: true` is the success discriminator and it is read first, so no
+    // `error` member of any shape can contradict it.
+    expect(
+      toolStepStateFor({
+        result: { error: 'warning: deprecated flag', ok: true },
         status: { type: 'complete' },
       })
     ).toBe('done');
@@ -558,5 +596,37 @@ describe('toolStepStateFor tool-specific overrides', () => {
         toolName: 'brainstrike.runPython',
       })
     ).toBe('running');
+  });
+});
+
+/**
+ * The ONE reader of "this result states an error" (bot round 1, Claude
+ * Important 2). `tool-fallback.tsx`'s error line and `toolStepStateFor`'s
+ * failed verdict used to be two copies of the same shape list that had already
+ * drifted on the `ok: true` case — the message reader returned the advisory
+ * string and the state reader called the step failed. One function now answers
+ * both questions: the state machine asks whether it returns a message at all,
+ * the card renders the message it returns.
+ */
+describe('readResultError', () => {
+  it('returns null for a result that does not state an error', () => {
+    expect(readResultError(undefined)).toBeNull();
+    expect(readResultError('plain string result')).toBeNull();
+    expect(readResultError({ ok: true })).toBeNull();
+    expect(readResultError([{ error: 'boom' }])).toBeNull();
+    expect(readResultError({ error: '' })).toBeNull();
+    expect(readResultError({ error: { message: 'boom' } })).toBeNull();
+    expect(readResultError({ error: { message: '' }, ok: false })).toBeNull();
+  });
+
+  it('reads the success discriminator before any error member', () => {
+    expect(readResultError({ error: 'warning: deprecated flag', ok: true })).toBeNull();
+    expect(readResultError({ error: { message: 'advisory only' }, ok: true })).toBeNull();
+  });
+
+  it('returns the message a failing result states', () => {
+    expect(readResultError({ error: 'boom' })).toBe('boom');
+    expect(readResultError({ error: { message: 'boom' }, ok: false })).toBe('boom');
+    expect(readResultError({ isError: true })).toBe(TOOL_EXECUTION_FAILED_MESSAGE);
   });
 });

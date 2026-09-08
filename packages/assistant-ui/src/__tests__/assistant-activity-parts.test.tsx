@@ -573,11 +573,12 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
 
   // The other half of the same pause, one level down (BST-1681 task 6): the
   // header names it, and the STEP ROW inside the group has to agree. The row
-  // reads the DONE tense with the glyph carrying the state — the call has not
-  // started, but a present-tense "Running" would claim it had — and it stays
-  // static: the gate is on the USER, so nothing in the row may pulse. The
-  // group's single live mark is the header's own, which is what makes the one
-  // pulsing thing on screen the thing that is actually waiting.
+  // reads the ACTIVE tense with the glyph carrying the state (bot round 1,
+  // Claude Important 3 — the done tense read "Ran rm x" of a command that has
+  // not run, which is the one thing a step row must never assert), and it
+  // stays static: the gate is on the USER, so nothing in the row may pulse.
+  // The group's single live mark is the header's own, which is what makes the
+  // one pulsing thing on screen the thing that is actually waiting.
   it('renders the gated call as a static Waiting for approval step row', async () => {
     const user = userEvent.setup();
     render(
@@ -603,7 +604,8 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
     await user.click(within(group).getByRole('button', { name: 'Expand activity' }));
 
     const row = within(group).getByTestId('activity-step-row');
-    expect(within(row).getByText('Ran', { exact: true })).toBeInTheDocument();
+    expect(within(row).getByText('Running', { exact: true })).toBeInTheDocument();
+    expect(within(row).queryByText('Ran', { exact: true })).toBeNull();
     expect(within(row).getByRole('img', { name: 'Waiting for approval' })).toBeInTheDocument();
     expect(row.querySelectorAll('[data-live="true"]')).toHaveLength(0);
 

@@ -188,4 +188,14 @@ describe('StepRowHeader', () => {
     expect(screen.getByTestId('trailing-slot')).toBeInTheDocument();
     expect(screen.getByText('app.ts')).toHaveAttribute('title', 'src/app.ts (12 lines)');
   });
+
+  it('omits the timing slot entirely when the caller passes no timing', () => {
+    // Bot round 1, Claude Minor 7. `.bs-step-row-timing` is a flex item with
+    // its own gap; rendered empty (the reasoning and task-list rows pass no
+    // timing at all) it spends row width on nothing. Absent, not empty.
+    const { container } = render(
+      <StepRowHeader family="read" label="Read" state="done" target="app.ts" verb="Read" />
+    );
+    expect(container.querySelector('.bs-step-row-timing')).toBeNull();
+  });
 });
