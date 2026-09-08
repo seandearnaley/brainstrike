@@ -23,7 +23,7 @@ import {
   type RunPythonDisplayResult,
 } from './run-python-result-model';
 
-export type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
+type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
 export type ToolStatus = ToolFallbackProps['status'];
 export type ToolResult = ToolFallbackProps['result'];
 

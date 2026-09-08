@@ -124,10 +124,10 @@ function ToolRunTiming({
   isRunning,
   progressLabel,
 }: {
-  argsStreaming: boolean;
-  durationLabel: string | undefined;
-  isRunning: boolean;
-  progressLabel: string;
+  readonly argsStreaming: boolean;
+  readonly durationLabel: string | undefined;
+  readonly isRunning: boolean;
+  readonly progressLabel: string;
 }): ReactNode {
   if (isRunning) {
     return (
@@ -174,8 +174,8 @@ function CheckpointRevertButton({
   toolCallId,
   toolName,
 }: {
-  toolCallId: string;
-  toolName: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
 }): ReactElement | null {
   const checkpoint = useCheckpointForToolCall(toolCallId);
   const [phase, setPhase] = useState<'idle' | 'confirm' | 'reverting' | 'conflict'>('idle');

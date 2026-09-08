@@ -183,8 +183,8 @@ function settledResultOverride(input: {
  * THE state machine for a tool step. Every surface that draws one resolves
  * here, so a step can never read two different states in two places:
  * `assistant-activity-parts.tsx` via `deriveActivitySteps` (the trace
- * headline, the step rows and the group's counts), `tool-fallback.tsx` via
- * `resolveCardStatus`, plus `todo-progress.tsx`'s task-list card and
+ * headline, the step rows and the group's counts), `tool-fallback-state.ts`
+ * via `resolveCardStatus`, plus `todo-progress.tsx`'s task-list card and
  * `subagent-execution-card.tsx`. There are NO card-only overrides left: the
  * declined envelope and the settled `run_python` reading both moved here
  * (Task 4 review, Minor 1). The subagent card's `no-answer` is the one

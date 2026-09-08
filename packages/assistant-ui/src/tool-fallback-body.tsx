@@ -137,14 +137,14 @@ function ToolDetailsPane({
   toolCallId,
   toolName,
 }: {
-  argsText: string | undefined;
-  detailsId: string;
-  hasResult: boolean;
-  isError: boolean;
-  result: ToolResult;
-  showRawIo: boolean;
-  toolCallId: string;
-  toolName: string;
+  readonly argsText: string | undefined;
+  readonly detailsId: string;
+  readonly hasResult: boolean;
+  readonly isError: boolean;
+  readonly result: ToolResult;
+  readonly showRawIo: boolean;
+  readonly toolCallId: string;
+  readonly toolName: string;
 }) {
   const formattedResult = useMemo(
     () => (hasResult ? formatResult(result) : undefined),
