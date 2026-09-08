@@ -1,7 +1,11 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { render } from '@testing-library/react';
+import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
+import { ActivityTrace } from '../activity-trace';
+import type { ActivitySummary } from '../activity-trace-model';
 
 const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -490,22 +494,53 @@ describe('assistant UI panel architecture', () => {
     // the only thing that honours a reduced-motion preference for a running
     // step, and nothing else asserts it exists.
     //
-    // The two COMPOUND selectors are part of the same assertion since the
-    // Task 6 fix wave: the trace's live status label carries an entrance
-    // class and `.bs-thinking-shimmer` at once, and the compound rules that
-    // compose those two animations outrank the one-class reset — so dropping
-    // them from this list would leave exactly one element shimmering under a
-    // reduced-motion preference.
+    // The two COMPOUND selectors are checked independently of the plain
+    // class and of each other (BST-1685, PR #3066 "Tests / docs nits"): the
+    // trace's live status label carries an entrance class and
+    // `.bs-thinking-shimmer` at once, and the compound rules that compose
+    // those two animations outrank the one-class reset — so each selector
+    // below must land its own `animation: none` inside this media block,
+    // however the comma list orders or wraps them (the previous single regex
+    // pinned one exact order, which broke on an innocuous reformat).
     const cssSource = readSource('overrides.css');
-    expect(cssSource).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{[^}]*\.assistant-ui-panel \.bs-thinking-shimmer,\s*\.assistant-ui-panel \.bs-trace-label\.bs-thinking-shimmer,\s*\.assistant-ui-panel \.bs-trace-label-static\.bs-thinking-shimmer \{\s*animation: none;/
-    );
-    // Not vacuous: the row really does put that class on a running verb, and
-    // the trace really does put both classes on the live label at once.
+    const shimmerResetIn = (selector: string) =>
+      new RegExp(
+        `@media \\(prefers-reduced-motion: reduce\\) \\{[^}]*${selector}[^{}]*\\{\\s*animation:\\s*none`
+      );
+    expect(cssSource).toMatch(shimmerResetIn('\\.bs-thinking-shimmer'));
+    expect(cssSource).toMatch(shimmerResetIn('\\.bs-trace-label\\.bs-thinking-shimmer'));
+    expect(cssSource).toMatch(shimmerResetIn('\\.bs-trace-label-static\\.bs-thinking-shimmer'));
+    // Not vacuous: the row really does put that class on a running verb.
     expect(readSource('activity-step-row.tsx')).toContain("'bs-thinking-shimmer'");
-    expect(readSource('activity-trace.tsx')).toContain(
-      'bs-activity-live-label bs-thinking-shimmer '
+
+    // Not vacuous, BEHAVIOURALLY: the trace really does put both classes on
+    // the live label element at once while a step is running. Replaces a
+    // source-string pin on the template literal that composes them
+    // (`'bs-activity-live-label bs-thinking-shimmer '`, including its
+    // trailing space) — that pin broke on innocuous formatting rather than
+    // on a behaviour change (PR #3066 review nit).
+    const runningSummary: ActivitySummary = {
+      counts: { failed: 0, steps: 1 },
+      live: 'Reading app.ts',
+      resting: 'Read',
+      verbs: 'Read',
+      waiting: false,
+    };
+    const { getByTestId } = render(
+      createElement(ActivityTrace, {
+        detail: null,
+        fallbackMs: undefined,
+        incompleteReason: undefined,
+        isActive: true,
+        restingOverride: null,
+        summary: runningSummary,
+      })
     );
+    const liveLabel = getByTestId('assistant-activity-working').querySelector(
+      '.bs-activity-live-label'
+    );
+    expect(liveLabel).not.toBeNull();
+    expect(liveLabel).toHaveClass('bs-activity-live-label', 'bs-thinking-shimmer');
   });
 
   it('honours reduced motion for the step row REVEAL animation', () => {

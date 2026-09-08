@@ -4,27 +4,11 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { type StepGlyphState, StepStateGlyph } from '../activity-step-icons';
 import { FAMILY_ICONS, STEP_STATE_LABELS } from '../activity-step-tokens';
-import type { VerbFamily } from '../activity-verbs';
-
-const FAMILIES: readonly VerbFamily[] = [
-  'ask',
-  'call',
-  'canvas',
-  'delegate',
-  'edit',
-  'other',
-  'read',
-  'run',
-  'search',
-  'skill',
-  'tasks',
-  'web',
-  'worktree',
-];
+import { VERB_FAMILIES } from '../activity-verbs';
 
 describe('FAMILY_ICONS', () => {
   it('has an icon for every verb family', () => {
-    for (const family of FAMILIES) {
+    for (const family of VERB_FAMILIES) {
       expect(FAMILY_ICONS[family], family).toBeDefined();
     }
   });

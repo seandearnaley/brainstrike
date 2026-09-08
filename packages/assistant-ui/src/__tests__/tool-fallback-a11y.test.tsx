@@ -79,6 +79,11 @@ describe('ToolFallback Accessibility', () => {
     const collapsedButton = screen.getByRole('button', { name: /Expand details/i });
     expect(collapsedButton).not.toHaveAttribute('aria-controls');
     expect(collapsedButton).toHaveAttribute('aria-expanded', 'false');
+    // BST-1685: an absent attribute alone would also be true if the row just
+    // stopped NAMING an existing pane, which is not what "no dangling
+    // aria-controls" claims. Prove the pane `controlsId` referred to is
+    // genuinely gone from the DOM, not merely unreferenced.
+    expect(container.querySelector(`#${CSS.escape(controlsId)}`)).not.toBeInTheDocument();
 
     // The id is stable, not regenerated per expansion: a re-expanded row
     // names the same pane it named the first time.

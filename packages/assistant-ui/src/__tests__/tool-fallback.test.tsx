@@ -1,13 +1,14 @@
 import type { AssistantEditCheckpointRecord } from '@brainstrike/assistant-contract';
 import { TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import type { ComponentProps } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   type EditCheckpointContextValue,
   EditCheckpointProvider,
 } from '../edit-checkpoint-context';
 import { ToolFallback } from '../tool-fallback';
+import { type LooseProps, toolPartElement } from './tool-part-render';
 
 beforeAll(() => {
   global.ResizeObserver = class {
@@ -18,13 +19,8 @@ beforeAll(() => {
   window.HTMLElement.prototype.scrollIntoView = () => {};
 });
 
-function renderTool(props: Record<string, unknown>) {
-  const Comp = ToolFallback as unknown as (p: Record<string, unknown>) => ReactElement;
-  return render(
-    <TooltipProvider>
-      <Comp {...props} />
-    </TooltipProvider>
-  );
+function renderTool(props: LooseProps<ComponentProps<typeof ToolFallback>>) {
+  return render(<TooltipProvider>{toolPartElement(ToolFallback, props)}</TooltipProvider>);
 }
 
 describe('ToolFallback', () => {
@@ -399,7 +395,7 @@ describe('ToolFallback activity step row', () => {
  * A settled write with a captured, restorable checkpoint — the shape the
  * revert control needs to render at all.
  */
-function renderCheckpointCard(status: Record<string, unknown>): {
+function renderCheckpointCard(status: ComponentProps<typeof ToolFallback>['status']): {
   revert: HTMLElement;
   row: HTMLElement;
 } {
@@ -430,18 +426,17 @@ function renderCheckpointCard(status: Record<string, unknown>): {
     revertEntry: vi.fn(),
     revertRun: vi.fn(),
   };
-  const Comp = ToolFallback as unknown as (p: Record<string, unknown>) => ReactElement;
   render(
     <TooltipProvider>
       <EditCheckpointProvider value={value}>
-        <Comp
-          args={{ path: '/a.ts' }}
-          argsText='{"path":"/a.ts"}'
-          result={{ bytesWritten: 3, created: false }}
-          status={status}
-          toolCallId="call-write"
-          toolName="brainstrike.writeWorkspaceFile"
-        />
+        {toolPartElement(ToolFallback, {
+          args: { path: '/a.ts' },
+          argsText: '{"path":"/a.ts"}',
+          result: { bytesWritten: 3, created: false },
+          status,
+          toolCallId: 'call-write',
+          toolName: 'brainstrike.writeWorkspaceFile',
+        })}
       </EditCheckpointProvider>
     </TooltipProvider>
   );
