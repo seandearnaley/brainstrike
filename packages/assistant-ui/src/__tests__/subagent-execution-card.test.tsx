@@ -193,5 +193,13 @@ describe('SubagentExecutionCard', () => {
     fireEvent.click(screen.getByRole('button', { expanded: false }));
     expect(screen.getByText('brainstrike_grepSearch')).toBeInTheDocument();
     expect(container.querySelectorAll('[data-live="true"]')).toHaveLength(0);
+
+    // Verify the static CircleSlash icon renders for the interrupted row.
+    const row = screen.getByText('brainstrike_grepSearch').closest('li');
+    expect(row).not.toBeNull();
+    const icon = row?.querySelector('svg');
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveClass('lucide-circle-slash');
+    expect(icon).not.toHaveAttribute('data-live');
   });
 });
