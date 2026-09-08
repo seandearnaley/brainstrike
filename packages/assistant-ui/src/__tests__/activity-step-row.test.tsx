@@ -7,7 +7,7 @@ import { ActivityStepMetaProvider } from '../activity-step-context';
 import { StepRowHeader } from '../activity-step-row';
 
 describe('StepRowHeader', () => {
-  it('renders an interactive row: labelled toggle button, describedby content, sr-only tool id, chevron', () => {
+  it('renders an interactive row: content-named toggle button, sr-only tool id, chevron', () => {
     render(
       <StepRowHeader
         bodyId="body-1"
@@ -21,22 +21,88 @@ describe('StepRowHeader', () => {
         verb="Read"
       />
     );
-    const button = screen.getByRole('button', { name: 'Expand details' });
+    // BST-1682 (WCAG 2.5.3 Label in Name): the visible verb and target lead
+    // the name, the affordance trails it as a clause.
+    const button = screen.getByRole('button', { name: 'Read app.ts, expand details' });
     expect(button).toHaveAttribute('aria-expanded', 'false');
     expect(button).toHaveAttribute('data-state', 'done');
-
-    const describedBy = button.getAttribute('aria-describedby');
-    expect(describedBy).toBeTruthy();
-    if (describedBy === null) {
-      throw new Error('unreachable: asserted truthy above');
-    }
-    const content = document.getElementById(describedBy);
-    expect(content).toHaveTextContent('Read');
-    expect(content).toHaveTextContent('app.ts');
+    // The content IS the name now, so repeating it as a description would
+    // make AT read the row twice.
+    expect(button).not.toHaveAttribute('aria-describedby');
 
     expect(screen.getByText('brainstrike.readWorkspaceFile')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Completed' })).toBeInTheDocument();
     expect(button.querySelector('.bs-trace-glyph')).toBeInTheDocument();
+  });
+
+  it('keeps the raw tool id out of the interactive row name while keeping it as text', () => {
+    // The sr-only tool id sits inside the row but outside the content span,
+    // so folding the content into the name must not drag the id in with it:
+    // a speech-input user says what they SEE, and nobody sees the id.
+    render(
+      <StepRowHeader
+        bodyId="body-1"
+        expanded={false}
+        family="read"
+        label="Expand details"
+        onToggle={() => {}}
+        state="done"
+        target="app.ts"
+        toolName="brainstrike.readWorkspaceFile"
+        verb="Read"
+      />
+    );
+    const button = screen.getByTestId('activity-step-row');
+    expect(button).toHaveAccessibleName('Read app.ts, expand details');
+    expect(button).toHaveTextContent('brainstrike.readWorkspaceFile');
+    expect(button).toHaveAttribute('title', 'brainstrike.readWorkspaceFile');
+  });
+
+  it('names a targetless interactive row by its verb alone plus the affordance', () => {
+    render(
+      <StepRowHeader
+        bodyId="rows-1"
+        expanded
+        family="delegate"
+        label="Collapse details"
+        onToggle={() => {}}
+        state="done"
+        target={null}
+        verb="Explorer finished"
+      />
+    );
+    // No target chip is rendered, so none may appear in the name — and the
+    // trailing meta ("3 tool calls") is not the row's label.
+    expect(
+      screen.getByRole('button', { name: 'Explorer finished, collapse details' })
+    ).toBeInTheDocument();
+  });
+
+  it('lets a row whose label already names the step opt out (the reasoning contract)', () => {
+    render(
+      <StepRowHeader
+        bodyId="panel-1"
+        controlsAlwaysMounted
+        expanded={false}
+        family="other"
+        label="Show thinking"
+        nameFromContent={false}
+        onToggle={() => {}}
+        state="running"
+        target={null}
+        verb="Thinking"
+      />
+    );
+    // `Show thinking` / `Hide thinking` is an e2e + BST-1656 behaviour
+    // contract; the opted-out row keeps `aria-describedby` so its content
+    // still reaches AT.
+    const button = screen.getByRole('button', { name: 'Show thinking' });
+    expect(button).toHaveAccessibleName('Show thinking');
+    const describedBy = button.getAttribute('aria-describedby');
+    if (describedBy === null) {
+      throw new Error('an opted-out row must still describe its own content');
+    }
+    expect(document.getElementById(describedBy)).toHaveTextContent('Thinking');
   });
 
   it('renders a non-interactive row when bodyId is omitted: no button, no chevron, named by its own content', () => {
@@ -152,7 +218,7 @@ describe('StepRowHeader', () => {
         verb="Read"
       />
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Expand details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read, expand details' }));
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 

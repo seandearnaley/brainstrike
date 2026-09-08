@@ -106,10 +106,12 @@ describe('TaskListToolCard', () => {
       toolCallId: 'tasks-1',
       toolName: 'brainstrike.manageTaskList',
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Expand details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Updated tasks, expand details' }));
     expect(screen.getByText(/"merge"/)).toBeInTheDocument();
     expect(screen.getByText(/"ok"/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Collapse details' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Updated tasks, collapse details' })
+    ).toBeInTheDocument();
   });
 
   it('reads the present-tense verb while the call runs', () => {

@@ -430,7 +430,9 @@ describe('ToolFallback', () => {
       );
 
       const button = screen.getByRole('button', { name: /expand details/i });
-      expect(button).toHaveAttribute('aria-label', 'Expand details');
+      // BST-1682: the name is the visible content plus the affordance clause,
+      // so the affordance is asserted as the SUFFIX rather than the whole name.
+      expect(button).toHaveAttribute('aria-label', expect.stringMatching(/, expand details$/));
     });
 
     it('updates ARIA label after expanding', async () => {
@@ -448,7 +450,10 @@ describe('ToolFallback', () => {
       await user.click(expandButton);
 
       const collapseButton = screen.getByRole('button', { name: /collapse details/i });
-      expect(collapseButton).toHaveAttribute('aria-label', 'Collapse details');
+      expect(collapseButton).toHaveAttribute(
+        'aria-label',
+        expect.stringMatching(/, collapse details$/)
+      );
     });
 
     it('has identifiable test id', () => {

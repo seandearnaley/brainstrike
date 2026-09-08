@@ -24,13 +24,28 @@ export interface StepRowHeaderProps {
   /** Overrides the family icon (reasoning passes `Brain`). */
   readonly icon?: LucideIcon;
   /**
-   * Accessible name of the toggle: "Expand details" / "Collapse details"
-   * (kept for e2e), or "Show thinking" / "Hide thinking". Names the button
-   * form only — ignored on the non-interactive form (no `bodyId`), which is
-   * named by its own visible content instead (verb + target), since `label`
-   * here would misleadingly claim the row can expand.
+   * The toggle AFFORDANCE: "Expand details" / "Collapse details" (kept for
+   * e2e), or "Show thinking" / "Hide thinking". By default it is the tail of
+   * the button's accessible name, not the whole of it (see
+   * `nameFromContent`). Applies to the button form only — ignored on the
+   * non-interactive form (no `bodyId`), which is named by its own visible
+   * content instead (verb + target), since `label` here would misleadingly
+   * claim the row can expand.
    */
   readonly label: string;
+  /**
+   * BST-1682 (WCAG 2.5.3 Label in Name). Default `true`: the button's name is
+   * its VISIBLE content — verb + target — followed by `label` as a trailing
+   * clause ("Read src/app.ts, expand details"), so a speech-input user can
+   * say what they see and no AT configuration can drop the step's identity
+   * with the description. Pass `false` only when `label` ALREADY names the
+   * step: the reasoning row's "Show thinking" / "Hide thinking" is an e2e +
+   * BST-1656 behaviour contract, and "Thinking, show thinking" would be worse
+   * on every axis. An opted-out row keeps `aria-describedby` on its content.
+   * The default is the accessible one on purpose — a row added later is
+   * compliant without its author knowing this rule exists.
+   */
+  readonly nameFromContent?: boolean;
   readonly onToggle?: () => void;
   readonly state: StepGlyphState;
   /** Step id (`toolCallId`) for the last-running lookup; omit for reasoning. */
@@ -56,12 +71,33 @@ interface RowShellProps {
   readonly children: ReactNode;
   readonly contentId: string;
   readonly controlsAlwaysMounted: boolean;
+  /** True when the content is NOT already in `name` and must reach AT as a description instead. */
+  readonly describeContent: boolean;
   readonly expanded: boolean | undefined;
-  readonly label: string;
+  /** The button's finished accessible name (`aria-label`). */
+  readonly name: string;
   readonly onToggle: (() => void) | undefined;
   readonly state: StepGlyphState;
   readonly testId: string;
   readonly toolName: string | undefined;
+}
+
+/**
+ * The interactive row's accessible name when it is named by its own content
+ * (BST-1682, WCAG 2.5.3 Label in Name): the visible verb and target lead, the
+ * affordance trails as a clause — "Read src/app.ts, expand details" — so the
+ * name both CONTAINS the visible label and still says what activating the row
+ * does. Only the affordance's first character is lowered, never the whole
+ * string: it is a clause here rather than its own sentence, but a label naming
+ * a persona or a tool must keep its capitals. The target is folded in on the
+ * same truthiness the chip renders on, so the name can never claim a chip the
+ * row does not show. The raw tool id is not consulted at all — it lives
+ * outside the content span — except where the caller has already put it in
+ * `target`, in which case it is visible text and belongs in the name.
+ */
+function contentAccessibleName(verb: string, target: string | null, label: string): string {
+  const affordance = `${label.charAt(0).toLowerCase()}${label.slice(1)}`;
+  return `${target ? `${verb} ${target}` : verb}, ${affordance}`;
 }
 
 /**
@@ -89,9 +125,8 @@ function RowShell(props: RowShellProps): ReactNode {
   }
   return (
     <button
-      aria-describedby={props.contentId}
       aria-expanded={props.expanded}
-      aria-label={props.label}
+      aria-label={props.name}
       className="bs-step-row bs-trace-reveal"
       data-state={props.state}
       data-testid={props.testId}
@@ -108,6 +143,11 @@ function RowShell(props: RowShellProps): ReactNode {
       {...(props.expanded === true || props.controlsAlwaysMounted
         ? { 'aria-controls': props.bodyId }
         : {})}
+      // `aria-describedby` is what carried the step's identity BEFORE
+      // BST-1682; a row whose name already contains that identity must not
+      // also describe it, or AT reads "Read src/app.ts, expand details. Read
+      // src/app.ts". Only an opted-out row (reasoning) still needs it.
+      {...(props.describeContent ? { 'aria-describedby': props.contentId } : {})}
     >
       {props.children}
     </button>
@@ -118,14 +158,18 @@ export function StepRowHeader(props: StepRowHeaderProps): ReactNode {
   const contentId = useId();
   const isLastRunning = useIsLastRunningStep(props.stepId);
   const shimmer = props.state === 'running' && isLastRunning;
+  const nameFromContent = props.nameFromContent ?? true;
 
   return (
     <RowShell
       bodyId={props.bodyId}
       contentId={contentId}
       controlsAlwaysMounted={props.controlsAlwaysMounted ?? false}
+      describeContent={!nameFromContent}
       expanded={props.expanded}
-      label={props.label}
+      name={
+        nameFromContent ? contentAccessibleName(props.verb, props.target, props.label) : props.label
+      }
       onToggle={props.onToggle}
       state={props.state}
       testId={props.testId ?? 'activity-step-row'}

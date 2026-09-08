@@ -192,6 +192,12 @@ function ActivityReasoningBlock({
         glyph={<ReasoningGlyph isStreaming={isStreaming} />}
         icon={Brain}
         label={reasoningToggleLabel(open)}
+        // BST-1682: every other row folds its visible content into its name
+        // (WCAG 2.5.3). This one opts out because `label` ALREADY names the
+        // step — "Show thinking" / "Hide thinking" is the visible affordance
+        // AND an e2e + BST-1656 behaviour contract, and the composed form
+        // ("Thinking, show thinking") would only stutter.
+        nameFromContent={false}
         onToggle={() => setUserOpen(!open)}
         state={isStreaming ? 'running' : 'done'}
         target={null}

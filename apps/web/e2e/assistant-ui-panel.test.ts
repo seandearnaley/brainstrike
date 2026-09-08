@@ -639,7 +639,10 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(toolCard.getByText('Arguments:')).toBeHidden();
     await expect(toolCard.getByText('Result:')).toBeHidden();
 
-    await toolCard.getByRole('button', { name: 'Expand details' }).click();
+    // BST-1682 (WCAG 2.5.3 Label in Name): the row's accessible name leads
+    // with its visible content ("Called web.echo web.echo, expand details"),
+    // so the affordance is matched as a substring rather than the whole name.
+    await toolCard.getByRole('button', { name: /expand details/i }).click();
     await expect(toolCard.getByText('Arguments:')).toBeVisible();
     await expect(toolCard.getByText('Result:')).toBeVisible();
   });

@@ -498,7 +498,11 @@ async function executeAssistantTool(
   await summary.click();
   const toolCard = activity.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
-  await toolCard.getByRole('button', { exact: true, name: 'Expand details' }).click();
+  // BST-1682 (WCAG 2.5.3 Label in Name): the row's accessible name now leads
+  // with its visible content ("Called legacy.echo legacy.echo, expand
+  // details"), so the affordance is matched as a substring — an `exact: true`
+  // equality here would never resolve again.
+  await toolCard.getByRole('button', { name: /expand details/i }).click();
   await expect(toolCard).toContainText(ASSISTANT_TOOL_PAYLOAD);
 }
 async function executeElicitationTool(
@@ -551,7 +555,7 @@ async function executeElicitationTool(
     .filter({ hasText: 'oauth.elicit_confirm' })
     .last();
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
-  await toolCard.getByRole('button', { exact: true, name: 'Expand details' }).click();
+  await toolCard.getByRole('button', { name: /expand details/i }).click();
   await expect(toolCard).toContainText(ELICITATION_TOOL_PAYLOAD);
 }
 function parseJsonLines(contents: string): Record<string, unknown>[] {

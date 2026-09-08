@@ -1523,11 +1523,26 @@ spend its gap. The row IS the card's own header —
 in place of a second header, so a step never shows its verb twice. `RowShell`
 (`activity-step-row.tsx`) splits into the two forms a step can take: a card
 with something to expand renders the row as a real
-`<button aria-controls aria-expanded aria-describedby>` whose accessible name
-IS the toggle label (`Expand details` / `Collapse details`, kept for e2e;
-reasoning's own row instead reads `Show thinking` / `Hide thinking`) while
-its content reaches AT only via `aria-describedby`, never folded into the
-button's own name. `aria-expanded` is always present; `aria-controls` is
+`<button aria-controls aria-expanded aria-label>`. Its accessible name
+CONTAINS its visible label (BST-1682, WCAG 2.5.3 Label in Name): the verb and
+target lead, the toggle affordance trails as a clause with only its first
+character lowered — `Read src/app.ts, expand details` — so a speech-input user
+can say what they see and no AT configuration can lose the step's identity
+along with a suppressed description. The affordance wording itself
+(`Expand details` / `Collapse details`) is unchanged and still the e2e
+contract, but the e2e specs now match it as a SUBSTRING
+(`getByRole('button', { name: /expand details/i })` in
+`apps/desktop/e2e/mcp-packaged-core.desktop.test.ts` and
+`apps/web/e2e/assistant-ui-panel.test.ts`) — an `exact: true` equality on the
+bare affordance can never resolve again. `aria-describedby` goes with it:
+content that is already IN the name must not also be a description, or AT
+reads the row twice. The one opt-out is `nameFromContent={false}`, which the
+reasoning row passes because its `label` ALREADY names the step —
+`Show thinking` / `Hide thinking` stays its whole name (an e2e and BST-1656
+behaviour contract; `Thinking, show thinking` would only stutter) and it keeps
+`aria-describedby` on its content. The prop defaults to the ACCESSIBLE
+behaviour on purpose, so a row added later is compliant without its author
+knowing the rule exists. `aria-expanded` is always present; `aria-controls` is
 emitted ONLY while the element it names is mounted — the convention every
 other disclosure in the package already follows
 (`assistant-run-timeline.tsx`, `assistant-tool-approval-notice.tsx`) — so the
