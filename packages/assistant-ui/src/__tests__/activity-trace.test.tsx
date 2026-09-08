@@ -11,12 +11,14 @@ const live: ActivitySummary = {
   counts: { failed: 0, steps: 2 },
   live: 'Searching foo',
   resting: 'Read, searched',
+  verbs: 'Read, searched',
   waiting: false,
 };
 const done: ActivitySummary = {
   counts: { failed: 0, steps: 3 },
   live: 'Working',
   resting: 'Read 2 files, ran',
+  verbs: 'Read 2 files, ran',
   waiting: false,
 };
 
@@ -108,6 +110,62 @@ describe('ActivityTrace', () => {
     );
     expect(screen.getByTestId('assistant-activity-summary')).toHaveTextContent('Activity failed');
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'true');
+  });
+
+  // A cancelled/failed group whose only step never settled has NO verb
+  // summary — `summary.resting` is then the placeholder ("Worked"/"Thought"),
+  // and demoting that into the meta read "Stopped after 4.0s · Worked · 1
+  // step" (review finding 1). The model reports `verbs: null` for exactly
+  // this case and the meta segment disappears with it.
+  it('omits the verb meta when a cancelled group has no settled step', () => {
+    render(
+      <ActivityTrace
+        detail={null}
+        fallbackMs={4000}
+        incompleteReason="cancelled"
+        isActive={false}
+        restingOverride={null}
+        summary={{
+          counts: { failed: 0, steps: 1 },
+          live: 'Working',
+          resting: 'Worked',
+          verbs: null,
+          waiting: false,
+        }}
+      />
+    );
+    const row = screen
+      .getByTestId('assistant-activity-summary')
+      .querySelector('.bs-activity-summary-row');
+    expect(row?.textContent).toBe('Stopped after 4.0s· 1 step');
+  });
+
+  // `button` children are presentational per ARIA (several screen readers
+  // prune the subtree), so a live region nested inside the toggle may never
+  // fire; and the static `aria-label` suppressed the whole summary from the
+  // accessible name. The announcement is a sibling of the button, and the
+  // button is DESCRIBED BY the summary row so the verb summary, elapsed and
+  // counts reach AT (review finding 3).
+  it('keeps the live region outside the button and describes the button with the summary row', () => {
+    render(
+      <ActivityTrace
+        detail={null}
+        fallbackMs={12_000}
+        incompleteReason={undefined}
+        isActive={false}
+        restingOverride={null}
+        summary={done}
+      />
+    );
+    const group = screen.getByTestId('assistant-activity-group');
+    const button = screen.getByTestId('assistant-activity-summary');
+    const describedBy = button.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    const description = document.getElementById(describedBy ?? '');
+    expect(description).toHaveTextContent('Read 2 files, ran');
+    const liveRegion = group.querySelector('.sr-only[aria-live="polite"]');
+    expect(liveRegion).toHaveTextContent('Finished');
+    expect(button.contains(liveRegion)).toBe(false);
   });
 
   it('shows the failed count without failing the group', () => {
@@ -277,6 +335,7 @@ describe('ActivityTrace', () => {
           counts: { failed: 0, steps: 2 },
           live: 'Waiting for approval',
           resting: 'Read a.ts, ran',
+          verbs: 'Read a.ts, ran',
           waiting: false,
         };
         render(
@@ -309,12 +368,14 @@ describe('ActivityTrace', () => {
           counts: { failed: 0, steps: 1 },
           live: 'Reading a.ts',
           resting: 'Read a.ts',
+          verbs: 'Read a.ts',
           waiting: false,
         };
         const waitingForApproval: ActivitySummary = {
           counts: { failed: 0, steps: 1 },
           live: 'Waiting for approval',
           resting: 'Read a.ts',
+          verbs: 'Read a.ts',
           waiting: true,
         };
         const { rerender } = render(

@@ -1430,7 +1430,15 @@ status (unchanged rule: cancelled → Stopped, any other reason → Activity
 failed) — a failed tool step alone never fails the group, only its own
 `incompleteReason` does — and whenever either headline wins, the verb summary
 that would otherwise have been the headline is demoted to a
-`· <verb summary>` meta segment instead of disappearing. A reasoning-only
+`· <verb summary>` meta segment instead of disappearing. That demotion reads
+`summary.verbs`, NOT `summary.resting`: the model reports the verb summary
+and the headline separately, and `verbs` is null when no tool step settled,
+precisely so the `Worked`/`Thought` placeholder can never be demoted into the
+meta as "Stopped after 4.0s · Worked · 1 step" (PR #3064 review finding 1).
+`counts.failed` / `data-failed-steps` / the `· N failed` segment count tool
+steps in state `failed` ONLY: a cancelled call is neither failed nor part of
+the verb summary (phase 1's `summarizeToolActivity` folded any `incomplete`,
+cancellations included, into its failed count). A reasoning-only
 group (no settled tool step) reads `Thought` at rest; a live reasoning
 block's own disclosure pill uses the same pair, `Thinking` while its part
 streams and `Thought` once it settles (`ActivityReasoningBlock`,
@@ -1440,19 +1448,35 @@ streams and `Thought` once it settles (`ActivityReasoningBlock`,
 The resting headline can be overridden by
 `message.metadata.custom.brainstrikeActivitySummary`
 (`readActivitySummaryOverride`, `assistant-activity-parts.tsx`): read-only
-today, a non-empty (post-trim) string is used verbatim; a non-string or
-blank value is ignored, never coerced. No producer writes this key in this
+today, a non-empty (post-trim) string is used verbatim — validated AND
+rendered trimmed, never with its padding; a non-string or blank value is
+ignored, never coerced. No producer writes this key in this
 repo — it is a seam for a future model-written summary (spec §4.2).
 
 Layout is fixed-height by design (scroll-anchoring rule, §4.7 of the design
 spec): the status row is `min-height: 2rem` and the phase glyph sits in a
 `1rem` box (`bs-trace-phase-glyph`/`bs-trace-phase-icon`) regardless of
 whether it holds a lucide icon or the animated mark, so swapping icons never
-changes the row's height. The live-label region carries `aria-live="off"` (a
+changes the row's height. The live label truncates on one line through
+`.bs-activity-live-label` (`overrides.css`), the running counterpart of
+`.bs-activity-summary-label` — stylesheet-owned for the same reason: the
+browser test lane has no Tailwind utilities, so `truncate` on the span left
+that invariant unverified. The live-label region carries `aria-live="off"` (a
 cycling label would narrate every tool) plus a visually hidden
 `aria-live="polite"` phrase that flips only on phase change: `Working` /
 `Waiting for approval` (the one case whose text isn't just the phase's fixed
-string) / `Finished` / `Stopped` / `Failed`.
+string) / `Finished` / `Stopped` / `Failed`. That live region is a SIBLING of
+the disclosure button, never a child: a `button`'s children are presentational
+per ARIA and several screen readers prune the subtree, so a live region inside
+it may never fire. The button's own name stays `Expand activity` /
+`Collapse activity`, with `aria-describedby` pointing at the summary row so
+the verb summary, elapsed and counts that the static `aria-label` would
+otherwise suppress still reach AT (PR #3064 review finding 3).
+
+The disclosure's `.bs-trace-collapse` grid transition animates the OPEN
+direction only: the body also carries the `hidden` attribute (which e2e and
+role-based queries rely on — do not remove it), so closing applies
+`display: none` in the same commit and is instant by design.
 
 Every verb (`active`/`done`/icon family) lives in `activity-verbs.ts`'s
 `TOOL_VERBS`, total over `NATIVE_TOOL_IDS` — 39 native tool ids (36

@@ -30,7 +30,16 @@ export interface ActivityCounts {
 export interface ActivitySummary {
   readonly counts: ActivityCounts;
   readonly live: string;
+  /** The resting HEADLINE: `verbs`, or the `Worked`/`Thought` placeholder. */
   readonly resting: string;
+  /**
+   * The verb summary alone, or null when NO tool step settled. Distinct from
+   * `resting` on purpose: the header demotes the verb summary to a
+   * `· <verbs>` meta segment when `Stopped`/`Activity failed` takes the
+   * headline, and demoting `resting` there put the placeholder on screen as
+   * "Stopped after 4.0s · Worked · 1 step" (review finding 1).
+   */
+  readonly verbs: string | null;
   /**
    * The run is paused on the USER: a gated step exists and no tool step is
    * still executing. Deliberately narrower than the `Waiting for approval`
@@ -164,12 +173,17 @@ function foldsFileCount(verb: ActivityVerb | undefined, fileCount: number): bool
   return verb?.countsFiles === 'plural' && fileCount > 1;
 }
 
-function restingLabel(steps: readonly ActivityStep[]): string {
+/**
+ * The verb summary, or null when nothing settled (a cancelled/still-running
+ * group). Cancelled steps are deliberately NOT settled: a cancelled call did
+ * not do the thing its done-verb claims.
+ */
+function verbSummary(steps: readonly ActivityStep[]): string | null {
   const settled = steps.filter(
     (step) => step.kind === 'tool' && (step.state === 'done' || step.state === 'failed')
   );
   if (settled.length === 0) {
-    return steps.some((step) => step.kind === 'reasoning') ? 'Thought' : 'Worked';
+    return null;
   }
   const targetsByVerb = new Map<string, Set<string>>();
   // Keyed on `verb.done` alone: assumes no `done` string is shared by two
@@ -204,15 +218,22 @@ function restingLabel(steps: readonly ActivityStep[]): string {
   return rest > 0 ? `${joined} +${rest} more` : joined;
 }
 
+/** The headline stand-in when no verb summary exists. */
+function restingPlaceholder(steps: readonly ActivityStep[]): string {
+  return steps.some((step) => step.kind === 'reasoning') ? 'Thought' : 'Worked';
+}
+
 export function summarizeActivity(steps: readonly ActivityStep[]): ActivitySummary {
   const toolSteps = steps.filter((step) => step.kind === 'tool');
+  const verbs = verbSummary(steps);
   return {
     counts: {
       failed: toolSteps.filter((step) => step.state === 'failed').length,
       steps: toolSteps.length,
     },
     live: liveLabel(steps),
-    resting: restingLabel(steps),
+    resting: verbs ?? restingPlaceholder(steps),
+    verbs,
     waiting:
       steps.some((step) => step.state === 'waiting') &&
       !toolSteps.some((step) => step.state === 'running'),

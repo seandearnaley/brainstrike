@@ -730,10 +730,13 @@ reusable rather than one-off:
   so the header's own height never changes (the thread's scroll-anchoring
   rule).
 
-Every one of those, plus the thinking-mark pulse/shimmer they compose with
-(`.bs-thinking-pulse`, `.bs-thinking-core`, `.bs-thinking-shimmer`), has a
-`@media (prefers-reduced-motion: reduce)` block that turns the animation off
-and freezes the element at its settled state — never just a shorter duration.
+Every animated or transitioned primitive above, plus the thinking-mark
+pulse/shimmer they compose with (`.bs-thinking-pulse`, `.bs-thinking-core`,
+`.bs-thinking-shimmer`), has a `@media (prefers-reduced-motion: reduce)` block
+that turns the animation off and freezes the element at its settled state —
+never just a shorter duration. `.bs-trace-detail` is the one exception and
+needs none: it is a static fixed-height slot with no animation or transition
+of its own.
 Where the motion is applied to text via a transparent, gradient-clipped fill
 (`.bs-thinking-shimmer`, used for the live label) that also needs a
 `@media (forced-colors: active)` fallback: `background-clip: text` plus

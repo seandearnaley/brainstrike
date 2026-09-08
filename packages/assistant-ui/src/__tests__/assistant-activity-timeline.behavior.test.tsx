@@ -404,6 +404,30 @@ describe('assistant activity chronology through the real runtime', () => {
       'Pulled the issue and its comments'
     );
   });
+
+  // The override is validated on its TRIMMED value, so it must be RENDERED
+  // trimmed too — otherwise a padded string passes the guard and paints its
+  // padding into the headline (review finding 8).
+  it('renders a model-written resting summary trimmed, not with its padding', async () => {
+    render(
+      <Harness
+        adapter={neverRunAdapter}
+        initialMessages={[
+          {
+            content: completedParts,
+            metadata: { custom: { brainstrikeActivitySummary: '  Read files  ' } },
+            role: 'assistant',
+          },
+        ]}
+      />
+    );
+    await screen.findByText('Review complete.');
+    const [first] = screen.getAllByTestId('assistant-activity-group');
+    if (!first) {
+      throw new Error('Expected an activity group.');
+    }
+    expect(first.querySelector(HEADLINE_SELECTOR)?.textContent).toBe('Read files');
+  });
 });
 
 /**
@@ -584,5 +608,10 @@ describe('activity-part-derived group status (BST-1677 wave 3 fix round, PR #306
     expect(
       within(groupB).getByText('Stopped', { selector: HEADLINE_SELECTOR })
     ).toBeInTheDocument();
+    // Group B's only call never settled, so it has no verb summary at all —
+    // the placeholder must not surface as a demoted "· Worked" meta segment
+    // beside "Stopped" (review finding 1). Now that the placeholder can no
+    // longer reach the meta, this bare-word assertion is meaningful.
+    expect(groupB).not.toHaveTextContent('Worked');
   });
 });

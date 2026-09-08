@@ -50,6 +50,7 @@ const activeSummary: ActivitySummary = {
   counts: { failed: 0, steps: 3 },
   live: 'Searching packages/db/src/registry.ts',
   resting: 'Searched',
+  verbs: 'Searched',
   waiting: false,
 };
 
@@ -57,6 +58,7 @@ const doneSummary: ActivitySummary = {
   counts: { failed: 0, steps: 5 },
   live: 'Working',
   resting: 'Read 2 files, searched',
+  verbs: 'Read 2 files, searched',
   waiting: false,
 };
 

@@ -710,6 +710,20 @@
   white-space: nowrap;
 }
 
+/*
+ * The live label's own one-line rule — the running counterpart of
+ * `.bs-activity-summary-label`, and stylesheet-owned for the same reason: a
+ * live label is model-influenced too ("Calling some.long.mcp.tool /long/path")
+ * and the browser test lane has no Tailwind utilities, so `truncate` on the
+ * span left this invariant unverified (review finding 6).
+ */
+.assistant-ui-panel .bs-activity-live-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .assistant-ui-panel .bs-activity-summary-meta {
   flex-shrink: 0;
   color: hsl(var(--muted-foreground));

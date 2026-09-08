@@ -104,6 +104,28 @@ describe('deriveActivitySteps', () => {
     expect(steps[0]?.state).toBe('running');
   });
 
+  // Ported from the deleted `assistant-activity-group.test.tsx` (BST-1679
+  // review): failure comes from canonical flags only — `isError`, an
+  // `incomplete` status, or a GUARDED error envelope. A completed result that
+  // merely carries an `error` member of its own domain shape is ordinary data
+  // and must never be counted as a failure. This matters more now that
+  // `toolStepState` inspects the result payload at all (`isGuardedToolError`).
+  it('never infers failure from an ordinary domain `error` field on a completed result', () => {
+    const steps = deriveActivitySteps(
+      [
+        tool(
+          'd',
+          'brainstrike.executeCommand',
+          { command: 'ls' },
+          { result: { error: 'ordinary domain data' }, status: { type: 'complete' } }
+        ),
+      ],
+      {}
+    );
+    expect(steps[0]?.state).toBe('done');
+    expect(summarizeActivity(steps).counts.failed).toBe(0);
+  });
+
   it('maps incomplete with a non-cancelled reason to failed', () => {
     const steps = deriveActivitySteps(
       [
@@ -248,6 +270,7 @@ describe('summarizeActivity', () => {
       counts: { failed: 1, steps: 2 },
       live: 'Working',
       resting: 'Read, searched',
+      verbs: 'Read, searched',
       waiting: false,
     });
   });
@@ -310,10 +333,43 @@ describe('summarizeActivity', () => {
     expect(summarizeActivity(steps).resting).toBe('Edited 2 files');
   });
 
+  // `resting` is the HEADLINE (placeholder included); `verbs` is the verb
+  // summary or nothing at all. The header demotes the verb summary to a
+  // `· <verbs>` meta segment when `Stopped`/`Activity failed` takes the
+  // headline, and demoting the placeholder read "Stopped after 4.0s · Worked"
+  // (review finding 1) — so the two must stay distinguishable.
+  it('reports verbs as null when no tool step settled, and as the resting headline when one did', () => {
+    const unsettled = summarizeActivity(
+      deriveActivitySteps(
+        [
+          tool(
+            'c',
+            'brainstrike.executeCommand',
+            { command: 'ls' },
+            { status: { reason: 'cancelled', type: 'incomplete' } }
+          ),
+        ],
+        {}
+      )
+    );
+    expect(unsettled.verbs).toBeNull();
+    expect(unsettled.resting).toBe('Worked');
+
+    const settled = summarizeActivity(
+      deriveActivitySteps([done('1', 'brainstrike.readWorkspaceFile', { path: 'a.ts' })], {})
+    );
+    expect(settled.verbs).toBe('Read');
+    expect(settled.verbs).toBe(settled.resting);
+  });
+
   it('reads Thought for a reasoning-only group and Worked for an empty one', () => {
     expect(summarizeActivity(deriveActivitySteps([reasoning('x', 'complete')], {})).resting).toBe(
       'Thought'
     );
     expect(summarizeActivity([]).resting).toBe('Worked');
+    expect(
+      summarizeActivity(deriveActivitySteps([reasoning('x', 'complete')], {})).verbs
+    ).toBeNull();
+    expect(summarizeActivity([]).verbs).toBeNull();
   });
 });

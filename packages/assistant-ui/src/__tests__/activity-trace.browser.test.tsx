@@ -8,11 +8,22 @@ const live = {
   counts: { failed: 0, steps: 1 },
   live: 'Reading app.ts',
   resting: 'Read',
+  verbs: 'Read',
   waiting: false,
 };
-const done = { counts: { failed: 0, steps: 1 }, live: 'Working', resting: 'Read', waiting: false };
+const done = {
+  counts: { failed: 0, steps: 1 },
+  live: 'Working',
+  resting: 'Read',
+  verbs: 'Read',
+  waiting: false,
+};
 
-test('the header keeps one height across live and resting states', () => {
+// Scope, stated exactly: this measures the STATUS ROW (the summary button).
+// The trace's header as a whole does change height at the running↔done
+// boundary — `.bs-trace-detail` is added and removed wholesale — which is the
+// documented design, not a regression (review finding 7).
+test('the status row (summary button) keeps one height across live and resting states; the detail slot below it is added/removed at the boundary', () => {
   const { rerender } = render(
     <div className="assistant-ui-panel">
       <ActivityTrace
@@ -44,6 +55,40 @@ test('the header keeps one height across live and resting states', () => {
     .getByTestId('assistant-activity-summary')
     .getBoundingClientRect().height;
   expect(Math.abs(liveHeight - doneHeight)).toBeLessThan(1);
+});
+
+// The live label is model-influenced too (an MCP tool name plus its target),
+// and this lane has NO Tailwind utilities — `min-w-0`/`truncate` on the span
+// are inert here, so the one-line invariant has to be owned by
+// `.bs-activity-live-label` in overrides.css or it is simply unverified
+// (review finding 6).
+test('a long live label truncates instead of wrapping the status row taller', () => {
+  const row = (summary: typeof live, isActive: boolean) => (
+    <div className="assistant-ui-panel" style={{ width: 480 }}>
+      <ActivityTrace
+        detail={null}
+        fallbackMs={1000}
+        incompleteReason={undefined}
+        isActive={isActive}
+        restingOverride={null}
+        summary={summary}
+      />
+    </div>
+  );
+  const { rerender } = render(row(done, false));
+  const restingHeight = screen
+    .getByTestId('assistant-activity-summary')
+    .getBoundingClientRect().height;
+
+  rerender(
+    row(
+      { ...live, live: 'Calling some.very.long.mcp.tool /very/long/path/'.repeat(7).slice(0, 300) },
+      true
+    )
+  );
+  expect(screen.getByTestId('assistant-activity-summary').getBoundingClientRect().height).toBe(
+    restingHeight
+  );
 });
 
 test('the detail slot renders only while active and the chevron rotates when open', async () => {
@@ -86,6 +131,7 @@ test('a long resting headline truncates instead of pushing the step count out of
     counts: { failed: 0, steps: 3 },
     live: 'Working',
     resting: 'Read',
+    verbs: 'Read',
     waiting: false,
   };
   const row = (headline: string) => (

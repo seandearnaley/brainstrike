@@ -80,7 +80,13 @@ function readActivitySummaryOverride(message: unknown): string | null {
     return null;
   }
   const value = (custom as Record<string, unknown>)[ACTIVITY_SUMMARY_METADATA_KEY];
-  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+  if (typeof value !== 'string') {
+    return null;
+  }
+  // Validated AND rendered on the trimmed value — returning the raw string
+  // painted a padded override's whitespace into the headline (review finding 8).
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 /** True while the given part's own `status.type` reads `'running'`. */
@@ -276,6 +282,13 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
   // so the raw read darkened the whole wait in the same shape finding 1 fixed
   // for the headline. `.some` rather than `activityStatus`, matching
   // `liveLabel`'s own `findLast(waiting)`: ANY gated call holds the pause.
+  // No message-status gate is needed on top of this (review finding 8): a
+  // resultless tool call has no status of its own — it inherits the MESSAGE's
+  // (the library's `toMessagePartStatus`) — so when the runtime settles the
+  // message on stop or stream error the part settles with it and
+  // `requires-action` cannot outlive the pause. Hydration is the same story
+  // from the other side: reloaded messages land `complete`, pinned by
+  // assistant-hydration-liveness.test.tsx's "abandoned approval" case.
   const hasGatedActivity = activityParts.some((part) => part.status.type === 'requires-action');
   const isActivityActive =
     status.type === 'running' ||

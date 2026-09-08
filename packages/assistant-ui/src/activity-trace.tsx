@@ -108,10 +108,14 @@ function metaFor(phase: TracePhase, elapsedLabel: string | null): string | null 
  * with `Stopped` / `Activity failed`, the verb summary that would otherwise
  * have been the headline is demoted to a `· <verb summary>` meta segment
  * instead of disappearing — so "Read 2 files, ran a script" is still visible
- * next to "Stopped after 4.0s".
+ * next to "Stopped after 4.0s". Takes the VERB SUMMARY (`summary.verbs`,
+ * null when no tool step settled), never `resting`: demoting the latter put
+ * its `Worked`/`Thought` placeholder on screen as "Stopped after 4.0s ·
+ * Worked · 1 step" for the very groups this rule exists for (review
+ * finding 1).
  */
-function verbMetaFor(phase: TracePhase, restingHeadline: string, stepCount: number): string | null {
-  return phase !== 'done' && stepCount > 0 ? restingHeadline : null;
+function verbMetaFor(phase: TracePhase, verbs: string | null, stepCount: number): string | null {
+  return phase !== 'done' && stepCount > 0 ? verbs : null;
 }
 
 function stepLabel(count: number): string {
@@ -160,14 +164,19 @@ function PhaseGlyph({ phase }: { readonly phase: TracePhase }): ReactNode {
   );
 }
 
-function LiveSummary({ label }: { readonly label: string }): ReactNode {
+function LiveSummary({ id, label }: { readonly id: string; readonly label: string }): ReactNode {
+  // Layout is owned by `.bs-thinking-indicator` / `.bs-activity-live-label` in
+  // overrides.css (the browser test lane has no Tailwind utilities, so
+  // `min-w-0`/`truncate` there left the one-line invariant unverified — review
+  // finding 6); do not re-add utility classes here.
   return (
     <span
       aria-live="off"
-      className="bs-thinking-indicator min-w-0"
+      className="bs-thinking-indicator"
       data-testid="assistant-activity-working"
+      id={id}
     >
-      <span className="bs-thinking-shimmer bs-trace-label truncate" key={label}>
+      <span className="bs-activity-live-label bs-thinking-shimmer bs-trace-label" key={label}>
         {label}
       </span>
     </span>
@@ -177,12 +186,14 @@ function LiveSummary({ label }: { readonly label: string }): ReactNode {
 function RestingSummary({
   failedCount,
   headline,
+  id,
   meta,
   steps,
   verbMeta,
 }: {
   readonly failedCount: number;
   readonly headline: string;
+  readonly id: string;
   readonly meta: string | null;
   readonly steps: string;
   readonly verbMeta: string | null;
@@ -190,7 +201,7 @@ function RestingSummary({
   // Layout is owned by `.bs-activity-summary-row` in overrides.css (the browser
   // test lane has no Tailwind utilities); do not re-add utility classes here.
   return (
-    <span className="bs-activity-summary-row">
+    <span className="bs-activity-summary-row" id={id}>
       <span className="bs-activity-summary-label bs-trace-label truncate" key={headline}>
         {headline}
       </span>
@@ -226,6 +237,7 @@ export function ActivityTrace({
   summary,
 }: ActivityTraceProps): ReactNode {
   const bodyId = useId();
+  const summaryId = useId();
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
   const expanded = userExpanded ?? false;
   const phase = phaseOf(isActive, incompleteReason);
@@ -241,10 +253,11 @@ export function ActivityTrace({
   const elapsedLabel = elapsedMs === undefined ? null : formatActivityDuration(elapsedMs);
   const failed = phase === 'failed';
   const announcement = announcementFor(phase, summary);
-  const restingHeadline = restingOverride ?? summary.resting;
-  const headline = headlineFor(phase, restingHeadline);
+  const headline = headlineFor(phase, restingOverride ?? summary.resting);
   const meta = metaFor(phase, elapsedLabel);
-  const verbMeta = verbMetaFor(phase, restingHeadline, summary.counts.steps);
+  // An override stands in for the verb summary here too, so a cancelled group
+  // still demotes the model's own wording rather than dropping it.
+  const verbMeta = verbMetaFor(phase, restingOverride ?? summary.verbs, summary.counts.steps);
   const steps = stepLabel(summary.counts.steps);
 
   return (
@@ -258,6 +271,7 @@ export function ActivityTrace({
     >
       <button
         aria-controls={bodyId}
+        aria-describedby={summaryId}
         aria-expanded={expanded}
         aria-label={expanded ? 'Collapse activity' : 'Expand activity'}
         className="bs-activity-summary"
@@ -270,25 +284,32 @@ export function ActivityTrace({
           <PhaseGlyph phase={phase} />
         </span>
         {phase === 'running' ? (
-          <LiveSummary label={summary.live} />
+          <LiveSummary id={summaryId} label={summary.live} />
         ) : (
           <RestingSummary
             failedCount={summary.counts.failed}
             headline={headline}
+            id={summaryId}
             meta={meta}
             steps={steps}
             verbMeta={verbMeta}
           />
         )}
-        <span aria-live="polite" className="sr-only">
-          {announcement}
-        </span>
         <span className="bs-activity-right">
           {isActive && elapsedLabel ? (
             <span className="bs-activity-elapsed">{elapsedLabel}</span>
           ) : null}
         </span>
       </button>
+      {/* A `button`'s children are presentational per ARIA — several screen
+          readers prune the subtree — so a live region nested inside the toggle
+          is unreliable and may never fire. It is a SIBLING of the button (in
+          the DOM from mount, so the first phase change is announced), while
+          `aria-describedby` on the button exposes the summary row the static
+          `aria-label` would otherwise suppress (review finding 3). */}
+      <span aria-live="polite" className="sr-only">
+        {announcement}
+      </span>
       {isActive ? (
         <div className="bs-trace-detail" title={detail ?? undefined}>
           {detail ?? ''}
