@@ -372,3 +372,53 @@ describe('readLiveSubagentToolRowsFromMessages — interrupted rule', () => {
     }
   });
 });
+
+describe('readLiveSubagentToolRowsFromMessages — cross-message pairing', () => {
+  // Field shape: a delegation's `subagent.tool.started` and its matching
+  // `subagent.tool.completed` can land on DIFFERENT messages (hydration
+  // weaves a run's events into one group, but an approval-resume turn splits
+  // into sibling messages). `readLiveSubagentToolRowsFromMessages` iterates
+  // messages in thread order and lets a later event's `Map.set` supersede an
+  // earlier one, so the started message being already `complete` must not
+  // strand the row at `interrupted` once its completed pair arrives later.
+  const startedEvent = () =>
+    liveEventPart({
+      childToolName: 'brainstrike_grepSearch',
+      kind: 'subagent.tool.started',
+      parentToolCallId: 'p1',
+      toolCallId: 'c1',
+    });
+  const completedEvent = () =>
+    liveEventPart({
+      childToolName: 'brainstrike_grepSearch',
+      kind: 'subagent.tool.completed',
+      parentToolCallId: 'p1',
+      toolCallId: 'c1',
+    });
+
+  it('pairs a started row on a settled message with its completed on a later running message (NOT interrupted)', () => {
+    const rows = readLiveSubagentToolRowsFromMessages(
+      [
+        { parts: [startedEvent()], status: { reason: 'stop', type: 'complete' } },
+        { parts: [completedEvent()], status: { type: 'running' } },
+      ],
+      'p1'
+    );
+    expect(rows).toEqual([
+      { argSummary: undefined, key: 'c1', status: 'success', toolName: 'brainstrike_grepSearch' },
+    ]);
+  });
+
+  it('mirror: still success when BOTH the started and completed messages have already settled', () => {
+    const rows = readLiveSubagentToolRowsFromMessages(
+      [
+        { parts: [startedEvent()], status: { reason: 'stop', type: 'complete' } },
+        { parts: [completedEvent()], status: { reason: 'stop', type: 'complete' } },
+      ],
+      'p1'
+    );
+    expect(rows).toEqual([
+      { argSummary: undefined, key: 'c1', status: 'success', toolName: 'brainstrike_grepSearch' },
+    ]);
+  });
+});

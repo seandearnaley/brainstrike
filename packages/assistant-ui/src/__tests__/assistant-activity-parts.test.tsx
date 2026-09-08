@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import type { ChatModelAdapter } from '@assistant-ui/react';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { Harness } from './assistant-activity-timeline-fixtures';
+import { Harness, runEventPart } from './assistant-activity-timeline-fixtures';
 
 const neverRun = {
   async run() {
@@ -185,6 +185,74 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       // `screen` directly here would be a false negative for this check.
       expect(within(fold).queryByTestId('assistant-thinking-indicator')).toBeNull();
       expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-active', 'true');
+    } finally {
+      await act(async () => {
+        deferred.release();
+        await deferred.promise;
+      });
+    }
+  }, 20_000);
+
+  it('shows the pre-first-token thinking indicator until the first part arrives, then hides it', async () => {
+    const user = userEvent.setup();
+    const deferred = createDeferred();
+    const adapter: ChatModelAdapter = {
+      async *run() {
+        await deferred.promise;
+        yield { content: [{ text: 'Hello.', type: 'text' as const }] };
+      },
+    };
+
+    try {
+      render(<Harness adapter={adapter} />);
+      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Hi.');
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+
+      const indicator = await screen.findByTestId('assistant-thinking-indicator');
+      expect(indicator).toBeInTheDocument();
+      expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute('data-live', 'true');
+
+      await act(async () => {
+        deferred.release();
+        await deferred.promise;
+      });
+
+      await screen.findByText('Hello.');
+      await waitFor(() =>
+        expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument()
+      );
+    } finally {
+      await act(async () => {
+        deferred.release();
+      });
+    }
+  }, 20_000);
+
+  it('shows the thinking indicator for a running message whose only part is a run.started data part', async () => {
+    const user = userEvent.setup();
+    const deferred = createDeferred();
+    const adapter: ChatModelAdapter = {
+      async *run() {
+        yield {
+          content: [
+            runEventPart({
+              id: 'e-run',
+              kind: 'run.started',
+              status: 'running',
+              timestamp: '2026-09-05T10:00:00.000Z',
+            }),
+          ],
+        };
+        await deferred.promise;
+      },
+    };
+
+    try {
+      render(<Harness adapter={adapter} />);
+      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Investigate.');
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+
+      expect(await screen.findByTestId('assistant-thinking-indicator')).toBeInTheDocument();
     } finally {
       await act(async () => {
         deferred.release();

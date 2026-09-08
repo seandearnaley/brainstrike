@@ -1,4 +1,10 @@
-import { MessagePrimitive, type ToolCallMessagePartProps, useAuiState } from '@assistant-ui/react';
+import {
+  type MessagePartStatus,
+  MessagePrimitive,
+  type ToolCallMessagePartProps,
+  type ToolCallMessagePartStatus,
+  useAuiState,
+} from '@assistant-ui/react';
 import { cn } from '@brainstrike/ui';
 import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
 import { createContext, type ReactNode, use, useId, useMemo, useState } from 'react';
@@ -133,7 +139,7 @@ function ChainReasoningFold({
             data-testid="assistant-reasoning-indicator"
           >
             <BrainstrikeThinkingMark
-              className="bs-thinking-mark-static size-4"
+              className="size-4"
               live={false}
               testId="assistant-reasoning-static-mark"
             />
@@ -162,7 +168,22 @@ function ChainReasoningFold({
 interface ActivityGroupProps {
   readonly children: ReactNode;
   readonly indices: readonly number[];
-  readonly status: { readonly type: string; readonly reason?: string };
+  readonly status: MessagePartStatus | ToolCallMessagePartStatus;
+}
+
+/**
+ * Narrows a `GroupPart.status` (part-level: `MessagePartStatus |
+ * ToolCallMessagePartStatus`) down to the reason `AssistantActivityGroup`
+ * accepts (message-level: `Extract<MessageStatus, { type: 'incomplete'
+ * }>['reason']`). The two unions are independently declared — see the prop's
+ * own comment in assistant-activity-group.tsx — but their `'incomplete'`
+ * reason values happen to coincide, so the return type here is checked
+ * assignability, not a cast.
+ */
+function toIncompleteReason(
+  status: MessagePartStatus | ToolCallMessagePartStatus
+): Parameters<typeof AssistantActivityGroup>[0]['incompleteReason'] {
+  return status.type === 'incomplete' ? status.reason : undefined;
 }
 
 /**
@@ -196,13 +217,13 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
   const isActivityActive =
     status.type === 'running' ||
     (isMessageRunning && isTrailingGroup && status.type !== 'incomplete');
-  const incompleteReason =
-    status.type === 'incomplete' && typeof status.reason === 'string' ? status.reason : undefined;
+  const incompleteReason = toIncompleteReason(status);
   // The task-list summary is turn-wide; render it once, in the group that
-  // holds the message's first activity part (or in every group when the
-  // message has none — the list then has nowhere else to live).
+  // holds the message's first activity part. (A message with no activity
+  // part at all never reaches this branch: `!hasActivityParts` below returns
+  // early before `isFirstGroup` is read.)
   const firstActivityIndex = messageParts.findIndex(isActivityPart);
-  const isFirstGroup = firstActivityIndex === -1 || indices.includes(firstActivityIndex);
+  const isFirstGroup = indices.includes(firstActivityIndex);
   const { activityFallbackMs, shellOutputs, taskList, toolActivity, toolDurations } =
     useChainActivityDerivations(messageParts, messageId, groupParts);
   const [collapsed, setCollapsed] = useState(true);
@@ -230,9 +251,7 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
         <ShellOutputProvider outputs={shellOutputs}>
           <AssistantActivityGroup
             fallbackMs={activityFallbackMs}
-            incompleteReason={
-              incompleteReason as Parameters<typeof AssistantActivityGroup>[0]['incompleteReason']
-            }
+            incompleteReason={incompleteReason}
             isActive={isActivityActive}
             summary={toolActivity}
           >
@@ -256,15 +275,24 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
 }
 
 /**
- * The assistant message's parts renderer. `indicator="never"` keeps the
- * streaming placeholder where it already lives (markdown-text.tsx renders the
- * thinking indicator for an empty running text part).
+ * The assistant message's parts renderer. `indicator="no-text"` (the library
+ * default) restores parity with the legacy `MessagePrimitive.Parts` path's
+ * placeholders: the library's `EmptyParts` rendered a thinking indicator for
+ * a running message with zero parts, and its `ConditionalEmpty`
+ * (`unstable_showEmptyOnNonTextEnd`, on by default) rendered one whenever a
+ * running message's LAST part was not `text`/`reasoning` — e.g. only a
+ * `run.started` data part has arrived so far. `"never"` blanked the assistant
+ * bubble for the whole gap between Send and the first part landing, which
+ * regressed both cases. There is no double indicator: when an empty running
+ * TEXT part exists, that part IS the last part and IS text, so the library's
+ * predicate does not fire here — `markdown-text.tsx` owns that placeholder on
+ * its own.
  */
 export function AssistantActivityParts(): ReactNode {
   return (
     <MessagePrimitive.GroupedParts<ActivityGroupKey>
       groupBy={groupAssistantActivityPart}
-      indicator="never"
+      indicator="no-text"
     >
       {({ children, part }) => {
         switch (part.type) {
@@ -290,6 +318,13 @@ export function AssistantActivityParts(): ReactNode {
             );
           case 'data':
             return part.dataRendererUI;
+          case 'indicator':
+            return (
+              <AssistantThinkingIndicator
+                className="bs-streaming-thinking"
+                markClassName="size-4"
+              />
+            );
           default:
             return null;
         }

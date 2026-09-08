@@ -10,6 +10,7 @@ import {
   completedPartsWithEvents,
   firstParts,
   Harness,
+  runEventPart,
   secondReasoning,
   secondTools,
 } from './assistant-activity-timeline-fixtures';
@@ -239,8 +240,29 @@ describe('assistant activity chronology through the real runtime', () => {
     expect(second).toHaveTextContent('2 steps');
     expect(within(first).getByText('for 2.0s')).toBeInTheDocument();
     expect(within(second).getByText('for 4.0s')).toBeInTheDocument();
-    // Ordinary run-event rows never render at the default detail level.
-    expect(screen.queryAllByTestId('assistant-run-timeline')).toHaveLength(0);
+  });
+
+  it('renders a trailing data-only group (run.finished after the final text) bare, not as an empty "0 steps" card', async () => {
+    const content = [
+      ...completedPartsWithEvents,
+      runEventPart({ id: 'e-fin', kind: 'run.finished', timestamp: '2026-09-05T10:00:15.000Z' }),
+    ];
+    render(
+      <Harness
+        adapter={{
+          async run() {
+            throw new Error('Hydration must not invoke a model.');
+          },
+        }}
+        initialMessages={[{ content, role: 'assistant' }]}
+      />
+    );
+    await screen.findByText('Review complete.');
+    const groups = screen.getAllByTestId('assistant-activity-group');
+    expect(groups).toHaveLength(2);
+    for (const group of groups) {
+      expect(group).not.toHaveTextContent('0 steps');
+    }
   });
 
   it('keeps grouping when run events fence each call LIVE, and settles into one summary', async () => {

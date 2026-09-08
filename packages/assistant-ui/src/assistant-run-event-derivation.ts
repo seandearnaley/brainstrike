@@ -158,6 +158,11 @@ function isSettledMessage(message: unknown): boolean {
  * A pause card without a string `toolCallId` returns null and therefore
  * cannot be matched to any row — an unidentifiable card must not be allowed
  * to keep unrelated rows alive (no guessing).
+ *
+ * The exemption is deliberately CARD-PRESENCE based, not answered-ness based:
+ * a notice that stays in the transcript after being answered keeps its row
+ * live until the terminal run event pairs it. Whether the pause was already
+ * answered lives in later messages and is never consulted here.
  */
 function pendingPauseToolCallIdFromPart(part: unknown): string | null {
   if (!isRecord(part) || part['type'] !== 'data') {

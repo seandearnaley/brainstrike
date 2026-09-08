@@ -1288,6 +1288,12 @@ group. Grouping rule (pinned by `assistant-activity-grouping.test.ts`):
   final text) renders its children bare: no `AssistantActivityGroup` chrome,
   no `assistant-activity-group` test id.
 
+`AssistantActivityParts` passes `indicator="no-text"` to `GroupedParts` (the
+library default), required for parity with the legacy path's empty-message
+placeholders (`EmptyParts`, `ConditionalEmpty`) — `"never"` blanks the
+assistant bubble from Send until the first part arrives, which regressed the
+pre-first-token thinking indicator.
+
 Chronology rulings (unchanged): each contiguous group renders at its own
 position; never hoist later parts into an earlier group or suppress later
 groups. Group status is the library's `GroupPart.status` (running if any part
@@ -1323,7 +1329,11 @@ message has settled resolves to the renderer-only `'interrupted'` status
 `toolCallId` exists in the thread — the live notice, or the synthetic message
 `appendSuspendedPauseMessages` re-appends for a still-suspended pause. An
 ABSENT message status is left alone: liveness is never guessed. Subagent child
-rows follow the same rule (`readLiveSubagentToolRowsFromMessages`).
+rows follow the same rule (`readLiveSubagentToolRowsFromMessages`). Between
+history hydration (messages land `complete`) and `beginAssistantReplay`
+removing the durable leaf it replays, an in-flight row can briefly read
+"Interrupted" — the replay re-creates the message right after, so the window
+is short and self-correcting.
 
 Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.37's
 decoder/tool pipeline hand-rolls nested stream controllers (merge streams,

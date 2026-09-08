@@ -36,7 +36,11 @@ export function BrainstrikeThinkingMark({
   return (
     <svg
       aria-hidden="true"
-      className={cn('bs-thinking-mark size-4', className)}
+      className={cn(
+        'bs-thinking-mark size-4',
+        live ? undefined : 'bs-thinking-mark-static',
+        className
+      )}
       data-live={live ? 'true' : 'false'}
       data-testid={testId}
       data-tone="greyscale"
