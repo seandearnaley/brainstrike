@@ -9,6 +9,7 @@ import {
 } from '@assistant-ui/react';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { TooltipProvider } from '@brainstrike/ui';
+import type { ReactNode } from 'react';
 import { AssistantActivityParts } from '../assistant-activity-parts';
 
 export const firstParts = [
@@ -164,32 +165,44 @@ export const completedPartsWithEvents = [
 
 export function Harness({
   adapter,
+  children,
   initialMessages = [],
 }: {
   adapter: ChatModelAdapter;
+  /**
+   * Optional wrapper for the thread content, rendered inside
+   * `AssistantRuntimeProvider`. Needed by tests that register a data UI
+   * (`useAssistantDataUI`) or read Aui state (`AssistantRunEventProvider`) —
+   * both require an `AssistantRuntimeProvider` ancestor, which only `Harness`
+   * owns. Defaults to rendering the thread content unwrapped.
+   */
+  children?: (content: ReactNode) => ReactNode;
   initialMessages?: ThreadMessageLike[];
 }) {
   const runtime = useLocalRuntime(adapter, { initialMessages });
+  const content = (
+    <ThreadPrimitive.Root>
+      <ThreadPrimitive.Messages
+        components={{
+          AssistantMessage: () => (
+            <MessagePrimitive.Root data-testid="timeline">
+              <AssistantActivityParts />
+            </MessagePrimitive.Root>
+          ),
+          UserMessage: () => null,
+        }}
+      />
+      <ComposerPrimitive.Root>
+        <ComposerPrimitive.Input aria-label="Message" />
+        <ComposerPrimitive.Send aria-label="Send" />
+        <ComposerPrimitive.Cancel aria-label="Stop" />
+      </ComposerPrimitive.Root>
+    </ThreadPrimitive.Root>
+  );
   return (
     <TooltipProvider>
       <AssistantRuntimeProvider runtime={runtime}>
-        <ThreadPrimitive.Root>
-          <ThreadPrimitive.Messages
-            components={{
-              AssistantMessage: () => (
-                <MessagePrimitive.Root data-testid="timeline">
-                  <AssistantActivityParts />
-                </MessagePrimitive.Root>
-              ),
-              UserMessage: () => null,
-            }}
-          />
-          <ComposerPrimitive.Root>
-            <ComposerPrimitive.Input aria-label="Message" />
-            <ComposerPrimitive.Send aria-label="Send" />
-            <ComposerPrimitive.Cancel aria-label="Stop" />
-          </ComposerPrimitive.Root>
-        </ThreadPrimitive.Root>
+        {children ? children(content) : content}
       </AssistantRuntimeProvider>
     </TooltipProvider>
   );
