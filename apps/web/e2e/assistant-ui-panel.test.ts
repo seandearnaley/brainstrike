@@ -639,7 +639,17 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(toolCard.getByText('Arguments:')).toBeHidden();
     await expect(toolCard.getByText('Result:')).toBeHidden();
 
-    await toolCard.getByRole('button', { name: 'Expand details' }).click();
+    // BST-1682 (WCAG 2.5.3 Label in Name): the row's accessible name leads
+    // with its visible content ("Called web.echo hello from mock, expand
+    // details" — `extractPrimaryArg` falls back to the first string-valued
+    // arg, and this call's arg is `{ text: 'hello from mock' }`), so the
+    // affordance is matched as a substring rather than the whole name.
+    // `.first()` keeps the locator single-match the way `exact: true` used
+    // to, in case the card ever grows a nested expandable row.
+    await toolCard
+      .getByRole('button', { name: /expand details/i })
+      .first()
+      .click();
     await expect(toolCard.getByText('Arguments:')).toBeVisible();
     await expect(toolCard.getByText('Result:')).toBeVisible();
   });

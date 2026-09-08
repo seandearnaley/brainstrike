@@ -48,20 +48,20 @@ describe('ToolFallback detail level', () => {
 
   it('compact shows the call only — no expander or result summary (any tool)', () => {
     renderTool(internalToolProps, 'compact');
-    expect(screen.queryByRole('button', { name: 'Expand details' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /expand details/i })).not.toBeInTheDocument();
     expect(screen.queryByText('3 matches')).not.toBeInTheDocument();
   });
 
   it('compact treats external (MCP) tools the same — no expander', () => {
     // Detail level is a pure verbosity axis; it no longer special-cases tool origin.
     renderTool({ ...internalToolProps, toolName: 'web.echo' }, 'compact');
-    expect(screen.queryByRole('button', { name: 'Expand details' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /expand details/i })).not.toBeInTheDocument();
   });
 
   it('standard shows the summary and a collapsed expander', () => {
     renderTool(internalToolProps, 'standard');
     expect(screen.getByText('3 matches')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Expand details' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /expand details/i })).toBeInTheDocument();
     expect(screen.queryByText('Arguments:')).not.toBeInTheDocument();
   });
 
@@ -111,7 +111,10 @@ describe('ToolFallback detail level', () => {
     renderTool(internalToolProps, 'developer');
     const row = screen.getByTestId('activity-step-row');
     expect(row).toHaveAttribute('aria-expanded', 'true');
-    expect(row).toHaveAccessibleName('Collapse details');
+    // BST-1682: the name leads with the visible content, so the affordance
+    // is asserted as the trailing clause it now is — the exact name, not
+    // just the suffix, since the prefix is the point of BST-1682.
+    expect(row).toHaveAccessibleName('Searched foo, collapse details');
   });
 
   it('re-syncs an already-rendered card when the Detail level changes', () => {

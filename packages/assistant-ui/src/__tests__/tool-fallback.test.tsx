@@ -223,32 +223,29 @@ describe('ToolFallback activity step row', () => {
     expect(card).toHaveAttribute('data-tool-category', 'internal');
     expect(screen.getByRole('img', { name: 'Completed' })).toBeInTheDocument();
 
-    const row = screen.getByRole('button', { name: 'Expand details' });
+    // BST-1682 (WCAG 2.5.3): the row's own name carries the visible verb and
+    // target, with the affordance trailing as a clause. Exact, not a
+    // `/Read/` substring: that also passes on "Reading", so it could not tell
+    // the done tense from the active one.
+    const row = screen.getByRole('button', { name: 'Read src/app.ts, expand details' });
     expect(row).toHaveAttribute('aria-expanded', 'false');
-    const describedBy = row.getAttribute('aria-describedby');
-    expect(describedBy).toBeTruthy();
-    if (describedBy === null) {
-      throw new Error('unreachable: asserted truthy above');
-    }
-    const content = document.getElementById(describedBy);
+    // The content is the name, so it is not repeated as a description.
+    expect(row).not.toHaveAttribute('aria-describedby');
+    const content = card.querySelector<HTMLElement>('.bs-step-row-content');
     if (content === null) {
-      throw new Error(`unreachable: no element with id "${describedBy}"`);
+      throw new Error('unreachable: the row always renders its content span');
     }
-    // Exact, not `toHaveTextContent('Read')`: that substring also passes on
-    // "Reading", so it could not tell the done tense from the active one. And
-    // scoped to the described-by CONTENT, not the whole card: the card also
-    // carries the raw tool id as sr-only text, so a card-wide query proves
-    // only that the word appears somewhere, not that the row's own verb slot
-    // says it.
     expect(within(content).getByText('Read', { exact: true })).toBeInTheDocument();
     expect(content).toHaveTextContent('src/app.ts');
     // The raw id stays IN the card as text (the e2e contract) but out of the
-    // row's own accessible description.
+    // row's own accessible name — nobody SEES it, so no speech-input user can
+    // say it.
     expect(within(card).getByText(READ_TOOL)).toHaveClass('sr-only');
     expect(content).not.toHaveTextContent(READ_TOOL);
+    expect(row).toHaveAccessibleName('Read src/app.ts, expand details');
 
     fireEvent.click(row);
-    const expanded = screen.getByRole('button', { name: 'Collapse details' });
+    const expanded = screen.getByRole('button', { name: 'Read src/app.ts, collapse details' });
     expect(expanded).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Arguments:')).toBeInTheDocument();
   });
