@@ -350,10 +350,11 @@ describe('shared code-block chrome (real browser)', () => {
 });
 
 describe('AssistantActivityGroup (real browser)', () => {
-  test('active turn: live "Working" heartbeat, current tool, expanded body', () => {
+  test('active turn: live "Working" heartbeat + current tool in the header, body collapsed until expanded', async () => {
+    const user = userEvent.setup();
     render(
       <div className="assistant-ui-panel">
-        <AssistantActivityGroup isActive summary={activeSummary}>
+        <AssistantActivityGroup isActive reasoningActive={false} summary={activeSummary}>
           <div data-testid="tool-rows">tool rows</div>
         </AssistantActivityGroup>
       </div>
@@ -362,19 +363,31 @@ describe('AssistantActivityGroup (real browser)', () => {
     expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent('Working');
     expect(screen.getByText(/brainstrike\.grepSearch/)).toBeVisible();
     expect(screen.getByText(/registry\.ts/)).toBeVisible();
-    expect(screen.getByTestId('assistant-activity-body')).toBeVisible();
+    // Collapsed by default even while active (BST-1677 wave 3, Sean's
+    // request): the header is the live cycler, so the body starts hidden.
+    const body = screen.getByTestId('assistant-activity-body');
+    expect(body).not.toBeVisible();
 
     // The panel chrome actually rendered (CSS applied in a real browser).
     const group = screen.getByTestId('assistant-activity-group');
     expect(group).toHaveAttribute('data-active', 'true');
     expect(Number.parseFloat(getComputedStyle(group).borderRadius)).toBeGreaterThan(0);
+
+    // The user can still expand it while active.
+    await user.click(screen.getByTestId('assistant-activity-summary'));
+    expect(body).toBeVisible();
   });
 
   test('done turn: auto-collapsed summary that expands on click', async () => {
     const user = userEvent.setup();
     render(
       <div className="assistant-ui-panel">
-        <AssistantActivityGroup fallbackMs={12_000} isActive={false} summary={doneSummary}>
+        <AssistantActivityGroup
+          fallbackMs={12_000}
+          isActive={false}
+          reasoningActive={false}
+          summary={doneSummary}
+        >
           <div data-testid="tool-rows">tool rows</div>
         </AssistantActivityGroup>
       </div>
@@ -393,15 +406,31 @@ describe('AssistantActivityGroup (real browser)', () => {
     expect(body).toBeVisible();
   });
 
-  test('failed turn renders the failed treatment', () => {
+  test('a failed step is counted in the summary without failing the whole group', () => {
     render(
       <div className="assistant-ui-panel">
-        <AssistantActivityGroup isActive={false} summary={{ ...doneSummary, failedCount: 2 }} />
+        {/* Hand-translates the one Tailwind utility this assertion needs
+            (this package's own tests never compile Tailwind, see the
+            USER_MESSAGE_LAYOUT_SHIM comment above), so the comparison below
+            measures the real destructive design token in real Chromium
+            rather than hardcoding an expected color string. */}
+        <style>{'.text-destructive { color: hsl(var(--destructive)); }'}</style>
+        <span className="text-destructive" data-testid="destructive-token-probe" />
+        <AssistantActivityGroup
+          isActive={false}
+          reasoningActive={false}
+          summary={{ ...doneSummary, failedCount: 2 }}
+        />
       </div>
     );
     const group = screen.getByTestId('assistant-activity-group');
-    expect(group).toHaveAttribute('data-failed', 'true');
-    expect(screen.getByText('Activity failed')).toBeVisible();
+    expect(group).toHaveAttribute('data-failed', 'false');
+    const failedCount = screen.getByTestId('assistant-activity-failed-count');
+    expect(failedCount).toBeVisible();
+    expect(failedCount).toHaveTextContent('2 failed');
+    const destructiveColor = getComputedStyle(screen.getByTestId('destructive-token-probe')).color;
+    expect(getComputedStyle(failedCount).color).toBe(destructiveColor);
+    expect(screen.queryByText('Activity failed')).not.toBeInTheDocument();
   });
 });
 

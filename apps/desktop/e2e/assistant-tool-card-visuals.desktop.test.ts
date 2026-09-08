@@ -80,8 +80,8 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     await expect(summary).toHaveAttribute('aria-expanded', 'false', {
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    await expect(summary).toContainText('Activity failed');
-    await expect(summary).not.toContainText('Worked');
+    await expect(summary).toContainText('1 failed');
+    await expect(summary).toContainText('Worked');
     await summary.click();
     const toolCard = window.getByTestId('tool-fallback').first();
     await expect(toolCard).toBeVisible({ timeout: E2E_TIMEOUTS.toolVisibility });

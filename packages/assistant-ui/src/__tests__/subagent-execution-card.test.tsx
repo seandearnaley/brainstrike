@@ -152,4 +152,54 @@ describe('SubagentExecutionCard', () => {
     fireEvent.click(screen.getByRole('button'));
     expect(screen.getByText('brainstrike_grepSearch')).toBeTruthy();
   });
+
+  it('marks the running pulse data-live and respects reduced motion', () => {
+    const { container } = renderCard({
+      result: undefined,
+      status: { type: 'running' },
+      toolCallId: 'p1',
+      toolName: 'agent-explorer',
+    });
+    const pulse = container.querySelector('[data-live="true"]');
+    expect(pulse).not.toBeNull();
+    expect(pulse).toHaveClass('motion-reduce:animate-none');
+  });
+
+  it('renders no data-live element once the delegation has a result', () => {
+    const { container } = renderCard({
+      result: completedResult,
+      status: { type: 'complete' },
+      toolCallId: 'p1',
+      toolName: 'agent-explorer',
+    });
+    expect(container.querySelectorAll('[data-live="true"]')).toHaveLength(0);
+  });
+
+  it('renders an interrupted child row static and not data-live', () => {
+    const { container } = renderCard({
+      liveRows: [
+        {
+          argSummary: undefined,
+          key: 'c1',
+          status: 'interrupted',
+          toolName: 'brainstrike_grepSearch',
+        },
+      ],
+      result: undefined,
+      status: { reason: 'cancelled', type: 'incomplete' },
+      toolCallId: 'p1',
+      toolName: 'agent-explorer',
+    });
+    fireEvent.click(screen.getByRole('button', { expanded: false }));
+    expect(screen.getByText('brainstrike_grepSearch')).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-live="true"]')).toHaveLength(0);
+
+    // Verify the static CircleSlash icon renders for the interrupted row.
+    const row = screen.getByText('brainstrike_grepSearch').closest('li');
+    expect(row).not.toBeNull();
+    const icon = row?.querySelector('svg');
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveClass('lucide-circle-slash');
+    expect(icon).not.toHaveAttribute('data-live');
+  });
 });

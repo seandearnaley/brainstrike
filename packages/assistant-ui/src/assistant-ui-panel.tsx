@@ -1,14 +1,11 @@
 import {
   type AssistantDataUIProps,
   AssistantRuntimeProvider,
-  ChainOfThoughtPrimitive,
   ComposerPrimitive,
   type DataMessagePartComponent,
   MessagePrimitive,
   ThreadPrimitive,
-  type ToolCallMessagePartProps,
   useAssistantDataUI,
-  useAui,
   useAuiState,
   useLocalRuntime,
   // Aliased to a `use`-prefixed name so React Fast Refresh (Vite dev) recognizes
@@ -32,15 +29,14 @@ import {
   TOOL_APPROVAL_DATA_NAME,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract';
-import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
-import { type ReactNode, use, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { type ReactNode, use, useEffect, useMemo, useState } from 'react';
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import type { ModelPickerModel, ModelPickerProvider } from '@brainstrike/ui';
 import { Button, cn } from '@brainstrike/ui';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { AssistantActionBar } from './assistant-action-bar';
-import { AssistantActivityGroup } from './assistant-activity-group';
+import { AssistantActivityParts } from './assistant-activity-parts';
 import { ControlsMenu } from './assistant-controls-menu';
 import {
   assistantEndpointLogger,
@@ -50,12 +46,7 @@ import {
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
-import { AssistantReasoningPart } from './assistant-reasoning-part';
 import { AssistantRunTimelineDataPart } from './assistant-run-timeline-data-part';
-import {
-  AssistantThinkingIndicator,
-  BrainstrikeThinkingMark,
-} from './assistant-thinking-indicator';
 import {
   type ThreadMessageComponents,
   ThreadMessagesRegion,
@@ -109,17 +100,13 @@ import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
 import { RunVerdictControl } from './run-verdict-control';
-import { ShellOutputProvider } from './shell-output-context';
 import {
   buildSlashCommandIconMap,
   type SlashCommand,
   toSlashCommandAdapterOptions,
 } from './slash-commands';
 import { ThreadScrollFollowProvider } from './thread-scroll-follow';
-import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
-import { ToolDurationProvider } from './tool-duration-context';
 import { useAssistantServerRunSession } from './use-assistant-server-run-session';
-import { useChainActivityDerivations } from './use-chain-activity-derivations';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 
 const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => (
@@ -443,218 +430,6 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
 }
 
 export type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
-
-function isRunningReasoningPart(part: unknown): boolean {
-  if (!(part && typeof part === 'object')) {
-    return false;
-  }
-
-  if ((part as { readonly type?: unknown }).type !== 'reasoning') {
-    return false;
-  }
-
-  const status = (part as { readonly status?: unknown }).status;
-  if (!(status && typeof status === 'object')) {
-    return false;
-  }
-
-  return (status as { readonly type?: unknown }).type === 'running';
-}
-
-/** Renders nothing — used to keep reasoning parts out of the flow while collapsed. */
-const HiddenReasoningPart = () => null;
-
-function isReasoningPart(part: unknown): boolean {
-  return Boolean(
-    part && typeof part === 'object' && (part as { readonly type?: unknown }).type === 'reasoning'
-  );
-}
-
-function reasoningToggleLabel(collapsed: boolean, isContinuation: boolean): string {
-  if (collapsed) {
-    return isContinuation ? 'Show additional thinking' : 'Show thinking';
-  }
-  return isContinuation ? 'Hide additional thinking' : 'Hide thinking';
-}
-
-/**
- * The collapsible reasoning fold: a pill that toggles the reasoning panel.
- * Tool cards always render inside the panel (the reasoning collapse only hides
- * reasoning parts), so the panel stays mounted to keep `aria-controls` valid.
- */
-const ChainReasoningFold = ({
-  children,
-  collapsed,
-  isContinuation,
-  isReasoningRunning,
-  onToggle,
-  panelId,
-}: {
-  children: ReactNode;
-  collapsed: boolean;
-  isContinuation: boolean;
-  isReasoningRunning: boolean;
-  onToggle: () => void;
-  panelId: string;
-}) => (
-  <>
-    <button
-      aria-controls={panelId}
-      aria-expanded={!collapsed}
-      aria-label={reasoningToggleLabel(collapsed, isContinuation)}
-      className={cn(
-        'inline-flex h-8 max-w-full items-center rounded-full border border-border/70 bg-muted/20 text-left font-medium text-foreground text-xs transition-colors hover:bg-muted/35',
-        isContinuation ? 'w-8 justify-center px-0' : 'gap-2 px-2.5'
-      )}
-      data-testid="local-chain-of-thought"
-      onClick={onToggle}
-      type="button"
-    >
-      {isReasoningRunning ? (
-        <AssistantThinkingIndicator
-          className={cn('min-w-0', isContinuation ? 'justify-center' : '')}
-          markClassName="size-4"
-          showText={!isContinuation}
-          textClassName="truncate"
-        />
-      ) : (
-        <span
-          className={cn('bs-thinking-indicator min-w-0', isContinuation ? 'justify-center' : '')}
-          data-testid="assistant-reasoning-indicator"
-        >
-          <BrainstrikeThinkingMark
-            className="bs-thinking-mark-static size-4"
-            testId="assistant-reasoning-static-mark"
-          />
-          {isContinuation ? null : <span className="truncate">Thinking</span>}
-        </span>
-      )}
-      {isContinuation ? null : collapsed ? (
-        <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
-      ) : (
-        <ChevronUpIcon className="size-3.5 shrink-0 text-muted-foreground" />
-      )}
-    </button>
-    <div
-      className={cn(
-        'bs-chain-of-thought-panel mt-2 empty:mt-0',
-        collapsed ? '' : 'border-border/70 border-l pl-3'
-      )}
-      id={panelId}
-    >
-      {children}
-    </div>
-  </>
-);
-
-function isActivityPart(part: unknown): boolean {
-  if (!(part && typeof part === 'object')) {
-    return false;
-  }
-  const type = (part as { type?: unknown }).type;
-  return type === 'tool-call' || type === 'reasoning';
-}
-
-function ActivityPartLayout({ children }: { children?: ReactNode }) {
-  return <div className="mb-2 last:mb-0 empty:mb-0">{children}</div>;
-}
-
-function ActivityToolPart(props: ToolCallMessagePartProps) {
-  const Component =
-    CHAIN_OF_THOUGHT_TOOL_COMPONENTS.by_name[props.toolName] ??
-    CHAIN_OF_THOUGHT_TOOL_COMPONENTS.Fallback;
-  return <Component {...props} />;
-}
-
-export const LocalChainOfThought = () => {
-  const aui = useAui();
-  const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
-  const messageParts = useAuiState((state) => state.message.parts);
-  const groupParts = useAuiState((state) => state.chainOfThought.parts);
-  const hasReasoningParts = useAuiState((state) =>
-    state.chainOfThought.parts.some(isReasoningPart)
-  );
-  const isReasoningRunning = useAuiState((state) =>
-    state.chainOfThought.parts.some(isRunningReasoningPart)
-  );
-  const isActivityActive = useAuiState((state) => state.chainOfThought.status.type === 'running');
-  const incompleteReason = useAuiState((state) => {
-    const status = state.chainOfThought.status;
-    return status.type === 'incomplete' ? status.reason : undefined;
-  });
-  // The task-list summary is turn-wide; render it once without hoisting activity.
-  const isFirstChain = useAuiState((state) => {
-    const firstActivity = state.message.parts.find(isActivityPart);
-    if (!firstActivity) {
-      return true;
-    }
-    return state.chainOfThought.parts.find(isActivityPart) === firstActivity;
-  });
-  const messageId = useAuiState((state) => (state.message as { id?: string }).id ?? '');
-  // Per-turn derivations with context-value stability — see the hook's doc.
-  const { activityFallbackMs, shellOutputs, taskList, toolActivity, toolDurations } =
-    useChainActivityDerivations(messageParts, messageId, groupParts);
-
-  const initializedRef = useRef(false);
-  const reasoningPanelId = useId();
-
-  useEffect(() => {
-    if (initializedRef.current) {
-      return;
-    }
-    initializedRef.current = true;
-    aui.chainOfThought().setCollapsed(true);
-  }, [aui]);
-
-  const activityParts = (
-    <ChainOfThoughtPrimitive.Parts
-      components={{
-        /* biome-ignore lint/style/useNamingConvention: assistant-ui component slot */
-        Layout: ActivityPartLayout,
-        /* biome-ignore lint/style/useNamingConvention: assistant-ui component slot */
-        Reasoning: collapsed ? HiddenReasoningPart : AssistantReasoningPart,
-        /* The chain primitive exposes one tool slot; retain the existing named renderers. */
-        tools: {
-          /* biome-ignore lint/style/useNamingConvention: assistant-ui component slot */
-          Fallback: ActivityToolPart,
-        },
-      }}
-    />
-  );
-
-  // Only reasoning lives behind the collapsible pill; tool cards always render.
-  const reasoningSection = hasReasoningParts ? (
-    <ChainReasoningFold
-      collapsed={collapsed}
-      isContinuation={false}
-      isReasoningRunning={isReasoningRunning}
-      onToggle={() => aui.chainOfThought().setCollapsed(!collapsed)}
-      panelId={reasoningPanelId}
-    >
-      {activityParts}
-    </ChainReasoningFold>
-  ) : (
-    activityParts
-  );
-
-  return (
-    <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-2xl">
-      {isFirstChain && taskList ? <TodoProgress result={taskList} /> : null}
-      <ToolDurationProvider durations={toolDurations}>
-        <ShellOutputProvider outputs={shellOutputs}>
-          <AssistantActivityGroup
-            fallbackMs={activityFallbackMs}
-            incompleteReason={incompleteReason}
-            isActive={isActivityActive}
-            summary={toolActivity}
-          >
-            {reasoningSection}
-          </AssistantActivityGroup>
-        </ShellOutputProvider>
-      </ToolDurationProvider>
-    </ChainOfThoughtPrimitive.Root>
-  );
-};
 
 const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantRunTimelineDataUI);
@@ -1621,17 +1396,9 @@ const AssistantMessage = () => {
   return (
     <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-2">
       <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl break-words text-foreground leading-6">
-        {/* ChainOfThought takes control of ALL reasoning and tool-call parts
-            (the library forbids a separate `tools` mapping alongside it), so
-            tool rendering lives inside LocalChainOfThought. */}
-        <MessagePrimitive.Parts
-          components={{
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "ChainOfThought" key */
-            ChainOfThought: LocalChainOfThought,
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
-            Text: AssistantMessageText,
-          }}
-        />
+        {/* Grouped rendering (activity groups + text + data parts) lives in
+            assistant-activity-parts.tsx; see its header for the grouping rule. */}
+        <AssistantActivityParts />
         <AssistantMessageError />
         {/* Flight Recorder capstone: copy a redacted Markdown debug bundle for
             THIS failed run to the clipboard. Null without a provider binding

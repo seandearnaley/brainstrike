@@ -10,7 +10,7 @@ import { COMPACTION_SUMMARY_METADATA_KEY } from '@brainstrike/assistant-contract
 import { TooltipProvider } from '@brainstrike/ui';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { act } from 'react';
+import { act, Fragment } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assistantEndpointLogger } from '../assistant-endpoint';
 import type {
@@ -25,15 +25,8 @@ const useBrainstrikeDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({
   runtime: 'test-runtime',
 }));
 const useAssistantDataUIMock = vi.fn((_dataUI: unknown) => undefined);
-const messagePartsComponentsMock = vi.fn((_components: unknown) => undefined);
 const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
-const setCollapsedMock = vi.fn();
 interface MockAuiState {
-  chainOfThought: {
-    collapsed: boolean;
-    parts: unknown[];
-    status: { type: 'running' | 'complete' };
-  };
   composer: {
     text: string;
   };
@@ -53,17 +46,6 @@ const completedReasoningPart = {
 };
 
 const createMockAuiState = (parts: unknown[]): MockAuiState => ({
-  chainOfThought: {
-    collapsed: true,
-    parts,
-    status: {
-      type: parts.some(
-        (part) => (part as { status?: { type?: string } } | null)?.status?.type === 'running'
-      )
-        ? 'running'
-        : 'complete',
-    },
-  },
   composer: { text: '' },
   message: { parts },
   thread: { messages: [] },
@@ -210,34 +192,6 @@ vi.mock('@assistant-ui/react', () => {
       Previous: Primitive,
       Root: Primitive,
     },
-    ChainOfThoughtPrimitive: {
-      AccordionTrigger: Primitive,
-      Parts: ({
-        components,
-      }: {
-        components: {
-          Reasoning?: React.ComponentType;
-          tools?: { Fallback?: React.ComponentType<Record<string, unknown>> };
-        };
-      }) => (
-        <>
-          {mockAuiState.chainOfThought.parts.map((part, index) => {
-            const typed = part as { type?: string; toolCallId?: string } | null;
-            if (typed?.type === 'reasoning') {
-              const Component = components.Reasoning ?? (() => null);
-              // biome-ignore lint/suspicious/noArrayIndexKey: stable part positions in the isolated primitive mock.
-              return <Component key={`reasoning-${index}`} />;
-            }
-            if (typed?.type === 'tool-call') {
-              const Component = components.tools?.Fallback ?? (() => null);
-              return <Component key={typed.toolCallId ?? 'tool'} {...typed} />;
-            }
-            return null;
-          })}
-        </>
-      ),
-      Root: Primitive,
-    },
     ComposerPrimitive: {
       // The real primitive is a button wired to the registered attachment
       // adapter; the composer passes its own data-testid through props.
@@ -284,6 +238,26 @@ vi.mock('@assistant-ui/react', () => {
       Root: Primitive,
     },
     MessagePrimitive: {
+      GroupedParts: ({
+        children,
+      }: {
+        children: (info: { children: React.ReactNode; part: { type: string } }) => React.ReactNode;
+      }) => (
+        <>
+          {mockAuiState.message.parts.map((part, index) => {
+            const typed = part as { type?: string } | null;
+            if (typed?.type !== 'text') {
+              return null;
+            }
+            return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: stable part positions in the isolated primitive mock.
+              <Fragment key={index}>
+                {children({ children: null, part: { type: 'text' } })}
+              </Fragment>
+            );
+          })}
+        </>
+      ),
       If,
       PartByIndex: ({
         index,
@@ -307,7 +281,6 @@ vi.mock('@assistant-ui/react', () => {
         return null;
       },
       Parts: ({ components }: PartsProps) => {
-        messagePartsComponentsMock(components);
         const Text = components?.Text ?? TextStub;
         return <Text />;
       },
@@ -346,9 +319,6 @@ vi.mock('@assistant-ui/react', () => {
     unstable_useThreadMessageIds: () => [],
     useAssistantDataUI: (dataUI: unknown) => useAssistantDataUIMock(dataUI),
     useAui: () => ({
-      chainOfThought: () => ({
-        setCollapsed: setCollapsedMock,
-      }),
       composer: () => ({ addAttachment: async () => undefined, setText: vi.fn() }),
     }),
     useAuiEvent: () => undefined,
@@ -466,21 +436,6 @@ const baseProps = {
   providerGroups,
   selectedModel: 'openai::gpt-5.2',
   selectedProvider: 'openai',
-};
-
-const renderCapturedChainOfThought = () => {
-  render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
-
-  const components = messagePartsComponentsMock.mock.calls.at(-1)?.[0] as
-    | { readonly ChainOfThought?: React.ComponentType }
-    | undefined;
-  const ChainOfThought = components?.ChainOfThought;
-
-  if (!ChainOfThought) {
-    throw new Error('Expected AssistantUiPanel to register a chain-of-thought component.');
-  }
-
-  render(<ChainOfThought />);
 };
 
 describe('AssistantUiPanel model picker', () => {
@@ -604,11 +559,6 @@ describe('AssistantUiPanel model picker', () => {
         render: expect.any(Function),
       })
     );
-    expect(messagePartsComponentsMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.anything(),
-      })
-    );
   });
 
   it('registers a null renderer for the context-breakdown data part (never a stray element)', () => {
@@ -712,76 +662,6 @@ describe('AssistantUiPanel model picker', () => {
       </TooltipProvider>
     );
     expect(screen.getByText('Run cancelled')).toBeInTheDocument();
-  });
-
-  it('renders completed chain-of-thought with a static reasoning mark', () => {
-    mockAuiState = createMockAuiState([null, { status: 'complete' }, completedReasoningPart]);
-
-    renderCapturedChainOfThought();
-
-    expect(screen.getByTestId('assistant-reasoning-indicator')).toHaveTextContent('Thinking');
-    expect(screen.getByTestId('assistant-reasoning-static-mark')).toHaveClass(
-      'bs-thinking-mark-static'
-    );
-    expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
-  });
-
-  it('renders running chain-of-thought with the animated thinking indicator', () => {
-    mockAuiState = createMockAuiState([
-      {
-        status: { type: 'running' },
-        type: 'reasoning',
-      },
-    ]);
-
-    renderCapturedChainOfThought();
-
-    expect(screen.getByTestId('assistant-thinking-indicator')).toHaveTextContent('Thinking');
-    expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute('data-tone', 'greyscale');
-    expect(screen.queryByTestId('assistant-reasoning-static-mark')).not.toBeInTheDocument();
-  });
-
-  it('keeps completed reasoning static while a chain tool call is running', () => {
-    mockAuiState = createMockAuiState([
-      completedReasoningPart,
-      {
-        status: { type: 'running' },
-        type: 'tool-call',
-      },
-    ]);
-
-    renderCapturedChainOfThought();
-
-    expect(screen.getByTestId('assistant-reasoning-indicator')).toHaveTextContent('Thinking');
-    expect(screen.getByTestId('assistant-reasoning-static-mark')).toHaveClass(
-      'bs-thinking-mark-static'
-    );
-    expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
-  });
-
-  it('summarizes the tool calls within the current activity group', () => {
-    mockAuiState = createMockAuiState([
-      { status: { type: 'complete' }, toolCallId: 'a', type: 'tool-call' },
-      { status: { type: 'complete' }, toolCallId: 'b', type: 'tool-call' },
-      { status: { type: 'complete' }, toolCallId: 'c', type: 'tool-call' },
-    ]);
-
-    renderCapturedChainOfThought();
-
-    expect(screen.getByTestId('assistant-activity-group')).toBeInTheDocument();
-    expect(screen.getByText(/3 steps/)).toBeInTheDocument();
-    expect(screen.getAllByTestId('tool-fallback')).toHaveLength(3);
-  });
-
-  it('retains the activity wrapper for a completed single tool call', () => {
-    mockAuiState = createMockAuiState([
-      { status: { type: 'complete' }, toolCallId: 'a', type: 'tool-call' },
-    ]);
-
-    renderCapturedChainOfThought();
-
-    expect(screen.getByTestId('assistant-activity-group')).toBeInTheDocument();
-    expect(screen.getByTestId('tool-fallback')).toBeInTheDocument();
   });
 
   it('prepares per-run request data when the hosted runtime starts a request', async () => {

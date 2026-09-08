@@ -687,6 +687,11 @@
   font-weight: 400;
 }
 
+.assistant-ui-panel .bs-activity-summary-failed {
+  color: hsl(var(--destructive));
+  font-weight: 600;
+}
+
 .assistant-ui-panel .bs-activity-active-tool {
   flex: 0 1 auto;
   min-width: 0;

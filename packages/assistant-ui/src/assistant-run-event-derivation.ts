@@ -8,7 +8,11 @@ import {
   readAssistantRunEvent,
   readAssistantRunEventDataPart,
 } from '@brainstrike/assistant-contract';
-import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
+import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  TOOL_SUSPEND_DATA_NAME,
+  UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
+} from '@brainstrike/assistant-contract/tool-suspend';
 
 /**
  * Pure run-event derivation: pairing `.started` rows with their terminal
@@ -115,9 +119,91 @@ function getRunEventsFromMessages(messages: readonly unknown[]): AssistantRunEve
   );
 }
 
+/**
+ * Renderer-only status. `'interrupted'` is never persisted and never enters
+ * the contract union: it is what a `running` row RESOLVES to when its owning
+ * message has settled and nothing is still pending for it. A row is the
+ * durable record; the message status is the renderer's liveness authority.
+ */
+export type AssistantRunEventDisplayStatus = AssistantRunEventStatus | 'interrupted';
+
 export interface AssistantRunEventRows {
   readonly renderPlanKeys: Record<string, string>;
-  readonly statuses: Record<string, AssistantRunEventStatus>;
+  readonly statuses: Record<string, AssistantRunEventDisplayStatus>;
+}
+
+/**
+ * True when the message's OWN status says it is finished. Absent status is
+ * NOT settled — hydrated and live messages always carry one, so an absence is
+ * a caller shape we refuse to interpret rather than a signal.
+ */
+function isSettledMessage(message: unknown): boolean {
+  if (!isRecord(message)) {
+    return false;
+  }
+  const status = message['status'];
+  if (!isRecord(status)) {
+    return false;
+  }
+  return status['type'] === 'complete' || status['type'] === 'incomplete';
+}
+
+/**
+ * The `toolCallId` a pending pause card (live approval/suspend notice, or the
+ * synthetic message `appendSuspendedPauseMessages` re-appends for a pause
+ * that is STILL suspended after a reload) names, or null when `part` is not
+ * one of those cards. A settled `tool.approval.requested` row for that id is
+ * genuinely pending, not interrupted.
+ *
+ * A pause card without a string `toolCallId` returns null and therefore
+ * cannot be matched to any row — an unidentifiable card must not be allowed
+ * to keep unrelated rows alive (no guessing).
+ *
+ * The exemption is deliberately CARD-PRESENCE based, not answered-ness based:
+ * a notice that stays in the transcript after being answered keeps its row
+ * live until the terminal run event pairs it. Whether the pause was already
+ * answered lives in later messages and is never consulted here.
+ */
+function pendingPauseToolCallIdFromPart(part: unknown): string | null {
+  if (!isRecord(part) || part['type'] !== 'data') {
+    return null;
+  }
+  const name = part['name'];
+  if (name !== TOOL_APPROVAL_DATA_NAME && name !== TOOL_SUSPEND_DATA_NAME) {
+    return null;
+  }
+  const data = part['data'];
+  return isRecord(data) && typeof data['toolCallId'] === 'string' ? data['toolCallId'] : null;
+}
+
+/** Single-pass collection of every pending pause's `toolCallId`, for the per-event resolution path. */
+function collectPendingPauseToolCallIds(messages: readonly unknown[]): Set<string> {
+  const ids = new Set<string>();
+  for (const message of messages) {
+    for (const part of getMessageParts(message)) {
+      const toolCallId = pendingPauseToolCallIdFromPart(part);
+      if (toolCallId) {
+        ids.add(toolCallId);
+      }
+    }
+  }
+  return ids;
+}
+
+function applyInterruptedRule(
+  event: AssistantRunEvent,
+  resolved: AssistantRunEventStatus,
+  ownerSettled: boolean,
+  pendingPauseToolCallIds: ReadonlySet<string>
+): AssistantRunEventDisplayStatus {
+  if (resolved !== 'running' || !ownerSettled) {
+    return resolved;
+  }
+  const toolCallId = event.metadata?.['toolCallId'];
+  if (typeof toolCallId === 'string' && pendingPauseToolCallIds.has(toolCallId)) {
+    return resolved;
+  }
+  return 'interrupted';
 }
 
 interface RunEventIndex {
@@ -247,15 +333,21 @@ function resolveIndexedRunEventStatus(
 
 function collectIndexedRunEvents(messages: readonly unknown[]): {
   events: AssistantRunEvent[];
+  ownerSettled: boolean[];
+  pendingPauseToolCallIds: Set<string>;
   toolCallIds: Set<string>;
 } {
   const events: AssistantRunEvent[] = [];
+  const ownerSettled: boolean[] = [];
   const toolCallIds = new Set<string>();
+  const pendingPauseToolCallIds = new Set<string>();
   for (const message of messages) {
+    const settled = isSettledMessage(message);
     for (const part of getMessageParts(message)) {
       const event = getRunEventFromPart(part);
       if (event) {
         events.push(event);
+        ownerSettled.push(settled);
         continue;
       }
       if (isRecord(part) && part['type'] === 'tool-call') {
@@ -263,10 +355,15 @@ function collectIndexedRunEvents(messages: readonly unknown[]): {
         if (typeof toolCallId === 'string') {
           toolCallIds.add(toolCallId);
         }
+        continue;
+      }
+      const pendingToolCallId = pendingPauseToolCallIdFromPart(part);
+      if (pendingToolCallId) {
+        pendingPauseToolCallIds.add(pendingToolCallId);
       }
     }
   }
-  return { events, toolCallIds };
+  return { events, ownerSettled, pendingPauseToolCallIds, toolCallIds };
 }
 
 function createRunEventIndex(): RunEventIndex {
@@ -373,7 +470,8 @@ function applyRepeatedEventPlans(
  * status/render-plan scans.
  */
 export function deriveAssistantRunEventRows(messages: readonly unknown[]): AssistantRunEventRows {
-  const { events, toolCallIds } = collectIndexedRunEvents(messages);
+  const { events, ownerSettled, pendingPauseToolCallIds, toolCallIds } =
+    collectIndexedRunEvents(messages);
   const futureEvents = createRunEventIndex();
   const statusByIndex: Array<AssistantRunEventStatus | undefined> = [];
   const planByIndex: Array<string | undefined> = [];
@@ -388,12 +486,17 @@ export function deriveAssistantRunEventRows(messages: readonly unknown[]): Assis
   }
 
   const renderPlanKeys: Record<string, string> = {};
-  const statuses: Record<string, AssistantRunEventStatus> = {};
+  const statuses: Record<string, AssistantRunEventDisplayStatus> = {};
   for (const [eventIndex, event] of events.entries()) {
     if (statuses[event.id] !== undefined) {
       continue;
     }
-    statuses[event.id] = statusByIndex[eventIndex] ?? event.status;
+    statuses[event.id] = applyInterruptedRule(
+      event,
+      statusByIndex[eventIndex] ?? event.status,
+      ownerSettled[eventIndex] ?? false,
+      pendingPauseToolCallIds
+    );
     renderPlanKeys[event.id] = planByIndex[eventIndex] ?? 'visible:1';
   }
   applyRepeatedEventPlans(events, renderPlanKeys);
@@ -696,12 +799,12 @@ export function resolveAssistantRunEventRenderPlan(
   return repeatCount === 1 ? VISIBLE_ONCE : { hidden: false, repeatCount };
 }
 
-export function resolveAssistantRunEventStatus(
+function resolvePairedRunEventStatus(
   messages: readonly unknown[],
-  event: AssistantRunEvent | null
+  event: AssistantRunEvent
 ): AssistantRunEventStatus {
-  if (event?.status !== 'running') {
-    return event?.status ?? 'info';
+  if (event.status !== 'running') {
+    return event.status;
   }
 
   const terminalKinds = getTerminalKinds(event.kind);
@@ -721,4 +824,49 @@ export function resolveAssistantRunEventStatus(
   }
 
   return event.status;
+}
+
+/**
+ * True when the message OWNING this event id has settled. Scans messages in
+ * order and returns as soon as the owning part is found — the same shape
+ * `collectIndexedRunEvents` builds once for the batched derivation, but this
+ * path is called per-event (`resolveAssistantRunEventStatus`'s always-visible
+ * consumers), so it re-walks rather than sharing that index.
+ */
+function isOwnerSettled(messages: readonly unknown[], eventId: string): boolean {
+  for (const message of messages) {
+    for (const part of getMessageParts(message)) {
+      if (getRunEventFromPart(part)?.id === eventId) {
+        return isSettledMessage(message);
+      }
+    }
+  }
+  return false;
+}
+
+export function resolveAssistantRunEventStatus(
+  messages: readonly unknown[],
+  event: AssistantRunEvent | null
+): AssistantRunEventDisplayStatus {
+  if (!event) {
+    return 'info';
+  }
+  const resolved = resolvePairedRunEventStatus(messages, event);
+  if (resolved !== 'running') {
+    return resolved;
+  }
+  // Two more thread walks below (`isOwnerSettled`, `collectPendingPauseToolCallIds`)
+  // exist ONLY to feed `applyInterruptedRule`, which itself short-circuits on
+  // `!ownerSettled` — so skip the second walk entirely once the first says the
+  // owner has not settled, and skip the pause-id walk whenever this event
+  // carries no `toolCallId` (nothing it could ever match against).
+  const ownerSettled = isOwnerSettled(messages, event.id);
+  if (!ownerSettled) {
+    return resolved;
+  }
+  const pendingPauseToolCallIds =
+    typeof event.metadata?.['toolCallId'] === 'string'
+      ? collectPendingPauseToolCallIds(messages)
+      : new Set<string>();
+  return applyInterruptedRule(event, resolved, ownerSettled, pendingPauseToolCallIds);
 }

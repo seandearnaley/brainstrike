@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronUp,
   CircleDashed,
+  CircleSlash,
   CornerDownRight,
 } from 'lucide-react';
 import { type ComponentProps, type ReactElement, useMemo, useState } from 'react';
@@ -56,17 +57,25 @@ const STATUS_ICONS: Record<DisplayStatus, ReactElement> = {
     <AlertCircle aria-hidden="true" className="size-4 text-amber-600 dark:text-amber-500" />
   ),
   running: (
-    <CircleDashed aria-hidden="true" className="size-4 animate-pulse text-muted-foreground" />
+    <CircleDashed
+      aria-hidden="true"
+      className="size-4 animate-pulse text-muted-foreground motion-reduce:animate-none"
+      data-live="true"
+    />
   ),
   success: <CheckCircle aria-hidden="true" className="size-4 text-green-600 dark:text-green-500" />,
 };
 
 const ROW_ICONS: Record<SubAgentToolRowStatus, ReactElement> = {
   error: <AlertCircle aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />,
+  interrupted: (
+    <CircleSlash aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+  ),
   running: (
     <CircleDashed
       aria-hidden="true"
-      className="size-3.5 shrink-0 animate-pulse text-muted-foreground"
+      className="size-3.5 shrink-0 animate-pulse text-muted-foreground motion-reduce:animate-none"
+      data-live="true"
     />
   ),
   success: (

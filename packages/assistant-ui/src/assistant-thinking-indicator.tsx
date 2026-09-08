@@ -2,6 +2,12 @@ import { cn } from '@brainstrike/ui';
 import { type ComponentPropsWithoutRef, useId } from 'react';
 
 interface BrainstrikeThinkingMarkProps extends Omit<ComponentPropsWithoutRef<'svg'>, 'children'> {
+  /**
+   * False for the static (finished) rendering. Drives `data-live`, the one
+   * selector the hydration-liveness invariant reads: `[data-live="true"]`
+   * must be empty on a reloaded thread with nothing pending.
+   */
+  live?: boolean;
   testId?: string;
 }
 
@@ -19,6 +25,7 @@ function toSvgId(prefix: string, reactId: string): string {
 
 export function BrainstrikeThinkingMark({
   className,
+  live = true,
   testId = 'assistant-thinking-mark',
   ...props
 }: BrainstrikeThinkingMarkProps) {
@@ -29,7 +36,12 @@ export function BrainstrikeThinkingMark({
   return (
     <svg
       aria-hidden="true"
-      className={cn('bs-thinking-mark size-4', className)}
+      className={cn(
+        'bs-thinking-mark size-4',
+        live ? undefined : 'bs-thinking-mark-static',
+        className
+      )}
+      data-live={live ? 'true' : 'false'}
       data-testid={testId}
       data-tone="greyscale"
       focusable="false"
