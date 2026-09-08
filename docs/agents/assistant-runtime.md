@@ -1545,7 +1545,13 @@ The raw tool id is visually hidden text OUTSIDE the row's named content span,
 plus the row's own `title` — the e2e text contract — never INSIDE the
 content span, which would otherwise fold `brainstrike.readWorkspaceFile` into
 the non-interactive row's `aria-labelledby` name alongside its verb and
-target.
+target. `trailing` (`StepRowHeader`'s prop for the result-summary chip, the
+resolved-root chip, and the subagent card's `· N tool calls` count) renders
+in that same OUTSIDE position, right after the content span
+(`activity-step-row.tsx`) — it used to sit inside the content span, which
+named a zero-row delegation "Delegating to Explorer · 0 tool calls" instead
+of just its verb (BST-1686). The chip stays visible row text; it just plays
+no part in naming or describing the step, same as the sr-only id beside it.
 
 State glyphs are named, never colour-only: `STEP_STATE_LABELS`
 (`activity-step-tokens.ts`) is the total `role="img"`/`aria-label` map —
@@ -1630,12 +1636,17 @@ Detail level maps to concrete row behaviour via `resolveToolDisplayPolicy`
 (`assistant-detail-level.ts`): `compact` hides the details expander and the
 result-summary chip (`showDetailsExpander: false`, `showResultSummary:
 false`); `standard` shows both, collapsed by default; `developer` auto-opens
-the body (`defaultExpanded: true`) and adds raw I/O (`showRawIo: true`). One
-row chip is NEVER gated by detail level: `ToolFallback`'s `in <root>` chip
-(`extractResolvedRootName`, target disambiguation in a multi-root workspace)
-renders whenever a result carries a `rootName`, unconditional on the
-policy — unlike the result-summary chip beside it, which
-`policy.showResultSummary` gates. Only `developer` shows run-event rows
+the body (`defaultExpanded: true`) and adds raw I/O (`showRawIo: true`).
+`SubagentExecutionCard`'s own trailing chip, `· N tool calls`
+(`subagent-execution-card.tsx`), reads the SAME `policy.showResultSummary`
+gate as `ToolFallback`'s result-summary chip (BST-1686) — it is a result
+summary too, and used to be the one trailing chip in the trace the Detail
+control never touched. One row chip is NEVER gated by detail level:
+`ToolFallback`'s `in <root>` chip (`extractResolvedRootName`, target
+disambiguation in a multi-root workspace) renders whenever a result carries a
+`rootName`, unconditional on the policy — unlike the result-summary chips
+beside it, which `policy.showResultSummary` gates. Only `developer` shows
+run-event rows
 inside the trace: `AssistantRunTimelineDataPart`
 (`assistant-run-timeline-data-part.tsx`) reads
 `shouldShowBackgroundActivity(detailLevel)` and renders the full

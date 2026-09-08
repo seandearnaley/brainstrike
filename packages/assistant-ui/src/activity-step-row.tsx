@@ -141,8 +141,17 @@ export function StepRowHeader(props: StepRowHeaderProps): ReactNode {
             {props.target}
           </span>
         ) : null}
-        {props.trailing}
       </span>
+      {/* Outside `.bs-step-row-content` on purpose, same as the sr-only tool
+          id below: the content element NAMES the non-interactive row
+          (`aria-labelledby`) and is the button form's `aria-describedby`
+          target, so trailing meta (result-summary chips, tool-call counts,
+          the resolved root name) that is not part of naming/describing the
+          step lives here instead — or a zero-row delegation would be named
+          "Delegating to Explorer · 0 tool calls" instead of just its verb
+          (BST-1686). It stays inside the row so the chip is still visible
+          text on the card. */}
+      {props.trailing}
       {/* Outside `.bs-step-row-content` on purpose: the content element NAMES
           the non-interactive row (`aria-labelledby`), so an sr-only tool id
           in there would read the row as "Reading src/app.ts

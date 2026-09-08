@@ -189,6 +189,28 @@ describe('StepRowHeader', () => {
     expect(screen.getByText('app.ts')).toHaveAttribute('title', 'src/app.ts (12 lines)');
   });
 
+  it('keeps trailing content out of the non-interactive row’s accessible name (BST-1686)', () => {
+    // `trailing` used to render INSIDE `.bs-step-row-content`, the
+    // `aria-labelledby` target of the non-interactive row — so a delegation
+    // with a "· 0 tool calls" chip was named "Delegating to Explorer · 0
+    // tool calls" instead of just its verb + target. `trailing` now sits
+    // outside the content span, alongside the sr-only tool id, so it stays
+    // visible text on the row without being folded into the row's name.
+    render(
+      <StepRowHeader
+        family="read"
+        label="ignored"
+        state="done"
+        target="src/app.ts"
+        trailing={<span className="bs-step-row-meta">· 3 results</span>}
+        verb="Read"
+      />
+    );
+    const row = screen.getByTestId('activity-step-row');
+    expect(screen.getByRole('group', { name: /^Read\s*src\/app\.ts$/ })).toBe(row);
+    expect(row).toHaveTextContent('3 results');
+  });
+
   it('omits the timing slot entirely when the caller passes no timing', () => {
     // Bot round 1, Claude Minor 7. `.bs-step-row-timing` is a flex item with
     // its own gap; rendered empty (the reasoning and task-list rows pass no
