@@ -1292,7 +1292,13 @@ group. Grouping rule (pinned by `assistant-activity-grouping.test.ts`):
 library default), required for parity with the legacy path's empty-message
 placeholders (`EmptyParts`, `ConditionalEmpty`) — `"never"` blanks the
 assistant bubble from Send until the first part arrives, which regressed the
-pre-first-token thinking indicator.
+pre-first-token thinking indicator. The library also emits that slot whenever
+the last part is a tool call or transparent data part, i.e. while an activity
+group is live; the renderer drops it once the message has ANY activity part
+(`state.message.parts.some(isActivityPart)`), so the group header is the sole
+live status and no second "Thinking" row trails a collapsed group (CDT pass
+4). The slot still renders for a running message with no activity part yet —
+zero parts, or only standalone data such as `run.started`.
 
 Chronology rulings (unchanged): each contiguous group renders at its own
 position; never hoist later parts into an earlier group or suppress later

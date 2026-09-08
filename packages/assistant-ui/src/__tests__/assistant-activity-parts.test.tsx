@@ -200,10 +200,10 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       expect(staticMark).toHaveClass('bs-thinking-mark-static');
       expect(staticMark).toHaveAttribute('data-live', 'false');
       // Scoped to the fold: a running tool card legitimately renders its own
-      // thinking indicator elsewhere in the document, and the message-level
-      // `indicator="no-text"` placeholder also renders while the message runs
-      // and its last part is not text/reasoning, so asserting on `screen`
-      // directly here would be a false negative for this check.
+      // thinking indicator inside the group body, so asserting on `screen`
+      // directly here would be a false negative for this check. (The
+      // message-level `indicator` slot is suppressed once an activity part
+      // exists — pinned below.)
       expect(within(fold).queryByTestId('assistant-thinking-indicator')).toBeNull();
       expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-active', 'true');
       // The reasoning part already settled once the tool call started
@@ -279,6 +279,64 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       await user.click(screen.getByRole('button', { name: 'Send' }));
 
       expect(await screen.findByTestId('assistant-thinking-indicator')).toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        deferred.release();
+        await deferred.promise;
+      });
+    }
+  }, 20_000);
+
+  it('renders no message-level thinking indicator once an activity group exists: the header is the sole live status', async () => {
+    const user = userEvent.setup();
+    const deferred = createDeferred();
+    const adapter: ChatModelAdapter = {
+      async *run() {
+        yield {
+          content: [
+            runEventPart({
+              id: 'e-run',
+              kind: 'run.started',
+              status: 'running',
+              timestamp: '2026-09-05T10:00:00.000Z',
+            }),
+            runEventPart({
+              id: 'e-tool',
+              kind: 'tool.started',
+              status: 'running',
+              timestamp: '2026-09-05T10:00:01.000Z',
+              toolCallId: 'call-1',
+            }),
+            {
+              args: { pattern: 'x' },
+              argsText: '{"pattern":"x"}',
+              toolCallId: 'call-1',
+              toolName: 'brainstrike.grepSearch',
+              type: 'tool-call' as const,
+            },
+          ],
+        };
+        await deferred.promise;
+      },
+    };
+
+    try {
+      render(<Harness adapter={adapter} />);
+      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Investigate.');
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+
+      const group = await screen.findByTestId('assistant-activity-group');
+      expect(group).toHaveAttribute('data-state', 'running');
+      expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent('Working');
+      // The library still emits its `indicator` slot here (last part is a tool
+      // call, not text/reasoning); the renderer must drop it so a collapsed
+      // group never shows a second "Thinking" row beneath its own cycler
+      // (CDT pass 4 defect). The running card's own indicator lives INSIDE the
+      // group body and is not what this pins.
+      const outsideGroup = [
+        ...document.querySelectorAll('[data-testid="assistant-thinking-indicator"]'),
+      ].filter((element) => element.closest('[data-testid="assistant-activity-group"]') === null);
+      expect(outsideGroup).toHaveLength(0);
     } finally {
       await act(async () => {
         deferred.release();

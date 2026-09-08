@@ -290,7 +290,12 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
  * running message's LAST part was not `text`/`reasoning` — e.g. only a
  * `run.started` data part has arrived so far. `"never"` blanked the assistant
  * bubble for the whole gap between Send and the first part landing, which
- * regressed both cases. When an empty running text part exists it is normally
+ * regressed both cases. The library ALSO emits the slot whenever the last
+ * part is a tool call or a transparent data part — i.e. while an activity
+ * group is live — and rendering it there put a second "Thinking" row under a
+ * collapsed group whose header already cycles the current step (CDT pass 4).
+ * So the slot renders only while the message has NO activity part yet; once a
+ * group exists its header is the sole live status. When an empty running text part exists it is normally
  * the LAST part (the stream never opens a text part and then appends another
  * part before its first delta), so the library emits no indicator and
  * `markdown-text.tsx` owns the placeholder; the one theoretical overlap (an
@@ -298,6 +303,7 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
  * `MessagePrimitive.Parts` path shared.
  */
 export function AssistantActivityParts(): ReactNode {
+  const hasActivityParts = useAuiState((state) => state.message.parts.some(isActivityPart));
   return (
     <MessagePrimitive.GroupedParts<ActivityGroupKey>
       groupBy={groupAssistantActivityPart}
@@ -324,7 +330,7 @@ export function AssistantActivityParts(): ReactNode {
           case 'data':
             return part.dataRendererUI;
           case 'indicator':
-            return (
+            return hasActivityParts ? null : (
               <AssistantThinkingIndicator
                 className="bs-streaming-thinking"
                 markClassName="size-4"
