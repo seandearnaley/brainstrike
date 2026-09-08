@@ -141,6 +141,8 @@ Rules:
 
 The active/resting pair is the seam a future small-model summary plugs into: the trace accepts an optional `restingOverride` read from message `metadata.custom.brainstrikeActivitySummary`. No producer is built now; the seam is documented and typed.
 
+**Status (phase 2, BST-1679) — where the shipped table differs from the one above.** The catalog is 39 native tool ids (36 `brainstrike.*` plus the unprefixed Agent Skills ids `skill` / `skill_read` / `skill_search`), and `TOOL_VERBS` is total over it by type. The three skill verbs ship as `Activating skill` / `Activated skill`, `Reading skill file` / `Read skill file` and `Searching skills` / `Searched skills` — not the single `Loading / Loaded skill` pair in the table. The file count is NOT a property of the `edit` family as written above: it is an explicit per-verb `countsFiles` flag (`'always'` for the four edit-style file verbs, `'plural'` for `readWorkspaceFile`), because the `read` family also covers directory listings, artifact reads and context reads, whose targets are not files. `ActivitySummary` also carries `waiting` (a gated step exists and no tool step still runs) — the clock/announcement gate, narrower than the `Waiting for approval` label.
+
 ### 4.3 Presentation
 
 **Status (phase 2, BST-1679):** L0 shipped — status row, detail line, motion

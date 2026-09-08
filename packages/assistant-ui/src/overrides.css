@@ -677,9 +677,37 @@
   background: hsl(var(--muted) / 0.5);
 }
 
+/*
+ * The resting row's own flex line. Stylesheet-owned rather than left to
+ * utility classes on the span, for the same reason as the label rule below:
+ * this row's single-line height is a scroll-anchoring invariant (§4.7), and
+ * `min-width: 0` here is what lets the headline shrink at all (a flex item's
+ * automatic minimum is its content).
+ */
+.assistant-ui-panel .bs-activity-summary-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+/*
+ * The headline is model-influenced text of unbounded length (and
+ * `restingOverride` is model-written outright), so it must yield to the meta
+ * segments beside it rather than push them out of the row: it shrinks
+ * (`min-width: 0` — a flex item's automatic minimum is its content, which
+ * `flex-shrink: 0` here compounded) and ellipsises on one line. Declared on
+ * the rule rather than left to the `truncate` utility on the element: this
+ * stylesheet is unlayered and therefore authoritative for this element, and
+ * the row's single-line height is a scroll-anchoring invariant (§4.7), not a
+ * utility-class detail.
+ */
 .assistant-ui-panel .bs-activity-summary-label {
-  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .assistant-ui-panel .bs-activity-summary-meta {
@@ -691,17 +719,6 @@
 .assistant-ui-panel .bs-activity-summary-failed {
   color: hsl(var(--destructive));
   font-weight: 600;
-}
-
-.assistant-ui-panel .bs-activity-active-tool {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: hsl(var(--muted-foreground));
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.7rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .assistant-ui-panel .bs-activity-right {

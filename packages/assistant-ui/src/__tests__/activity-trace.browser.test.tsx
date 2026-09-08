@@ -4,8 +4,13 @@ import { act, render, screen } from '@testing-library/react';
 import { expect, test } from 'vitest';
 import { ActivityTrace } from '../activity-trace';
 
-const live = { counts: { failed: 0, steps: 1 }, live: 'Reading app.ts', resting: 'Read' };
-const done = { counts: { failed: 0, steps: 1 }, live: 'Working', resting: 'Read' };
+const live = {
+  counts: { failed: 0, steps: 1 },
+  live: 'Reading app.ts',
+  resting: 'Read',
+  waiting: false,
+};
+const done = { counts: { failed: 0, steps: 1 }, live: 'Working', resting: 'Read', waiting: false };
 
 test('the header keeps one height across live and resting states', () => {
   const { rerender } = render(
@@ -69,4 +74,45 @@ test('the detail slot renders only while active and the chevron rotates when ope
     await new Promise((resolve) => setTimeout(resolve, 200));
   });
   expect(getComputedStyle(glyph).transform).not.toBe('none');
+});
+
+// The verb summary is model-influenced text of unbounded length (and a
+// `restingOverride` is written by the model outright). With the label
+// unshrinkable it pushed the meta segments straight out of the button, so
+// "· N steps" — the one part of the row that is always true — was the first
+// thing to disappear. The label truncates instead (review finding 4).
+test('a long resting headline truncates instead of pushing the step count out of the row', () => {
+  const summary = {
+    counts: { failed: 0, steps: 3 },
+    live: 'Working',
+    resting: 'Read',
+    waiting: false,
+  };
+  const row = (headline: string) => (
+    <div className="assistant-ui-panel" style={{ width: 480 }}>
+      <ActivityTrace
+        detail={null}
+        fallbackMs={12_000}
+        incompleteReason={undefined}
+        isActive={false}
+        restingOverride={headline}
+        summary={summary}
+      />
+    </div>
+  );
+  const { rerender } = render(row('Read 2 files'));
+  const shortHeight = screen
+    .getByTestId('assistant-activity-summary')
+    .getBoundingClientRect().height;
+
+  rerender(row('Read '.repeat(60).slice(0, 300)));
+  const button = screen.getByTestId('assistant-activity-summary');
+  const steps = screen.getByText('· 3 steps');
+  expect(steps.getBoundingClientRect().width).toBeGreaterThan(0);
+  expect(steps.getBoundingClientRect().right).toBeLessThanOrEqual(
+    button.getBoundingClientRect().right
+  );
+  // …and the headline ellipsises on ONE line rather than wrapping the row
+  // taller (the fixed-height scroll-anchoring rule, spec §4.7).
+  expect(button.getBoundingClientRect().height).toBe(shortHeight);
 });

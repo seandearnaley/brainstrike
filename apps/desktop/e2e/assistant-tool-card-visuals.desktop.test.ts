@@ -55,10 +55,15 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     await expect(window.getByText('Retrieved answer.').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
+    // See the note in assistant-retrieval.desktop.test.ts: the group is
+    // collapsed at all times since BST-1679, so `data-state` — not
+    // `aria-expanded` — is the turn-finished sync.
+    await expect(window.getByTestId('assistant-activity-group').first()).toHaveAttribute(
+      'data-state',
+      'done',
+      { timeout: E2E_TIMEOUTS.toolVisibility }
+    );
     const summary = window.getByTestId('assistant-activity-summary').first();
-    await expect(summary).toHaveAttribute('aria-expanded', 'false', {
-      timeout: E2E_TIMEOUTS.toolVisibility,
-    });
     await summary.click();
     const toolCard = window.getByTestId('tool-fallback').first();
     await expect(toolCard).toBeVisible({ timeout: E2E_TIMEOUTS.toolVisibility });
@@ -77,10 +82,10 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     await sendPrompt(window, PROMPT_TEXT);
 
     const activityGroup = window.getByTestId('assistant-activity-group').first();
-    const summary = window.getByTestId('assistant-activity-summary').first();
-    await expect(summary).toHaveAttribute('aria-expanded', 'false', {
+    await expect(activityGroup).toHaveAttribute('data-state', 'done', {
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
+    const summary = window.getByTestId('assistant-activity-summary').first();
     await expect(summary).toContainText('1 failed');
     // The resting headline is the verb summary now (BST-1679), not the fixed
     // word "Worked": an unrecognised tool name reads honestly as "Used <name>".

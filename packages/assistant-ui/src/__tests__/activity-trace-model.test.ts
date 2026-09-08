@@ -179,6 +179,33 @@ describe('summarizeActivity', () => {
     expect(summarizeActivity(steps).live).toBe('Waiting for approval');
   });
 
+  // `waiting` is the CLOCK gate (and the sr-announcement's), deliberately
+  // narrower than the label: the label answers "what is the header saying"
+  // and a gate wins that race, but a run with another tool still executing is
+  // not paused on the user — its elapsed time is real work and must keep
+  // ticking. Pinned as a property of the summary so the two consumers in
+  // activity-trace.tsx cannot re-derive it differently.
+  it('flags waiting only when a gated step exists and no tool is still running', () => {
+    const gate = tool(
+      'w',
+      'brainstrike.executeCommand',
+      { command: 'rm -rf x' },
+      { status: { reason: 'interrupt', type: 'requires-action' } }
+    );
+    const gatedOnly = summarizeActivity(deriveActivitySteps([gate], {}));
+    expect(gatedOnly.live).toBe('Waiting for approval');
+    expect(gatedOnly.waiting).toBe(true);
+
+    const gatedWhileRunning = summarizeActivity(
+      deriveActivitySteps(
+        [gate, tool('r', 'brainstrike.grepSearch', { pattern: 'foo' }, running)],
+        {}
+      )
+    );
+    expect(gatedWhileRunning.live).toBe('Waiting for approval');
+    expect(gatedWhileRunning.waiting).toBe(false);
+  });
+
   it('reads Thinking while only reasoning streams and Working when nothing is identifiable', () => {
     expect(summarizeActivity(deriveActivitySteps([reasoning('x', 'running')], {})).live).toBe(
       'Thinking'
@@ -221,6 +248,7 @@ describe('summarizeActivity', () => {
       counts: { failed: 1, steps: 2 },
       live: 'Working',
       resting: 'Read, searched',
+      waiting: false,
     });
   });
 
@@ -230,6 +258,37 @@ describe('summarizeActivity', () => {
       {}
     );
     expect(summarizeActivity(steps).resting).toBe('Edited 1 file');
+  });
+
+  it('counts files for a delete from the first distinct target', () => {
+    const steps = deriveActivitySteps(
+      [done('1', 'brainstrike.deleteWorkspaceFile', { path: 'a.ts' })],
+      {}
+    );
+    expect(summarizeActivity(steps).resting).toBe('Deleted 1 file');
+  });
+
+  // The fold is a property of the VERB (`countsFiles`), never of its family:
+  // `read` also covers directory listings, artifact reads and context reads,
+  // whose targets are not files, so folding the whole family read
+  // "Listed 2 files" / "Read output 2 files" for them (review finding).
+  it('never folds a file count onto a read-family verb whose target is not a file', () => {
+    const listed = deriveActivitySteps(
+      [
+        done('1', 'brainstrike.readWorkspaceDirectory', { path: 'src' }),
+        done('2', 'brainstrike.readWorkspaceDirectory', { path: 'docs' }),
+      ],
+      {}
+    );
+    expect(summarizeActivity(listed).resting).toBe('Listed');
+    const artifacts = deriveActivitySteps(
+      [
+        done('1', 'brainstrike.readToolOutputArtifact', { id: 'artifact-1' }),
+        done('2', 'brainstrike.readToolOutputArtifact', { id: 'artifact-2' }),
+      ],
+      {}
+    );
+    expect(summarizeActivity(artifacts).resting).toBe('Read output');
   });
 
   it('dedupes distinct-target counts on the untruncated arg, not the ellipsised display', () => {

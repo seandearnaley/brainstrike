@@ -491,8 +491,10 @@ async function executeAssistantTool(
     .getByTestId('assistant-activity-group')
     .filter({ hasText: 'legacy.echo' })
     .last();
+  // Turn-finished sync: the group is collapsed at all times since BST-1679,
+  // so `aria-expanded` resolves immediately and proves nothing.
+  await expect(activity).toHaveAttribute('data-state', 'done');
   const summary = activity.getByTestId('assistant-activity-summary');
-  await expect(summary).toHaveAttribute('aria-expanded', 'false');
   await summary.click();
   const toolCard = activity.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
@@ -539,8 +541,10 @@ async function executeElicitationTool(
     .getByTestId('assistant-activity-group')
     .filter({ hasText: 'oauth.elicit_confirm' })
     .last();
+  // Turn-finished sync: the group is collapsed at all times since BST-1679,
+  // so `aria-expanded` resolves immediately and proves nothing.
+  await expect(activity).toHaveAttribute('data-state', 'done');
   const summary = activity.getByTestId('assistant-activity-summary');
-  await expect(summary).toHaveAttribute('aria-expanded', 'false');
   await summary.click();
   const toolCard = activity
     .getByTestId('tool-fallback')

@@ -90,16 +90,17 @@ function headlineFor(phase: TracePhase, restingHeadline: string): string {
 
 /**
  * The elapsed-meta text next to the headline; omitted entirely for `failed`.
- * Leading space is deliberate: this renders directly after the headline span
- * with no separator node between them, and "Stopped after 4.0s" /
- * "<verb summary> Worked for 12.0s" must read as one phrase, not run words
- * together ("Stoppedafter").
+ * There is no separator node between the meta spans (the visual gap is CSS),
+ * so each segment carries its own: the done meta reads "· Worked for 12.0s"
+ * like "· N steps" and "· N failed" beside it. Cancelled is the exception —
+ * it continues its own headline, so it keeps a leading space and reads
+ * "Stopped after 4.0s" as one phrase rather than "Stopped · after 4.0s".
  */
 function metaFor(phase: TracePhase, elapsedLabel: string | null): string | null {
   if (!elapsedLabel || phase === 'failed') {
     return null;
   }
-  return phase === 'cancelled' ? ` after ${elapsedLabel}` : ` Worked for ${elapsedLabel}`;
+  return phase === 'cancelled' ? ` after ${elapsedLabel}` : `· Worked for ${elapsedLabel}`;
 }
 
 /**
@@ -120,18 +121,20 @@ function stepLabel(count: number): string {
 const WAITING_LABEL = 'Waiting for approval';
 
 /**
- * True while the run is paused on the user (the model's live label is the
- * single source: `summarizeActivity` emits this string for any waiting step).
+ * True while the run is paused on the USER. The model owns the test
+ * (`ActivitySummary.waiting`: a gated step exists and no tool step still
+ * runs) — deliberately narrower than the live LABEL, which reads
+ * "Waiting for approval" even while a sibling call is still executing.
  * Shared by the sr-only announcement and the elapsed-clock gate so the two
  * cannot drift apart.
  */
-function isWaitingForUser(phase: TracePhase, liveLabel: string): boolean {
-  return phase === 'running' && liveLabel === WAITING_LABEL;
+function isWaitingForUser(phase: TracePhase, summary: ActivitySummary): boolean {
+  return phase === 'running' && summary.waiting;
 }
 
 /** The sr-only status-transition announcement; "Waiting for approval" is the one exception that isn't just the phase's fixed text. */
-function announcementFor(phase: TracePhase, liveLabel: string): string {
-  if (isWaitingForUser(phase, liveLabel)) {
+function announcementFor(phase: TracePhase, summary: ActivitySummary): string {
+  if (isWaitingForUser(phase, summary)) {
     return WAITING_LABEL;
   }
   return PHASE_ANNOUNCEMENT[phase];
@@ -185,7 +188,7 @@ function RestingSummary({
   readonly verbMeta: string | null;
 }): ReactNode {
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5">
+    <span className="bs-activity-summary-row inline-flex min-w-0 items-center gap-1.5">
       <span className="bs-activity-summary-label bs-trace-label truncate" key={headline}>
         {headline}
       </span>
@@ -225,15 +228,17 @@ export function ActivityTrace({
   const expanded = userExpanded ?? false;
   const phase = phaseOf(isActive, incompleteReason);
   // The same "is this the one live pause" test the sr-announcement already
-  // makes (`announcementFor`) — reused here so the elapsed clock pauses for
-  // the exact duration the header reads "Waiting for approval": the user's
-  // own deliberation time must never inflate "Worked for Ns", and an
-  // abandoned in-session pause must not tick forever (BST-1679 task 6).
-  const waiting = isWaitingForUser(phase, summary.live);
+  // makes (`announcementFor`) — reused here so the elapsed clock pauses while
+  // the run is genuinely blocked on the user: their own deliberation time
+  // must never inflate "Worked for Ns", and an abandoned in-session pause
+  // must not tick forever (BST-1679 task 6). A gate with another tool STILL
+  // RUNNING is not that pause — `summary.waiting` excludes it, so concurrent
+  // work keeps ticking even though the header reads "Waiting for approval".
+  const waiting = isWaitingForUser(phase, summary);
   const elapsedMs = useElapsedMs(isActive && !waiting, fallbackMs);
   const elapsedLabel = elapsedMs === undefined ? null : formatActivityDuration(elapsedMs);
   const failed = phase === 'failed';
-  const announcement = announcementFor(phase, summary.live);
+  const announcement = announcementFor(phase, summary);
   const restingHeadline = restingOverride ?? summary.resting;
   const headline = headlineFor(phase, restingHeadline);
   const meta = metaFor(phase, elapsedLabel);

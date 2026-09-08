@@ -31,6 +31,14 @@ export interface ActivitySummary {
   readonly counts: ActivityCounts;
   readonly live: string;
   readonly resting: string;
+  /**
+   * The run is paused on the USER: a gated step exists and no tool step is
+   * still executing. Deliberately narrower than the `Waiting for approval`
+   * label (a gate wins the label race even while a sibling call runs) —
+   * `activity-trace.tsx` gates the elapsed clock and the sr-announcement on
+   * this, so real concurrent work still ticks.
+   */
+  readonly waiting: boolean;
 }
 
 const REASONING_VERB: ActivityVerb = Object.freeze({
@@ -143,6 +151,19 @@ function lowerInitial(value: string): string {
   return value.charAt(0).toLowerCase() + value.slice(1);
 }
 
+/**
+ * Whether the resting phrase folds a distinct-target file count in. The
+ * decision is the VERB's own `countsFiles` flag, never its family: `read`
+ * covers directory listings, artifact reads and context reads too, whose
+ * targets are not files (review finding — those read "Listed 2 files").
+ */
+function foldsFileCount(verb: ActivityVerb | undefined, fileCount: number): boolean {
+  if (verb?.countsFiles === 'always') {
+    return fileCount > 0;
+  }
+  return verb?.countsFiles === 'plural' && fileCount > 1;
+}
+
 function restingLabel(steps: readonly ActivityStep[]): string {
   const settled = steps.filter(
     (step) => step.kind === 'tool' && (step.state === 'done' || step.state === 'failed')
@@ -155,7 +176,7 @@ function restingLabel(steps: readonly ActivityStep[]): string {
   // families (e.g. two distinct native tools both reading "Read"). True
   // today by inspection of TOOL_VERBS — if that ever changes, key on
   // `${family}:${done}` instead so unrelated families don't merge counts.
-  const familyByVerb = new Map<string, ActivityVerb['family']>();
+  const verbByDone = new Map<string, ActivityVerb>();
   for (const step of settled) {
     const key = step.verb.done;
     const targets = targetsByVerb.get(key) ?? new Set<string>();
@@ -166,18 +187,14 @@ function restingLabel(steps: readonly ActivityStep[]): string {
       targets.add(step.targetKey);
     }
     targetsByVerb.set(key, targets);
-    familyByVerb.set(key, step.verb.family);
+    verbByDone.set(key, step.verb);
   }
   const phrases = [...targetsByVerb.entries()].map(([verbDone, targets]) => {
-    const family = familyByVerb.get(verbDone);
     const fileCount = targets.size;
-    if (family === 'edit' && fileCount > 0) {
-      return `${verbDone} ${fileCount} ${fileCount === 1 ? 'file' : 'files'}`;
+    if (!foldsFileCount(verbByDone.get(verbDone), fileCount)) {
+      return verbDone;
     }
-    if (family === 'read' && fileCount > 1) {
-      return `${verbDone} ${fileCount} files`;
-    }
-    return verbDone;
+    return `${verbDone} ${fileCount} ${fileCount === 1 ? 'file' : 'files'}`;
   });
   const shown = phrases.slice(0, MAX_RESTING_VERBS);
   const rest = phrases.length - shown.length;
@@ -196,5 +213,8 @@ export function summarizeActivity(steps: readonly ActivityStep[]): ActivitySumma
     },
     live: liveLabel(steps),
     resting: restingLabel(steps),
+    waiting:
+      steps.some((step) => step.state === 'waiting') &&
+      !toolSteps.some((step) => step.state === 'running'),
   };
 }

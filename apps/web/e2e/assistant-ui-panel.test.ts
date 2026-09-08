@@ -614,13 +614,20 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await page.getByRole('button', { exact: true, name: 'Send' }).click();
 
     // Since #1237/#1240 a turn's tool cards live inside a per-turn Activity
-    // group that auto-collapses when the turn finishes (the card stays in the
-    // DOM but hidden). Deterministically wait out the auto-collapse, then
-    // expand the group — the per-card details below must STILL be collapsed
-    // until explicitly expanded (the behavior this test exists to pin).
+    // group (the card stays in the DOM but hidden). Sync on the turn
+    // FINISHING via `data-state` — since BST-1679 the group is collapsed at
+    // all times, so `aria-expanded` is no longer that signal — then assert
+    // the collapsed default still holds and expand it. The per-card details
+    // below must STILL be collapsed until explicitly expanded (the behavior
+    // this test exists to pin).
     const activitySummary = viewport.getByTestId('assistant-activity-summary');
     await expect(activitySummary).toBeVisible({ timeout: 10_000 });
-    await expect(activitySummary).toHaveAttribute('aria-expanded', 'false', { timeout: 10_000 });
+    await expect(viewport.getByTestId('assistant-activity-group')).toHaveAttribute(
+      'data-state',
+      'done',
+      { timeout: 10_000 }
+    );
+    await expect(activitySummary).toHaveAttribute('aria-expanded', 'false');
     await activitySummary.click();
 
     const toolCard = viewport.getByTestId('tool-fallback');

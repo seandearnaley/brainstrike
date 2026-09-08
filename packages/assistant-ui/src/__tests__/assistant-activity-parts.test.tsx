@@ -519,6 +519,48 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
     expect(liveElements).toHaveLength(1);
     expect(liveElements[0]).toHaveAttribute('data-testid', 'assistant-activity-working-mark');
   });
+
+  // Same pause, one part later: the library's `GroupPart.status` mirrors the
+  // group's LAST member, and a group-transparent run-event data part can be
+  // that member — so the raw group status reads "complete" while the gated
+  // call in the same group is still `requires-action`. Reading the clause off
+  // the raw status darkened the whole approval wait in exactly the shape
+  // #3061 finding 1 fixed for the headline; `isActivityActive` derives it
+  // from the group's ACTIVITY parts instead.
+  it('stays Waiting for approval when a transparent run-event trails the gated call', async () => {
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: [
+              tool('x', {
+                args: { command: 'rm x' },
+                argsText: '{"command":"rm x"}',
+                result: undefined,
+                toolName: 'brainstrike.executeCommand',
+              }),
+              runEventPart({
+                id: 'e-tool',
+                kind: 'tool.started',
+                status: 'running',
+                timestamp: '2026-09-05T10:00:01.000Z',
+                toolCallId: 'x',
+              }),
+            ],
+            role: 'assistant',
+            status: { reason: 'interrupt', type: 'requires-action' },
+          },
+        ]}
+      />
+    );
+    const group = await screen.findByTestId('assistant-activity-group');
+    expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
+      'Waiting for approval'
+    );
+    expect(group).toHaveAttribute('data-state', 'running');
+    expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(1);
+  });
 });
 
 function indicatorsOutsideGroups(): Element[] {

@@ -1312,11 +1312,17 @@ Chronology rulings (unchanged): each contiguous group renders at its own
 position; never hoist later parts into an earlier group or suppress later
 groups. Group status is the library's `GroupPart.status` (running if any part
 runs, else the last part's). `ActivityGroup`'s `isActivityActive` reads `true`
-when: the group's own status is `running`; OR the group's own status is
-`requires-action` — a call paused at its approval gate carries this status,
-never `running`, for as long as the gate stays open, and only this branch
-makes the model's `waiting` → `Waiting for approval` label
-(`activity-trace-model.ts`) reachable (BST-1679 task 6); OR the message is
+when: the group's own status is `running`; OR any of the group's ACTIVITY
+parts is `requires-action` — a call paused at its approval gate carries this
+status, never `running`, for as long as the gate stays open, and only this
+branch makes the model's `waiting` → `Waiting for approval` label
+(`activity-trace-model.ts`) reachable (BST-1679 task 6). That clause reads the
+activity parts, never the raw group status: `GroupPart.status` mirrors the
+group's LAST member, which a group-transparent run-event data part (or a
+settled sibling call) can be, so reading it raw darkened the whole approval
+wait in the same shape finding 1 (below) fixed for the headline. It is a
+`.some` over the parts, matching `liveLabel`'s own `findLast(waiting)`: ANY
+gated call holds the pause. OR the message is
 still running, this group holds the message's last part, and the group's own
 status has not resolved to `incomplete` — a tool call's result can land in the
 same streamed chunk that fences the next call into the same coalesced group,
@@ -1374,22 +1380,50 @@ observable once `isActivityActive` kept the group live through the pause
 (BST-1679 task 6, per the ruling above).
 
 The elapsed clock (`useElapsedMs`, gated by `isActive && !waiting` where
-`waiting` is the same `phase === 'running' && summary.live === 'Waiting for
-approval'` test the sr-announcement makes) pauses for the exact duration the
-header reads `Waiting for approval`: the user's own deliberation time never
-inflates the eventual `Worked for Ns`, and an abandoned in-session pause does
-not tick forever. The elapsed badge itself stays visible but frozen — not
+`waiting` is the same `phase === 'running' && summary.waiting` test the
+sr-announcement makes) pauses while the run is blocked on the user, so their
+own deliberation time does not inflate the LIVE readout and an abandoned
+in-session pause does not tick forever. `ActivitySummary.waiting`
+(`activity-trace-model.ts`) is the single source for both consumers and is
+deliberately NARROWER than the `Waiting for approval` label: a gated step
+wins the label race even while a sibling tool call still executes, and that
+run is not paused on anyone — `waiting` requires a gated step AND no tool
+step still running, so genuine concurrent work keeps ticking under the
+waiting headline. The elapsed badge itself stays visible but frozen — not
 hidden — across the wait, so the header's height never shifts across the
 running → waiting → running cycle (BST-1679 task 6).
 
+Scope of that pause, precisely (do not overstate it): only the LIVE clock
+pauses, and only for as long as the group stays mounted. The value that
+survives a reload is `runEventsSpanMs` — the group's own run-event span,
+wall-clock first-to-last — and it DOES include the time spent waiting, so a
+reloaded turn's `Worked for Ns` reads longer than the live clock did. Within
+a session the same span is the seed (`fallbackMs`), so a second pause
+re-anchors the clock from it rather than from the paused value. Nothing
+subtracts wait time from a persisted duration.
+
 At rest the headline is the verb summary from `restingLabel`: unique
 DONE-verb phrases in first-occurrence order, capped at three (`+N more` for
-the rest), with file counts on the `edit`/`read` verb families deduped on the
-untruncated `targetKey` rather than the display-capped `target` (so two long
-paths sharing a head/tail after 64-char middle-ellipsising still count as two
-files) — `edit` folds to "Edited N files", `read` folds to "Read N files"
-once N > 1. The meta reads `Worked for Ns · N steps · N failed` (step/failed
-counts from `summary.counts`, each segment omitted when zero). `Stopped after
+the rest). Verbs flagged `countsFiles` (`activity-verbs.ts`) — and ONLY those
+— carry a distinct-target file count, deduped on the untruncated `targetKey`
+rather than the display-capped `target` (so two long paths sharing a
+head/tail after 64-char middle-ellipsising still count as two files).
+`countsFiles: 'always'` counts from one (`Edited 1 file`), `'plural'` only
+from two (`Read 2 files`, but a single read stays the bare `Read`). The flag
+is a property of the VERB, never of its family: the `read` family also covers
+directory listings, artifact reads and context reads, whose targets are not
+files, and folding the family read "Listed 2 files" for them (review
+finding). Exactly five ids carry it — `readWorkspaceFile` (`plural`),
+`writeWorkspaceFile` / `stringReplaceWorkspaceFile` / `deleteWorkspaceFile` /
+`renameWorkspaceFile` (`always`) — pinned by `activity-verbs.test.ts`. The
+meta reads `· Worked for Ns · N steps · N failed` (each segment carries its
+own `·`, since no whitespace separates the spans; `Stopped after Ns` is the
+one exception, continuing its own headline as one phrase) (step/failed
+counts from `summary.counts`, each segment omitted when zero). The headline
+shrinks and ellipsises on one line (`.bs-activity-summary-label`,
+`overrides.css`) so an unbounded model-written summary truncates instead of
+pushing the meta out of the row; the row's flex line
+(`.bs-activity-summary-row`) is stylesheet-owned for the same reason. `Stopped after
 Ns` and `Activity failed` remain the headlines for the GROUP'S OWN incomplete
 status (unchanged rule: cancelled → Stopped, any other reason → Activity
 failed) — a failed tool step alone never fails the group, only its own

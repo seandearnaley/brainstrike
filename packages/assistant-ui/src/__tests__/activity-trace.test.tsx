@@ -11,11 +11,13 @@ const live: ActivitySummary = {
   counts: { failed: 0, steps: 2 },
   live: 'Searching foo',
   resting: 'Read, searched',
+  waiting: false,
 };
 const done: ActivitySummary = {
   counts: { failed: 0, steps: 3 },
   live: 'Working',
   resting: 'Read 2 files, ran',
+  waiting: false,
 };
 
 describe('ActivityTrace', () => {
@@ -52,8 +54,12 @@ describe('ActivityTrace', () => {
     );
     const summary = screen.getByTestId('assistant-activity-summary');
     expect(summary).toHaveTextContent('Read 2 files, ran');
-    expect(summary).toHaveTextContent('Worked for 12.0s');
-    expect(summary).toHaveTextContent('3 steps');
+    // The meta segments carry their own separator (there is no whitespace
+    // between the spans — the gap is CSS), so the done meta reads
+    // "· Worked for Ns" like every other segment. Cancelled is the one
+    // exception: "Stopped after 4.0s" is one phrase, pinned below.
+    expect(summary).toHaveTextContent('· Worked for 12.0s');
+    expect(summary).toHaveTextContent('· 3 steps');
     expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(0);
     expect(screen.queryByText('foo')).not.toBeInTheDocument();
   });
@@ -260,18 +266,56 @@ describe('ActivityTrace', () => {
     // question, not `isActive`) so the elapsed badge freezes rather than
     // disappearing — chosen over hiding it so the header's height never
     // shifts across the running → waiting → running cycle.
-    it('freezes the elapsed badge while summary.live reads Waiting for approval', () => {
+    // The gate wins the LABEL race even while a sibling call still runs, but
+    // that run is not blocked on the user — `summary.waiting` is false there
+    // and the clock must keep ticking (review finding 6). The label alone
+    // would have frozen it.
+    it('keeps ticking while a gate is open but another tool is still running', () => {
+      vi.useFakeTimers();
+      try {
+        const gatedWhileRunning: ActivitySummary = {
+          counts: { failed: 0, steps: 2 },
+          live: 'Waiting for approval',
+          resting: 'Read a.ts, ran',
+          waiting: false,
+        };
+        render(
+          <ActivityTrace
+            detail={null}
+            fallbackMs={undefined}
+            incompleteReason={undefined}
+            isActive
+            restingOverride={null}
+            summary={gatedWhileRunning}
+          />
+        );
+        act(() => {
+          vi.advanceTimersByTime(1000);
+        });
+        expect(screen.getByText('1.0s')).toBeInTheDocument();
+        act(() => {
+          vi.advanceTimersByTime(2000);
+        });
+        expect(screen.getByText('3.0s')).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('freezes the elapsed badge while the summary reads waiting', () => {
       vi.useFakeTimers();
       try {
         const reading: ActivitySummary = {
           counts: { failed: 0, steps: 1 },
           live: 'Reading a.ts',
           resting: 'Read a.ts',
+          waiting: false,
         };
         const waitingForApproval: ActivitySummary = {
           counts: { failed: 0, steps: 1 },
           live: 'Waiting for approval',
           resting: 'Read a.ts',
+          waiting: true,
         };
         const { rerender } = render(
           <ActivityTrace

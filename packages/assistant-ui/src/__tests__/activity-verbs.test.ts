@@ -13,9 +13,41 @@ describe('TOOL_VERBS', () => {
     }
   });
 
+  // `countsFiles` is what folds a distinct-target file count into the resting
+  // summary (`restingLabel`, activity-trace-model.ts). It is deliberately NOT
+  // the `read`/`edit` family: the `read` family also covers directory
+  // listings, artifact reads and context reads, whose targets are not files,
+  // and folding the family read "Listed 2 files" for them. Exactly these five
+  // ids name a file; a sixth (or a missing one) must fail here rather than
+  // silently mis-count in the header.
+  it('flags countsFiles on exactly the five file-targeted verbs', () => {
+    const flagged = NATIVE_TOOL_IDS.filter((id) => TOOL_VERBS[id].countsFiles !== undefined).sort();
+    expect(flagged).toEqual(
+      [
+        NATIVE_TOOL_ID.deleteWorkspaceFile,
+        NATIVE_TOOL_ID.readWorkspaceFile,
+        NATIVE_TOOL_ID.renameWorkspaceFile,
+        NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
+        NATIVE_TOOL_ID.writeWorkspaceFile,
+      ].sort()
+    );
+    // A read counts only from two ("Read" alone for a single file); an edit
+    // names its file from one ("Edited 1 file").
+    expect(TOOL_VERBS[NATIVE_TOOL_ID.readWorkspaceFile].countsFiles).toBe('plural');
+    for (const id of [
+      NATIVE_TOOL_ID.deleteWorkspaceFile,
+      NATIVE_TOOL_ID.renameWorkspaceFile,
+      NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
+      NATIVE_TOOL_ID.writeWorkspaceFile,
+    ]) {
+      expect(TOOL_VERBS[id].countsFiles, id).toBe('always');
+    }
+  });
+
   it('spells the core verbs the design fixed', () => {
     expect(TOOL_VERBS[NATIVE_TOOL_ID.readWorkspaceFile]).toEqual({
       active: 'Reading',
+      countsFiles: 'plural',
       done: 'Read',
       family: 'read',
     });
@@ -26,6 +58,7 @@ describe('TOOL_VERBS', () => {
     });
     expect(TOOL_VERBS[NATIVE_TOOL_ID.writeWorkspaceFile]).toEqual({
       active: 'Editing',
+      countsFiles: 'always',
       done: 'Edited',
       family: 'edit',
     });
