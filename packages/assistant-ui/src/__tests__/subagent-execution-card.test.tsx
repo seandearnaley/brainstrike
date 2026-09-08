@@ -1,25 +1,26 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AssistantDetailLevel } from '../assistant-detail-level';
 import {
   ASSISTANT_DETAIL_LEVEL_STORAGE_KEY,
   AssistantDetailLevelProvider,
 } from '../assistant-detail-level-context';
-import { SubagentExecutionCard } from '../subagent-execution-card';
+import { type SubagentCardProps, SubagentExecutionCard } from '../subagent-execution-card';
 import { personaLabelForToolName } from '../subagent-persona-label';
+import { type LooseProps, toolPartElement } from './tool-part-render';
 
-function renderCard(props: Record<string, unknown>) {
-  const Comp = SubagentExecutionCard as unknown as (p: Record<string, unknown>) => ReactElement;
-  return render(<Comp {...props} />);
+function renderCard(props: LooseProps<SubagentCardProps>) {
+  return render(toolPartElement(SubagentExecutionCard, props));
 }
 
-function renderCardAtDetailLevel(props: Record<string, unknown>, level: AssistantDetailLevel) {
+function renderCardAtDetailLevel(
+  props: LooseProps<SubagentCardProps>,
+  level: AssistantDetailLevel
+) {
   window.localStorage.setItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY, level);
-  const Comp = SubagentExecutionCard as unknown as (p: Record<string, unknown>) => ReactElement;
   return render(
     <AssistantDetailLevelProvider>
-      <Comp {...props} />
+      {toolPartElement(SubagentExecutionCard, props)}
     </AssistantDetailLevelProvider>
   );
 }
@@ -169,7 +170,7 @@ describe('SubagentExecutionCard', () => {
     // "Delegating to <Label>" while the glyph names the pause.
     const { container } = renderCard({
       result: undefined,
-      status: { type: 'requires-action' },
+      status: { reason: 'tool-calls', type: 'requires-action' },
       toolCallId: 'delegation-1',
       toolName: 'agent-explore',
     });

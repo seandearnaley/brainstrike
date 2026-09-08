@@ -3,6 +3,7 @@ import '../overrides.css';
 import { act, render, screen } from '@testing-library/react';
 import { expect, test } from 'vitest';
 import { ActivityTrace } from '../activity-trace';
+import { mustFind, px } from './browser-dom';
 
 const live = {
   counts: { failed: 0, steps: 1 },
@@ -18,22 +19,6 @@ const done = {
   verbs: 'Read',
   waiting: false,
 };
-
-function px(value: string): number {
-  return Number.parseFloat(value);
-}
-
-/**
- * Like `container.querySelector`, but throws a readable error instead of
- * handing back `null` disguised as an element via an `as` cast.
- */
-function mustFind(container: ParentNode, selector: string): Element {
-  const el = container.querySelector(selector);
-  if (el === null) {
-    throw new Error(`mustFind: no element matched "${selector}"`);
-  }
-  return el;
-}
 
 // Scope, stated exactly: this measures the STATUS ROW (the summary button).
 // The trace's header as a whole does change height at the running↔done

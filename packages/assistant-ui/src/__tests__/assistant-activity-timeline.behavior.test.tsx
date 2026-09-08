@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import type { ChatModelAdapter } from '@assistant-ui/react';
+import type { ChatModelAdapter, ThreadAssistantMessagePart } from '@assistant-ui/react';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -38,6 +38,67 @@ function deferred() {
     release = resolve;
   });
   return { promise, release };
+}
+
+/**
+ * Runs the harness with a single yield of `parts` that never settles (the
+ * model's `run()` blocks on an internal deferred), expands the activity
+ * group, and returns the step rows' `.bs-step-row-verb` nodes plus a
+ * `release()` to let the run finish. The three "only the last running row
+ * shimmers" cases (read/grep, delegation, task list) shared this exact setup
+ * verbatim before BST-1685 — they now only supply `parts` and their expected
+ * verb text/shimmer vectors.
+ *
+ * `release()` is returned rather than called here: the whole point of the
+ * shimmer assertions is to read the DOM while the run is still pending, so
+ * the caller must assert BEFORE releasing (matching the pre-extraction
+ * ordering), then release in its own `finally`.
+ */
+async function renderRunningGroup(parts: readonly ThreadAssistantMessagePart[]): Promise<{
+  release: () => Promise<void>;
+  rows: readonly Element[];
+  verbs: readonly (Element | null)[];
+}> {
+  const finish = deferred();
+  const adapter: ChatModelAdapter = {
+    async *run() {
+      yield { content: parts };
+      await finish.promise;
+    },
+  };
+  // BST-1685 review round 2, Claude Minor 3: `deferred()` moved into this
+  // helper, so a throw anywhere below it (most plausibly `findByRole`
+  // timing out when the rendering regresses) must still release the
+  // adapter generator before propagating — otherwise the caller's own
+  // `try/finally` never starts, and the pending run leaks past this test
+  // (act/unmount noise on top of the real assertion failure). Restores the
+  // `try/finally` guarantee `deferred()` used to get for free by living
+  // inside the test itself.
+  try {
+    const user = userEvent.setup();
+    render(<Harness adapter={adapter} />);
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
+    const group = screen.getByTestId('assistant-activity-group');
+    const rows = [
+      ...group.querySelectorAll(
+        '[data-testid="local-chain-of-thought"], [data-testid="activity-step-row"]'
+      ),
+    ];
+    const verbs = rows.map((row) => row.querySelector('.bs-step-row-verb'));
+    return {
+      release: () =>
+        act(async () => {
+          finish.release();
+        }),
+      rows,
+      verbs,
+    };
+  } catch (error) {
+    finish.release();
+    throw error;
+  }
 }
 
 function expectChronologicalGroups() {
@@ -388,58 +449,38 @@ describe('assistant activity chronology through the real runtime', () => {
   // card's TIMING slot legitimately carries its own shimmering progress
   // label, which is not what the last-running rule is about.
   it('renders one step row per card in part order, shimmering only the last running step', async () => {
-    const finish = deferred();
-    const adapter: ChatModelAdapter = {
-      async *run() {
-        yield {
-          content: [
-            { text: 'Looking.', type: 'reasoning' as const },
-            {
-              args: { path: 'a.ts' },
-              argsText: '{"path":"a.ts"}',
-              result: { ok: true },
-              toolCallId: 'read-a',
-              toolName: 'brainstrike.readWorkspaceFile',
-              type: 'tool-call' as const,
-            },
-            {
-              args: { path: 'b.ts' },
-              argsText: '{"path":"b.ts"}',
-              toolCallId: 'read-b',
-              toolName: 'brainstrike.readWorkspaceFile',
-              type: 'tool-call' as const,
-            },
-            {
-              args: { pattern: 'flag' },
-              argsText: '{"pattern":"flag"}',
-              toolCallId: 'grep-c',
-              toolName: 'brainstrike.grepSearch',
-              type: 'tool-call' as const,
-            },
-          ],
-        };
-        await finish.promise;
+    const { release, rows, verbs } = await renderRunningGroup([
+      { text: 'Looking.', type: 'reasoning' },
+      {
+        args: { path: 'a.ts' },
+        argsText: '{"path":"a.ts"}',
+        result: { ok: true },
+        toolCallId: 'read-a',
+        toolName: 'brainstrike.readWorkspaceFile',
+        type: 'tool-call',
       },
-    };
-    const user = userEvent.setup();
-    render(<Harness adapter={adapter} />);
+      {
+        args: { path: 'b.ts' },
+        argsText: '{"path":"b.ts"}',
+        toolCallId: 'read-b',
+        toolName: 'brainstrike.readWorkspaceFile',
+        type: 'tool-call',
+      },
+      {
+        args: { pattern: 'flag' },
+        argsText: '{"pattern":"flag"}',
+        toolCallId: 'grep-c',
+        toolName: 'brainstrike.grepSearch',
+        type: 'tool-call',
+      },
+    ]);
     try {
-      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
-      await user.click(screen.getByRole('button', { name: 'Send' }));
-      await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
-      const group = screen.getByTestId('assistant-activity-group');
-      const rows = [
-        ...group.querySelectorAll(
-          '[data-testid="local-chain-of-thought"], [data-testid="activity-step-row"]'
-        ),
-      ];
       expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual([
         'local-chain-of-thought',
         'activity-step-row',
         'activity-step-row',
         'activity-step-row',
       ]);
-      const verbs = rows.map((row) => row.querySelector('.bs-step-row-verb'));
       expect(verbs.map((verb) => verb?.textContent)).toEqual([
         'Thought',
         'Read',
@@ -453,9 +494,7 @@ describe('assistant activity chronology through the real runtime', () => {
         true,
       ]);
     } finally {
-      await act(async () => {
-        finish.release();
-      });
+      await release();
     }
   }, 20_000);
 
@@ -466,43 +505,24 @@ describe('assistant activity chronology through the real runtime', () => {
   // test: a running delegation AFTER a running read, so "shimmer the last
   // running step" and "shimmer whatever is running" disagree.
   it("shimmers a running delegation row when it is the group's last running step", async () => {
-    const finish = deferred();
-    const adapter: ChatModelAdapter = {
-      async *run() {
-        yield {
-          content: [
-            { text: 'Looking.', type: 'reasoning' as const },
-            {
-              args: { path: 'b.ts' },
-              argsText: '{"path":"b.ts"}',
-              toolCallId: 'read-b',
-              toolName: 'brainstrike.readWorkspaceFile',
-              type: 'tool-call' as const,
-            },
-            {
-              args: { prompt: 'find the flag' },
-              argsText: '{"prompt":"find the flag"}',
-              toolCallId: 'delegate-d',
-              toolName: 'agent-explore',
-              type: 'tool-call' as const,
-            },
-          ],
-        };
-        await finish.promise;
+    const { release, verbs } = await renderRunningGroup([
+      { text: 'Looking.', type: 'reasoning' },
+      {
+        args: { path: 'b.ts' },
+        argsText: '{"path":"b.ts"}',
+        toolCallId: 'read-b',
+        toolName: 'brainstrike.readWorkspaceFile',
+        type: 'tool-call',
       },
-    };
-    const user = userEvent.setup();
-    render(<Harness adapter={adapter} />);
+      {
+        args: { prompt: 'find the flag' },
+        argsText: '{"prompt":"find the flag"}',
+        toolCallId: 'delegate-d',
+        toolName: 'agent-explore',
+        type: 'tool-call',
+      },
+    ]);
     try {
-      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
-      await user.click(screen.getByRole('button', { name: 'Send' }));
-      await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
-      const group = screen.getByTestId('assistant-activity-group');
-      const verbs = [
-        ...group.querySelectorAll(
-          '[data-testid="local-chain-of-thought"], [data-testid="activity-step-row"]'
-        ),
-      ].map((row) => row.querySelector('.bs-step-row-verb'));
       expect(verbs.map((verb) => verb?.textContent)).toEqual([
         'Thought',
         'Reading',
@@ -514,50 +534,29 @@ describe('assistant activity chronology through the real runtime', () => {
         true,
       ]);
     } finally {
-      await act(async () => {
-        finish.release();
-      });
+      await release();
     }
   }, 20_000);
 
   it("shimmers a running task-list row when it is the group's last running step", async () => {
-    const finish = deferred();
-    const adapter: ChatModelAdapter = {
-      async *run() {
-        yield {
-          content: [
-            { text: 'Looking.', type: 'reasoning' as const },
-            {
-              args: { path: 'b.ts' },
-              argsText: '{"path":"b.ts"}',
-              toolCallId: 'read-b',
-              toolName: 'brainstrike.readWorkspaceFile',
-              type: 'tool-call' as const,
-            },
-            {
-              args: { merge: true },
-              argsText: '{"merge":true}',
-              toolCallId: 'tasks-t',
-              toolName: 'brainstrike.manageTaskList',
-              type: 'tool-call' as const,
-            },
-          ],
-        };
-        await finish.promise;
+    const { release, verbs } = await renderRunningGroup([
+      { text: 'Looking.', type: 'reasoning' },
+      {
+        args: { path: 'b.ts' },
+        argsText: '{"path":"b.ts"}',
+        toolCallId: 'read-b',
+        toolName: 'brainstrike.readWorkspaceFile',
+        type: 'tool-call',
       },
-    };
-    const user = userEvent.setup();
-    render(<Harness adapter={adapter} />);
+      {
+        args: { merge: true },
+        argsText: '{"merge":true}',
+        toolCallId: 'tasks-t',
+        toolName: 'brainstrike.manageTaskList',
+        type: 'tool-call',
+      },
+    ]);
     try {
-      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
-      await user.click(screen.getByRole('button', { name: 'Send' }));
-      await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
-      const group = screen.getByTestId('assistant-activity-group');
-      const verbs = [
-        ...group.querySelectorAll(
-          '[data-testid="local-chain-of-thought"], [data-testid="activity-step-row"]'
-        ),
-      ].map((row) => row.querySelector('.bs-step-row-verb'));
       expect(verbs.map((verb) => verb?.textContent)).toEqual([
         'Thought',
         'Reading',
@@ -569,9 +568,7 @@ describe('assistant activity chronology through the real runtime', () => {
         true,
       ]);
     } finally {
-      await act(async () => {
-        finish.release();
-      });
+      await release();
     }
   }, 20_000);
 

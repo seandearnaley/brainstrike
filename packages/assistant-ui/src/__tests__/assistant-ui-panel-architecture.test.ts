@@ -1,7 +1,11 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { render } from '@testing-library/react';
+import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
+import { ActivityTrace } from '../activity-trace';
+import type { ActivitySummary } from '../activity-trace-model';
 
 const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -13,6 +17,78 @@ function listComponentSourceFiles(): string[] {
   return readdirSync(sourceRoot, { recursive: true })
     .map((entry) => entry.toString())
     .filter((entry) => entry.endsWith('.tsx') && !entry.includes('__tests__/'));
+}
+
+/**
+ * Finds the `@media (prefers-reduced-motion: reduce) { ... }` block that
+ * contains `marker`, matching braces per-block so a nested rule block
+ * doesn't end any one scan early (BST-1685 review round 2, Claude Minor 2).
+ * A naive `[^}]*` regex can't cross a `}`, so it only ever sees a block's
+ * FIRST rule — moving a selector into its own later rule inside the same
+ * media block (order- and reformat-preserving) would silently pass.
+ *
+ * `overrides.css` declares this media query four times; walks every
+ * occurrence in turn (brace-matched, so each candidate's own close is found
+ * correctly) rather than doing one file-wide `indexOf(marker)` and matching
+ * that occurrence's NEAREST preceding `@media` — `marker` (e.g.
+ * `.bs-thinking-pulse`) can itself appear earlier in the file outside any
+ * reduced-motion block, which would resolve to the wrong block entirely.
+ */
+function reducedMotionBlockContaining(cssSource: string, marker: string): string {
+  const mediaOpen = '@media (prefers-reduced-motion: reduce) {';
+  let searchFrom = 0;
+  for (;;) {
+    const mediaStart = cssSource.indexOf(mediaOpen, searchFrom);
+    if (mediaStart === -1) {
+      throw new Error(`no reduced-motion media block contains marker: ${marker}`);
+    }
+    let depth = 0;
+    let blockEnd = -1;
+    for (let index = mediaStart; index < cssSource.length; index += 1) {
+      const char = cssSource[index];
+      if (char === '{') {
+        depth += 1;
+      } else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          blockEnd = index;
+          break;
+        }
+      }
+    }
+    if (blockEnd === -1) {
+      throw new Error(`unterminated reduced-motion media block scanning for marker: ${marker}`);
+    }
+    const block = cssSource.slice(mediaStart, blockEnd + 1);
+    if (block.includes(marker)) {
+      return block;
+    }
+    searchFrom = blockEnd + 1;
+  }
+}
+
+/**
+ * Within `block` (already scoped to one `@media` rule), asserts that
+ * `selector` — matched at its FIRST occurrence immediately followed by a
+ * selector-list separator (`,`) or its own rule's opening brace (`{`), so a
+ * match can't be satisfied by a longer compound selector that merely shares
+ * `selector` as a trailing substring — resolves to `animation: none` before
+ * THAT SPECIFIC rule's own closing `}`. Scoping to one rule (not "somewhere
+ * later in the block") matters here: `overrides.css`'s reduced-motion block
+ * resets `.assistant-ui-panel .bs-thinking-shimmer` a second time, in an
+ * unrelated rule further down that only touches `background`/`color` — a
+ * bare presence check would pass on THAT rule even if the real,
+ * animation-resetting entry were deleted from the comma list (BST-1685
+ * review round 2, Claude Minor 2).
+ */
+function assertSelectorResetsAnimationNone(block: string, selector: string): void {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`${escaped}\\s*[,{]`).exec(block);
+  expect(match).not.toBeNull();
+  const matchIndex = match?.index ?? -1;
+  const ruleEnd = block.indexOf('}', matchIndex);
+  expect(ruleEnd).toBeGreaterThan(matchIndex);
+  expect(block.slice(matchIndex, ruleEnd)).toMatch(/animation:\s*none/);
 }
 
 describe('assistant UI panel architecture', () => {
@@ -490,22 +566,88 @@ describe('assistant UI panel architecture', () => {
     // the only thing that honours a reduced-motion preference for a running
     // step, and nothing else asserts it exists.
     //
-    // The two COMPOUND selectors are part of the same assertion since the
-    // Task 6 fix wave: the trace's live status label carries an entrance
-    // class and `.bs-thinking-shimmer` at once, and the compound rules that
-    // compose those two animations outrank the one-class reset — so dropping
-    // them from this list would leave exactly one element shimmering under a
-    // reduced-motion preference.
+    // The two COMPOUND selectors are checked independently of the plain
+    // class and of each other (BST-1685, PR #3066 "Tests / docs nits"): the
+    // trace's live status label carries an entrance class and
+    // `.bs-thinking-shimmer` at once, and the compound rules that compose
+    // those two animations outrank the one-class reset — so each selector
+    // below must land its own `animation: none` inside this media block,
+    // however the comma list orders or wraps them (the previous single regex
+    // pinned one exact order, which broke on an innocuous reformat).
     const cssSource = readSource('overrides.css');
-    expect(cssSource).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{[^}]*\.assistant-ui-panel \.bs-thinking-shimmer,\s*\.assistant-ui-panel \.bs-trace-label\.bs-thinking-shimmer,\s*\.assistant-ui-panel \.bs-trace-label-static\.bs-thinking-shimmer \{\s*animation: none;/
+    // Slice the SPECIFIC reduced-motion block first (BST-1685 review round
+    // 2, Claude Minor 2): matching against the whole file let the standalone
+    // `.bs-thinking-shimmer` assertion pass on nothing but a SUBSTRING of
+    // either compound selector below (both end in `.bs-thinking-shimmer`),
+    // so deleting the standalone selector from the reset list left all three
+    // assertions green — the mutation this test exists to catch. Slicing
+    // first, then requiring each selector's own right boundary (`,` or `{`,
+    // not a continuation into a longer compound), closes that.
+    const reducedMotionBlock = reducedMotionBlockContaining(cssSource, '.bs-thinking-pulse');
+
+    // Each of the three selectors must resolve to `animation: none` inside
+    // ITS OWN rule within this block, not merely appear somewhere in it: this
+    // same media block also resets `.assistant-ui-panel .bs-thinking-shimmer`
+    // a second time, in an UNRELATED rule further down that only touches
+    // `background`/`color` — a presence-only check (even boundary-checked)
+    // would pass on that rule too if the reset-list entry were deleted, so
+    // `assertSelectorResetsAnimationNone` scopes each check to the specific
+    // rule the matched selector opens (up to that rule's own `}`).
+    // Order- and reformat-resilient: `indexOf`/`exec` don't care how the
+    // comma list orders or wraps its entries.
+    assertSelectorResetsAnimationNone(
+      reducedMotionBlock,
+      '.assistant-ui-panel .bs-thinking-shimmer'
     );
-    // Not vacuous: the row really does put that class on a running verb, and
-    // the trace really does put both classes on the live label at once.
+    assertSelectorResetsAnimationNone(
+      reducedMotionBlock,
+      '.assistant-ui-panel .bs-trace-label.bs-thinking-shimmer'
+    );
+    assertSelectorResetsAnimationNone(
+      reducedMotionBlock,
+      '.assistant-ui-panel .bs-trace-label-static.bs-thinking-shimmer'
+    );
+    // Not vacuous: the row really does put that class on a running verb.
     expect(readSource('activity-step-row.tsx')).toContain("'bs-thinking-shimmer'");
-    expect(readSource('activity-trace.tsx')).toContain(
-      'bs-activity-live-label bs-thinking-shimmer '
+
+    // Not vacuous, BEHAVIOURALLY: the trace really does put both classes on
+    // the live label element at once while a step is running. Replaces a
+    // source-string pin on the template literal that composes them
+    // (`'bs-activity-live-label bs-thinking-shimmer '`, including its
+    // trailing space) — that pin broke on innocuous formatting rather than
+    // on a behaviour change (PR #3066 review nit).
+    const runningSummary: ActivitySummary = {
+      counts: { failed: 0, steps: 1 },
+      live: 'Reading app.ts',
+      resting: 'Read',
+      verbs: 'Read',
+      waiting: false,
+    };
+    const { getByTestId, unmount } = render(
+      createElement(ActivityTrace, {
+        detail: null,
+        fallbackMs: undefined,
+        incompleteReason: undefined,
+        isActive: true,
+        restingOverride: null,
+        summary: runningSummary,
+      })
     );
+    try {
+      const liveLabel = getByTestId('assistant-activity-working').querySelector(
+        '.bs-activity-live-label'
+      );
+      expect(liveLabel).not.toBeNull();
+      expect(liveLabel).toHaveClass('bs-activity-live-label', 'bs-thinking-shimmer');
+    } finally {
+      // Explicit, on top of the package's global `afterEach(cleanup)`
+      // (packages/test-utils/src/vitest.setup.ts) — this file's other tests
+      // are fs-only, so leaving the mount around between them is harmless
+      // today, but a `screen.*` query added later here shouldn't have to
+      // rediscover that this is the one test in the file that renders
+      // (BST-1685 review round 2, Claude Minor 1).
+      unmount();
+    }
   });
 
   it('honours reduced motion for the step row REVEAL animation', () => {

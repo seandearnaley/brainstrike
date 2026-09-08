@@ -6,20 +6,30 @@ import {
 import { SUBAGENT_DELEGATION_TOOL_PREFIX } from '@brainstrike/assistant-contract/personas';
 import { personaLabelForToolName } from './subagent-persona-label';
 
-export type VerbFamily =
-  | 'ask'
-  | 'call'
-  | 'canvas'
-  | 'delegate'
-  | 'edit'
-  | 'other'
-  | 'read'
-  | 'run'
-  | 'search'
-  | 'skill'
-  | 'tasks'
-  | 'web'
-  | 'worktree';
+/**
+ * Every verb family, as a single source of truth (BST-1685): `VerbFamily` is
+ * derived from this tuple rather than declared as a parallel union, so a
+ * test iterating families (`activity-step-icons.test.tsx`) can import the
+ * runtime list instead of hand-maintaining its own copy that could drift
+ * from the type.
+ */
+export const VERB_FAMILIES = [
+  'ask',
+  'call',
+  'canvas',
+  'delegate',
+  'edit',
+  'other',
+  'read',
+  'run',
+  'search',
+  'skill',
+  'tasks',
+  'web',
+  'worktree',
+] as const;
+
+export type VerbFamily = (typeof VERB_FAMILIES)[number];
 
 /**
  * Whether the resting summary folds this verb's distinct targets into a file

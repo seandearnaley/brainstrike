@@ -1,8 +1,9 @@
 import type { ManageTaskListResult } from '@brainstrike/assistant-contract';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import type { ComponentProps } from 'react';
 import { describe, expect, it } from 'vitest';
 import { TaskListToolCard, TodoProgress } from '../todo-progress.js';
+import { type LooseProps, toolPartElement } from './tool-part-render';
 
 const result = (
   tasks: ManageTaskListResult['tasks'],
@@ -74,9 +75,8 @@ describe('TodoProgress', () => {
   });
 });
 
-function renderTaskCard(props: Record<string, unknown>) {
-  const Comp = TaskListToolCard as unknown as (p: Record<string, unknown>) => ReactElement;
-  return render(<Comp {...props} />);
+function renderTaskCard(props: LooseProps<ComponentProps<typeof TaskListToolCard>>) {
+  return render(toolPartElement(TaskListToolCard, props));
 }
 
 describe('TaskListToolCard', () => {
