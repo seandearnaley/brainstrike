@@ -154,6 +154,10 @@ function isSettledMessage(message: unknown): boolean {
  * that is STILL suspended after a reload) names, or null when `part` is not
  * one of those cards. A settled `tool.approval.requested` row for that id is
  * genuinely pending, not interrupted.
+ *
+ * A pause card without a string `toolCallId` returns null and therefore
+ * cannot be matched to any row — an unidentifiable card must not be allowed
+ * to keep unrelated rows alive (no guessing).
  */
 function pendingPauseToolCallIdFromPart(part: unknown): string | null {
   if (!isRecord(part) || part['type'] !== 'data') {
@@ -843,6 +847,9 @@ export function resolveAssistantRunEventStatus(
     return 'info';
   }
   const resolved = resolvePairedRunEventStatus(messages, event);
+  if (resolved !== 'running') {
+    return resolved;
+  }
   return applyInterruptedRule(
     event,
     resolved,

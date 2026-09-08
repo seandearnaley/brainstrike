@@ -946,6 +946,7 @@ describe('interrupted rule (settled owner, no pending pause)', () => {
       },
     ];
     expect(resolveAssistantRunEventStatus(messages, event as never)).toBe('interrupted');
+    expect(deriveAssistantRunEventRows(messages).statuses[event.id]).toBe('interrupted');
   });
 
   it('renders an interrupted row static, with the approval wording for a pause', () => {
@@ -953,6 +954,14 @@ describe('interrupted rule (settled owner, no pending pause)', () => {
     expect(screen.getByLabelText('Interrupted')).toBeInTheDocument();
     expect(screen.getByText('Approval was pending')).toBeInTheDocument();
     expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(0);
+  });
+
+  it('renders an interrupted non-approval row with its own label, not the approval wording', () => {
+    renderTimeline({ ...started('s1', 'call-1') }, 'interrupted');
+    expect(screen.getByLabelText('Interrupted')).toBeInTheDocument();
+    expect(screen.getByText('Tool started')).toBeInTheDocument();
+    expect(screen.queryByText('Approval was pending')).not.toBeInTheDocument();
     expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(0);
   });
 });
