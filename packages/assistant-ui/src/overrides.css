@@ -665,6 +665,7 @@
   gap: 0.5rem;
   width: 100%;
   min-width: 0;
+  min-height: 2rem;
   padding: 0.4rem 0.6rem;
   color: hsl(var(--foreground) / 0.85);
   font-size: 0.75rem;
@@ -802,6 +803,26 @@
 
 .assistant-ui-panel .bs-trace-glyph {
   transition: transform 160ms ease;
+}
+
+/*
+ * Fixed icon box for the header's phase glyph (BrainstrikeThinkingMark while
+ * running; CheckCircle/Square/AlertCircle at rest). Pinned in real CSS —
+ * not left to the `size-4` utility alone — so the live and resting rows
+ * always resolve to the same header height (verified in
+ * activity-trace.browser.test.tsx): the running mark has no intrinsic
+ * width/height of its own, and swapping it for a differently-proportioned
+ * lucide icon must never change the row's height.
+ */
+.assistant-ui-panel .bs-trace-phase-glyph {
+  height: 1rem;
+  width: 1rem;
+}
+
+.assistant-ui-panel .bs-trace-phase-icon {
+  display: block;
+  height: 1rem;
+  width: 1rem;
 }
 
 .assistant-ui-panel [aria-expanded="true"] > .bs-trace-glyph {
