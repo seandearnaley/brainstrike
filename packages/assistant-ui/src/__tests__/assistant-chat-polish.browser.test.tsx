@@ -521,10 +521,24 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
     run: () => Promise.resolve({ content: [], status: { reason: 'stop', type: 'complete' } }),
   };
 
+  /**
+   * BOTH messages carry this SAME string on purpose (BST-1687).
+   *
+   * The assertion below compares a rect taken in one message root against a
+   * rect taken in the OTHER, which is only meaningful while the two roots
+   * resolve the same columns. `grid-template-columns` is declared identically,
+   * but its second track is `auto` -- sized by each root's OWN bubble content.
+   * With two different strings the two roots resolved column 1 to 342.859px
+   * and 328.438px, so the comparison was measuring two genuinely different
+   * columns and only passed while an unrelated accident (see the settle step
+   * in the test) kept both bubbles showing the same placeholder text.
+   */
+  const USER_MESSAGE_TEXT = 'A user message';
+
   function TwoUserMessagesHarness() {
     const initialMessages: readonly ThreadMessageLike[] = [
-      { content: [{ text: 'First message', type: 'text' }], role: 'user' },
-      { content: [{ text: 'Second message', type: 'text' }], role: 'user' },
+      { content: [{ text: USER_MESSAGE_TEXT, type: 'text' }], role: 'user' },
+      { content: [{ text: USER_MESSAGE_TEXT, type: 'text' }], role: 'user' },
     ];
     const runtime = useLocalRuntime(twoUserMessageModel, { initialMessages });
 
@@ -556,12 +570,48 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
     // hides it), so waiting for its Edit button confirms hydration settled.
     await screen.findByRole('button', { name: 'Edit message' });
 
+    // ...and then settle the bubble TEXT before anything is measured
+    // (BST-1687). UserMessageText resolves `./markdown-text` through a DYNAMIC
+    // import and renders a "Loading message…" placeholder until it lands; that
+    // placeholder is wider than the real text, and column 2 is `auto`, so the
+    // swap widens column 1 -- and with it the bar's right edge -- by exactly
+    // the text-width difference. The reference rect is read before the hover
+    // and the floating rect after it, so a swap landing between the two turns
+    // a pure measurement artifact into a rect mismatch. Whether it lands there
+    // depends only on how warm the module graph already is, i.e. on which
+    // other browser files ran first in the same Chromium page: cold, both
+    // rects were read against the placeholder and agreed; warm, the floating
+    // rect alone was read against the real text and came back a constant
+    // 32.484375px wider.
+    await waitFor(() => {
+      const bubbles = screen.getAllByTestId('assistant-user-message-content');
+      expect(bubbles).toHaveLength(2);
+      for (const bubble of bubbles) {
+        expect(bubble).toHaveTextContent(USER_MESSAGE_TEXT);
+      }
+    });
+
     const roots = document.querySelectorAll<HTMLElement>('.aui-user-message-root');
     expect(roots).toHaveLength(2);
     const [nonLastRoot, lastRoot] = roots;
     if (!(nonLastRoot && lastRoot)) {
       throw new Error('expected both user message roots');
     }
+
+    // The two preconditions a cross-root rect comparison rests on, asserted
+    // rather than assumed (both were only assumed before BST-1687). They are
+    // deliberately independent of the settle step above: deleting that step
+    // has to fail here, loudly, instead of re-arming a warmth-dependent flake.
+    for (const root of [nonLastRoot, lastRoot]) {
+      // 1. Past the lazy-markdown placeholder, so no content-sized track can
+      //    resize between the reference read and the floating read.
+      expect(root).toHaveTextContent(USER_MESSAGE_TEXT);
+    }
+    // 2. Both roots resolve the SAME columns -- not merely the same declared
+    //    template -- so "the same spot" is a statement about one column.
+    expect(getComputedStyle(nonLastRoot).gridTemplateColumns).toBe(
+      getComputedStyle(lastRoot).gridTemplateColumns
+    );
 
     // Reference geometry: the LAST message's bar is always mounted IN FLOW
     // (Normal status -- autohide="not-last" never hides it, so it never
@@ -595,9 +645,9 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
     const heightAfterHover = nonLastRoot.getBoundingClientRect().height;
     expect(heightAfterHover).toBe(heightBeforeHover);
 
-    // Both message roots share identical column geometry (same grid
-    // template, same-width thread), so the floating bar's rect must match
-    // the in-flow reference bar's rect -- same visual spot, it just no
+    // Both message roots share identical column geometry (asserted above:
+    // same RESOLVED columns, same-width thread), so the floating bar's rect
+    // must match the in-flow reference bar's rect -- same visual spot, it just no
     // longer contributes to row 2's height. Pins BOTH axes: an abspos grid
     // item with only its START lines definite resolves its END lines (and
     // therefore its containing block) to the grid container's padding
