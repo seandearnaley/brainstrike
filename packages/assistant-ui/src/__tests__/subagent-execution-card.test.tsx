@@ -56,8 +56,10 @@ describe('SubagentExecutionCard', () => {
       toolCallId: 'delegation-1',
       toolName: 'agent-explore',
     });
-    expect(screen.getByText('· No answer')).toBeTruthy();
-    expect(screen.queryByText('· Completed')).toBeNull();
+    // BST-1681: the verb slot names the outcome; the glyph carries the state.
+    expect(screen.getByText('Explorer gave no answer')).toBeTruthy();
+    expect(screen.queryByText('Explorer finished')).toBeNull();
+    expect(screen.getByRole('img', { name: 'No answer' })).toBeTruthy();
     // Still a real delegation with real child work: the rows stay browsable.
     expect(screen.getByText('· 2 tool calls')).toBeTruthy();
   });
@@ -69,9 +71,11 @@ describe('SubagentExecutionCard', () => {
       toolCallId: 'delegation-1',
       toolName: 'agent-explore',
     });
-    expect(screen.getByText('Explorer subagent')).toBeTruthy();
-    expect(screen.getByText('· Completed')).toBeTruthy();
+    expect(screen.getByText('Explorer finished')).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Completed' })).toBeTruthy();
     expect(screen.getByText('· 2 tool calls')).toBeTruthy();
+    // The raw delegation tool id stays readable text (the e2e contract).
+    expect(screen.getByText('agent-explore')).toBeTruthy();
     // Collapsed by default: child rows not shown until expanded.
     expect(screen.queryByText('brainstrike_grepSearch')).toBeNull();
   });
@@ -96,9 +100,11 @@ describe('SubagentExecutionCard', () => {
       toolCallId: 'delegation-1',
       toolName: 'agent-analyze',
     });
-    expect(screen.getByText('Analyst subagent')).toBeTruthy();
-    expect(screen.getByText('· Running')).toBeTruthy();
+    expect(screen.getByText('Delegating to Analyst')).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Running' })).toBeTruthy();
     expect(screen.getByText('· 0 tool calls')).toBeTruthy();
+    // No child rows yet: nothing to expand, so the row is not a button.
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('renders running child rows from live events only (never "Running · 0 tool calls")', () => {
@@ -116,7 +122,7 @@ describe('SubagentExecutionCard', () => {
       toolCallId: 'delegation-1',
       toolName: 'agent-explore',
     });
-    expect(screen.getByText('· Running')).toBeTruthy();
+    expect(screen.getByText('Delegating to Explorer')).toBeTruthy();
     // The header count reflects the in-flight child tool, NOT zero.
     expect(screen.getByText('· 1 tool call')).toBeTruthy();
     fireEvent.click(screen.getByRole('button'));
@@ -153,16 +159,19 @@ describe('SubagentExecutionCard', () => {
     expect(screen.getByText('brainstrike_grepSearch')).toBeTruthy();
   });
 
-  it('marks the running pulse data-live and respects reduced motion', () => {
+  it('marks the running step glyph data-live, exactly once', () => {
     const { container } = renderCard({
       result: undefined,
       status: { type: 'running' },
       toolCallId: 'p1',
       toolName: 'agent-explorer',
     });
-    const pulse = container.querySelector('[data-live="true"]');
-    expect(pulse).not.toBeNull();
-    expect(pulse).toHaveClass('motion-reduce:animate-none');
+    // BST-1681: the row's state glyph owns the liveness (the shared thinking
+    // mark, whose motion is stylesheet-owned and reduced-motion aware), so a
+    // running delegation carries exactly one live element.
+    const live = container.querySelectorAll('[data-live="true"]');
+    expect(live).toHaveLength(1);
+    expect(live[0]).toHaveAttribute('data-testid', 'step-running-mark');
   });
 
   it('renders no data-live element once the delegation has a result', () => {

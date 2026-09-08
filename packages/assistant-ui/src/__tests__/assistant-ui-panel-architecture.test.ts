@@ -462,17 +462,21 @@ describe('assistant UI panel architecture', () => {
     expect(cssSource).toContain('[data-thread-render-tier="virtual"]');
   });
 
-  it('only animates the chain-of-thought pill while its own part is running', () => {
+  it('only animates the chain-of-thought row while its own part is running', () => {
     // This logic moved to assistant-activity-parts.tsx alongside the rest of
     // the reasoning disclosure (BST-1677 wave 1); wave 2 then moved it from
-    // per-GROUP to per-PART (each reasoning leaf owns its own pill/disclosure
+    // per-GROUP to per-PART (each reasoning leaf owns its own row/disclosure
     // now, so the group no longer computes a single running flag for all of
     // them) — the panel still never owns it.
     const partsSource = readSource('assistant-activity-parts.tsx');
     const cssSource = readSource('overrides.css');
 
     expect(partsSource).toContain("part.status.type === 'running'");
-    expect(partsSource).toContain('isStreaming ? (');
+    // BST-1681 moved the branch out of the JSX ternary into `ReasoningGlyph`'s
+    // early return (the row's glyph slot), but it is still the PART's own
+    // status that decides between the live and the static mark.
+    expect(partsSource).toContain('<ReasoningGlyph isStreaming={isStreaming} />');
+    expect(partsSource).toContain('if (isStreaming) {');
     expect(partsSource).toContain('assistant-reasoning-static-mark');
     expect(cssSource).toContain('.bs-thinking-mark-static');
   });

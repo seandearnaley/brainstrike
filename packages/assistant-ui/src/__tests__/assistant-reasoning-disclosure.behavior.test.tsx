@@ -130,6 +130,11 @@ describe('assistant reasoning disclosure (real streaming runtime)', () => {
     // on its own.
     const toggle = await screen.findByRole('button', { name: 'Hide thinking' });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    // BST-1681: the reasoning disclosure IS a step row, so it carries the
+    // same `data-state` every other row in the group body does — running
+    // while its own part streams.
+    expect(toggle).toHaveAttribute('data-state', 'running');
+    expect(within(toggle).getByText('Thinking', { exact: true })).toBeInTheDocument();
     expect(await screen.findByText('Inspect the workspace root.')).toBeVisible();
 
     // The runtime finalizes a part's `status` to `complete` the moment a
@@ -165,16 +170,16 @@ describe('assistant reasoning disclosure (real streaming runtime)', () => {
     const settledToggle = screen.getByTestId('local-chain-of-thought');
     expect(settledToggle).toHaveAttribute('aria-expanded', 'false');
     expect(settledToggle).toHaveAttribute('aria-label', 'Show thinking');
-    // Past tense once the block settled (BST-1679): the pill reads "Thinking"
+    expect(settledToggle).toHaveAttribute('data-state', 'done');
+    // Past tense once the block settled (BST-1679): the row reads "Thinking"
     // only while its own part streams. No reasoning duration is derivable in
     // this harness (no run events), so it stays the bare verb — assert the
     // exact label, not a substring (e.g. a stray "Thoughts" would also pass
-    // `toHaveTextContent`).
-    expect(
-      within(screen.getByTestId('assistant-reasoning-indicator')).getByText('Thought', {
-        exact: true,
-      })
-    ).toBeInTheDocument();
+    // `toHaveTextContent`). Scoped to the ROW, not to the static-mark
+    // indicator: since BST-1681 the tense is the row's verb slot and the
+    // indicator span carries the mark alone.
+    expect(within(settledToggle).getByText('Thought', { exact: true })).toBeInTheDocument();
+    expect(within(settledToggle).getByTestId('assistant-reasoning-indicator')).toBeInTheDocument();
     expect(screen.getByTestId('assistant-reasoning-static-mark')).toBeInTheDocument();
     expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
     // Real streaming runtime + userEvent typing: comfortably sub-second when

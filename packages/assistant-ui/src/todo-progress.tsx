@@ -14,8 +14,9 @@ import {
   readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
 import { cn } from '@brainstrike/ui';
-import { use } from 'react';
+import { use, useId, useState } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
+import { StepRowHeader } from './activity-step-row';
 import { McpTaskToolResult } from './mcp-task-tool-result';
 import {
   isSubagentDelegationToolName,
@@ -102,28 +103,58 @@ export function TodoProgress({ result }: TodoProgressProps): React.JSX.Element |
  * disclosure so the plan is not shown twice, while keeping the raw args/result
  * reachable behind the expander (ruling: hide the raw card body, keep raw args
  * reachable via the existing expander pattern).
+ *
+ * BST-1681: the disclosure is the shared L1 step row, not a `<details>` —
+ * every card inside an activity group reads as the same row grammar, and the
+ * verb carries the tense ("Updating tasks" while the call runs, "Updated
+ * tasks" once it settled) instead of the state-blind "Task list update".
+ * Local `useState` rather than the native element's own open state, because
+ * the row is a `<button>` with `aria-expanded`/`aria-controls`.
  */
-export const TaskListToolCard: ToolCallMessagePartComponent = ({ args, argsText, result }) => {
+export const TaskListToolCard: ToolCallMessagePartComponent = ({
+  args,
+  argsText,
+  result,
+  status,
+  toolCallId,
+}) => {
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
   const rawArgs = argsText ?? (args === undefined ? '' : JSON.stringify(args, null, 2));
   const rawResult = result === undefined ? undefined : JSON.stringify(result, null, 2);
+  const isRunning = status.type === 'running';
   return (
-    <details className="bs-tasklist-tool-card my-1 rounded-md border border-border/60 bg-background/40 text-xs">
-      <summary className="cursor-pointer select-none px-2.5 py-1 font-mono text-muted-foreground">
-        Task list update
-      </summary>
-      <div className="flex flex-col gap-1 px-2.5 pb-2">
-        {rawArgs ? (
-          <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
-            {rawArgs}
-          </pre>
-        ) : null}
-        {rawResult ? (
-          <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
-            {rawResult}
-          </pre>
-        ) : null}
-      </div>
-    </details>
+    <div className="bs-tasklist-tool-card my-1 rounded-md border border-border/60 bg-background/40 text-xs">
+      <StepRowHeader
+        bodyId={bodyId}
+        expanded={open}
+        family="tasks"
+        label={open ? 'Collapse details' : 'Expand details'}
+        onToggle={() => setOpen(!open)}
+        state={isRunning ? 'running' : 'done'}
+        // The group's last-running lookup is keyed by `toolCallId`; without it
+        // a task-list call that IS the group's last running step would be the
+        // one row that never shimmers.
+        stepId={toolCallId}
+        target={null}
+        toolName={NATIVE_TOOL_ID.manageTaskList}
+        verb={isRunning ? 'Updating tasks' : 'Updated tasks'}
+      />
+      {open ? (
+        <div className="flex flex-col gap-1 px-2.5 pb-2" id={bodyId}>
+          {rawArgs ? (
+            <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
+              {rawArgs}
+            </pre>
+          ) : null}
+          {rawResult ? (
+            <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
+              {rawResult}
+            </pre>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 };
 

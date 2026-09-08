@@ -57,11 +57,16 @@ describe('AssistantActivityParts (hydrated messages)', () => {
         initialMessages={[{ content: [completedReasoning], role: 'assistant' }]}
       />
     );
-    expect(await screen.findByTestId('assistant-reasoning-indicator')).toHaveTextContent('Thought');
+    // Since BST-1681 the reasoning disclosure is a step row: the tense lives
+    // in the row's verb slot and the indicator span carries the static mark.
+    const row = await screen.findByTestId('local-chain-of-thought');
+    expect(within(row).getByText('Thought', { exact: true })).toBeInTheDocument();
+    expect(within(row).getByTestId('assistant-reasoning-indicator')).toBeInTheDocument();
     expect(screen.getByTestId('assistant-reasoning-static-mark')).toHaveClass(
       'bs-thinking-mark-static'
     );
     expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-reasoning-live-mark')).not.toBeInTheDocument();
   });
 
   it('summarizes the tool calls within one activity group', async () => {
@@ -142,10 +147,14 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       if (!fold) {
         throw new Error('Expected a reasoning toggle.');
       }
-      expect(within(fold).getByTestId('assistant-thinking-indicator')).toBeInTheDocument();
-      const mark = within(fold).getByTestId('assistant-thinking-mark');
+      // BST-1681: the row's glyph slot holds the live mark itself (the verb
+      // slot next to it already reads "Thinking"), so the streaming row
+      // carries exactly one `[data-live="true"]` element.
+      const mark = within(fold).getByTestId('assistant-reasoning-live-mark');
       expect(mark).toHaveAttribute('data-tone', 'greyscale');
       expect(mark).toHaveAttribute('data-live', 'true');
+      expect(fold.querySelectorAll('[data-live="true"]')).toHaveLength(1);
+      expect(within(fold).getByText('Thinking', { exact: true })).toBeInTheDocument();
       expect(within(fold).queryByTestId('assistant-reasoning-static-mark')).toBeNull();
       expect(fold).toHaveAttribute('aria-expanded', 'true');
       expect(screen.getByText('Thinking hard.')).toBeVisible();
@@ -198,11 +207,12 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       expect(staticMark).toHaveClass('bs-thinking-mark-static');
       expect(staticMark).toHaveAttribute('data-live', 'false');
       // Scoped to the fold: a running tool card legitimately renders its own
-      // thinking indicator inside the group body, so asserting on `screen`
-      // directly here would be a false negative for this check. (The
-      // message-level `indicator` slot is suppressed once an activity part
-      // exists — pinned below.)
-      expect(within(fold).queryByTestId('assistant-thinking-indicator')).toBeNull();
+      // live mark inside the group body, so asserting on `screen` directly
+      // here would be a false negative for this check. (The message-level
+      // `indicator` slot is suppressed once an activity part exists — pinned
+      // below.)
+      expect(within(fold).queryByTestId('assistant-reasoning-live-mark')).toBeNull();
+      expect(fold.querySelectorAll('[data-live="true"]')).toHaveLength(0);
       expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-active', 'true');
       // The reasoning part already settled once the tool call started
       // streaming in the same chunk, so the header names the running TOOL
