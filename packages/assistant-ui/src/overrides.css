@@ -872,6 +872,112 @@
   }
 }
 
+/* ACTIVITY STEP ROWS (phase 3, spec §4.3 L1). One row per step in the group
+   body: family icon · verb (tense follows state) · target chip · timing ·
+   state glyph · chevron. Geometry lives here, not in utilities, so the
+   browser lane measures the real thing (phase-2 landmine). The reveal
+   stagger is positional: `.bs-step-list` children pick up `--bs-stagger`
+   from their nth-child index (capped at 5), so no row needs to know its
+   index and a row already visible never re-animates (the animation runs
+   once per mount). */
+.assistant-ui-panel .bs-step-list > :nth-child(2) {
+  --bs-stagger: 1;
+}
+.assistant-ui-panel .bs-step-list > :nth-child(3) {
+  --bs-stagger: 2;
+}
+.assistant-ui-panel .bs-step-list > :nth-child(4) {
+  --bs-stagger: 3;
+}
+.assistant-ui-panel .bs-step-list > :nth-child(5) {
+  --bs-stagger: 4;
+}
+.assistant-ui-panel .bs-step-list > :nth-child(n + 6) {
+  --bs-stagger: 5;
+}
+
+.assistant-ui-panel .bs-step-row-line {
+  align-items: center;
+  display: flex;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+/*
+ * `width: 100%` is load-bearing and not in the original spec snippet: a
+ * <button> defaults to shrink-to-fit ("fit-content") sizing for `width: auto`
+ * even once `display` is overridden to `flex` — unlike a <div>, which fills
+ * its containing block — so without it an unclamped `.bs-step-row-target`
+ * grows the row itself instead of being clipped inside it (caught by the
+ * browser test's 480px-panel overflow assertion; `flex: 1 1 auto` alone only
+ * stretches a row that already sits inside a flex parent, which
+ * `.bs-step-list` is not).
+ */
+.assistant-ui-panel .bs-step-row {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0.375rem;
+  color: inherit;
+  display: flex;
+  flex: 1 1 auto;
+  font: inherit;
+  gap: 0.5rem;
+  min-height: 2rem;
+  min-width: 0;
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+  width: 100%;
+}
+
+.assistant-ui-panel button.bs-step-row:hover {
+  background: hsl(var(--muted) / 0.35);
+}
+
+.assistant-ui-panel .bs-step-row-content {
+  align-items: baseline;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.assistant-ui-panel .bs-step-row-verb {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.assistant-ui-panel .bs-step-row-target {
+  color: hsl(var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.6875rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-ui-panel .bs-step-row-meta,
+.assistant-ui-panel .bs-step-row-timing {
+  color: hsl(var(--muted-foreground));
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.assistant-ui-panel .bs-step-glyph,
+.assistant-ui-panel .bs-step-family-icon {
+  block-size: 1rem;
+  display: inline-flex;
+  flex-shrink: 0;
+  inline-size: 1rem;
+}
+
+.assistant-ui-panel .bs-step-row[data-state="failed"] .bs-step-row-verb {
+  color: hsl(var(--destructive));
+}
+
 /**
  * Run-event activity rows: quiet single-line rows (vs the prominent
  * bs-tool-timeline cards). Consecutive rows read as one group — no margins
