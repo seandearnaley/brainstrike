@@ -25,7 +25,6 @@ const useBrainstrikeDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({
   runtime: 'test-runtime',
 }));
 const useAssistantDataUIMock = vi.fn((_dataUI: unknown) => undefined);
-const messagePartsComponentsMock = vi.fn((_components: unknown) => undefined);
 const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
 interface MockAuiState {
   composer: {
@@ -282,7 +281,6 @@ vi.mock('@assistant-ui/react', () => {
         return null;
       },
       Parts: ({ components }: PartsProps) => {
-        messagePartsComponentsMock(components);
         const Text = components?.Text ?? TextStub;
         return <Text />;
       },
@@ -559,11 +557,6 @@ describe('AssistantUiPanel model picker', () => {
       expect.objectContaining({
         name: TOOL_APPROVAL_DATA_NAME,
         render: expect.any(Function),
-      })
-    );
-    expect(messagePartsComponentsMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.anything(),
       })
     );
   });

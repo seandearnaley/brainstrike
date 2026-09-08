@@ -167,11 +167,11 @@ interface ActivityGroupProps {
 
 /**
  * One contiguous activity group. Replaces the panel's now-deleted local
- * chain-of-thought renderer (BST-1677): reads the group's parts by index
- * from the message (the library's `chainOfThought` scope does not exist on
- * this path), derives the summary /
- * elapsed / durations exactly as before, and renders the unchanged
- * `AssistantActivityGroup` chrome around the reasoning fold.
+ * chain-of-thought renderer (BST-1677): reads the group's parts by index from
+ * the message (the library's `chainOfThought` scope does not exist on this
+ * path), derives the summary / elapsed / durations exactly as before, and
+ * renders the unchanged `AssistantActivityGroup` chrome around the reasoning
+ * fold.
  */
 function ActivityGroup({ children, indices, status }: ActivityGroupProps): ReactNode {
   const messageParts = useAuiState((state) => state.message.parts);
