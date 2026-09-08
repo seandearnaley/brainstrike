@@ -1562,6 +1562,28 @@ content span, which would otherwise fold `brainstrike.readWorkspaceFile` into
 the non-interactive row's `aria-labelledby` name alongside its verb and
 target.
 
+The interactive row's three a11y-reachable surfaces are deliberately
+disjoint, ruled in BST-1682 review round 2: NAME is `<verb> <target>,
+<affordance>` (`contentAccessibleName`, `activity-step-row.tsx`) — the
+content-composed string above, nothing else. DESCRIPTION is the raw tool id,
+and only that: with `aria-describedby` no longer emitted on a content-named
+row, the button's `title` attribute becomes its accessible description per
+HTML-AAM, so a screen reader announces "Read src/app.ts, expand details,
+collapsed, button — brainstrike.readWorkspaceFile" on focus. This is kept
+deliberately, not an oversight — the `title` is the one place the raw id
+still reaches AT, and it does so honestly, as a description rather than
+competing with the visible label for the name. Pinned in
+`activity-step-row.test.tsx` (`toHaveAccessibleDescription`, both the
+carries-it and the has-none case). TRAILING content (result summary, root
+name, `· N tool calls`) sits inside `.bs-step-row-content` today but in
+NEITHER the name nor the description — it is result metadata a user did not
+ask to hear announced on every focus, not the label they would speak. It
+stays reachable in browse mode (screen-reader users can still read it as
+text) even though focus mode skips it. BST-1686 (PR #3067) moves `trailing`
+out of the content span entirely; this paragraph does not need updating for
+that move, since trailing's a11y treatment (reachable, not named) is
+unchanged either way.
+
 State glyphs are named, never colour-only: `STEP_STATE_LABELS`
 (`activity-step-tokens.ts`) is the total `role="img"`/`aria-label` map —
 `Completed | Running | Failed | Stopped | Waiting for approval | No answer`

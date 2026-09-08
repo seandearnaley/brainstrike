@@ -499,8 +499,10 @@ async function executeAssistantTool(
   const toolCard = activity.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
   // BST-1682 (WCAG 2.5.3 Label in Name): the row's accessible name now leads
-  // with its visible content ("Called legacy.echo legacy.echo, expand
-  // details"), so the affordance is matched as a substring — an `exact: true`
+  // with its visible content ("Called legacy.echo packaged-assistant-payload,
+  // expand details" — `extractPrimaryArg` falls back to the first
+  // string-valued arg, and this call's arg is `{ text: ASSISTANT_TOOL_PAYLOAD
+  // }`), so the affordance is matched as a substring — an `exact: true`
   // equality here would never resolve again.
   await toolCard.getByRole('button', { name: /expand details/i }).click();
   await expect(toolCard).toContainText(ASSISTANT_TOOL_PAYLOAD);

@@ -35,6 +35,45 @@ describe('StepRowHeader', () => {
     expect(button.querySelector('.bs-trace-glyph')).toBeInTheDocument();
   });
 
+  it('carries the raw tool id as the accessible description via `title` (reviewer Important 1)', () => {
+    // With `aria-describedby` no longer emitted on a content-named row, the
+    // button's `title` becomes its accessible description per HTML-AAM — the
+    // one place the raw id still reaches AT, on focus, without cluttering the
+    // name. Mutation: drop `title` from the button and this assertion fails.
+    render(
+      <StepRowHeader
+        bodyId="body-1"
+        expanded={false}
+        family="read"
+        label="Expand details"
+        onToggle={() => {}}
+        state="done"
+        target="app.ts"
+        toolName="brainstrike.readWorkspaceFile"
+        verb="Read"
+      />
+    );
+    const button = screen.getByRole('button', { name: 'Read app.ts, expand details' });
+    expect(button).toHaveAccessibleDescription('brainstrike.readWorkspaceFile');
+  });
+
+  it('has no accessible description when the row carries no tool id', () => {
+    render(
+      <StepRowHeader
+        bodyId="body-1"
+        expanded={false}
+        family="read"
+        label="Expand details"
+        onToggle={() => {}}
+        state="done"
+        target="app.ts"
+        verb="Read"
+      />
+    );
+    const button = screen.getByRole('button', { name: 'Read app.ts, expand details' });
+    expect(button).toHaveAccessibleDescription('');
+  });
+
   it('keeps the raw tool id out of the interactive row name while keeping it as text', () => {
     // The sr-only tool id sits inside the row but outside the content span,
     // so folding the content into the name must not drag the id in with it:

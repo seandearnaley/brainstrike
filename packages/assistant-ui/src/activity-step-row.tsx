@@ -95,9 +95,13 @@ interface RowShellProps {
  * outside the content span — except where the caller has already put it in
  * `target`, in which case it is visible text and belongs in the name.
  */
-function contentAccessibleName(verb: string, target: string | null, label: string): string {
-  const affordance = `${label.charAt(0).toLowerCase()}${label.slice(1)}`;
-  return `${target ? `${verb} ${target}` : verb}, ${affordance}`;
+function contentAccessibleName(props: {
+  readonly label: string;
+  readonly target: string | null;
+  readonly verb: string;
+}): string {
+  const affordance = `${props.label.charAt(0).toLowerCase()}${props.label.slice(1)}`;
+  return `${props.target ? `${props.verb} ${props.target}` : props.verb}, ${affordance}`;
 }
 
 /**
@@ -168,7 +172,9 @@ export function StepRowHeader(props: StepRowHeaderProps): ReactNode {
       describeContent={!nameFromContent}
       expanded={props.expanded}
       name={
-        nameFromContent ? contentAccessibleName(props.verb, props.target, props.label) : props.label
+        nameFromContent
+          ? contentAccessibleName({ label: props.label, target: props.target, verb: props.verb })
+          : props.label
       }
       onToggle={props.onToggle}
       state={props.state}
