@@ -117,10 +117,22 @@ function stepLabel(count: number): string {
   return count > 0 ? `${count} ${count === 1 ? 'step' : 'steps'}` : '';
 }
 
+const WAITING_LABEL = 'Waiting for approval';
+
+/**
+ * True while the run is paused on the user (the model's live label is the
+ * single source: `summarizeActivity` emits this string for any waiting step).
+ * Shared by the sr-only announcement and the elapsed-clock gate so the two
+ * cannot drift apart.
+ */
+function isWaitingForUser(phase: TracePhase, liveLabel: string): boolean {
+  return phase === 'running' && liveLabel === WAITING_LABEL;
+}
+
 /** The sr-only status-transition announcement; "Waiting for approval" is the one exception that isn't just the phase's fixed text. */
 function announcementFor(phase: TracePhase, liveLabel: string): string {
-  if (phase === 'running' && liveLabel === 'Waiting for approval') {
-    return 'Waiting for approval';
+  if (isWaitingForUser(phase, liveLabel)) {
+    return WAITING_LABEL;
   }
   return PHASE_ANNOUNCEMENT[phase];
 }
@@ -217,7 +229,7 @@ export function ActivityTrace({
   // the exact duration the header reads "Waiting for approval": the user's
   // own deliberation time must never inflate "Worked for Ns", and an
   // abandoned in-session pause must not tick forever (BST-1679 task 6).
-  const waiting = phase === 'running' && summary.live === 'Waiting for approval';
+  const waiting = isWaitingForUser(phase, summary.live);
   const elapsedMs = useElapsedMs(isActive && !waiting, fallbackMs);
   const elapsedLabel = elapsedMs === undefined ? null : formatActivityDuration(elapsedMs);
   const failed = phase === 'failed';
