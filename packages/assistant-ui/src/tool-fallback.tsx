@@ -12,8 +12,8 @@ import {
   useMemo,
   useState,
 } from 'react';
-import type { StepGlyphState } from './activity-step-icons';
 import { StepRowHeader } from './activity-step-row';
+import { type ActivityStepState, toolStepStateFor } from './activity-trace-model';
 import { verbForTool } from './activity-verbs';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
@@ -42,85 +42,66 @@ type ToolStatus = ToolFallbackProps['status'];
 type ToolResult = ToolFallbackProps['result'];
 
 /**
- * `waiting` is the resultless call on a settled/paused message (BST-1678): it
- * is parked at its approval gate, so it reads "Waiting for approval" through
- * the shared step glyph rather than the old grey "Unknown".
- */
-type DisplayStatus = 'running' | 'error' | 'stopped' | 'success' | 'waiting';
-
-/**
- * The card's status in the trace's vocabulary — one grammar for the group
- * summary and the card, so a step never reads two different states. The
- * accessible names (`Completed`, `Running`, …) come from `STEP_STATE_LABELS`
- * via `StepStateGlyph`; this file no longer owns a second label table.
- */
-const GLYPH_STATES: Record<DisplayStatus, StepGlyphState> = {
-  error: 'failed',
-  running: 'running',
-  stopped: 'cancelled',
-  success: 'done',
-  waiting: 'waiting',
-};
-
-/**
- * BST-1070: the CARD-level status for a settled `run_python` result. The
+ * BST-1070: the CARD-level state for a settled `run_python` result. The
  * generic path renders a green check for any error-free result, which would
  * lie for three of this tool's five states: cancelled/timed-out/killed runs
  * did not complete (design rule: cancelled NEVER renders as success) and an
  * `unavailable` result means nothing ran at all (destructive). A non-zero
- * exit stays `success` at the card level — the tool call completed; the
- * result surface right below carries the amber "finished with an error".
+ * exit stays `done` at the card level — the tool call completed; the result
+ * surface right below carries the amber "finished with an error".
  */
-function runPythonDisplayStatus(result: RunPythonDisplayResult): DisplayStatus {
+function runPythonStepState(result: RunPythonDisplayResult): ActivityStepState {
   switch (result.kind) {
     case 'completed':
-      return 'success';
+      return 'done';
     case 'unavailable':
-      return 'error';
+      return 'failed';
     default:
       // timed_out / killed / cancelled / network_denied / declined: the run
       // stopped without completing — network_denied and declined by the
       // user's explicit choice.
-      return 'stopped';
+      return 'cancelled';
   }
 }
 
 /**
- * Narrows a settled `run_python` result and resolves the card status in one
+ * Narrows a settled `run_python` result and resolves the card state in one
  * place (kept out of ToolFallback for cognitive-complexity budget). A shape
  * that fails narrowing (malformed or future) stays on the generic path with
- * the generic status — never an invented surface.
+ * the generic state — never an invented surface.
  *
- * The structured mapping only ever OVERRIDES a generic `success`: `running`
- * and `incomplete` must keep winning, or a transport abort's `status.error`
- * would vanish behind a Completed/Stopped card and a still-running call would
- * lose its thinking indicator.
+ * The generic state is the TRACE's derivation (`toolStepStateFor`), not a
+ * second one: the card, the trace headline and the run-event surface must
+ * agree about every step. The structured mappings below only ever OVERRIDE a
+ * generic `done`: `running`, `waiting` and the incomplete states must keep
+ * winning, or a transport abort's `status.error` would vanish behind a
+ * Completed/Stopped card and a still-running call would lose its indicator.
  */
 function resolveCardStatus(
   toolName: string,
   status: ToolStatus,
   result: ToolResult,
   isErrorResult: boolean
-): { displayStatus: DisplayStatus; runPythonResult: RunPythonDisplayResult | null } {
-  const hasResult = result !== undefined;
-  const generic = resolveDisplayStatus(status, hasResult, result, isErrorResult);
-  if (generic !== 'success') {
-    // Generic path owns the card (running / incomplete / error-shaped): no
+): { glyphState: ActivityStepState; runPythonResult: RunPythonDisplayResult | null } {
+  const generic = toolStepStateFor({ isError: isErrorResult, result, status });
+  if (generic !== 'done') {
+    // Generic path owns the card (running / waiting / incomplete / failed): no
     // structured surface either, or it would render under Failed chrome.
-    return { displayStatus: generic, runPythonResult: null };
+    return { glyphState: generic, runPythonResult: null };
   }
   const runPythonResult =
     toolName === NATIVE_TOOL_ID.runPython ? narrowRunPythonDisplayResult(result) : null;
   if (runPythonResult) {
-    return { displayStatus: runPythonDisplayStatus(runPythonResult), runPythonResult };
+    return { glyphState: runPythonStepState(runPythonResult), runPythonResult };
   }
   // BST-1282: a call the user DECLINED at its approval gate settles with the
   // shared `DeclinedToolCallResult` envelope and no error flag. Left on the
   // generic path it would earn a green Completed for a tool that never ran, so
-  // it takes the same muted `stopped` treatment run_python already reserves for
-  // a decline — and never the destructive Failed chrome, because nothing broke.
+  // it takes the same muted `cancelled` treatment run_python already reserves
+  // for a decline — and never the destructive Failed chrome, because nothing
+  // broke.
   return {
-    displayStatus: isDeclinedToolCallResult(result) ? 'stopped' : 'success',
+    glyphState: isDeclinedToolCallResult(result) ? 'cancelled' : 'done',
     runPythonResult: null,
   };
 }
@@ -153,27 +134,6 @@ const readResultErrorMessage = (result: ToolResult, isErrorResult = false): stri
     return 'Tool execution failed.';
   }
   return;
-};
-
-const resolveDisplayStatus = (
-  status: ToolStatus,
-  hasResult: boolean,
-  result: ToolResult,
-  isErrorResult: boolean
-): DisplayStatus => {
-  if (status.type === 'running') {
-    return 'running';
-  }
-  if (status.type === 'incomplete') {
-    return 'error';
-  }
-  if (readResultErrorMessage(result, isErrorResult)) {
-    return 'error';
-  }
-  if (hasResult) {
-    return 'success';
-  }
-  return 'waiting';
 };
 
 const resolveErrorMessage = (
@@ -248,12 +208,21 @@ function extractResolvedRootName(result: ToolResult): string | undefined {
  * family icon, verb in tense, target chip, timing, state glyph — over
  * collapsible Arguments/Result panes.
  *
- * Handles four states:
- * - Running: live glyph + progress label; nothing to expand yet, so the row
+ * Its state comes from `toolStepStateFor`, the SAME derivation the trace
+ * headline and the run-event surface use, so a step can never read one state
+ * here and another there:
+ * - `running`: live glyph + progress label; nothing to expand yet, so the row
  *   is not a button
- * - Success: shows result summary; the ROW is the expander for the details
- * - Waiting: a resultless call parked at its approval gate
- * - Error: shows the error message inline in red under the row
+ * - `waiting`: a LIVE pause — the part's status is `requires-action`, so the
+ *   row reads "Waiting for approval"
+ * - `done`: shows the result summary; the ROW is the expander for the details.
+ *   A resultless call on a settled message lands here too: after a reload the
+ *   thread carries no record that the pause was ever abandoned, and inventing
+ *   one on the card would contradict the trace. Recording that outcome is
+ *   persistence work (BST-1678), not something the card may guess at.
+ * - `cancelled`: stopped without completing (an `incomplete`/cancelled status,
+ *   a decline, a stopped run_python) — muted, never destructive chrome
+ * - `failed`: shows the error message inline in red under the row
  */
 export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   const {
@@ -283,20 +252,19 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   const detailsId = useId();
 
   const hasResult = result !== undefined;
-  const { displayStatus, runPythonResult } = resolveCardStatus(
+  const { glyphState, runPythonResult } = resolveCardStatus(
     toolName,
     status,
     result,
     isErrorResult
   );
-  const glyphState = GLYPH_STATES[displayStatus];
   const verb = verbForTool(toolName);
   // A waiting/cancelled/failed step reads the past tense with the glyph
   // carrying the state — consistent with the trace's resting summary, which
   // lists failed verbs in the done tense too.
   const verbLabel = glyphState === 'running' ? verb.active : verb.done;
-  const isRunning = displayStatus === 'running';
-  const isError = displayStatus === 'error';
+  const isRunning = glyphState === 'running';
+  const isError = glyphState === 'failed';
   // BST-849: while the model streams a large tool input the card must visibly
   // move — received bytes off the raw (live) `argsText`, elapsed off the part
   // timing — or a two-minute file write reads exactly like a hung run.

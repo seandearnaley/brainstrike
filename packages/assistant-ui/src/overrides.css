@@ -988,6 +988,17 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Meta chips carry TOOL RESULT data (the result summary, the resolved root
+   name), so their length is not bounded at the call site. They do not shrink,
+   so an unclamped chip pushes the row past its list. 9rem is the `max-w-36`
+   the pre-BST-1681 card header carried. */
+.assistant-ui-panel .bs-step-row-meta {
+  max-inline-size: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .assistant-ui-panel .bs-step-glyph,
 .assistant-ui-panel .bs-step-family-icon {
   block-size: 1rem;

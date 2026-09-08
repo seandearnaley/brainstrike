@@ -82,6 +82,34 @@ test('the non-interactive form (div role=group) owns its own box model without a
   );
 });
 
+test('a trailing meta chip is clamped and ellipsised, never an unbounded flex item', () => {
+  // The root-name chip ("in <rootName>") comes from tool RESULT data, so its
+  // length is not ours to bound at the call site. `.bs-step-row-meta` does not
+  // shrink, so without a max size one long root name pushes the row's own
+  // scrollWidth past the list.
+  const { container } = render(
+    <div className="assistant-ui-panel">
+      <div className="bs-step-list" style={{ width: 320 }}>
+        <StepRowHeader
+          family="read"
+          label="Read"
+          state="done"
+          target={null}
+          trailing={<span className="bs-step-row-meta">in {'x'.repeat(80)}</span>}
+          verb="Read"
+        />
+      </div>
+    </div>
+  );
+  const list = mustFind(container, '.bs-step-list');
+  const meta = mustFind(container, '.bs-step-row-meta');
+  // 9rem === the `max-w-36` the pre-BST-1681 header carried.
+  expect(meta.getBoundingClientRect().width).toBeLessThanOrEqual(9 * 16 + 0.5);
+  // Truncated, not merely clipped to nothing.
+  expect(meta.scrollWidth).toBeGreaterThan(meta.clientWidth);
+  expect(list.scrollWidth).toBeLessThanOrEqual(list.clientWidth);
+});
+
 test('a sibling control in .bs-step-row-line keeps its own width; the row never squeezes it out', () => {
   const longTarget = 'c'.repeat(300);
   const { container } = render(

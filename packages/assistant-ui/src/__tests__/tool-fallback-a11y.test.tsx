@@ -58,23 +58,26 @@ describe('ToolFallback Accessibility', () => {
     // BST-1681: the row keeps a STABLE `aria-controls` across the toggle (the
     // disclosure pattern — the pane it names is mounted only while expanded,
     // which `aria-expanded="false"` already announces). What must never drift
-    // is the id it points at once the pane exists.
+    // is the id it points at once the pane exists; whether that id resolves to
+    // nothing WHILE collapsed is an implementation detail of the pattern, not
+    // a contract, so it is deliberately not pinned here.
     const controlsId = button.getAttribute('aria-controls');
-    expect(controlsId).toBeTruthy();
-    expect(container.querySelector(`#${CSS.escape(controlsId as string)}`)).not.toBeInTheDocument();
+    if (controlsId === null || controlsId.length === 0) {
+      throw new Error('the row must name the pane it toggles');
+    }
+    expect(button).toHaveAttribute('aria-expanded', 'false');
 
     await user.click(button);
 
     const expandedButton = screen.getByRole('button', { name: /Collapse details/i });
     expect(expandedButton).toHaveAttribute('aria-controls', controlsId);
-
-    const controlledElement = container.querySelector(`#${CSS.escape(controlsId as string)}`);
-    expect(controlledElement).toBeInTheDocument();
+    expect(expandedButton).toHaveAttribute('aria-expanded', 'true');
+    expect(container.querySelector(`#${CSS.escape(controlsId)}`)).toBeInTheDocument();
 
     await user.click(expandedButton);
     const collapsedButton = screen.getByRole('button', { name: /Expand details/i });
+    expect(collapsedButton).toHaveAttribute('aria-controls', controlsId);
     expect(collapsedButton).toHaveAttribute('aria-expanded', 'false');
-    expect(container.querySelector(`#${CSS.escape(controlsId as string)}`)).not.toBeInTheDocument();
   });
 
   test('multiple instances have unique aria-controls IDs', () => {

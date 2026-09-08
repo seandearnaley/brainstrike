@@ -200,7 +200,9 @@ describe('ToolFallback activity step row', () => {
       throw new Error('unreachable: asserted truthy above');
     }
     const content = document.getElementById(describedBy);
-    expect(content).toHaveTextContent('Read');
+    // Exact, not `toHaveTextContent('Read')`: that substring also passes on
+    // "Reading", so it could not tell the done tense from the active one.
+    expect(within(card).getByText('Read', { exact: true })).toBeInTheDocument();
     expect(content).toHaveTextContent('src/app.ts');
     // The raw id stays IN the card as text (the e2e contract) but out of the
     // row's own accessible description.
@@ -213,18 +215,69 @@ describe('ToolFallback activity step row', () => {
     expect(screen.getByText('Arguments:')).toBeInTheDocument();
   });
 
-  it('reads a resultless settled call as Waiting for approval with a static glyph', () => {
+  it('reads a LIVE paused call (requires-action) as Waiting for approval, with no live mark', () => {
     const { container } = renderTool({
       args: { command: 'rm x' },
       argsText: '{"command":"rm x"}',
-      status: { type: 'complete' },
+      status: { reason: 'tool-calls', type: 'requires-action' },
       toolCallId: 'call-paused',
       toolName: 'brainstrike.executeCommand',
     });
 
     expect(screen.getByRole('img', { name: 'Waiting for approval' })).toBeInTheDocument();
-    expect(screen.queryByText('Unknown')).toBeNull();
+    // The gate is on the USER, not on the model: the row must not shimmer or
+    // carry the live mark while it waits.
     expect(container.querySelectorAll('[data-live="true"]')).toHaveLength(0);
+    expect(screen.getByText('Ran', { exact: true })).toBeInTheDocument();
+  });
+
+  it('reads a resultless call on a settled message as Completed, like the trace does', () => {
+    // The card used to call this one "Waiting for approval" while the trace
+    // called it `done` — the same step reading two states. A reload after an
+    // abandoned approval is a PERSISTENCE gap (BST-1678), not something the
+    // card may invent an outcome for.
+    renderTool({
+      args: { command: 'rm x' },
+      argsText: '{"command":"rm x"}',
+      status: { type: 'complete' },
+      toolCallId: 'call-resultless',
+      toolName: 'brainstrike.executeCommand',
+    });
+
+    expect(screen.getByRole('img', { name: 'Completed' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Waiting for approval' })).toBeNull();
+    expect(screen.getByText('Ran', { exact: true })).toBeInTheDocument();
+  });
+
+  it('reads a cancelled call as Stopped — never the destructive Failed chrome', () => {
+    renderTool({
+      args: { command: 'sleep 100' },
+      argsText: '{"command":"sleep 100"}',
+      status: { reason: 'cancelled', type: 'incomplete' },
+      toolCallId: 'call-cancelled',
+      toolName: 'brainstrike.executeCommand',
+    });
+
+    expect(screen.getByRole('img', { name: 'Stopped' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Failed' })).toBeNull();
+    // `resolveErrorMessage` still composes "Tool incomplete: cancelled" for
+    // this status, but the error line renders only under the failed state —
+    // a stop the user asked for is not an error to report in red.
+    expect(screen.queryByText('Tool incomplete: cancelled')).toBeNull();
+    expect(screen.getByText('Ran', { exact: true })).toBeInTheDocument();
+  });
+
+  it('reads an incomplete call with a non-cancelled reason as Failed, with its error line', () => {
+    renderTool({
+      args: { command: 'sleep 100' },
+      argsText: '{"command":"sleep 100"}',
+      status: { reason: 'error', type: 'incomplete' },
+      toolCallId: 'call-incomplete',
+      toolName: 'brainstrike.executeCommand',
+    });
+
+    expect(screen.getByRole('img', { name: 'Failed' })).toBeInTheDocument();
+    expect(screen.getByText('Tool incomplete: error')).toBeInTheDocument();
   });
 
   it('keeps the done-tense verb on a failed call and still renders the error line', () => {

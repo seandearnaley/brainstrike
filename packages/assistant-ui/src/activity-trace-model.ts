@@ -67,13 +67,52 @@ function statusOf(part: Record<string, unknown>): { reason?: unknown; type?: unk
 }
 
 /**
- * Canonical flags only (repo rule): status type/reason, `isError`, guarded
- * error. This is the phase-2 activity-trace state machine; the legacy
- * `summarizeToolActivity` (`tool-activity.ts`) it superseded was deleted with
- * `AssistantActivityGroup` (BST-1679).
+ * A settled result that STATES its own failure, in the two shapes the tool
+ * card's error line has always recognised beyond the guarded envelope
+ * (`readResultErrorMessage` in `tool-fallback.tsx`): a non-empty `error`
+ * string, an `ok: false` envelope whose `error.message` explains it, and a
+ * result-level `isError` flag.
+ *
+ * It lives HERE, not only in the card, because both surfaces derive from this
+ * function (BST-1681 phase 3): while the card read these as Failed and the
+ * trace read them as `done`, one step showed a red error line under a headline
+ * that counted it a success. A payload that does not declare failure — an
+ * `ok: true` result carrying advisory error metadata — is ordinary domain data
+ * and stays `done` (the surviving half of the BST-1679 ruling).
  */
-function toolStepState(part: Record<string, unknown>): ActivityStepState {
-  const status = statusOf(part);
+function statesResultError(result: unknown): boolean {
+  if (!isRecord(result) || Array.isArray(result)) {
+    return false;
+  }
+  const error = result['error'];
+  if (typeof error === 'string' && error.length > 0) {
+    return true;
+  }
+  if (result['ok'] === false && isRecord(error) && !Array.isArray(error)) {
+    const message = error['message'];
+    if (typeof message === 'string' && message.length > 0) {
+      return true;
+    }
+  }
+  return result['isError'] === true;
+}
+
+/**
+ * THE state machine for a tool step — the trace headline, the run-event
+ * surface and the tool card (`resolveCardStatus`) all resolve their state
+ * here, so a step can never read two different states on two surfaces.
+ *
+ * Canonical signals only (repo rule): status type/reason, the part's `isError`
+ * flag, a guarded error envelope, or a result that states its own error.
+ * Exposed as a plain input record so the card can call it with the props it
+ * already has, instead of assembling a fake part.
+ */
+export function toolStepStateFor(input: {
+  readonly isError?: boolean;
+  readonly result?: unknown;
+  readonly status?: { readonly reason?: unknown; readonly type?: unknown } | undefined;
+}): ActivityStepState {
+  const { status } = input;
   if (status?.type === 'running') {
     return 'running';
   }
@@ -83,13 +122,26 @@ function toolStepState(part: Record<string, unknown>): ActivityStepState {
   if (status?.type === 'incomplete') {
     return status.reason === 'cancelled' ? 'cancelled' : 'failed';
   }
-  if (part['isError'] === true || isGuardedToolError(part['result'])) {
+  if (
+    input.isError === true ||
+    isGuardedToolError(input.result) ||
+    statesResultError(input.result)
+  ) {
     return 'failed';
   }
-  if (status === undefined && part['result'] === undefined) {
+  if (status === undefined && input.result === undefined) {
     return 'running';
   }
   return 'done';
+}
+
+/** The part-record entry point into {@link toolStepStateFor}. */
+function toolStepState(part: Record<string, unknown>): ActivityStepState {
+  return toolStepStateFor({
+    isError: part['isError'] === true,
+    result: part['result'],
+    status: statusOf(part),
+  });
 }
 
 function reasoningStepState(part: Record<string, unknown>): ActivityStepState {

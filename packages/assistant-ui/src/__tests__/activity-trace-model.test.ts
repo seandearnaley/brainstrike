@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveActivitySteps, summarizeActivity } from '../activity-trace-model';
+import { deriveActivitySteps, summarizeActivity, toolStepStateFor } from '../activity-trace-model';
 
 const tool = (
   id: string,
@@ -104,20 +104,40 @@ describe('deriveActivitySteps', () => {
     expect(steps[0]?.state).toBe('running');
   });
 
-  // Ported from the deleted `assistant-activity-group.test.tsx` (BST-1679
-  // review): failure comes from canonical flags only — `isError`, an
-  // `incomplete` status, or a GUARDED error envelope. A completed result that
-  // merely carries an `error` member of its own domain shape is ordinary data
-  // and must never be counted as a failure. This matters more now that
-  // `toolStepState` inspects the result payload at all (`isGuardedToolError`).
-  it('never infers failure from an ordinary domain `error` field on a completed result', () => {
+  // BST-1681 phase 3 SUPERSEDES the BST-1679 "canonical flags only" reading
+  // for one shape: a settled result whose own `error` member states an error.
+  // The tool card has always rendered that member as its red error line, so
+  // leaving the trace on `done` meant one step reading Failed on the card and
+  // counting as a success in the headline. One derivation, one verdict: both
+  // now say `failed`. A payload that does NOT declare failure (an `ok: true`
+  // result carrying advisory error metadata) is still ordinary data.
+  it('counts a settled result that states its own error as failed on both surfaces', () => {
     const steps = deriveActivitySteps(
       [
         tool(
           'd',
           'brainstrike.executeCommand',
           { command: 'ls' },
-          { result: { error: 'ordinary domain data' }, status: { type: 'complete' } }
+          { result: { error: 'the command exploded' }, status: { type: 'complete' } }
+        ),
+      ],
+      {}
+    );
+    expect(steps[0]?.state).toBe('failed');
+    expect(summarizeActivity(steps).counts.failed).toBe(1);
+  });
+
+  it('never infers failure from advisory error metadata on a successful result', () => {
+    const steps = deriveActivitySteps(
+      [
+        tool(
+          'd',
+          'brainstrike.executeCommand',
+          { command: 'ls' },
+          {
+            result: { error: { message: 'advisory only' }, ok: true },
+            status: { type: 'complete' },
+          }
         ),
       ],
       {}
@@ -371,5 +391,58 @@ describe('summarizeActivity', () => {
       summarizeActivity(deriveActivitySteps([reasoning('x', 'complete')], {})).verbs
     ).toBeNull();
     expect(summarizeActivity([]).verbs).toBeNull();
+  });
+});
+
+/**
+ * BST-1681 phase 3: the tool CARD calls this same function, so a step can
+ * never read one state on the card and another in the trace headline. Every
+ * branch is pinned here because both surfaces now depend on it.
+ */
+describe('toolStepStateFor', () => {
+  it('maps every status branch the card and the trace share', () => {
+    expect(toolStepStateFor({ status: { type: 'running' } })).toBe('running');
+    expect(toolStepStateFor({ status: { reason: 'tool-calls', type: 'requires-action' } })).toBe(
+      'waiting'
+    );
+    expect(toolStepStateFor({ status: { reason: 'cancelled', type: 'incomplete' } })).toBe(
+      'cancelled'
+    );
+    expect(toolStepStateFor({ status: { reason: 'error', type: 'incomplete' } })).toBe('failed');
+    expect(toolStepStateFor({ isError: true, status: { type: 'complete' } })).toBe('failed');
+    expect(toolStepStateFor({ status: { type: 'complete' } })).toBe('done');
+    expect(toolStepStateFor({ result: { ok: true }, status: { type: 'complete' } })).toBe('done');
+    expect(toolStepStateFor({})).toBe('running');
+  });
+
+  it('calls the card error shapes failed so both surfaces agree on failure', () => {
+    // The card has always rendered an error line for these three shapes
+    // (`readResultErrorMessage`); before this ruling the trace read them as
+    // `done`, so one step could be Failed on the card and a success in the
+    // headline.
+    expect(toolStepStateFor({ result: { error: 'boom' }, status: { type: 'complete' } })).toBe(
+      'failed'
+    );
+    expect(
+      toolStepStateFor({
+        result: { error: { message: 'not a guarded code' }, ok: false },
+        status: { type: 'complete' },
+      })
+    ).toBe('failed');
+    expect(toolStepStateFor({ result: { isError: true }, status: { type: 'complete' } })).toBe(
+      'failed'
+    );
+  });
+
+  it('leaves a successful payload and a plain string result on the done path', () => {
+    expect(
+      toolStepStateFor({
+        result: { error: { message: 'advisory only' }, ok: true },
+        status: { type: 'complete' },
+      })
+    ).toBe('done');
+    expect(toolStepStateFor({ result: 'plain string result', status: { type: 'complete' } })).toBe(
+      'done'
+    );
   });
 });
