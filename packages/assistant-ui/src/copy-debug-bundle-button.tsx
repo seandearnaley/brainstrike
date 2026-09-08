@@ -36,7 +36,7 @@ function selectFailedRunId(parts: readonly unknown[]): string | null {
  * check `ErrorPrimitive.Message` / the library's internal `useMessageError`
  * perform (`status.type === 'incomplete' && status.reason === 'error'`).
  * Read directly via `useAuiState` (same `state.message.status` selector
- * pattern already used by `LocalChainOfThought` in assistant-ui-panel.tsx)
+ * pattern already used by `ActivityGroup` in assistant-activity-parts.tsx)
  * since `useMessageError` itself is not re-exported from `@assistant-ui/react`'s
  * public surface.
  */

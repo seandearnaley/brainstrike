@@ -102,7 +102,15 @@ describe('assistant UI panel architecture', () => {
     // <AssistantMessageError />. The runId detection, phase machine, and
     // clipboard/error handling all live in that module; this file only
     // imports + renders it.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1880);
+    // Dropped 1880 → 1509 (BST-1677): AssistantMessage now renders
+    // <AssistantActivityParts /> (assistant-activity-parts.tsx) instead of
+    // <MessagePrimitive.Parts components={{ ChainOfThought, Text }} />. The
+    // panel's own copies of isRunningReasoningPart, HiddenReasoningPart,
+    // isReasoningPart, reasoningToggleLabel, ChainReasoningFold,
+    // isActivityPart, ActivityPartLayout, ActivityToolPart, and
+    // LocalChainOfThought are deleted — that grouped-parts renderer is the
+    // one implementation now, and its invariants live in its own module.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1509);
   });
 
   it('keeps the composer workspace bar an app-shell-rendered SLOT above the context meter', () => {
@@ -283,29 +291,31 @@ describe('assistant UI panel architecture', () => {
     expect(userActionBarSource).toContain("isFailed ? 'Copy failed' : null");
   });
 
-  it('renders assistant tool-call parts through the chain-of-thought tool fallback', () => {
+  it('renders assistant parts through the grouped activity renderer, never the legacy ChainOfThought slot', () => {
     const source = readSource('assistant-ui-panel.tsx');
     const assistantMessageStart = source.indexOf('const AssistantMessage =');
     const assistantActionBarStart = source.indexOf('const AssistantActionBar =');
     const assistantMessageSource = source.slice(assistantMessageStart, assistantActionBarStart);
-    const localChainOfThoughtStart = source.indexOf('const LocalChainOfThought =');
-    const dataRendererStart = source.indexOf('const AssistantDataRendererRegistration =');
-    const localChainOfThoughtSource = source.slice(localChainOfThoughtStart, dataRendererStart);
 
-    expect(assistantMessageSource).toContain('ChainOfThought: LocalChainOfThought');
-    // The tool-components map (by_name + Fallback) is extracted to
-    // CHAIN_OF_THOUGHT_TOOL_COMPONENTS in todo-progress.tsx to stay under the
-    // source-file budget above; assert the wiring there instead of inline.
-    expect(localChainOfThoughtSource).toContain('Fallback: ActivityToolPart');
-    expect(source).toContain('CHAIN_OF_THOUGHT_TOOL_COMPONENTS.by_name[props.toolName]');
+    expect(assistantMessageSource).toContain('<AssistantActivityParts />');
+    expect(source).not.toContain('ChainOfThought: ');
+    expect(source).not.toContain('ChainOfThoughtPrimitive');
+    expect(source).not.toContain('LocalChainOfThought');
+
+    const partsSource = readSource('assistant-activity-parts.tsx');
+    expect(partsSource).toContain('MessagePrimitive.GroupedParts');
+    expect(partsSource).toContain('groupBy={groupAssistantActivityPart}');
+    expect(partsSource).toContain('CHAIN_OF_THOUGHT_TOOL_COMPONENTS.by_name[props.toolName]');
     expect(readSource('todo-progress.tsx')).toContain('Fallback: ToolFallback');
   });
 
   it('uses the shared thinking indicator instead of a bare streaming caret', () => {
-    const panelSource = readSource('assistant-ui-panel.tsx');
+    // The panel no longer imports assistant-thinking-indicator directly — the
+    // reasoning fold that uses it moved to assistant-activity-parts.tsx.
+    const partsSource = readSource('assistant-activity-parts.tsx');
     const cssSource = readSource('overrides.css');
 
-    expect(panelSource).toContain("from './assistant-thinking-indicator'");
+    expect(partsSource).toContain("from './assistant-thinking-indicator'");
     expect(cssSource).toContain('.bs-streaming-thinking');
     expect(cssSource).toContain('@media (forced-colors: active)');
     expect(cssSource).toContain('-webkit-text-fill-color: CanvasText');
@@ -446,12 +456,14 @@ describe('assistant UI panel architecture', () => {
   });
 
   it('only animates the chain-of-thought pill while reasoning is running', () => {
-    const panelSource = readSource('assistant-ui-panel.tsx');
+    // This logic moved to assistant-activity-parts.tsx alongside the rest of
+    // the reasoning fold (BST-1677); the panel no longer owns it.
+    const partsSource = readSource('assistant-activity-parts.tsx');
     const cssSource = readSource('overrides.css');
 
-    expect(panelSource).toContain('isRunningReasoningPart');
-    expect(panelSource).toContain('isReasoningRunning ? (');
-    expect(panelSource).toContain('assistant-reasoning-static-mark');
+    expect(partsSource).toContain('isRunningReasoningPart');
+    expect(partsSource).toContain('isReasoningRunning ? (');
+    expect(partsSource).toContain('assistant-reasoning-static-mark');
     expect(cssSource).toContain('.bs-thinking-mark-static');
   });
 });
