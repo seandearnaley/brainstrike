@@ -446,3 +446,117 @@ describe('toolStepStateFor', () => {
     );
   });
 });
+
+/**
+ * The two overrides that used to live in `tool-fallback.tsx`'s
+ * `resolveCardStatus` (Task 4 review, Minor 1). While they sat there, a
+ * declined call read `Stopped` on the card and counted as a `Completed` step
+ * in the trace headline — the exact split this phase exists to close. They
+ * ride strictly on TOP of a generic `done`, and only for the tool that owns
+ * them, so the card has no state of its own left.
+ */
+describe('toolStepStateFor tool-specific overrides', () => {
+  const DECLINED = {
+    kind: 'declined',
+    message: 'The user declined this tool call, so it was not executed.',
+  };
+  const streams = { stderr: '', stderrOmittedBytes: 0, stdout: '', stdoutOmittedBytes: 0 };
+
+  it('reads a declined envelope as cancelled, for any tool', () => {
+    expect(toolStepStateFor({ result: DECLINED, status: { type: 'complete' } })).toBe('cancelled');
+    expect(
+      toolStepStateFor({
+        result: DECLINED,
+        status: { type: 'complete' },
+        toolName: 'brainstrike.executeCommand',
+      })
+    ).toBe('cancelled');
+  });
+
+  it('never counts a decline as a failure in the headline', () => {
+    const steps = deriveActivitySteps(
+      [
+        tool(
+          'd',
+          'brainstrike.executeCommand',
+          { command: 'rm -rf /' },
+          { result: DECLINED, status: { type: 'complete' } }
+        ),
+      ],
+      {}
+    );
+    expect(steps[0]?.state).toBe('cancelled');
+    expect(summarizeActivity(steps).counts.failed).toBe(0);
+  });
+
+  it('maps a settled run_python result through its own five-state reading', () => {
+    const state = (result: unknown) =>
+      toolStepStateFor({
+        result,
+        status: { type: 'complete' },
+        toolName: 'brainstrike.runPython',
+      });
+    expect(state({ ...streams, exitCode: 0, kind: 'completed' })).toBe('done');
+    // A non-zero exit still COMPLETED the call; the amber "finished with an
+    // error" belongs to the result surface, not to the step's state.
+    expect(state({ ...streams, exitCode: 1, kind: 'completed' })).toBe('done');
+    // Nothing ran at all — destructive.
+    expect(
+      state({ detail: 'no interpreter on PATH', kind: 'unavailable', reason: 'missing' })
+    ).toBe('failed');
+    // Stopped without completing: never a green check, never red either.
+    expect(state({ ...streams, kind: 'cancelled', partialStderr: '', partialStdout: '' })).toBe(
+      'cancelled'
+    );
+    expect(state({ ...streams, kind: 'killed', signal: 'SIGKILL' })).toBe('cancelled');
+  });
+
+  it('gates the run_python reading on the tool NAME, not the result shape', () => {
+    // An MCP tool free to return `{kind: 'unavailable'}` as ordinary domain
+    // data must not inherit run_python's failure reading.
+    expect(
+      toolStepStateFor({
+        result: { detail: 'seat taken', kind: 'unavailable', reason: 'busy' },
+        status: { type: 'complete' },
+        toolName: 'booking.reserve',
+      })
+    ).toBe('done');
+    expect(
+      toolStepStateFor({
+        result: { detail: 'seat taken', kind: 'unavailable', reason: 'busy' },
+        status: { type: 'complete' },
+      })
+    ).toBe('done');
+  });
+
+  it('lets a malformed run_python shape fall through to the generic reading', () => {
+    // Narrowing fails (no stream fields), so there is no honest structured
+    // state to report — the generic `done` stands rather than an invented one.
+    expect(
+      toolStepStateFor({
+        result: { kind: 'completed' },
+        status: { type: 'complete' },
+        toolName: 'brainstrike.runPython',
+      })
+    ).toBe('done');
+  });
+
+  it('keeps every non-done generic branch winning over both overrides', () => {
+    // A transport abort mid-run_python, and a gate that has not been answered:
+    // the structured result (if any) must never repaint either as settled.
+    expect(
+      toolStepStateFor({
+        result: DECLINED,
+        status: { reason: 'error', type: 'incomplete' },
+        toolName: 'brainstrike.runPython',
+      })
+    ).toBe('failed');
+    expect(
+      toolStepStateFor({
+        result: { ...streams, exitCode: 0, kind: 'completed' },
+        status: { type: 'running' },
+        toolName: 'brainstrike.runPython',
+      })
+    ).toBe('running');
+  });
+});

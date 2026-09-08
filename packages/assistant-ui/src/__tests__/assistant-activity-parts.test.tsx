@@ -530,6 +530,52 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
     expect(liveElements[0]).toHaveAttribute('data-testid', 'assistant-activity-working-mark');
   });
 
+  // The other half of the same pause, one level down (BST-1681 task 6): the
+  // header names it, and the STEP ROW inside the group has to agree. The row
+  // reads the DONE tense with the glyph carrying the state — the call has not
+  // started, but a present-tense "Running" would claim it had — and it stays
+  // static: the gate is on the USER, so nothing in the row may pulse. The
+  // group's single live mark is the header's own, which is what makes the one
+  // pulsing thing on screen the thing that is actually waiting.
+  it('renders the gated call as a static Waiting for approval step row', async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: [
+              tool('x', {
+                args: { command: 'rm x' },
+                argsText: '{"command":"rm x"}',
+                result: undefined,
+                toolName: 'brainstrike.executeCommand',
+              }),
+            ],
+            role: 'assistant',
+            status: { reason: 'interrupt', type: 'requires-action' },
+          },
+        ]}
+      />
+    );
+    const group = await screen.findByTestId('assistant-activity-group');
+    await user.click(within(group).getByRole('button', { name: 'Expand activity' }));
+
+    const row = within(group).getByTestId('activity-step-row');
+    expect(within(row).getByText('Ran', { exact: true })).toBeInTheDocument();
+    expect(within(row).getByRole('img', { name: 'Waiting for approval' })).toBeInTheDocument();
+    expect(row.querySelectorAll('[data-live="true"]')).toHaveLength(0);
+
+    // The header still owns the pause, and owns the ONLY live mark in the
+    // whole group — row included.
+    expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
+      'Waiting for approval'
+    );
+    const live = group.querySelectorAll('[data-live="true"]');
+    expect(live).toHaveLength(1);
+    expect(live[0]).toHaveAttribute('data-testid', 'assistant-activity-working-mark');
+  });
+
   // Same pause, one part later: the library's `GroupPart.status` mirrors the
   // group's LAST member, and a group-transparent run-event data part can be
   // that member — so the raw group status reads "complete" while the gated

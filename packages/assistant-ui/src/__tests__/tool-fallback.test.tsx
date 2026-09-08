@@ -200,9 +200,16 @@ describe('ToolFallback activity step row', () => {
       throw new Error('unreachable: asserted truthy above');
     }
     const content = document.getElementById(describedBy);
+    if (content === null) {
+      throw new Error(`unreachable: no element with id "${describedBy}"`);
+    }
     // Exact, not `toHaveTextContent('Read')`: that substring also passes on
-    // "Reading", so it could not tell the done tense from the active one.
-    expect(within(card).getByText('Read', { exact: true })).toBeInTheDocument();
+    // "Reading", so it could not tell the done tense from the active one. And
+    // scoped to the described-by CONTENT, not the whole card: the card also
+    // carries the raw tool id as sr-only text, so a card-wide query proves
+    // only that the word appears somewhere, not that the row's own verb slot
+    // says it.
+    expect(within(content).getByText('Read', { exact: true })).toBeInTheDocument();
     expect(content).toHaveTextContent('src/app.ts');
     // The raw id stays IN the card as text (the e2e contract) but out of the
     // row's own accessible description.
@@ -297,52 +304,77 @@ describe('ToolFallback activity step row', () => {
   });
 
   it('places the checkpoint revert control beside the row, never inside it', () => {
-    const entry: AssistantEditCheckpointRecord = {
-      afterExisted: true,
-      afterHash: 'after',
-      beforeExisted: true,
-      beforeHash: 'before',
-      beforeSize: 10,
-      captureStatus: 'ok',
-      fromPath: null,
-      id: 'ckpt-1',
-      occurredAt: '2026-04-22T10:00:00.000Z',
-      op: 'write',
-      path: '/a.ts',
-      resourceId: 'workspace-a',
-      revertedAt: null,
-      rootId: 'root-1',
-      runId: 'run-1',
-      threadId: 'thread-1',
-      toolCallId: 'call-write',
-      toolName: 'brainstrike.writeWorkspaceFile',
-    };
-    const value: EditCheckpointContextValue = {
-      availabilityById: new Map([[entry.id, { restorable: true }]]),
-      entries: [entry],
-      entriesByToolCallId: new Map([['call-write', entry]]),
-      revertEntry: vi.fn(),
-      revertRun: vi.fn(),
-    };
-    const Comp = ToolFallback as unknown as (p: Record<string, unknown>) => ReactElement;
-    render(
-      <TooltipProvider>
-        <EditCheckpointProvider value={value}>
-          <Comp
-            args={{ path: '/a.ts' }}
-            argsText='{"path":"/a.ts"}'
-            result={{ bytesWritten: 3, created: false }}
-            status={{ type: 'complete' }}
-            toolCallId="call-write"
-            toolName="brainstrike.writeWorkspaceFile"
-          />
-        </EditCheckpointProvider>
-      </TooltipProvider>
-    );
+    const { revert, row } = renderCheckpointCard({ type: 'complete' });
+    expect(row.contains(revert)).toBe(false);
+    expect(row.nextElementSibling?.contains(revert)).toBe(true);
+  });
 
-    const row = screen.getByTestId('activity-step-row');
-    const revert = screen.getByTestId('checkpoint-revert');
+  // Task 4 review, Minor 2. A checkpoint exists only because the mutation
+  // actually landed on disk, so a call the user STOPPED afterwards is exactly
+  // the case where the undo matters most — and the card must not treat the
+  // muted Stopped chrome as "nothing to revert". Only `running` (no edit yet)
+  // and `failed` (its own error line owns the row) withhold the control.
+  it('keeps the revert control on a cancelled call whose edit already landed', () => {
+    const { revert, row } = renderCheckpointCard({ reason: 'cancelled', type: 'incomplete' });
+    expect(within(row).getByRole('img', { name: 'Stopped' })).toBeInTheDocument();
     expect(row.contains(revert)).toBe(false);
     expect(row.nextElementSibling?.contains(revert)).toBe(true);
   });
 });
+
+/**
+ * A settled write with a captured, restorable checkpoint — the shape the
+ * revert control needs to render at all.
+ */
+function renderCheckpointCard(status: Record<string, unknown>): {
+  revert: HTMLElement;
+  row: HTMLElement;
+} {
+  const entry: AssistantEditCheckpointRecord = {
+    afterExisted: true,
+    afterHash: 'after',
+    beforeExisted: true,
+    beforeHash: 'before',
+    beforeSize: 10,
+    captureStatus: 'ok',
+    fromPath: null,
+    id: 'ckpt-1',
+    occurredAt: '2026-04-22T10:00:00.000Z',
+    op: 'write',
+    path: '/a.ts',
+    resourceId: 'workspace-a',
+    revertedAt: null,
+    rootId: 'root-1',
+    runId: 'run-1',
+    threadId: 'thread-1',
+    toolCallId: 'call-write',
+    toolName: 'brainstrike.writeWorkspaceFile',
+  };
+  const value: EditCheckpointContextValue = {
+    availabilityById: new Map([[entry.id, { restorable: true }]]),
+    entries: [entry],
+    entriesByToolCallId: new Map([['call-write', entry]]),
+    revertEntry: vi.fn(),
+    revertRun: vi.fn(),
+  };
+  const Comp = ToolFallback as unknown as (p: Record<string, unknown>) => ReactElement;
+  render(
+    <TooltipProvider>
+      <EditCheckpointProvider value={value}>
+        <Comp
+          args={{ path: '/a.ts' }}
+          argsText='{"path":"/a.ts"}'
+          result={{ bytesWritten: 3, created: false }}
+          status={status}
+          toolCallId="call-write"
+          toolName="brainstrike.writeWorkspaceFile"
+        />
+      </EditCheckpointProvider>
+    </TooltipProvider>
+  );
+
+  return {
+    revert: screen.getByTestId('checkpoint-revert'),
+    row: screen.getByTestId('activity-step-row'),
+  };
+}

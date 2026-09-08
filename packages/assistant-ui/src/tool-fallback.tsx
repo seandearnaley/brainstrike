@@ -1,6 +1,5 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { isRevertibleCaptureStatus } from '@brainstrike/assistant-contract';
-import { isDeclinedToolCallResult } from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { Undo2 } from 'lucide-react';
@@ -13,7 +12,11 @@ import {
   useState,
 } from 'react';
 import { StepRowHeader } from './activity-step-row';
-import { type ActivityStepState, toolStepStateFor } from './activity-trace-model';
+import {
+  type ActivityStepState,
+  runPythonStepState,
+  toolStepStateFor,
+} from './activity-trace-model';
 import { verbForTool } from './activity-verbs';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
@@ -42,40 +45,23 @@ type ToolStatus = ToolFallbackProps['status'];
 type ToolResult = ToolFallbackProps['result'];
 
 /**
- * BST-1070: the CARD-level state for a settled `run_python` result. The
- * generic path renders a green check for any error-free result, which would
- * lie for three of this tool's five states: cancelled/timed-out/killed runs
- * did not complete (design rule: cancelled NEVER renders as success) and an
- * `unavailable` result means nothing ran at all (destructive). A non-zero
- * exit stays `done` at the card level — the tool call completed; the result
- * surface right below carries the amber "finished with an error".
- */
-function runPythonStepState(result: RunPythonDisplayResult): ActivityStepState {
-  switch (result.kind) {
-    case 'completed':
-      return 'done';
-    case 'unavailable':
-      return 'failed';
-    default:
-      // timed_out / killed / cancelled / network_denied / declined: the run
-      // stopped without completing — network_denied and declined by the
-      // user's explicit choice.
-      return 'cancelled';
-  }
-}
-
-/**
- * Narrows a settled `run_python` result and resolves the card state in one
- * place (kept out of ToolFallback for cognitive-complexity budget). A shape
- * that fails narrowing (malformed or future) stays on the generic path with
- * the generic state — never an invented surface.
+ * The card's state, and the structured `run_python` result it may render
+ * beneath the row.
  *
- * The generic state is the TRACE's derivation (`toolStepStateFor`), not a
- * second one: the card, the trace headline and the run-event surface must
- * agree about every step. The structured mappings below only ever OVERRIDE a
- * generic `done`: `running`, `waiting` and the incomplete states must keep
- * winning, or a transport abort's `status.error` would vanish behind a
- * Completed/Stopped card and a still-running call would lose its indicator.
+ * The state is `toolStepStateFor` and nothing else — the SAME derivation the
+ * trace headline, the step rows and the task-list/subagent cards read. The
+ * two readings this card used to layer on top of it (the declined envelope,
+ * and `run_python`'s own five-arm mapping) moved INTO that function in
+ * BST-1681 phase 3: while they lived here a declined call read `Stopped` on
+ * the card and `Completed` in the headline at the same time. There is no
+ * card-only state left to resolve.
+ *
+ * The narrowing survives here for RENDERING only, and stays subject to the
+ * standing rule that the structured surface never appears under non-`done`
+ * chrome: the surface renders only when this result is what PRODUCED the
+ * card's state — i.e. `runPythonStepState` of it is the state on screen. A
+ * still-running or gated call therefore shows no surface however complete its
+ * payload looks, and a transport abort keeps its own error line.
  */
 function resolveCardStatus(
   toolName: string,
@@ -83,26 +69,12 @@ function resolveCardStatus(
   result: ToolResult,
   isErrorResult: boolean
 ): { glyphState: ActivityStepState; runPythonResult: RunPythonDisplayResult | null } {
-  const generic = toolStepStateFor({ isError: isErrorResult, result, status });
-  if (generic !== 'done') {
-    // Generic path owns the card (running / waiting / incomplete / failed): no
-    // structured surface either, or it would render under Failed chrome.
-    return { glyphState: generic, runPythonResult: null };
-  }
-  const runPythonResult =
+  const glyphState = toolStepStateFor({ isError: isErrorResult, result, status, toolName });
+  const narrowed =
     toolName === NATIVE_TOOL_ID.runPython ? narrowRunPythonDisplayResult(result) : null;
-  if (runPythonResult) {
-    return { glyphState: runPythonStepState(runPythonResult), runPythonResult };
-  }
-  // BST-1282: a call the user DECLINED at its approval gate settles with the
-  // shared `DeclinedToolCallResult` envelope and no error flag. Left on the
-  // generic path it would earn a green Completed for a tool that never ran, so
-  // it takes the same muted `cancelled` treatment run_python already reserves
-  // for a decline — and never the destructive Failed chrome, because nothing
-  // broke.
   return {
-    glyphState: isDeclinedToolCallResult(result) ? 'cancelled' : 'done',
-    runPythonResult: null,
+    glyphState,
+    runPythonResult: narrowed && runPythonStepState(narrowed) === glyphState ? narrowed : null,
   };
 }
 
@@ -208,8 +180,9 @@ function extractResolvedRootName(result: ToolResult): string | undefined {
  * family icon, verb in tense, target chip, timing, state glyph — over
  * collapsible Arguments/Result panes.
  *
- * Its state comes from `toolStepStateFor`, the SAME derivation the trace
- * headline and the run-event surface use, so a step can never read one state
+ * Its state comes from `toolStepStateFor` and from nothing else — the SAME
+ * derivation the trace headline and the group's step rows use, with no
+ * card-only overrides left on top of it, so a step can never read one state
  * here and another there:
  * - `running`: live glyph + progress label; nothing to expand yet, so the row
  *   is not a button

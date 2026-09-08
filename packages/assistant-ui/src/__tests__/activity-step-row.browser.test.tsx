@@ -195,3 +195,58 @@ test('the reveal stagger is positional: nth-child index sets --bs-stagger, cappe
   expect(oneStep).toBeGreaterThan(0);
   expect(delay(7)).toBe(oneStep * 5);
 });
+
+/*
+ * Task 5 left `.bs-activity-body`'s `gap: 0.25rem` with a single child
+ * (`.bs-step-list`), so the 0.75rem rhythm between step rows collapsed to
+ * `ActivityPartLayout`'s `mb-2` alone. The list must stay a BLOCK container
+ * (the `.bs-step-row` `width: 100%` / `flex: 1 1 0%` geometry above depends on
+ * it), so the rhythm is restored with a margin on the wrappers instead of a
+ * flex gap. The wrappers carry `margin-bottom: 0.5rem` inline here because
+ * `mb-2` is a Tailwind utility this lane cannot see.
+ */
+test('two step rows in the list sit 12px apart, the pre-Task-5 rhythm', () => {
+  const { container } = render(
+    <div className="assistant-ui-panel">
+      <div className="bs-step-list" style={{ width: 320 }}>
+        <div data-testid="wrapper-1" style={{ marginBottom: '0.5rem' }}>
+          <StepRowHeader family="read" label="Read" state="done" target={null} verb="Read" />
+        </div>
+        <div data-testid="wrapper-2" style={{ marginBottom: '0.5rem' }}>
+          <StepRowHeader family="read" label="Read" state="done" target={null} verb="Read" />
+        </div>
+      </div>
+    </div>
+  );
+  const first = mustFind(container, '[data-testid="wrapper-1"]').getBoundingClientRect();
+  const second = mustFind(container, '[data-testid="wrapper-2"]').getBoundingClientRect();
+  expect(second.top - first.bottom).toBeCloseTo(12, 0);
+});
+
+/*
+ * The exception to the rhythm above. At Developer detail the run-event rows
+ * are direct children of `.bs-step-list` too (verified against the real
+ * runtime, not assumed), and they are quiet single-line rows meant to read as
+ * ONE block rather than as separated cards. They carry no wrapper margin of
+ * their own, so the blanket step rhythm would space them out like tool cards.
+ */
+test('consecutive run-event rows in the list stay tight, not on the step rhythm', () => {
+  const { container } = render(
+    <div className="assistant-ui-panel">
+      <div className="bs-step-list" style={{ width: 320 }}>
+        <div data-testid="wrapper-1" style={{ marginBottom: '0.5rem' }}>
+          <StepRowHeader family="read" label="Read" state="done" target={null} verb="Read" />
+        </div>
+        <div className="bs-run-timeline" data-testid="run-1">
+          run event one
+        </div>
+        <div className="bs-run-timeline" data-testid="run-2">
+          run event two
+        </div>
+      </div>
+    </div>
+  );
+  const first = mustFind(container, '[data-testid="run-1"]').getBoundingClientRect();
+  const second = mustFind(container, '[data-testid="run-2"]').getBoundingClientRect();
+  expect(second.top - first.bottom).toBeCloseTo(4, 0);
+});

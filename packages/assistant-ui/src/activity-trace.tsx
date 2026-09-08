@@ -144,6 +144,36 @@ function announcementFor(phase: TracePhase, summary: ActivitySummary): string {
   return PHASE_ANNOUNCEMENT[phase];
 }
 
+/**
+ * The status label's entrance class (phase-2 follow-up). The label element is
+ * keyed on its own text, so it re-mounts — replaying `bs-trace-label-enter` —
+ * whenever the wording changes; that is what the animation is for. The
+ * group's FIRST paint is not a change of wording, though: the whole trace
+ * appears at once, and animating the label there made the row arrive twice
+ * over. So until the wording has changed at least once, the label is static.
+ *
+ * Derived state (React's documented "adjust state while rendering" pattern),
+ * NOT a mount flag read fresh on each render: this component re-renders
+ * constantly for reasons unrelated to the wording — the elapsed clock ticks
+ * every 100ms while a group is live, and opening the group is a state change
+ * of its own — and a per-render read swaps the entrance class onto the
+ * untouched first label at the first of those, animating exactly the entrance
+ * this rule suppresses (pinned by "a re-render that leaves the wording alone
+ * never re-triggers the entrance" in activity-trace.browser.test.tsx). It is
+ * also why the flag stays on afterwards rather than tracking the latest
+ * change: toggling it back off would strip the animation off a label
+ * mid-flight.
+ */
+function useLabelEnterClass(label: string): string {
+  const [renderedLabel, setRenderedLabel] = useState(label);
+  const [hasChanged, setHasChanged] = useState(false);
+  if (renderedLabel !== label) {
+    setRenderedLabel(label);
+    setHasChanged(true);
+  }
+  return hasChanged ? 'bs-trace-label' : 'bs-trace-label-static';
+}
+
 function PhaseGlyph({ phase }: { readonly phase: TracePhase }): ReactNode {
   if (phase === 'running') {
     return (
@@ -164,7 +194,15 @@ function PhaseGlyph({ phase }: { readonly phase: TracePhase }): ReactNode {
   );
 }
 
-function LiveSummary({ id, label }: { readonly id: string; readonly label: string }): ReactNode {
+function LiveSummary({
+  id,
+  label,
+  labelClassName,
+}: {
+  readonly id: string;
+  readonly label: string;
+  readonly labelClassName: string;
+}): ReactNode {
   // Layout is owned by `.bs-thinking-indicator` / `.bs-activity-live-label` in
   // overrides.css (the browser test lane has no Tailwind utilities, so
   // `min-w-0`/`truncate` there left the one-line invariant unverified — review
@@ -176,7 +214,7 @@ function LiveSummary({ id, label }: { readonly id: string; readonly label: strin
       data-testid="assistant-activity-working"
       id={id}
     >
-      <span className="bs-activity-live-label bs-thinking-shimmer bs-trace-label" key={label}>
+      <span className={`bs-activity-live-label bs-thinking-shimmer ${labelClassName}`} key={label}>
         {label}
       </span>
     </span>
@@ -187,6 +225,7 @@ function RestingSummary({
   failedCount,
   headline,
   id,
+  labelClassName,
   meta,
   steps,
   verbMeta,
@@ -194,6 +233,7 @@ function RestingSummary({
   readonly failedCount: number;
   readonly headline: string;
   readonly id: string;
+  readonly labelClassName: string;
   readonly meta: string | null;
   readonly steps: string;
   readonly verbMeta: string | null;
@@ -202,7 +242,7 @@ function RestingSummary({
   // test lane has no Tailwind utilities); do not re-add utility classes here.
   return (
     <span className="bs-activity-summary-row" id={id}>
-      <span className="bs-activity-summary-label bs-trace-label truncate" key={headline}>
+      <span className={`bs-activity-summary-label truncate ${labelClassName}`} key={headline}>
         {headline}
       </span>
       {meta ? <span className="bs-activity-summary-meta">{meta}</span> : null}
@@ -261,6 +301,10 @@ export function ActivityTrace({
   // group only; a stopped/failed group never demotes it into the meta slot.
   const verbMeta = verbMetaFor(phase, summary.verbs, summary.counts.steps);
   const steps = stepLabel(summary.counts.steps);
+  // One class for both label forms: the live label and the resting headline
+  // are the SAME slot in two phases, and crossing that boundary is itself a
+  // change of wording that should enter.
+  const labelClassName = useLabelEnterClass(phase === 'running' ? summary.live : headline);
 
   return (
     <div
@@ -286,12 +330,13 @@ export function ActivityTrace({
           <PhaseGlyph phase={phase} />
         </span>
         {phase === 'running' ? (
-          <LiveSummary id={summaryId} label={summary.live} />
+          <LiveSummary id={summaryId} label={summary.live} labelClassName={labelClassName} />
         ) : (
           <RestingSummary
             failedCount={summary.counts.failed}
             headline={headline}
             id={summaryId}
+            labelClassName={labelClassName}
             meta={meta}
             steps={steps}
             verbMeta={verbMeta}

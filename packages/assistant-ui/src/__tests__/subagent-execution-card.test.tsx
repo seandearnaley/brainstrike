@@ -128,6 +128,25 @@ describe('SubagentExecutionCard', () => {
     expect(container.querySelectorAll('.text-destructive')).toHaveLength(0);
   });
 
+  // Task 5 fix-wave gap: `SubagentCardProps` picked only the tool-part fields
+  // the card happened to read, so the part-level `isError` flag never reached
+  // it. A delegation the runtime flagged as errored — with a status of
+  // `complete` and a result that does not state the failure itself — then read
+  // "Explorer finished" here while the group summary, which does see the flag,
+  // counted the same step as failed. One flag, one verdict.
+  it('reads a part-level isError flag as a failed delegation', () => {
+    renderCard({
+      isError: true,
+      result: completedResult,
+      status: { type: 'complete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    expect(screen.getByText('Explorer failed')).toBeTruthy();
+    expect(screen.queryByText('Explorer finished')).toBeNull();
+    expect(screen.getByRole('img', { name: 'Failed' })).toBeTruthy();
+  });
+
   it('shows a delegation paused at its approval gate as waiting, not running', () => {
     // `toolStepStateFor` CAN return 'waiting' for a delegation (a
     // `requires-action` part), so the verb table has to be total over it. The

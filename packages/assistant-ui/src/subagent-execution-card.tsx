@@ -19,7 +19,7 @@ import { formatActivityDuration } from './tool-durations';
 /** Presentational-card props: the tool-part fields plus optional live rows. */
 export type SubagentCardProps = Pick<
   ComponentProps<ToolCallMessagePartComponent>,
-  'toolName' | 'toolCallId' | 'result' | 'status'
+  'isError' | 'result' | 'status' | 'toolCallId' | 'toolName'
 > & {
   /** In-flight child rows from live `subagent.tool.*` events (see SUBAGENTS). */
   liveRows?: readonly SubAgentToolRow[];
@@ -87,16 +87,23 @@ const ROW_ICONS: Record<SubAgentToolRowStatus, ReactElement> = {
  * cancelled and failed keep winning, or a delegation the user stopped would
  * read as an outcome it never reached (and, before this, as `failed`).
  *
- * `isError` is deliberately absent from the input: the presentational card is
- * not handed the part's flag (see `SubagentCardProps`), and a delegation
- * result that states its own error is already read by the shared machine.
+ * `isError` is the part-level flag, threaded through `SubagentCardProps` from
+ * the connected wrapper (Task 5 fix-wave gap): the card used not to be handed
+ * it, so a delegation the runtime marked as errored — without the result
+ * saying so itself — read `Explorer finished` here while the group summary,
+ * which sees the flag, counted the same step as failed.
+ *
+ * No `toolName` is passed: the tool-specific settled readings in the shared
+ * machine belong to `run_python`, and a delegation is not it. The declined
+ * envelope is tool-agnostic and applies here as it does everywhere.
  */
 function resolveDelegationState(
   status: ToolStatus,
   result: ToolResult,
-  outcome: SubagentDelegationOutcome | undefined
+  outcome: SubagentDelegationOutcome | undefined,
+  isError: boolean
 ): StepGlyphState {
-  const generic = toolStepStateFor({ result, status });
+  const generic = toolStepStateFor({ isError, result, status });
   if (generic !== 'done') {
     return generic;
   }
@@ -114,6 +121,7 @@ const EMPTY_LIVE_ROWS: readonly SubAgentToolRow[] = [];
  * (they belong to this card).
  */
 export const SubagentExecutionCard = ({
+  isError = false,
   toolName,
   toolCallId,
   result,
@@ -123,7 +131,7 @@ export const SubagentExecutionCard = ({
 }: SubagentCardProps) => {
   const [expanded, setExpanded] = useState(false);
   const rowsId = useId();
-  const stepState = resolveDelegationState(status, result, outcome);
+  const stepState = resolveDelegationState(status, result, outcome, isError);
   const label = personaLabelForToolName(toolName);
   const rows = useMemo(
     () => mergeSubagentToolRows(readSubAgentToolRows(result), liveRows),

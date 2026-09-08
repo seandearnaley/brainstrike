@@ -799,6 +799,21 @@
   min-width: 0;
 }
 
+/*
+ * The same label box with no entrance. The label element is keyed on its own
+ * text, so it re-mounts — and `bs-trace-label-enter` replays — whenever the
+ * status row's wording changes; that is the point. But the group's FIRST
+ * paint is not a change of wording, it is the whole trace appearing at once,
+ * and animating the label there made the row arrive twice. Geometry is
+ * repeated rather than inherited so the two classes are interchangeable in
+ * layout terms — only the animation differs.
+ */
+.assistant-ui-panel .bs-trace-label-static {
+  animation: none;
+  display: inline-block;
+  min-width: 0;
+}
+
 .assistant-ui-panel .bs-trace-collapse {
   display: grid;
   grid-template-rows: 0fr;
@@ -894,6 +909,36 @@
 }
 .assistant-ui-panel .bs-step-list > :nth-child(n + 6) {
   --bs-stagger: 5;
+}
+
+/* Inter-row rhythm. `.bs-activity-body` is a flex column with `gap: 0.25rem`,
+   but since phase 3 its only child is `.bs-step-list`, so that gap no longer
+   separates anything and rows fell back to `ActivityPartLayout`'s `mb-2`
+   alone (0.5rem, was 0.75rem). The list must stay a BLOCK container — the
+   `.bs-step-row` `width: 100%` / `flex: 1 1 0%` geometry below is written for
+   a non-flex parent — so the rhythm is restored with a margin here rather
+   than by making this a flex container.
+
+   0.75rem, NOT the 0.25rem that would be the arithmetic top-up of `mb-2`:
+   these are adjacent siblings in a block formatting context, so their
+   adjoining margins COLLAPSE to `max(0.5rem, this)` instead of summing. At
+   0.25rem the rule is entirely inert (measured: still 8px); 0.75rem is what
+   actually restores 12px, and dropping the rule falls back to 8px. Pinned by
+   "two step rows in the list sit 12px apart" in
+   activity-step-row.browser.test.tsx — a flex gap here would not collapse,
+   which is exactly why the value is only meaningful next to that test. */
+.assistant-ui-panel .bs-step-list > * + * {
+  margin-block-start: 0.75rem;
+}
+
+/* …except the run-event rows, which at Developer detail are direct children
+   of this list too (verified, not assumed). They are quiet single-line rows
+   designed to read as ONE block — see `.bs-run-timeline` below — and they
+   carry no wrapper margin of their own, so the step rhythm would space them
+   out like cards. They take the 0.25rem `.bs-activity-body` used to give
+   them before its gap stopped separating anything. */
+.assistant-ui-panel .bs-step-list > * + .bs-run-timeline {
+  margin-block-start: 0.25rem;
 }
 
 .assistant-ui-panel .bs-step-row-line {

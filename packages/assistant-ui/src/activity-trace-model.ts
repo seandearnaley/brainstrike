@@ -1,5 +1,11 @@
 import { isGuardedToolError } from '@brainstrike/assistant-contract';
+import { isDeclinedToolCallResult } from '@brainstrike/assistant-contract/tool-approval';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { type ActivityVerb, verbForTool } from './activity-verbs';
+import {
+  narrowRunPythonDisplayResult,
+  type RunPythonDisplayResult,
+} from './run-python-result-model';
 import { isToolCallPart } from './tool-activity';
 import { extractPrimaryArg } from './tool-summaries';
 
@@ -98,19 +104,85 @@ function statesResultError(result: unknown): boolean {
 }
 
 /**
- * THE state machine for a tool step — the trace headline, the run-event
- * surface and the tool card (`resolveCardStatus`) all resolve their state
- * here, so a step can never read two different states on two surfaces.
+ * BST-1070: the reading of a SETTLED `run_python` result. The generic path
+ * renders a green check for any error-free result, which would lie for three
+ * of this tool's arms: cancelled/timed-out/killed runs did not complete
+ * (design rule: cancelled NEVER renders as success) and an `unavailable`
+ * result means nothing ran at all (destructive). A non-zero exit stays `done`
+ * — the tool call completed; the result surface right below carries the amber
+ * "finished with an error".
+ */
+export function runPythonStepState(result: RunPythonDisplayResult): ActivityStepState {
+  switch (result.kind) {
+    case 'completed':
+      return 'done';
+    case 'unavailable':
+      return 'failed';
+    default:
+      // timed_out / killed / cancelled / network_denied / declined: the run
+      // stopped without completing — network_denied and declined by the
+      // user's explicit choice.
+      return 'cancelled';
+  }
+}
+
+/**
+ * The two readings a SETTLED result can make on top of a generic `done`.
+ * Both used to be card-only overrides in `tool-fallback.tsx`, which is how a
+ * declined call came to read `Stopped` on its card and count as a `Completed`
+ * step in the trace headline at the same time (Task 4 review, Minor 1).
+ * Neither may ever weaken a non-`done` generic verdict — see the call site.
+ */
+function settledResultOverride(toolName: string | undefined, result: unknown): ActivityStepState {
+  // BST-1282: a call the user DECLINED at its approval gate settles with the
+  // shared `DeclinedToolCallResult` envelope and no error flag. Left alone it
+  // would earn a green Completed for a tool that never ran, so it takes the
+  // muted `cancelled` treatment — never the destructive Failed, because
+  // nothing broke. Tool-agnostic: the envelope is the shared contract shape.
+  if (isDeclinedToolCallResult(result)) {
+    return 'cancelled';
+  }
+  if (toolName !== NATIVE_TOOL_ID.runPython) {
+    return 'done';
+  }
+  // Gated on the tool NAME, not on the result shape: `{kind: 'unavailable'}`
+  // is ordinary domain data for some other tool, and must not inherit
+  // run_python's destructive reading. A shape that fails narrowing (malformed
+  // or future) stays `done` rather than inventing a state.
+  const runPython = narrowRunPythonDisplayResult(result);
+  return runPython ? runPythonStepState(runPython) : 'done';
+}
+
+/**
+ * THE state machine for a tool step. Every surface that draws one resolves
+ * here, so a step can never read two different states in two places:
+ * `assistant-activity-parts.tsx` via `deriveActivitySteps` (the trace
+ * headline, the step rows and the group's counts), `tool-fallback.tsx` via
+ * `resolveCardStatus`, plus `todo-progress.tsx`'s task-list card and
+ * `subagent-execution-card.tsx`. There are NO card-only overrides left: the
+ * declined envelope and the settled `run_python` reading both moved here
+ * (Task 4 review, Minor 1). The subagent card's `no-answer` is the one
+ * refinement outside this function, and it too rides strictly on top of a
+ * generic `done` — it reads the delegation's own result shape, which is not a
+ * tool-step signal at all.
  *
  * Canonical signals only (repo rule): status type/reason, the part's `isError`
  * flag, a guarded error envelope, or a result that states its own error.
  * Exposed as a plain input record so the card can call it with the props it
  * already has, instead of assembling a fake part.
+ *
+ * ORDER is load-bearing: the tool-specific readings apply ONLY once the
+ * generic branches have resolved to `done`. `running`, `waiting` and the
+ * incomplete states must keep winning, or a transport abort's `status.error`
+ * would vanish behind a Completed/Stopped step and a still-running call would
+ * lose its live mark.
  */
 export function toolStepStateFor(input: {
   readonly isError?: boolean;
   readonly result?: unknown;
   readonly status?: { readonly reason?: unknown; readonly type?: unknown } | undefined;
+  /** Enables the tool's own settled reading (today: `run_python`). */
+  readonly toolName?: string;
 }): ActivityStepState {
   const { status } = input;
   if (status?.type === 'running') {
@@ -132,15 +204,16 @@ export function toolStepStateFor(input: {
   if (status === undefined && input.result === undefined) {
     return 'running';
   }
-  return 'done';
+  return settledResultOverride(input.toolName, input.result);
 }
 
 /** The part-record entry point into {@link toolStepStateFor}. */
-function toolStepState(part: Record<string, unknown>): ActivityStepState {
+function toolStepState(part: Record<string, unknown>, toolName: string): ActivityStepState {
   return toolStepStateFor({
     isError: part['isError'] === true,
     result: part['result'],
     status: statusOf(part),
+    toolName,
   });
 }
 
@@ -168,7 +241,7 @@ export function deriveActivitySteps(
         id: toolCallId,
         kind: 'tool',
         partIndex,
-        state: toolStepState(part),
+        state: toolStepState(part, toolName),
         target: primaryArg?.display ?? null,
         targetKey: primaryArg?.full ?? null,
         verb: verbForTool(toolName),
