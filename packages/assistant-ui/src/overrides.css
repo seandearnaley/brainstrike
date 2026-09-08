@@ -912,15 +912,30 @@
  * browser test's 480px-panel overflow assertion; `flex: 1 1 auto` alone only
  * stretches a row that already sits inside a flex parent, which
  * `.bs-step-list` is not).
+ *
+ * `box-sizing: border-box` is likewise load-bearing for the non-interactive
+ * form: a `<button>` gets `border-box` for free from the UA stylesheet, but
+ * the `div role="group"` form (no `bodyId`, nothing to expand) is a plain
+ * `<div>` — `content-box` by default — so `width: 100%` plus this rule's own
+ * padding pushes it `padding-left + padding-right` past its container
+ * (caught by the browser test asserting `.bs-step-list` never grows a
+ * horizontal scrollbar for the div form).
+ *
+ * `flex: 1 1 0%` (not `1 1 auto`) keeps the row from fighting a sibling
+ * control that shares `.bs-step-row-line` with it (Task 4's checkpoint
+ * button): with `auto`, the flex-basis falls back to the row's own
+ * `width: 100%`, which claims the line's full width and only leaves the
+ * sibling `flex-shrink`'s leftovers instead of its requested size.
  */
 .assistant-ui-panel .bs-step-row {
   align-items: center;
   background: transparent;
   border: 0;
   border-radius: 0.375rem;
+  box-sizing: border-box;
   color: inherit;
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 0%;
   font: inherit;
   gap: 0.5rem;
   min-height: 2rem;
@@ -928,6 +943,13 @@
   padding: 0.25rem 0.5rem;
   text-align: left;
   width: 100%;
+}
+
+/* A sibling control sharing `.bs-step-row-line` with the row (e.g. Task 4's
+   checkpoint button) keeps its own requested size — the row's
+   `flex: 1 1 0%` is what yields the space, never the sibling shrinking. */
+.assistant-ui-panel .bs-step-row-line > :not(.bs-step-row) {
+  flex: 0 0 auto;
 }
 
 .assistant-ui-panel button.bs-step-row:hover {
@@ -972,6 +994,16 @@
   display: inline-flex;
   flex-shrink: 0;
   inline-size: 1rem;
+}
+
+/* Stylesheet-owned box for the row's chevron, same rationale as
+   `.bs-trace-phase-glyph` above: `size-3.5` alone is a Tailwind utility, and
+   the browser lane loads no Tailwind utilities, so the geometry a browser
+   test measures must be owned here. */
+.assistant-ui-panel .bs-step-row-chevron {
+  flex: 0 0 auto;
+  height: 0.875rem;
+  width: 0.875rem;
 }
 
 .assistant-ui-panel .bs-step-row[data-state="failed"] .bs-step-row-verb {

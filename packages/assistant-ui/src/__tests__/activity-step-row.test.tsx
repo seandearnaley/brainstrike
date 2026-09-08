@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { Brain } from 'lucide-react';
+import { describe, expect, it, vi } from 'vitest';
 import { ActivityStepMetaProvider } from '../activity-step-context';
 import { StepRowHeader } from '../activity-step-row';
 
@@ -38,13 +39,23 @@ describe('StepRowHeader', () => {
     expect(button.querySelector('.bs-trace-glyph')).toBeInTheDocument();
   });
 
-  it('renders a non-interactive row when bodyId is omitted: no button, no chevron', () => {
+  it('renders a non-interactive row when bodyId is omitted: no button, no chevron, named by its own content', () => {
     render(
-      <StepRowHeader family="read" label="Read app.ts" state="done" target={null} verb="Read" />
+      <StepRowHeader
+        family="read"
+        label="Read app.ts"
+        state="done"
+        target="src/app.ts"
+        verb="Reading"
+      />
     );
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(document.querySelector('.bs-trace-glyph')).not.toBeInTheDocument();
     expect(screen.getByTestId('activity-step-row')).toBeInTheDocument();
+    // Named from its own visible content (verb + target), not from `label` —
+    // `label` is always "Expand details"/"Collapse details" from ToolFallback,
+    // which would misname a row that cannot expand.
+    expect(screen.getByRole('group', { name: /Reading.*src\/app\.ts/ })).toBeInTheDocument();
   });
 
   it('shimmers a running row outside any provider and carries exactly one live glyph', () => {
@@ -102,5 +113,56 @@ describe('StepRowHeader', () => {
     );
     expect(screen.getByTestId('custom-glyph')).toBeInTheDocument();
     expect(document.querySelector('.bs-step-glyph')).not.toBeInTheDocument();
+  });
+
+  it('calls onToggle exactly once per click on the interactive row', () => {
+    const onToggle = vi.fn();
+    render(
+      <StepRowHeader
+        bodyId="body-1"
+        expanded={false}
+        family="read"
+        label="Expand details"
+        onToggle={onToggle}
+        state="done"
+        target={null}
+        verb="Read"
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Expand details' }));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets `icon` replace the family icon entirely', () => {
+    const { container } = render(
+      <StepRowHeader
+        family="read"
+        icon={Brain}
+        label="Thinking"
+        state="running"
+        target={null}
+        verb="Thinking"
+      />
+    );
+    expect(container.querySelector('.lucide-brain')).toBeInTheDocument();
+    expect(container.querySelector('.lucide-file-text')).not.toBeInTheDocument();
+  });
+
+  it('renders trailing and timing content, and lands targetTitle on the target chip title', () => {
+    render(
+      <StepRowHeader
+        family="read"
+        label="Read"
+        state="done"
+        target="app.ts"
+        targetTitle="src/app.ts (12 lines)"
+        timing={<span data-testid="timing-slot">1.2s</span>}
+        trailing={<span data-testid="trailing-slot">2 files</span>}
+        verb="Read"
+      />
+    );
+    expect(screen.getByTestId('timing-slot')).toBeInTheDocument();
+    expect(screen.getByTestId('trailing-slot')).toBeInTheDocument();
+    expect(screen.getByText('app.ts')).toHaveAttribute('title', 'src/app.ts (12 lines)');
   });
 });

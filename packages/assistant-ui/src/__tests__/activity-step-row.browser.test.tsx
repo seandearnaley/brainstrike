@@ -1,3 +1,9 @@
+// The browser lane loads `@brainstrike/ui/globals.css` and `overrides.css`
+// only — no Tailwind utilities. `sr-only` (used for the row's hidden tool-id
+// span) is a Tailwind utility class here with no matching rule, so it does
+// NOT hide anything in this lane: a `toolName` prop renders its text
+// visibly. Pass `toolName` in a browser test only if the assertion accounts
+// for that visible text; none of the tests below pass it.
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 import { render } from '@testing-library/react';
@@ -6,6 +12,20 @@ import { StepRowHeader } from '../activity-step-row';
 
 function px(value: string): number {
   return Number.parseFloat(value);
+}
+
+/**
+ * Like `container.querySelector`, but throws a readable error instead of
+ * handing back `null` disguised as an element via an `as` cast. Typed as
+ * `Element` (not `HTMLElement`) so it also matches SVG nodes — the chevron's
+ * geometry class lands on the `<svg>` itself, which is an `SVGElement`.
+ */
+function mustFind(container: ParentNode, selector: string): Element {
+  const el = container.querySelector(selector);
+  if (el === null) {
+    throw new Error(`mustFind: no element matched "${selector}"`);
+  }
+  return el;
 }
 
 test('a very long target keeps the timing slot and glyph inside the row, on one line', () => {
@@ -27,11 +47,11 @@ test('a very long target keeps the timing slot and glyph inside the row, on one 
       </div>
     </div>
   );
-  const panel = container.querySelector('.assistant-ui-panel') as HTMLElement;
-  const row = container.querySelector('[data-testid="activity-step-row"]') as HTMLElement;
-  const target = row.querySelector('.bs-step-row-target') as HTMLElement;
-  const timing = row.querySelector('.bs-step-row-timing') as HTMLElement;
-  const glyph = row.querySelector('.bs-step-glyph') as HTMLElement;
+  const panel = mustFind(container, '.assistant-ui-panel');
+  const row = mustFind(container, '[data-testid="activity-step-row"]');
+  const target = mustFind(row, '.bs-step-row-target');
+  const timing = mustFind(row, '.bs-step-row-timing');
+  const glyph = mustFind(row, '.bs-step-glyph');
   const rowRect = row.getBoundingClientRect();
 
   expect(rowRect.height).toBeLessThan(40);
@@ -43,6 +63,73 @@ test('a very long target keeps the timing slot and glyph inside the row, on one 
   expect(target.scrollWidth).toBeGreaterThan(target.clientWidth);
   expect(timing.getBoundingClientRect().right).toBeLessThanOrEqual(rowRect.right + 0.5);
   expect(glyph.getBoundingClientRect().right).toBeLessThanOrEqual(rowRect.right + 0.5);
+});
+
+test('the non-interactive form (div role=group) owns its own box model without a UA button sheet to fall back on', () => {
+  const longTarget = 'b'.repeat(300);
+  const { container } = render(
+    <div className="assistant-ui-panel">
+      <div className="bs-step-list" style={{ width: 240 }}>
+        <StepRowHeader family="read" label="Read" state="done" target={longTarget} verb="Read" />
+      </div>
+    </div>
+  );
+  const list = mustFind(container, '.bs-step-list');
+  const row = mustFind(container, '[data-testid="activity-step-row"]');
+  expect(list.scrollWidth).toBeLessThanOrEqual(list.clientWidth);
+  expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(
+    list.getBoundingClientRect().right + 0.5
+  );
+});
+
+test('a sibling control in .bs-step-row-line keeps its own width; the row never squeezes it out', () => {
+  const longTarget = 'c'.repeat(300);
+  const { container } = render(
+    <div className="assistant-ui-panel">
+      <div className="bs-step-list" style={{ width: 240 }}>
+        <div className="bs-step-row-line">
+          <StepRowHeader
+            bodyId="body-1"
+            expanded={false}
+            family="read"
+            label="Expand details"
+            onToggle={() => {}}
+            state="done"
+            target={longTarget}
+            verb="Read"
+          />
+          <button data-testid="sibling-control" style={{ width: 32 }} type="button">
+            x
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+  const line = mustFind(container, '.bs-step-row-line');
+  const sibling = mustFind(container, '[data-testid="sibling-control"]');
+  expect(sibling.getBoundingClientRect().width).toBeCloseTo(32, 0);
+  expect(line.scrollWidth).toBeLessThanOrEqual(line.clientWidth);
+});
+
+test("the chevron's box is stylesheet-owned, not left to the size-3.5 utility alone", () => {
+  const { container } = render(
+    <div className="assistant-ui-panel">
+      <div className="bs-step-list">
+        <StepRowHeader
+          bodyId="body-1"
+          expanded={false}
+          family="read"
+          label="Expand details"
+          onToggle={() => {}}
+          state="done"
+          target={null}
+          verb="Read"
+        />
+      </div>
+    </div>
+  );
+  const chevron = mustFind(container, '.bs-step-row-chevron');
+  expect(chevron.getBoundingClientRect().width).toBeCloseTo(14, 0);
 });
 
 test('the reveal stagger is positional: nth-child index sets --bs-stagger, capped at 5', () => {

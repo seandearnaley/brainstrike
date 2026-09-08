@@ -14,7 +14,13 @@ export interface StepRowHeaderProps {
   readonly glyph?: ReactNode;
   /** Overrides the family icon (reasoning passes `Brain`). */
   readonly icon?: LucideIcon;
-  /** Accessible name of the toggle: "Expand details" / "Collapse details" (kept for e2e), or "Show thinking" / "Hide thinking". */
+  /**
+   * Accessible name of the toggle: "Expand details" / "Collapse details"
+   * (kept for e2e), or "Show thinking" / "Hide thinking". Names the button
+   * form only — ignored on the non-interactive form (no `bodyId`), which is
+   * named by its own visible content instead (verb + target), since `label`
+   * here would misleadingly claim the row can expand.
+   */
   readonly label: string;
   readonly onToggle?: () => void;
   readonly state: StepGlyphState;
@@ -60,6 +66,7 @@ function RowShell(props: RowShellProps): ReactNode {
     return (
       // biome-ignore lint/a11y/useSemanticElements: decorative grouping of a non-interactive step row, not a form field set — <fieldset> would add form semantics the row doesn't have.
       <div
+        aria-labelledby={props.contentId}
         className="bs-step-row bs-trace-reveal"
         data-state={props.state}
         data-testid={props.testId}
@@ -120,7 +127,7 @@ export function StepRowHeader(props: StepRowHeaderProps): ReactNode {
       <span className="bs-step-row-timing">{props.timing}</span>
       {props.glyph ?? <StepStateGlyph state={props.state} />}
       {props.bodyId ? (
-        <ChevronRight aria-hidden="true" className="bs-trace-glyph size-3.5" />
+        <ChevronRight aria-hidden="true" className="bs-step-row-chevron bs-trace-glyph size-3.5" />
       ) : null}
     </RowShell>
   );
