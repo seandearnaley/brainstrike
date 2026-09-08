@@ -310,7 +310,9 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
  * `MessagePrimitive.Parts` path shared.
  */
 export function AssistantActivityParts(): ReactNode {
-  const trailingGroupActive = useAuiState((state) => trailingGroupHasActivity(state.message.parts));
+  const trailingGroupHoldsActivity = useAuiState((state) =>
+    trailingGroupHasActivity(state.message.parts)
+  );
   return (
     <MessagePrimitive.GroupedParts<ActivityGroupKey>
       groupBy={groupAssistantActivityPart}
@@ -337,7 +339,7 @@ export function AssistantActivityParts(): ReactNode {
           case 'data':
             return part.dataRendererUI;
           case 'indicator':
-            return trailingGroupActive ? null : (
+            return trailingGroupHoldsActivity ? null : (
               <AssistantThinkingIndicator
                 className="bs-streaming-thinking"
                 markClassName="size-4"

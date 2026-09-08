@@ -132,9 +132,15 @@ describe('trailingGroupHasActivity', () => {
     ).toBe(false);
   });
 
-  it('stops at an always-visible run event (standalone) rather than walking past it', () => {
+  it('stops at a standalone part — an always-visible run event or a pause card — rather than walking past it', () => {
     expect(trailingGroupHasActivity([toolCall, runEvent('run.cancelled', 'cancelled')])).toBe(
       false
     );
+    expect(
+      trailingGroupHasActivity([
+        toolCall,
+        part({ data: { toolCallId: 'a' }, name: TOOL_APPROVAL_DATA_NAME, type: 'data' }),
+      ])
+    ).toBe(false);
   });
 });

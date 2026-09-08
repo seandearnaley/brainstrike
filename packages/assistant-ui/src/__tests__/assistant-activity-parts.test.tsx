@@ -287,7 +287,7 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
     }
   }, 20_000);
 
-  it('renders no message-level thinking indicator once an activity group exists: the header is the sole live status', async () => {
+  it('renders no message-level thinking indicator while the trailing group holds activity: its header is the live status', async () => {
     const user = userEvent.setup();
     const deferred = createDeferred();
     const adapter: ChatModelAdapter = {

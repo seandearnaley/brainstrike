@@ -1303,7 +1303,9 @@ as `run.started`, or `[…, text, tool.started]`, where the earlier group is no
 longer trailing (it reads `Worked`) and the bare data-only group renders
 nothing, so the slot is the turn's only live affordance until the next
 tool-call part lands. Suppressing on "any activity part anywhere" darkened
-that window (review finding, wave 3).
+that window (review finding, wave 3). A trailing approval/suspend card is
+standalone as well, but a message paused on one is `requires-action`, not
+`running`, so the library emits no slot there regardless.
 
 Chronology rulings (unchanged): each contiguous group renders at its own
 position; never hoist later parts into an earlier group or suppress later

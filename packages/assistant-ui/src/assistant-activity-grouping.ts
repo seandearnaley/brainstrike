@@ -79,7 +79,7 @@ export function groupAssistantActivityPart(part: PartState): readonly ActivityGr
  */
 interface GroupablePart {
   readonly data?: unknown;
-  readonly name?: unknown;
+  readonly name?: string;
   readonly type: string;
 }
 
@@ -87,7 +87,7 @@ function classifyPart(part: GroupablePart): readonly ActivityGroupKey[] {
   if (ACTIVITY_PART_TYPES.has(part.type)) {
     return ACTIVITY_GROUP;
   }
-  if (part.type !== 'data' || typeof part.name !== 'string') {
+  if (part.type !== 'data' || part.name === undefined) {
     return STANDALONE;
   }
   if (part.name === ASSISTANT_RUN_EVENT_DATA_NAME) {
@@ -108,7 +108,10 @@ function classifyPart(part: GroupablePart): readonly ActivityGroupKey[] {
  * events, shell output, …) that would join that group and stops at the first
  * standalone part, so `[…, text, tool.started]` is `false` (the data part
  * forms a bare data-only group and the earlier group is no longer trailing)
- * while `[…, tool-call, tool.completed]` is `true`.
+ * while `[…, tool-call, tool.completed]` is `true`. A trailing approval or
+ * suspend card is standalone too (`false`); a message paused on one is
+ * `requires-action`, not `running`, so the library emits no indicator slot
+ * there regardless.
  */
 export function trailingGroupHasActivity(parts: readonly GroupablePart[]): boolean {
   for (let index = parts.length - 1; index >= 0; index -= 1) {
