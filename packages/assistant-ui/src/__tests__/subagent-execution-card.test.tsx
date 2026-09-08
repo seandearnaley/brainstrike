@@ -174,4 +174,24 @@ describe('SubagentExecutionCard', () => {
     });
     expect(container.querySelectorAll('[data-live="true"]')).toHaveLength(0);
   });
+
+  it('renders an interrupted child row static and not data-live', () => {
+    const { container } = renderCard({
+      liveRows: [
+        {
+          argSummary: undefined,
+          key: 'c1',
+          status: 'interrupted',
+          toolName: 'brainstrike_grepSearch',
+        },
+      ],
+      result: undefined,
+      status: { reason: 'cancelled', type: 'incomplete' },
+      toolCallId: 'p1',
+      toolName: 'agent-explorer',
+    });
+    fireEvent.click(screen.getByRole('button', { expanded: false }));
+    expect(screen.getByText('brainstrike_grepSearch')).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-live="true"]')).toHaveLength(0);
+  });
 });

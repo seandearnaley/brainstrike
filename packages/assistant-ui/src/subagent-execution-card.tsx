@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronUp,
   CircleDashed,
+  CircleSlash,
   CornerDownRight,
 } from 'lucide-react';
 import { type ComponentProps, type ReactElement, useMemo, useState } from 'react';
@@ -67,6 +68,9 @@ const STATUS_ICONS: Record<DisplayStatus, ReactElement> = {
 
 const ROW_ICONS: Record<SubAgentToolRowStatus, ReactElement> = {
   error: <AlertCircle aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />,
+  interrupted: (
+    <CircleSlash aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+  ),
   running: (
     <CircleDashed
       aria-hidden="true"

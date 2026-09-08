@@ -1,7 +1,9 @@
+import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import {
   mergeSubagentToolRows,
   readLiveSubagentToolRows,
+  readLiveSubagentToolRowsFromMessages,
   readSubAgentToolRows,
   readSubagentDelegationOutcome,
   serializeLiveSubagentToolRows,
@@ -325,5 +327,48 @@ describe('readLiveSubagentToolRowsFromMessages', () => {
       },
     ];
     expect(readLiveSubagentToolRowsFromMessages(messages, 'parent-1')).toHaveLength(0);
+  });
+});
+
+describe('readLiveSubagentToolRowsFromMessages — interrupted rule', () => {
+  const started = {
+    data: {
+      id: 'c-s',
+      kind: 'subagent.tool.started',
+      label: 'Subagent tool started',
+      metadata: {
+        childToolName: 'brainstrike_grepSearch',
+        parentToolCallId: 'p1',
+        toolCallId: 'c1',
+      },
+      status: 'running',
+      timestamp: '2026-09-07T00:00:00.000Z',
+    },
+    name: ASSISTANT_RUN_EVENT_DATA_NAME,
+    type: 'data',
+  };
+
+  it('marks a running child row interrupted when its message has settled', () => {
+    const rows = readLiveSubagentToolRowsFromMessages(
+      [{ parts: [started], status: { reason: 'stop', type: 'complete' } }],
+      'p1'
+    );
+    expect(rows).toEqual([
+      {
+        argSummary: undefined,
+        key: 'c1',
+        status: 'interrupted',
+        toolName: 'brainstrike_grepSearch',
+      },
+    ]);
+  });
+
+  it('keeps the row running while the message runs, and when the message carries no status', () => {
+    for (const message of [
+      { parts: [started], status: { type: 'running' } },
+      { parts: [started] },
+    ]) {
+      expect(readLiveSubagentToolRowsFromMessages([message], 'p1')[0]?.status).toBe('running');
+    }
   });
 });
