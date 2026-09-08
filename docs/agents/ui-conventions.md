@@ -707,3 +707,43 @@ Guard: `scripts/__tests__/tailwind-source-coverage.test.mjs` (runs in
 and fails on any that is unreachable from either entrypoint.
 
 ---
+
+## Motion
+
+Motion inside the assistant thread (`.assistant-ui-panel`) is CSS-only — no
+animation library, and a deliberately small catalog rather than a bespoke
+transition per component. Everything lives in `overrides.css`, scoped under
+`.assistant-ui-panel`.
+
+The activity trace (BST-1679, `docs/agents/assistant-runtime.md` § ACTIVITY
+GROUPS) is the reference implementation: four `bs-trace-*` primitives, each
+reusable rather than one-off:
+
+- `.bs-trace-label` — a keyed span (the caller re-keys the element on its own
+  text) that fades/slides in on change; drives both the live and resting
+  headline.
+- `.bs-trace-collapse` / `.bs-trace-collapse-inner` — `grid-template-rows: 0fr
+  ↔ 1fr` disclosure, no measured heights.
+- `.bs-trace-reveal` — a one-shot fade-up with a `--bs-stagger` index capped
+  at 5 (reserved for phase 3's step-row list).
+- `.bs-trace-detail` — a fixed one-line slot under the header while running,
+  so the header's own height never changes (the thread's scroll-anchoring
+  rule).
+
+Every animated or transitioned primitive above, plus the thinking-mark
+pulse/shimmer they compose with (`.bs-thinking-pulse`, `.bs-thinking-core`,
+`.bs-thinking-shimmer`), has a `@media (prefers-reduced-motion: reduce)` block
+that turns the animation off and freezes the element at its settled state —
+never just a shorter duration. `.bs-trace-detail` is the one exception and
+needs none: it is a static fixed-height slot with no animation or transition
+of its own.
+Where the motion is applied to text via a transparent, gradient-clipped fill
+(`.bs-thinking-shimmer`, used for the live label) that also needs a
+`@media (forced-colors: active)` fallback: `background-clip: text` plus
+`color: transparent` would otherwise render invisible text once Windows High
+Contrast strips the gradient, so the fallback swaps to a solid `CanvasText`.
+Primitives whose animation is only opacity/transform (`.bs-trace-label`,
+`.bs-trace-collapse`, `.bs-trace-reveal`) need no forced-colors override —
+they never hide text behind a color trick.
+
+---

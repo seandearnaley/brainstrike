@@ -114,9 +114,13 @@ describe('hydrated threads render no live indicator unless something is genuinel
     expect(screen.getAllByLabelText('Interrupted').length).toBeGreaterThan(0);
     expect(screen.queryByLabelText('Running')).not.toBeInTheDocument();
     expect(live(container)).toHaveLength(0);
-    // The done label span's direct text is exactly "Stopped" (no sibling
-    // text merged in) — assert the exact string, not a loosened regex.
-    expect(screen.getByText('Stopped')).toBeInTheDocument();
+    // The headline span's direct text is exactly "Stopped" (no sibling text
+    // merged in) — assert the exact string, not a loosened regex, scoped to
+    // the headline because the row also carries an sr-only phase
+    // announcement that reads "Stopped" too.
+    expect(
+      screen.getByText('Stopped', { selector: '.bs-activity-summary-label' })
+    ).toBeInTheDocument();
   });
 
   it('an always-visible run event renders as a standalone row, never inside a collapsed group', async () => {
@@ -475,4 +479,34 @@ describe('hydrated threads render no live indicator unless something is genuinel
     await screen.findByText('Review complete.');
     await waitFor(() => expect(live(container)).toHaveLength(0));
   }, 20_000);
+
+  // BST-1679 task 6: a hydrated `requires-action` message is not something
+  // persistence produces (hydrated messages are hard-coded `complete` — see
+  // the `settled` fixture used throughout this file), so unlike the parts
+  // test's genuinely-live approval-wait case, the reload counterpart here is
+  // a delegation call that already carries its result.
+  it('reads a hydrated resolved delegation as Delegated, with no live indicator', async () => {
+    const { container } = renderHydrated([
+      {
+        content: [
+          {
+            args: {},
+            argsText: '{}',
+            result: { subAgentToolResults: [], text: 'Found it.' },
+            toolCallId: 'delegate-1',
+            toolName: 'agent-explore',
+            type: 'tool-call' as const,
+          },
+        ],
+        role: 'assistant',
+        status: settled,
+      },
+    ]);
+    const group = await screen.findByTestId('assistant-activity-group');
+    expect(
+      within(group).getByText('Delegated to Explorer', { selector: '.bs-activity-summary-label' })
+    ).toBeInTheDocument();
+    expect(within(group).getByText(/1 step\b/)).toBeInTheDocument();
+    expect(live(container)).toHaveLength(0);
+  });
 });

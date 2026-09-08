@@ -665,6 +665,7 @@
   gap: 0.5rem;
   width: 100%;
   min-width: 0;
+  min-height: 2rem;
   padding: 0.4rem 0.6rem;
   color: hsl(var(--foreground) / 0.85);
   font-size: 0.75rem;
@@ -676,9 +677,51 @@
   background: hsl(var(--muted) / 0.5);
 }
 
+/*
+ * The resting row's own flex line. Stylesheet-owned rather than left to
+ * utility classes on the span, for the same reason as the label rule below:
+ * this row's single-line height is a scroll-anchoring invariant (§4.7), and
+ * `min-width: 0` here is what lets the headline shrink at all (a flex item's
+ * automatic minimum is its content).
+ */
+.assistant-ui-panel .bs-activity-summary-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+/*
+ * The headline is model-influenced text of unbounded length (and
+ * `restingOverride` is model-written outright), so it must yield to the meta
+ * segments beside it rather than push them out of the row: it shrinks
+ * (`min-width: 0` — a flex item's automatic minimum is its content, which
+ * `flex-shrink: 0` here compounded) and ellipsises on one line. Declared on
+ * the rule rather than left to the `truncate` utility on the element: this
+ * stylesheet is unlayered and therefore authoritative for this element, and
+ * the row's single-line height is a scroll-anchoring invariant (§4.7), not a
+ * utility-class detail.
+ */
 .assistant-ui-panel .bs-activity-summary-label {
-  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The live label's own one-line rule — the running counterpart of
+ * `.bs-activity-summary-label`, and stylesheet-owned for the same reason: a
+ * live label is model-influenced too ("Calling some.long.mcp.tool /long/path")
+ * and the browser test lane has no Tailwind utilities, so `truncate` on the
+ * span left this invariant unverified (review finding 6).
+ */
+.assistant-ui-panel .bs-activity-live-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .assistant-ui-panel .bs-activity-summary-meta {
@@ -690,17 +733,6 @@
 .assistant-ui-panel .bs-activity-summary-failed {
   color: hsl(var(--destructive));
   font-weight: 600;
-}
-
-.assistant-ui-panel .bs-activity-active-tool {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: hsl(var(--muted-foreground));
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.7rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .assistant-ui-panel .bs-activity-right {
@@ -726,6 +758,118 @@
 
 .assistant-ui-panel .bs-activity-body[hidden] {
   display: none;
+}
+
+/**
+ * ACTIVITY TRACE MOTION (phase 2). CSS-only by repo rule. Four primitives:
+ * - .bs-trace-label: a keyed span that fades/slides in when its text changes
+ *   (the caller re-keys the element on the label string).
+ * - .bs-trace-collapse[data-open]: grid-rows disclosure, no measured heights.
+ * - .bs-trace-reveal: one-shot fade-up with a --bs-stagger index capped at 5.
+ * - .bs-trace-detail: a fixed one-line slot under the header while running,
+ *   so the header itself never changes height (scroll-anchoring rule).
+ */
+@keyframes bs-trace-label-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bs-trace-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.assistant-ui-panel .bs-trace-label {
+  animation: bs-trace-label-enter 250ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  display: inline-block;
+  min-width: 0;
+}
+
+.assistant-ui-panel .bs-trace-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.assistant-ui-panel .bs-trace-collapse[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+
+.assistant-ui-panel .bs-trace-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.assistant-ui-panel .bs-trace-reveal {
+  --bs-stagger: 0;
+  animation: bs-trace-reveal 220ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation-delay: calc(min(var(--bs-stagger), 5) * 40ms);
+}
+
+.assistant-ui-panel .bs-trace-detail {
+  color: hsl(var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  height: 1.25rem;
+  line-height: 1.25rem;
+  overflow: hidden;
+  padding-inline: 0.6rem 0.6rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-ui-panel .bs-trace-glyph {
+  transition: transform 160ms ease;
+}
+
+/*
+ * Fixed icon box for the header's phase glyph (BrainstrikeThinkingMark while
+ * running; CheckCircle/Square/AlertCircle at rest). Pinned in real CSS —
+ * not left to the `size-4` utility alone — so the live and resting rows
+ * always resolve to the same header height (verified in
+ * activity-trace.browser.test.tsx): the running mark has no intrinsic
+ * width/height of its own, and swapping it for a differently-proportioned
+ * lucide icon must never change the row's height.
+ */
+.assistant-ui-panel .bs-trace-phase-glyph {
+  height: 1rem;
+  width: 1rem;
+}
+
+.assistant-ui-panel .bs-trace-phase-icon {
+  display: block;
+  height: 1rem;
+  width: 1rem;
+}
+
+.assistant-ui-panel [aria-expanded="true"] > .bs-trace-glyph {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .bs-trace-label,
+  .assistant-ui-panel .bs-trace-reveal {
+    animation: none;
+  }
+
+  .assistant-ui-panel .bs-trace-collapse,
+  .assistant-ui-panel .bs-trace-glyph {
+    transition: none;
+  }
 }
 
 /**

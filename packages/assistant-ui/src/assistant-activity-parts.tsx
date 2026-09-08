@@ -10,7 +10,8 @@ import {
 import { cn } from '@brainstrike/ui';
 import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
 import { type ReactNode, useId, useMemo, useState } from 'react';
-import { AssistantActivityGroup } from './assistant-activity-group';
+import { ActivityTrace, type ActivityTraceProps } from './activity-trace';
+import { deriveActivitySteps, summarizeActivity } from './activity-trace-model';
 import {
   ACTIVITY_GROUP_KEY,
   type ActivityGroupKey,
@@ -39,7 +40,8 @@ import { useChainActivityDerivations } from './use-chain-activity-derivations';
  * part, and this repo emits a `brainstrike.run-event` data part around every
  * tool call, so each call became its own "Worked · 1 step" group. Here the
  * run-event parts are group-transparent and one contiguous run of reasoning +
- * tool calls renders as one `AssistantActivityGroup`.
+ * tool calls renders as one group, whose header is the `ActivityTrace` status
+ * row (BST-1679: current step while running, verb summary at rest).
  *
  * BST-1656 rulings preserved: each contiguous group renders at its own
  * position (text splits), group status derives from that group's parts,
@@ -57,8 +59,34 @@ function reasoningToggleLabel(open: boolean): string {
   return open ? 'Hide thinking' : 'Show thinking';
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+const ACTIVITY_SUMMARY_METADATA_KEY = 'brainstrikeActivitySummary';
+
+/**
+ * Seam for a future model-written resting summary (spec §4.2). Read-only
+ * today: nothing in this repo writes the key. A non-string or blank value is
+ * ignored — never coerced — so a malformed metadata blob falls back to the
+ * derived verb summary instead of rendering "[object Object]".
+ */
+function readActivitySummaryOverride(message: unknown): string | null {
+  if (!(message && typeof message === 'object')) {
+    return null;
+  }
+  const metadata = (message as { readonly metadata?: unknown }).metadata;
+  if (!(metadata && typeof metadata === 'object')) {
+    return null;
+  }
+  const custom = (metadata as { readonly custom?: unknown }).custom;
+  if (!(custom && typeof custom === 'object')) {
+    return null;
+  }
+  const value = (custom as Record<string, unknown>)[ACTIVITY_SUMMARY_METADATA_KEY];
+  if (typeof value !== 'string') {
+    return null;
+  }
+  // Validated AND rendered on the trimmed value — returning the raw string
+  // painted a padded override's whitespace into the headline (review finding 8).
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 /** True while the given part's own `status.type` reads `'running'`. */
@@ -68,7 +96,7 @@ function isPartRunning(part: PartState): boolean {
 
 /**
  * A part's own status (`part.status.type` / `.reason` — the same fields the
- * file already reads elsewhere for `reasoningActive`). `PartState.status` is
+ * reasoning disclosure reads for its own streaming flag). `PartState.status` is
  * always present; the `undefined` case is `Array#at(-1)` on a group with no
  * activity part, which counts as `complete` — matching the library's own
  * `normalizePartStatus` fallback.
@@ -102,7 +130,14 @@ function ActivityToolPart(props: ToolCallMessagePartProps) {
  * `toolCallId`) — they are keyed by absolute part index instead, which stays
  * stable because streaming is append-only and group nodes keep their own
  * `nodeKey` as siblings append, so this block does not remount when a later
- * part (e.g. an intervening tool call) arrives. Guarded by
+ * part (e.g. an intervening tool call) arrives. The pill's own label follows
+ * the same signal in the past tense once it settles — "Thinking" while the
+ * part streams, "Thought" once it does not (BST-1679). That is the same
+ * predicate `deriveActivitySteps` applies to a reasoning part
+ * (`reasoningStepState`), read here from the part this block already owns
+ * rather than re-plumbed from the group's step list: the group renders its
+ * leaves through the message-level part switch, and a reasoning step carries
+ * no duration to add to the label. Guarded by
  * "a manually opened block survives an intervening tool call and the turn
  * finishing (BST-1656)" in assistant-reasoning-disclosure.behavior.test.tsx.
  */
@@ -143,7 +178,7 @@ function ActivityReasoningBlock({
               live={false}
               testId="assistant-reasoning-static-mark"
             />
-            <span className="truncate">Thinking</span>
+            <span className="truncate">Thought</span>
           </span>
         )}
         {open ? (
@@ -173,16 +208,16 @@ interface ActivityGroupProps {
 
 /**
  * Narrows a `GroupPart.status` (part-level: `MessagePartStatus |
- * ToolCallMessagePartStatus`) down to the reason `AssistantActivityGroup`
- * accepts (message-level: `Extract<MessageStatus, { type: 'incomplete'
- * }>['reason']`). The two unions are independently declared — see the prop's
- * own comment in assistant-activity-group.tsx — but their `'incomplete'`
- * reason values happen to coincide, so the return type here is checked
- * assignability, not a cast.
+ * ToolCallMessagePartStatus`) down to the reason `ActivityTrace` accepts
+ * (message-level: `Extract<MessageStatus, { type: 'incomplete' }>['reason']`).
+ * The two unions are independently declared — 0.15.18 dropped `'tool-calls'`
+ * from the PART union while keeping it on the message union — but their
+ * `'incomplete'` reason values otherwise coincide, so the return type here is
+ * checked assignability, not a cast.
  */
 function toIncompleteReason(
   status: MessagePartStatus | ToolCallMessagePartStatus
-): Parameters<typeof AssistantActivityGroup>[0]['incompleteReason'] {
+): ActivityTraceProps['incompleteReason'] {
   return status.type === 'incomplete' ? status.reason : undefined;
 }
 
@@ -190,8 +225,8 @@ function toIncompleteReason(
  * One contiguous activity group. Replaces the panel's now-deleted local
  * chain-of-thought renderer (BST-1677): reads the group's parts by index from
  * the message (the library's `chainOfThought` scope does not exist on this
- * path), derives the summary / elapsed / durations exactly as before, and
- * renders the unchanged `AssistantActivityGroup` chrome around its children.
+ * path), derives the steps / elapsed / durations from them, and renders the
+ * `ActivityTrace` status row (BST-1679) around its children.
  * Each reasoning leaf owns its own disclosure (`ActivityReasoningBlock`), so
  * the group body renders `children` directly — tool cards and reasoning
  * blocks interleaved in part order.
@@ -214,9 +249,6 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
   // coalesced key. Treat that case as active too, so the card doesn't look
   // finished a beat before the next call actually starts.
   const isTrailingGroup = indices.at(-1) === messageParts.length - 1;
-  const isActivityActive =
-    status.type === 'running' ||
-    (isMessageRunning && isTrailingGroup && status.type !== 'incomplete');
   // Finding 1 (PR #3061 review), narrowed in the fix round: `getGroupStatus`
   // mirrors the group's LAST member part, so a group whose own last member is
   // a transparent data part (e.g. a `tool.completed` run-event that is not
@@ -236,22 +268,60 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
     ? ({ type: 'running' } as const)
     : activityPartStatus(activityParts.at(-1));
   const incompleteReason = toIncompleteReason(activityStatus);
-  // Drives the header's live "Thinking" / "Working" cycler (BST-1677 wave 3):
-  // true while a reasoning part in THIS group is still streaming, regardless
-  // of whether a tool has also started — `ActivityWorkingLabel` only shows
-  // "Thinking" once no tool is active yet, so this stays a pure "is reasoning
-  // running" signal.
-  const reasoningActive = groupParts.some(
-    (part) => isRecord(part) && part.type === 'reasoning' && part.status?.type === 'running'
-  );
+  // `requires-action` is a genuine live pause, not a settled state: a call
+  // paused at its approval gate carries this status on the message (and
+  // therefore on its own resultless tool-call part / the group that mirrors
+  // it — see `trailingGroupHasActivity`'s doc comment) for as long as the
+  // gate is open, never `running`. Without this branch the group reads as
+  // finished ("Worked") the instant a call reaches its gate, and the model's
+  // `toolStepState`/`liveLabel` 'waiting' → 'Waiting for approval' branch
+  // (already unit-pinned in activity-trace-model.test.ts) never becomes
+  // observable (BST-1679 task 6). Read from the group's ACTIVITY parts, not
+  // from the raw `status`: that mirrors the group's LAST member, which a
+  // group-transparent run-event data part (or a settled sibling call) can be,
+  // so the raw read darkened the whole wait in the same shape finding 1 fixed
+  // for the headline. `.some` rather than `activityStatus`, matching
+  // `liveLabel`'s own `findLast(waiting)`: ANY gated call holds the pause.
+  // No message-status gate is needed on top of this (review finding 8): a
+  // resultless tool call has no status of its own — it inherits the MESSAGE's
+  // (the library's `toMessagePartStatus`) — so when the runtime settles the
+  // message on stop or stream error the part settles with it and
+  // `requires-action` cannot outlive the pause. Hydration is the same story
+  // from the other side: reloaded messages land `complete`, pinned by
+  // assistant-hydration-liveness.test.tsx's "abandoned approval" case.
+  const hasGatedActivity = activityParts.some((part) => part.status.type === 'requires-action');
+  const isActivityActive =
+    status.type === 'running' ||
+    hasGatedActivity ||
+    (isMessageRunning && isTrailingGroup && status.type !== 'incomplete');
   // The task-list summary is turn-wide; render it once, in the group that
   // holds the message's first activity part. (A message with no activity
   // part at all never reaches this branch: `!hasActivityParts` below returns
   // early before `isFirstGroup` is read.)
   const firstActivityIndex = messageParts.findIndex(isActivityPart);
   const isFirstGroup = indices.includes(firstActivityIndex);
-  const { activityFallbackMs, shellOutputs, taskList, toolActivity, toolDurations } =
-    useChainActivityDerivations(messageParts, messageId, groupParts);
+  const { activityFallbackMs, shellOutputs, taskList, toolDurations } = useChainActivityDerivations(
+    messageParts,
+    messageId,
+    groupParts
+  );
+  // The status row's own model (BST-1679): one step per reasoning/tool-call
+  // part, summarized into the live label ("Calling linear.list_comments") and
+  // the resting verb phrase ("Read 2 files, ran"). The detail line under the
+  // header names what the CURRENTLY running tool is working on — the last
+  // running step wins, so parallel calls read as the most recent one rather
+  // than flickering between them.
+  const steps = useMemo(
+    () => deriveActivitySteps(groupParts, toolDurations),
+    [groupParts, toolDurations]
+  );
+  const summary = useMemo(() => summarizeActivity(steps), [steps]);
+  const detail = useMemo(
+    () =>
+      steps.findLast((step) => step.kind === 'tool' && step.state === 'running')?.target ?? null,
+    [steps]
+  );
+  const restingOverride = useAuiState((state) => readActivitySummaryOverride(state.message));
 
   // A group can coalesce purely from group-transparent bookkeeping (e.g. a
   // run of `tool.started`/`tool.completed` events with no reasoning or
@@ -267,15 +337,16 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
       {isFirstGroup && taskList ? <TodoProgress result={taskList} /> : null}
       <ToolDurationProvider durations={toolDurations}>
         <ShellOutputProvider outputs={shellOutputs}>
-          <AssistantActivityGroup
+          <ActivityTrace
+            detail={detail}
             fallbackMs={activityFallbackMs}
             incompleteReason={incompleteReason}
             isActive={isActivityActive}
-            reasoningActive={reasoningActive}
-            summary={toolActivity}
+            restingOverride={restingOverride}
+            summary={summary}
           >
             {children}
-          </AssistantActivityGroup>
+          </ActivityTrace>
         </ShellOutputProvider>
       </ToolDurationProvider>
     </div>

@@ -22,25 +22,30 @@ const firstTool = {
   argsText: '{}',
   result: { id: 'BST-1656' },
   toolCallId: 'first',
-  toolName: 'linear_get_issue',
+  toolName: 'linear.get_issue',
   type: 'tool-call' as const,
 };
 const firstText = { text: 'I found the issue.', type: 'text' as const };
 export const firstParts = [firstReasoning, firstTool, firstText];
 
 export const secondReasoning = { text: 'Second reasoning segment.', type: 'reasoning' as const };
-const commentsTool = {
+/**
+ * The second group's first call, still RESULTLESS — the live mid-run shape a
+ * test appends after `completedPartsWithEvents.slice(0, 8)` (which ends at its
+ * `tool.started` event) to hold the turn with that call running.
+ */
+export const commentsTool = {
   args: {},
   argsText: '{}',
   toolCallId: 'comments',
-  toolName: 'linear_list_comments',
+  toolName: 'linear.list_comments',
   type: 'tool-call' as const,
 };
 const relationsTool = {
   args: {},
   argsText: '{}',
   toolCallId: 'relations',
-  toolName: 'linear_list_relations',
+  toolName: 'linear.list_relations',
   type: 'tool-call' as const,
 };
 export const secondTools = [commentsTool, relationsTool];

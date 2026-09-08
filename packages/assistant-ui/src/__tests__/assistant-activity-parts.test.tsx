@@ -57,9 +57,7 @@ describe('AssistantActivityParts (hydrated messages)', () => {
         initialMessages={[{ content: [completedReasoning], role: 'assistant' }]}
       />
     );
-    expect(await screen.findByTestId('assistant-reasoning-indicator')).toHaveTextContent(
-      'Thinking'
-    );
+    expect(await screen.findByTestId('assistant-reasoning-indicator')).toHaveTextContent('Thought');
     expect(screen.getByTestId('assistant-reasoning-static-mark')).toHaveClass(
       'bs-thinking-mark-static'
     );
@@ -207,10 +205,10 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       expect(within(fold).queryByTestId('assistant-thinking-indicator')).toBeNull();
       expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-active', 'true');
       // The reasoning part already settled once the tool call started
-      // streaming in the same chunk, and the running tool has an active
-      // label — the header reads "Working", never "Thinking" (BST-1677 wave
-      // 3).
-      expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent('Working');
+      // streaming in the same chunk, so the header names the running TOOL
+      // instead of thinking (BST-1677 wave 3, BST-1679 verbs). `tool_a` is
+      // not a native id and carries no dot, so it reads honestly as "Using".
+      expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent('Using tool_a');
     } finally {
       await act(async () => {
         deferred.release();
@@ -327,7 +325,9 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
 
       const group = await screen.findByTestId('assistant-activity-group');
       expect(group).toHaveAttribute('data-state', 'running');
-      expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent('Working');
+      expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
+        'Searching x'
+      );
       // The library still emits its `indicator` slot here (last part is a tool
       // call, not text/reasoning); the renderer must drop it so a collapsed
       // group never shows a second "Thinking" row beneath its own cycler
@@ -401,6 +401,166 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       });
     }
   }, 20_000);
+
+  // BST-1679 task 6: the built-in Explorer persona's delegation tool is
+  // `agent-explore` (`SUBAGENT_DELEGATION_TOOL_PREFIX` + persona id `explore`,
+  // see activity-verbs.ts / personas.ts) — its verb reads "Delegating to
+  // Explorer" while the call is open and "Delegated to Explorer" once it
+  // resolves. No primary-arg key on an empty `args` object, so the live
+  // label is the bare verb with no trailing target.
+  it('reads Delegating to Explorer while a delegation runs, then Delegated once it resolves', async () => {
+    const user = userEvent.setup();
+    const deferred = createDeferred();
+    const adapter: ChatModelAdapter = {
+      async *run() {
+        yield {
+          content: [
+            {
+              args: {},
+              argsText: '{}',
+              toolCallId: 'delegate-1',
+              toolName: 'agent-explore',
+              type: 'tool-call' as const,
+            },
+          ],
+        };
+        await deferred.promise;
+        yield {
+          content: [
+            {
+              args: {},
+              argsText: '{}',
+              result: { subAgentToolResults: [], text: 'Found it.' },
+              toolCallId: 'delegate-1',
+              toolName: 'agent-explore',
+              type: 'tool-call' as const,
+            },
+          ],
+        };
+      },
+    };
+
+    try {
+      render(<Harness adapter={adapter} />);
+      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Explore.');
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+
+      const group = await screen.findByTestId('assistant-activity-group');
+      expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
+        'Delegating to Explorer'
+      );
+      expect(group).toHaveAttribute('data-state', 'running');
+
+      await act(async () => {
+        deferred.release();
+        await deferred.promise;
+      });
+
+      await waitFor(() => expect(group).toHaveAttribute('data-state', 'done'));
+      expect(
+        within(group).getByText('Delegated to Explorer', { selector: '.bs-activity-summary-label' })
+      ).toBeInTheDocument();
+    } finally {
+      // `release` and awaiting an already-resolved `promise` are both
+      // idempotent — this mirrors the other tests' unconditional
+      // release-in-finally even though this test's try body already
+      // released once to unblock the second (resolved) yield.
+      await act(async () => {
+        deferred.release();
+        await deferred.promise;
+      });
+    }
+  }, 20_000);
+
+  // BST-1679 task 6: a call paused at its approval gate carries
+  // `requires-action` on the message (and therefore on its own resultless
+  // tool-call part — see `toMessagePartStatus`), never `running` — this is a
+  // genuine LIVE in-session pause, not something reload/hydration produces
+  // (that case settles to `complete`; see assistant-hydration-liveness.test.tsx's
+  // "abandoned approval" case), so this case belongs with the other live
+  // states rather than the hydrated-messages describe above.
+  // `initialMessages` seeds `reason: 'interrupt'`, but `Harness`'s
+  // `useLocalRuntime` imports it through `@assistant-ui/core`'s
+  // `withLocalPauseReason` (`local-thread-runtime-core.ts`), which rewrites
+  // any `requires-action`/`interrupt` message whose tool call carries no
+  // `.interrupt`/`.approval` payload — nothing left to resume via
+  // `resumeInterrupt` — to `reason: 'tool-calls'` (`type` stays
+  // `requires-action`), since this fixture's `tool()` sets neither field. So
+  // what this case actually exercises is the broad `requires-action` TYPE
+  // path, not the `interrupt` reason specifically. `Harness`'s
+  // `initialMessages` still seeds the in-session shape without needing a
+  // live deferred adapter.
+  it('reads Waiting for approval while a call is paused at its gate', async () => {
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: [
+              tool('x', {
+                args: { command: 'rm x' },
+                argsText: '{"command":"rm x"}',
+                result: undefined,
+                toolName: 'brainstrike.executeCommand',
+              }),
+            ],
+            role: 'assistant',
+            status: { reason: 'interrupt', type: 'requires-action' },
+          },
+        ]}
+      />
+    );
+    const group = await screen.findByTestId('assistant-activity-group');
+    expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
+      'Waiting for approval'
+    );
+    expect(group).toHaveAttribute('data-state', 'running');
+    const liveElements = document.querySelectorAll('[data-live="true"]');
+    expect(liveElements).toHaveLength(1);
+    expect(liveElements[0]).toHaveAttribute('data-testid', 'assistant-activity-working-mark');
+  });
+
+  // Same pause, one part later: the library's `GroupPart.status` mirrors the
+  // group's LAST member, and a group-transparent run-event data part can be
+  // that member — so the raw group status reads "complete" while the gated
+  // call in the same group is still `requires-action`. Reading the clause off
+  // the raw status darkened the whole approval wait in exactly the shape
+  // #3061 finding 1 fixed for the headline; `isActivityActive` derives it
+  // from the group's ACTIVITY parts instead.
+  it('stays Waiting for approval when a transparent run-event trails the gated call', async () => {
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: [
+              tool('x', {
+                args: { command: 'rm x' },
+                argsText: '{"command":"rm x"}',
+                result: undefined,
+                toolName: 'brainstrike.executeCommand',
+              }),
+              runEventPart({
+                id: 'e-tool',
+                kind: 'tool.started',
+                status: 'running',
+                timestamp: '2026-09-05T10:00:01.000Z',
+                toolCallId: 'x',
+              }),
+            ],
+            role: 'assistant',
+            status: { reason: 'interrupt', type: 'requires-action' },
+          },
+        ]}
+      />
+    );
+    const group = await screen.findByTestId('assistant-activity-group');
+    expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
+      'Waiting for approval'
+    );
+    expect(group).toHaveAttribute('data-state', 'running');
+    expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(1);
+  });
 });
 
 function indicatorsOutsideGroups(): Element[] {

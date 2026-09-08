@@ -10,10 +10,10 @@ import { TooltipProvider } from '@brainstrike/ui';
 import { CodeBlockBody, CodeBlockHeader } from '@brainstrike/ui/code-block';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
-import { AssistantActivityGroup } from '../assistant-activity-group';
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
+import { ActivityTrace } from '../activity-trace';
+import type { ActivitySummary } from '../activity-trace-model';
 import { UserMessage } from '../assistant-ui-panel';
-import type { ToolActivitySummary } from '../tool-activity';
 // Theme variables (colors, shimmer, tints) so screenshots render faithfully.
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
@@ -46,20 +46,20 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-const activeSummary: ToolActivitySummary = {
-  activeArg: 'packages/db/src/registry.ts',
-  activeLabel: 'brainstrike.grepSearch',
-  failedCount: 0,
-  runningCount: 1,
-  stepCount: 3,
+const activeSummary: ActivitySummary = {
+  counts: { failed: 0, steps: 3 },
+  live: 'Searching packages/db/src/registry.ts',
+  resting: 'Searched',
+  verbs: 'Searched',
+  waiting: false,
 };
 
-const doneSummary: ToolActivitySummary = {
-  activeArg: null,
-  activeLabel: null,
-  failedCount: 0,
-  runningCount: 0,
-  stepCount: 5,
+const doneSummary: ActivitySummary = {
+  counts: { failed: 0, steps: 5 },
+  live: 'Working',
+  resting: 'Read 2 files, searched',
+  verbs: 'Read 2 files, searched',
+  waiting: false,
 };
 
 describe('markdown typography (real browser, with preflight reset)', () => {
@@ -349,20 +349,28 @@ describe('shared code-block chrome (real browser)', () => {
   }, 20_000);
 });
 
-describe('AssistantActivityGroup (real browser)', () => {
-  test('active turn: live "Working" heartbeat + current tool in the header, body collapsed until expanded', async () => {
+describe('ActivityTrace (real browser)', () => {
+  test('active turn: live current-step label + detail line in the header, body collapsed until expanded', async () => {
     const user = userEvent.setup();
     render(
       <div className="assistant-ui-panel">
-        <AssistantActivityGroup isActive reasoningActive={false} summary={activeSummary}>
+        <ActivityTrace
+          detail="packages/db/src/registry.ts"
+          fallbackMs={undefined}
+          incompleteReason={undefined}
+          isActive
+          restingOverride={null}
+          summary={activeSummary}
+        >
           <div data-testid="tool-rows">tool rows</div>
-        </AssistantActivityGroup>
+        </ActivityTrace>
       </div>
     );
 
-    expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent('Working');
-    expect(screen.getByText(/brainstrike\.grepSearch/)).toBeVisible();
-    expect(screen.getByText(/registry\.ts/)).toBeVisible();
+    expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent(
+      'Searching packages/db/src/registry.ts'
+    );
+    expect(screen.getByText('packages/db/src/registry.ts')).toHaveClass('bs-trace-detail');
     // Collapsed by default even while active (BST-1677 wave 3, Sean's
     // request): the header is the live cycler, so the body starts hidden.
     const body = screen.getByTestId('assistant-activity-body');
@@ -382,19 +390,28 @@ describe('AssistantActivityGroup (real browser)', () => {
     const user = userEvent.setup();
     render(
       <div className="assistant-ui-panel">
-        <AssistantActivityGroup
+        <ActivityTrace
+          detail={null}
           fallbackMs={12_000}
+          incompleteReason={undefined}
           isActive={false}
-          reasoningActive={false}
+          restingOverride={null}
           summary={doneSummary}
         >
           <div data-testid="tool-rows">tool rows</div>
-        </AssistantActivityGroup>
+        </ActivityTrace>
       </div>
     );
 
-    expect(screen.getByText('Worked')).toBeVisible();
-    expect(screen.getByText(/for 12\.0s/)).toBeVisible();
+    // The headline span carries the trace's entry animation (`bs-trace-label`,
+    // `animation-fill-mode: both`), so it starts the frame at opacity 0 — in
+    // real Chromium `toBeVisible` reads that as hidden until the 250ms
+    // crossfade lands. Poll rather than sleep a fixed margin.
+    await vi.waitFor(() => expect(screen.getByText('Read 2 files, searched')).toBeVisible(), {
+      interval: 20,
+      timeout: 2000,
+    });
+    expect(screen.getByText(/Worked for 12\.0s/)).toBeVisible();
     expect(screen.getByText(/5 steps/)).toBeVisible();
 
     // Auto-collapsed when done: the body is hidden (display:none via [hidden]).
@@ -416,10 +433,13 @@ describe('AssistantActivityGroup (real browser)', () => {
             rather than hardcoding an expected color string. */}
         <style>{'.text-destructive { color: hsl(var(--destructive)); }'}</style>
         <span className="text-destructive" data-testid="destructive-token-probe" />
-        <AssistantActivityGroup
+        <ActivityTrace
+          detail={null}
+          fallbackMs={undefined}
+          incompleteReason={undefined}
           isActive={false}
-          reasoningActive={false}
-          summary={{ ...doneSummary, failedCount: 2 }}
+          restingOverride={null}
+          summary={{ ...doneSummary, counts: { failed: 2, steps: 5 } }}
         />
       </div>
     );

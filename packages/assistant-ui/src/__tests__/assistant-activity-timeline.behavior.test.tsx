@@ -6,6 +6,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import {
+  commentsTool,
   completedParts,
   completedPartsWithEvents,
   firstParts,
@@ -14,6 +15,20 @@ import {
   secondReasoning,
   secondTools,
 } from './assistant-activity-timeline-fixtures';
+
+/** Hydration-only renders: reaching the model at all is the failure. */
+const neverRunAdapter: ChatModelAdapter = {
+  async run() {
+    throw new Error('Hydration must not invoke a model.');
+  },
+};
+
+/**
+ * The resting headline span inside `ActivityTrace`. Scoped queries need it
+ * because the row also carries an sr-only phase announcement ("Stopped",
+ * "Failed", "Finished"), so a bare `getByText('Stopped')` now matches twice.
+ */
+const HEADLINE_SELECTOR = '.bs-activity-summary-label';
 
 function deferred() {
   let release: () => void = () => {
@@ -72,7 +87,7 @@ describe('assistant activity chronology through the real runtime', () => {
       await user.click(screen.getByRole('button', { name: 'Stop' }));
       await waitFor(() => expect(second).toHaveAttribute('data-active', 'false'));
       expect(first).toHaveAttribute('data-active', 'false');
-      expect(first).toHaveTextContent('Worked');
+      expect(first).toHaveTextContent('Called linear.get_issue');
       expect(first).not.toHaveTextContent('Stopped');
       expect(second).toHaveTextContent('Stopped');
       expect(second).not.toHaveTextContent('Worked');
@@ -116,10 +131,10 @@ describe('assistant activity chronology through the real runtime', () => {
       await act(async () => {
         call.release();
       });
-      await waitFor(() => expect(second).toHaveTextContent('linear_list_relations'));
+      await waitFor(() => expect(second).toHaveTextContent('linear.list_relations'));
       expect(screen.getAllByTestId('assistant-activity-group')[0]).toBe(first);
       expect(screen.getAllByTestId('assistant-activity-group')[1]).toBe(second);
-      expect(first).not.toHaveTextContent('linear_list_relations');
+      expect(first).not.toHaveTextContent('linear.list_relations');
       await act(async () => {
         finish.release();
       });
@@ -155,9 +170,14 @@ describe('assistant activity chronology through the real runtime', () => {
         ]}
       />
     );
-    await screen.findByText('Activity failed');
+    await screen.findByText('Activity failed', { selector: HEADLINE_SELECTOR });
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'true');
-    expect(screen.getByTestId('assistant-activity-group')).not.toHaveTextContent('Worked');
+    // `headlineFor` never returns the literal "Worked" (it's always "Worked
+    // for Ns" meta text next to the verb headline), so a bare
+    // `queryByText('Worked', ...)` can never match and would silently pass
+    // even for a broken failed-rule that renders the meta. Assert against
+    // the group's full text content instead.
+    expect(screen.getByTestId('assistant-activity-group')).not.toHaveTextContent('Worked for');
   });
 
   it('marks an explicit tool-result error in only its completed activity group', async () => {
@@ -178,10 +198,10 @@ describe('assistant activity chronology through the real runtime', () => {
     );
     await screen.findByText('Review complete.');
     const { first, second } = expectChronologicalGroups();
-    expect(first).toHaveTextContent('Worked');
+    expect(first).toHaveTextContent('Called linear.get_issue');
     expect(first).toHaveAttribute('data-failed', 'false');
     expect(first).not.toHaveTextContent('failed');
-    expect(second).toHaveTextContent('Worked');
+    expect(second).toHaveTextContent('Called linear.list_comments, called linear.list_relations');
     expect(second).toHaveTextContent('1 failed');
     expect(second).toHaveAttribute('data-failed', 'false');
   });
@@ -220,8 +240,8 @@ describe('assistant activity chronology through the real runtime', () => {
     expect(second).toHaveAttribute('data-active', 'false');
     expect(first).toHaveTextContent('1 step');
     expect(second).toHaveTextContent('2 steps');
-    expect(within(first).getByText('for 2.0s')).toBeInTheDocument();
-    expect(within(second).getByText('for 4.0s')).toBeInTheDocument();
+    expect(first).toHaveTextContent('Worked for 2.0s');
+    expect(second).toHaveTextContent('Worked for 4.0s');
   });
 
   it('keeps every tool call of a run in ONE group when run events fence each call (field shape)', async () => {
@@ -239,8 +259,8 @@ describe('assistant activity chronology through the real runtime', () => {
     const { first, second } = expectChronologicalGroups();
     expect(first).toHaveTextContent('1 step');
     expect(second).toHaveTextContent('2 steps');
-    expect(within(first).getByText('for 2.0s')).toBeInTheDocument();
-    expect(within(second).getByText('for 4.0s')).toBeInTheDocument();
+    expect(first).toHaveTextContent('Worked for 2.0s');
+    expect(second).toHaveTextContent('Worked for 4.0s');
   });
 
   it('renders a trailing data-only group (run.finished after the final text) bare, not as an empty "0 steps" card', async () => {
@@ -290,6 +310,124 @@ describe('assistant activity chronology through the real runtime', () => {
     expect(screen.getAllByTestId('assistant-activity-group')).toHaveLength(2);
     expect(second).toHaveTextContent('2 steps');
   }, 20_000);
+
+  it('names the running tool in the header and settles into a verb summary', async () => {
+    const finish = deferred();
+    const adapter: ChatModelAdapter = {
+      async *run() {
+        // Through the comments call's `tool.started`, then the call itself
+        // still resultless: the shape where the header must name the step.
+        yield { content: [...completedPartsWithEvents.slice(0, 8), commentsTool] };
+        await finish.promise;
+        yield { content: completedPartsWithEvents };
+      },
+    };
+    const user = userEvent.setup();
+    render(<Harness adapter={adapter} />);
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByText('I found the issue.');
+    const { second } = expectChronologicalGroups();
+    expect(within(second).getByTestId('assistant-activity-working')).toHaveTextContent(
+      'Calling linear.list_comments'
+    );
+    await act(async () => {
+      finish.release();
+    });
+    await screen.findByText('Review complete.');
+    await waitFor(() => expect(second).toHaveAttribute('data-state', 'done'));
+    const summary = within(second).getByTestId('assistant-activity-summary');
+    expect(summary).toHaveTextContent('Called linear.list_comments, called linear.list_relations');
+    expect(summary).toHaveTextContent('Worked for');
+    expect(summary).toHaveTextContent('2 steps');
+  }, 20_000);
+
+  it('names the running step in the detail line from its primary argument', async () => {
+    const finish = deferred();
+    const adapter: ChatModelAdapter = {
+      async *run() {
+        yield {
+          content: [
+            { text: 'Looking.', type: 'reasoning' as const },
+            {
+              args: { path: 'packages/db/src/registry.ts' },
+              argsText: '{"path":"packages/db/src/registry.ts"}',
+              toolCallId: 'read-1',
+              toolName: 'brainstrike.readWorkspaceFile',
+              type: 'tool-call' as const,
+            },
+          ],
+        };
+        await finish.promise;
+      },
+    };
+    const user = userEvent.setup();
+    render(<Harness adapter={adapter} />);
+    try {
+      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+      const group = await screen.findByTestId('assistant-activity-group');
+      expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
+        'Reading packages/db/src/registry.ts'
+      );
+      const detail = group.querySelector('.bs-trace-detail');
+      expect(detail).not.toBeNull();
+      expect(detail).toHaveTextContent('packages/db/src/registry.ts');
+    } finally {
+      await act(async () => {
+        finish.release();
+      });
+    }
+  }, 20_000);
+
+  it('reads a model-written resting summary from message metadata when present', async () => {
+    render(
+      <Harness
+        adapter={neverRunAdapter}
+        initialMessages={[
+          {
+            content: completedParts,
+            metadata: {
+              custom: { brainstrikeActivitySummary: 'Pulled the issue and its comments' },
+            },
+            role: 'assistant',
+          },
+        ]}
+      />
+    );
+    await screen.findByText('Review complete.');
+    const [first] = screen.getAllByTestId('assistant-activity-group');
+    if (!first) {
+      throw new Error('Expected an activity group.');
+    }
+    expect(within(first).getByTestId('assistant-activity-summary')).toHaveTextContent(
+      'Pulled the issue and its comments'
+    );
+  });
+
+  // The override is validated on its TRIMMED value, so it must be RENDERED
+  // trimmed too — otherwise a padded string passes the guard and paints its
+  // padding into the headline (review finding 8).
+  it('renders a model-written resting summary trimmed, not with its padding', async () => {
+    render(
+      <Harness
+        adapter={neverRunAdapter}
+        initialMessages={[
+          {
+            content: completedParts,
+            metadata: { custom: { brainstrikeActivitySummary: '  Read files  ' } },
+            role: 'assistant',
+          },
+        ]}
+      />
+    );
+    await screen.findByText('Review complete.');
+    const [first] = screen.getAllByTestId('assistant-activity-group');
+    if (!first) {
+      throw new Error('Expected an activity group.');
+    }
+    expect(first.querySelector(HEADLINE_SELECTOR)?.textContent).toBe('Read files');
+  });
 });
 
 /**
@@ -375,9 +513,9 @@ describe('activity-part-derived group status (BST-1677 wave 3 fix round, PR #306
         ]}
       />
     );
-    await screen.findByText('Stopped');
+    await screen.findByText('Stopped', { selector: HEADLINE_SELECTOR });
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'false');
-    expect(screen.queryByText('Worked')).not.toBeInTheDocument();
+    expect(screen.getByTestId('assistant-activity-group')).not.toHaveTextContent('Worked for');
   });
 
   it('reads "Activity failed" (not "Worked") when a resultless tool call is masked by a trailing tool.completed data part, message errored', async () => {
@@ -393,9 +531,9 @@ describe('activity-part-derived group status (BST-1677 wave 3 fix round, PR #306
         ]}
       />
     );
-    await screen.findByText('Activity failed');
+    await screen.findByText('Activity failed', { selector: HEADLINE_SELECTOR });
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'true');
-    expect(screen.queryByText('Worked')).not.toBeInTheDocument();
+    expect(screen.getByTestId('assistant-activity-group')).not.toHaveTextContent('Worked for');
   });
 
   it('reads "Worked" (not "Stopped") when the tool call HAS a result, even though the owning message was cancelled', async () => {
@@ -411,9 +549,9 @@ describe('activity-part-derived group status (BST-1677 wave 3 fix round, PR #306
         ]}
       />
     );
-    await screen.findByText('Worked');
+    await screen.findByText('Used tool_x', { selector: HEADLINE_SELECTOR });
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'false');
-    expect(screen.queryByText('Stopped')).not.toBeInTheDocument();
+    expect(screen.queryByText('Stopped', { selector: HEADLINE_SELECTOR })).not.toBeInTheDocument();
   });
 
   it('two-group message: the resolved group reads "Worked", the unresolved trailing group reads "Stopped"', async () => {
@@ -464,7 +602,16 @@ describe('activity-part-derived group status (BST-1677 wave 3 fix round, PR #306
     if (!(groupA && groupB)) {
       throw new Error('Expected two activity groups.');
     }
-    expect(within(groupA).getByText('Worked')).toBeInTheDocument();
-    expect(within(groupB).getByText('Stopped')).toBeInTheDocument();
+    expect(
+      within(groupA).getByText('Used tool_a', { selector: HEADLINE_SELECTOR })
+    ).toBeInTheDocument();
+    expect(
+      within(groupB).getByText('Stopped', { selector: HEADLINE_SELECTOR })
+    ).toBeInTheDocument();
+    // Group B's only call never settled, so it has no verb summary at all —
+    // the placeholder must not surface as a demoted "· Worked" meta segment
+    // beside "Stopped" (review finding 1). Now that the placeholder can no
+    // longer reach the meta, this bare-word assertion is meaningful.
+    expect(groupB).not.toHaveTextContent('Worked');
   });
 });
