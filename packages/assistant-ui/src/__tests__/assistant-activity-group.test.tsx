@@ -208,4 +208,21 @@ describe('AssistantActivityGroup', () => {
     fireEvent.click(screen.getByTestId('assistant-activity-summary'));
     expect(body).not.toHaveAttribute('hidden');
   });
+
+  it('publishes data-state and marks only the live heartbeat as data-live', () => {
+    const { container, rerender } = render(
+      <AssistantActivityGroup isActive summary={activeSummary}>
+        <div />
+      </AssistantActivityGroup>
+    );
+    expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-state', 'running');
+    expect(container.querySelectorAll('[data-live="true"]').length).toBeGreaterThan(0);
+    rerender(
+      <AssistantActivityGroup fallbackMs={1000} isActive={false} summary={doneSummary}>
+        <div />
+      </AssistantActivityGroup>
+    );
+    expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-state', 'done');
+    expect(container.querySelectorAll('[data-live="true"]')).toHaveLength(0);
+  });
 });

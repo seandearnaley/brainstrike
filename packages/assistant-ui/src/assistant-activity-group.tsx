@@ -154,6 +154,7 @@ export function AssistantActivityGroup({
       className="bs-activity-group"
       data-active={isActive ? 'true' : 'false'}
       data-failed={failed ? 'true' : 'false'}
+      data-state={isActive ? 'running' : 'done'}
       data-testid="assistant-activity-group"
     >
       <button

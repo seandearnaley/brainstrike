@@ -152,4 +152,26 @@ describe('SubagentExecutionCard', () => {
     fireEvent.click(screen.getByRole('button'));
     expect(screen.getByText('brainstrike_grepSearch')).toBeTruthy();
   });
+
+  it('marks the running pulse data-live and respects reduced motion', () => {
+    const { container } = renderCard({
+      result: undefined,
+      status: { type: 'running' },
+      toolCallId: 'p1',
+      toolName: 'agent-explorer',
+    });
+    const pulse = container.querySelector('[data-live="true"]');
+    expect(pulse).not.toBeNull();
+    expect(pulse).toHaveClass('motion-reduce:animate-none');
+  });
+
+  it('renders no data-live element once the delegation has a result', () => {
+    const { container } = renderCard({
+      result: completedResult,
+      status: { type: 'complete' },
+      toolCallId: 'p1',
+      toolName: 'agent-explorer',
+    });
+    expect(container.querySelectorAll('[data-live="true"]')).toHaveLength(0);
+  });
 });
