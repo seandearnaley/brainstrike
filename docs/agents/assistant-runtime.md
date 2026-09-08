@@ -1319,6 +1319,18 @@ group's elapsed fallback uses only its own tool events. The turn-wide task
 list renders once, in the group holding the
 message's first activity part.
 
+COLLAPSED BY DEFAULT (BST-1677 wave 3, Sean's request): a group's body renders
+collapsed at ALL times — running or done — `AssistantActivityGroup`'s
+`expanded` derivation is `userExpanded ?? false`, never `?? isActive`. The
+header is the live "cycler" instead: while the group is active it reads
+"Thinking" (shimmer text, no active tool label) while a reasoning part in this
+group is `status.type === 'running'` and no tool has started yet, and switches
+to "Working `<tool>` `<arg>`" the moment a tool call becomes the active step
+(`ActivityGroup` computes this `reasoningActive` flag from the group's own
+parts). An explicit user toggle (`AssistantActivityGroup`'s `userExpanded`
+state) sticks for the life of the mounted group, exactly as before — it can
+still be expanded while running.
+
 HYDRATION LIVENESS (do not relitigate): every animated "still happening"
 indicator carries `data-live="true"` (`BrainstrikeThinkingMark`,
 `AssistantThinkingIndicator`, the subagent pulse), and

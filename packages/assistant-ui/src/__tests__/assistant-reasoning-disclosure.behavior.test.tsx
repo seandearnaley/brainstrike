@@ -120,7 +120,14 @@ describe('assistant reasoning disclosure (real streaming runtime)', () => {
     await user.type(screen.getByRole('textbox', { name: 'Message input' }), 'Build a website.');
     await user.click(screen.getByRole('button', { name: 'Send' }));
 
-    // No click: the streaming block is open on its own.
+    // The activity group starts collapsed even while active (BST-1677 wave
+    // 3): expand it before reaching the reasoning toggle inside its body.
+    // Expanding sticks for the mounted group, so the block stays reachable
+    // through the rest of this test.
+    await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
+
+    // No click on the reasoning toggle itself: the streaming block is open
+    // on its own.
     const toggle = await screen.findByRole('button', { name: 'Hide thinking' });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(await screen.findByText('Inspect the workspace root.')).toBeVisible();
@@ -173,6 +180,10 @@ describe('assistant reasoning disclosure (real streaming runtime)', () => {
     await user.type(screen.getByRole('textbox', { name: 'Message input' }), 'Build a website.');
     await user.click(screen.getByRole('button', { name: 'Send' }));
 
+    // The activity group starts collapsed even while active (BST-1677 wave
+    // 3): expand it before reaching the reasoning toggle inside its body.
+    await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
+
     const toggle = await screen.findByRole('button', { name: 'Hide thinking' });
     await user.click(toggle);
     expect(screen.getByRole('button', { name: 'Show thinking' })).toHaveAttribute(
@@ -203,6 +214,10 @@ describe('assistant reasoning disclosure (real streaming runtime)', () => {
 
     await user.type(screen.getByRole('textbox', { name: 'Message input' }), 'Build a website.');
     await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    // The activity group starts collapsed even while active (BST-1677 wave
+    // 3): expand it before reaching the reasoning toggle inside its body.
+    await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
 
     // The first block auto-opens on its own while it streams. Capture its
     // panel id (`aria-controls`, backed by `useId()`) as a mount fingerprint

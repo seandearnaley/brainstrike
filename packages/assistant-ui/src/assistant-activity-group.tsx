@@ -54,13 +54,34 @@ interface AssistantActivityGroupProps {
   // one call site. Naming the union the value actually comes from is the fix;
   // widening or casting here would just re-hide the coupling.
   incompleteReason?: Extract<MessageStatus, { type: 'incomplete' }>['reason'] | undefined;
-  /** True while the turn is still producing tool activity (keeps it expanded). */
+  /** True while the turn is still producing tool activity. */
   isActive: boolean;
+  /**
+   * True while a reasoning part in this group is currently streaming and no
+   * tool has started yet — drives the header's "Thinking" cycler text while
+   * running. Defaults to false for callers with no reasoning of their own to
+   * report (e.g. the isolated unit/browser tests below).
+   */
+  reasoningActive?: boolean;
   summary: ToolActivitySummary;
 }
 
-/** Live "Working" heartbeat + current tool. Distinct testid from reasoning. */
-function ActivityWorkingLabel({ summary }: { summary: ToolActivitySummary }) {
+/**
+ * Live "Working"/"Thinking" heartbeat + current tool. Distinct testid from
+ * reasoning. The group's header is the cycler while running (Sean's request,
+ * BST-1677 wave 3): it reads "Thinking" while a reasoning part streams and no
+ * tool has started yet, and "Working <tool> <arg>" once a tool is active —
+ * the group body itself starts (and stays) collapsed until the user toggles
+ * it, so this label is the only running-state signal visible by default.
+ */
+function ActivityWorkingLabel({
+  reasoningActive,
+  summary,
+}: {
+  reasoningActive: boolean;
+  summary: ToolActivitySummary;
+}) {
+  const showThinking = reasoningActive && !summary.activeLabel;
   return (
     <>
       <span
@@ -68,7 +89,9 @@ function ActivityWorkingLabel({ summary }: { summary: ToolActivitySummary }) {
         data-testid="assistant-activity-working"
       >
         <BrainstrikeThinkingMark className="size-4" testId="assistant-activity-working-mark" />
-        <span className="bs-thinking-shimmer truncate">Working</span>
+        <span className="bs-thinking-shimmer truncate">
+          {showThinking ? 'Thinking' : 'Working'}
+        </span>
       </span>
       {summary.activeLabel ? (
         <span className="bs-activity-active-tool" title={summary.activeArg ?? summary.activeLabel}>
@@ -131,24 +154,26 @@ function ActivityDoneLabel({
 }
 
 /**
- * Collapsible per-turn container for tool activity. Auto-expands while active and
- * auto-collapses to a one-line summary when the turn finishes; an explicit user
- * toggle takes over from there. The summary header stays lively (animated mark +
- * ticking elapsed + current tool) while running.
+ * Collapsible per-turn container for tool activity. Renders collapsed by
+ * default at ALL times — running or done (Sean's request, BST-1677 wave 3):
+ * the header is the live "cycler" while running (Thinking / Working <tool>),
+ * so the body never needs to auto-open just to prove something is happening.
+ * An explicit user toggle sticks for the life of the mounted group.
  */
 export function AssistantActivityGroup({
   children,
   fallbackMs,
   isActive,
   incompleteReason,
+  reasoningActive = false,
   summary,
 }: AssistantActivityGroupProps) {
   const bodyId = useId();
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
   const elapsedMs = useElapsedMs(isActive, fallbackMs);
 
-  // Derived expansion: follow the live state until the user takes manual control.
-  const expanded = userExpanded ?? isActive;
+  // Never auto-expand, active or not — only an explicit user toggle opens it.
+  const expanded = userExpanded ?? false;
   const cancelled = !isActive && incompleteReason === 'cancelled';
   // Group-level failure comes ONLY from the group's own incomplete status —
   // a completed call with `isError` never fails the whole group, it's
@@ -181,7 +206,7 @@ export function AssistantActivityGroup({
         type="button"
       >
         {isActive ? (
-          <ActivityWorkingLabel summary={summary} />
+          <ActivityWorkingLabel reasoningActive={reasoningActive} summary={summary} />
         ) : (
           <ActivityDoneLabel
             cancelled={cancelled}

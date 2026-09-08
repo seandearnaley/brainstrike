@@ -350,7 +350,8 @@ describe('shared code-block chrome (real browser)', () => {
 });
 
 describe('AssistantActivityGroup (real browser)', () => {
-  test('active turn: live "Working" heartbeat, current tool, expanded body', () => {
+  test('active turn: live "Working" heartbeat + current tool in the header, body collapsed until expanded', async () => {
+    const user = userEvent.setup();
     render(
       <div className="assistant-ui-panel">
         <AssistantActivityGroup isActive summary={activeSummary}>
@@ -362,12 +363,19 @@ describe('AssistantActivityGroup (real browser)', () => {
     expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent('Working');
     expect(screen.getByText(/brainstrike\.grepSearch/)).toBeVisible();
     expect(screen.getByText(/registry\.ts/)).toBeVisible();
-    expect(screen.getByTestId('assistant-activity-body')).toBeVisible();
+    // Collapsed by default even while active (BST-1677 wave 3, Sean's
+    // request): the header is the live cycler, so the body starts hidden.
+    const body = screen.getByTestId('assistant-activity-body');
+    expect(body).not.toBeVisible();
 
     // The panel chrome actually rendered (CSS applied in a real browser).
     const group = screen.getByTestId('assistant-activity-group');
     expect(group).toHaveAttribute('data-active', 'true');
     expect(Number.parseFloat(getComputedStyle(group).borderRadius)).toBeGreaterThan(0);
+
+    // The user can still expand it while active.
+    await user.click(screen.getByTestId('assistant-activity-summary'));
+    expect(body).toBeVisible();
   });
 
   test('done turn: auto-collapsed summary that expands on click', async () => {

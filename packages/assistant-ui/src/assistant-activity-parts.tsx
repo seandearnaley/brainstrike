@@ -55,6 +55,10 @@ function reasoningToggleLabel(open: boolean): string {
   return open ? 'Hide thinking' : 'Show thinking';
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 function ActivityPartLayout({ children }: { children?: ReactNode }): ReactNode {
   return <div className="mb-2 last:mb-0 empty:mb-0">{children}</div>;
 }
@@ -194,6 +198,14 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
     status.type === 'running' ||
     (isMessageRunning && isTrailingGroup && status.type !== 'incomplete');
   const incompleteReason = toIncompleteReason(status);
+  // Drives the header's live "Thinking" / "Working" cycler (BST-1677 wave 3):
+  // true while a reasoning part in THIS group is still streaming, regardless
+  // of whether a tool has also started — `ActivityWorkingLabel` only shows
+  // "Thinking" once no tool is active yet, so this stays a pure "is reasoning
+  // running" signal.
+  const reasoningActive = groupParts.some(
+    (part) => isRecord(part) && part.type === 'reasoning' && part.status?.type === 'running'
+  );
   // The task-list summary is turn-wide; render it once, in the group that
   // holds the message's first activity part. (A message with no activity
   // part at all never reaches this branch: `!hasActivityParts` below returns
@@ -221,6 +233,7 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
             fallbackMs={activityFallbackMs}
             incompleteReason={incompleteReason}
             isActive={isActivityActive}
+            reasoningActive={reasoningActive}
             summary={toolActivity}
           >
             {children}

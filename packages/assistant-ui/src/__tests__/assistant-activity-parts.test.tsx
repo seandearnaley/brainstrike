@@ -136,6 +136,10 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Investigate.');
       await user.click(screen.getByRole('button', { name: 'Send' }));
 
+      // The activity group starts collapsed even while active (BST-1677 wave
+      // 3): expand it before reaching a control/text inside its body.
+      await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
+
       const fold = (await screen.findAllByTestId('local-chain-of-thought'))[0];
       if (!fold) {
         throw new Error('Expected a reasoning toggle.');
@@ -147,6 +151,9 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       expect(within(fold).queryByTestId('assistant-reasoning-static-mark')).toBeNull();
       expect(fold).toHaveAttribute('aria-expanded', 'true');
       expect(screen.getByText('Thinking hard.')).toBeVisible();
+      // The group HEADER cycles too (BST-1677 wave 3): a running reasoning
+      // part with no active tool yet reads "Thinking", not "Working".
+      expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent('Thinking');
     } finally {
       await act(async () => {
         deferred.release();
@@ -181,6 +188,10 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Investigate.');
       await user.click(screen.getByRole('button', { name: 'Send' }));
 
+      // The activity group starts collapsed even while active (BST-1677 wave
+      // 3): expand it before reaching a control/text inside its body.
+      await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
+
       const fold = (await screen.findAllByTestId('local-chain-of-thought'))[0];
       if (!fold) {
         throw new Error('Expected a reasoning toggle.');
@@ -195,6 +206,11 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       // directly here would be a false negative for this check.
       expect(within(fold).queryByTestId('assistant-thinking-indicator')).toBeNull();
       expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-active', 'true');
+      // The reasoning part already settled once the tool call started
+      // streaming in the same chunk, and the running tool has an active
+      // label — the header reads "Working", never "Thinking" (BST-1677 wave
+      // 3).
+      expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent('Working');
     } finally {
       await act(async () => {
         deferred.release();

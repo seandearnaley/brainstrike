@@ -142,8 +142,30 @@ describe('AssistantActivityGroup', () => {
 
     expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent('Working');
     expect(screen.getByText(/brainstrike\.grepSearch/)).toBeInTheDocument();
-    // Body is expanded while active.
-    expect(screen.getByTestId('assistant-activity-body')).not.toHaveAttribute('hidden');
+    // Collapsed by default even while active (BST-1677 wave 3): the header
+    // is the live cycler, so the body never needs to auto-open.
+    expect(screen.getByTestId('assistant-activity-body')).toHaveAttribute('hidden');
+  });
+
+  it('shows "Thinking" in the header while a reasoning part streams and no tool has started', () => {
+    render(
+      <AssistantActivityGroup
+        isActive
+        reasoningActive
+        summary={{ ...doneSummary, activeArg: null, activeLabel: null, stepCount: 0 }}
+      />
+    );
+
+    expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent('Thinking');
+  });
+
+  it('shows "Working <tool>" in the header once a tool starts, even while reasoning is active', () => {
+    render(<AssistantActivityGroup isActive reasoningActive summary={activeSummary} />);
+
+    const working = screen.getByTestId('assistant-activity-working');
+    expect(working).toHaveTextContent('Working');
+    expect(working).not.toHaveTextContent('Thinking');
+    expect(screen.getByText(/brainstrike\.grepSearch/)).toBeInTheDocument();
   });
 
   it('ticks elapsed time while active', () => {
