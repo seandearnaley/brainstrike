@@ -43,6 +43,11 @@ export const FAMILY_ICONS: Readonly<Record<VerbFamily, LucideIcon>> = {
 /**
  * `ActivityStepState` plus the subagent-only terminal state where the child
  * ran, made tool calls, and never wrote a final answer.
+ *
+ * `no-answer` draws AMBER, never destructive red (the colour lives in
+ * `renderStateIcon` below): the delegation itself ran and its child work is
+ * real and browsable under the row — only the summary is missing. Red is
+ * reserved for `failed`, where something actually broke.
  */
 export type StepGlyphState = ActivityStepState | 'no-answer';
 

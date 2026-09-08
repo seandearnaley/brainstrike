@@ -481,6 +481,22 @@ describe('assistant UI panel architecture', () => {
     expect(cssSource).toContain('.bs-thinking-mark-static');
   });
 
+  it('honours reduced motion for the running step row shimmer', () => {
+    // Task 5 review, Minor 4. The shimmer on a running row's verb is
+    // STYLESHEET-owned (`.bs-thinking-shimmer` in overrides.css), not a
+    // `motion-reduce:` utility on the element — the browser lane has no
+    // Tailwind, and the subagent card's old `motion-reduce:animate-none`
+    // spinner went away when the row took over the liveness. So this block is
+    // the only thing that honours a reduced-motion preference for a running
+    // step, and nothing else asserts it exists.
+    const cssSource = readSource('overrides.css');
+    expect(cssSource).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{[^}]*\.assistant-ui-panel \.bs-thinking-shimmer \{\s*animation: none;/
+    );
+    // Not vacuous: the row really does put that class on a running verb.
+    expect(readSource('activity-step-row.tsx')).toContain("'bs-thinking-shimmer'");
+  });
+
   it('keeps the "static thinking mark" CSS hook confined to assistant-thinking-indicator.tsx', () => {
     // `bs-thinking-mark-static` is BrainstrikeThinkingMark's own `live={false}`
     // class (assistant-thinking-indicator.tsx); every other caller must go

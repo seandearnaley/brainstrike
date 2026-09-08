@@ -17,6 +17,7 @@ import { cn } from '@brainstrike/ui';
 import { use, useId, useState } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { StepRowHeader } from './activity-step-row';
+import { toolStepStateFor } from './activity-trace-model';
 import { McpTaskToolResult } from './mcp-task-tool-result';
 import {
   isSubagentDelegationToolName,
@@ -114,6 +115,7 @@ export function TodoProgress({ result }: TodoProgressProps): React.JSX.Element |
 export const TaskListToolCard: ToolCallMessagePartComponent = ({
   args,
   argsText,
+  isError = false,
   result,
   status,
   toolCallId,
@@ -122,7 +124,12 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({
   const bodyId = useId();
   const rawArgs = argsText ?? (args === undefined ? '' : JSON.stringify(args, null, 2));
   const rawResult = result === undefined ? undefined : JSON.stringify(result, null, 2);
-  const isRunning = status.type === 'running';
+  // THE shared step state machine (task 5 review, Important 1) — the same one
+  // the trace headline and ToolFallback read. A local `running ? running :
+  // done` gave a cancelled or errored call a green Completed while the group
+  // that contains it called the same step Stopped/Failed.
+  const glyphState = toolStepStateFor({ isError, result, status });
+  const isRunning = glyphState === 'running';
   return (
     <div className="bs-tasklist-tool-card my-1 rounded-md border border-border/60 bg-background/40 text-xs">
       <StepRowHeader
@@ -131,7 +138,7 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({
         family="tasks"
         label={open ? 'Collapse details' : 'Expand details'}
         onToggle={() => setOpen(!open)}
-        state={isRunning ? 'running' : 'done'}
+        state={glyphState}
         // The group's last-running lookup is keyed by `toolCallId`; without it
         // a task-list call that IS the group's last running step would be the
         // one row that never shimmers.

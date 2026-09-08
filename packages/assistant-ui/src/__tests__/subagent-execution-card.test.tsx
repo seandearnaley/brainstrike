@@ -107,6 +107,44 @@ describe('SubagentExecutionCard', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
+  // Task 5 review, Important 2: `resolveDisplayStatus` mapped EVERY
+  // `incomplete` status to `error`, so a delegation the user stopped read
+  // "<Label> failed" under destructive chrome while the group summary — which
+  // reads `toolStepStateFor` — called the same step Stopped. One step, one
+  // state machine; the delegation-only refinement ('no-answer') rides on top
+  // of `done` and nothing else.
+  it('shows a stopped delegation as stopped, never failed', () => {
+    const { container } = renderCard({
+      result: undefined,
+      status: { reason: 'cancelled', type: 'incomplete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    expect(screen.getByText('Explorer stopped')).toBeTruthy();
+    expect(screen.queryByText('Explorer failed')).toBeNull();
+    expect(screen.getByRole('img', { name: 'Stopped' })).toBeTruthy();
+    expect(screen.queryByRole('img', { name: 'Failed' })).toBeNull();
+    // Nothing broke, so nothing wears the destructive chrome.
+    expect(container.querySelectorAll('.text-destructive')).toHaveLength(0);
+  });
+
+  it('shows a delegation paused at its approval gate as waiting, not running', () => {
+    // `toolStepStateFor` CAN return 'waiting' for a delegation (a
+    // `requires-action` part), so the verb table has to be total over it. The
+    // delegation has not started, so the verb stays the present-tense
+    // "Delegating to <Label>" while the glyph names the pause.
+    const { container } = renderCard({
+      result: undefined,
+      status: { type: 'requires-action' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    expect(screen.getByText('Delegating to Explorer')).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Waiting for approval' })).toBeTruthy();
+    // A gated call is not live: nothing pulses while the user decides.
+    expect(container.querySelectorAll('[data-live="true"]')).toHaveLength(0);
+  });
+
   it('renders running child rows from live events only (never "Running · 0 tool calls")', () => {
     renderCard({
       liveRows: [

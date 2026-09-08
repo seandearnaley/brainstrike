@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle, CircleDashed, CircleSlash } from 'lucide-reac
 import { type ComponentProps, type ReactElement, useId, useMemo, useState } from 'react';
 import type { StepGlyphState } from './activity-step-icons';
 import { StepRowHeader } from './activity-step-row';
+import { toolStepStateFor } from './activity-trace-model';
 import { personaLabelForToolName } from './subagent-persona-label';
 import {
   mergeSubagentToolRows,
@@ -31,34 +32,29 @@ export type SubagentCardProps = Pick<
   outcome?: SubagentDelegationOutcome | undefined;
 };
 type ToolStatus = SubagentCardProps['status'];
-
-type DisplayStatus = 'error' | 'no-answer' | 'running' | 'success';
-
-/**
- * The card's own display status mapped onto the shared step-row glyph
- * (BST-1681). The card no longer draws its own status icon or `· Failed`
- * label: the row's glyph names the state (`role="img"`, e.g. "No answer" —
- * amber, not destructive red: the delegation ran and its child work is real
- * and browsable below) and the verb says what happened.
- */
-const STEP_GLYPH_STATE: Record<DisplayStatus, StepGlyphState> = {
-  error: 'failed',
-  'no-answer': 'no-answer',
-  running: 'running',
-  success: 'done',
-};
+type ToolResult = SubagentCardProps['result'];
 
 /**
- * The row verb per display status. A delegation is the one step whose subject
- * is a persona rather than the assistant, so the verb names it: "Delegating to
- * Explorer" while the child runs, "Explorer finished" / "Explorer gave no
- * answer" / "Explorer failed" once it settles.
+ * The row verb per step state (BST-1681). The card draws no status icon or
+ * `· Failed` label of its own: the row's glyph names the state (`role="img"`)
+ * and the verb says what happened. A delegation is the one step whose subject
+ * is a persona rather than the assistant, so the verb names it — "Delegating
+ * to Explorer" while the child runs (and while the call waits at an approval
+ * gate: it has not started either way), then "Explorer finished" / "Explorer
+ * gave no answer" / "Explorer stopped" / "Explorer failed" once it settles.
+ *
+ * Keyed by `StepGlyphState`, not by a private display union, so the type
+ * proves the table is TOTAL over what the shared state machine can hand it: a
+ * state added there and forgotten here is a compile error rather than a blank
+ * verb.
  */
-const STEP_VERB: Record<DisplayStatus, (label: string) => string> = {
-  error: (label) => `${label} failed`,
+const STEP_VERB: Record<StepGlyphState, (label: string) => string> = {
+  cancelled: (label) => `${label} stopped`,
+  done: (label) => `${label} finished`,
+  failed: (label) => `${label} failed`,
   'no-answer': (label) => `${label} gave no answer`,
   running: (label) => `Delegating to ${label}`,
-  success: (label) => `${label} finished`,
+  waiting: (label) => `Delegating to ${label}`,
 };
 
 const ROW_ICONS: Record<SubAgentToolRowStatus, ReactElement> = {
@@ -81,20 +77,30 @@ const ROW_ICONS: Record<SubAgentToolRowStatus, ReactElement> = {
   ),
 };
 
-function resolveDisplayStatus(
+/**
+ * The delegation's step state: THE shared tool-step machine
+ * (`toolStepStateFor` — the same derivation the trace headline, the run-event
+ * surface and `ToolFallback` read) plus the one refinement only this card can
+ * make. `no-answer` is a reading of the delegation's OWN result shape
+ * (BST-1410: the child ran, made tool calls, and never wrote its summary), so
+ * it is applied strictly on TOP of a generic `done` — running, waiting,
+ * cancelled and failed keep winning, or a delegation the user stopped would
+ * read as an outcome it never reached (and, before this, as `failed`).
+ *
+ * `isError` is deliberately absent from the input: the presentational card is
+ * not handed the part's flag (see `SubagentCardProps`), and a delegation
+ * result that states its own error is already read by the shared machine.
+ */
+function resolveDelegationState(
   status: ToolStatus,
+  result: ToolResult,
   outcome: SubagentDelegationOutcome | undefined
-): DisplayStatus {
-  if (status.type === 'running') {
-    return 'running';
+): StepGlyphState {
+  const generic = toolStepStateFor({ result, status });
+  if (generic !== 'done') {
+    return generic;
   }
-  if (status.type === 'incomplete') {
-    return 'error';
-  }
-  // A completed tool call whose child never answered is NOT a success. Checked
-  // after the running/incomplete branches so a still-streaming delegation keeps
-  // its spinner.
-  return outcome === SUBAGENT_NO_ANSWER_OUTCOME ? 'no-answer' : 'success';
+  return outcome === SUBAGENT_NO_ANSWER_OUTCOME ? 'no-answer' : 'done';
 }
 
 const EMPTY_LIVE_ROWS: readonly SubAgentToolRow[] = [];
@@ -117,7 +123,7 @@ export const SubagentExecutionCard = ({
 }: SubagentCardProps) => {
   const [expanded, setExpanded] = useState(false);
   const rowsId = useId();
-  const displayStatus = resolveDisplayStatus(status, outcome);
+  const stepState = resolveDelegationState(status, result, outcome);
   const label = personaLabelForToolName(toolName);
   const rows = useMemo(
     () => mergeSubagentToolRows(readSubAgentToolRows(result), liveRows),
@@ -132,7 +138,7 @@ export const SubagentExecutionCard = ({
       <StepRowHeader
         family="delegate"
         label={expanded ? 'Collapse details' : 'Expand details'}
-        state={STEP_GLYPH_STATE[displayStatus]}
+        state={stepState}
         stepId={toolCallId}
         target={null}
         timing={elapsed}
@@ -142,7 +148,7 @@ export const SubagentExecutionCard = ({
             · {rows.length} tool {rows.length === 1 ? 'call' : 'calls'}
           </span>
         }
-        verb={STEP_VERB[displayStatus](label)}
+        verb={STEP_VERB[stepState](label)}
         // Conditional spread, not `prop={x ?? undefined}`: under
         // `exactOptionalPropertyTypes` an optional prop may be absent but
         // never explicitly `undefined`. With no child rows there is nothing to

@@ -124,4 +124,50 @@ describe('TaskListToolCard', () => {
     expect(screen.getByText('Updating tasks')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Running' })).toBeInTheDocument();
   });
+
+  // Task 5 review, Important 1: the card used to compute `isRunning ? running
+  // : done`, so every settled call — cancelled, errored, or carrying an error
+  // result — earned a green Completed while the group headline (which reads
+  // `toolStepStateFor`) called the same step Stopped/Failed. One step, one
+  // state machine.
+  it('reads a cancelled call as Stopped, not Completed', () => {
+    renderTaskCard({
+      args: {},
+      argsText: '{}',
+      result: undefined,
+      status: { reason: 'cancelled', type: 'incomplete' },
+      toolCallId: 'tasks-1',
+      toolName: 'brainstrike.manageTaskList',
+    });
+    expect(screen.getByRole('img', { name: 'Stopped' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Completed' })).not.toBeInTheDocument();
+    // Past tense: the call is not running, whatever it settled as.
+    expect(screen.getByText('Updated tasks')).toBeInTheDocument();
+  });
+
+  it('reads an errored incomplete call as Failed, not Completed', () => {
+    renderTaskCard({
+      args: {},
+      argsText: '{}',
+      result: undefined,
+      status: { reason: 'error', type: 'incomplete' },
+      toolCallId: 'tasks-1',
+      toolName: 'brainstrike.manageTaskList',
+    });
+    expect(screen.getByRole('img', { name: 'Failed' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Completed' })).not.toBeInTheDocument();
+  });
+
+  it('reads a complete call whose result states its own error as Failed', () => {
+    renderTaskCard({
+      args: {},
+      argsText: '{}',
+      result: { error: 'boom' },
+      status: { type: 'complete' },
+      toolCallId: 'tasks-1',
+      toolName: 'brainstrike.manageTaskList',
+    });
+    expect(screen.getByRole('img', { name: 'Failed' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Completed' })).not.toBeInTheDocument();
+  });
 });
