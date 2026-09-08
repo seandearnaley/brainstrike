@@ -190,4 +190,26 @@ describe('TaskListToolCard', () => {
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.getByText('Updated tasks')).toBeInTheDocument();
   });
+
+  // BST-1686 finding 2 (PR #3066 review): the card used to discard the
+  // part's own `toolName` and hard-code `NATIVE_TOOL_ID.manageTaskList` into
+  // the row's sr-only id / `title` — an undocumented normalization on the
+  // "raw tool id as text" contract every other card honors. A part that
+  // arrived under the Mastra-sanitized `brainstrike_manageTaskList` name (the
+  // `by_name` map's other key, `NATIVE_TOOL_ID.manageTaskList.replaceAll('.',
+  // '_')`) must render THAT exact id, not the dotted canonical form.
+  it('renders the part’s own toolName as the row’s hidden id and title, even the Mastra-sanitized form', () => {
+    renderTaskCard({
+      args: { merge: true },
+      argsText: '{"merge":true}',
+      result: { ok: true },
+      status: { type: 'complete' },
+      toolCallId: 'tasks-1',
+      toolName: 'brainstrike_manageTaskList',
+    });
+    const row = screen.getByRole('button', { name: 'Expand details' });
+    expect(row).toHaveAttribute('title', 'brainstrike_manageTaskList');
+    expect(screen.getByText('brainstrike_manageTaskList')).toBeInTheDocument();
+    expect(screen.queryByText('brainstrike.manageTaskList')).not.toBeInTheDocument();
+  });
 });

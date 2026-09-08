@@ -1,12 +1,27 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { AssistantDetailLevel } from '../assistant-detail-level';
+import {
+  ASSISTANT_DETAIL_LEVEL_STORAGE_KEY,
+  AssistantDetailLevelProvider,
+} from '../assistant-detail-level-context';
 import { SubagentExecutionCard } from '../subagent-execution-card';
 import { personaLabelForToolName } from '../subagent-persona-label';
 
 function renderCard(props: Record<string, unknown>) {
   const Comp = SubagentExecutionCard as unknown as (p: Record<string, unknown>) => ReactElement;
   return render(<Comp {...props} />);
+}
+
+function renderCardAtDetailLevel(props: Record<string, unknown>, level: AssistantDetailLevel) {
+  window.localStorage.setItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY, level);
+  const Comp = SubagentExecutionCard as unknown as (p: Record<string, unknown>) => ReactElement;
+  return render(
+    <AssistantDetailLevelProvider>
+      <Comp {...props} />
+    </AssistantDetailLevelProvider>
+  );
 }
 
 const completedResult = {
@@ -267,5 +282,75 @@ describe('SubagentExecutionCard', () => {
     expect(icon).not.toBeNull();
     expect(icon).toHaveClass('lucide-circle-slash');
     expect(icon).not.toHaveAttribute('data-live');
+  });
+});
+
+// BST-1686 finding 1 (PR #3066 review + CDT pass): `ToolFallback` gates its
+// result-summary chip on `policy.showResultSummary`
+// (`resolveToolDisplayPolicy`), but this card's own `· N tool calls` chip
+// rendered unconditionally in `.bs-step-row-meta` — the one trailing chip on
+// the delegation card the Detail control did not touch. It now reads the
+// same policy every other trailing chip in the trace reads.
+describe('SubagentExecutionCard detail level', () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => window.localStorage.clear());
+
+  it('hides the tool-call-count chip at compact', () => {
+    renderCardAtDetailLevel(
+      {
+        result: completedResult,
+        status: { type: 'complete' },
+        toolCallId: 'delegation-1',
+        toolName: 'agent-explore',
+      },
+      'compact'
+    );
+    expect(screen.getByText('Explorer finished')).toBeInTheDocument();
+    expect(screen.queryByText('· 2 tool calls', { exact: false })).not.toBeInTheDocument();
+    expect(screen.queryByText(/tool calls?$/)).not.toBeInTheDocument();
+  });
+
+  it('shows the tool-call-count chip at standard', () => {
+    renderCardAtDetailLevel(
+      {
+        result: completedResult,
+        status: { type: 'complete' },
+        toolCallId: 'delegation-1',
+        toolName: 'agent-explore',
+      },
+      'standard'
+    );
+    expect(screen.getByText('· 2 tool calls')).toBeInTheDocument();
+  });
+});
+
+// BST-1686 finding 3 (PR #3066 review + CDT pass): `trailing` used to render
+// INSIDE `.bs-step-row-content`, which is the `aria-labelledby` target of the
+// non-interactive (`role="group"`) row form — so a zero-row delegation was
+// named "Delegating to Analyst · 0 tool calls" instead of just the verb.
+// Rendered at an explicit `standard` level (PR #3067 review finding 3): at
+// `compact` the chip would not render at all, and the name-only assertion
+// below would pass without exercising what it names — it never proves the
+// chip is present-but-unnamed, only that it is absent one way or another.
+describe('SubagentExecutionCard non-interactive row name', () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => window.localStorage.clear());
+
+  it('names a zero-row delegation by its verb alone, without the tool-call chip folded in', () => {
+    renderCardAtDetailLevel(
+      {
+        result: undefined,
+        status: { type: 'running' },
+        toolCallId: 'delegation-1',
+        toolName: 'agent-analyze',
+      },
+      'standard'
+    );
+    const row = screen.getByRole('group', { name: /^Delegating to Analyst$/ });
+    expect(row).toBeInTheDocument();
+    // The chip is present as row text — proving "fixed" (chip renders,
+    // excluded from the name) rather than "not rendered" (chip absent,
+    // making the name assertion above vacuous).
+    expect(row).toHaveTextContent('0 tool calls');
   });
 });
