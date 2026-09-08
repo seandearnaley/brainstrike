@@ -8,8 +8,9 @@ import {
 } from '@assistant-ui/react';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   ASSISTANT_DETAIL_LEVEL_STORAGE_KEY,
@@ -43,6 +44,19 @@ function DataUis() {
   return null;
 }
 
+/**
+ * The wrapper `Harness` needs to nest `AssistantRunEventProvider` (and the
+ * data UIs it depends on) INSIDE `AssistantRuntimeProvider` — see the task-7
+ * report for why the brief's original outside-in nesting crashes. Shared by
+ * every case here so there is exactly one place that defines it.
+ */
+const withRunEventContext = (content: ReactNode): ReactNode => (
+  <AssistantRunEventProvider>
+    <DataUis />
+    {content}
+  </AssistantRunEventProvider>
+);
+
 function renderHydrated(
   messages: ThreadMessageLike[],
   detail: 'standard' | 'developer' = 'standard'
@@ -51,12 +65,7 @@ function renderHydrated(
   return render(
     <AssistantDetailLevelProvider>
       <Harness adapter={neverRun} initialMessages={messages}>
-        {(content) => (
-          <AssistantRunEventProvider>
-            <DataUis />
-            {content}
-          </AssistantRunEventProvider>
-        )}
+        {withRunEventContext}
       </Harness>
     </AssistantDetailLevelProvider>
   );
@@ -105,7 +114,9 @@ describe('hydrated threads render no live indicator unless something is genuinel
     expect(screen.getAllByLabelText('Interrupted').length).toBeGreaterThan(0);
     expect(screen.queryByLabelText('Running')).not.toBeInTheDocument();
     expect(live(container)).toHaveLength(0);
-    expect(screen.getByText(/Stopped/)).toBeInTheDocument();
+    // The done label span's direct text is exactly "Stopped" (no sibling
+    // text merged in) — assert the exact string, not a loosened regex.
+    expect(screen.getByText('Stopped')).toBeInTheDocument();
   });
 
   it('an always-visible run event renders as a standalone row, never inside a collapsed group', async () => {
@@ -234,16 +245,24 @@ describe('hydrated threads render no live indicator unless something is genuinel
         status: settled,
       },
     ]);
-    // The notice's actual copy is "Tool approval required" with a "Pending"
-    // status chip (brainstrike/src/assistant-tool-approval-notice.tsx),
-    // not the "Awaiting your approval" wording the brief sketched — assert
-    // the real, stable strings instead of loosening the check.
+    // The notice's actual heading copy is "Tool approval required" with a
+    // "Pending" status chip (assistant-tool-approval-notice.tsx). The run-
+    // timeline ROW below reads the raw event kind, 'tool.approval.requested',
+    // only because this fixture's `runEventPart` sets `label` to the kind for
+    // convenience — the real agent-emitted event carries a human-readable
+    // label (e.g. "Awaiting your approval"); assert against this fixture's
+    // actual, stable text rather than production copy this fixture never
+    // sends.
     expect(await screen.findByText('Tool approval required')).toBeInTheDocument();
     expect(screen.getByText('Pending')).toBeInTheDocument();
+    expect(screen.getByText('tool.approval.requested')).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Approve brainstrike.executeCommand' })
     ).toBeEnabled();
-    // The ONE legitimate live element on a reloaded thread: the pending pause row.
+    // The ONE legitimate live element on a reloaded thread: the pending pause
+    // row — anchor it to the actual run-timeline row, not just a page-wide count.
+    const row = screen.getByTestId('assistant-run-timeline');
+    expect(row.querySelector('[data-live="true"]')).not.toBeNull();
     expect(live(container)).toHaveLength(1);
   });
 
@@ -280,7 +299,24 @@ describe('hydrated threads render no live indicator unless something is genuinel
         status: cancelled,
       },
     ]);
-    await screen.findByTestId('assistant-activity-group');
+    const group = await screen.findByTestId('assistant-activity-group');
+    // The delegation card renders collapsed by default (`useState(false)` in
+    // SubagentExecutionCard), and only renders child rows once expanded — so
+    // the zero-live assertion below is vacuous unless the child row actually
+    // reaches the DOM. Expand the turn's activity group, then the card
+    // itself, before checking liveness.
+    const user = userEvent.setup();
+    await user.click(within(group).getByRole('button', { name: 'Expand activity' }));
+    const cardToggle = within(group).getByRole('button', { expanded: false });
+    expect(cardToggle).toHaveTextContent('1 tool call');
+    await user.click(cardToggle);
+    const childRow = screen.getByText('brainstrike_grepSearch').closest('li');
+    expect(childRow).not.toBeNull();
+    // Interrupted (not running): the owning message already settled
+    // (`cancelled`) with no terminal `subagent.tool.*` event for this child,
+    // so `readLiveSubagentToolRowsFromMessages` downgrades it from 'running'
+    // to 'interrupted' — CircleSlash, not the pulsing CircleDashed.
+    expect(childRow?.querySelector('svg')).toHaveClass('lucide-circle-slash');
     expect(live(container)).toHaveLength(0);
   });
 
@@ -298,14 +334,7 @@ describe('hydrated threads render no live indicator unless something is genuinel
     const user = userEvent.setup();
     const { container } = render(
       <AssistantDetailLevelProvider>
-        <Harness adapter={adapter}>
-          {(content) => (
-            <AssistantRunEventProvider>
-              <DataUis />
-              {content}
-            </AssistantRunEventProvider>
-          )}
-        </Harness>
+        <Harness adapter={adapter}>{withRunEventContext}</Harness>
       </AssistantDetailLevelProvider>
     );
     await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
