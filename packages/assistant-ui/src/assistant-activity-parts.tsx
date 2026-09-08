@@ -36,7 +36,12 @@ import { useChainActivityDerivations } from './use-chain-activity-derivations';
  * position (text splits), group status derives from that group's parts,
  * reasoning-only groups show no step count, the turn-wide task list renders
  * once in the first group, and wrappers stay mounted (the library keys a group
- * on its first part's id).
+ * on its first part's id). One qualifier: the group that owns the message's
+ * last part also counts as active while the message is running and that
+ * group's own status is not `incomplete` — a tool call's result can land in
+ * the same streamed chunk that fences the next call into the same coalesced
+ * group, so a purely part-derived status would flash "Worked" between two
+ * calls of the same run.
  */
 
 function isReasoningPart(part: unknown): boolean {
@@ -76,7 +81,7 @@ function ActivityReasoningLeaf() {
   return collapsed ? null : <AssistantReasoningPart />;
 }
 
-function ActivityPartLayout({ children }: { children?: ReactNode }) {
+function ActivityPartLayout({ children }: { children?: ReactNode }): ReactNode {
   return <div className="mb-2 last:mb-0 empty:mb-0">{children}</div>;
 }
 
@@ -104,7 +109,7 @@ function ChainReasoningFold({
   isReasoningRunning: boolean;
   onToggle: () => void;
   panelId: string;
-}) {
+}): ReactNode {
   return (
     <>
       <button
@@ -167,11 +172,11 @@ interface ActivityGroupProps {
  * elapsed / durations exactly as before, and renders the unchanged
  * `AssistantActivityGroup` chrome around the reasoning fold.
  */
-function ActivityGroup({ children, indices, status }: ActivityGroupProps) {
+function ActivityGroup({ children, indices, status }: ActivityGroupProps): ReactNode {
   const messageParts = useAuiState((state) => state.message.parts);
   const messageId = useAuiState((state) => (state.message as { id?: string }).id ?? '');
   const isMessageRunning = useAuiState(
-    (state) => (state.message as { status?: { type?: string } }).status?.type === 'running'
+    (state) => state.message.role === 'assistant' && state.message.status.type === 'running'
   );
   const groupParts = useMemo(
     () => indices.map((index) => messageParts[index]).filter((part) => part !== undefined),
@@ -187,7 +192,9 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps) {
   // coalesced key. Treat that case as active too, so the card doesn't look
   // finished a beat before the next call actually starts.
   const isTrailingGroup = indices.at(-1) === messageParts.length - 1;
-  const isActivityActive = status.type === 'running' || (isMessageRunning && isTrailingGroup);
+  const isActivityActive =
+    status.type === 'running' ||
+    (isMessageRunning && isTrailingGroup && status.type !== 'incomplete');
   const incompleteReason =
     status.type === 'incomplete' && typeof status.reason === 'string' ? status.reason : undefined;
   // The task-list summary is turn-wide; render it once, in the group that
@@ -252,7 +259,7 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps) {
  * streaming placeholder where it already lives (markdown-text.tsx renders the
  * thinking indicator for an empty running text part).
  */
-export function AssistantActivityParts() {
+export function AssistantActivityParts(): ReactNode {
   return (
     <MessagePrimitive.GroupedParts<ActivityGroupKey>
       groupBy={groupAssistantActivityPart}

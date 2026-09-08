@@ -39,6 +39,28 @@ export const completedParts = [
 ];
 
 /**
+ * The shape `runEventPart` builds: a `brainstrike.run-event` data part whose
+ * `data` matches what the live decoder (`aui-data` → `part-start`) and reload
+ * hydration (`toRunEventDataParts`) both produce. `kind` stays plain `string`
+ * (callers pass event-kind literals, but `AssistantRunEventKind` is narrower
+ * than what this fixture needs to declare), so this is a standalone type
+ * rather than `AssistantRunEvent` itself.
+ */
+interface RunEventPartFixture {
+  readonly data: {
+    readonly id: string;
+    readonly kind: string;
+    readonly label: string;
+    readonly metadata?: { readonly toolCallId: string };
+    readonly runId?: string;
+    readonly status: 'cancelled' | 'completed' | 'failed' | 'info' | 'running';
+    readonly timestamp: string;
+  };
+  readonly name: typeof ASSISTANT_RUN_EVENT_DATA_NAME;
+  readonly type: 'data';
+}
+
+/**
  * A `brainstrike.run-event` data part in the exact shape the live decoder
  * (`aui-data` → `part-start`) and reload hydration (`toRunEventDataParts`)
  * both produce: `{ type: 'data', name, data: AssistantRunEvent }`.
@@ -50,7 +72,7 @@ export function runEventPart(input: {
   readonly status?: 'cancelled' | 'completed' | 'failed' | 'info' | 'running';
   readonly timestamp: string;
   readonly toolCallId?: string;
-}) {
+}): RunEventPartFixture {
   return {
     data: {
       id: input.id,
