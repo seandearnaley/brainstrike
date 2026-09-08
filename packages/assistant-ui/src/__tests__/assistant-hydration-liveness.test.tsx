@@ -114,9 +114,13 @@ describe('hydrated threads render no live indicator unless something is genuinel
     expect(screen.getAllByLabelText('Interrupted').length).toBeGreaterThan(0);
     expect(screen.queryByLabelText('Running')).not.toBeInTheDocument();
     expect(live(container)).toHaveLength(0);
-    // The done label span's direct text is exactly "Stopped" (no sibling
-    // text merged in) — assert the exact string, not a loosened regex.
-    expect(screen.getByText('Stopped')).toBeInTheDocument();
+    // The headline span's direct text is exactly "Stopped" (no sibling text
+    // merged in) — assert the exact string, not a loosened regex, scoped to
+    // the headline because the row also carries an sr-only phase
+    // announcement that reads "Stopped" too.
+    expect(
+      screen.getByText('Stopped', { selector: '.bs-activity-summary-label' })
+    ).toBeInTheDocument();
   });
 
   it('an always-visible run event renders as a standalone row, never inside a collapsed group', async () => {

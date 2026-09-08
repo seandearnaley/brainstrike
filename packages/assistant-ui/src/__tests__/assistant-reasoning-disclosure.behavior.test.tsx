@@ -158,13 +158,17 @@ describe('assistant reasoning disclosure (real streaming runtime)', () => {
     // Stays settled collapsed: no manual toggle happened, and the part was
     // already complete before the turn finished. The activity group itself
     // auto-collapses once done (pre-existing, unrelated
-    // `AssistantActivityGroup` behavior), which hides its body from the
+    // `ActivityTrace` behavior), which hides its body from the
     // accessibility tree — `getByTestId` reads the toggle's attributes
     // regardless, the same way the hydrated-message tests in
     // assistant-activity-parts.test.tsx already do.
     const settledToggle = screen.getByTestId('local-chain-of-thought');
     expect(settledToggle).toHaveAttribute('aria-expanded', 'false');
     expect(settledToggle).toHaveAttribute('aria-label', 'Show thinking');
+    // Past tense once the block settled (BST-1679): the pill reads "Thinking"
+    // only while its own part streams. No reasoning duration is derivable in
+    // this harness (no run events), so it stays the bare verb.
+    expect(screen.getByTestId('assistant-reasoning-indicator')).toHaveTextContent('Thought');
     expect(screen.getByTestId('assistant-reasoning-static-mark')).toBeInTheDocument();
     expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
     // Real streaming runtime + userEvent typing: comfortably sub-second when
@@ -199,7 +203,7 @@ describe('assistant reasoning disclosure (real streaming runtime)', () => {
     // The manual close sticks: settling collapsed anyway would be
     // indistinguishable, but re-opening (following `isStreaming` up) would not.
     // The activity group itself auto-collapses once done (pre-existing,
-    // unrelated `AssistantActivityGroup` behavior), which hides its body
+    // unrelated `ActivityTrace` behavior), which hides its body
     // from the accessibility tree — `getByTestId` reads the toggle's
     // attributes regardless, the same way the hydrated-message tests in
     // assistant-activity-parts.test.tsx already do.
@@ -250,7 +254,7 @@ describe('assistant reasoning disclosure (real streaming runtime)', () => {
     // tool call's result and the trailing text part arrived — still
     // expanded, and its panel still holds the text (now including the
     // later-arriving segment). The activity group itself auto-collapses
-    // once done (pre-existing, unrelated `AssistantActivityGroup`
+    // once done (pre-existing, unrelated `ActivityTrace`
     // behavior), which hides the panel from the accessibility tree —
     // `toHaveTextContent` reads it regardless, the same way the
     // hydrated-message tests in assistant-activity-parts.test.tsx already

@@ -1,6 +1,6 @@
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { expect, test } from 'vitest';
 import { ActivityTrace } from '../activity-trace';
 
@@ -60,7 +60,13 @@ test('the detail slot renders only while active and the chevron rotates when ope
   const button = screen.getByTestId('assistant-activity-summary');
   const glyph = button.querySelector('.bs-trace-glyph') as HTMLElement;
   expect(getComputedStyle(glyph).transform).toBe('none');
-  button.click();
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  // Wrapped, sleep included: the click flushes a state update AND the active
+  // row's elapsed timer ticks every 100ms while this test waits out the
+  // chevron transition — unwrapped, both log "not wrapped in act(...)" into
+  // every run of this suite.
+  await act(async () => {
+    button.click();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
   expect(getComputedStyle(glyph).transform).not.toBe('none');
 });

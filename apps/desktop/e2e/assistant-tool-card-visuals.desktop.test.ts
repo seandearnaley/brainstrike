@@ -76,12 +76,17 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 
+    const activityGroup = window.getByTestId('assistant-activity-group').first();
     const summary = window.getByTestId('assistant-activity-summary').first();
     await expect(summary).toHaveAttribute('aria-expanded', 'false', {
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
     await expect(summary).toContainText('1 failed');
-    await expect(summary).toContainText('Worked');
+    // The resting headline is the verb summary now (BST-1679), not the fixed
+    // word "Worked": an unrecognised tool name reads honestly as "Used <name>".
+    // `data-state` is the state sync; the text proves which step it summarizes.
+    await expect(activityGroup).toHaveAttribute('data-state', 'done');
+    await expect(summary).toContainText('brainstrike.retrieveContext');
     await summary.click();
     const toolCard = window.getByTestId('tool-fallback').first();
     await expect(toolCard).toBeVisible({ timeout: E2E_TIMEOUTS.toolVisibility });

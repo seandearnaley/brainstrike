@@ -57,9 +57,7 @@ describe('AssistantActivityParts (hydrated messages)', () => {
         initialMessages={[{ content: [completedReasoning], role: 'assistant' }]}
       />
     );
-    expect(await screen.findByTestId('assistant-reasoning-indicator')).toHaveTextContent(
-      'Thinking'
-    );
+    expect(await screen.findByTestId('assistant-reasoning-indicator')).toHaveTextContent('Thought');
     expect(screen.getByTestId('assistant-reasoning-static-mark')).toHaveClass(
       'bs-thinking-mark-static'
     );
@@ -207,10 +205,10 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       expect(within(fold).queryByTestId('assistant-thinking-indicator')).toBeNull();
       expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-active', 'true');
       // The reasoning part already settled once the tool call started
-      // streaming in the same chunk, and the running tool has an active
-      // label — the header reads "Working", never "Thinking" (BST-1677 wave
-      // 3).
-      expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent('Working');
+      // streaming in the same chunk, so the header names the running TOOL
+      // instead of thinking (BST-1677 wave 3, BST-1679 verbs). `tool_a` is
+      // not a native id and carries no dot, so it reads honestly as "Using".
+      expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent('Using tool_a');
     } finally {
       await act(async () => {
         deferred.release();
@@ -327,7 +325,9 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
 
       const group = await screen.findByTestId('assistant-activity-group');
       expect(group).toHaveAttribute('data-state', 'running');
-      expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent('Working');
+      expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
+        'Searching x'
+      );
       // The library still emits its `indicator` slot here (last part is a tool
       // call, not text/reasoning); the renderer must drop it so a collapsed
       // group never shows a second "Thinking" row beneath its own cycler

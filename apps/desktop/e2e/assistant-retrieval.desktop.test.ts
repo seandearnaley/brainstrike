@@ -61,9 +61,13 @@ test.describe('Assistant retrieval (desktop)', () => {
     await expect(window.getByTestId('tool-fallback').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    await expect(window.getByText('brainstrike.retrieveContext').first()).toBeVisible({
-      timeout: E2E_TIMEOUTS.toolVisibility,
-    });
+    // Scoped to the CARD: since BST-1679 the collapsed group header also names
+    // the step ("Used brainstrike.retrieveContext"), so an unscoped text query
+    // would pass on the header alone and stop proving the card renders it.
+    await expect(window.getByTestId('tool-fallback').first()).toContainText(
+      'brainstrike.retrieveContext',
+      { timeout: E2E_TIMEOUTS.toolVisibility }
+    );
   });
 
   test('shows retrieval tool errors when execution fails', async ({ window }) => {
@@ -83,9 +87,13 @@ test.describe('Assistant retrieval (desktop)', () => {
     await expect(window.getByTestId('tool-fallback').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    await expect(window.getByText('brainstrike.retrieveContext').first()).toBeVisible({
-      timeout: E2E_TIMEOUTS.toolVisibility,
-    });
+    // Scoped to the CARD: since BST-1679 the collapsed group header also names
+    // the step ("Used brainstrike.retrieveContext"), so an unscoped text query
+    // would pass on the header alone and stop proving the card renders it.
+    await expect(window.getByTestId('tool-fallback').first()).toContainText(
+      'brainstrike.retrieveContext',
+      { timeout: E2E_TIMEOUTS.toolVisibility }
+    );
   });
 
   test('surfaces assistant stream failures', async ({ window }) => {

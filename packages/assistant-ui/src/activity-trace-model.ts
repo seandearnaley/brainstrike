@@ -52,8 +52,8 @@ function statusOf(part: Record<string, unknown>): { reason?: unknown; type?: unk
 /**
  * Canonical flags only (repo rule): status type/reason, `isError`, guarded
  * error. This is the phase-2 activity-trace state machine; the legacy
- * `summarizeToolActivity` (`tool-activity.ts`) it supersedes is retired in
- * Task 5.
+ * `summarizeToolActivity` (`tool-activity.ts`) it superseded was deleted with
+ * `AssistantActivityGroup` (BST-1679).
  */
 function toolStepState(part: Record<string, unknown>): ActivityStepState {
   const status = statusOf(part);
