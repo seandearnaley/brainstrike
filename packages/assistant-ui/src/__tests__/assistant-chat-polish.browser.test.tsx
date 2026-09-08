@@ -535,6 +535,37 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
    */
   const USER_MESSAGE_TEXT = 'A user message';
 
+  /**
+   * Keeps every message root clear of the browser's RESTING POINTER (BST-1687).
+   *
+   * Headless Chromium parks its pointer on the viewport origin even though this
+   * suite never dispatches a real mouse event. Measured in the CI container
+   * image (mcr.microsoft.com/playwright:v1.63.0-noble), not assumed: the live
+   * hover chain there reads
+   *
+   *   HTML > BODY > DIV > .assistant-ui-panel > .bs-thread >
+   *   .aui-thread-viewport > .aui-user-message-root
+   *
+   * and a 40x40 `:hover` probe grid over the 414x896 viewport lights exactly
+   * one cell -- (0,0), i.e. x < 10.35px, y < 22.4px.
+   *
+   * MessagePrimitive.Root reads that state directly. Its ref callback attaches
+   * the mouseenter/mouseleave listeners AND, whenever the element it is given
+   * ALREADY matches `:hover`, queues `message.setIsHovering(true)`. A message
+   * root laid out flush against the origin is therefore genuinely hovered
+   * before this test touches it, and `autohide="not-last"` +
+   * `autohideFloat="always"` mounts its bar FLOATING. That is correct component
+   * behaviour and a broken test precondition: the subject here is a NON-hovered
+   * non-last message, and the row-height and rect assertions below are only
+   * about the hover the test itself performs.
+   *
+   * The offset only has to be greater than zero; the pointer assertions in the
+   * test prove it did its job rather than trusting that it did. macOS headless
+   * Chromium parks no pointer at all, which is why this was green on every
+   * local run and red on the first CI run at 397c71a.
+   */
+  const POINTER_PARK_OFFSET_PX = 64;
+
   function TwoUserMessagesHarness() {
     const initialMessages: readonly ThreadMessageLike[] = [
       { content: [{ text: USER_MESSAGE_TEXT, type: 'text' }], role: 'user' },
@@ -545,15 +576,20 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
     return (
       <TooltipProvider>
         <AssistantRuntimeProvider runtime={runtime}>
-          <div className="assistant-ui-panel">
-            <div className="bs-thread">
-              <div className="aui-thread-viewport">
-                <ThreadPrimitive.Messages
-                  components={{
-                    AssistantMessage: () => null,
-                    UserMessage,
-                  }}
-                />
+          {/* Inline style, not a Tailwind utility: a class that the v4 content
+              scan did not happen to pick up in this lane would silently leave
+              the roots back under the pointer. */}
+          <div style={{ paddingTop: `${POINTER_PARK_OFFSET_PX}px` }}>
+            <div className="assistant-ui-panel">
+              <div className="bs-thread">
+                <div className="aui-thread-viewport">
+                  <ThreadPrimitive.Messages
+                    components={{
+                      AssistantMessage: () => null,
+                      UserMessage,
+                    }}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -598,14 +634,21 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
       throw new Error('expected both user message roots');
     }
 
-    // The two preconditions a cross-root rect comparison rests on, asserted
-    // rather than assumed (both were only assumed before BST-1687). They are
-    // deliberately independent of the settle step above: deleting that step
-    // has to fail here, loudly, instead of re-arming a warmth-dependent flake.
+    // The three preconditions this test rests on, asserted rather than assumed
+    // (all three were only assumed before BST-1687). They are deliberately
+    // independent of the settle step and the harness offset that establish
+    // them: removing either has to fail here, loudly, instead of re-arming a
+    // flake that depends on the environment.
     for (const root of [nonLastRoot, lastRoot]) {
       // 1. Past the lazy-markdown placeholder, so no content-sized track can
       //    resize between the reference read and the floating read.
       expect(root).toHaveTextContent(USER_MESSAGE_TEXT);
+      // 3. The REAL pointer rests clear of BOTH roots, so the only hover in
+      //    this test is the one it performs itself. Established by the
+      //    harness's POINTER_PARK_OFFSET_PX: drop that offset and the non-last
+      //    root sits on the viewport origin, where headless Chromium parks its
+      //    pointer, and this is true before a single event is dispatched.
+      expect(root.matches(':hover')).toBe(false);
     }
     // 2. Both roots resolve the SAME columns -- not merely the same declared
     //    template -- so "the same spot" is a statement about one column.
