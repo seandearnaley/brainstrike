@@ -121,6 +121,47 @@ describe('AssistantActivityParts (hydrated messages)', () => {
     const group = screen.getByTestId('assistant-activity-group');
     expect(group.contains(text)).toBe(false);
   });
+
+  // The WRAPPER half of the part-level `isError` forward (Task 6 review,
+  // Important 2). `subagent-execution-card.test.tsx` pins the presentational
+  // card's reading of the flag by handing it the prop directly; nothing pinned
+  // that `SubagentExecutionCardConnected` actually FORWARDS `props.isError`
+  // from the tool part — the conditional spread that does it could be deleted
+  // and every card-level test would stay green. This case runs the real
+  // registered component through the harness: a settled delegation whose
+  // status is `complete` and whose result never states a failure, flagged
+  // errored by the runtime alone.
+  it('forwards a delegation part’s isError flag through the registered card: the row reads Explorer failed', async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: [
+              {
+                args: {},
+                argsText: '{}',
+                isError: true,
+                result: { subAgentToolResults: [], text: 'Found it.' },
+                toolCallId: 'delegate-errored',
+                toolName: 'agent-explore',
+                type: 'tool-call' as const,
+              },
+            ],
+            role: 'assistant',
+          },
+        ]}
+      />
+    );
+    const group = await screen.findByTestId('assistant-activity-group');
+    // A done group auto-collapses, so the delegation row is hidden until the
+    // user opens it — the flag's effect is on the ROW, not on the headline.
+    await user.click(screen.getByTestId('assistant-activity-summary'));
+    expect(within(group).getByText('Explorer failed')).toBeInTheDocument();
+    expect(within(group).queryByText('Explorer finished')).not.toBeInTheDocument();
+    expect(within(group).getByRole('img', { name: 'Failed' })).toBeInTheDocument();
+  });
 });
 
 describe('AssistantActivityParts (running reasoning, real runtime)', () => {

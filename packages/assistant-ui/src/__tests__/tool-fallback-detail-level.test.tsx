@@ -81,12 +81,16 @@ describe('ToolFallback detail level', () => {
 
   // BST-1681 phase 3: the three levels drive the STEP ROW, so pin what each
   // one puts in the row rather than only what it puts in the panes below.
-  it('compact renders the row with no trailing meta chip at all', () => {
+  // Read the level as a RESULT-SUMMARY axis: compact hides result summaries,
+  // not the `in <root>` chip, which is target disambiguation rather than a
+  // summary and stays at every level by ruling.
+  it('compact renders no result-summary chip (the root-name chip is target disambiguation and is not gated)', () => {
     // `policy.showResultSummary` is false, so `trailing` collapses to nothing
-    // and the row is verb + target only. Caveat, verified and deliberately
-    // NOT papered over here: the sibling "in <rootName>" chip is a
-    // `.bs-step-row-meta` that the policy does not gate, so a result carrying
-    // `rootName` still renders one chip at compact. This fixture carries none.
+    // and the row is verb + target only. Fixture scope, stated so the zero
+    // count is not read as a claim about every result: the sibling
+    // "in <rootName>" chip is a `.bs-step-row-meta` the policy does not gate,
+    // so a result carrying `rootName` still renders one chip at compact —
+    // deliberately. This fixture carries none, which is why the count is 0.
     const { container } = renderTool(internalToolProps, 'compact');
     expect(screen.getByTestId('activity-step-row')).toBeInTheDocument();
     expect(container.querySelectorAll('.bs-step-row-meta')).toHaveLength(0);

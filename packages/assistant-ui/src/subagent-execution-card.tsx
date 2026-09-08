@@ -79,9 +79,10 @@ const ROW_ICONS: Record<SubAgentToolRowStatus, ReactElement> = {
 
 /**
  * The delegation's step state: THE shared tool-step machine
- * (`toolStepStateFor` — the same derivation the trace headline, the run-event
- * surface and `ToolFallback` read) plus the one refinement only this card can
- * make. `no-answer` is a reading of the delegation's OWN result shape
+ * (`toolStepStateFor` — the same derivation its four consumers read:
+ * `deriveActivitySteps` for the trace headline and step rows, `ToolFallback`,
+ * `TaskListToolCard`, and this card) plus the one refinement only this card
+ * can make. `no-answer` is a reading of the delegation's OWN result shape
  * (BST-1410: the child ran, made tool calls, and never wrote its summary), so
  * it is applied strictly on TOP of a generic `done` — running, waiting,
  * cancelled and failed keep winning, or a delegation the user stopped would

@@ -56,12 +56,17 @@ type ToolResult = ToolFallbackProps['result'];
  * the card and `Completed` in the headline at the same time. There is no
  * card-only state left to resolve.
  *
- * The narrowing survives here for RENDERING only, and stays subject to the
- * standing rule that the structured surface never appears under non-`done`
- * chrome: the surface renders only when this result is what PRODUCED the
- * card's state — i.e. `runPythonStepState` of it is the state on screen. A
- * still-running or gated call therefore shows no surface however complete its
- * payload looks, and a transport abort keeps its own error line.
+ * The narrowing survives here for RENDERING only, gated by an IDENTITY check:
+ * the structured surface renders exactly when this result is what PRODUCED
+ * the card's state — i.e. `runPythonStepState` of it equals the state on
+ * screen. That is not the same as "never under non-`done` chrome", and
+ * deliberately so: a settled run whose own payload reads `unavailable` DOES
+ * show its surface under failed chrome, and one reading `timed_out`/`killed`
+ * under stopped chrome, because in each case that payload IS the reason for
+ * the state and is the detail the user came for. What the check excludes is a
+ * surface that would explain something else — a still-running
+ * or approval-gated call shows none however complete its payload looks, and a
+ * transport abort keeps its own error line instead of a stale success pane.
  */
 function resolveCardStatus(
   toolName: string,

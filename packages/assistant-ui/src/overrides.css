@@ -1333,6 +1333,30 @@
   -webkit-background-clip: text;
 }
 
+/*
+ * The activity trace's LIVE status label is the one element that carries a
+ * `.bs-trace-label*` entrance class and `.bs-thinking-shimmer` at the same
+ * time, and both rules declare the `animation` SHORTHAND at equal specificity
+ * — so the shimmer, declared later, replaced the entrance outright and the
+ * live label's crossfade never ran once (phase-2 defect, found in the Task 6
+ * review). These compound rules compose the two rather than letting one erase
+ * the other; `animation` takes a comma list, so each keyframe keeps its own
+ * duration, easing, fill and iteration count. Both shorthands are repeated
+ * verbatim from the single-class rules above — a shorthand cannot be merged,
+ * only restated — so a change to either must be mirrored here (pinned by "the
+ * live label composes its entrance with the shimmer" in
+ * activity-trace.browser.test.tsx).
+ */
+.assistant-ui-panel .bs-trace-label.bs-thinking-shimmer {
+  animation:
+    bs-trace-label-enter 250ms cubic-bezier(0.23, 1, 0.32, 1) both,
+    bs-thinking-shimmer 1.45s linear infinite;
+}
+
+.assistant-ui-panel .bs-trace-label-static.bs-thinking-shimmer {
+  animation: bs-thinking-shimmer 1.45s linear infinite;
+}
+
 .assistant-ui-panel .bs-streaming-thinking {
   margin-top: 0.125rem;
   min-height: 1.75rem;
@@ -1342,9 +1366,17 @@
    while reasoning is collapsed), so aria-controls keeps a valid target. */
 
 @media (prefers-reduced-motion: reduce) {
+  /* The two compound selectors are listed explicitly: the trace's live status
+     label matches all three classes at once, and the compound rules above are
+     (0,3,0), so the plain `.bs-thinking-shimmer` entry in this same list —
+     (0,2,0) — cannot reach it however late the block is declared. Drop either
+     and exactly one element keeps shimmering under a reduced-motion
+     preference (pinned in assistant-ui-panel-architecture.test.ts). */
   .assistant-ui-panel .bs-thinking-pulse,
   .assistant-ui-panel .bs-thinking-core,
-  .assistant-ui-panel .bs-thinking-shimmer {
+  .assistant-ui-panel .bs-thinking-shimmer,
+  .assistant-ui-panel .bs-trace-label.bs-thinking-shimmer,
+  .assistant-ui-panel .bs-trace-label-static.bs-thinking-shimmer {
     animation: none;
   }
 

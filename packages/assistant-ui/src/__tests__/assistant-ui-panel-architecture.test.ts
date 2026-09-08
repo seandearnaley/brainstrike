@@ -489,12 +489,23 @@ describe('assistant UI panel architecture', () => {
     // spinner went away when the row took over the liveness. So this block is
     // the only thing that honours a reduced-motion preference for a running
     // step, and nothing else asserts it exists.
+    //
+    // The two COMPOUND selectors are part of the same assertion since the
+    // Task 6 fix wave: the trace's live status label carries an entrance
+    // class and `.bs-thinking-shimmer` at once, and the compound rules that
+    // compose those two animations outrank the one-class reset — so dropping
+    // them from this list would leave exactly one element shimmering under a
+    // reduced-motion preference.
     const cssSource = readSource('overrides.css');
     expect(cssSource).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{[^}]*\.assistant-ui-panel \.bs-thinking-shimmer \{\s*animation: none;/
+      /@media \(prefers-reduced-motion: reduce\) \{[^}]*\.assistant-ui-panel \.bs-thinking-shimmer,\s*\.assistant-ui-panel \.bs-trace-label\.bs-thinking-shimmer,\s*\.assistant-ui-panel \.bs-trace-label-static\.bs-thinking-shimmer \{\s*animation: none;/
     );
-    // Not vacuous: the row really does put that class on a running verb.
+    // Not vacuous: the row really does put that class on a running verb, and
+    // the trace really does put both classes on the live label at once.
     expect(readSource('activity-step-row.tsx')).toContain("'bs-thinking-shimmer'");
+    expect(readSource('activity-trace.tsx')).toContain(
+      'bs-activity-live-label bs-thinking-shimmer '
+    );
   });
 
   it('keeps the "static thinking mark" CSS hook confined to assistant-thinking-indicator.tsx', () => {

@@ -192,11 +192,11 @@ test('a long resting headline truncates instead of pushing the step count out of
  * paint is not a change of wording, though: the whole trace appears at once,
  * and animating the label there made the row arrive twice over.
  *
- * Measured on the RESTING headline, not the live label: the live label also
- * carries `.bs-thinking-shimmer`, whose `animation` shorthand is declared
- * later in overrides.css at equal specificity and therefore replaces the
- * entrance outright — `.bs-trace-label` contributes only its box there. The
- * headline is the label where this animation is actually observable.
+ * Measured on the RESTING headline, where the entrance is the label's whole
+ * animation and `animationName` is therefore exactly `none` or exactly
+ * `bs-trace-label-enter`. The live label composes the same entrance with the
+ * shimmer (see the compound-rule test at the bottom of this file), so its
+ * `animationName` is a two-entry list and reads by containment instead.
  */
 test('the status headline enters only when its wording changes, never on the first paint', () => {
   const row = (headline: string) => (
@@ -258,4 +258,73 @@ test('a re-render that leaves the wording alone never re-triggers the entrance',
   expect(getComputedStyle(mustFind(container, '.bs-activity-summary-label')).animationName).toBe(
     'none'
   );
+});
+
+/*
+ * The entrance flag is STICKY once the wording has changed, and that is a
+ * deliberate property of `useLabelEnterClass` rather than an accident of it:
+ * this component re-renders constantly while a group is live, and toggling
+ * the class back to the static form on the first of those would strip the
+ * animation off a label still mid-flight. So a repaint that leaves the
+ * wording alone keeps both the class and its resolved animation exactly where
+ * the change left them.
+ */
+test('the entrance class is sticky: after a wording change, an unchanged rerender keeps bs-trace-label and its animation', () => {
+  const row = (headline: string) => (
+    <div className="assistant-ui-panel">
+      <ActivityTrace
+        detail={null}
+        fallbackMs={1000}
+        incompleteReason={undefined}
+        isActive={false}
+        restingOverride={headline}
+        summary={done}
+      />
+    </div>
+  );
+  const { container, rerender } = render(row('Read 2 files'));
+  rerender(row('Edited 1 file'));
+  const changed = mustFind(container, '.bs-activity-summary-label');
+  expect(changed).toHaveClass('bs-trace-label');
+  const changedAnimation = getComputedStyle(changed).animationName;
+
+  rerender(row('Edited 1 file'));
+  const repainted = mustFind(container, '.bs-activity-summary-label');
+  expect(repainted).toHaveClass('bs-trace-label');
+  expect(getComputedStyle(repainted).animationName).toBe(changedAnimation);
+});
+
+/*
+ * The LIVE label is the one element that carries the entrance class and
+ * `.bs-thinking-shimmer` at the same time, and BOTH rules declare the
+ * `animation` SHORTHAND at equal specificity — so the shimmer, declared later
+ * in overrides.css, replaced the entrance outright and the live label's
+ * crossfade never ran once (phase-2 defect, found in the Task 6 review). The
+ * compound rules compose the two instead of letting one erase the other:
+ * static + shimmer resolves to the shimmer alone, entrance + shimmer to both.
+ * Measured as the resolved `animation-name` LIST, since that list is exactly
+ * where the collision was.
+ */
+test('the live label composes its entrance with the shimmer: shimmer alone on first paint, both once the wording changes', () => {
+  const row = (liveLabel: string) => (
+    <div className="assistant-ui-panel">
+      <ActivityTrace
+        detail={null}
+        fallbackMs={1000}
+        incompleteReason={undefined}
+        isActive
+        restingOverride={null}
+        summary={{ ...live, live: liveLabel }}
+      />
+    </div>
+  );
+  const { container, rerender } = render(row('Reading app.ts'));
+  const first = getComputedStyle(mustFind(container, '.bs-activity-live-label')).animationName;
+  expect(first).toContain('bs-thinking-shimmer');
+  expect(first).not.toContain('bs-trace-label-enter');
+
+  rerender(row('Editing app.ts'));
+  const changed = getComputedStyle(mustFind(container, '.bs-activity-live-label')).animationName;
+  expect(changed).toContain('bs-thinking-shimmer');
+  expect(changed).toContain('bs-trace-label-enter');
 });

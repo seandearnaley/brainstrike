@@ -133,7 +133,12 @@ export function runPythonStepState(result: RunPythonDisplayResult): ActivityStep
  * step in the trace headline at the same time (Task 4 review, Minor 1).
  * Neither may ever weaken a non-`done` generic verdict — see the call site.
  */
-function settledResultOverride(toolName: string | undefined, result: unknown): ActivityStepState {
+function settledResultOverride(input: {
+  readonly result: unknown;
+  /** Enables the tool's own settled reading (today: `run_python`). */
+  readonly toolName: string | undefined;
+}): ActivityStepState {
+  const { result, toolName } = input;
   // BST-1282: a call the user DECLINED at its approval gate settles with the
   // shared `DeclinedToolCallResult` envelope and no error flag. Left alone it
   // would earn a green Completed for a tool that never ran, so it takes the
@@ -204,7 +209,7 @@ export function toolStepStateFor(input: {
   if (status === undefined && input.result === undefined) {
     return 'running';
   }
-  return settledResultOverride(input.toolName, input.result);
+  return settledResultOverride({ result: input.result, toolName: input.toolName });
 }
 
 /** The part-record entry point into {@link toolStepStateFor}. */
