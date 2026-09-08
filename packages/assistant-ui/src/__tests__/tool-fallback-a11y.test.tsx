@@ -82,8 +82,13 @@ describe('ToolFallback Accessibility', () => {
     // BST-1685: an absent attribute alone would also be true if the row just
     // stopped NAMING an existing pane, which is not what "no dangling
     // aria-controls" claims. Prove the pane `controlsId` referred to is
-    // genuinely gone from the DOM, not merely unreferenced.
-    expect(container.querySelector(`#${CSS.escape(controlsId)}`)).not.toBeInTheDocument();
+    // genuinely gone from the DOM, not merely unreferenced. Queried against
+    // `document`, not `container` (BST-1685 review round 2, Claude Minor 4):
+    // `container.querySelector` only searches the render container, so a
+    // portaled pane sitting outside it would leave a live element while this
+    // assertion passed vacuously — exactly the failure mode the comment
+    // above guards against.
+    expect(document.getElementById(controlsId)).not.toBeInTheDocument();
 
     // The id is stable, not regenerated per expansion: a re-expanded row
     // names the same pane it named the first time.

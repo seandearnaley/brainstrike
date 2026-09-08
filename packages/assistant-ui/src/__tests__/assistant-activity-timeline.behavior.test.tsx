@@ -66,26 +66,39 @@ async function renderRunningGroup(parts: readonly ThreadAssistantMessagePart[]):
       await finish.promise;
     },
   };
-  const user = userEvent.setup();
-  render(<Harness adapter={adapter} />);
-  await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
-  await user.click(screen.getByRole('button', { name: 'Send' }));
-  await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
-  const group = screen.getByTestId('assistant-activity-group');
-  const rows = [
-    ...group.querySelectorAll(
-      '[data-testid="local-chain-of-thought"], [data-testid="activity-step-row"]'
-    ),
-  ];
-  const verbs = rows.map((row) => row.querySelector('.bs-step-row-verb'));
-  return {
-    release: () =>
-      act(async () => {
-        finish.release();
-      }),
-    rows,
-    verbs,
-  };
+  // BST-1685 review round 2, Claude Minor 3: `deferred()` moved into this
+  // helper, so a throw anywhere below it (most plausibly `findByRole`
+  // timing out when the rendering regresses) must still release the
+  // adapter generator before propagating — otherwise the caller's own
+  // `try/finally` never starts, and the pending run leaks past this test
+  // (act/unmount noise on top of the real assertion failure). Restores the
+  // `try/finally` guarantee `deferred()` used to get for free by living
+  // inside the test itself.
+  try {
+    const user = userEvent.setup();
+    render(<Harness adapter={adapter} />);
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
+    const group = screen.getByTestId('assistant-activity-group');
+    const rows = [
+      ...group.querySelectorAll(
+        '[data-testid="local-chain-of-thought"], [data-testid="activity-step-row"]'
+      ),
+    ];
+    const verbs = rows.map((row) => row.querySelector('.bs-step-row-verb'));
+    return {
+      release: () =>
+        act(async () => {
+          finish.release();
+        }),
+      rows,
+      verbs,
+    };
+  } catch (error) {
+    finish.release();
+    throw error;
+  }
 }
 
 function expectChronologicalGroups() {
@@ -437,28 +450,28 @@ describe('assistant activity chronology through the real runtime', () => {
   // label, which is not what the last-running rule is about.
   it('renders one step row per card in part order, shimmering only the last running step', async () => {
     const { release, rows, verbs } = await renderRunningGroup([
-      { text: 'Looking.', type: 'reasoning' as const },
+      { text: 'Looking.', type: 'reasoning' },
       {
         args: { path: 'a.ts' },
         argsText: '{"path":"a.ts"}',
         result: { ok: true },
         toolCallId: 'read-a',
         toolName: 'brainstrike.readWorkspaceFile',
-        type: 'tool-call' as const,
+        type: 'tool-call',
       },
       {
         args: { path: 'b.ts' },
         argsText: '{"path":"b.ts"}',
         toolCallId: 'read-b',
         toolName: 'brainstrike.readWorkspaceFile',
-        type: 'tool-call' as const,
+        type: 'tool-call',
       },
       {
         args: { pattern: 'flag' },
         argsText: '{"pattern":"flag"}',
         toolCallId: 'grep-c',
         toolName: 'brainstrike.grepSearch',
-        type: 'tool-call' as const,
+        type: 'tool-call',
       },
     ]);
     try {
@@ -493,20 +506,20 @@ describe('assistant activity chronology through the real runtime', () => {
   // running step" and "shimmer whatever is running" disagree.
   it("shimmers a running delegation row when it is the group's last running step", async () => {
     const { release, verbs } = await renderRunningGroup([
-      { text: 'Looking.', type: 'reasoning' as const },
+      { text: 'Looking.', type: 'reasoning' },
       {
         args: { path: 'b.ts' },
         argsText: '{"path":"b.ts"}',
         toolCallId: 'read-b',
         toolName: 'brainstrike.readWorkspaceFile',
-        type: 'tool-call' as const,
+        type: 'tool-call',
       },
       {
         args: { prompt: 'find the flag' },
         argsText: '{"prompt":"find the flag"}',
         toolCallId: 'delegate-d',
         toolName: 'agent-explore',
-        type: 'tool-call' as const,
+        type: 'tool-call',
       },
     ]);
     try {
@@ -527,20 +540,20 @@ describe('assistant activity chronology through the real runtime', () => {
 
   it("shimmers a running task-list row when it is the group's last running step", async () => {
     const { release, verbs } = await renderRunningGroup([
-      { text: 'Looking.', type: 'reasoning' as const },
+      { text: 'Looking.', type: 'reasoning' },
       {
         args: { path: 'b.ts' },
         argsText: '{"path":"b.ts"}',
         toolCallId: 'read-b',
         toolName: 'brainstrike.readWorkspaceFile',
-        type: 'tool-call' as const,
+        type: 'tool-call',
       },
       {
         args: { merge: true },
         argsText: '{"merge":true}',
         toolCallId: 'tasks-t',
         toolName: 'brainstrike.manageTaskList',
-        type: 'tool-call' as const,
+        type: 'tool-call',
       },
     ]);
     try {
