@@ -211,9 +211,15 @@ export function ActivityTrace({
   const bodyId = useId();
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
   const expanded = userExpanded ?? false;
-  const elapsedMs = useElapsedMs(isActive, fallbackMs);
-  const elapsedLabel = elapsedMs === undefined ? null : formatActivityDuration(elapsedMs);
   const phase = phaseOf(isActive, incompleteReason);
+  // The same "is this the one live pause" test the sr-announcement already
+  // makes (`announcementFor`) — reused here so the elapsed clock pauses for
+  // the exact duration the header reads "Waiting for approval": the user's
+  // own deliberation time must never inflate "Worked for Ns", and an
+  // abandoned in-session pause must not tick forever (BST-1679 task 6).
+  const waiting = phase === 'running' && summary.live === 'Waiting for approval';
+  const elapsedMs = useElapsedMs(isActive && !waiting, fallbackMs);
+  const elapsedLabel = elapsedMs === undefined ? null : formatActivityDuration(elapsedMs);
   const failed = phase === 'failed';
   const announcement = announcementFor(phase, summary.live);
   const restingHeadline = restingOverride ?? summary.resting;

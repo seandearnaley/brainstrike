@@ -251,5 +251,75 @@ describe('ActivityTrace', () => {
         vi.useRealTimers();
       }
     });
+
+    // BST-1679 task 6: `requires-action` (approval gate / tool-suspend pause)
+    // keeps the group's own `isActive` true, so without this the elapsed
+    // clock would keep ticking through the user's deliberation — inflating
+    // the eventual "Worked for Ns" and, for an abandoned pause, ticking
+    // forever. The header stays active (`summary.live` drives the badge
+    // question, not `isActive`) so the elapsed badge freezes rather than
+    // disappearing — chosen over hiding it so the header's height never
+    // shifts across the running → waiting → running cycle.
+    it('freezes the elapsed badge while summary.live reads Waiting for approval', () => {
+      vi.useFakeTimers();
+      try {
+        const reading: ActivitySummary = {
+          counts: { failed: 0, steps: 1 },
+          live: 'Reading a.ts',
+          resting: 'Read a.ts',
+        };
+        const waitingForApproval: ActivitySummary = {
+          counts: { failed: 0, steps: 1 },
+          live: 'Waiting for approval',
+          resting: 'Read a.ts',
+        };
+        const { rerender } = render(
+          <ActivityTrace
+            detail={null}
+            fallbackMs={undefined}
+            incompleteReason={undefined}
+            isActive
+            restingOverride={null}
+            summary={reading}
+          />
+        );
+        act(() => {
+          vi.advanceTimersByTime(1000);
+        });
+        expect(screen.getByText('1.0s')).toBeInTheDocument();
+
+        rerender(
+          <ActivityTrace
+            detail={null}
+            fallbackMs={undefined}
+            incompleteReason={undefined}
+            isActive
+            restingOverride={null}
+            summary={waitingForApproval}
+          />
+        );
+        act(() => {
+          vi.advanceTimersByTime(5000);
+        });
+        expect(screen.getByText('1.0s')).toBeInTheDocument();
+
+        rerender(
+          <ActivityTrace
+            detail={null}
+            fallbackMs={undefined}
+            incompleteReason={undefined}
+            isActive
+            restingOverride={null}
+            summary={reading}
+          />
+        );
+        act(() => {
+          vi.advanceTimersByTime(500);
+        });
+        expect(screen.getByText('1.5s')).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

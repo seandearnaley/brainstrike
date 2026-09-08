@@ -1366,6 +1366,21 @@ live label follows a fixed precedence in `summarizeActivity`'s `liveLabel`
 running tool step) > `Thinking` (a running reasoning step, no tool running
 yet) > `Working` (no step running yet). The detail line under it names only
 the current running tool's target; it carries no label of its own.
+`toolStepState` (`activity-trace-model.ts`) maps ANY `requires-action` status
+— an approval gate's `interrupt`/`tool-calls` reason and a tool-suspend pause
+alike — to the `waiting` step state, so `summarizeActivity` reads both as
+`Waiting for approval`: this copy was already this broad, it only became
+observable once `isActivityActive` kept the group live through the pause
+(BST-1679 task 6, per the ruling above).
+
+The elapsed clock (`useElapsedMs`, gated by `isActive && !waiting` where
+`waiting` is the same `phase === 'running' && summary.live === 'Waiting for
+approval'` test the sr-announcement makes) pauses for the exact duration the
+header reads `Waiting for approval`: the user's own deliberation time never
+inflates the eventual `Worked for Ns`, and an abandoned in-session pause does
+not tick forever. The elapsed badge itself stays visible but frozen — not
+hidden — across the wait, so the header's height never shifts across the
+running → waiting → running cycle (BST-1679 task 6).
 
 At rest the headline is the verb summary from `restingLabel`: unique
 DONE-verb phrases in first-occurrence order, capped at three (`+N more` for

@@ -116,40 +116,6 @@ describe('AssistantActivityParts (hydrated messages)', () => {
     const group = screen.getByTestId('assistant-activity-group');
     expect(group.contains(text)).toBe(false);
   });
-
-  // BST-1679 task 6: a call paused at its approval gate carries
-  // `requires-action` on the message (and therefore on its own resultless
-  // tool-call part — see `toMessagePartStatus`), never `running` — this is a
-  // genuine LIVE pause, not something reload/hydration produces (that case
-  // settles to `complete`; see assistant-hydration-liveness.test.tsx's
-  // "abandoned approval" case). `Harness`'s `initialMessages` seeds exactly
-  // this in-session shape without needing a live deferred adapter.
-  it('reads Waiting for approval while a call is paused at its gate', async () => {
-    render(
-      <Harness
-        adapter={neverRun}
-        initialMessages={[
-          {
-            content: [
-              tool('x', {
-                args: { command: 'rm x' },
-                argsText: '{"command":"rm x"}',
-                result: undefined,
-                toolName: 'brainstrike.executeCommand',
-              }),
-            ],
-            role: 'assistant',
-            status: { reason: 'interrupt', type: 'requires-action' },
-          },
-        ]}
-      />
-    );
-    const group = await screen.findByTestId('assistant-activity-group');
-    expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
-      'Waiting for approval'
-    );
-    expect(group).toHaveAttribute('data-state', 'running');
-  });
 });
 
 describe('AssistantActivityParts (running reasoning, real runtime)', () => {
@@ -505,6 +471,54 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       });
     }
   }, 20_000);
+
+  // BST-1679 task 6: a call paused at its approval gate carries
+  // `requires-action` on the message (and therefore on its own resultless
+  // tool-call part — see `toMessagePartStatus`), never `running` — this is a
+  // genuine LIVE in-session pause, not something reload/hydration produces
+  // (that case settles to `complete`; see assistant-hydration-liveness.test.tsx's
+  // "abandoned approval" case), so this case belongs with the other live
+  // states rather than the hydrated-messages describe above.
+  // `initialMessages` seeds `reason: 'interrupt'`, but `Harness`'s
+  // `useLocalRuntime` imports it through `@assistant-ui/core`'s
+  // `withLocalPauseReason` (`local-thread-runtime-core.ts`), which rewrites
+  // any `requires-action`/`interrupt` message whose tool call carries no
+  // `.interrupt`/`.approval` payload — nothing left to resume via
+  // `resumeInterrupt` — to `reason: 'tool-calls'` (`type` stays
+  // `requires-action`), since this fixture's `tool()` sets neither field. So
+  // what this case actually exercises is the broad `requires-action` TYPE
+  // path, not the `interrupt` reason specifically. `Harness`'s
+  // `initialMessages` still seeds the in-session shape without needing a
+  // live deferred adapter.
+  it('reads Waiting for approval while a call is paused at its gate', async () => {
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: [
+              tool('x', {
+                args: { command: 'rm x' },
+                argsText: '{"command":"rm x"}',
+                result: undefined,
+                toolName: 'brainstrike.executeCommand',
+              }),
+            ],
+            role: 'assistant',
+            status: { reason: 'interrupt', type: 'requires-action' },
+          },
+        ]}
+      />
+    );
+    const group = await screen.findByTestId('assistant-activity-group');
+    expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
+      'Waiting for approval'
+    );
+    expect(group).toHaveAttribute('data-state', 'running');
+    const liveElements = document.querySelectorAll('[data-live="true"]');
+    expect(liveElements).toHaveLength(1);
+    expect(liveElements[0]).toHaveAttribute('data-testid', 'assistant-activity-working-mark');
+  });
 });
 
 function indicatorsOutsideGroups(): Element[] {
