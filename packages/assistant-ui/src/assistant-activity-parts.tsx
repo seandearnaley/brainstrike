@@ -2,6 +2,7 @@ import {
   type EnrichedPartState,
   type MessagePartStatus,
   MessagePrimitive,
+  type PartState,
   type ToolCallMessagePartProps,
   type ToolCallMessagePartStatus,
   useAuiState,
@@ -57,6 +58,24 @@ function reasoningToggleLabel(open: boolean): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+/** True while the given part's own `status.type` reads `'running'`. */
+function isPartRunning(part: PartState): boolean {
+  return part.status.type === 'running';
+}
+
+/**
+ * A part's own status (`part.status?.type`, `part.status?.reason` — the same
+ * fields the file already reads elsewhere for `reasoningActive`). A part with
+ * no `status` (i.e. `undefined`, from `Array#at` on a possibly-empty list)
+ * counts as `complete` — matching the library's own `normalizePartStatus`
+ * fallback.
+ */
+function activityPartStatus(
+  part: PartState | undefined
+): MessagePartStatus | ToolCallMessagePartStatus {
+  return part?.status ?? { type: 'complete' };
 }
 
 function ActivityPartLayout({ children }: { children?: ReactNode }): ReactNode {
@@ -182,11 +201,6 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
   const isMessageRunning = useAuiState(
     (state) => state.message.role === 'assistant' && state.message.status.type === 'running'
   );
-  const messageIncompleteReason = useAuiState((state) =>
-    state.message.role === 'assistant' && state.message.status.type === 'incomplete'
-      ? state.message.status.reason
-      : undefined
-  );
   const groupParts = useMemo(
     () => indices.map((index) => messageParts[index]).filter((part) => part !== undefined),
     [indices, messageParts]
@@ -202,22 +216,25 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
   const isActivityActive =
     status.type === 'running' ||
     (isMessageRunning && isTrailingGroup && status.type !== 'incomplete');
-  const groupIncompleteReason = toIncompleteReason(status);
-  // Finding 1 (PR #3061 review): `getGroupStatus` mirrors the group's LAST
-  // member part, so a group whose own last member is a transparent data part
-  // (e.g. a `tool.completed` run-event that is not the message's last PART —
-  // a trailing `run.cancelled`/`run.failed` standalone row can follow it)
-  // reads "complete" even when the owning message is incomplete
-  // (cancelled/errored). Only the group holding the message's LAST activity
-  // part can be masked this way; inherit the message's own incomplete reason
-  // there, but only when the group's own status did not already resolve one.
-  const lastActivityIndex = messageParts.reduce(
-    (last, part, index) => (isActivityPart(part) ? index : last),
-    -1
-  );
-  const isTrailingActivityGroup = indices.includes(lastActivityIndex);
-  const incompleteReason =
-    groupIncompleteReason ?? (isTrailingActivityGroup ? messageIncompleteReason : undefined);
+  // Finding 1 (PR #3061 review), narrowed in the fix round: `getGroupStatus`
+  // mirrors the group's LAST member part, so a group whose own last member is
+  // a transparent data part (e.g. a `tool.completed` run-event that is not
+  // the message's last PART — a trailing `run.cancelled`/`run.failed`
+  // standalone row can follow it) can read "complete" even though an earlier,
+  // resultless tool call or still-streaming reasoning part in the SAME group
+  // carries the message's own `incomplete` status. Status of the group as its
+  // activity parts see it: running if any activity part runs, else the LAST
+  // activity part's status (a trailing transparent data part can no longer
+  // mask an interrupted tool call or reasoning part) — never derived from a
+  // data member. Symmetrically, a group whose activity parts ALL resolved
+  // reads "Worked" even on a cancelled/errored message: the standalone
+  // `run.*` row carries the run outcome, this card reports what the activity
+  // itself did.
+  const activityParts = groupParts.filter(isActivityPart);
+  const activityStatus = activityParts.some(isPartRunning)
+    ? ({ type: 'running' } as const)
+    : activityPartStatus(activityParts.at(-1));
+  const incompleteReason = toIncompleteReason(activityStatus);
   // Drives the header's live "Thinking" / "Working" cycler (BST-1677 wave 3):
   // true while a reasoning part in THIS group is still streaming, regardless
   // of whether a tool has also started — `ActivityWorkingLabel` only shows

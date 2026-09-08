@@ -353,7 +353,9 @@ describe('hydrated threads render no live indicator unless something is genuinel
     );
 
     await screen.findByText('Tool approval required');
-    const [messageA, , messageB] = screen.getAllByTestId('timeline');
+    const timelines = screen.getAllByTestId('timeline');
+    expect(timelines).toHaveLength(3);
+    const [messageA, , messageB] = timelines;
     if (!(messageA && messageB)) {
       throw new Error('Expected three hydrated messages.');
     }

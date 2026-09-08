@@ -59,10 +59,11 @@ interface AssistantActivityGroupProps {
   /**
    * True while a reasoning part in this group is currently streaming and no
    * tool has started yet — drives the header's "Thinking" cycler text while
-   * running. Defaults to false for callers with no reasoning of their own to
-   * report (e.g. the isolated unit/browser tests below).
+   * running. Required (not defaulted) so a caller can never silently lose the
+   * cycler: a caller with no reasoning of its own to report passes `false`
+   * explicitly (e.g. the isolated unit/browser tests below).
    */
-  reasoningActive?: boolean;
+  readonly reasoningActive: boolean;
   summary: ToolActivitySummary;
 }
 
@@ -165,7 +166,7 @@ export function AssistantActivityGroup({
   fallbackMs,
   isActive,
   incompleteReason,
-  reasoningActive = false,
+  reasoningActive,
   summary,
 }: AssistantActivityGroupProps) {
   const bodyId = useId();

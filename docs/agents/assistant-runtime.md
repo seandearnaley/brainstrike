@@ -1314,10 +1314,17 @@ count. Incomplete group status is authoritative (cancelled → Stopped; other
 reasons → Activity failed); a completed call with the canonical `isError`
 flag is counted once into the header's `· N failed` suffix — it never turns
 the group itself failed, only the group's own incomplete status does. The
-trailing group of an incomplete message inherits the message's own incomplete
-reason when its own last member is a transparent data part (PR #3061 review
-finding 1: `getGroupStatus` mirrors the group's own last member, which can
-read "complete" even though the message stopped mid-run). Tool
+group's `Stopped`/`Activity failed` headline is derived from its ACTIVITY
+parts (running if any runs, else the last reasoning/tool-call part's status),
+never from a transparent data member, so a trailing `tool.completed`/
+`tool.started` cannot mask an interrupted call (PR #3061 review finding 1:
+`getGroupStatus` mirrors the group's own last member — including transparent
+data parts — which can read "complete" even though an earlier, resultless
+call in the same group is `incomplete`) — and a group whose activity all
+resolved reads `Worked` even on a cancelled/errored message (the standalone
+`run.*` row carries the run outcome; this narrowed an earlier, over-wide fix
+that inherited the message's incomplete reason onto the whole trailing group,
+including one whose own activity had already resolved). Tool
 durations and shell output correlate by call id across the message; each
 group's elapsed fallback uses only its own tool events. The turn-wide task
 list renders once, in the group holding the

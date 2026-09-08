@@ -496,7 +496,11 @@ describe('assistant UI panel architecture', () => {
   it('registers data renderers only via useAssistantDataUI, never a `Data:` key in a components map', () => {
     const panelSource = readSource('assistant-ui-panel.tsx');
     expect(panelSource).toContain('useAssistantDataUI(assistantRunTimelineDataUI)');
-    expect(panelSource).not.toMatch(/['"`]Data:['"`]/);
+    // Unquoted, not quoted, is the real regression shape — `components={{
+    // Data: X }}`, exactly like the existing `Text: AssistantMessageText`
+    // entry — so the guard must match a bare `Data:` object key, not just a
+    // quoted string key (the previous `/['"`]Data:['"`]/` could never fail).
+    expect(panelSource).not.toMatch(/(^|[{,\s])Data:/m);
 
     const partsSource = readSource('assistant-activity-parts.tsx');
     expect(partsSource).toContain("case 'data':");

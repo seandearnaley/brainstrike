@@ -354,7 +354,7 @@ describe('AssistantActivityGroup (real browser)', () => {
     const user = userEvent.setup();
     render(
       <div className="assistant-ui-panel">
-        <AssistantActivityGroup isActive summary={activeSummary}>
+        <AssistantActivityGroup isActive reasoningActive={false} summary={activeSummary}>
           <div data-testid="tool-rows">tool rows</div>
         </AssistantActivityGroup>
       </div>
@@ -382,7 +382,12 @@ describe('AssistantActivityGroup (real browser)', () => {
     const user = userEvent.setup();
     render(
       <div className="assistant-ui-panel">
-        <AssistantActivityGroup fallbackMs={12_000} isActive={false} summary={doneSummary}>
+        <AssistantActivityGroup
+          fallbackMs={12_000}
+          isActive={false}
+          reasoningActive={false}
+          summary={doneSummary}
+        >
           <div data-testid="tool-rows">tool rows</div>
         </AssistantActivityGroup>
       </div>
@@ -411,7 +416,11 @@ describe('AssistantActivityGroup (real browser)', () => {
             rather than hardcoding an expected color string. */}
         <style>{'.text-destructive { color: hsl(var(--destructive)); }'}</style>
         <span className="text-destructive" data-testid="destructive-token-probe" />
-        <AssistantActivityGroup isActive={false} summary={{ ...doneSummary, failedCount: 2 }} />
+        <AssistantActivityGroup
+          isActive={false}
+          reasoningActive={false}
+          summary={{ ...doneSummary, failedCount: 2 }}
+        />
       </div>
     );
     const group = screen.getByTestId('assistant-activity-group');

@@ -135,7 +135,7 @@ describe('AssistantActivityGroup', () => {
 
   it('shows the live working heartbeat with the active tool while active', () => {
     render(
-      <AssistantActivityGroup isActive summary={activeSummary}>
+      <AssistantActivityGroup isActive reasoningActive={false} summary={activeSummary}>
         <div data-testid="child" />
       </AssistantActivityGroup>
     );
@@ -169,7 +169,7 @@ describe('AssistantActivityGroup', () => {
   });
 
   it('ticks elapsed time while active', () => {
-    render(<AssistantActivityGroup isActive summary={activeSummary} />);
+    render(<AssistantActivityGroup isActive reasoningActive={false} summary={activeSummary} />);
 
     act(() => {
       vi.advanceTimersByTime(3400);
@@ -181,7 +181,14 @@ describe('AssistantActivityGroup', () => {
   it('seeds the live timer from the elapsed fallback (no flash back to 0)', () => {
     // The group mounts 2s into the turn — the clock must continue from ~2.0s,
     // not reset to 0 (which flashed 1.8s → 0.2s).
-    render(<AssistantActivityGroup fallbackMs={2000} isActive summary={activeSummary} />);
+    render(
+      <AssistantActivityGroup
+        fallbackMs={2000}
+        isActive
+        reasoningActive={false}
+        summary={activeSummary}
+      />
+    );
     expect(screen.getByText('2.0s')).toBeInTheDocument();
 
     act(() => {
@@ -191,19 +198,42 @@ describe('AssistantActivityGroup', () => {
   });
 
   it('retains reasoning time when the same group resumes after a completed tool', () => {
-    const { rerender } = render(<AssistantActivityGroup isActive summary={activeSummary} />);
+    const { rerender } = render(
+      <AssistantActivityGroup isActive reasoningActive={false} summary={activeSummary} />
+    );
     act(() => vi.advanceTimersByTime(3400));
-    rerender(<AssistantActivityGroup fallbackMs={1000} isActive={false} summary={doneSummary} />);
+    rerender(
+      <AssistantActivityGroup
+        fallbackMs={1000}
+        isActive={false}
+        reasoningActive={false}
+        summary={doneSummary}
+      />
+    );
     expect(screen.getByText('for 3.4s')).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(500));
-    rerender(<AssistantActivityGroup fallbackMs={1000} isActive summary={activeSummary} />);
+    rerender(
+      <AssistantActivityGroup
+        fallbackMs={1000}
+        isActive
+        reasoningActive={false}
+        summary={activeSummary}
+      />
+    );
     expect(screen.getByText('3.4s')).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(1000));
     expect(screen.getByText('4.4s')).toBeInTheDocument();
   });
 
   it('renders the done summary with elapsed fallback and step count', () => {
-    render(<AssistantActivityGroup fallbackMs={12_000} isActive={false} summary={doneSummary} />);
+    render(
+      <AssistantActivityGroup
+        fallbackMs={12_000}
+        isActive={false}
+        reasoningActive={false}
+        summary={doneSummary}
+      />
+    );
 
     expect(screen.getByText('Worked')).toBeInTheDocument();
     expect(screen.getByText(/for 12\.0s/)).toBeInTheDocument();
@@ -221,6 +251,7 @@ describe('AssistantActivityGroup', () => {
       <AssistantActivityGroup
         fallbackMs={12_000}
         isActive={false}
+        reasoningActive={false}
         summary={{ ...doneSummary, failedCount: 1 }}
       />
     );
@@ -238,7 +269,11 @@ describe('AssistantActivityGroup', () => {
 
   it('pluralizes the failed-step count', () => {
     render(
-      <AssistantActivityGroup isActive={false} summary={{ ...doneSummary, failedCount: 2 }} />
+      <AssistantActivityGroup
+        isActive={false}
+        reasoningActive={false}
+        summary={{ ...doneSummary, failedCount: 2 }}
+      />
     );
 
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'false');
@@ -247,7 +282,12 @@ describe('AssistantActivityGroup', () => {
 
   it('still marks the group failed for its own incomplete status', () => {
     render(
-      <AssistantActivityGroup incompleteReason="error" isActive={false} summary={doneSummary} />
+      <AssistantActivityGroup
+        incompleteReason="error"
+        isActive={false}
+        reasoningActive={false}
+        summary={doneSummary}
+      />
     );
 
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'true');
@@ -255,7 +295,9 @@ describe('AssistantActivityGroup', () => {
   });
 
   it('lets the user expand a collapsed (done) panel', () => {
-    render(<AssistantActivityGroup isActive={false} summary={doneSummary} />);
+    render(
+      <AssistantActivityGroup isActive={false} reasoningActive={false} summary={doneSummary} />
+    );
 
     const body = screen.getByTestId('assistant-activity-body');
     expect(body).toHaveAttribute('hidden');
@@ -266,14 +308,19 @@ describe('AssistantActivityGroup', () => {
 
   it('publishes data-state and marks only the live heartbeat as data-live', () => {
     const { container, rerender } = render(
-      <AssistantActivityGroup isActive summary={activeSummary}>
+      <AssistantActivityGroup isActive reasoningActive={false} summary={activeSummary}>
         <div />
       </AssistantActivityGroup>
     );
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-state', 'running');
     expect(container.querySelectorAll('[data-live="true"]').length).toBeGreaterThan(0);
     rerender(
-      <AssistantActivityGroup fallbackMs={1000} isActive={false} summary={doneSummary}>
+      <AssistantActivityGroup
+        fallbackMs={1000}
+        isActive={false}
+        reasoningActive={false}
+        summary={doneSummary}
+      >
         <div />
       </AssistantActivityGroup>
     );

@@ -293,22 +293,43 @@ describe('assistant activity chronology through the real runtime', () => {
 });
 
 /**
- * PR #3061 review, Finding 1: `getGroupStatus` mirrors the group's own LAST
- * member part, so a group whose last member is a transparent
- * `tool.completed` run-event (not the message's last PART — a trailing
- * always-visible `run.cancelled`/`run.failed` standalone row follows it)
- * reads "complete" even when the message itself is incomplete. Only the
- * group holding the message's LAST activity part is masked this way; it must
- * inherit the message's own incomplete reason.
+ * PR #3061 review, Finding 1 (narrowed, fix round): `getGroupStatus` mirrors
+ * the group's own LAST member part, so a group whose last member is a
+ * transparent `tool.completed` run-event (not the message's last PART — a
+ * trailing always-visible `run.cancelled`/`run.failed` standalone row follows
+ * it) reads "complete" even when a RESULTLESS tool call earlier in the same
+ * group carries the message's own `incomplete` status. The fix derives the
+ * group's headline from its ACTIVITY parts (reasoning/tool-call) only, never
+ * from a transparent data member — and, symmetrically, a group whose activity
+ * parts ALL resolved (the tool call has a result) reads "Worked" even on a
+ * cancelled/errored message: the standalone `run.*` row carries the run
+ * outcome, the activity card reports what the activity itself did.
  */
-describe('trailing-group incomplete-reason inheritance (BST-1677 wave 3, PR #3061 finding 1)', () => {
+describe('activity-part-derived group status (BST-1677 wave 3 fix round, PR #3061 finding 1)', () => {
   const neverRun = {
     async run() {
       throw new Error('Hydration must not invoke a model.');
     },
   };
 
-  function trailingGroupContent(toolCallId: string) {
+  /**
+   * The genuine masking shape: `tool.completed` is a GROUP-transparent data
+   * part, but it is followed by an always-visible standalone row
+   * (`run.cancelled`/`run.failed`, per `isAlwaysVisibleRunEvent`) that stays
+   * OUTSIDE the group. That trailing standalone row means `tool.completed` is
+   * no longer the message's own last PART, so the library's own
+   * `toMessagePartStatus` no longer falls through to the message status for
+   * it — its status resolves to `complete` regardless of the tool call's own
+   * outcome. Without a trailing standalone row, `tool.completed` WOULD be the
+   * message's last part and would already read the correct status by
+   * construction, so this row is what makes the test actually exercise the
+   * masking bug rather than passing by coincidence.
+   */
+  function trailingGroupContent(
+    toolCallId: string,
+    withResult: boolean,
+    trailingKind: 'run.cancelled' | 'run.failed'
+  ) {
     return [
       { text: 'Reasoning.', type: 'reasoning' as const },
       runEventPart({
@@ -321,7 +342,7 @@ describe('trailing-group incomplete-reason inheritance (BST-1677 wave 3, PR #306
       {
         args: {},
         argsText: '{}',
-        result: { ok: true },
+        ...(withResult ? { result: { ok: true } } : {}),
         toolCallId,
         toolName: `tool_${toolCallId}`,
         type: 'tool-call' as const,
@@ -334,20 +355,20 @@ describe('trailing-group incomplete-reason inheritance (BST-1677 wave 3, PR #306
       }),
       runEventPart({
         id: `e-${toolCallId}-r`,
-        kind: 'run.cancelled',
-        status: 'cancelled' as const,
+        kind: trailingKind,
+        status: trailingKind === 'run.cancelled' ? ('cancelled' as const) : ('failed' as const),
         timestamp: '2026-09-05T10:00:02.000Z',
       }),
     ];
   }
 
-  it('reads "Stopped" (not "Worked") when the owning message is cancelled', async () => {
+  it('reads "Stopped" (not "Worked") when a resultless tool call is masked by a trailing tool.completed data part, message cancelled', async () => {
     render(
       <Harness
         adapter={neverRun}
         initialMessages={[
           {
-            content: trailingGroupContent('x'),
+            content: trailingGroupContent('x', false, 'run.cancelled'),
             role: 'assistant',
             status: { reason: 'cancelled', type: 'incomplete' },
           },
@@ -359,13 +380,13 @@ describe('trailing-group incomplete-reason inheritance (BST-1677 wave 3, PR #306
     expect(screen.queryByText('Worked')).not.toBeInTheDocument();
   });
 
-  it('reads "Activity failed" (not "Worked") when the owning message errored', async () => {
+  it('reads "Activity failed" (not "Worked") when a resultless tool call is masked by a trailing tool.completed data part, message errored', async () => {
     render(
       <Harness
         adapter={neverRun}
         initialMessages={[
           {
-            content: trailingGroupContent('x'),
+            content: trailingGroupContent('x', false, 'run.failed'),
             role: 'assistant',
             status: { reason: 'error', type: 'incomplete' },
           },
@@ -377,7 +398,25 @@ describe('trailing-group incomplete-reason inheritance (BST-1677 wave 3, PR #306
     expect(screen.queryByText('Worked')).not.toBeInTheDocument();
   });
 
-  it('only the TRAILING group inherits the reason: an earlier, self-resolved group still reads "Worked"', async () => {
+  it('reads "Worked" (not "Stopped") when the tool call HAS a result, even though the owning message was cancelled', async () => {
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: trailingGroupContent('x', true, 'run.cancelled'),
+            role: 'assistant',
+            status: { reason: 'cancelled', type: 'incomplete' },
+          },
+        ]}
+      />
+    );
+    await screen.findByText('Worked');
+    expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'false');
+    expect(screen.queryByText('Stopped')).not.toBeInTheDocument();
+  });
+
+  it('two-group message: the resolved group reads "Worked", the unresolved trailing group reads "Stopped"', async () => {
     const content = [
       { text: 'First reasoning.', type: 'reasoning' as const },
       {
@@ -388,8 +427,27 @@ describe('trailing-group incomplete-reason inheritance (BST-1677 wave 3, PR #306
         toolName: 'tool_a',
         type: 'tool-call' as const,
       },
+      runEventPart({
+        id: 'e-a-c',
+        kind: 'tool.completed',
+        timestamp: '2026-09-05T10:00:00.500Z',
+        toolCallId: 'a',
+      }),
       { text: 'Between.', type: 'text' as const },
-      ...trailingGroupContent('b'),
+      runEventPart({
+        id: 'e-b-s',
+        kind: 'tool.started',
+        status: 'running' as const,
+        timestamp: '2026-09-05T10:00:01.000Z',
+        toolCallId: 'b',
+      }),
+      {
+        args: {},
+        argsText: '{}',
+        toolCallId: 'b',
+        toolName: 'tool_b',
+        type: 'tool-call' as const,
+      },
     ];
     render(
       <Harness
