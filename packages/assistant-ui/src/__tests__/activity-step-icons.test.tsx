@@ -2,7 +2,8 @@
 import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { FAMILY_ICONS, STEP_STATE_LABELS, StepStateGlyph } from '../activity-step-icons';
+import { StepStateGlyph } from '../activity-step-icons';
+import { FAMILY_ICONS, STEP_STATE_LABELS } from '../activity-step-tokens';
 import type { VerbFamily } from '../activity-verbs';
 
 const FAMILIES: readonly VerbFamily[] = [

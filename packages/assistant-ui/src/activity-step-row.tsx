@@ -1,9 +1,9 @@
 import { cn } from '@brainstrike/ui';
 import { ChevronRight, type LucideIcon } from 'lucide-react';
 import { type ReactNode, useId } from 'react';
-import { useIsLastRunningStep } from './activity-step-context';
 import { StepFamilyIcon, type StepGlyphState, StepStateGlyph } from './activity-step-icons';
 import type { VerbFamily } from './activity-verbs';
+import { useIsLastRunningStep } from './use-is-last-running-step';
 
 export interface StepRowHeaderProps {
   /** id of the body this row toggles; omit when the row has no body (renders a non-interactive row: no button, no chevron, no aria-expanded). */
