@@ -503,8 +503,13 @@ async function executeAssistantTool(
   // expand details" — `extractPrimaryArg` falls back to the first
   // string-valued arg, and this call's arg is `{ text: ASSISTANT_TOOL_PAYLOAD
   // }`), so the affordance is matched as a substring — an `exact: true`
-  // equality here would never resolve again.
-  await toolCard.getByRole('button', { name: /expand details/i }).click();
+  // equality here would never resolve again. `.first()` keeps the locator as
+  // tight as the old `exact: true` was: a substring match alone would trip
+  // Playwright's strict mode if the card ever grows a nested expandable row.
+  await toolCard
+    .getByRole('button', { name: /expand details/i })
+    .first()
+    .click();
   await expect(toolCard).toContainText(ASSISTANT_TOOL_PAYLOAD);
 }
 async function executeElicitationTool(
@@ -557,7 +562,13 @@ async function executeElicitationTool(
     .filter({ hasText: 'oauth.elicit_confirm' })
     .last();
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
-  await toolCard.getByRole('button', { name: /expand details/i }).click();
+  // BST-1682 (WCAG 2.5.3 Label in Name): substring match, `.first()` keeps
+  // the locator single-match the way `exact: true` used to (see the sibling
+  // `executeAssistantTool` above).
+  await toolCard
+    .getByRole('button', { name: /expand details/i })
+    .first()
+    .click();
   await expect(toolCard).toContainText(ELICITATION_TOOL_PAYLOAD);
 }
 function parseJsonLines(contents: string): Record<string, unknown>[] {

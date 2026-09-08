@@ -112,8 +112,9 @@ describe('ToolFallback detail level', () => {
     const row = screen.getByTestId('activity-step-row');
     expect(row).toHaveAttribute('aria-expanded', 'true');
     // BST-1682: the name leads with the visible content, so the affordance
-    // is asserted as the trailing clause it now is.
-    expect(row).toHaveAccessibleName(/, collapse details$/);
+    // is asserted as the trailing clause it now is — the exact name, not
+    // just the suffix, since the prefix is the point of BST-1682.
+    expect(row).toHaveAccessibleName('Searched foo, collapse details');
   });
 
   it('re-syncs an already-rendered card when the Detail level changes', () => {

@@ -100,8 +100,12 @@ function contentAccessibleName(props: {
   readonly target: string | null;
   readonly verb: string;
 }): string {
+  const visible = props.target ? `${props.verb} ${props.target}` : props.verb;
   const affordance = `${props.label.charAt(0).toLowerCase()}${props.label.slice(1)}`;
-  return `${props.target ? `${props.verb} ${props.target}` : props.verb}, ${affordance}`;
+  // Total: a caller that ends up with no visible verb (whitespace-only, e.g.
+  // a not-yet-hydrated step) must not produce a name starting with ", " —
+  // fall back to the affordance alone rather than joining onto nothing.
+  return visible.trim() ? `${visible}, ${affordance}` : props.label;
 }
 
 /**

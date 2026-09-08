@@ -33,6 +33,12 @@ describe('StepRowHeader', () => {
     expect(screen.getByText('brainstrike.readWorkspaceFile')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Completed' })).toBeInTheDocument();
     expect(button.querySelector('.bs-trace-glyph')).toBeInTheDocument();
+    // The sr-only tool id sits inside the row but outside the content span,
+    // so folding the content into the name must not drag the id in with it:
+    // a speech-input user says what they SEE, and nobody sees the id. It
+    // still reaches AT as `title` (the next test) and as row text.
+    expect(button).toHaveTextContent('brainstrike.readWorkspaceFile');
+    expect(button).toHaveAttribute('title', 'brainstrike.readWorkspaceFile');
   });
 
   it('carries the raw tool id as the accessible description via `title` (reviewer Important 1)', () => {
@@ -74,29 +80,6 @@ describe('StepRowHeader', () => {
     expect(button).toHaveAccessibleDescription('');
   });
 
-  it('keeps the raw tool id out of the interactive row name while keeping it as text', () => {
-    // The sr-only tool id sits inside the row but outside the content span,
-    // so folding the content into the name must not drag the id in with it:
-    // a speech-input user says what they SEE, and nobody sees the id.
-    render(
-      <StepRowHeader
-        bodyId="body-1"
-        expanded={false}
-        family="read"
-        label="Expand details"
-        onToggle={() => {}}
-        state="done"
-        target="app.ts"
-        toolName="brainstrike.readWorkspaceFile"
-        verb="Read"
-      />
-    );
-    const button = screen.getByTestId('activity-step-row');
-    expect(button).toHaveAccessibleName('Read app.ts, expand details');
-    expect(button).toHaveTextContent('brainstrike.readWorkspaceFile');
-    expect(button).toHaveAttribute('title', 'brainstrike.readWorkspaceFile');
-  });
-
   it('names a targetless interactive row by its verb alone plus the affordance', () => {
     render(
       <StepRowHeader
@@ -115,6 +98,25 @@ describe('StepRowHeader', () => {
     expect(
       screen.getByRole('button', { name: 'Explorer finished, collapse details' })
     ).toBeInTheDocument();
+  });
+
+  it('falls back to the affordance alone when the visible verb is whitespace-only (reviewer Low 4)', () => {
+    // `contentAccessibleName` must stay total: a caller with no visible verb
+    // (and no target) must not produce a name starting with ", " — the
+    // helper falls back to `label` alone rather than joining onto nothing.
+    render(
+      <StepRowHeader
+        bodyId="body-1"
+        expanded={false}
+        family="read"
+        label="Expand details"
+        onToggle={() => {}}
+        state="done"
+        target={null}
+        verb="   "
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Expand details' })).toBeInTheDocument();
   });
 
   it('lets a row whose label already names the step opt out (the reasoning contract)', () => {

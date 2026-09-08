@@ -644,7 +644,12 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     // details" — `extractPrimaryArg` falls back to the first string-valued
     // arg, and this call's arg is `{ text: 'hello from mock' }`), so the
     // affordance is matched as a substring rather than the whole name.
-    await toolCard.getByRole('button', { name: /expand details/i }).click();
+    // `.first()` keeps the locator single-match the way `exact: true` used
+    // to, in case the card ever grows a nested expandable row.
+    await toolCard
+      .getByRole('button', { name: /expand details/i })
+      .first()
+      .click();
     await expect(toolCard.getByText('Arguments:')).toBeVisible();
     await expect(toolCard.getByText('Result:')).toBeVisible();
   });
