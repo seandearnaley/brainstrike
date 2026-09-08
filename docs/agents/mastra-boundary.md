@@ -585,7 +585,7 @@ shared `DeclinedToolCallResult` envelope (`@brainstrike/assistant-contract/tool-
 | --- | --- |
 | `handleToolError` records `pendingToolErrorTexts` | that map clears only on a later `text-delta`, so a denial that is the last chunk before `finish` (or a Stop right after it) emits "I couldn't complete the tool action because it failed: The user declined this tool call…" and finalizes the step as errored |
 | the frame carries `isError: true` | `isError` is the destructive-chrome switch in `tool-fallback.tsx`; nothing broke |
-| the result is a bare error string | strings short-circuit `readResultErrorMessage`, so the card falls through to a GREEN Completed for a tool that never ran, and `narrowRunPythonDisplayResult` returns `null`, bypassing run_python's own muted declined surface |
+| the result is a bare error string | strings short-circuit `readResultError (`activity-trace-model.ts`, shared by the card and the trace)`, so the card falls through to a GREEN Completed for a tool that never ran, and `narrowRunPythonDisplayResult` returns `null`, bypassing run_python's own muted declined surface |
 
 `DataStreamMapper.handleToolDeclined` therefore settles the id (`toolCallResult`
 + `settledToolCallIds`) with the envelope and NO error flag, and queues no

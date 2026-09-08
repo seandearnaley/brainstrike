@@ -255,19 +255,40 @@ describe('ToolFallback activity step row', () => {
 
   it('falls back to the tool id as the target when the args name none', () => {
     // Bot round 1, Claude Important 4. `extractPrimaryArg` finds nothing in
-    // `{}`, and a row of "Called legacy.echo" with an empty target slot says
-    // less than the id itself — which the row already carries as sr-only text
-    // and as its `title`, so the chip is the only place it is VISIBLE.
+    // `{}`, and a bare "Read" with an empty target slot says less than the id
+    // itself — which the row otherwise carries only as sr-only text and as its
+    // `title`, so the chip is the only place it is VISIBLE.
+    const { container } = renderTool({
+      args: {},
+      argsText: '{}',
+      result: { content: '' },
+      status: { type: 'complete' },
+      toolCallId: 'call-no-arg',
+      toolName: 'brainstrike.readWorkspaceFile',
+    });
+
+    expect(container.querySelector('.bs-step-row-target')).toHaveTextContent(
+      'brainstrike.readWorkspaceFile'
+    );
+  });
+
+  it('does not repeat the id as the target when the fallback verb already names it', () => {
+    // "Called legacy.echo · legacy.echo" was the first cut of the fallback;
+    // `verbForTool` flags the generic verbs with `namesTool` so the chip stays
+    // empty and the id is read once.
     const { container } = renderTool({
       args: {},
       argsText: '{}',
       result: { ok: true },
       status: { type: 'complete' },
-      toolCallId: 'call-no-arg',
+      toolCallId: 'call-mcp-no-arg',
       toolName: 'legacy.echo',
     });
 
-    expect(container.querySelector('.bs-step-row-target')).toHaveTextContent('legacy.echo');
+    const card = screen.getByTestId('tool-fallback');
+    expect(within(card).getByText('Called legacy.echo', { exact: true })).toBeInTheDocument();
+    expect(container.querySelector('.bs-step-row-target')).toBeNull();
+    expect(card).toHaveTextContent('legacy.echo');
   });
 
   it('reads a LIVE paused call (requires-action) as Waiting for approval, with no live mark', () => {

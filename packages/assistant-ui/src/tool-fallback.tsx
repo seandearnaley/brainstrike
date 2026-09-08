@@ -287,11 +287,13 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
           state={glyphState}
           stepId={toolCallId}
           // The tool id when the args name no target (bot round 1, Claude
-          // Important 4): "Called legacy.echo" beside an empty chip slot says
-          // strictly less than the id, which the row otherwise carries only as
-          // sr-only text and a `title`. `targetTitle` stays the untruncated
-          // primary arg, so the tooltip never labels the id as an argument.
-          target={primaryArg?.display ?? toolName}
+          // Important 4): a bare "Read" beside an empty chip slot says strictly
+          // less than the id, which the row otherwise carries only as sr-only
+          // text and a `title`. Skipped when the verb already spells the id
+          // (`namesTool`: "Called legacy.echo"), or the row would read it
+          // twice. `targetTitle` stays the untruncated primary arg, so the
+          // tooltip never labels the id as an argument.
+          target={primaryArg?.display ?? (verb.namesTool ? null : toolName)}
           timing={
             <ToolRunTiming
               argsStreaming={argsStreaming}
