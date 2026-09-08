@@ -85,11 +85,13 @@ function ActivityDoneLabel({
   cancelled,
   elapsedLabel,
   failed,
+  failedCount,
   stepLabel,
 }: {
   cancelled: boolean;
   elapsedLabel: string | null;
   failed: boolean;
+  failedCount: number;
   stepLabel: string;
 }) {
   const StatusIcon = cancelled ? Square : CheckCircle;
@@ -116,6 +118,14 @@ function ActivityDoneLabel({
         </span>
       ) : null}
       {stepLabel ? <span className="bs-activity-summary-meta">· {stepLabel}</span> : null}
+      {failedCount > 0 ? (
+        <span
+          className="bs-activity-summary-meta bs-activity-summary-failed"
+          data-testid="assistant-activity-failed-count"
+        >
+          · {failedCount} failed
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -140,8 +150,11 @@ export function AssistantActivityGroup({
   // Derived expansion: follow the live state until the user takes manual control.
   const expanded = userExpanded ?? isActive;
   const cancelled = !isActive && incompleteReason === 'cancelled';
-  const failed =
-    !(isActive || cancelled) && (incompleteReason !== undefined || summary.failedCount > 0);
+  // Group-level failure comes ONLY from the group's own incomplete status —
+  // a completed call with `isError` never fails the whole group, it's
+  // counted once into the `· N failed` suffix below (BST-1677 wave 2: one
+  // failed tool in a multi-tool group used to red-flag every step in it).
+  const failed = !(isActive || cancelled) && incompleteReason !== undefined;
   const elapsedLabel = elapsedMs === undefined ? null : formatActivityDuration(elapsedMs);
   const stepLabel =
     summary.stepCount > 0
@@ -154,6 +167,7 @@ export function AssistantActivityGroup({
       className="bs-activity-group"
       data-active={isActive ? 'true' : 'false'}
       data-failed={failed ? 'true' : 'false'}
+      data-failed-steps={summary.failedCount}
       data-state={isActive ? 'running' : 'done'}
       data-testid="assistant-activity-group"
     >
@@ -173,6 +187,7 @@ export function AssistantActivityGroup({
             cancelled={cancelled}
             elapsedLabel={elapsedLabel}
             failed={failed}
+            failedCount={summary.failedCount}
             stepLabel={stepLabel}
           />
         )}

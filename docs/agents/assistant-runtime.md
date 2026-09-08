@@ -1311,10 +1311,12 @@ disclosure (open while it streams, collapsed once it settles, a manual toggle
 sticks), so a group with several thinking blocks never opens or closes them
 together — test ids and labels unchanged. Reasoning-only groups omit the step
 count. Incomplete group status is authoritative (cancelled → Stopped; other
-reasons → Activity failed); a completed call with `isError` marks its group
-failed, counted once. Tool durations and shell output correlate by call id
-across the message; each group's elapsed fallback uses only its own tool
-events. The turn-wide task list renders once, in the group holding the
+reasons → Activity failed); a completed call with the canonical `isError`
+flag is counted once into the header's `· N failed` suffix — it never turns
+the group itself failed, only the group's own incomplete status does. Tool
+durations and shell output correlate by call id across the message; each
+group's elapsed fallback uses only its own tool events. The turn-wide task
+list renders once, in the group holding the
 message's first activity part.
 
 HYDRATION LIVENESS (do not relitigate): every animated "still happening"

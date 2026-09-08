@@ -393,15 +393,27 @@ describe('AssistantActivityGroup (real browser)', () => {
     expect(body).toBeVisible();
   });
 
-  test('failed turn renders the failed treatment', () => {
+  test('a failed step is counted in the summary without failing the whole group', () => {
     render(
       <div className="assistant-ui-panel">
+        {/* Hand-translates the one Tailwind utility this assertion needs
+            (this package's own tests never compile Tailwind, see the
+            USER_MESSAGE_LAYOUT_SHIM comment above), so the comparison below
+            measures the real destructive design token in real Chromium
+            rather than hardcoding an expected color string. */}
+        <style>{'.text-destructive { color: hsl(var(--destructive)); }'}</style>
+        <span className="text-destructive" data-testid="destructive-token-probe" />
         <AssistantActivityGroup isActive={false} summary={{ ...doneSummary, failedCount: 2 }} />
       </div>
     );
     const group = screen.getByTestId('assistant-activity-group');
-    expect(group).toHaveAttribute('data-failed', 'true');
-    expect(screen.getByText('Activity failed')).toBeVisible();
+    expect(group).toHaveAttribute('data-failed', 'false');
+    const failedCount = screen.getByTestId('assistant-activity-failed-count');
+    expect(failedCount).toBeVisible();
+    expect(failedCount).toHaveTextContent('2 failed');
+    const destructiveColor = getComputedStyle(screen.getByTestId('destructive-token-probe')).color;
+    expect(getComputedStyle(failedCount).color).toBe(destructiveColor);
+    expect(screen.queryByText('Activity failed')).not.toBeInTheDocument();
   });
 });
 

@@ -190,9 +190,34 @@ describe('AssistantActivityGroup', () => {
     expect(screen.getByTestId('assistant-activity-body')).toHaveAttribute('hidden');
   });
 
-  it('marks the group failed when a step failed', () => {
+  it('counts a failed step into the summary without failing the whole group', () => {
     render(
-      <AssistantActivityGroup isActive={false} summary={{ ...doneSummary, failedCount: 1 }} />
+      <AssistantActivityGroup
+        fallbackMs={12_000}
+        isActive={false}
+        summary={{ ...doneSummary, failedCount: 1 }}
+      />
+    );
+
+    expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'false');
+    expect(screen.getByText('Worked')).toBeInTheDocument();
+    expect(screen.getByText(/for 12\.0s/)).toBeInTheDocument();
+    expect(screen.getByText(/5 steps/)).toBeInTheDocument();
+    expect(screen.getByTestId('assistant-activity-failed-count')).toHaveTextContent('1 failed');
+  });
+
+  it('pluralizes the failed-step count', () => {
+    render(
+      <AssistantActivityGroup isActive={false} summary={{ ...doneSummary, failedCount: 2 }} />
+    );
+
+    expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'false');
+    expect(screen.getByTestId('assistant-activity-failed-count')).toHaveTextContent('2 failed');
+  });
+
+  it('still marks the group failed for its own incomplete status', () => {
+    render(
+      <AssistantActivityGroup incompleteReason="error" isActive={false} summary={doneSummary} />
     );
 
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'true');

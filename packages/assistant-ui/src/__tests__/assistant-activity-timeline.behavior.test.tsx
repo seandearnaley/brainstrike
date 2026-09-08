@@ -180,9 +180,10 @@ describe('assistant activity chronology through the real runtime', () => {
     const { first, second } = expectChronologicalGroups();
     expect(first).toHaveTextContent('Worked');
     expect(first).toHaveAttribute('data-failed', 'false');
-    expect(second).toHaveTextContent('Activity failed');
-    expect(second).toHaveAttribute('data-failed', 'true');
-    expect(second).not.toHaveTextContent('Worked');
+    expect(first).not.toHaveTextContent('failed');
+    expect(second).toHaveTextContent('Worked');
+    expect(second).toHaveTextContent('1 failed');
+    expect(second).toHaveAttribute('data-failed', 'false');
   });
 
   it('preserves the same order and completed state when hydrated from persisted parts', async () => {
