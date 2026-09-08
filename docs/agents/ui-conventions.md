@@ -781,6 +781,19 @@ That includes a `TaskListToolCard` with neither raw args nor a raw result: the
 `bodyId`/`expanded`/`onToggle` trio travels together, exactly as in
 `ToolFallback`.
 
+Either form is named by what it SHOWS (BST-1682, WCAG 2.5.3 Label in Name).
+The `role="group"` form is `aria-labelledby` its content span; the button form
+composes `aria-label` as visible content first, affordance last —
+`Read src/app.ts, expand details` — and drops `aria-describedby`, since
+content already in the name must not be described a second time. `label` is
+the affordance clause, not the whole name, and `nameFromContent` (default
+`true`) is the opt-out for a row whose `label` already names the step: only
+the reasoning row takes it, keeping `Show thinking` / `Hide thinking` exactly.
+The raw tool id is never pulled into a name from the sr-only span — it reaches
+a name only where the caller already put it in the visible `target` chip. Any
+test or e2e spec asserting the affordance must match it as a substring
+(`{ name: /expand details/i }`), never as the full name.
+
 Geometry is stylesheet-owned, not utility classes, because the browser
 vitest lane loads no Tailwind preflight (`overrides.css`): `.bs-step-row`
 itself owns `box-sizing: border-box`, `width: 100%` and `flex: 1 1 0%`; a

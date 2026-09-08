@@ -35,7 +35,7 @@ describe('ToolFallback browser behavior', () => {
     expect(screen.queryByText('Arguments:')).not.toBeInTheDocument();
     expect(screen.queryByText('Result:')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Expand details' }));
+    await user.click(screen.getByRole('button', { name: /expand details/i }));
 
     expect(screen.getByText('Arguments:')).toBeVisible();
     expect(screen.getByText('Result:')).toBeVisible();

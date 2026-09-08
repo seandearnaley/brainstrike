@@ -10,24 +10,7 @@ import { render } from '@testing-library/react';
 import { expect, test } from 'vitest';
 import { StepRowHeader } from '../activity-step-row';
 import { AssistantThinkingIndicator } from '../assistant-thinking-indicator';
-
-function px(value: string): number {
-  return Number.parseFloat(value);
-}
-
-/**
- * Like `container.querySelector`, but throws a readable error instead of
- * handing back `null` disguised as an element via an `as` cast. Typed as
- * `Element` (not `HTMLElement`) so it also matches SVG nodes — the chevron's
- * geometry class lands on the `<svg>` itself, which is an `SVGElement`.
- */
-function mustFind(container: ParentNode, selector: string): Element {
-  const el = container.querySelector(selector);
-  if (el === null) {
-    throw new Error(`mustFind: no element matched "${selector}"`);
-  }
-  return el;
-}
+import { mustFind, px } from './browser-dom';
 
 test('a very long target keeps the timing slot and glyph inside the row, on one line', () => {
   const longTarget = 'a'.repeat(300);

@@ -1530,11 +1530,26 @@ spend its gap. The row IS the card's own header —
 in place of a second header, so a step never shows its verb twice. `RowShell`
 (`activity-step-row.tsx`) splits into the two forms a step can take: a card
 with something to expand renders the row as a real
-`<button aria-controls aria-expanded aria-describedby>` whose accessible name
-IS the toggle label (`Expand details` / `Collapse details`, kept for e2e;
-reasoning's own row instead reads `Show thinking` / `Hide thinking`) while
-its content reaches AT only via `aria-describedby`, never folded into the
-button's own name. `aria-expanded` is always present; `aria-controls` is
+`<button aria-controls aria-expanded aria-label>`. Its accessible name
+CONTAINS its visible label (BST-1682, WCAG 2.5.3 Label in Name): the verb and
+target lead, the toggle affordance trails as a clause with only its first
+character lowered — `Read src/app.ts, expand details` — so a speech-input user
+can say what they see and no AT configuration can lose the step's identity
+along with a suppressed description. The affordance wording itself
+(`Expand details` / `Collapse details`) is unchanged and still the e2e
+contract, but the e2e specs now match it as a SUBSTRING
+(`getByRole('button', { name: /expand details/i })` in
+`apps/desktop/e2e/mcp-packaged-core.desktop.test.ts` and
+`apps/web/e2e/assistant-ui-panel.test.ts`) — an `exact: true` equality on the
+bare affordance can never resolve again. `aria-describedby` goes with it:
+content that is already IN the name must not also be a description, or AT
+reads the row twice. The one opt-out is `nameFromContent={false}`, which the
+reasoning row passes because its `label` ALREADY names the step —
+`Show thinking` / `Hide thinking` stays its whole name (an e2e and BST-1656
+behaviour contract; `Thinking, show thinking` would only stutter) and it keeps
+`aria-describedby` on its content. The prop defaults to the ACCESSIBLE
+behaviour on purpose, so a row added later is compliant without its author
+knowing the rule exists. `aria-expanded` is always present; `aria-controls` is
 emitted ONLY while the element it names is mounted — the convention every
 other disclosure in the package already follows
 (`assistant-run-timeline.tsx`, `assistant-tool-approval-notice.tsx`) — so the
@@ -1552,7 +1567,35 @@ The raw tool id is visually hidden text OUTSIDE the row's named content span,
 plus the row's own `title` — the e2e text contract — never INSIDE the
 content span, which would otherwise fold `brainstrike.readWorkspaceFile` into
 the non-interactive row's `aria-labelledby` name alongside its verb and
-target.
+target. `trailing` (`StepRowHeader`'s prop for the result-summary chip, the
+resolved-root chip, and the subagent card's `· N tool calls` count) renders
+in that same OUTSIDE position, right after the content span
+(`activity-step-row.tsx`) — it used to sit inside the content span, which
+named a zero-row delegation "Delegating to Explorer · 0 tool calls" instead
+of just its verb (BST-1686). The chip stays visible row text; it just plays
+no part in naming or describing the step, same as the sr-only id beside it.
+
+The interactive row's three a11y-reachable surfaces are deliberately
+disjoint, ruled in BST-1682 review round 2: NAME is `<verb> <target>,
+<affordance>` (`contentAccessibleName`, `activity-step-row.tsx`) — the
+content-composed string above, nothing else. DESCRIPTION is the raw tool id,
+and only that: with `aria-describedby` no longer emitted on a content-named
+row, the button's `title` attribute becomes its accessible description per
+HTML-AAM, so a screen reader announces "Read src/app.ts, expand details,
+collapsed, button — brainstrike.readWorkspaceFile" on focus. This is kept
+deliberately, not an oversight — the `title` is the one place the raw id
+still reaches AT, and it does so honestly, as a description rather than
+competing with the visible label for the name. Pinned in
+`activity-step-row.test.tsx` (`toHaveAccessibleDescription`, both the
+carries-it and the has-none case). TRAILING content (result summary, root
+name, `· N tool calls`) sits inside `.bs-step-row-content` today but in
+NEITHER the name nor the description — it is result metadata a user did not
+ask to hear announced on every focus, not the label they would speak. It
+stays reachable in browse mode (screen-reader users can still read it as
+text) even though focus mode skips it. BST-1686 (PR #3067) moves `trailing`
+out of the content span entirely; this paragraph does not need updating for
+that move, since trailing's a11y treatment (reachable, not named) is
+unchanged either way.
 
 State glyphs are named, never colour-only: `STEP_STATE_LABELS`
 (`activity-step-tokens.ts`) is the total `role="img"`/`aria-label` map —
@@ -1652,11 +1695,19 @@ Detail level maps to concrete row behaviour via `resolveToolDisplayPolicy`
 (`assistant-detail-level.ts`): `compact` hides the details expander and the
 result-summary chip (`showDetailsExpander: false`, `showResultSummary:
 false`); `standard` shows both, collapsed by default; `developer` auto-opens
-the body (`defaultExpanded: true`) and adds raw I/O (`showRawIo: true`). One
-row chip is NEVER gated by detail level: `ToolFallback`'s `in <root>` chip
-(`extractResolvedRootName`, target disambiguation in a multi-root workspace)
-renders whenever a result carries a `rootName`, unconditional on the
-policy — unlike the result-summary chip beside it, which
+the body (`defaultExpanded: true`) and adds raw I/O (`showRawIo: true`).
+`SubagentExecutionCard`'s own trailing chip, `· N tool calls`
+(`subagent-execution-card.tsx`), reads the SAME `policy.showResultSummary`
+gate as `ToolFallback`'s result-summary chip (BST-1686) — it is a result
+summary too, and used to be the one trailing chip in the trace the Detail
+control never touched. The card deliberately adopts only that one flag:
+`expanded` is its own `useState`, never `policy.defaultExpanded` or
+`showDetailsExpander` (`subagent-execution-card.tsx`), because the
+delegation rows ARE the card's substance, not raw I/O to gate. One row chip
+is NEVER gated by detail level: `ToolFallback`'s `in <root>` chip
+(`extractResolvedRootName`, target disambiguation in a multi-root
+workspace) renders whenever a result carries a `rootName`, unconditional on
+the policy — unlike the result-summary chips beside it, which
 `policy.showResultSummary` gates. Only `developer` shows run-event rows
 inside the trace: `AssistantRunTimelineDataPart`
 (`assistant-run-timeline-data-part.tsx`) reads

@@ -119,6 +119,7 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({
   result,
   status,
   toolCallId,
+  toolName,
 }) => {
   const [open, setOpen] = useState(false);
   const bodyId = useId();
@@ -142,7 +143,14 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({
         // one row that never shimmers.
         stepId={toolCallId}
         target={null}
-        toolName={NATIVE_TOOL_ID.manageTaskList}
+        // The part's OWN id (BST-1686): this card used to hard-code
+        // `NATIVE_TOOL_ID.manageTaskList` here regardless of which of the
+        // `by_name` map's two keys the part actually arrived under, so a
+        // part named under the Mastra-sanitized `brainstrike_manageTaskList`
+        // displayed the dotted canonical form instead — an undocumented
+        // normalization on the "raw tool id as text" contract every other
+        // card in the trace honors verbatim.
+        toolName={toolName}
         verb={isRunning ? 'Updating tasks' : 'Updated tasks'}
         // The toggle trio travels together, as it does in ToolFallback (bot
         // round 1, Claude Minor 9): with neither raw args nor a raw result

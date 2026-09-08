@@ -521,25 +521,75 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
     run: () => Promise.resolve({ content: [], status: { reason: 'stop', type: 'complete' } }),
   };
 
+  /**
+   * BOTH messages carry this SAME string on purpose (BST-1687).
+   *
+   * The assertion below compares a rect taken in one message root against a
+   * rect taken in the OTHER, which is only meaningful while the two roots
+   * resolve the same columns. `grid-template-columns` is declared identically,
+   * but its second track is `auto` -- sized by each root's OWN bubble content.
+   * With two different strings the two roots resolved column 1 to 342.859px
+   * and 328.438px, so the comparison was measuring two genuinely different
+   * columns and only passed while an unrelated accident (see the settle step
+   * in the test) kept both bubbles showing the same placeholder text.
+   */
+  const USER_MESSAGE_TEXT = 'A user message';
+
+  /**
+   * Keeps every message root clear of the browser's RESTING POINTER (BST-1687).
+   *
+   * Headless Chromium parks its pointer on the viewport origin even though this
+   * suite never dispatches a real mouse event. Measured in the CI container
+   * image (mcr.microsoft.com/playwright:v1.63.0-noble), not assumed: the live
+   * hover chain there reads
+   *
+   *   HTML > BODY > DIV > .assistant-ui-panel > .bs-thread >
+   *   .aui-thread-viewport > .aui-user-message-root
+   *
+   * and a 40x40 `:hover` probe grid over the 414x896 viewport lights exactly
+   * one cell -- (0,0), i.e. x < 10.35px, y < 22.4px.
+   *
+   * MessagePrimitive.Root reads that state directly. Its ref callback attaches
+   * the mouseenter/mouseleave listeners AND, whenever the element it is given
+   * ALREADY matches `:hover`, queues `message.setIsHovering(true)`. A message
+   * root laid out flush against the origin is therefore genuinely hovered
+   * before this test touches it, and `autohide="not-last"` +
+   * `autohideFloat="always"` mounts its bar FLOATING. That is correct component
+   * behaviour and a broken test precondition: the subject here is a NON-hovered
+   * non-last message, and the row-height and rect assertions below are only
+   * about the hover the test itself performs.
+   *
+   * The offset only has to be greater than zero; the pointer assertions in the
+   * test prove it did its job rather than trusting that it did. macOS headless
+   * Chromium parks no pointer at all, which is why this was green on every
+   * local run and red on the first CI run at 397c71a.
+   */
+  const POINTER_PARK_OFFSET_PX = 64;
+
   function TwoUserMessagesHarness() {
     const initialMessages: readonly ThreadMessageLike[] = [
-      { content: [{ text: 'First message', type: 'text' }], role: 'user' },
-      { content: [{ text: 'Second message', type: 'text' }], role: 'user' },
+      { content: [{ text: USER_MESSAGE_TEXT, type: 'text' }], role: 'user' },
+      { content: [{ text: USER_MESSAGE_TEXT, type: 'text' }], role: 'user' },
     ];
     const runtime = useLocalRuntime(twoUserMessageModel, { initialMessages });
 
     return (
       <TooltipProvider>
         <AssistantRuntimeProvider runtime={runtime}>
-          <div className="assistant-ui-panel">
-            <div className="bs-thread">
-              <div className="aui-thread-viewport">
-                <ThreadPrimitive.Messages
-                  components={{
-                    AssistantMessage: () => null,
-                    UserMessage,
-                  }}
-                />
+          {/* Inline style, not a Tailwind utility: a class that the v4 content
+              scan did not happen to pick up in this lane would silently leave
+              the roots back under the pointer. */}
+          <div style={{ paddingTop: `${POINTER_PARK_OFFSET_PX}px` }}>
+            <div className="assistant-ui-panel">
+              <div className="bs-thread">
+                <div className="aui-thread-viewport">
+                  <ThreadPrimitive.Messages
+                    components={{
+                      AssistantMessage: () => null,
+                      UserMessage,
+                    }}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -556,12 +606,55 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
     // hides it), so waiting for its Edit button confirms hydration settled.
     await screen.findByRole('button', { name: 'Edit message' });
 
+    // ...and then settle the bubble TEXT before anything is measured
+    // (BST-1687). UserMessageText resolves `./markdown-text` through a DYNAMIC
+    // import and renders a "Loading message…" placeholder until it lands; that
+    // placeholder is wider than the real text, and column 2 is `auto`, so the
+    // swap widens column 1 -- and with it the bar's right edge -- by exactly
+    // the text-width difference. The reference rect is read before the hover
+    // and the floating rect after it, so a swap landing between the two turns
+    // a pure measurement artifact into a rect mismatch. Whether it lands there
+    // depends only on how warm the module graph already is, i.e. on which
+    // other browser files ran first in the same Chromium page: cold, both
+    // rects were read against the placeholder and agreed; warm, the floating
+    // rect alone was read against the real text and came back a constant
+    // 32.484375px wider.
+    await waitFor(() => {
+      const bubbles = screen.getAllByTestId('assistant-user-message-content');
+      expect(bubbles).toHaveLength(2);
+      for (const bubble of bubbles) {
+        expect(bubble).toHaveTextContent(USER_MESSAGE_TEXT);
+      }
+    });
+
     const roots = document.querySelectorAll<HTMLElement>('.aui-user-message-root');
     expect(roots).toHaveLength(2);
     const [nonLastRoot, lastRoot] = roots;
     if (!(nonLastRoot && lastRoot)) {
       throw new Error('expected both user message roots');
     }
+
+    // The three preconditions this test rests on, asserted rather than assumed
+    // (all three were only assumed before BST-1687). They are deliberately
+    // independent of the settle step and the harness offset that establish
+    // them: removing either has to fail here, loudly, instead of re-arming a
+    // flake that depends on the environment.
+    for (const root of [nonLastRoot, lastRoot]) {
+      // 1. Past the lazy-markdown placeholder, so no content-sized track can
+      //    resize between the reference read and the floating read.
+      expect(root).toHaveTextContent(USER_MESSAGE_TEXT);
+      // 3. The REAL pointer rests clear of BOTH roots, so the only hover in
+      //    this test is the one it performs itself. Established by the
+      //    harness's POINTER_PARK_OFFSET_PX: drop that offset and the non-last
+      //    root sits on the viewport origin, where headless Chromium parks its
+      //    pointer, and this is true before a single event is dispatched.
+      expect(root.matches(':hover')).toBe(false);
+    }
+    // 2. Both roots resolve the SAME columns -- not merely the same declared
+    //    template -- so "the same spot" is a statement about one column.
+    expect(getComputedStyle(nonLastRoot).gridTemplateColumns).toBe(
+      getComputedStyle(lastRoot).gridTemplateColumns
+    );
 
     // Reference geometry: the LAST message's bar is always mounted IN FLOW
     // (Normal status -- autohide="not-last" never hides it, so it never
@@ -595,9 +688,9 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
     const heightAfterHover = nonLastRoot.getBoundingClientRect().height;
     expect(heightAfterHover).toBe(heightBeforeHover);
 
-    // Both message roots share identical column geometry (same grid
-    // template, same-width thread), so the floating bar's rect must match
-    // the in-flow reference bar's rect -- same visual spot, it just no
+    // Both message roots share identical column geometry (asserted above:
+    // same RESOLVED columns, same-width thread), so the floating bar's rect
+    // must match the in-flow reference bar's rect -- same visual spot, it just no
     // longer contributes to row 2's height. Pins BOTH axes: an abspos grid
     // item with only its START lines definite resolves its END lines (and
     // therefore its containing block) to the grid container's padding
