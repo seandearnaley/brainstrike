@@ -657,7 +657,7 @@ server / thread_runs rows). Capability-gated, not `isElectron()`.
   older records of a handled path stamp without re-touching disk) and is
   HONEST about partial success.
 - **UI = per-entry button + per-turn footer.** The per-tool-card
-  `CheckpointRevertButton` (`tool-fallback.tsx`, keyed by `toolCallId`) undoes one
+  `CheckpointRevertButton` (`tool-fallback-row.tsx`, keyed by `toolCallId`) undoes one
   edit; unavailable entries render "Can't restore" with the reason tooltip.
   The per-turn `CheckpointTurnRevert` footer (`checkpoint-turn-revert.tsx`)
   mounts on every `AssistantMessage`: it reads the turn's tool-call parts from
@@ -697,7 +697,7 @@ server / thread_runs rows). Capability-gated, not `isElectron()`.
   `checkpoint-snapshot-undo.ts`, `checkpoint-reindex-deps.ts` +
   `ipc-domains/assistant-checkpoint-*.ts` (desktop),
   `edit-checkpoint-context.tsx` (context + `selectTurnRevertScope` /
-  `useCheckpointTurnRevert` / `availabilityForEntry`) + `tool-fallback.tsx` +
+  `useCheckpointTurnRevert` / `availabilityForEntry`) + `tool-fallback-row.tsx` +
   `checkpoint-turn-revert.tsx` (ui), `use-edit-checkpoints.ts` (app-shell) +
   `assistant-ui-panel-wrapper.tsx`,
   `packages/assistant-contract/src/edit-checkpoints.ts`. (The journal-content

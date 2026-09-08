@@ -1365,7 +1365,14 @@ expanded while running.
 `ActivityTrace` (`activity-trace.tsx`) renders the header as two rows: the
 status row (glyph, label, elapsed) and, only while active, a fixed-height
 detail line (`bs-trace-detail`, one line, entirely removed from the DOM once
-the group finishes — never a zero-height placeholder). While running, the
+the group finishes — never a zero-height placeholder). That file owns the
+MARKUP only (BST-1684): the phase and every string derived from it
+(`phaseOf`, `headlineFor`, `metaFor`, `verbMetaFor`, `stepLabel`,
+`isWaitingForUser`, `announcementFor`) live in `activity-trace-labels.ts`, and
+its two hooks in `use-activity-trace-clock.ts` (`useElapsedMs`) /
+`use-label-enter-class.ts` (`useLabelEnterClass`) — a `.tsx` file in this
+package exports components and nothing else, or Vite's Fast Refresh loses the
+boundary. While running, the
 live label follows a fixed precedence in `summarizeActivity`'s `liveLabel`
 (`activity-trace-model.ts`, over `deriveActivitySteps`'s step list):
 `Waiting for approval` (any step `waiting`) > `<Verb-ing> <target>` (the last
@@ -1507,7 +1514,7 @@ list (tool calls and reasoning parts) renders as one `StepRowHeader`
 settled — the same `active`/`done` pair every `ActivityVerb` carries,
 `activity-verbs.ts`) · target chip · timing slot · state glyph
 (`StepStateGlyph`) · chevron. The ACTIVE tense covers `running` AND `waiting`
-(`ACTIVE_TENSE_STATES`, `tool-fallback.tsx`): a call paused at its approval
+(`ACTIVE_TENSE_STATES`, `tool-fallback-state.ts`): a call paused at its approval
 gate is in flight, so "Ran rm -rf build" under a Waiting glyph would assert an
 outcome that does not exist — the glyph is what says why the step is standing
 still. Only the settled states (`done`, `failed`, `cancelled`) read the done
@@ -1596,7 +1603,8 @@ State glyphs are named, never colour-only: `STEP_STATE_LABELS`
 — over `StepGlyphState` (`ActivityStepState` plus the subagent-only
 `no-answer` arm). A step's state is derived by ONE function only,
 `toolStepStateFor` (`activity-trace-model.ts`): the trace headline
-(`deriveActivitySteps`), `ToolFallback` (`resolveCardStatus`),
+(`deriveActivitySteps`), `ToolFallback` (`resolveCardStatus`,
+`tool-fallback-state.ts`),
 `SubagentExecutionCard` (`resolveDelegationState`) and `TaskListToolCard` all
 consume it, so a step can never read two different states on two surfaces.
 The two refinements layered on top of a generic `done` both live INSIDE that
@@ -1615,7 +1623,8 @@ failure is `failed` on every surface too, and `readResultError`
 (`activity-trace-model.ts`) is the ONE reader of that — it answers both
 "does this result state an error" (the state machine's `statesResultError`
 wrapper) and "what does it say" (`ToolFallback`'s error line, via
-`resolveErrorMessage`), because two copies of that shape list had already
+`resolveErrorMessage`, `tool-fallback-state.ts`), because two copies of that
+shape list had already
 drifted. It reads the success discriminator FIRST: an `ok: true` result stays
 `done` and shows no error line however its `error` member is shaped (string or
 record) — that is advisory domain data. Otherwise it recognises a non-empty
@@ -1630,7 +1639,7 @@ that must win has to move above the branch, not into the override.
 
 Exactly one live mark renders per running row: the state glyph
 (`StepStateGlyph`'s `running` arm renders `BrainstrikeThinkingMark`, which
-carries `data-live="true"` by default). `ToolRunTiming` (`tool-fallback.tsx`)
+carries `data-live="true"` by default). `ToolRunTiming` (`tool-fallback-row.tsx`)
 passes `showMark={false}` into its `AssistantThinkingIndicator` so the timing
 slot's own progress label never grows a second live mark, and the reasoning
 row's `ReasoningGlyph` (`assistant-activity-parts.tsx`) keeps its own
@@ -1662,12 +1671,25 @@ child either way), `<Label> finished`, `<Label> gave no answer`, `<Label>
 failed`, `<Label> stopped` (cancelled). `TaskListToolCard`
 (`todo-progress.tsx`) reads the same shared row with `family="tasks"` and its
 own verb pair, `Updating tasks` / `Updated tasks`. The checkpoint revert
-control (`CheckpointRevertButton`, `tool-fallback.tsx`) is a SIBLING of the
+control (`CheckpointRevertButton`, `tool-fallback-row.tsx`) is a SIBLING of the
 row inside `.bs-step-row-line`, never nested inside its `<button>` — nested
 interactives are invalid HTML — and it hides only for the `running`/`failed`
 states; a CANCELLED edit keeps its revert control, since a captured
 checkpoint means the mutation landed regardless of how the call itself
 settled.
+
+`ToolFallback` (`tool-fallback.tsx`) is the composition ROOT only (BST-1684,
+splitting the React Doctor complexity warning the phase-3 re-skin left
+behind): the `.bs-step-row-line` — `StepRowHeader` + `ToolRunTiming` + the
+`CheckpointRevertButton` sibling — is `ToolFallbackRow`
+(`tool-fallback-row.tsx`); everything below the row (error line, live shell
+pane, `run_python` surface, details pane) is `ToolFallbackBody`
+(`tool-fallback-body.tsx`); and the pure derivations (`resolveCardStatus`,
+`resolveErrorMessage`, `ACTIVE_TENSE_STATES`, `formatResult`,
+`extractResolvedRootName`) are `tool-fallback-state.ts`. The card's DOM, test
+ids and prop rules are unchanged by that split — it is a file boundary, not a
+behaviour one. `@brainstrike/assistant-ui/tool-fallback` stays the subpath
+`mcp-app-host-ui` imports; only `ToolFallback` is exported from it.
 
 Detail level maps to concrete row behaviour via `resolveToolDisplayPolicy`
 (`assistant-detail-level.ts`): `compact` hides the details expander and the
@@ -2685,7 +2707,7 @@ Flow (desktop assistant server → agent runtime):
    fence contract forces: an empty `allowRead` under `defaultReadAccess:
    'permissive'` renders "most files on this computer", NEVER "can't read
    your files". Settled result surface (`run-python-result.tsx`, mounted by
-   `tool-fallback.tsx`): killed ≠ completed ≠ didn't-run, non-zero exit is an
+   `tool-fallback-body.tsx`): killed ≠ completed ≠ didn't-run, non-zero exit is an
    amber finish (destructive chrome is reserved for `unavailable`), cancelled
    never renders as success or empty, and truncation is a per-stream note.
    Structurally narrowed result numbers must be safe integers (non-negative
@@ -3695,7 +3717,8 @@ spinner — while recording NOTHING in `pendingToolErrorTexts` and setting no
 error-path decline emitted the false sentence above whenever the model added no
 visible text after the denial, or the user pressed Stop. The frame instead
 carries the shared `DeclinedToolCallResult` envelope (`{kind: 'declined',
-message, reason?}`), which is what `tool-fallback.tsx` reads to render the muted
+message, reason?}`), which is what `settledResultOverride`
+(`activity-trace-model.ts`) reads to render the muted
 `stopped` treatment: a settled result with no envelope earns a green Completed
 for a tool that never ran, and `isError` paints destructive Failed chrome over
 something that never broke. The two terminals differ only in what they say about

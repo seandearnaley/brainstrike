@@ -1,46 +1,21 @@
-import type { MessageStatus } from '@assistant-ui/react';
 import { AlertCircle, CheckCircle, ChevronRight, Square } from 'lucide-react';
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { type ReactNode, useId, useState } from 'react';
+import {
+  announcementFor,
+  headlineFor,
+  isWaitingForUser,
+  metaFor,
+  phaseOf,
+  stepLabel,
+  type TraceIncompleteReason,
+  type TracePhase,
+  verbMetaFor,
+} from './activity-trace-labels';
 import type { ActivitySummary } from './activity-trace-model';
 import { BrainstrikeThinkingMark } from './assistant-thinking-indicator';
 import { formatActivityDuration } from './tool-durations';
-
-/**
- * Live elapsed timer. While `isActive`, ticks every 100ms, SEEDED from the
- * turn's already-elapsed run-event span so it continues from there instead of
- * resetting to 0 (which otherwise flashes e.g. 1.8s → 0.2s the moment the group
- * mounts mid-turn). Once inactive it freezes the measured value; a turn never
- * observed live (reloaded/finished) just returns `fallbackMs`. Reactivation of
- * this same mounted group preserves its accumulated live activity time.
- */
-function useElapsedMs(isActive: boolean, fallbackMs: number | undefined): number | undefined {
-  const [measuredMs, setMeasuredMs] = useState<number | null>(null);
-  // Latest seed value, mirrored in an effect (not render, to keep render pure)
-  // and read once when activity starts — so a growing fallback never restarts
-  // the clock.
-  const seedRef = useRef(fallbackMs);
-  const accumulatedRef = useRef(0);
-  useEffect(() => {
-    seedRef.current = fallbackMs;
-  }, [fallbackMs]);
-
-  useEffect(() => {
-    if (!isActive) {
-      return;
-    }
-    // Anchor the clock to the turn's real start: now − elapsed-so-far.
-    const start = Date.now() - Math.max(seedRef.current ?? 0, accumulatedRef.current);
-    setMeasuredMs(Date.now() - start);
-    const intervalId = setInterval(() => setMeasuredMs(Date.now() - start), 100);
-    return () => {
-      accumulatedRef.current = Date.now() - start;
-      setMeasuredMs(accumulatedRef.current);
-      clearInterval(intervalId);
-    };
-  }, [isActive]);
-
-  return measuredMs ?? fallbackMs;
-}
+import { useElapsedMs } from './use-activity-trace-clock';
+import { useLabelEnterClass } from './use-label-enter-class';
 
 export interface ActivityTraceProps {
   readonly children?: ReactNode;
@@ -48,130 +23,11 @@ export interface ActivityTraceProps {
   readonly detail: string | null;
   /** Elapsed seed (group run-event span) — same semantics as before. */
   readonly fallbackMs: number | undefined;
-  readonly incompleteReason: Extract<MessageStatus, { type: 'incomplete' }>['reason'] | undefined;
+  readonly incompleteReason: TraceIncompleteReason | undefined;
   readonly isActive: boolean;
   /** Model-written summary seam; null today. */
   readonly restingOverride: string | null;
   readonly summary: ActivitySummary;
-}
-
-type TracePhase = 'cancelled' | 'done' | 'failed' | 'running';
-
-function phaseOf(
-  isActive: boolean,
-  incompleteReason: ActivityTraceProps['incompleteReason']
-): TracePhase {
-  if (isActive) {
-    return 'running';
-  }
-  if (incompleteReason === 'cancelled') {
-    return 'cancelled';
-  }
-  return incompleteReason === undefined ? 'done' : 'failed';
-}
-
-const PHASE_ANNOUNCEMENT: Record<TracePhase, string> = {
-  cancelled: 'Stopped',
-  done: 'Finished',
-  failed: 'Failed',
-  running: 'Working',
-};
-
-/** The resting-headline text: verb summary at rest, or the group's own stop/failure state. */
-function headlineFor(phase: TracePhase, restingHeadline: string): string {
-  if (phase === 'cancelled') {
-    return 'Stopped';
-  }
-  if (phase === 'failed') {
-    return 'Activity failed';
-  }
-  return restingHeadline;
-}
-
-/**
- * The elapsed-meta text next to the headline; omitted entirely for `failed`.
- * There is no separator node between the meta spans (the visual gap is CSS),
- * so each segment carries its own: the done meta reads "· Worked for 12.0s"
- * like "· N steps" and "· N failed" beside it. Cancelled is the exception —
- * it continues its own headline, so it keeps a leading space and reads
- * "Stopped after 4.0s" as one phrase rather than "Stopped · after 4.0s".
- */
-function metaFor(phase: TracePhase, elapsedLabel: string | null): string | null {
-  if (!elapsedLabel || phase === 'failed') {
-    return null;
-  }
-  return phase === 'cancelled' ? ` after ${elapsedLabel}` : `· Worked for ${elapsedLabel}`;
-}
-
-/**
- * When the group's own status (not a step failure) overrides the headline
- * with `Stopped` / `Activity failed`, the verb summary that would otherwise
- * have been the headline is demoted to a `· <verb summary>` meta segment
- * instead of disappearing — so "Read 2 files, ran a script" is still visible
- * next to "Stopped after 4.0s". Takes the VERB SUMMARY (`summary.verbs`,
- * null when no tool step settled), never `resting`: demoting the latter put
- * its `Worked`/`Thought` placeholder on screen as "Stopped after 4.0s ·
- * Worked · 1 step" for the very groups this rule exists for (review
- * finding 1).
- */
-function verbMetaFor(phase: TracePhase, verbs: string | null, stepCount: number): string | null {
-  return phase !== 'done' && stepCount > 0 ? verbs : null;
-}
-
-function stepLabel(count: number): string {
-  return count > 0 ? `${count} ${count === 1 ? 'step' : 'steps'}` : '';
-}
-
-const WAITING_LABEL = 'Waiting for approval';
-
-/**
- * True while the run is paused on the USER. The model owns the test
- * (`ActivitySummary.waiting`: a gated step exists and no tool step still
- * runs) — deliberately narrower than the live LABEL, which reads
- * "Waiting for approval" even while a sibling call is still executing.
- * Shared by the sr-only announcement and the elapsed-clock gate so the two
- * cannot drift apart.
- */
-function isWaitingForUser(phase: TracePhase, summary: ActivitySummary): boolean {
-  return phase === 'running' && summary.waiting;
-}
-
-/** The sr-only status-transition announcement; "Waiting for approval" is the one exception that isn't just the phase's fixed text. */
-function announcementFor(phase: TracePhase, summary: ActivitySummary): string {
-  if (isWaitingForUser(phase, summary)) {
-    return WAITING_LABEL;
-  }
-  return PHASE_ANNOUNCEMENT[phase];
-}
-
-/**
- * The status label's entrance class (phase-2 follow-up). The label element is
- * keyed on its own text, so it re-mounts — replaying `bs-trace-label-enter` —
- * whenever the wording changes; that is what the animation is for. The
- * group's FIRST paint is not a change of wording, though: the whole trace
- * appears at once, and animating the label there made the row arrive twice
- * over. So until the wording has changed at least once, the label is static.
- *
- * Derived state (React's documented "adjust state while rendering" pattern),
- * NOT a mount flag read fresh on each render: this component re-renders
- * constantly for reasons unrelated to the wording — the elapsed clock ticks
- * every 100ms while a group is live, and opening the group is a state change
- * of its own — and a per-render read swaps the entrance class onto the
- * untouched first label at the first of those, animating exactly the entrance
- * this rule suppresses (pinned by "a re-render that leaves the wording alone
- * never re-triggers the entrance" in activity-trace.browser.test.tsx). It is
- * also why the flag stays on afterwards rather than tracking the latest
- * change: toggling it back off would strip the animation off a label
- * mid-flight.
- */
-function useLabelEnterClass(label: string): string {
-  const [renderedLabel, setRenderedLabel] = useState(label);
-  const [hasChanged, setHasChanged] = useState(false);
-  if (renderedLabel !== label) {
-    setRenderedLabel(label);
-    setHasChanged(true);
-  }
-  return hasChanged ? 'bs-trace-label' : 'bs-trace-label-static';
 }
 
 function PhaseGlyph({ phase }: { readonly phase: TracePhase }): ReactNode {
@@ -261,11 +117,137 @@ function RestingSummary({
 }
 
 /**
+ * The disclosure toggle itself: chevron, phase glyph, the live-or-resting
+ * summary slot, and the elapsed badge. A SIBLING of the sr-only live region
+ * below it, never its parent (see the comment at that region).
+ */
+function TraceSummaryButton({
+  bodyId,
+  elapsedLabel,
+  expanded,
+  headline,
+  isActive,
+  labelClassName,
+  meta,
+  onToggle,
+  phase,
+  steps,
+  summary,
+  summaryId,
+  verbMeta,
+}: {
+  readonly bodyId: string;
+  readonly elapsedLabel: string | null;
+  readonly expanded: boolean;
+  readonly headline: string;
+  readonly isActive: boolean;
+  readonly labelClassName: string;
+  readonly meta: string | null;
+  readonly onToggle: () => void;
+  readonly phase: TracePhase;
+  readonly steps: string;
+  readonly summary: ActivitySummary;
+  readonly summaryId: string;
+  readonly verbMeta: string | null;
+}): ReactNode {
+  return (
+    <button
+      aria-controls={bodyId}
+      aria-describedby={summaryId}
+      aria-expanded={expanded}
+      aria-label={expanded ? 'Collapse activity' : 'Expand activity'}
+      className="bs-activity-summary"
+      data-testid="assistant-activity-summary"
+      onClick={onToggle}
+      type="button"
+    >
+      <ChevronRight className="bs-trace-glyph size-3.5 shrink-0 text-muted-foreground" />
+      <span className="bs-trace-phase-glyph inline-flex shrink-0 items-center">
+        <PhaseGlyph phase={phase} />
+      </span>
+      {phase === 'running' ? (
+        <LiveSummary id={summaryId} label={summary.live} labelClassName={labelClassName} />
+      ) : (
+        <RestingSummary
+          failedCount={summary.counts.failed}
+          headline={headline}
+          id={summaryId}
+          labelClassName={labelClassName}
+          meta={meta}
+          steps={steps}
+          verbMeta={verbMeta}
+        />
+      )}
+      <span className="bs-activity-right">
+        {isActive && elapsedLabel ? (
+          <span className="bs-activity-elapsed">{elapsedLabel}</span>
+        ) : null}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * The fixed-height detail line naming the current running target. Removed from
+ * the DOM entirely once the group finishes — never a zero-height placeholder.
+ */
+function TraceDetailLine({
+  detail,
+  isActive,
+}: {
+  readonly detail: string | null;
+  readonly isActive: boolean;
+}): ReactNode {
+  if (!isActive) {
+    return null;
+  }
+  return (
+    <div className="bs-trace-detail" title={detail ?? undefined}>
+      {detail ?? ''}
+    </div>
+  );
+}
+
+/**
+ * The disclosure body. The grid transition animates the OPEN direction only:
+ * the body also carries `hidden` (which e2e and role-based queries rely on —
+ * do not remove it), so closing applies `display: none` in the same commit.
+ */
+function TraceCollapse({
+  bodyId,
+  children,
+  expanded,
+}: {
+  readonly bodyId: string;
+  readonly children: ReactNode;
+  readonly expanded: boolean;
+}): ReactNode {
+  return (
+    <div className="bs-trace-collapse" data-open={expanded ? 'true' : 'false'}>
+      <div className="bs-trace-collapse-inner">
+        <div
+          className="bs-activity-body"
+          data-testid="assistant-activity-body"
+          hidden={!expanded}
+          id={bodyId}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The activity group's status row. Live: one label that names the current
  * step (re-keyed so a change crossfades) plus a ticking elapsed; resting: the
  * verb summary as the headline with "Worked for Ns" as meta. Stopped / Activity
  * failed remain the headline for the group's OWN incomplete status; a failed
  * step count never fails the group. Collapsed by default; a toggle sticks.
+ *
+ * The label/meta/announcement derivations live in `activity-trace-labels.ts`
+ * and the two hooks in `use-activity-trace-clock.ts` /
+ * `use-label-enter-class.ts` (BST-1684); this file owns the markup.
  */
 export function ActivityTrace({
   children,
@@ -315,39 +297,21 @@ export function ActivityTrace({
       data-state={isActive ? 'running' : 'done'}
       data-testid="assistant-activity-group"
     >
-      <button
-        aria-controls={bodyId}
-        aria-describedby={summaryId}
-        aria-expanded={expanded}
-        aria-label={expanded ? 'Collapse activity' : 'Expand activity'}
-        className="bs-activity-summary"
-        data-testid="assistant-activity-summary"
-        onClick={() => setUserExpanded(!expanded)}
-        type="button"
-      >
-        <ChevronRight className="bs-trace-glyph size-3.5 shrink-0 text-muted-foreground" />
-        <span className="bs-trace-phase-glyph inline-flex shrink-0 items-center">
-          <PhaseGlyph phase={phase} />
-        </span>
-        {phase === 'running' ? (
-          <LiveSummary id={summaryId} label={summary.live} labelClassName={labelClassName} />
-        ) : (
-          <RestingSummary
-            failedCount={summary.counts.failed}
-            headline={headline}
-            id={summaryId}
-            labelClassName={labelClassName}
-            meta={meta}
-            steps={steps}
-            verbMeta={verbMeta}
-          />
-        )}
-        <span className="bs-activity-right">
-          {isActive && elapsedLabel ? (
-            <span className="bs-activity-elapsed">{elapsedLabel}</span>
-          ) : null}
-        </span>
-      </button>
+      <TraceSummaryButton
+        bodyId={bodyId}
+        elapsedLabel={elapsedLabel}
+        expanded={expanded}
+        headline={headline}
+        isActive={isActive}
+        labelClassName={labelClassName}
+        meta={meta}
+        onToggle={() => setUserExpanded(!expanded)}
+        phase={phase}
+        steps={steps}
+        summary={summary}
+        summaryId={summaryId}
+        verbMeta={verbMeta}
+      />
       {/* A `button`'s children are presentational per ARIA — several screen
           readers prune the subtree — so a live region nested inside the toggle
           is unreliable and may never fire. It is a SIBLING of the button (in
@@ -357,23 +321,10 @@ export function ActivityTrace({
       <span aria-live="polite" className="sr-only">
         {announcement}
       </span>
-      {isActive ? (
-        <div className="bs-trace-detail" title={detail ?? undefined}>
-          {detail ?? ''}
-        </div>
-      ) : null}
-      <div className="bs-trace-collapse" data-open={expanded ? 'true' : 'false'}>
-        <div className="bs-trace-collapse-inner">
-          <div
-            className="bs-activity-body"
-            data-testid="assistant-activity-body"
-            hidden={!expanded}
-            id={bodyId}
-          >
-            {children}
-          </div>
-        </div>
-      </div>
+      <TraceDetailLine detail={detail} isActive={isActive} />
+      <TraceCollapse bodyId={bodyId} expanded={expanded}>
+        {children}
+      </TraceCollapse>
     </div>
   );
 }
