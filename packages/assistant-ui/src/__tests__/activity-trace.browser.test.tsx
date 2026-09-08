@@ -19,6 +19,22 @@ const done = {
   waiting: false,
 };
 
+function px(value: string): number {
+  return Number.parseFloat(value);
+}
+
+/**
+ * Like `container.querySelector`, but throws a readable error instead of
+ * handing back `null` disguised as an element via an `as` cast.
+ */
+function mustFind(container: ParentNode, selector: string): Element {
+  const el = container.querySelector(selector);
+  if (el === null) {
+    throw new Error(`mustFind: no element matched "${selector}"`);
+  }
+  return el;
+}
+
 // Scope, stated exactly: this measures the STATUS ROW (the summary button).
 // The trace's header as a whole does change height at the running↔done
 // boundary — `.bs-trace-detail` is added and removed wholesale — which is the
@@ -36,9 +52,15 @@ test('the status row (summary button) keeps one height across live and resting s
       />
     </div>
   );
-  const liveHeight = screen
-    .getByTestId('assistant-activity-summary')
-    .getBoundingClientRect().height;
+  const summaryButton = screen.getByTestId('assistant-activity-summary');
+  const liveHeight = summaryButton.getBoundingClientRect().height;
+  // The header's height parity rests on the phase glyph's BOX being fixed,
+  // not on `min-height` absorbing a difference: the running mark has no
+  // intrinsic size of its own and the resting lucide icons are sized by a
+  // Tailwind `size-4` this lane cannot see. Pin the box in both states, so a
+  // dropped `.bs-trace-phase-glyph` rule fails structurally instead of hiding
+  // behind the row's minimum height.
+  expect(px(getComputedStyle(mustFind(summaryButton, '.bs-trace-phase-glyph')).blockSize)).toBe(16);
   rerender(
     <div className="assistant-ui-panel">
       <ActivityTrace
@@ -51,9 +73,9 @@ test('the status row (summary button) keeps one height across live and resting s
       />
     </div>
   );
-  const doneHeight = screen
-    .getByTestId('assistant-activity-summary')
-    .getBoundingClientRect().height;
+  const restingButton = screen.getByTestId('assistant-activity-summary');
+  const doneHeight = restingButton.getBoundingClientRect().height;
+  expect(px(getComputedStyle(mustFind(restingButton, '.bs-trace-phase-glyph')).blockSize)).toBe(16);
   expect(Math.abs(liveHeight - doneHeight)).toBeLessThan(1);
 });
 
@@ -161,4 +183,148 @@ test('a long resting headline truncates instead of pushing the step count out of
   // …and the headline ellipsises on ONE line rather than wrapping the row
   // taller (the fixed-height scroll-anchoring rule, spec §4.7).
   expect(button.getBoundingClientRect().height).toBe(shortHeight);
+});
+
+/*
+ * Phase-2 follow-up. The label element is keyed on its own text, so it
+ * re-mounts — and `bs-trace-label-enter` replays — whenever the status row's
+ * wording changes; that is the point of the animation. The group's FIRST
+ * paint is not a change of wording, though: the whole trace appears at once,
+ * and animating the label there made the row arrive twice over.
+ *
+ * Measured on the RESTING headline, where the entrance is the label's whole
+ * animation and `animationName` is therefore exactly `none` or exactly
+ * `bs-trace-label-enter`. The live label composes the same entrance with the
+ * shimmer (see the compound-rule test at the bottom of this file), so its
+ * `animationName` is a two-entry list and reads by containment instead.
+ */
+test('the status headline enters only when its wording changes, never on the first paint', () => {
+  const row = (headline: string) => (
+    <div className="assistant-ui-panel">
+      <ActivityTrace
+        detail={null}
+        fallbackMs={1000}
+        incompleteReason={undefined}
+        isActive={false}
+        restingOverride={headline}
+        summary={done}
+      />
+    </div>
+  );
+  const { container, rerender } = render(row('Read 2 files'));
+  expect(getComputedStyle(mustFind(container, '.bs-activity-summary-label')).animationName).toBe(
+    'none'
+  );
+
+  rerender(row('Edited 1 file'));
+  expect(getComputedStyle(mustFind(container, '.bs-activity-summary-label')).animationName).toBe(
+    'bs-trace-label-enter'
+  );
+});
+
+/*
+ * The companion half, and the reason the entrance decision cannot be a mount
+ * flag read fresh on every render: this component re-renders constantly for
+ * reasons that have nothing to do with the wording — the elapsed clock ticks
+ * every 100ms while a group is live, and opening the group is a state change
+ * of its own. A per-render read flips to the entrance class at the first of
+ * those and animates the untouched first label, which is precisely the
+ * double-arrival this rule exists to suppress.
+ */
+test('a re-render that leaves the wording alone never re-triggers the entrance', async () => {
+  const { container } = render(
+    <div className="assistant-ui-panel">
+      <ActivityTrace
+        detail={null}
+        fallbackMs={1000}
+        incompleteReason={undefined}
+        isActive={false}
+        restingOverride={null}
+        summary={done}
+      >
+        <div>x</div>
+      </ActivityTrace>
+    </div>
+  );
+  const label = mustFind(container, '.bs-activity-summary-label');
+  expect(getComputedStyle(label).animationName).toBe('none');
+
+  await act(async () => {
+    screen.getByTestId('assistant-activity-summary').click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+
+  expect(screen.getByTestId('assistant-activity-summary')).toHaveAttribute('aria-expanded', 'true');
+  expect(getComputedStyle(mustFind(container, '.bs-activity-summary-label')).animationName).toBe(
+    'none'
+  );
+});
+
+/*
+ * The entrance flag is STICKY once the wording has changed, and that is a
+ * deliberate property of `useLabelEnterClass` rather than an accident of it:
+ * this component re-renders constantly while a group is live, and toggling
+ * the class back to the static form on the first of those would strip the
+ * animation off a label still mid-flight. So a repaint that leaves the
+ * wording alone keeps both the class and its resolved animation exactly where
+ * the change left them.
+ */
+test('the entrance class is sticky: after a wording change, an unchanged rerender keeps bs-trace-label and its animation', () => {
+  const row = (headline: string) => (
+    <div className="assistant-ui-panel">
+      <ActivityTrace
+        detail={null}
+        fallbackMs={1000}
+        incompleteReason={undefined}
+        isActive={false}
+        restingOverride={headline}
+        summary={done}
+      />
+    </div>
+  );
+  const { container, rerender } = render(row('Read 2 files'));
+  rerender(row('Edited 1 file'));
+  const changed = mustFind(container, '.bs-activity-summary-label');
+  expect(changed).toHaveClass('bs-trace-label');
+  const changedAnimation = getComputedStyle(changed).animationName;
+
+  rerender(row('Edited 1 file'));
+  const repainted = mustFind(container, '.bs-activity-summary-label');
+  expect(repainted).toHaveClass('bs-trace-label');
+  expect(getComputedStyle(repainted).animationName).toBe(changedAnimation);
+});
+
+/*
+ * The LIVE label is the one element that carries the entrance class and
+ * `.bs-thinking-shimmer` at the same time, and BOTH rules declare the
+ * `animation` SHORTHAND at equal specificity — so the shimmer, declared later
+ * in overrides.css, replaced the entrance outright and the live label's
+ * crossfade never ran once (phase-2 defect, found in the Task 6 review). The
+ * compound rules compose the two instead of letting one erase the other:
+ * static + shimmer resolves to the shimmer alone, entrance + shimmer to both.
+ * Measured as the resolved `animation-name` LIST, since that list is exactly
+ * where the collision was.
+ */
+test('the live label composes its entrance with the shimmer: shimmer alone on first paint, both once the wording changes', () => {
+  const row = (liveLabel: string) => (
+    <div className="assistant-ui-panel">
+      <ActivityTrace
+        detail={null}
+        fallbackMs={1000}
+        incompleteReason={undefined}
+        isActive
+        restingOverride={null}
+        summary={{ ...live, live: liveLabel }}
+      />
+    </div>
+  );
+  const { container, rerender } = render(row('Reading app.ts'));
+  const first = getComputedStyle(mustFind(container, '.bs-activity-live-label')).animationName;
+  expect(first).toContain('bs-thinking-shimmer');
+  expect(first).not.toContain('bs-trace-label-enter');
+
+  rerender(row('Editing app.ts'));
+  const changed = getComputedStyle(mustFind(container, '.bs-activity-live-label')).animationName;
+  expect(changed).toContain('bs-thinking-shimmer');
+  expect(changed).toContain('bs-trace-label-enter');
 });

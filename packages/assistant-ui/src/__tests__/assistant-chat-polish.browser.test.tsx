@@ -10,7 +10,7 @@ import { TooltipProvider } from '@brainstrike/ui';
 import { CodeBlockBody, CodeBlockHeader } from '@brainstrike/ui/code-block';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 import { ActivityTrace } from '../activity-trace';
 import type { ActivitySummary } from '../activity-trace-model';
 import { UserMessage } from '../assistant-ui-panel';
@@ -403,14 +403,16 @@ describe('ActivityTrace (real browser)', () => {
       </div>
     );
 
-    // The headline span carries the trace's entry animation (`bs-trace-label`,
-    // `animation-fill-mode: both`), so it starts the frame at opacity 0 — in
-    // real Chromium `toBeVisible` reads that as hidden until the 250ms
-    // crossfade lands. Poll rather than sleep a fixed margin.
-    await vi.waitFor(() => expect(screen.getByText('Read 2 files, searched')).toBeVisible(), {
-      interval: 20,
-      timeout: 2000,
-    });
+    // Asserted synchronously since BST-1681 task 6. This used to poll: the
+    // headline carried `bs-trace-label` with `animation-fill-mode: both` on
+    // its very first paint, so it began the frame at opacity 0 and real
+    // Chromium read it as hidden until the 250ms crossfade landed. The
+    // entrance is now gated to an actual change of wording
+    // (`useLabelEnterClass`), and a first paint takes `bs-trace-label-static`
+    // — `animation: none`, opaque immediately. Nothing else on this row
+    // animates its opacity, so there is nothing left to wait for and a wait
+    // here would only hide a regression behind a 2s timeout.
+    expect(screen.getByText('Read 2 files, searched')).toBeVisible();
     expect(screen.getByText(/Worked for 12\.0s/)).toBeVisible();
     expect(screen.getByText(/5 steps/)).toBeVisible();
 

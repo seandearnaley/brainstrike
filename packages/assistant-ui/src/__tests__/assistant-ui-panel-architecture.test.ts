@@ -462,19 +462,66 @@ describe('assistant UI panel architecture', () => {
     expect(cssSource).toContain('[data-thread-render-tier="virtual"]');
   });
 
-  it('only animates the chain-of-thought pill while its own part is running', () => {
+  it('only animates the chain-of-thought row while its own part is running', () => {
     // This logic moved to assistant-activity-parts.tsx alongside the rest of
     // the reasoning disclosure (BST-1677 wave 1); wave 2 then moved it from
-    // per-GROUP to per-PART (each reasoning leaf owns its own pill/disclosure
+    // per-GROUP to per-PART (each reasoning leaf owns its own row/disclosure
     // now, so the group no longer computes a single running flag for all of
     // them) — the panel still never owns it.
     const partsSource = readSource('assistant-activity-parts.tsx');
     const cssSource = readSource('overrides.css');
 
     expect(partsSource).toContain("part.status.type === 'running'");
-    expect(partsSource).toContain('isStreaming ? (');
+    // BST-1681 moved the branch out of the JSX ternary into `ReasoningGlyph`'s
+    // early return (the row's glyph slot), but it is still the PART's own
+    // status that decides between the live and the static mark.
+    expect(partsSource).toContain('<ReasoningGlyph isStreaming={isStreaming} />');
+    expect(partsSource).toContain('if (isStreaming) {');
     expect(partsSource).toContain('assistant-reasoning-static-mark');
     expect(cssSource).toContain('.bs-thinking-mark-static');
+  });
+
+  it('honours reduced motion for the running step row shimmer', () => {
+    // Task 5 review, Minor 4. The shimmer on a running row's verb is
+    // STYLESHEET-owned (`.bs-thinking-shimmer` in overrides.css), not a
+    // `motion-reduce:` utility on the element — the browser lane has no
+    // Tailwind, and the subagent card's old `motion-reduce:animate-none`
+    // spinner went away when the row took over the liveness. So this block is
+    // the only thing that honours a reduced-motion preference for a running
+    // step, and nothing else asserts it exists.
+    //
+    // The two COMPOUND selectors are part of the same assertion since the
+    // Task 6 fix wave: the trace's live status label carries an entrance
+    // class and `.bs-thinking-shimmer` at once, and the compound rules that
+    // compose those two animations outrank the one-class reset — so dropping
+    // them from this list would leave exactly one element shimmering under a
+    // reduced-motion preference.
+    const cssSource = readSource('overrides.css');
+    expect(cssSource).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{[^}]*\.assistant-ui-panel \.bs-thinking-shimmer,\s*\.assistant-ui-panel \.bs-trace-label\.bs-thinking-shimmer,\s*\.assistant-ui-panel \.bs-trace-label-static\.bs-thinking-shimmer \{\s*animation: none;/
+    );
+    // Not vacuous: the row really does put that class on a running verb, and
+    // the trace really does put both classes on the live label at once.
+    expect(readSource('activity-step-row.tsx')).toContain("'bs-thinking-shimmer'");
+    expect(readSource('activity-trace.tsx')).toContain(
+      'bs-activity-live-label bs-thinking-shimmer '
+    );
+  });
+
+  it('honours reduced motion for the step row REVEAL animation', () => {
+    // Bot round 1, Claude Minor 8. Every step row mounts with
+    // `.bs-trace-reveal` (`RowShell`, both forms) and the phase-2 staggered
+    // entrance rides on it, so this is the second animation a reduced-motion
+    // preference has to stop — and, like the shimmer, it is STYLESHEET-owned
+    // (the browser lane has no Tailwind, so `motion-reduce:` utilities would
+    // be inert there). CDT measured `animation-name: none` on all rows under
+    // the preference; nothing else pins the rule that produces it.
+    const cssSource = readSource('overrides.css');
+    expect(cssSource).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{\s*\.assistant-ui-panel \.bs-trace-label,\s*\.assistant-ui-panel \.bs-trace-reveal \{\s*animation: none;/
+    );
+    // Not vacuous: every row form really does carry the class.
+    expect(readSource('activity-step-row.tsx')).toContain('bs-step-row bs-trace-reveal');
   });
 
   it('keeps the "static thinking mark" CSS hook confined to assistant-thinking-indicator.tsx', () => {

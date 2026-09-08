@@ -44,6 +44,10 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
   ) as SubagentDelegationOutcome | undefined;
   const liveRows = useMemo(() => JSON.parse(liveRowsJson) as SubAgentToolRow[], [liveRowsJson]);
   return createElement(SubagentExecutionCard, {
+    // Conditional spread, not `isError: props.isError`: under
+    // `exactOptionalPropertyTypes` an optional prop may be absent but never
+    // explicitly `undefined`.
+    ...(props.isError === undefined ? {} : { isError: props.isError }),
     liveRows,
     ...(outcome ? { outcome } : {}),
     result: props.result,

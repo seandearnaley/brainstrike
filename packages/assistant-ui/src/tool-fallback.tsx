@@ -1,17 +1,8 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { isRevertibleCaptureStatus } from '@brainstrike/assistant-contract';
-import { isDeclinedToolCallResult } from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
-import {
-  AlertCircle,
-  CheckCircle,
-  ChevronDown,
-  ChevronUp,
-  CircleDashed,
-  CircleSlash,
-  Undo2,
-} from 'lucide-react';
+import { Undo2 } from 'lucide-react';
 import {
   type ComponentProps,
   type ReactElement,
@@ -20,6 +11,15 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { StepRowHeader } from './activity-step-row';
+import {
+  type ActivityStepState,
+  readResultError,
+  runPythonStepState,
+  TOOL_EXECUTION_FAILED_MESSAGE,
+  toolStepStateFor,
+} from './activity-trace-model';
+import { verbForTool } from './activity-verbs';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
@@ -46,145 +46,84 @@ type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
 type ToolStatus = ToolFallbackProps['status'];
 type ToolResult = ToolFallbackProps['result'];
 
-type DisplayStatus = 'running' | 'error' | 'stopped' | 'success' | 'unknown';
-
-const STATUS_LABELS: Record<DisplayStatus, string> = {
-  error: 'Failed',
-  running: 'Running',
-  stopped: 'Stopped',
-  success: 'Completed',
-  unknown: 'Unknown',
-};
-
-const STATUS_ICONS: Record<DisplayStatus, ReactElement> = {
-  error: <AlertCircle className="size-4 text-destructive" />,
-  running: <CircleDashed className="size-4 text-muted-foreground" />,
-  stopped: <CircleSlash className="size-4 text-muted-foreground" />,
-  success: <CheckCircle className="size-4 text-green-600 dark:text-green-500" />,
-  unknown: <CheckCircle className="size-4 text-muted-foreground" />,
-};
-
 /**
- * BST-1070: the CARD-level status for a settled `run_python` result. The
- * generic path renders a green check for any error-free result, which would
- * lie for three of this tool's five states: cancelled/timed-out/killed runs
- * did not complete (design rule: cancelled NEVER renders as success) and an
- * `unavailable` result means nothing ran at all (destructive). A non-zero
- * exit stays `success` at the card level — the tool call completed; the
- * result surface right below carries the amber "finished with an error".
- */
-function runPythonDisplayStatus(result: RunPythonDisplayResult): DisplayStatus {
-  switch (result.kind) {
-    case 'completed':
-      return 'success';
-    case 'unavailable':
-      return 'error';
-    default:
-      // timed_out / killed / cancelled / network_denied / declined: the run
-      // stopped without completing — network_denied and declined by the
-      // user's explicit choice.
-      return 'stopped';
-  }
-}
-
-/**
- * Narrows a settled `run_python` result and resolves the card status in one
- * place (kept out of ToolFallback for cognitive-complexity budget). A shape
- * that fails narrowing (malformed or future) stays on the generic path with
- * the generic status — never an invented surface.
+ * The card's state, and the structured `run_python` result it may render
+ * beneath the row.
  *
- * The structured mapping only ever OVERRIDES a generic `success`: `running`
- * and `incomplete` must keep winning, or a transport abort's `status.error`
- * would vanish behind a Completed/Stopped card and a still-running call would
- * lose its thinking indicator.
+ * The state is `toolStepStateFor` and nothing else — the SAME derivation the
+ * trace headline, the step rows and the task-list/subagent cards read. The
+ * two readings this card used to layer on top of it (the declined envelope,
+ * and `run_python`'s own five-arm mapping) moved INTO that function in
+ * BST-1681 phase 3: while they lived here a declined call read `Stopped` on
+ * the card and `Completed` in the headline at the same time. There is no
+ * card-only state left to resolve.
+ *
+ * The narrowing survives here for RENDERING only, gated by an IDENTITY check:
+ * the structured surface renders exactly when this result is what PRODUCED
+ * the card's state — i.e. `runPythonStepState` of it equals the state on
+ * screen. That is not the same as "never under non-`done` chrome", and
+ * deliberately so: a settled run whose own payload reads `unavailable` DOES
+ * show its surface under failed chrome, and one reading `timed_out`/`killed`
+ * under stopped chrome, because in each case that payload IS the reason for
+ * the state and is the detail the user came for. What the check excludes is a
+ * surface that would explain something else — a still-running
+ * or approval-gated call shows none however complete its payload looks, and a
+ * transport abort keeps its own error line instead of a stale success pane.
  */
 function resolveCardStatus(
   toolName: string,
   status: ToolStatus,
   result: ToolResult,
   isErrorResult: boolean
-): { displayStatus: DisplayStatus; runPythonResult: RunPythonDisplayResult | null } {
-  const hasResult = result !== undefined;
-  const generic = resolveDisplayStatus(status, hasResult, result, isErrorResult);
-  if (generic !== 'success') {
-    // Generic path owns the card (running / incomplete / error-shaped): no
-    // structured surface either, or it would render under Failed chrome.
-    return { displayStatus: generic, runPythonResult: null };
-  }
-  const runPythonResult =
+): { glyphState: ActivityStepState; runPythonResult: RunPythonDisplayResult | null } {
+  const glyphState = toolStepStateFor({ isError: isErrorResult, result, status, toolName });
+  const narrowed =
     toolName === NATIVE_TOOL_ID.runPython ? narrowRunPythonDisplayResult(result) : null;
-  if (runPythonResult) {
-    return { displayStatus: runPythonDisplayStatus(runPythonResult), runPythonResult };
-  }
-  // BST-1282: a call the user DECLINED at its approval gate settles with the
-  // shared `DeclinedToolCallResult` envelope and no error flag. Left on the
-  // generic path it would earn a green Completed for a tool that never ran, so
-  // it takes the same muted `stopped` treatment run_python already reserves for
-  // a decline — and never the destructive Failed chrome, because nothing broke.
   return {
-    displayStatus: isDeclinedToolCallResult(result) ? 'stopped' : 'success',
-    runPythonResult: null,
+    glyphState,
+    runPythonResult: narrowed && runPythonStepState(narrowed) === glyphState ? narrowed : null,
   };
 }
+
+/**
+ * The states whose verb reads in the ACTIVE tense: the step has not finished,
+ * so the done tense would assert an outcome that does not exist yet. `waiting`
+ * belongs here with `running` — an approval gate has not started the call, and
+ * the glyph beside the verb is what says why it is standing still.
+ */
+const ACTIVE_TENSE_STATES: ReadonlySet<ActivityStepState> = new Set<ActivityStepState>([
+  'running',
+  'waiting',
+]);
 
 const isIncompleteStatus = (
   status: ToolStatus
 ): status is ToolStatus & { type: 'incomplete'; error?: unknown; reason?: unknown } =>
   status.type === 'incomplete';
 
-const readResultErrorMessage = (result: ToolResult, isErrorResult = false): string | undefined => {
-  if (typeof result === 'string') {
-    return;
-  }
-  if (!(result && typeof result === 'object')) {
-    return;
-  }
-
-  const record = result as Record<string, unknown>;
-  const error = record['error'];
-  if (typeof error === 'string' && error.length > 0) {
-    return error;
-  }
-  if (record['ok'] === false && error && typeof error === 'object' && !Array.isArray(error)) {
-    const message = (error as Record<string, unknown>)['message'];
-    if (typeof message === 'string' && message.length > 0) {
-      return message;
-    }
-  }
-  if (isErrorResult || record['isError'] === true) {
-    return 'Tool execution failed.';
-  }
-  return;
-};
-
-const resolveDisplayStatus = (
-  status: ToolStatus,
-  hasResult: boolean,
-  result: ToolResult,
-  isErrorResult: boolean
-): DisplayStatus => {
-  if (status.type === 'running') {
-    return 'running';
-  }
-  if (status.type === 'incomplete') {
-    return 'error';
-  }
-  if (readResultErrorMessage(result, isErrorResult)) {
-    return 'error';
-  }
-  if (hasResult) {
-    return 'success';
-  }
-  return 'unknown';
-};
-
+/**
+ * The card's error LINE, from the same reader the state machine uses.
+ *
+ * `readResultError` (`activity-trace-model.ts`) is the only place that decides
+ * what "this result states an error" means, so the line the card paints and
+ * the `failed` verdict the trace counts can never disagree about a shape
+ * (bot round 1, Claude Important 2 — the card's own copy of the shape list had
+ * already drifted on `ok: true`). The part-level `isError` flag stays a
+ * SEPARATE branch: it is a signal about the call, not something the result
+ * states, so it only supplies the generic message when the result itself
+ * states none.
+ */
 const resolveErrorMessage = (
   status: ToolStatus,
   result: ToolResult,
   isErrorResult: boolean
 ): string | undefined => {
   if (!isIncompleteStatus(status)) {
-    return readResultErrorMessage(result, isErrorResult);
+    const stated = readResultError(result);
+    if (stated !== null) {
+      return stated;
+    }
+    return isErrorResult ? TOOL_EXECUTION_FAILED_MESSAGE : undefined;
   }
 
   if (typeof status.error === 'string') {
@@ -246,13 +185,26 @@ function extractResolvedRootName(result: ToolResult): string | undefined {
 
 /**
  * ToolFallback renders a tool call as the most prominent element in the run:
- * a tinted card with a single-line header (status, tool name, primary
- * argument, result summary) and collapsible Arguments/Result panes.
+ * a tinted card whose header IS the shared activity step row (BST-1681) —
+ * family icon, verb in tense, target chip, timing, state glyph — over
+ * collapsible Arguments/Result panes.
  *
- * Handles three states:
- * - Running: shows the thinking indicator inline (no expander yet)
- * - Success: shows result summary; details available behind the expander
- * - Error: shows the error message inline in red
+ * Its state comes from `toolStepStateFor` and from nothing else — the SAME
+ * derivation the trace headline and the group's step rows use, with no
+ * card-only overrides left on top of it, so a step can never read one state
+ * here and another there:
+ * - `running`: live glyph + progress label; nothing to expand yet, so the row
+ *   is not a button
+ * - `waiting`: a LIVE pause — the part's status is `requires-action`, so the
+ *   row reads "Waiting for approval"
+ * - `done`: shows the result summary; the ROW is the expander for the details.
+ *   A resultless call on a settled message lands here too: after a reload the
+ *   thread carries no record that the pause was ever abandoned, and inventing
+ *   one on the card would contradict the trace. Recording that outcome is
+ *   persistence work (BST-1678), not something the card may guess at.
+ * - `cancelled`: stopped without completing (an `incomplete`/cancelled status,
+ *   a decline, a stopped run_python) — muted, never destructive chrome
+ * - `failed`: shows the error message inline in red under the row
  */
 export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   const {
@@ -282,16 +234,23 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   const detailsId = useId();
 
   const hasResult = result !== undefined;
-  const { displayStatus, runPythonResult } = resolveCardStatus(
+  const { glyphState, runPythonResult } = resolveCardStatus(
     toolName,
     status,
     result,
     isErrorResult
   );
-  const statusIcon = STATUS_ICONS[displayStatus];
-  const statusText = STATUS_LABELS[displayStatus];
-  const isRunning = displayStatus === 'running';
-  const isError = displayStatus === 'error';
+  const verb = verbForTool(toolName);
+  // A cancelled/failed step reads the past tense with the glyph carrying the
+  // state — consistent with the trace's resting summary, which lists failed
+  // verbs in the done tense too. A WAITING step does not: it is in flight,
+  // paused on the user, so it keeps the active tense on every surface (bot
+  // round 1, Claude Important 3 — "Ran rm -rf build" under a Waiting glyph
+  // asserted something that had not happened; the subagent card already read
+  // its waiting rows as "Delegating to <persona>").
+  const verbLabel = ACTIVE_TENSE_STATES.has(glyphState) ? verb.active : verb.done;
+  const isRunning = glyphState === 'running';
+  const isError = glyphState === 'failed';
   // BST-849: while the model streams a large tool input the card must visibly
   // move — received bytes off the raw (live) `argsText`, elapsed off the part
   // timing — or a two-minute file write reads exactly like a hung run.
@@ -321,66 +280,59 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
       data-testid="tool-fallback"
       data-tool-category={category}
     >
-      <div className="flex min-w-0 items-center gap-2 px-2 py-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              aria-label={statusText}
-              className={`inline-flex shrink-0 ${isError ? 'text-destructive' : tint.rail}`}
-              role="img"
-            >
-              {statusIcon}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>{statusText}</TooltipContent>
-        </Tooltip>
-        <span className="flex min-w-0 flex-1 items-baseline gap-2">
-          <span
-            className={`shrink-0 font-medium font-mono text-xs ${
-              isError ? 'text-destructive' : 'text-foreground'
-            }`}
-          >
-            {toolName}
-          </span>
-          {primaryArg ? (
-            <span
-              className="truncate font-mono text-[11px] text-muted-foreground"
-              title={primaryArg.full}
-            >
-              {primaryArg.display}
-            </span>
-          ) : null}
-        </span>
-        <ToolRunTiming
-          argsStreaming={argsStreaming}
-          durationLabel={durationLabel}
-          isRunning={isRunning}
-          progressLabel={progressLabel}
+      <div className="bs-step-row-line px-1">
+        <StepRowHeader
+          family={verb.family}
+          label={isCollapsed ? 'Expand details' : 'Collapse details'}
+          state={glyphState}
+          stepId={toolCallId}
+          // The tool id when the args name no target (bot round 1, Claude
+          // Important 4): a bare "Read" beside an empty chip slot says strictly
+          // less than the id, which the row otherwise carries only as sr-only
+          // text and a `title`. Skipped when the verb already spells the id
+          // (`namesTool`: "Called legacy.echo"), or the row would read it
+          // twice. `targetTitle` stays the untruncated primary arg, so the
+          // tooltip never labels the id as an argument.
+          target={primaryArg?.display ?? (verb.namesTool ? null : toolName)}
+          timing={
+            <ToolRunTiming
+              argsStreaming={argsStreaming}
+              durationLabel={durationLabel}
+              isRunning={isRunning}
+              progressLabel={progressLabel}
+            />
+          }
+          toolName={toolName}
+          trailing={
+            <>
+              {resultSummary ? <span className="bs-step-row-meta">{resultSummary}</span> : null}
+              {resolvedRootName ? (
+                <span
+                  className="bs-step-row-meta"
+                  title={`Resolved workspace root: ${resolvedRootName}`}
+                >
+                  in {resolvedRootName}
+                </span>
+              ) : null}
+            </>
+          }
+          verb={verbLabel}
+          // Conditional spreads, not `prop={x ?? undefined}`: under
+          // `exactOptionalPropertyTypes` an optional prop may be absent but
+          // never explicitly `undefined`. The toggle trio travels together —
+          // a row with no details pane is not interactive at all.
+          {...(showDetails
+            ? {
+                bodyId: detailsId,
+                expanded: !isCollapsed,
+                onToggle: () => setUserCollapsed(!isCollapsed),
+              }
+            : {})}
+          {...(primaryArg?.full === undefined ? {} : { targetTitle: primaryArg.full })}
         />
-
-        {resultSummary ? (
-          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-            {resultSummary}
-          </span>
-        ) : null}
-        {resolvedRootName ? (
-          <span
-            className="max-w-36 shrink-0 truncate text-[11px] text-muted-foreground"
-            title={`Resolved workspace root: ${resolvedRootName}`}
-          >
-            in {resolvedRootName}
-          </span>
-        ) : null}
         {isRunning || isError ? null : (
           <CheckpointRevertButton toolCallId={toolCallId} toolName={toolName} />
         )}
-        {showDetails ? (
-          <DetailsToggleButton
-            detailsId={detailsId}
-            isCollapsed={isCollapsed}
-            onToggle={() => setUserCollapsed(!isCollapsed)}
-          />
-        ) : null}
       </div>
 
       {isError && errorMessage ? (
@@ -434,11 +386,18 @@ function ToolRunTiming({
       <AssistantThinkingIndicator
         // Shrinkable, unlike the settled duration: a label such as
         // "Receiving input · 999.9 KB · 9m 59s" must truncate in a narrow
-        // pane rather than squeeze the tool name out of its slot.
-        className="min-w-0 max-w-[60%] shrink text-xs tabular-nums"
+        // pane rather than squeeze the target chip out of its slot. That
+        // geometry belongs to the SLOT, not to this indicator, and lives in
+        // `.bs-step-row-timing` (overrides.css): the `max-w-[60%] shrink
+        // min-w-0` this used to carry sat inside the slot, where the
+        // percentage resolved against the slot's own width and `flex-shrink`
+        // was inert (the slot is a block container, not a flex one).
+        className="text-xs tabular-nums"
         data-args-streaming={argsStreaming ? 'true' : undefined}
         label={progressLabel}
-        markClassName="size-3.5"
+        // The row's state glyph already carries the live mark; a second one
+        // here would put two `[data-live="true"]` elements on one step.
+        showMark={false}
         textClassName="truncate"
       />
     );
@@ -623,33 +582,6 @@ function CheckpointRevertButton({
           file to its state when the turn began, not to just-before-this-edit. */}
       <TooltipContent>Restore this file to its state at turn start</TooltipContent>
     </Tooltip>
-  );
-}
-
-/** Expand/collapse control for a tool card's details panes. */
-function DetailsToggleButton({
-  detailsId,
-  isCollapsed,
-  onToggle,
-}: {
-  detailsId: string;
-  isCollapsed: boolean;
-  onToggle: () => void;
-}) {
-  const label = isCollapsed ? 'Expand details' : 'Collapse details';
-  return (
-    <Button
-      aria-controls={isCollapsed ? undefined : detailsId}
-      aria-expanded={!isCollapsed}
-      aria-label={label}
-      className="size-6 shrink-0 text-muted-foreground"
-      onClick={onToggle}
-      size="icon"
-      title={label}
-      variant="ghost"
-    >
-      {isCollapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
-    </Button>
   );
 }
 

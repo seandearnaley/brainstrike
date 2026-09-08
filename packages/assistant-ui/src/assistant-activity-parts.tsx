@@ -8,8 +8,11 @@ import {
   useAuiState,
 } from '@assistant-ui/react';
 import { cn } from '@brainstrike/ui';
-import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
+import { Brain } from 'lucide-react';
 import { type ReactNode, useId, useMemo, useState } from 'react';
+import { ActivityStepMetaProvider } from './activity-step-context';
+import { deriveStepMeta } from './activity-step-meta';
+import { StepRowHeader } from './activity-step-row';
 import { ActivityTrace, type ActivityTraceProps } from './activity-trace';
 import { deriveActivitySteps, summarizeActivity } from './activity-trace-model';
 import {
@@ -119,7 +122,32 @@ function ActivityToolPart(props: ToolCallMessagePartProps) {
 }
 
 /**
- * One reasoning part's own disclosure pill + panel (BST-1677 wave 2). Each
+ * The reasoning row's glyph slot. It replaces the generic state glyph rather
+ * than reusing it (BST-1681) because the reasoning mark carries the phase-1
+ * test ids the hydration-liveness invariant and the disclosure suite read:
+ * ONE live mark while the part streams, the static
+ * `assistant-reasoning-indicator` / `assistant-reasoning-static-mark` pair
+ * once it settles. The tense itself lives in the row's verb slot
+ * ("Thinking" / "Thought"), so neither branch renders text of its own.
+ */
+function ReasoningGlyph({ isStreaming }: { isStreaming: boolean }): ReactNode {
+  if (isStreaming) {
+    return <BrainstrikeThinkingMark className="size-4" testId="assistant-reasoning-live-mark" />;
+  }
+  return (
+    <span className="bs-thinking-indicator" data-testid="assistant-reasoning-indicator">
+      <BrainstrikeThinkingMark
+        className="size-4"
+        live={false}
+        testId="assistant-reasoning-static-mark"
+      />
+    </span>
+  );
+}
+
+/**
+ * One reasoning part's own disclosure row + panel (BST-1677 wave 2, re-skinned
+ * as the shared L1 step row in BST-1681). Each
  * reasoning leaf in a group owns its open/closed state independently — a
  * group with several thinking blocks (common once a group can hold many
  * tool calls) never opens or closes them together. Default open state
@@ -130,7 +158,7 @@ function ActivityToolPart(props: ToolCallMessagePartProps) {
  * `toolCallId`) — they are keyed by absolute part index instead, which stays
  * stable because streaming is append-only and group nodes keep their own
  * `nodeKey` as siblings append, so this block does not remount when a later
- * part (e.g. an intervening tool call) arrives. The pill's own label follows
+ * part (e.g. an intervening tool call) arrives. The row's own verb follows
  * the same signal in the past tense once it settles — "Thinking" while the
  * part streams, "Thought" once it does not (BST-1679). That is the same
  * predicate `deriveActivitySteps` applies to a reasoning part
@@ -153,40 +181,23 @@ function ActivityReasoningBlock({
 
   return (
     <ActivityPartLayout>
-      <button
-        aria-controls={panelId}
-        aria-expanded={open}
-        aria-label={reasoningToggleLabel(open)}
-        className="inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-border/70 bg-muted/20 px-2.5 text-left font-medium text-foreground text-xs transition-colors hover:bg-muted/35"
-        data-testid="local-chain-of-thought"
-        onClick={() => setUserOpen(!open)}
-        type="button"
-      >
-        {isStreaming ? (
-          <AssistantThinkingIndicator
-            className="min-w-0"
-            markClassName="size-4"
-            textClassName="truncate"
-          />
-        ) : (
-          <span
-            className="bs-thinking-indicator min-w-0"
-            data-testid="assistant-reasoning-indicator"
-          >
-            <BrainstrikeThinkingMark
-              className="size-4"
-              live={false}
-              testId="assistant-reasoning-static-mark"
-            />
-            <span className="truncate">Thought</span>
-          </span>
-        )}
-        {open ? (
-          <ChevronUpIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        )}
-      </button>
+      <StepRowHeader
+        bodyId={panelId}
+        // The panel below is ALWAYS mounted (only its content is gated on
+        // `open`), so unlike the tool / subagent / task cards this row's
+        // `aria-controls` never dangles and stays on in both states.
+        controlsAlwaysMounted
+        expanded={open}
+        family="other"
+        glyph={<ReasoningGlyph isStreaming={isStreaming} />}
+        icon={Brain}
+        label={reasoningToggleLabel(open)}
+        onToggle={() => setUserOpen(!open)}
+        state={isStreaming ? 'running' : 'done'}
+        target={null}
+        testId="local-chain-of-thought"
+        verb={isStreaming ? 'Thinking' : 'Thought'}
+      />
       <div
         className={cn(
           'bs-chain-of-thought-panel mt-2 empty:mt-0',
@@ -316,6 +327,12 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
     [groupParts, toolDurations]
   );
   const summary = useMemo(() => summarizeActivity(steps), [steps]);
+  // The one presentation fact a card cannot derive from its own props
+  // (BST-1681): which step is the group's LAST running one — the only row
+  // whose verb shimmers. Derived here, where the whole step list is known,
+  // and handed down through the provider; with two calls in flight, a card
+  // reading only its own status would shimmer both.
+  const stepMeta = useMemo(() => deriveStepMeta(steps), [steps]);
   const detail = useMemo(
     () =>
       steps.findLast((step) => step.kind === 'tool' && step.state === 'running')?.target ?? null,
@@ -337,16 +354,21 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
       {isFirstGroup && taskList ? <TodoProgress result={taskList} /> : null}
       <ToolDurationProvider durations={toolDurations}>
         <ShellOutputProvider outputs={shellOutputs}>
-          <ActivityTrace
-            detail={detail}
-            fallbackMs={activityFallbackMs}
-            incompleteReason={incompleteReason}
-            isActive={isActivityActive}
-            restingOverride={restingOverride}
-            summary={summary}
-          >
-            {children}
-          </ActivityTrace>
+          <ActivityStepMetaProvider meta={stepMeta}>
+            <ActivityTrace
+              detail={detail}
+              fallbackMs={activityFallbackMs}
+              incompleteReason={incompleteReason}
+              isActive={isActivityActive}
+              restingOverride={restingOverride}
+              summary={summary}
+            >
+              {/* `.bs-step-list` is what the reveal stagger counts
+                  (`:nth-child`), so each step keeps exactly ONE wrapper here
+                  — `ActivityPartLayout`'s div. */}
+              <div className="bs-step-list">{children}</div>
+            </ActivityTrace>
+          </ActivityStepMetaProvider>
         </ShellOutputProvider>
       </ToolDurationProvider>
     </div>

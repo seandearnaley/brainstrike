@@ -14,8 +14,10 @@ import {
   readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
 import { cn } from '@brainstrike/ui';
-import { use } from 'react';
+import { use, useId, useState } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
+import { StepRowHeader } from './activity-step-row';
+import { toolStepStateFor } from './activity-trace-model';
 import { McpTaskToolResult } from './mcp-task-tool-result';
 import {
   isSubagentDelegationToolName,
@@ -102,28 +104,70 @@ export function TodoProgress({ result }: TodoProgressProps): React.JSX.Element |
  * disclosure so the plan is not shown twice, while keeping the raw args/result
  * reachable behind the expander (ruling: hide the raw card body, keep raw args
  * reachable via the existing expander pattern).
+ *
+ * BST-1681: the disclosure is the shared L1 step row, not a `<details>` —
+ * every card inside an activity group reads as the same row grammar, and the
+ * verb carries the tense ("Updating tasks" while the call runs, "Updated
+ * tasks" once it settled) instead of the state-blind "Task list update".
+ * Local `useState` rather than the native element's own open state, because
+ * the row is a `<button>` with `aria-expanded`/`aria-controls`.
  */
-export const TaskListToolCard: ToolCallMessagePartComponent = ({ args, argsText, result }) => {
+export const TaskListToolCard: ToolCallMessagePartComponent = ({
+  args,
+  argsText,
+  isError = false,
+  result,
+  status,
+  toolCallId,
+}) => {
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
   const rawArgs = argsText ?? (args === undefined ? '' : JSON.stringify(args, null, 2));
   const rawResult = result === undefined ? undefined : JSON.stringify(result, null, 2);
+  // THE shared step state machine (task 5 review, Important 1) — the same one
+  // the trace headline and ToolFallback read. A local `running ? running :
+  // done` gave a cancelled or errored call a green Completed while the group
+  // that contains it called the same step Stopped/Failed.
+  const glyphState = toolStepStateFor({ isError, result, status });
+  const isRunning = glyphState === 'running';
+  const hasBody = Boolean(rawArgs) || rawResult !== undefined;
   return (
-    <details className="bs-tasklist-tool-card my-1 rounded-md border border-border/60 bg-background/40 text-xs">
-      <summary className="cursor-pointer select-none px-2.5 py-1 font-mono text-muted-foreground">
-        Task list update
-      </summary>
-      <div className="flex flex-col gap-1 px-2.5 pb-2">
-        {rawArgs ? (
-          <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
-            {rawArgs}
-          </pre>
-        ) : null}
-        {rawResult ? (
-          <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
-            {rawResult}
-          </pre>
-        ) : null}
-      </div>
-    </details>
+    <div className="bs-tasklist-tool-card my-1 rounded-md border border-border/60 bg-background/40 text-xs">
+      <StepRowHeader
+        family="tasks"
+        label={open ? 'Collapse details' : 'Expand details'}
+        state={glyphState}
+        // The group's last-running lookup is keyed by `toolCallId`; without it
+        // a task-list call that IS the group's last running step would be the
+        // one row that never shimmers.
+        stepId={toolCallId}
+        target={null}
+        toolName={NATIVE_TOOL_ID.manageTaskList}
+        verb={isRunning ? 'Updating tasks' : 'Updated tasks'}
+        // The toggle trio travels together, as it does in ToolFallback (bot
+        // round 1, Claude Minor 9): with neither raw args nor a raw result
+        // the body would be empty, so the row renders as its non-interactive
+        // form instead of a button promising details that do not exist.
+        // Conditional spread, not `x ?? undefined`: under
+        // `exactOptionalPropertyTypes` an optional prop may be absent but
+        // never explicitly `undefined`.
+        {...(hasBody ? { bodyId, expanded: open, onToggle: () => setOpen(!open) } : {})}
+      />
+      {open ? (
+        <div className="flex flex-col gap-1 px-2.5 pb-2" id={bodyId}>
+          {rawArgs ? (
+            <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
+              {rawArgs}
+            </pre>
+          ) : null}
+          {rawResult ? (
+            <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
+              {rawResult}
+            </pre>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 };
 

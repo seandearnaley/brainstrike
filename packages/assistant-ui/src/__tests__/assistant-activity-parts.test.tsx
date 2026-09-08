@@ -57,11 +57,16 @@ describe('AssistantActivityParts (hydrated messages)', () => {
         initialMessages={[{ content: [completedReasoning], role: 'assistant' }]}
       />
     );
-    expect(await screen.findByTestId('assistant-reasoning-indicator')).toHaveTextContent('Thought');
+    // Since BST-1681 the reasoning disclosure is a step row: the tense lives
+    // in the row's verb slot and the indicator span carries the static mark.
+    const row = await screen.findByTestId('local-chain-of-thought');
+    expect(within(row).getByText('Thought', { exact: true })).toBeInTheDocument();
+    expect(within(row).getByTestId('assistant-reasoning-indicator')).toBeInTheDocument();
     expect(screen.getByTestId('assistant-reasoning-static-mark')).toHaveClass(
       'bs-thinking-mark-static'
     );
     expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-reasoning-live-mark')).not.toBeInTheDocument();
   });
 
   it('summarizes the tool calls within one activity group', async () => {
@@ -116,6 +121,47 @@ describe('AssistantActivityParts (hydrated messages)', () => {
     const group = screen.getByTestId('assistant-activity-group');
     expect(group.contains(text)).toBe(false);
   });
+
+  // The WRAPPER half of the part-level `isError` forward (Task 6 review,
+  // Important 2). `subagent-execution-card.test.tsx` pins the presentational
+  // card's reading of the flag by handing it the prop directly; nothing pinned
+  // that `SubagentExecutionCardConnected` actually FORWARDS `props.isError`
+  // from the tool part — the conditional spread that does it could be deleted
+  // and every card-level test would stay green. This case runs the real
+  // registered component through the harness: a settled delegation whose
+  // status is `complete` and whose result never states a failure, flagged
+  // errored by the runtime alone.
+  it('forwards a delegation part’s isError flag through the registered card: the row reads Explorer failed', async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: [
+              {
+                args: {},
+                argsText: '{}',
+                isError: true,
+                result: { subAgentToolResults: [], text: 'Found it.' },
+                toolCallId: 'delegate-errored',
+                toolName: 'agent-explore',
+                type: 'tool-call' as const,
+              },
+            ],
+            role: 'assistant',
+          },
+        ]}
+      />
+    );
+    const group = await screen.findByTestId('assistant-activity-group');
+    // A done group auto-collapses, so the delegation row is hidden until the
+    // user opens it — the flag's effect is on the ROW, not on the headline.
+    await user.click(screen.getByTestId('assistant-activity-summary'));
+    expect(within(group).getByText('Explorer failed')).toBeInTheDocument();
+    expect(within(group).queryByText('Explorer finished')).not.toBeInTheDocument();
+    expect(within(group).getByRole('img', { name: 'Failed' })).toBeInTheDocument();
+  });
 });
 
 describe('AssistantActivityParts (running reasoning, real runtime)', () => {
@@ -142,10 +188,14 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       if (!fold) {
         throw new Error('Expected a reasoning toggle.');
       }
-      expect(within(fold).getByTestId('assistant-thinking-indicator')).toBeInTheDocument();
-      const mark = within(fold).getByTestId('assistant-thinking-mark');
+      // BST-1681: the row's glyph slot holds the live mark itself (the verb
+      // slot next to it already reads "Thinking"), so the streaming row
+      // carries exactly one `[data-live="true"]` element.
+      const mark = within(fold).getByTestId('assistant-reasoning-live-mark');
       expect(mark).toHaveAttribute('data-tone', 'greyscale');
       expect(mark).toHaveAttribute('data-live', 'true');
+      expect(fold.querySelectorAll('[data-live="true"]')).toHaveLength(1);
+      expect(within(fold).getByText('Thinking', { exact: true })).toBeInTheDocument();
       expect(within(fold).queryByTestId('assistant-reasoning-static-mark')).toBeNull();
       expect(fold).toHaveAttribute('aria-expanded', 'true');
       expect(screen.getByText('Thinking hard.')).toBeVisible();
@@ -198,11 +248,12 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       expect(staticMark).toHaveClass('bs-thinking-mark-static');
       expect(staticMark).toHaveAttribute('data-live', 'false');
       // Scoped to the fold: a running tool card legitimately renders its own
-      // thinking indicator inside the group body, so asserting on `screen`
-      // directly here would be a false negative for this check. (The
-      // message-level `indicator` slot is suppressed once an activity part
-      // exists — pinned below.)
-      expect(within(fold).queryByTestId('assistant-thinking-indicator')).toBeNull();
+      // live mark inside the group body, so asserting on `screen` directly
+      // here would be a false negative for this check. (The message-level
+      // `indicator` slot is suppressed once an activity part exists — pinned
+      // below.)
+      expect(within(fold).queryByTestId('assistant-reasoning-live-mark')).toBeNull();
+      expect(fold.querySelectorAll('[data-live="true"]')).toHaveLength(0);
       expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-active', 'true');
       // The reasoning part already settled once the tool call started
       // streaming in the same chunk, so the header names the running TOOL
@@ -518,6 +569,54 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
     const liveElements = document.querySelectorAll('[data-live="true"]');
     expect(liveElements).toHaveLength(1);
     expect(liveElements[0]).toHaveAttribute('data-testid', 'assistant-activity-working-mark');
+  });
+
+  // The other half of the same pause, one level down (BST-1681 task 6): the
+  // header names it, and the STEP ROW inside the group has to agree. The row
+  // reads the ACTIVE tense with the glyph carrying the state (bot round 1,
+  // Claude Important 3 — the done tense read "Ran rm x" of a command that has
+  // not run, which is the one thing a step row must never assert), and it
+  // stays static: the gate is on the USER, so nothing in the row may pulse.
+  // The group's single live mark is the header's own, which is what makes the
+  // one pulsing thing on screen the thing that is actually waiting.
+  it('renders the gated call as a static Waiting for approval step row', async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: [
+              tool('x', {
+                args: { command: 'rm x' },
+                argsText: '{"command":"rm x"}',
+                result: undefined,
+                toolName: 'brainstrike.executeCommand',
+              }),
+            ],
+            role: 'assistant',
+            status: { reason: 'interrupt', type: 'requires-action' },
+          },
+        ]}
+      />
+    );
+    const group = await screen.findByTestId('assistant-activity-group');
+    await user.click(within(group).getByRole('button', { name: 'Expand activity' }));
+
+    const row = within(group).getByTestId('activity-step-row');
+    expect(within(row).getByText('Running', { exact: true })).toBeInTheDocument();
+    expect(within(row).queryByText('Ran', { exact: true })).toBeNull();
+    expect(within(row).getByRole('img', { name: 'Waiting for approval' })).toBeInTheDocument();
+    expect(row.querySelectorAll('[data-live="true"]')).toHaveLength(0);
+
+    // The header still owns the pause, and owns the ONLY live mark in the
+    // whole group — row included.
+    expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
+      'Waiting for approval'
+    );
+    const live = group.querySelectorAll('[data-live="true"]');
+    expect(live).toHaveLength(1);
+    expect(live[0]).toHaveAttribute('data-testid', 'assistant-activity-working-mark');
   });
 
   // Same pause, one part later: the library's `GroupPart.status` mirrors the

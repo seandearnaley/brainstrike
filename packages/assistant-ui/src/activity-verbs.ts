@@ -41,10 +41,20 @@ export interface ActivityVerb {
   readonly done: string;
   /** Icon/colour family for the step row (phase 3) and summary grouping. */
   readonly family: VerbFamily;
+  /**
+   * Set on the generic fallbacks ("Calling server.tool", "Using x"), whose
+   * wording already carries the tool id — so a row must not repeat the id as
+   * its target chip (it would read "Called legacy.echo · legacy.echo").
+   */
+  readonly namesTool?: true;
 }
 
 const verb = (active: string, done: string, family: VerbFamily): ActivityVerb =>
   Object.freeze({ active, done, family });
+
+/** A fallback verb that spells the tool id itself (see `ActivityVerb.namesTool`). */
+const namingVerb = (active: string, done: string, family: VerbFamily): ActivityVerb =>
+  Object.freeze({ active, done, family, namesTool: true });
 
 /** A verb whose target is a file, so the resting summary folds a file count. */
 const fileVerb = (
@@ -138,7 +148,7 @@ export function verbForTool(toolName: string): ActivityVerb {
     return verb(`Delegating to ${label}`, `Delegated to ${label}`, 'delegate');
   }
   if (toolName.includes('.') && !toolName.startsWith('brainstrike.')) {
-    return verb(`Calling ${toolName}`, `Called ${toolName}`, 'call');
+    return namingVerb(`Calling ${toolName}`, `Called ${toolName}`, 'call');
   }
-  return verb(`Using ${toolName}`, `Used ${toolName}`, 'other');
+  return namingVerb(`Using ${toolName}`, `Used ${toolName}`, 'other');
 }

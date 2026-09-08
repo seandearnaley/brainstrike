@@ -380,6 +380,201 @@ describe('assistant activity chronology through the real runtime', () => {
     }
   }, 20_000);
 
+  // BST-1681 task 5: every card in a group body renders the same L1 step row
+  // — reasoning included — in part order, and the GROUP is what tells a row
+  // whether it is the last running step. That fact cannot be derived by a
+  // card from its own props: with two calls running in parallel, both would
+  // otherwise shimmer. Scoped to `.bs-step-row-verb` on purpose: a running
+  // card's TIMING slot legitimately carries its own shimmering progress
+  // label, which is not what the last-running rule is about.
+  it('renders one step row per card in part order, shimmering only the last running step', async () => {
+    const finish = deferred();
+    const adapter: ChatModelAdapter = {
+      async *run() {
+        yield {
+          content: [
+            { text: 'Looking.', type: 'reasoning' as const },
+            {
+              args: { path: 'a.ts' },
+              argsText: '{"path":"a.ts"}',
+              result: { ok: true },
+              toolCallId: 'read-a',
+              toolName: 'brainstrike.readWorkspaceFile',
+              type: 'tool-call' as const,
+            },
+            {
+              args: { path: 'b.ts' },
+              argsText: '{"path":"b.ts"}',
+              toolCallId: 'read-b',
+              toolName: 'brainstrike.readWorkspaceFile',
+              type: 'tool-call' as const,
+            },
+            {
+              args: { pattern: 'flag' },
+              argsText: '{"pattern":"flag"}',
+              toolCallId: 'grep-c',
+              toolName: 'brainstrike.grepSearch',
+              type: 'tool-call' as const,
+            },
+          ],
+        };
+        await finish.promise;
+      },
+    };
+    const user = userEvent.setup();
+    render(<Harness adapter={adapter} />);
+    try {
+      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+      await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
+      const group = screen.getByTestId('assistant-activity-group');
+      const rows = [
+        ...group.querySelectorAll(
+          '[data-testid="local-chain-of-thought"], [data-testid="activity-step-row"]'
+        ),
+      ];
+      expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual([
+        'local-chain-of-thought',
+        'activity-step-row',
+        'activity-step-row',
+        'activity-step-row',
+      ]);
+      const verbs = rows.map((row) => row.querySelector('.bs-step-row-verb'));
+      expect(verbs.map((verb) => verb?.textContent)).toEqual([
+        'Thought',
+        'Read',
+        'Reading',
+        'Searching',
+      ]);
+      expect(verbs.map((verb) => verb?.classList.contains('bs-thinking-shimmer'))).toEqual([
+        false,
+        false,
+        false,
+        true,
+      ]);
+    } finally {
+      await act(async () => {
+        finish.release();
+      });
+    }
+  }, 20_000);
+
+  // Task 5 review, Important 3: the migrated cards (delegation, task list)
+  // must hand the row their `toolCallId` as `stepId`, or the group's
+  // last-running lookup misses them and the ONE row that should shimmer —
+  // the group's last running step — is the one row that never does. Killing
+  // test: a running delegation AFTER a running read, so "shimmer the last
+  // running step" and "shimmer whatever is running" disagree.
+  it("shimmers a running delegation row when it is the group's last running step", async () => {
+    const finish = deferred();
+    const adapter: ChatModelAdapter = {
+      async *run() {
+        yield {
+          content: [
+            { text: 'Looking.', type: 'reasoning' as const },
+            {
+              args: { path: 'b.ts' },
+              argsText: '{"path":"b.ts"}',
+              toolCallId: 'read-b',
+              toolName: 'brainstrike.readWorkspaceFile',
+              type: 'tool-call' as const,
+            },
+            {
+              args: { prompt: 'find the flag' },
+              argsText: '{"prompt":"find the flag"}',
+              toolCallId: 'delegate-d',
+              toolName: 'agent-explore',
+              type: 'tool-call' as const,
+            },
+          ],
+        };
+        await finish.promise;
+      },
+    };
+    const user = userEvent.setup();
+    render(<Harness adapter={adapter} />);
+    try {
+      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+      await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
+      const group = screen.getByTestId('assistant-activity-group');
+      const verbs = [
+        ...group.querySelectorAll(
+          '[data-testid="local-chain-of-thought"], [data-testid="activity-step-row"]'
+        ),
+      ].map((row) => row.querySelector('.bs-step-row-verb'));
+      expect(verbs.map((verb) => verb?.textContent)).toEqual([
+        'Thought',
+        'Reading',
+        'Delegating to Explorer',
+      ]);
+      expect(verbs.map((verb) => verb?.classList.contains('bs-thinking-shimmer'))).toEqual([
+        false,
+        false,
+        true,
+      ]);
+    } finally {
+      await act(async () => {
+        finish.release();
+      });
+    }
+  }, 20_000);
+
+  it("shimmers a running task-list row when it is the group's last running step", async () => {
+    const finish = deferred();
+    const adapter: ChatModelAdapter = {
+      async *run() {
+        yield {
+          content: [
+            { text: 'Looking.', type: 'reasoning' as const },
+            {
+              args: { path: 'b.ts' },
+              argsText: '{"path":"b.ts"}',
+              toolCallId: 'read-b',
+              toolName: 'brainstrike.readWorkspaceFile',
+              type: 'tool-call' as const,
+            },
+            {
+              args: { merge: true },
+              argsText: '{"merge":true}',
+              toolCallId: 'tasks-t',
+              toolName: 'brainstrike.manageTaskList',
+              type: 'tool-call' as const,
+            },
+          ],
+        };
+        await finish.promise;
+      },
+    };
+    const user = userEvent.setup();
+    render(<Harness adapter={adapter} />);
+    try {
+      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+      await user.click(await screen.findByRole('button', { name: 'Expand activity' }));
+      const group = screen.getByTestId('assistant-activity-group');
+      const verbs = [
+        ...group.querySelectorAll(
+          '[data-testid="local-chain-of-thought"], [data-testid="activity-step-row"]'
+        ),
+      ].map((row) => row.querySelector('.bs-step-row-verb'));
+      expect(verbs.map((verb) => verb?.textContent)).toEqual([
+        'Thought',
+        'Reading',
+        'Updating tasks',
+      ]);
+      expect(verbs.map((verb) => verb?.classList.contains('bs-thinking-shimmer'))).toEqual([
+        false,
+        false,
+        true,
+      ]);
+    } finally {
+      await act(async () => {
+        finish.release();
+      });
+    }
+  }, 20_000);
+
   it('reads a model-written resting summary from message metadata when present', async () => {
     render(
       <Harness

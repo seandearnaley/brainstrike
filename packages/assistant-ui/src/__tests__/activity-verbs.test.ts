@@ -104,6 +104,7 @@ describe('verbForTool', () => {
       active: 'Calling linear.get_issue',
       done: 'Called linear.get_issue',
       family: 'call',
+      namesTool: true,
     });
   });
 
@@ -112,6 +113,16 @@ describe('verbForTool', () => {
       active: 'Using mystery',
       done: 'Used mystery',
       family: 'other',
+      namesTool: true,
     });
+  });
+});
+
+describe('namesTool', () => {
+  it('is set only on the generic fallbacks whose wording spells the tool id', () => {
+    expect(verbForTool('legacy.echo').namesTool).toBe(true);
+    expect(verbForTool('mystery_tool').namesTool).toBe(true);
+    expect(verbForTool(NATIVE_TOOL_ID.readWorkspaceFile).namesTool).toBeUndefined();
+    expect(verbForTool('agent-explore').namesTool).toBeUndefined();
   });
 });

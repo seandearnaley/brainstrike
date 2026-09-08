@@ -74,6 +74,16 @@ describe('ToolFallback streamed-input progress (BST-849)', () => {
     expect(indicator()).not.toHaveTextContent('Receiving input');
   });
 
+  it('carries no live mark of its own — the row state glyph is the only one', () => {
+    // BST-1681: the timing slot sits beside the step row's state glyph, which
+    // already renders the live mark. A second `data-live` element here would
+    // put two pulsing marks on one step (and break the hydration-liveness
+    // count).
+    renderTool({ argsText: '{"path":"a.ts"}', state: 'call' });
+    expect(indicator().querySelectorAll('[data-live]')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(1);
+  });
+
   it('ticks an elapsed timer off the part timing while running', () => {
     const startedAt = Date.now() - 41_500;
     renderTool({ argsText: 'x'.repeat(40), state: 'partial-call', timing: { startedAt } });

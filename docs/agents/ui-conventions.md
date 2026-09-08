@@ -725,7 +725,9 @@ reusable rather than one-off:
 - `.bs-trace-collapse` / `.bs-trace-collapse-inner` — `grid-template-rows: 0fr
   ↔ 1fr` disclosure, no measured heights.
 - `.bs-trace-reveal` — a one-shot fade-up with a `--bs-stagger` index capped
-  at 5 (reserved for phase 3's step-row list).
+  at 5, read through `var(--bs-stagger, 0)` because the index is set on an
+  ANCESTOR and inherited (never declared on the revealed element itself, which
+  would shadow it); phase 3 wires it to `.bs-step-list`'s step rows (below).
 - `.bs-trace-detail` — a fixed one-line slot under the header while running,
   so the header's own height never changes (the thread's scroll-anchoring
   rule).
@@ -745,5 +747,76 @@ Contrast strips the gradient, so the fallback swaps to a solid `CanvasText`.
 Primitives whose animation is only opacity/transform (`.bs-trace-label`,
 `.bs-trace-collapse`, `.bs-trace-reveal`) need no forced-colors override —
 they never hide text behind a color trick.
+
+The trace's LIVE status label is the one element that carries a
+`.bs-trace-label`/`.bs-trace-label-static` entrance class AND
+`.bs-thinking-shimmer` at once (`LiveSummary`, `activity-trace.tsx`); both
+rules declare the `animation` shorthand at equal specificity, so the
+shimmer — declared later in the stylesheet — silently replaced the entrance
+outright and the crossfade never ran (phase-2 defect, found in Task 6
+review). Two compound rules,
+`.bs-trace-label.bs-thinking-shimmer` /
+`.bs-trace-label-static.bs-thinking-shimmer` (`overrides.css`), compose the
+two instead of letting one erase the other, listing both keyframes in the
+comma-separated `animation` list; each single-class shorthand is repeated
+verbatim rather than merged (a shorthand cannot inherit a peer's value), so a
+change to either must be mirrored in the compound rule, and the
+`prefers-reduced-motion` reset lists both compound selectors explicitly
+alongside the one-class primitives, since the three-class specificity would
+otherwise survive the generic reset.
+
+### Step rows
+
+L1 step rows (`docs/agents/assistant-runtime.md` § ACTIVITY GROUPS, "L1 step
+rows / L2 bodies") are the shared `StepRowHeader` grammar
+(`activity-step-row.tsx`) every card inside an activity trace renders through
+— `ToolFallback`, `SubagentExecutionCard`, `TaskListToolCard`, and the
+reasoning block: family icon · verb in tense (the active form while the step
+is `running` OR `waiting` — a gated call has not run yet) · target chip (the
+tool id when the args name no primary arg) · timing (rendered only when the
+caller supplies one) · state glyph · chevron, one row per step in part order.
+A row with a body is a real `<button>`; a row with none is a non-interactive
+`role="group"` — never a disabled button standing in for "nothing to expand".
+That includes a `TaskListToolCard` with neither raw args nor a raw result: the
+`bodyId`/`expanded`/`onToggle` trio travels together, exactly as in
+`ToolFallback`.
+
+Geometry is stylesheet-owned, not utility classes, because the browser
+vitest lane loads no Tailwind preflight (`overrides.css`): `.bs-step-row`
+itself owns `box-sizing: border-box`, `width: 100%` and `flex: 1 1 0%`; a
+sibling control sharing `.bs-step-row-line` with it (the checkpoint revert
+button) gets `flex: 0 0 auto` from `.bs-step-row-line > :not(.bs-step-row)`;
+`.bs-step-row-chevron` pins the chevron's own box; `.bs-step-row-meta` clamps
+to `9rem` so an unbounded result-summary or root-name chip cannot push the
+row wide. `.bs-step-row-timing` is the one slot that SHRINKS
+(`flex: 0 1 auto`) under a `max-inline-size: 60%` ceiling, with
+`overflow: hidden` + `white-space: nowrap`: the running progress label is
+unbounded at the call site, and those are two separate guards — shrinking
+bounds the slot only while something else competes for the row, the ceiling
+is what keeps a short target legible when nothing does.
+`.bs-step-list` is a BLOCK container by design — the row's own
+width rule is written for a non-flex parent — so inter-row rhythm comes from
+`.bs-step-list > * + *` block margins rather than a flex `gap` (adjoining
+block margins collapse, which is why the value is `0.75rem` and not the
+arithmetic top-up of the layout it replaced). The one exception is
+`.bs-run-timeline`: at Developer detail level, run-event rows render as
+direct children of `.bs-step-list` too (they are group-transparent), so they
+CONSUME `:nth-child` slots and shift the `--bs-stagger` of every step row
+after them one step along — but they carry no `.bs-trace-reveal` and do not
+animate. The step rows themselves are never the list's direct children
+either: `--bs-stagger` lands on `ActivityPartLayout`'s wrapper (two more
+levels down for `ToolFallback`) and reaches the row by INHERITANCE. Run-event
+rows keep their own tighter `0.25rem` margin
+(`.bs-step-list > * + .bs-run-timeline`) rather than the step rows' rhythm,
+since they are designed to read as one quiet block. `sr-only` is a Tailwind
+utility with no matching rule in that same lane (it loads only
+`@brainstrike/ui/globals.css` and `overrides.css`), so the row's hidden
+tool-id span does NOT hide there — a browser test asserting on the row must
+account for that visible text, or omit `toolName`
+(`activity-step-row.browser.test.tsx`).
+
+State glyphs follow one naming rule: `role="img"` plus `aria-label` from the
+total `STEP_STATE_LABELS` map (`activity-step-tokens.ts`) — colour alone
+never carries the state.
 
 ---

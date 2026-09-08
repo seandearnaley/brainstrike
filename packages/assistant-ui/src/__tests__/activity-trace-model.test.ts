@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { deriveActivitySteps, summarizeActivity } from '../activity-trace-model';
+import {
+  deriveActivitySteps,
+  readResultError,
+  summarizeActivity,
+  TOOL_EXECUTION_FAILED_MESSAGE,
+  toolStepStateFor,
+} from '../activity-trace-model';
 
 const tool = (
   id: string,
@@ -104,20 +110,62 @@ describe('deriveActivitySteps', () => {
     expect(steps[0]?.state).toBe('running');
   });
 
-  // Ported from the deleted `assistant-activity-group.test.tsx` (BST-1679
-  // review): failure comes from canonical flags only — `isError`, an
-  // `incomplete` status, or a GUARDED error envelope. A completed result that
-  // merely carries an `error` member of its own domain shape is ordinary data
-  // and must never be counted as a failure. This matters more now that
-  // `toolStepState` inspects the result payload at all (`isGuardedToolError`).
-  it('never infers failure from an ordinary domain `error` field on a completed result', () => {
+  // BST-1681 phase 3 SUPERSEDES the BST-1679 "canonical flags only" reading
+  // for one shape: a settled result whose own `error` member states an error.
+  // The tool card has always rendered that member as its red error line, so
+  // leaving the trace on `done` meant one step reading Failed on the card and
+  // counting as a success in the headline. One derivation, one verdict: both
+  // now say `failed`. A payload that does NOT declare failure (an `ok: true`
+  // result carrying advisory error metadata) is still ordinary data.
+  it('counts a settled result that states its own error as failed on both surfaces', () => {
     const steps = deriveActivitySteps(
       [
         tool(
           'd',
           'brainstrike.executeCommand',
           { command: 'ls' },
-          { result: { error: 'ordinary domain data' }, status: { type: 'complete' } }
+          { result: { error: 'the command exploded' }, status: { type: 'complete' } }
+        ),
+      ],
+      {}
+    );
+    expect(steps[0]?.state).toBe('failed');
+    expect(summarizeActivity(steps).counts.failed).toBe(1);
+  });
+
+  it('never infers failure from advisory error metadata on a successful result', () => {
+    const steps = deriveActivitySteps(
+      [
+        tool(
+          'd',
+          'brainstrike.executeCommand',
+          { command: 'ls' },
+          {
+            result: { error: { message: 'advisory only' }, ok: true },
+            status: { type: 'complete' },
+          }
+        ),
+      ],
+      {}
+    );
+    expect(steps[0]?.state).toBe('done');
+    expect(summarizeActivity(steps).counts.failed).toBe(0);
+  });
+
+  it('never infers failure from an advisory error STRING on a successful result', () => {
+    // Bot round 1 (Claude Important 1 / Codex P2 #1): `readResultError` reads
+    // the success discriminator FIRST, so an `ok: true` envelope carrying a
+    // human-readable advisory in `error` is ordinary domain data on every
+    // surface. Reading the string first made this step Failed in the headline
+    // while the card, whose error line renders only under failed chrome,
+    // agreed — both were wrong about a result that says it succeeded.
+    const steps = deriveActivitySteps(
+      [
+        tool(
+          'd',
+          'brainstrike.executeCommand',
+          { command: 'ls' },
+          { result: { error: 'warning: deprecated flag', ok: true }, status: { type: 'complete' } }
         ),
       ],
       {}
@@ -371,5 +419,214 @@ describe('summarizeActivity', () => {
       summarizeActivity(deriveActivitySteps([reasoning('x', 'complete')], {})).verbs
     ).toBeNull();
     expect(summarizeActivity([]).verbs).toBeNull();
+  });
+});
+
+/**
+ * BST-1681 phase 3: the tool CARD calls this same function, so a step can
+ * never read one state on the card and another in the trace headline. Every
+ * branch is pinned here because both surfaces now depend on it.
+ */
+describe('toolStepStateFor', () => {
+  it('maps every status branch the card and the trace share', () => {
+    expect(toolStepStateFor({ status: { type: 'running' } })).toBe('running');
+    expect(toolStepStateFor({ status: { reason: 'tool-calls', type: 'requires-action' } })).toBe(
+      'waiting'
+    );
+    expect(toolStepStateFor({ status: { reason: 'cancelled', type: 'incomplete' } })).toBe(
+      'cancelled'
+    );
+    expect(toolStepStateFor({ status: { reason: 'error', type: 'incomplete' } })).toBe('failed');
+    expect(toolStepStateFor({ isError: true, status: { type: 'complete' } })).toBe('failed');
+    expect(toolStepStateFor({ status: { type: 'complete' } })).toBe('done');
+    expect(toolStepStateFor({ result: { ok: true }, status: { type: 'complete' } })).toBe('done');
+    expect(toolStepStateFor({})).toBe('running');
+  });
+
+  it('calls the card error shapes failed so both surfaces agree on failure', () => {
+    // The card has always rendered an error line for these three shapes (its
+    // own `readResultErrorMessage`, deleted in bot round 1 in favour of the
+    // shared `readResultError`); before this ruling the trace read them as
+    // `done`, so one step could be Failed on the card and a success in the
+    // headline.
+    expect(toolStepStateFor({ result: { error: 'boom' }, status: { type: 'complete' } })).toBe(
+      'failed'
+    );
+    expect(
+      toolStepStateFor({
+        result: { error: { message: 'not a guarded code' }, ok: false },
+        status: { type: 'complete' },
+      })
+    ).toBe('failed');
+    expect(toolStepStateFor({ result: { isError: true }, status: { type: 'complete' } })).toBe(
+      'failed'
+    );
+  });
+
+  it('leaves a successful payload and a plain string result on the done path', () => {
+    expect(
+      toolStepStateFor({
+        result: { error: { message: 'advisory only' }, ok: true },
+        status: { type: 'complete' },
+      })
+    ).toBe('done');
+    // The STRING form of the same advisory (bot round 1, Claude Important 1):
+    // `ok: true` is the success discriminator and it is read first, so no
+    // `error` member of any shape can contradict it.
+    expect(
+      toolStepStateFor({
+        result: { error: 'warning: deprecated flag', ok: true },
+        status: { type: 'complete' },
+      })
+    ).toBe('done');
+    expect(toolStepStateFor({ result: 'plain string result', status: { type: 'complete' } })).toBe(
+      'done'
+    );
+  });
+});
+
+/**
+ * The two overrides that used to live in `tool-fallback.tsx`'s
+ * `resolveCardStatus` (Task 4 review, Minor 1). While they sat there, a
+ * declined call read `Stopped` on the card and counted as a `Completed` step
+ * in the trace headline — the exact split this phase exists to close. They
+ * ride strictly on TOP of a generic `done`, and only for the tool that owns
+ * them, so the card has no state of its own left.
+ */
+describe('toolStepStateFor tool-specific overrides', () => {
+  const DECLINED = {
+    kind: 'declined',
+    message: 'The user declined this tool call, so it was not executed.',
+  };
+  const streams = { stderr: '', stderrOmittedBytes: 0, stdout: '', stdoutOmittedBytes: 0 };
+
+  it('reads a declined envelope as cancelled, for any tool', () => {
+    expect(toolStepStateFor({ result: DECLINED, status: { type: 'complete' } })).toBe('cancelled');
+    expect(
+      toolStepStateFor({
+        result: DECLINED,
+        status: { type: 'complete' },
+        toolName: 'brainstrike.executeCommand',
+      })
+    ).toBe('cancelled');
+  });
+
+  it('never counts a decline as a failure in the headline', () => {
+    const steps = deriveActivitySteps(
+      [
+        tool(
+          'd',
+          'brainstrike.executeCommand',
+          { command: 'rm -rf /' },
+          { result: DECLINED, status: { type: 'complete' } }
+        ),
+      ],
+      {}
+    );
+    expect(steps[0]?.state).toBe('cancelled');
+    expect(summarizeActivity(steps).counts.failed).toBe(0);
+  });
+
+  it('maps a settled run_python result through its own five-state reading', () => {
+    const state = (result: unknown) =>
+      toolStepStateFor({
+        result,
+        status: { type: 'complete' },
+        toolName: 'brainstrike.runPython',
+      });
+    expect(state({ ...streams, exitCode: 0, kind: 'completed' })).toBe('done');
+    // A non-zero exit still COMPLETED the call; the amber "finished with an
+    // error" belongs to the result surface, not to the step's state.
+    expect(state({ ...streams, exitCode: 1, kind: 'completed' })).toBe('done');
+    // Nothing ran at all — destructive.
+    expect(
+      state({ detail: 'no interpreter on PATH', kind: 'unavailable', reason: 'missing' })
+    ).toBe('failed');
+    // Stopped without completing: never a green check, never red either.
+    expect(state({ ...streams, kind: 'cancelled', partialStderr: '', partialStdout: '' })).toBe(
+      'cancelled'
+    );
+    expect(state({ ...streams, kind: 'killed', signal: 'SIGKILL' })).toBe('cancelled');
+  });
+
+  it('gates the run_python reading on the tool NAME, not the result shape', () => {
+    // An MCP tool free to return `{kind: 'unavailable'}` as ordinary domain
+    // data must not inherit run_python's failure reading.
+    expect(
+      toolStepStateFor({
+        result: { detail: 'seat taken', kind: 'unavailable', reason: 'busy' },
+        status: { type: 'complete' },
+        toolName: 'booking.reserve',
+      })
+    ).toBe('done');
+    expect(
+      toolStepStateFor({
+        result: { detail: 'seat taken', kind: 'unavailable', reason: 'busy' },
+        status: { type: 'complete' },
+      })
+    ).toBe('done');
+  });
+
+  it('lets a malformed run_python shape fall through to the generic reading', () => {
+    // Narrowing fails (no stream fields), so there is no honest structured
+    // state to report — the generic `done` stands rather than an invented one.
+    expect(
+      toolStepStateFor({
+        result: { kind: 'completed' },
+        status: { type: 'complete' },
+        toolName: 'brainstrike.runPython',
+      })
+    ).toBe('done');
+  });
+
+  it('keeps every non-done generic branch winning over both overrides', () => {
+    // A transport abort mid-run_python, and a gate that has not been answered:
+    // the structured result (if any) must never repaint either as settled.
+    expect(
+      toolStepStateFor({
+        result: DECLINED,
+        status: { reason: 'error', type: 'incomplete' },
+        toolName: 'brainstrike.runPython',
+      })
+    ).toBe('failed');
+    expect(
+      toolStepStateFor({
+        result: { ...streams, exitCode: 0, kind: 'completed' },
+        status: { type: 'running' },
+        toolName: 'brainstrike.runPython',
+      })
+    ).toBe('running');
+  });
+});
+
+/**
+ * The ONE reader of "this result states an error" (bot round 1, Claude
+ * Important 2). `tool-fallback.tsx`'s error line and `toolStepStateFor`'s
+ * failed verdict used to be two copies of the same shape list that had already
+ * drifted on the `ok: true` case — the message reader returned the advisory
+ * string and the state reader called the step failed. One function now answers
+ * both questions: the state machine asks whether it returns a message at all,
+ * the card renders the message it returns.
+ */
+describe('readResultError', () => {
+  it('returns null for a result that does not state an error', () => {
+    expect(readResultError(undefined)).toBeNull();
+    expect(readResultError('plain string result')).toBeNull();
+    expect(readResultError({ ok: true })).toBeNull();
+    expect(readResultError([{ error: 'boom' }])).toBeNull();
+    expect(readResultError({ error: '' })).toBeNull();
+    expect(readResultError({ error: { message: 'boom' } })).toBeNull();
+    expect(readResultError({ error: { message: '' }, ok: false })).toBeNull();
+  });
+
+  it('reads the success discriminator before any error member', () => {
+    expect(readResultError({ error: 'warning: deprecated flag', ok: true })).toBeNull();
+    expect(readResultError({ error: { message: 'advisory only' }, ok: true })).toBeNull();
+  });
+
+  it('returns the message a failing result states', () => {
+    expect(readResultError({ error: 'boom' })).toBe('boom');
+    expect(readResultError({ error: { message: 'boom' }, ok: false })).toBe('boom');
+    expect(readResultError({ isError: true })).toBe(TOOL_EXECUTION_FAILED_MESSAGE);
   });
 });

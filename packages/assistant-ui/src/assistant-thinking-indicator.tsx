@@ -15,6 +15,13 @@ interface AssistantThinkingIndicatorProps
   extends Omit<ComponentPropsWithoutRef<'span'>, 'children'> {
   label?: string;
   markClassName?: string;
+  /**
+   * False when the caller already renders its own live mark beside this label
+   * (BST-1681: the step row's state glyph). Drops the mark entirely — so the
+   * row carries exactly ONE `[data-live="true"]` element — while keeping the
+   * indicator's test id, `data-args-streaming` and shimmer label.
+   */
+  showMark?: boolean;
   showText?: boolean;
   textClassName?: string;
 }
@@ -89,6 +96,7 @@ export function AssistantThinkingIndicator({
   className,
   label = 'Thinking',
   markClassName,
+  showMark = true,
   showText = true,
   textClassName,
   ...props
@@ -99,7 +107,7 @@ export function AssistantThinkingIndicator({
       data-testid="assistant-thinking-indicator"
       {...props}
     >
-      <BrainstrikeThinkingMark className={markClassName} />
+      {showMark ? <BrainstrikeThinkingMark className={markClassName} /> : null}
       {showText ? <span className={cn('bs-thinking-shimmer', textClassName)}>{label}</span> : null}
     </span>
   );

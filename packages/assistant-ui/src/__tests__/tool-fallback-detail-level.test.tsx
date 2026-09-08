@@ -79,6 +79,41 @@ describe('ToolFallback detail level', () => {
     expect(screen.queryByText('call-internal-1')).not.toBeInTheDocument();
   });
 
+  // BST-1681 phase 3: the three levels drive the STEP ROW, so pin what each
+  // one puts in the row rather than only what it puts in the panes below.
+  // Read the level as a RESULT-SUMMARY axis: compact hides result summaries,
+  // not the `in <root>` chip, which is target disambiguation rather than a
+  // summary and stays at every level by ruling.
+  it('compact renders no result-summary chip (the root-name chip is target disambiguation and is not gated)', () => {
+    // `policy.showResultSummary` is false, so `trailing` collapses to nothing
+    // and the row is verb + target only. Fixture scope, stated so the zero
+    // count is not read as a claim about every result: the sibling
+    // "in <rootName>" chip is a `.bs-step-row-meta` the policy does not gate,
+    // so a result carrying `rootName` still renders one chip at compact —
+    // deliberately. This fixture carries none, which is why the count is 0.
+    const { container } = renderTool(internalToolProps, 'compact');
+    expect(screen.getByTestId('activity-step-row')).toBeInTheDocument();
+    expect(container.querySelectorAll('.bs-step-row-meta')).toHaveLength(0);
+  });
+
+  it('standard renders the result summary as the row’s trailing meta chip', () => {
+    const { container } = renderTool(internalToolProps, 'standard');
+    const chips = [...container.querySelectorAll('.bs-step-row-meta')].map(
+      (chip) => chip.textContent
+    );
+    expect(chips).toEqual(['3 matches']);
+  });
+
+  it('developer opens the row on mount: aria-expanded is true with no click', () => {
+    // `policy.defaultExpanded` seeds `isCollapsed` false, and the ROW is the
+    // expander (BST-1681), so the row itself must report the open body — not
+    // just the panes being in the DOM.
+    renderTool(internalToolProps, 'developer');
+    const row = screen.getByTestId('activity-step-row');
+    expect(row).toHaveAttribute('aria-expanded', 'true');
+    expect(row).toHaveAccessibleName('Collapse details');
+  });
+
   it('re-syncs an already-rendered card when the Detail level changes', () => {
     // Regression: collapse state was seeded once, so switching to Developer
     // never expanded cards that were already on screen.
