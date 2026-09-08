@@ -1499,6 +1499,117 @@ header: `assistant-activity-group`, `assistant-activity-summary`,
 `assistant-activity-failed-count`, `data-active`, `data-failed`,
 `data-failed-steps`, `data-state`.
 
+L1 STEP ROWS / L2 BODIES (BST-1681 phase 3, `activity-step-row.tsx` /
+`activity-trace-model.ts`): each entry in `deriveActivitySteps`'s part-order
+list (tool calls and reasoning parts) renders as one `StepRowHeader`
+(`activity-step-row.tsx`) row inside `.bs-step-list`: family icon
+(`StepFamilyIcon`) · verb in tense (`Reading` while running, `Read` once
+settled — the same `active`/`done` pair every `ActivityVerb` carries,
+`activity-verbs.ts`) · target chip · timing slot · state glyph
+(`StepStateGlyph`) · chevron. The row IS the card's own header —
+`ToolFallback`, `SubagentExecutionCard` and `TaskListToolCard` all render it
+in place of a second header, so a step never shows its verb twice. `RowShell`
+(`activity-step-row.tsx`) splits into the two forms a step can take: a card
+with something to expand renders the row as a real
+`<button aria-controls aria-expanded aria-describedby>` whose accessible name
+IS the toggle label (`Expand details` / `Collapse details`, kept for e2e;
+reasoning's own row instead reads `Show thinking` / `Hide thinking`) while
+its content reaches AT only via `aria-describedby`, never folded into the
+button's own name; `aria-controls` is present while collapsed, the standard
+disclosure pattern. A card with nothing to expand (no body — e.g. a subagent
+delegation with zero child rows) renders the non-interactive form instead, a
+`<div role="group" aria-labelledby>` with no chevron and no `aria-expanded`.
+The raw tool id is visually hidden text OUTSIDE the row's named content span,
+plus the row's own `title` — the e2e text contract — never INSIDE the
+content span, which would otherwise fold `brainstrike.readWorkspaceFile` into
+the non-interactive row's `aria-labelledby` name alongside its verb and
+target.
+
+State glyphs are named, never colour-only: `STEP_STATE_LABELS`
+(`activity-step-icons.tsx`) is the total `role="img"`/`aria-label` map —
+`Completed | Running | Failed | Stopped | Waiting for approval | No answer`
+— over `StepGlyphState` (`ActivityStepState` plus the subagent-only
+`no-answer` arm). A step's state is derived by ONE function only,
+`toolStepStateFor` (`activity-trace-model.ts`): the trace headline
+(`deriveActivitySteps`), `ToolFallback` (`resolveCardStatus`),
+`SubagentExecutionCard` (`resolveDelegationState`) and `TaskListToolCard` all
+consume it, so a step can never read two different states on two surfaces.
+The two refinements layered on top of a generic `done` both live INSIDE that
+function — a declined-envelope result reads `cancelled`
+(`settledResultOverride`), and a settled `run_python` result reads
+done/failed/cancelled by kind (`runPythonStepState`) — plus one refinement
+outside it that only the subagent card may make: `resolveDelegationState`
+reads `no-answer` off the delegation's OWN result shape, strictly on top of a
+generic `done`. `Waiting for approval` is a LIVE pause only:
+`toolStepStateFor` maps `status.type === 'requires-action'` to `waiting`,
+nothing else — a resultless call on a settled (`complete`) message falls
+through to `settledResultOverride` and reads `Completed` on every surface
+(not `Unknown`; the reload-after-abandoned-approval residue is persistence
+work, BST-1678, never a renderer guess). A result that STATES its own
+failure is `failed` on every surface too: `statesResultError`
+(`activity-trace-model.ts`) recognises a non-empty `error` string, an
+`ok: false` envelope whose `error.message` explains it, or a result-level
+`isError: true`; an `ok: true` result carrying advisory error metadata stays
+`done`.
+
+Exactly one live mark renders per running row: the state glyph
+(`StepStateGlyph`'s `running` arm renders `BrainstrikeThinkingMark`, which
+carries `data-live="true"` by default). `ToolRunTiming` (`tool-fallback.tsx`)
+passes `showMark={false}` into its `AssistantThinkingIndicator` so the timing
+slot's own progress label never grows a second live mark, and the reasoning
+row's `ReasoningGlyph` (`assistant-activity-parts.tsx`) keeps its own
+pre-existing `assistant-reasoning-indicator` / `assistant-reasoning-static-mark`
+pair rather than the generic glyph. Only the group's LAST running tool row
+shimmers: `ActivityGroup` computes `deriveStepMeta(steps)`
+(`activity-step-meta.ts`) once per snapshot and hands it down through
+`ActivityStepMetaProvider`; `useIsLastRunningStep`
+(`activity-step-context.tsx`) answers `true` outside any provider, so a
+standalone running card (rendered without a group) still shimmers. Rows
+reveal with `bs-trace-reveal` and a positional `:nth-child` stagger on
+`.bs-step-list`, capped at 5 (`overrides.css`) — no row carries its own
+index, and a row already visible when a new one arrives does not re-animate
+(the animation runs once per mount).
+
+Reasoning is a step with its own verb pair, `Thinking` / `Thought`
+(`ActivityReasoningBlock`, `assistant-activity-parts.tsx`), rendered through
+the shared row with `family="other"` and `icon={Brain}`. A subagent
+delegation is a step whose verb names the PERSONA, not the assistant —
+`STEP_VERB` (`subagent-execution-card.tsx`) is total over `StepGlyphState`:
+`Delegating to <Label>` (running AND waiting — a gate has not started the
+child either way), `<Label> finished`, `<Label> gave no answer`, `<Label>
+failed`, `<Label> stopped` (cancelled). `TaskListToolCard`
+(`todo-progress.tsx`) reads the same shared row with `family="tasks"` and its
+own verb pair, `Updating tasks` / `Updated tasks`. The checkpoint revert
+control (`CheckpointRevertButton`, `tool-fallback.tsx`) is a SIBLING of the
+row inside `.bs-step-row-line`, never nested inside its `<button>` — nested
+interactives are invalid HTML — and it hides only for the `running`/`failed`
+states; a CANCELLED edit keeps its revert control, since a captured
+checkpoint means the mutation landed regardless of how the call itself
+settled.
+
+Detail level maps to concrete row behaviour via `resolveToolDisplayPolicy`
+(`assistant-detail-level.ts`): `compact` hides the details expander and the
+result-summary chip (`showDetailsExpander: false`, `showResultSummary:
+false`); `standard` shows both, collapsed by default; `developer` auto-opens
+the body (`defaultExpanded: true`) and adds raw I/O (`showRawIo: true`). One
+row chip is NEVER gated by detail level: `ToolFallback`'s `in <root>` chip
+(`extractResolvedRootName`, target disambiguation in a multi-root workspace)
+renders whenever a result carries a `rootName`, unconditional on the
+policy — unlike the result-summary chip beside it, which
+`policy.showResultSummary` gates. Only `developer` shows run-event rows
+inside the trace: `AssistantRunTimelineDataPart`
+(`assistant-run-timeline-data-part.tsx`) reads
+`shouldShowBackgroundActivity(detailLevel)` and renders the full
+`AssistantRunTimeline` row only there (every other level still shows the
+`isAlwaysVisibleRunEvent` kinds standalone, per the grouping rule above).
+Those run-event rows are direct children of `.bs-step-list` too — they are
+group-transparent (`groupAssistantActivityPart`), so `AssistantActivityParts`
+renders their `dataRendererUI` straight into the list alongside the
+`ActivityPartLayout`-wrapped step rows, and they are counted by the same
+`:nth-child` stagger; `.bs-step-list`'s own row rhythm (`> * + *` block
+margins) makes an exception for them (`.bs-run-timeline`, `overrides.css`) —
+see ui-conventions.md's "Step rows" paragraph for the geometry.
+
 HYDRATION LIVENESS (do not relitigate): every animated "still happening"
 indicator carries `data-live="true"` (`BrainstrikeThinkingMark`,
 `AssistantThinkingIndicator`, the subagent pulse), and

@@ -145,9 +145,32 @@ The active/resting pair is the seam a future small-model summary plugs into: the
 
 ### 4.3 Presentation
 
-**Status (phase 2, BST-1679):** L0 shipped — status row, detail line, motion
-— plus reasoning's `Thinking`/`Thought` labels. L1 (step list) and the L2
-re-skin of the tool cards below are phase 3, not yet built.
+**Status (phase 3, BST-1681) — where the shipped behaviour differs from the
+design below.** L0 (BST-1679), L1 (step list) and the L2 re-skin of the tool
+cards are ALL shipped: every step — tool call, reasoning, subagent
+delegation, task-list update — renders through the one shared `StepRowHeader`
+grammar (`activity-step-row.tsx`; `docs/agents/assistant-runtime.md` §
+ACTIVITY GROUPS "L1 step rows / L2 bodies"), and `ToolFallback`'s own header
+IS that row rather than a second header above it. A per-step reasoning
+duration is still not derivable — no reasoning duration source exists, so a
+reasoning step's `durationMs` stays `undefined`
+(`deriveActivitySteps`, `activity-trace-model.ts`) and its row shows no
+timing slot. The state mapping below gained two arms since this section was
+written: a settled result that STATES its own failure (a non-empty `error`
+string, an `ok: false` envelope with a non-empty `error.message`, or a
+result-level `isError: true`) reads `failed` on every surface
+(`statesResultError`), and a declined approval reads `cancelled`
+(`isDeclinedToolCallResult` inside `settledResultOverride`) — both folded
+into `toolStepStateFor`, the ONE function every surface (`ToolFallback`,
+`SubagentExecutionCard`, `TaskListToolCard`, the trace headline) now derives
+its state from. "`Unknown` → `Waiting for approval`" below did NOT ship as
+written: `Waiting for approval` is a LIVE pause only
+(`status.type === 'requires-action'`); a resultless call on a settled
+message instead reads `Completed` on every surface — recording an abandoned
+approval is persistence work (BST-1678), never a renderer guess. The
+`bs-trace-reveal` stagger is positional CSS keyed by `.bs-step-list`'s
+`:nth-child` index (capped at 5, `overrides.css`), not a JS-computed index
+prop.
 
 **L0, status row** (always rendered, fixed height): disclosure triangle · state glyph · label · elapsed · trailing meta. While running: shimmering live label, ticking elapsed seeded from the group's run-event span (today's `useElapsedMs`, now fed by the whole group), and **one detail line** beneath in the Codex `└` style showing the current target, truncated. On finish the label crossfades to the resting summary (keyed on its text, per the thinking-indicator element), the detail line collapses, and the meta reads `Worked for 12.0s` (cancelled: headline `Stopped` with meta `after 4.0s`; failed tint destructive). Reasoning-only groups read `Thought` with the same `Worked for Ns` meta (seconds carry one decimal — `4.0s`; sub-second reads `420ms` and past a minute `1m 12s`, per `formatActivityDuration`).
 
