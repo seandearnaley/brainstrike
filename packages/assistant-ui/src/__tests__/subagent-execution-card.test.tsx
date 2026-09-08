@@ -307,7 +307,7 @@ describe('SubagentExecutionCard detail level', () => {
     );
     expect(screen.getByText('Explorer finished')).toBeInTheDocument();
     expect(screen.queryByText('· 2 tool calls', { exact: false })).not.toBeInTheDocument();
-    expect(document.querySelector('.bs-step-row-meta')).toBeNull();
+    expect(screen.queryByText(/tool calls?$/)).not.toBeInTheDocument();
   });
 
   it('shows the tool-call-count chip at standard', () => {
@@ -328,14 +328,29 @@ describe('SubagentExecutionCard detail level', () => {
 // INSIDE `.bs-step-row-content`, which is the `aria-labelledby` target of the
 // non-interactive (`role="group"`) row form — so a zero-row delegation was
 // named "Delegating to Analyst · 0 tool calls" instead of just the verb.
+// Rendered at an explicit `standard` level (PR #3067 review finding 3): at
+// `compact` the chip would not render at all, and the name-only assertion
+// below would pass without exercising what it names — it never proves the
+// chip is present-but-unnamed, only that it is absent one way or another.
 describe('SubagentExecutionCard non-interactive row name', () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => window.localStorage.clear());
+
   it('names a zero-row delegation by its verb alone, without the tool-call chip folded in', () => {
-    renderCard({
-      result: undefined,
-      status: { type: 'running' },
-      toolCallId: 'delegation-1',
-      toolName: 'agent-analyze',
-    });
-    expect(screen.getByRole('group', { name: /^Delegating to Analyst$/ })).toBeInTheDocument();
+    renderCardAtDetailLevel(
+      {
+        result: undefined,
+        status: { type: 'running' },
+        toolCallId: 'delegation-1',
+        toolName: 'agent-analyze',
+      },
+      'standard'
+    );
+    const row = screen.getByRole('group', { name: /^Delegating to Analyst$/ });
+    expect(row).toBeInTheDocument();
+    // The chip is present as row text — proving "fixed" (chip renders,
+    // excluded from the name) rather than "not rendered" (chip absent,
+    // making the name assertion above vacuous).
+    expect(row).toHaveTextContent('0 tool calls');
   });
 });

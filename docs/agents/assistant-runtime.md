@@ -1641,12 +1641,15 @@ the body (`defaultExpanded: true`) and adds raw I/O (`showRawIo: true`).
 (`subagent-execution-card.tsx`), reads the SAME `policy.showResultSummary`
 gate as `ToolFallback`'s result-summary chip (BST-1686) — it is a result
 summary too, and used to be the one trailing chip in the trace the Detail
-control never touched. One row chip is NEVER gated by detail level:
-`ToolFallback`'s `in <root>` chip (`extractResolvedRootName`, target
-disambiguation in a multi-root workspace) renders whenever a result carries a
-`rootName`, unconditional on the policy — unlike the result-summary chips
-beside it, which `policy.showResultSummary` gates. Only `developer` shows
-run-event rows
+control never touched. The card deliberately adopts only that one flag:
+`expanded` is its own `useState`, never `policy.defaultExpanded` or
+`showDetailsExpander` (`subagent-execution-card.tsx`), because the
+delegation rows ARE the card's substance, not raw I/O to gate. One row chip
+is NEVER gated by detail level: `ToolFallback`'s `in <root>` chip
+(`extractResolvedRootName`, target disambiguation in a multi-root
+workspace) renders whenever a result carries a `rootName`, unconditional on
+the policy — unlike the result-summary chips beside it, which
+`policy.showResultSummary` gates. Only `developer` shows run-event rows
 inside the trace: `AssistantRunTimelineDataPart`
 (`assistant-run-timeline-data-part.tsx`) reads
 `shouldShowBackgroundActivity(detailLevel)` and renders the full

@@ -165,7 +165,7 @@ export const SubagentExecutionCard = ({
             <span className="bs-step-row-meta">
               · {rows.length} tool {rows.length === 1 ? 'call' : 'calls'}
             </span>
-          ) : undefined
+          ) : null
         }
         verb={STEP_VERB[stepState](label)}
         // Conditional spread, not `prop={x ?? undefined}`: under
