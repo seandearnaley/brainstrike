@@ -51,9 +51,6 @@ export function ToolFallbackBody({
         <p className="px-2 pb-1 text-destructive text-xs">{errorMessage}</p>
       ) : null}
 
-      {/* Live incremental output while the command runs. Once it finishes, the
-          captured output lives in the collapsible Result pane, so the live pane
-          only shows during execution (transient — absent on a reloaded thread). */}
       <LiveShellOutputRegion isRunning={isRunning} toolCallId={toolCallId} />
 
       {/* Structured run_python result (BST-1070): state-honest header + output

@@ -589,8 +589,8 @@ shared `DeclinedToolCallResult` envelope (`@brainstrike/assistant-contract/tool-
 
 `DataStreamMapper.handleToolDeclined` therefore settles the id (`toolCallResult`
 + `settledToolCallIds`) with the envelope and NO error flag, and queues no
-visible failure text. The tool card (`tool-fallback-state.ts`) reads the
-envelope and renders the
+visible failure text. `settledResultOverride` (`activity-trace-model.ts`)
+reads the envelope and renders the
 muted `stopped` treatment — the same one run_python already reserved for a
 decline. Same ruling as the BST-558 resume-unsupported terminal (see
 docs/agents/assistant-runtime.md, "The tool card is SETTLED").

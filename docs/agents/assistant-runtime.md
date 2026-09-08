@@ -3666,8 +3666,8 @@ spinner — while recording NOTHING in `pendingToolErrorTexts` and setting no
 error-path decline emitted the false sentence above whenever the model added no
 visible text after the denial, or the user pressed Stop. The frame instead
 carries the shared `DeclinedToolCallResult` envelope (`{kind: 'declined',
-message, reason?}`), which is what the tool card (`tool-fallback-state.ts`)
-reads to render the muted
+message, reason?}`), which is what `settledResultOverride`
+(`activity-trace-model.ts`) reads to render the muted
 `stopped` treatment: a settled result with no envelope earns a green Completed
 for a tool that never ran, and `isError` paints destructive Failed chrome over
 something that never broke. The two terminals differ only in what they say about
