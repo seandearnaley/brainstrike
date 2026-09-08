@@ -89,8 +89,8 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     await expect(summary).toContainText('1 failed');
     // The resting headline is the verb summary now (BST-1679), not the fixed
     // word "Worked": an unrecognised tool name reads honestly as "Used <name>".
-    // `data-state` is the state sync; the text proves which step it summarizes.
-    await expect(activityGroup).toHaveAttribute('data-state', 'done');
+    // `data-state` (synced above) is the state sync; the text proves which
+    // step it summarizes.
     await expect(summary).toContainText('brainstrike.retrieveContext');
     await summary.click();
     const toolCard = window.getByTestId('tool-fallback').first();

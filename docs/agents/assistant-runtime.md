@@ -1399,8 +1399,9 @@ survives a reload is `runEventsSpanMs` — the group's own run-event span,
 wall-clock first-to-last — and it DOES include the time spent waiting, so a
 reloaded turn's `Worked for Ns` reads longer than the live clock did. Within
 a session the same span is the seed (`fallbackMs`), so a second pause
-re-anchors the clock from it rather than from the paused value. Nothing
-subtracts wait time from a persisted duration.
+re-anchors the clock from whichever is larger — the run-event span or the
+accumulated live time (`useElapsedMs` takes the max). Nothing subtracts wait
+time from a persisted duration.
 
 At rest the headline is the verb summary from `restingLabel`: unique
 DONE-verb phrases in first-occurrence order, capped at three (`+N more` for

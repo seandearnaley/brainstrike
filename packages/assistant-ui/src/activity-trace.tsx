@@ -187,8 +187,10 @@ function RestingSummary({
   readonly steps: string;
   readonly verbMeta: string | null;
 }): ReactNode {
+  // Layout is owned by `.bs-activity-summary-row` in overrides.css (the browser
+  // test lane has no Tailwind utilities); do not re-add utility classes here.
   return (
-    <span className="bs-activity-summary-row inline-flex min-w-0 items-center gap-1.5">
+    <span className="bs-activity-summary-row">
       <span className="bs-activity-summary-label bs-trace-label truncate" key={headline}>
         {headline}
       </span>
