@@ -5,6 +5,8 @@ import { type ComponentProps, type ReactElement, useId, useMemo, useState } from
 import type { StepGlyphState } from './activity-step-icons';
 import { StepRowHeader } from './activity-step-row';
 import { toolStepStateFor } from './activity-trace-model';
+import { resolveToolDisplayPolicy } from './assistant-detail-level';
+import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { personaLabelForToolName } from './subagent-persona-label';
 import {
   mergeSubagentToolRows,
@@ -132,6 +134,8 @@ export const SubagentExecutionCard = ({
 }: SubagentCardProps) => {
   const [expanded, setExpanded] = useState(false);
   const rowsId = useId();
+  const { detailLevel } = useAssistantDetailLevel();
+  const policy = resolveToolDisplayPolicy(detailLevel);
   const stepState = resolveDelegationState(status, result, outcome, isError);
   const label = personaLabelForToolName(toolName);
   const rows = useMemo(
@@ -152,10 +156,16 @@ export const SubagentExecutionCard = ({
         target={null}
         timing={elapsed}
         toolName={toolName}
+        // Gated on the same Detail-level policy `ToolFallback`'s own
+        // result-summary chip reads (BST-1686): compact hides EVERY trailing
+        // result chip in the trace, and this card's tool-call count is one —
+        // it just used to be the one chip the Detail control never touched.
         trailing={
-          <span className="bs-step-row-meta">
-            · {rows.length} tool {rows.length === 1 ? 'call' : 'calls'}
-          </span>
+          policy.showResultSummary ? (
+            <span className="bs-step-row-meta">
+              · {rows.length} tool {rows.length === 1 ? 'call' : 'calls'}
+            </span>
+          ) : null
         }
         verb={STEP_VERB[stepState](label)}
         // Conditional spread, not `prop={x ?? undefined}`: under
