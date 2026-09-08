@@ -121,9 +121,14 @@ export function StepRowHeader(props: StepRowHeaderProps): ReactNode {
             {props.target}
           </span>
         ) : null}
-        {props.toolName ? <span className="sr-only">{props.toolName}</span> : null}
         {props.trailing}
       </span>
+      {/* Outside `.bs-step-row-content` on purpose: the content element NAMES
+          the non-interactive row (`aria-labelledby`), so an sr-only tool id
+          in there would read the row as "Reading src/app.ts
+          brainstrike.readWorkspaceFile". It stays inside the row so the card
+          still carries the raw id as text (the e2e contract). */}
+      {props.toolName ? <span className="sr-only">{props.toolName}</span> : null}
       <span className="bs-step-row-timing">{props.timing}</span>
       {props.glyph ?? <StepStateGlyph state={props.state} />}
       {props.bodyId ? (

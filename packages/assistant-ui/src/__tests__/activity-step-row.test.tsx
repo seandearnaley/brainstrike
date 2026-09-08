@@ -58,6 +58,29 @@ describe('StepRowHeader', () => {
     expect(screen.getByRole('group', { name: /Reading.*src\/app\.ts/ })).toBeInTheDocument();
   });
 
+  it('keeps the raw tool id out of the non-interactive row name while keeping it as text', () => {
+    // The sr-only tool id lives inside the row but OUTSIDE the labelling
+    // content, or a bodiless row (ToolFallback's running card) would be named
+    // "Reading src/app.ts brainstrike.readWorkspaceFile".
+    render(
+      <StepRowHeader
+        family="read"
+        label="ignored"
+        state="running"
+        target="src/app.ts"
+        toolName="brainstrike.readWorkspaceFile"
+        verb="Reading"
+      />
+    );
+    const row = screen.getByTestId('activity-step-row');
+    // Anchored: the name is the verb and the target and NOTHING else. (The
+    // seam between the two spans yields no whitespace in the computed name,
+    // hence `\s*` rather than a literal space.)
+    expect(screen.getByRole('group', { name: /^Reading\s*src\/app\.ts$/ })).toBe(row);
+    expect(row).toHaveTextContent('brainstrike.readWorkspaceFile');
+    expect(row).toHaveAttribute('title', 'brainstrike.readWorkspaceFile');
+  });
+
   it('shimmers a running row outside any provider and carries exactly one live glyph', () => {
     render(
       <StepRowHeader

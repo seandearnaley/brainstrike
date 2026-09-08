@@ -3,15 +3,7 @@ import { isRevertibleCaptureStatus } from '@brainstrike/assistant-contract';
 import { isDeclinedToolCallResult } from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
-import {
-  AlertCircle,
-  CheckCircle,
-  ChevronDown,
-  ChevronUp,
-  CircleDashed,
-  CircleSlash,
-  Undo2,
-} from 'lucide-react';
+import { Undo2 } from 'lucide-react';
 import {
   type ComponentProps,
   type ReactElement,
@@ -20,6 +12,9 @@ import {
   useMemo,
   useState,
 } from 'react';
+import type { StepGlyphState } from './activity-step-icons';
+import { StepRowHeader } from './activity-step-row';
+import { verbForTool } from './activity-verbs';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
@@ -46,22 +41,25 @@ type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
 type ToolStatus = ToolFallbackProps['status'];
 type ToolResult = ToolFallbackProps['result'];
 
-type DisplayStatus = 'running' | 'error' | 'stopped' | 'success' | 'unknown';
+/**
+ * `waiting` is the resultless call on a settled/paused message (BST-1678): it
+ * is parked at its approval gate, so it reads "Waiting for approval" through
+ * the shared step glyph rather than the old grey "Unknown".
+ */
+type DisplayStatus = 'running' | 'error' | 'stopped' | 'success' | 'waiting';
 
-const STATUS_LABELS: Record<DisplayStatus, string> = {
-  error: 'Failed',
-  running: 'Running',
-  stopped: 'Stopped',
-  success: 'Completed',
-  unknown: 'Unknown',
-};
-
-const STATUS_ICONS: Record<DisplayStatus, ReactElement> = {
-  error: <AlertCircle className="size-4 text-destructive" />,
-  running: <CircleDashed className="size-4 text-muted-foreground" />,
-  stopped: <CircleSlash className="size-4 text-muted-foreground" />,
-  success: <CheckCircle className="size-4 text-green-600 dark:text-green-500" />,
-  unknown: <CheckCircle className="size-4 text-muted-foreground" />,
+/**
+ * The card's status in the trace's vocabulary — one grammar for the group
+ * summary and the card, so a step never reads two different states. The
+ * accessible names (`Completed`, `Running`, …) come from `STEP_STATE_LABELS`
+ * via `StepStateGlyph`; this file no longer owns a second label table.
+ */
+const GLYPH_STATES: Record<DisplayStatus, StepGlyphState> = {
+  error: 'failed',
+  running: 'running',
+  stopped: 'cancelled',
+  success: 'done',
+  waiting: 'waiting',
 };
 
 /**
@@ -175,7 +173,7 @@ const resolveDisplayStatus = (
   if (hasResult) {
     return 'success';
   }
-  return 'unknown';
+  return 'waiting';
 };
 
 const resolveErrorMessage = (
@@ -246,13 +244,16 @@ function extractResolvedRootName(result: ToolResult): string | undefined {
 
 /**
  * ToolFallback renders a tool call as the most prominent element in the run:
- * a tinted card with a single-line header (status, tool name, primary
- * argument, result summary) and collapsible Arguments/Result panes.
+ * a tinted card whose header IS the shared activity step row (BST-1681) —
+ * family icon, verb in tense, target chip, timing, state glyph — over
+ * collapsible Arguments/Result panes.
  *
- * Handles three states:
- * - Running: shows the thinking indicator inline (no expander yet)
- * - Success: shows result summary; details available behind the expander
- * - Error: shows the error message inline in red
+ * Handles four states:
+ * - Running: live glyph + progress label; nothing to expand yet, so the row
+ *   is not a button
+ * - Success: shows result summary; the ROW is the expander for the details
+ * - Waiting: a resultless call parked at its approval gate
+ * - Error: shows the error message inline in red under the row
  */
 export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   const {
@@ -288,8 +289,12 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
     result,
     isErrorResult
   );
-  const statusIcon = STATUS_ICONS[displayStatus];
-  const statusText = STATUS_LABELS[displayStatus];
+  const glyphState = GLYPH_STATES[displayStatus];
+  const verb = verbForTool(toolName);
+  // A waiting/cancelled/failed step reads the past tense with the glyph
+  // carrying the state — consistent with the trace's resting summary, which
+  // lists failed verbs in the done tense too.
+  const verbLabel = glyphState === 'running' ? verb.active : verb.done;
   const isRunning = displayStatus === 'running';
   const isError = displayStatus === 'error';
   // BST-849: while the model streams a large tool input the card must visibly
@@ -321,66 +326,52 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
       data-testid="tool-fallback"
       data-tool-category={category}
     >
-      <div className="flex min-w-0 items-center gap-2 px-2 py-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              aria-label={statusText}
-              className={`inline-flex shrink-0 ${isError ? 'text-destructive' : tint.rail}`}
-              role="img"
-            >
-              {statusIcon}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>{statusText}</TooltipContent>
-        </Tooltip>
-        <span className="flex min-w-0 flex-1 items-baseline gap-2">
-          <span
-            className={`shrink-0 font-medium font-mono text-xs ${
-              isError ? 'text-destructive' : 'text-foreground'
-            }`}
-          >
-            {toolName}
-          </span>
-          {primaryArg ? (
-            <span
-              className="truncate font-mono text-[11px] text-muted-foreground"
-              title={primaryArg.full}
-            >
-              {primaryArg.display}
-            </span>
-          ) : null}
-        </span>
-        <ToolRunTiming
-          argsStreaming={argsStreaming}
-          durationLabel={durationLabel}
-          isRunning={isRunning}
-          progressLabel={progressLabel}
+      <div className="bs-step-row-line px-1">
+        <StepRowHeader
+          family={verb.family}
+          label={isCollapsed ? 'Expand details' : 'Collapse details'}
+          state={glyphState}
+          stepId={toolCallId}
+          target={primaryArg?.display ?? null}
+          timing={
+            <ToolRunTiming
+              argsStreaming={argsStreaming}
+              durationLabel={durationLabel}
+              isRunning={isRunning}
+              progressLabel={progressLabel}
+            />
+          }
+          toolName={toolName}
+          trailing={
+            <>
+              {resultSummary ? <span className="bs-step-row-meta">{resultSummary}</span> : null}
+              {resolvedRootName ? (
+                <span
+                  className="bs-step-row-meta"
+                  title={`Resolved workspace root: ${resolvedRootName}`}
+                >
+                  in {resolvedRootName}
+                </span>
+              ) : null}
+            </>
+          }
+          verb={verbLabel}
+          // Conditional spreads, not `prop={x ?? undefined}`: under
+          // `exactOptionalPropertyTypes` an optional prop may be absent but
+          // never explicitly `undefined`. The toggle trio travels together —
+          // a row with no details pane is not interactive at all.
+          {...(showDetails
+            ? {
+                bodyId: detailsId,
+                expanded: !isCollapsed,
+                onToggle: () => setUserCollapsed(!isCollapsed),
+              }
+            : {})}
+          {...(primaryArg?.full === undefined ? {} : { targetTitle: primaryArg.full })}
         />
-
-        {resultSummary ? (
-          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-            {resultSummary}
-          </span>
-        ) : null}
-        {resolvedRootName ? (
-          <span
-            className="max-w-36 shrink-0 truncate text-[11px] text-muted-foreground"
-            title={`Resolved workspace root: ${resolvedRootName}`}
-          >
-            in {resolvedRootName}
-          </span>
-        ) : null}
         {isRunning || isError ? null : (
           <CheckpointRevertButton toolCallId={toolCallId} toolName={toolName} />
         )}
-        {showDetails ? (
-          <DetailsToggleButton
-            detailsId={detailsId}
-            isCollapsed={isCollapsed}
-            onToggle={() => setUserCollapsed(!isCollapsed)}
-          />
-        ) : null}
       </div>
 
       {isError && errorMessage ? (
@@ -438,7 +429,9 @@ function ToolRunTiming({
         className="min-w-0 max-w-[60%] shrink text-xs tabular-nums"
         data-args-streaming={argsStreaming ? 'true' : undefined}
         label={progressLabel}
-        markClassName="size-3.5"
+        // The row's state glyph already carries the live mark; a second one
+        // here would put two `[data-live="true"]` elements on one step.
+        showMark={false}
         textClassName="truncate"
       />
     );
@@ -623,33 +616,6 @@ function CheckpointRevertButton({
           file to its state when the turn began, not to just-before-this-edit. */}
       <TooltipContent>Restore this file to its state at turn start</TooltipContent>
     </Tooltip>
-  );
-}
-
-/** Expand/collapse control for a tool card's details panes. */
-function DetailsToggleButton({
-  detailsId,
-  isCollapsed,
-  onToggle,
-}: {
-  detailsId: string;
-  isCollapsed: boolean;
-  onToggle: () => void;
-}) {
-  const label = isCollapsed ? 'Expand details' : 'Collapse details';
-  return (
-    <Button
-      aria-controls={isCollapsed ? undefined : detailsId}
-      aria-expanded={!isCollapsed}
-      aria-label={label}
-      className="size-6 shrink-0 text-muted-foreground"
-      onClick={onToggle}
-      size="icon"
-      title={label}
-      variant="ghost"
-    >
-      {isCollapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
-    </Button>
   );
 }
 

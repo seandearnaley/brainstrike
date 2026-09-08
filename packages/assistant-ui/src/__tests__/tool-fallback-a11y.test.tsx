@@ -38,13 +38,16 @@ describe('ToolFallback Accessibility', () => {
     const button = screen.getByRole('button', { name: /Expand details/i });
     expect(button).toBeInTheDocument();
     expect(button).toHaveAttribute('aria-expanded', 'false');
-    expect(button).toHaveAttribute('title', 'Expand details');
+    // BST-1681: the row IS the toggle, so its `title` is the raw tool id
+    // (hover inspection); the expand/collapse wording lives in the
+    // accessible name asserted above.
+    expect(button).toHaveAttribute('title', 'test-tool');
 
     await user.click(button);
 
     const expandedButton = screen.getByRole('button', { name: /Collapse details/i });
     expect(expandedButton).toHaveAttribute('aria-expanded', 'true');
-    expect(expandedButton).toHaveAttribute('title', 'Collapse details');
+    expect(expandedButton).toHaveAttribute('title', 'test-tool');
   });
 
   test('aria-controls points to a real DOM element when expanded', async () => {
@@ -52,20 +55,25 @@ describe('ToolFallback Accessibility', () => {
     const { container } = wrap(<ToolFallback {...mockBaseProps} result="test-result" />);
 
     const button = screen.getByRole('button', { name: /Expand details/i });
-    expect(button).not.toHaveAttribute('aria-controls');
+    // BST-1681: the row keeps a STABLE `aria-controls` across the toggle (the
+    // disclosure pattern — the pane it names is mounted only while expanded,
+    // which `aria-expanded="false"` already announces). What must never drift
+    // is the id it points at once the pane exists.
+    const controlsId = button.getAttribute('aria-controls');
+    expect(controlsId).toBeTruthy();
+    expect(container.querySelector(`#${CSS.escape(controlsId as string)}`)).not.toBeInTheDocument();
 
     await user.click(button);
 
     const expandedButton = screen.getByRole('button', { name: /Collapse details/i });
-    const controlsId = expandedButton.getAttribute('aria-controls');
-    expect(controlsId).toBeTruthy();
+    expect(expandedButton).toHaveAttribute('aria-controls', controlsId);
 
     const controlledElement = container.querySelector(`#${CSS.escape(controlsId as string)}`);
     expect(controlledElement).toBeInTheDocument();
 
     await user.click(expandedButton);
     const collapsedButton = screen.getByRole('button', { name: /Expand details/i });
-    expect(collapsedButton).not.toHaveAttribute('aria-controls');
+    expect(collapsedButton).toHaveAttribute('aria-expanded', 'false');
     expect(container.querySelector(`#${CSS.escape(controlsId as string)}`)).not.toBeInTheDocument();
   });
 
@@ -79,8 +87,9 @@ describe('ToolFallback Accessibility', () => {
 
     const buttons = screen.getAllByRole('button', { name: /Expand details/i });
     expect(buttons).toHaveLength(2);
-    expect(buttons[0]).not.toHaveAttribute('aria-controls');
-    expect(buttons[1]).not.toHaveAttribute('aria-controls');
+    const [first, second] = buttons;
+    expect(first?.getAttribute('aria-controls')).toBeTruthy();
+    expect(first?.getAttribute('aria-controls')).not.toBe(second?.getAttribute('aria-controls'));
     expect(container.querySelector('[id^="radix-"]')).not.toBeInTheDocument();
   });
 });
