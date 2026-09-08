@@ -86,7 +86,7 @@ describe('AssistantActivityParts (hydrated messages)', () => {
     expect(screen.getByTestId('tool-fallback')).toBeInTheDocument();
   });
 
-  it('keeps the reasoning fold collapsed by default and hides the reasoning text', async () => {
+  it('keeps each reasoning block collapsed by default and hides the reasoning text', async () => {
     render(
       <Harness
         adapter={neverRun}
@@ -136,12 +136,17 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Investigate.');
       await user.click(screen.getByRole('button', { name: 'Send' }));
 
-      const fold = await screen.findByTestId('local-chain-of-thought');
+      const fold = (await screen.findAllByTestId('local-chain-of-thought'))[0];
+      if (!fold) {
+        throw new Error('Expected a reasoning toggle.');
+      }
       expect(within(fold).getByTestId('assistant-thinking-indicator')).toBeInTheDocument();
       const mark = within(fold).getByTestId('assistant-thinking-mark');
       expect(mark).toHaveAttribute('data-tone', 'greyscale');
       expect(mark).toHaveAttribute('data-live', 'true');
       expect(within(fold).queryByTestId('assistant-reasoning-static-mark')).toBeNull();
+      expect(fold).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByText('Thinking hard.')).toBeVisible();
     } finally {
       await act(async () => {
         deferred.release();
@@ -176,7 +181,10 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Investigate.');
       await user.click(screen.getByRole('button', { name: 'Send' }));
 
-      const fold = await screen.findByTestId('local-chain-of-thought');
+      const fold = (await screen.findAllByTestId('local-chain-of-thought'))[0];
+      if (!fold) {
+        throw new Error('Expected a reasoning toggle.');
+      }
       const staticMark = within(fold).getByTestId('assistant-reasoning-static-mark');
       expect(staticMark).toHaveClass('bs-thinking-mark-static');
       expect(staticMark).toHaveAttribute('data-live', 'false');

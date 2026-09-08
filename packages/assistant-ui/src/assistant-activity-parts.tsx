@@ -1,4 +1,5 @@
 import {
+  type EnrichedPartState,
   type MessagePartStatus,
   MessagePrimitive,
   type ToolCallMessagePartProps,
@@ -7,7 +8,7 @@ import {
 } from '@assistant-ui/react';
 import { cn } from '@brainstrike/ui';
 import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
-import { createContext, type ReactNode, use, useId, useMemo, useState } from 'react';
+import { type ReactNode, useId, useMemo, useState } from 'react';
 import { AssistantActivityGroup } from './assistant-activity-group';
 import {
   ACTIVITY_GROUP_KEY,
@@ -50,41 +51,8 @@ import { useChainActivityDerivations } from './use-chain-activity-derivations';
  * calls of the same run.
  */
 
-function isReasoningPart(part: unknown): boolean {
-  return Boolean(
-    part && typeof part === 'object' && (part as { readonly type?: unknown }).type === 'reasoning'
-  );
-}
-
-function isRunningReasoningPart(part: unknown): boolean {
-  if (!isReasoningPart(part)) {
-    return false;
-  }
-  const status = (part as { readonly status?: unknown }).status;
-  return Boolean(
-    status &&
-      typeof status === 'object' &&
-      (status as { readonly type?: unknown }).type === 'running'
-  );
-}
-
-function reasoningToggleLabel(collapsed: boolean): string {
-  return collapsed ? 'Show thinking' : 'Hide thinking';
-}
-
-/**
- * Per-group reasoning fold state. The library no longer owns a
- * `chainOfThought.collapsed` scope on the GroupedParts path, so the wrapper
- * holds it and the reasoning leaves read it through context. Leaves are
- * rendered as descendants of the wrapper (its `children`), so the provider
- * reaches them.
- */
-const ReasoningCollapsedContext = createContext<boolean>(true);
-
-/** Renders the reasoning text only while the fold is open. */
-function ActivityReasoningLeaf() {
-  const collapsed = use(ReasoningCollapsedContext);
-  return collapsed ? null : <AssistantReasoningPart />;
+function reasoningToggleLabel(open: boolean): string {
+  return open ? 'Hide thinking' : 'Show thinking';
 }
 
 function ActivityPartLayout({ children }: { children?: ReactNode }): ReactNode {
@@ -99,35 +67,38 @@ function ActivityToolPart(props: ToolCallMessagePartProps) {
 }
 
 /**
- * The collapsible reasoning fold: a pill that toggles the reasoning panel.
- * Tool cards always render inside the panel (the reasoning collapse only hides
- * reasoning parts), so the panel stays mounted to keep `aria-controls` valid.
+ * One reasoning part's own disclosure pill + panel (BST-1677 wave 2). Each
+ * reasoning leaf in a group owns its open/closed state independently — a
+ * group with several thinking blocks (common once a group can hold many
+ * tool calls) never opens or closes them together. Default open state
+ * follows the part's own `status.type === 'running'`: open while it streams,
+ * settling collapsed the moment it completes; a manual toggle sticks for the
+ * life of the mounted block (BST-1656 "expansion survives an intervening
+ * tool call" — the library keys a leaf on its own part id, so this block
+ * does not remount when later parts arrive).
  */
-function ChainReasoningFold({
-  children,
-  collapsed,
-  isReasoningRunning,
-  onToggle,
-  panelId,
+function ActivityReasoningBlock({
+  part,
 }: {
-  children: ReactNode;
-  collapsed: boolean;
-  isReasoningRunning: boolean;
-  onToggle: () => void;
-  panelId: string;
+  part: Extract<EnrichedPartState, { type: 'reasoning' }>;
 }): ReactNode {
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const panelId = useId();
+  const isStreaming = part.status.type === 'running';
+  const open = userOpen ?? isStreaming;
+
   return (
-    <>
+    <ActivityPartLayout>
       <button
         aria-controls={panelId}
-        aria-expanded={!collapsed}
-        aria-label={reasoningToggleLabel(collapsed)}
+        aria-expanded={open}
+        aria-label={reasoningToggleLabel(open)}
         className="inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-border/70 bg-muted/20 px-2.5 text-left font-medium text-foreground text-xs transition-colors hover:bg-muted/35"
         data-testid="local-chain-of-thought"
-        onClick={onToggle}
+        onClick={() => setUserOpen(!open)}
         type="button"
       >
-        {isReasoningRunning ? (
+        {isStreaming ? (
           <AssistantThinkingIndicator
             className="min-w-0"
             markClassName="size-4"
@@ -146,22 +117,22 @@ function ChainReasoningFold({
             <span className="truncate">Thinking</span>
           </span>
         )}
-        {collapsed ? (
-          <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
+        {open ? (
           <ChevronUpIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
         )}
       </button>
       <div
         className={cn(
           'bs-chain-of-thought-panel mt-2 empty:mt-0',
-          collapsed ? '' : 'border-border/70 border-l pl-3'
+          open ? 'border-border/70 border-l pl-3' : ''
         )}
         id={panelId}
       >
-        {children}
+        {open ? <AssistantReasoningPart /> : null}
       </div>
-    </>
+    </ActivityPartLayout>
   );
 }
 
@@ -191,8 +162,10 @@ function toIncompleteReason(
  * chain-of-thought renderer (BST-1677): reads the group's parts by index from
  * the message (the library's `chainOfThought` scope does not exist on this
  * path), derives the summary / elapsed / durations exactly as before, and
- * renders the unchanged `AssistantActivityGroup` chrome around the reasoning
- * fold.
+ * renders the unchanged `AssistantActivityGroup` chrome around its children.
+ * Each reasoning leaf owns its own disclosure (`ActivityReasoningBlock`), so
+ * the group body renders `children` directly — tool cards and reasoning
+ * blocks interleaved in part order.
  */
 function ActivityGroup({ children, indices, status }: ActivityGroupProps): ReactNode {
   const messageParts = useAuiState((state) => state.message.parts);
@@ -205,8 +178,6 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
     [indices, messageParts]
   );
   const hasActivityParts = groupParts.some(isActivityPart);
-  const hasReasoningParts = groupParts.some(isReasoningPart);
-  const isReasoningRunning = groupParts.some(isRunningReasoningPart);
   // A group's own member statuses can all already read "complete" (e.g. a
   // tool-call result arrives atomically in one streamed chunk) even though
   // the group is still the OPEN, trailing run of a message that hasn't
@@ -226,14 +197,6 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
   const isFirstGroup = indices.includes(firstActivityIndex);
   const { activityFallbackMs, shellOutputs, taskList, toolActivity, toolDurations } =
     useChainActivityDerivations(messageParts, messageId, groupParts);
-  const [collapsed, setCollapsed] = useState(true);
-  const reasoningPanelId = useId();
-
-  const body = (
-    <ReasoningCollapsedContext.Provider value={collapsed}>
-      {children}
-    </ReasoningCollapsedContext.Provider>
-  );
 
   // A group can coalesce purely from group-transparent bookkeeping (e.g. a
   // run of `tool.started`/`tool.completed` events with no reasoning or
@@ -241,7 +204,7 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
   // last real activity). With nothing to summarize, render it as if
   // ungrouped rather than showing an empty "Worked" card.
   if (!hasActivityParts) {
-    return body;
+    return children;
   }
 
   return (
@@ -255,18 +218,7 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
             isActive={isActivityActive}
             summary={toolActivity}
           >
-            {hasReasoningParts ? (
-              <ChainReasoningFold
-                collapsed={collapsed}
-                isReasoningRunning={isReasoningRunning}
-                onToggle={() => setCollapsed((value) => !value)}
-                panelId={reasoningPanelId}
-              >
-                {body}
-              </ChainReasoningFold>
-            ) : (
-              body
-            )}
+            {children}
           </AssistantActivityGroup>
         </ShellOutputProvider>
       </ToolDurationProvider>
@@ -307,11 +259,7 @@ export function AssistantActivityParts(): ReactNode {
           case 'text':
             return <AssistantMessageText />;
           case 'reasoning':
-            return (
-              <ActivityPartLayout>
-                <ActivityReasoningLeaf />
-              </ActivityPartLayout>
-            );
+            return <ActivityReasoningBlock part={part} />;
           case 'tool-call':
             return (
               <ActivityPartLayout>

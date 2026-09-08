@@ -1306,9 +1306,10 @@ model-latency gap between two calls of the same run. Only the trailing group
 gets this treatment: earlier, genuinely finished groups stay inactive when
 later thinking starts (BST-1656 ruling preserved). The reasoning disclosure
 renders live reasoning text directly from `useMessagePartReasoning`, never
-through the text-part renderer; its collapsed state is per-group wrapper state
-(the library's `chainOfThought` scope does not exist on this path), so user
-expansion survives intervening tool calls. Reasoning-only groups omit the step
+through the text-part renderer; each reasoning part carries its own
+disclosure (open while it streams, collapsed once it settles, a manual toggle
+sticks), so a group with several thinking blocks never opens or closes them
+together — test ids and labels unchanged. Reasoning-only groups omit the step
 count. Incomplete group status is authoritative (cancelled → Stopped; other
 reasons → Activity failed); a completed call with `isError` marks its group
 failed, counted once. Tool durations and shell output correlate by call id

@@ -455,14 +455,17 @@ describe('assistant UI panel architecture', () => {
     expect(cssSource).toContain('[data-thread-render-tier="virtual"]');
   });
 
-  it('only animates the chain-of-thought pill while reasoning is running', () => {
+  it('only animates the chain-of-thought pill while its own part is running', () => {
     // This logic moved to assistant-activity-parts.tsx alongside the rest of
-    // the reasoning fold (BST-1677); the panel no longer owns it.
+    // the reasoning disclosure (BST-1677 wave 1); wave 2 then moved it from
+    // per-GROUP to per-PART (each reasoning leaf owns its own pill/disclosure
+    // now, so the group no longer computes a single running flag for all of
+    // them) — the panel still never owns it.
     const partsSource = readSource('assistant-activity-parts.tsx');
     const cssSource = readSource('overrides.css');
 
-    expect(partsSource).toContain('isRunningReasoningPart');
-    expect(partsSource).toContain('isReasoningRunning ? (');
+    expect(partsSource).toContain("part.status.type === 'running'");
+    expect(partsSource).toContain('isStreaming ? (');
     expect(partsSource).toContain('assistant-reasoning-static-mark');
     expect(cssSource).toContain('.bs-thinking-mark-static');
   });
