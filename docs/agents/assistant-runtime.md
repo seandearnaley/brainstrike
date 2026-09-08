@@ -1261,28 +1261,69 @@ or explicit Stop clears the record. The endpoint base must come from the
 already-resolved assistant runtime API (`getAuth()`/`getUrl()`), never from the
 legacy optional `window.assistant.url` field alone.
 
-The reasoning disclosure renders live reasoning text directly from
-`useMessagePartReasoning`. It must never nest the normal assistant text-part
-renderer, because that renderer reads a different part hook and produces an
-expanded-but-empty disclosure. Reasoning may remain auto-collapsed by the
-activity UI, but user expansion must show accumulated text before, during, and
-after intervening tool calls. Each contiguous activity group renders through
-`ChainOfThoughtPrimitive.Parts` at its own position (BST-1656); never hoist later
-parts into the first group or suppress later groups. Reasoning indicators and
-activity status derive from that group's parts/status, so earlier groups remain
-inactive when later thinking starts. The existing named tool-renderer map is
-adapted into the chain primitive's single tool slot, preserving task-list,
-subagent, and MCP result renderers. Activity wrappers remain mounted through
-completion, preserving disclosure state and tool identity. Reasoning-only groups
-omit the zero-tool step count. Incomplete group status is authoritative even
-without tool calls: cancellation shows a neutral Stopped summary, while other
-incomplete reasons show Activity failed. A completed call with the canonical
-`isError` flag also marks its group failed; domain fields alone never imply
-failure, and a call is counted once. Completed tool details remain
-accessible by expanding the activity group; packaged UI proofs follow that
-same disclosure interaction. Tool durations and shell output remain correlated
-by call id across the message, while each group's elapsed fallback uses only its
-own tool events. The turn-wide task list renders once in the first group.
+## ACTIVITY GROUPS (BST-1656, re-based on `MessagePrimitive.GroupedParts`)
+
+The assistant message renders its parts through `MessagePrimitive.GroupedParts`
+(`packages/assistant-ui/src/assistant-activity-parts.tsx`) with
+`groupAssistantActivityPart` (`assistant-activity-grouping.ts`) as the grouper.
+The library's legacy `components.ChainOfThought` path is gone from this repo
+and must not return: its grouper ends a group on ANY part that is not
+`tool-call`/`reasoning`, and this runtime emits a `brainstrike.run-event` data
+part around every tool call (live via `aui-data` → `part-start`, and woven
+between parts on reload), so every call rendered as its own "Worked · 1 step"
+group. Grouping rule (pinned by `assistant-activity-grouping.test.ts`):
+
+- `reasoning` / `tool-call` → the activity group.
+- `brainstrike.run-event` → group-transparent, EXCEPT `isAlwaysVisibleRunEvent`
+  kinds, which stay standalone so a collapsed group can never hide a failed or
+  cancelled run, a skipped MCP server, or a pending approval row.
+- shell-output / context-breakdown / child-run-usage → transparent (they
+  render `null` either way).
+- tool-approval / tool-suspend cards, `text`, and unknown data parts →
+  standalone. A pause is a real boundary.
+- MCP-app tool calls stay inside the group: Brainstrike detects apps by RESULT
+  shape only, and a call must not change groups when its result lands.
+- A `group-activity` node holding only transparent data parts (no
+  `reasoning`/`tool-call` — for example a trailing `run.finished` after the
+  final text) renders its children bare: no `AssistantActivityGroup` chrome,
+  no `assistant-activity-group` test id.
+
+Chronology rulings (unchanged): each contiguous group renders at its own
+position; never hoist later parts into an earlier group or suppress later
+groups. Group status is the library's `GroupPart.status` (running if any part
+runs, else the last part's). A group also counts as active when the message is
+still running, this group holds the message's last part, and the group's own
+status has not resolved to `incomplete` — a tool call's result can land in the
+same streamed chunk that fences the next call into the same coalesced group,
+so a purely part-derived status would otherwise flash "Worked" for the
+model-latency gap between two calls of the same run. Only the trailing group
+gets this treatment: earlier, genuinely finished groups stay inactive when
+later thinking starts (BST-1656 ruling preserved). The reasoning disclosure
+renders live reasoning text directly from `useMessagePartReasoning`, never
+through the text-part renderer; its collapsed state is per-group wrapper state
+(the library's `chainOfThought` scope does not exist on this path), so user
+expansion survives intervening tool calls. Reasoning-only groups omit the step
+count. Incomplete group status is authoritative (cancelled → Stopped; other
+reasons → Activity failed); a completed call with `isError` marks its group
+failed, counted once. Tool durations and shell output correlate by call id
+across the message; each group's elapsed fallback uses only its own tool
+events. The turn-wide task list renders once, in the group holding the
+message's first activity part.
+
+HYDRATION LIVENESS (do not relitigate): every animated "still happening"
+indicator carries `data-live="true"` (`BrainstrikeThinkingMark`,
+`AssistantThinkingIndicator`, the subagent pulse), and
+`assistant-hydration-liveness.test.tsx` asserts a reloaded thread renders NONE
+unless a pause is genuinely pending. Part-derived status is safe by
+construction (hydrated messages are `complete`, so a resultless tool call
+inherits it). Run-event rows are the hazard: a `running` row whose owning
+message has settled resolves to the renderer-only `'interrupted'` status
+(`AssistantRunEventDisplayStatus`; never persisted) unless a
+`brainstrike.tool-approval` / `brainstrike.tool-suspend` data part for the same
+`toolCallId` exists in the thread — the live notice, or the synthetic message
+`appendSuspendedPauseMessages` re-appends for a still-suspended pause. An
+ABSENT message status is left alone: liveness is never guessed. Subagent child
+rows follow the same rule (`readLiveSubagentToolRowsFromMessages`).
 
 Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.37's
 decoder/tool pipeline hand-rolls nested stream controllers (merge streams,

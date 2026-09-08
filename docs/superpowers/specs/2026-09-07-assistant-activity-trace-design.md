@@ -85,13 +85,15 @@ Vercel AI Elements is the canonical typed reference for tool state (`input-strea
 | Part | Group path | Note |
 | --- | --- | --- |
 | `reasoning` | `['group-activity']` | |
-| `tool-call` | `['group-activity']` | MCP-app calls (`getMcpAppFromToolPart`) → `[]`, standalone, per the library's human-in-the-loop guidance |
-| `data` `brainstrike.run-event` | `['group-activity']` | Group-transparent. Feeds step status, durations, and the waiting state; renders no row except developer detail and always-visible kinds |
+| `tool-call` | `['group-activity']` | MCP-app calls stay inside the group in phase 1 (result-shape detection cannot classify a call before its result lands; moving standalone needs a call-start marker — deferred) |
+| `data` `brainstrike.run-event` | `['group-activity']` | Group-transparent, EXCEPT always-visible kinds (`isAlwaysVisibleRunEvent`), which stay standalone so a collapsed group cannot hide them; they occur at run start, at a pause, or at run end, so they never fragment a run's tool calls |
 | `data` shell-output, context-breakdown, child-run-usage | `['group-activity']` | Transparent, render `null` as today |
 | `data` tool-approval, tool-suspend | `[]` | Standalone cards. A pause is a real boundary; the trace before it settles, the resumed leg starts a new trace |
 | `text` | `[]` | Splits, as BST-1656 requires |
 
-A `group-activity` node containing no reasoning and no tool call (for example a trailing `run.finished` after the final text) renders its always-visible event rows only and no header.
+Always-visible event rows render standalone. A `group-activity` node holding only transparent data parts renders its children bare, with no group chrome.
+
+A trailing `group-activity` node also counts as active while its owning message is still running and its own status has not resolved to `incomplete`, even once every part it currently holds reads complete — a tool call's result can land in the same streamed chunk that fences the next call into the same coalesced group, so a purely part-derived status would otherwise flash "Worked" for the model-latency gap between two calls of the same run; only the group holding the message's last part gets this treatment.
 
 Group nodes are keyed by the library on the first part's id, so a trace stays mounted across streaming (BST-1656 "wrappers remain mounted").
 
