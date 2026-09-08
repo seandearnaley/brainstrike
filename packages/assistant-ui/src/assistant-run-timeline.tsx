@@ -1,7 +1,4 @@
-import type {
-  AssistantRunEventJson,
-  AssistantRunEventStatus,
-} from '@brainstrike/assistant-contract';
+import type { AssistantRunEventJson } from '@brainstrike/assistant-contract';
 import { readAssistantRunEvent } from '@brainstrike/assistant-contract';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import {
@@ -10,9 +7,11 @@ import {
   ChevronDown,
   ChevronUp,
   CircleDashed,
+  CircleSlash,
   Radio,
 } from 'lucide-react';
 import { useId, useMemo, useState } from 'react';
+import type { AssistantRunEventDisplayStatus } from './assistant-run-event-derivation';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
 import { categoryTintClasses, classifyRunEvent } from './tool-visual-classification';
 
@@ -20,18 +19,19 @@ interface AssistantRunTimelineProps {
   data: unknown;
   /** Number of consecutive identical events this row represents (rendered as ×n). */
   repeatCount?: number;
-  statusOverride?: AssistantRunEventStatus;
+  statusOverride?: AssistantRunEventDisplayStatus;
 }
 
-const STATUS_LABELS: Record<AssistantRunEventStatus, string> = {
+const STATUS_LABELS: Record<AssistantRunEventDisplayStatus, string> = {
   cancelled: 'Cancelled',
   completed: 'Completed',
   failed: 'Failed',
   info: 'Observed',
+  interrupted: 'Interrupted',
   running: 'Running',
 };
 
-function AssistantRunStatusIcon({ status }: { status: AssistantRunEventStatus }) {
+function AssistantRunStatusIcon({ status }: { status: AssistantRunEventDisplayStatus }) {
   if (status === 'completed') {
     return <CheckCircle className="size-3.5 text-emerald-600 dark:text-emerald-500" />;
   }
@@ -40,6 +40,9 @@ function AssistantRunStatusIcon({ status }: { status: AssistantRunEventStatus })
   }
   if (status === 'cancelled') {
     return <AlertCircle className="size-3.5 text-muted-foreground" />;
+  }
+  if (status === 'interrupted') {
+    return <CircleSlash className="size-3.5 text-muted-foreground" />;
   }
   if (status === 'running') {
     return <CircleDashed className="size-3.5 text-muted-foreground" />;
@@ -133,6 +136,10 @@ export function AssistantRunTimeline({
   const durationLabel = formatDuration(event.durationMs);
   const isFailed = eventStatus === 'failed';
   const isRunning = eventStatus === 'running';
+  const label =
+    eventStatus === 'interrupted' && event.kind === 'tool.approval.requested'
+      ? 'Approval was pending'
+      : event.label;
 
   const toolName =
     typeof event.metadata?.['toolName'] === 'string' ? event.metadata['toolName'] : undefined;
@@ -167,7 +174,7 @@ export function AssistantRunTimeline({
               isFailed ? 'text-destructive' : 'text-foreground/85'
             }`}
           >
-            {event.label}
+            {label}
           </span>
           {repeatCount !== undefined && repeatCount > 1 ? (
             <span
