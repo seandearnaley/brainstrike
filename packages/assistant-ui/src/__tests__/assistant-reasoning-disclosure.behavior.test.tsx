@@ -13,7 +13,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
-import { LocalChainOfThought } from '../assistant-ui-panel';
+import { AssistantActivityParts } from '../assistant-activity-parts';
 
 function createStreamingReasoningAdapter(): {
   readonly adapter: ChatModelAdapter;
@@ -93,11 +93,7 @@ function StreamingReasoningHarness({
             components={{
               AssistantMessage: () => (
                 <MessagePrimitive.Root>
-                  <MessagePrimitive.Parts
-                    components={{
-                      ChainOfThought: LocalChainOfThought,
-                    }}
-                  />
+                  <AssistantActivityParts />
                 </MessagePrimitive.Root>
               ),
               UserMessage: () => null,

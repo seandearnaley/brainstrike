@@ -7,8 +7,9 @@ import {
   ThreadPrimitive,
   useLocalRuntime,
 } from '@assistant-ui/react';
+import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { TooltipProvider } from '@brainstrike/ui';
-import { LocalChainOfThought } from '../assistant-ui-panel';
+import { AssistantActivityParts } from '../assistant-activity-parts';
 
 export const firstParts = [
   { text: 'First reasoning segment.', type: 'reasoning' as const },
@@ -37,6 +38,108 @@ export const completedParts = [
   { text: 'Review complete.', type: 'text' as const },
 ];
 
+/**
+ * A `brainstrike.run-event` data part in the exact shape the live decoder
+ * (`aui-data` → `part-start`) and reload hydration (`toRunEventDataParts`)
+ * both produce: `{ type: 'data', name, data: AssistantRunEvent }`.
+ */
+export function runEventPart(input: {
+  readonly id: string;
+  readonly kind: string;
+  readonly runId?: string;
+  readonly status?: 'cancelled' | 'completed' | 'failed' | 'info' | 'running';
+  readonly timestamp: string;
+  readonly toolCallId?: string;
+}) {
+  return {
+    data: {
+      id: input.id,
+      kind: input.kind,
+      label: input.kind,
+      ...(input.toolCallId === undefined ? {} : { metadata: { toolCallId: input.toolCallId } }),
+      ...(input.runId === undefined ? {} : { runId: input.runId }),
+      status: input.status ?? 'completed',
+      timestamp: input.timestamp,
+    },
+    name: ASSISTANT_RUN_EVENT_DATA_NAME,
+    type: 'data' as const,
+  };
+}
+
+// `noUncheckedIndexedAccess` types `firstParts[n]` / `secondTools[n]` as
+// possibly undefined; destructure once here (the arrays are fixed-length
+// literals, so this is a real narrowing, not a cast around a bug).
+const [firstReasoning, firstTool, firstText] = firstParts as [
+  (typeof firstParts)[0],
+  (typeof firstParts)[1],
+  (typeof firstParts)[2],
+];
+const [commentsTool, relationsTool] = secondTools as [
+  (typeof secondTools)[0],
+  (typeof secondTools)[1],
+];
+
+/**
+ * The FIELD shape of a finished turn: every tool call fenced by its own
+ * `tool.started` / `tool.completed` events, plus the step bookkeeping the agent
+ * emits around them. This is what produced the "Worked · 1 step" rows.
+ */
+export const completedPartsWithEvents = [
+  runEventPart({
+    id: 'e-run',
+    kind: 'run.started',
+    status: 'running',
+    timestamp: '2026-09-05T10:00:00.000Z',
+  }),
+  firstReasoning,
+  runEventPart({
+    id: 'e-first-s',
+    kind: 'tool.started',
+    status: 'running',
+    timestamp: '2026-09-05T10:00:01.000Z',
+    toolCallId: 'first',
+  }),
+  firstTool,
+  runEventPart({
+    id: 'e-first-c',
+    kind: 'tool.completed',
+    timestamp: '2026-09-05T10:00:03.000Z',
+    toolCallId: 'first',
+  }),
+  firstText,
+  secondReasoning,
+  runEventPart({
+    id: 'e-comments-s',
+    kind: 'tool.started',
+    status: 'running',
+    timestamp: '2026-09-05T10:00:10.000Z',
+    toolCallId: 'comments',
+  }),
+  { ...commentsTool, result: { items: [] } },
+  runEventPart({
+    id: 'e-comments-c',
+    kind: 'tool.completed',
+    timestamp: '2026-09-05T10:00:12.000Z',
+    toolCallId: 'comments',
+  }),
+  runEventPart({
+    id: 'e-relations-s',
+    kind: 'tool.started',
+    status: 'running',
+    timestamp: '2026-09-05T10:00:12.000Z',
+    toolCallId: 'relations',
+  }),
+  { ...relationsTool, result: { items: [] } },
+  runEventPart({
+    id: 'e-relations-c',
+    kind: 'tool.completed',
+    timestamp: '2026-09-05T10:00:14.000Z',
+    toolCallId: 'relations',
+  }),
+  runEventPart({ id: 'e-step', kind: 'run.step.finished', timestamp: '2026-09-05T10:00:14.000Z' }),
+  { text: 'Review complete.', type: 'text' as const },
+];
+
 export function Harness({
   adapter,
   initialMessages = [],
@@ -53,7 +156,7 @@ export function Harness({
             components={{
               AssistantMessage: () => (
                 <MessagePrimitive.Root data-testid="timeline">
-                  <MessagePrimitive.Parts components={{ ChainOfThought: LocalChainOfThought }} />
+                  <AssistantActivityParts />
                 </MessagePrimitive.Root>
               ),
               UserMessage: () => null,

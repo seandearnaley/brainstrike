@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import {
   completedParts,
+  completedPartsWithEvents,
   firstParts,
   Harness,
   secondReasoning,
@@ -220,4 +221,50 @@ describe('assistant activity chronology through the real runtime', () => {
     expect(within(first).getByText('for 2.0s')).toBeInTheDocument();
     expect(within(second).getByText('for 4.0s')).toBeInTheDocument();
   });
+
+  it('keeps every tool call of a run in ONE group when run events fence each call (field shape)', async () => {
+    render(
+      <Harness
+        adapter={{
+          async run() {
+            throw new Error('Hydration must not invoke a model.');
+          },
+        }}
+        initialMessages={[{ content: completedPartsWithEvents, role: 'assistant' }]}
+      />
+    );
+    await screen.findByText('Review complete.');
+    const { first, second } = expectChronologicalGroups();
+    expect(first).toHaveTextContent('1 step');
+    expect(second).toHaveTextContent('2 steps');
+    expect(within(first).getByText('for 2.0s')).toBeInTheDocument();
+    expect(within(second).getByText('for 4.0s')).toBeInTheDocument();
+    // Ordinary run-event rows never render at the default detail level.
+    expect(screen.queryAllByTestId('assistant-run-timeline')).toHaveLength(0);
+  });
+
+  it('keeps grouping when run events fence each call LIVE, and settles into one summary', async () => {
+    const finish = deferred();
+    const adapter: ChatModelAdapter = {
+      async *run() {
+        yield { content: completedPartsWithEvents.slice(0, 9) };
+        await finish.promise;
+        yield { content: completedPartsWithEvents };
+      },
+    };
+    const user = userEvent.setup();
+    render(<Harness adapter={adapter} />);
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Inspect this issue.');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByText('I found the issue.');
+    const { second } = expectChronologicalGroups();
+    expect(second).toHaveAttribute('data-active', 'true');
+    await act(async () => {
+      finish.release();
+    });
+    await screen.findByText('Review complete.');
+    await waitFor(() => expect(second).toHaveAttribute('data-active', 'false'));
+    expect(screen.getAllByTestId('assistant-activity-group')).toHaveLength(2);
+    expect(second).toHaveTextContent('2 steps');
+  }, 20_000);
 });
