@@ -182,6 +182,11 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
   const isMessageRunning = useAuiState(
     (state) => state.message.role === 'assistant' && state.message.status.type === 'running'
   );
+  const messageIncompleteReason = useAuiState((state) =>
+    state.message.role === 'assistant' && state.message.status.type === 'incomplete'
+      ? state.message.status.reason
+      : undefined
+  );
   const groupParts = useMemo(
     () => indices.map((index) => messageParts[index]).filter((part) => part !== undefined),
     [indices, messageParts]
@@ -197,7 +202,22 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
   const isActivityActive =
     status.type === 'running' ||
     (isMessageRunning && isTrailingGroup && status.type !== 'incomplete');
-  const incompleteReason = toIncompleteReason(status);
+  const groupIncompleteReason = toIncompleteReason(status);
+  // Finding 1 (PR #3061 review): `getGroupStatus` mirrors the group's LAST
+  // member part, so a group whose own last member is a transparent data part
+  // (e.g. a `tool.completed` run-event that is not the message's last PART —
+  // a trailing `run.cancelled`/`run.failed` standalone row can follow it)
+  // reads "complete" even when the owning message is incomplete
+  // (cancelled/errored). Only the group holding the message's LAST activity
+  // part can be masked this way; inherit the message's own incomplete reason
+  // there, but only when the group's own status did not already resolve one.
+  const lastActivityIndex = messageParts.reduce(
+    (last, part, index) => (isActivityPart(part) ? index : last),
+    -1
+  );
+  const isTrailingActivityGroup = indices.includes(lastActivityIndex);
+  const incompleteReason =
+    groupIncompleteReason ?? (isTrailingActivityGroup ? messageIncompleteReason : undefined);
   // Drives the header's live "Thinking" / "Working" cycler (BST-1677 wave 3):
   // true while a reasoning part in THIS group is still streaming, regardless
   // of whether a tool has also started — `ActivityWorkingLabel` only shows

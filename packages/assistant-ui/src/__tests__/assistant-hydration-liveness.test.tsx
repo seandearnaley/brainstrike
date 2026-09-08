@@ -266,6 +266,132 @@ describe('hydrated threads render no live indicator unless something is genuinel
     expect(live(container)).toHaveLength(1);
   });
 
+  /**
+   * PR #3061 review, Finding 2: a settled earlier leg's OWN run-scoped rows
+   * read statically once it settles, even while a LATER leg (a fresh resume
+   * after an approval pause) is genuinely still running. This is not a race
+   * to fix — record it as the intended, self-consistent outcome (developer
+   * detail only): the paused leg never emits a run terminal of its own (it
+   * returns `finished` at the pause; desktop only UPDATEs
+   * `thread_runs.status`), and the resume leg mints its OWN runId rather than
+   * continuing the paused one — so leg A's `run.started` row can never pair
+   * with anything in the thread, in ANY message ordering.
+   */
+  it("a settled leg's run row reads Interrupted while a later leg's own rows read Running", async () => {
+    const pause = runEventPart({
+      id: 'p',
+      kind: 'tool.approval.requested',
+      runId: 'run-a',
+      status: 'running',
+      timestamp: T(1),
+      toolCallId: 'x',
+    });
+    renderHydrated(
+      [
+        {
+          content: [
+            runEventPart({
+              id: 'r-a',
+              kind: 'run.started',
+              runId: 'run-a',
+              status: 'running',
+              timestamp: T(0),
+            }),
+            {
+              args: {},
+              argsText: '{}',
+              toolCallId: 'x',
+              toolName: 'brainstrike.executeCommand',
+              type: 'tool-call' as const,
+            },
+            pause,
+          ],
+          role: 'assistant',
+          status: settled,
+        },
+        {
+          content: [
+            {
+              data: {
+                runId: 'run-a',
+                stale: false,
+                suspendedAt: T(1),
+                toolCallId: 'x',
+                toolName: 'brainstrike.executeCommand',
+              },
+              name: TOOL_APPROVAL_DATA_NAME,
+              type: 'data' as const,
+            },
+          ],
+          id: 'suspended-approval:run-a:x',
+          role: 'assistant',
+          status: settled,
+        },
+        {
+          content: [
+            runEventPart({
+              id: 'r-b',
+              kind: 'run.started',
+              runId: 'run-b',
+              status: 'running',
+              timestamp: T(2),
+            }),
+            runEventPart({
+              id: 's-b',
+              kind: 'tool.started',
+              runId: 'run-b',
+              status: 'running',
+              timestamp: T(3),
+              toolCallId: 'y',
+            }),
+          ],
+          role: 'assistant',
+          status: { type: 'running' },
+        },
+      ],
+      'developer'
+    );
+
+    await screen.findByText('Tool approval required');
+    const [messageA, , messageB] = screen.getAllByTestId('timeline');
+    if (!(messageA && messageB)) {
+      throw new Error('Expected three hydrated messages.');
+    }
+
+    const rowByLabel = (scope: HTMLElement, text: string): HTMLElement => {
+      const row = within(scope)
+        .getAllByTestId('assistant-run-timeline')
+        .find((candidate) => candidate.textContent?.includes(text));
+      if (!row) {
+        throw new Error(`Expected a run-timeline row containing "${text}".`);
+      }
+      return row;
+    };
+
+    // A settled: its run.started row can never pair (see the block comment
+    // above), so it downgrades to the renderer-only 'interrupted' status —
+    // static, not a pulsing spinner.
+    expect(
+      within(rowByLabel(messageA, 'run.started')).getByLabelText('Interrupted')
+    ).toBeInTheDocument();
+
+    // The SAME message's pause row is exempt from that downgrade: a pending
+    // `brainstrike.tool-approval` card for toolCallId x (message 2) is still
+    // in the thread, so it stays genuinely actionable.
+    const pauseRow = rowByLabel(messageA, 'tool.approval.requested');
+    expect(within(pauseRow).getByLabelText('Running')).toBeInTheDocument();
+    expect(pauseRow.querySelector('[data-live="true"]')).not.toBeNull();
+
+    // B is a genuinely running leg (its own message never settled) — nothing
+    // in it gets downgraded.
+    expect(
+      within(rowByLabel(messageB, 'run.started')).getByLabelText('Running')
+    ).toBeInTheDocument();
+    expect(
+      within(rowByLabel(messageB, 'tool.started')).getByLabelText('Running')
+    ).toBeInTheDocument();
+  });
+
   it('interrupted subagent delegation: child rows are static', async () => {
     const childStarted = {
       data: {

@@ -1261,7 +1261,7 @@ or explicit Stop clears the record. The endpoint base must come from the
 already-resolved assistant runtime API (`getAuth()`/`getUrl()`), never from the
 legacy optional `window.assistant.url` field alone.
 
-## ACTIVITY GROUPS (BST-1656, re-based on `MessagePrimitive.GroupedParts`)
+### ACTIVITY GROUPS (BST-1656, re-based on `MessagePrimitive.GroupedParts`)
 
 The assistant message renders its parts through `MessagePrimitive.GroupedParts`
 (`packages/assistant-ui/src/assistant-activity-parts.tsx`) with
@@ -1313,7 +1313,11 @@ together — test ids and labels unchanged. Reasoning-only groups omit the step
 count. Incomplete group status is authoritative (cancelled → Stopped; other
 reasons → Activity failed); a completed call with the canonical `isError`
 flag is counted once into the header's `· N failed` suffix — it never turns
-the group itself failed, only the group's own incomplete status does. Tool
+the group itself failed, only the group's own incomplete status does. The
+trailing group of an incomplete message inherits the message's own incomplete
+reason when its own last member is a transparent data part (PR #3061 review
+finding 1: `getGroupStatus` mirrors the group's own last member, which can
+read "complete" even though the message stopped mid-run). Tool
 durations and shell output correlate by call id across the message; each
 group's elapsed fallback uses only its own tool events. The turn-wide task
 list renders once, in the group holding the
@@ -1350,7 +1354,9 @@ removing the durable leaf it replays, an in-flight row can briefly read
 "Interrupted" — the replay re-creates the message right after, so the window
 is short and self-correcting.
 
-Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.37's
+### Renderer stream-insulation boundary (BST-704, LIVE)
+
+assistant-stream 0.3.37's
 decoder/tool pipeline hand-rolls nested stream controllers (merge streams,
 tool-call sub-streams) whose settlement paths (`setResponse`, detached
 part-finish continuations) enqueue with NO cancellation guard — if downstream

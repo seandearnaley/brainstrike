@@ -291,3 +291,122 @@ describe('assistant activity chronology through the real runtime', () => {
     expect(second).toHaveTextContent('2 steps');
   }, 20_000);
 });
+
+/**
+ * PR #3061 review, Finding 1: `getGroupStatus` mirrors the group's own LAST
+ * member part, so a group whose last member is a transparent
+ * `tool.completed` run-event (not the message's last PART — a trailing
+ * always-visible `run.cancelled`/`run.failed` standalone row follows it)
+ * reads "complete" even when the message itself is incomplete. Only the
+ * group holding the message's LAST activity part is masked this way; it must
+ * inherit the message's own incomplete reason.
+ */
+describe('trailing-group incomplete-reason inheritance (BST-1677 wave 3, PR #3061 finding 1)', () => {
+  const neverRun = {
+    async run() {
+      throw new Error('Hydration must not invoke a model.');
+    },
+  };
+
+  function trailingGroupContent(toolCallId: string) {
+    return [
+      { text: 'Reasoning.', type: 'reasoning' as const },
+      runEventPart({
+        id: `e-${toolCallId}-s`,
+        kind: 'tool.started',
+        status: 'running' as const,
+        timestamp: '2026-09-05T10:00:00.000Z',
+        toolCallId,
+      }),
+      {
+        args: {},
+        argsText: '{}',
+        result: { ok: true },
+        toolCallId,
+        toolName: `tool_${toolCallId}`,
+        type: 'tool-call' as const,
+      },
+      runEventPart({
+        id: `e-${toolCallId}-c`,
+        kind: 'tool.completed',
+        timestamp: '2026-09-05T10:00:01.000Z',
+        toolCallId,
+      }),
+      runEventPart({
+        id: `e-${toolCallId}-r`,
+        kind: 'run.cancelled',
+        status: 'cancelled' as const,
+        timestamp: '2026-09-05T10:00:02.000Z',
+      }),
+    ];
+  }
+
+  it('reads "Stopped" (not "Worked") when the owning message is cancelled', async () => {
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: trailingGroupContent('x'),
+            role: 'assistant',
+            status: { reason: 'cancelled', type: 'incomplete' },
+          },
+        ]}
+      />
+    );
+    await screen.findByText('Stopped');
+    expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'false');
+    expect(screen.queryByText('Worked')).not.toBeInTheDocument();
+  });
+
+  it('reads "Activity failed" (not "Worked") when the owning message errored', async () => {
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: trailingGroupContent('x'),
+            role: 'assistant',
+            status: { reason: 'error', type: 'incomplete' },
+          },
+        ]}
+      />
+    );
+    await screen.findByText('Activity failed');
+    expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'true');
+    expect(screen.queryByText('Worked')).not.toBeInTheDocument();
+  });
+
+  it('only the TRAILING group inherits the reason: an earlier, self-resolved group still reads "Worked"', async () => {
+    const content = [
+      { text: 'First reasoning.', type: 'reasoning' as const },
+      {
+        args: {},
+        argsText: '{}',
+        result: { ok: true },
+        toolCallId: 'a',
+        toolName: 'tool_a',
+        type: 'tool-call' as const,
+      },
+      { text: 'Between.', type: 'text' as const },
+      ...trailingGroupContent('b'),
+    ];
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          { content, role: 'assistant', status: { reason: 'cancelled', type: 'incomplete' } },
+        ]}
+      />
+    );
+    await screen.findByText('Between.');
+    const groups = screen.getAllByTestId('assistant-activity-group');
+    expect(groups).toHaveLength(2);
+    const [groupA, groupB] = groups;
+    if (!(groupA && groupB)) {
+      throw new Error('Expected two activity groups.');
+    }
+    expect(within(groupA).getByText('Worked')).toBeInTheDocument();
+    expect(within(groupB).getByText('Stopped')).toBeInTheDocument();
+  });
+});

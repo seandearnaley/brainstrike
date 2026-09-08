@@ -12,26 +12,39 @@ import { TooltipProvider } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
 import { AssistantActivityParts } from '../assistant-activity-parts';
 
-export const firstParts = [
-  { text: 'First reasoning segment.', type: 'reasoning' as const },
-  {
-    args: {},
-    argsText: '{}',
-    result: { id: 'BST-1656' },
-    toolCallId: 'first',
-    toolName: 'linear_get_issue',
-    type: 'tool-call' as const,
-  },
-  { text: 'I found the issue.', type: 'text' as const },
-];
-export const secondReasoning = { text: 'Second reasoning segment.', type: 'reasoning' as const };
-export const secondTools = ['comments', 'relations'].map((name) => ({
+// Named individually so `completedPartsWithEvents` below can splice the SAME
+// part objects between run events without re-deriving them via a tuple cast
+// on `firstParts`/`secondTools` — declaring them first and composing the
+// arrays from them is the one source of truth.
+const firstReasoning = { text: 'First reasoning segment.', type: 'reasoning' as const };
+const firstTool = {
   args: {},
   argsText: '{}',
-  toolCallId: name,
-  toolName: `linear_list_${name}`,
+  result: { id: 'BST-1656' },
+  toolCallId: 'first',
+  toolName: 'linear_get_issue',
   type: 'tool-call' as const,
-}));
+};
+const firstText = { text: 'I found the issue.', type: 'text' as const };
+export const firstParts = [firstReasoning, firstTool, firstText];
+
+export const secondReasoning = { text: 'Second reasoning segment.', type: 'reasoning' as const };
+const commentsTool = {
+  args: {},
+  argsText: '{}',
+  toolCallId: 'comments',
+  toolName: 'linear_list_comments',
+  type: 'tool-call' as const,
+};
+const relationsTool = {
+  args: {},
+  argsText: '{}',
+  toolCallId: 'relations',
+  toolName: 'linear_list_relations',
+  type: 'tool-call' as const,
+};
+export const secondTools = [commentsTool, relationsTool];
+
 export const completedParts = [
   ...firstParts,
   secondReasoning,
@@ -88,19 +101,6 @@ export function runEventPart(input: {
     type: 'data' as const,
   };
 }
-
-// `noUncheckedIndexedAccess` types `firstParts[n]` / `secondTools[n]` as
-// possibly undefined; destructure once here (the arrays are fixed-length
-// literals, so this is a real narrowing, not a cast around a bug).
-const [firstReasoning, firstTool, firstText] = firstParts as [
-  (typeof firstParts)[0],
-  (typeof firstParts)[1],
-  (typeof firstParts)[2],
-];
-const [commentsTool, relationsTool] = secondTools as [
-  (typeof secondTools)[0],
-  (typeof secondTools)[1],
-];
 
 /**
  * The FIELD shape of a finished turn: every tool call fenced by its own

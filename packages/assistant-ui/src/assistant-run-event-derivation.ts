@@ -855,10 +855,18 @@ export function resolveAssistantRunEventStatus(
   if (resolved !== 'running') {
     return resolved;
   }
-  return applyInterruptedRule(
-    event,
-    resolved,
-    isOwnerSettled(messages, event.id),
-    collectPendingPauseToolCallIds(messages)
-  );
+  // Two more thread walks below (`isOwnerSettled`, `collectPendingPauseToolCallIds`)
+  // exist ONLY to feed `applyInterruptedRule`, which itself short-circuits on
+  // `!ownerSettled` — so skip the second walk entirely once the first says the
+  // owner has not settled, and skip the pause-id walk whenever this event
+  // carries no `toolCallId` (nothing it could ever match against).
+  const ownerSettled = isOwnerSettled(messages, event.id);
+  if (!ownerSettled) {
+    return resolved;
+  }
+  const pendingPauseToolCallIds =
+    typeof event.metadata?.['toolCallId'] === 'string'
+      ? collectPendingPauseToolCallIds(messages)
+      : new Set<string>();
+  return applyInterruptedRule(event, resolved, ownerSettled, pendingPauseToolCallIds);
 }

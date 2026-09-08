@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -7,6 +7,13 @@ const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const readSource = (relativePath: string): string =>
   readFileSync(join(sourceRoot, relativePath), 'utf8');
+
+/** Every `.tsx` file under `src/`, excluding tests — component source only. */
+function listComponentSourceFiles(): string[] {
+  return readdirSync(sourceRoot, { recursive: true })
+    .map((entry) => entry.toString())
+    .filter((entry) => entry.endsWith('.tsx') && !entry.includes('__tests__/'));
+}
 
 describe('assistant UI panel architecture', () => {
   it('keeps the assistant panel root under the source-file budget', () => {
@@ -468,5 +475,31 @@ describe('assistant UI panel architecture', () => {
     expect(partsSource).toContain('isStreaming ? (');
     expect(partsSource).toContain('assistant-reasoning-static-mark');
     expect(cssSource).toContain('.bs-thinking-mark-static');
+  });
+
+  it('keeps the "static thinking mark" CSS hook confined to assistant-thinking-indicator.tsx', () => {
+    // `bs-thinking-mark-static` is BrainstrikeThinkingMark's own `live={false}`
+    // class (assistant-thinking-indicator.tsx); every other caller must go
+    // through the component's `live` prop rather than re-spelling the class
+    // name, or a rename there would silently desync from callers that never
+    // ran through this test.
+    const literal = 'bs-thinking-mark-static';
+    const offenders = listComponentSourceFiles().filter(
+      (file) => file !== 'assistant-thinking-indicator.tsx' && readSource(file).includes(literal)
+    );
+    expect(offenders).toEqual([]);
+    // Sanity: the assertion above is not vacuously true because the literal
+    // doesn't exist anywhere — confirm it's still in the one file it belongs.
+    expect(readSource('assistant-thinking-indicator.tsx')).toContain(literal);
+  });
+
+  it('registers data renderers only via useAssistantDataUI, never a `Data:` key in a components map', () => {
+    const panelSource = readSource('assistant-ui-panel.tsx');
+    expect(panelSource).toContain('useAssistantDataUI(assistantRunTimelineDataUI)');
+    expect(panelSource).not.toMatch(/['"`]Data:['"`]/);
+
+    const partsSource = readSource('assistant-activity-parts.tsx');
+    expect(partsSource).toContain("case 'data':");
+    expect(partsSource).toContain('part.dataRendererUI');
   });
 });
