@@ -141,13 +141,20 @@ export function StepRowHeader(props: StepRowHeaderProps): ReactNode {
             {props.target}
           </span>
         ) : null}
-        {props.trailing}
       </span>
-      {/* Outside `.bs-step-row-content` on purpose: the content element NAMES
-          the non-interactive row (`aria-labelledby`), so an sr-only tool id
-          in there would read the row as "Reading src/app.ts
-          brainstrike.readWorkspaceFile". It stays inside the row so the card
-          still carries the raw id as text (the e2e contract). */}
+      {/* `trailing` and the sr-only tool id below both sit OUTSIDE
+          `.bs-step-row-content` on purpose: the content span NAMES the
+          non-interactive row (`aria-labelledby`) and is the button form's
+          `aria-describedby` target, so anything that is not part of
+          naming/describing the step lives here instead. Folded into the
+          content span, trailing meta (result-summary chips, tool-call
+          counts, the resolved root name) would name a zero-row delegation
+          "Delegating to Explorer · 0 tool calls" instead of just its verb
+          (BST-1686), and the raw tool id would read the row as "Reading
+          src/app.ts brainstrike.readWorkspaceFile". Both stay inside the row
+          itself, so the chip remains visible text and the raw id still
+          carries the e2e text contract. */}
+      {props.trailing}
       {props.toolName ? <span className="sr-only">{props.toolName}</span> : null}
       {/* The slot is a flex item with its own gap, so an empty one spends row
           width on nothing — the reasoning and task-list rows pass no timing at
