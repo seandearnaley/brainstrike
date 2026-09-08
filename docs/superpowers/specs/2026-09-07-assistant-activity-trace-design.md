@@ -143,6 +143,10 @@ The active/resting pair is the seam a future small-model summary plugs into: the
 
 ### 4.3 Presentation
 
+**Status (phase 2, BST-1679):** L0 shipped — status row, detail line, motion
+— plus reasoning's `Thinking`/`Thought` labels. L1 (step list) and the L2
+re-skin of the tool cards below are phase 3, not yet built.
+
 **L0, status row** (always rendered, fixed height): disclosure triangle · state glyph · label · elapsed · trailing meta. While running: shimmering live label, ticking elapsed seeded from the group's run-event span (today's `useElapsedMs`, now fed by the whole group), and **one detail line** beneath in the Codex `└` style showing the current target, truncated. On finish the label crossfades to the resting summary (keyed on its text, per the thinking-indicator element), the detail line collapses, and the meta reads `Worked for 12s` (cancelled: `Stopped after 4s`; failed tint destructive). Reasoning-only groups read `Thought for 4s`.
 
 **L1, step list** (triangle open): one row per step in part order: icon by verb family, verb (tense follows state), target chip, duration, state glyph. Rows fade-up with a capped stagger when first revealed; rows already visible when a new one arrives do not re-animate. Only the last running step shimmers. Reasoning is a step ("Thinking" → "Thought for 4s") whose body is the existing `AssistantReasoningPart`; the reasoning-collapsed default and the "expansion survives an intervening tool call" behaviour are preserved.

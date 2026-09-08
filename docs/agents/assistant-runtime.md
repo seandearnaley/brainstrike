@@ -1285,8 +1285,9 @@ group. Grouping rule (pinned by `assistant-activity-grouping.test.ts`):
   shape only, and a call must not change groups when its result lands.
 - A `group-activity` node holding only transparent data parts (no
   `reasoning`/`tool-call` — for example a trailing `run.finished` after the
-  final text) renders its children bare: no `AssistantActivityGroup` chrome,
-  no `assistant-activity-group` test id.
+  final text) renders its children bare: `ActivityGroup`
+  (`assistant-activity-parts.tsx`) returns them directly instead of mounting
+  `ActivityTrace` — no chrome, no `assistant-activity-group` test id.
 
 `AssistantActivityParts` passes `indicator="no-text"` to `GroupedParts` (the
 library default), required for parity with the legacy path's empty-message
@@ -1310,7 +1311,12 @@ standalone as well, but a message paused on one is `requires-action`, not
 Chronology rulings (unchanged): each contiguous group renders at its own
 position; never hoist later parts into an earlier group or suppress later
 groups. Group status is the library's `GroupPart.status` (running if any part
-runs, else the last part's). A group also counts as active when the message is
+runs, else the last part's). `ActivityGroup`'s `isActivityActive` reads `true`
+when: the group's own status is `running`; OR the group's own status is
+`requires-action` — a call paused at its approval gate carries this status,
+never `running`, for as long as the gate stays open, and only this branch
+makes the model's `waiting` → `Waiting for approval` label
+(`activity-trace-model.ts`) reachable (BST-1679 task 6); OR the message is
 still running, this group holds the message's last part, and the group's own
 status has not resolved to `incomplete` — a tool call's result can land in the
 same streamed chunk that fences the next call into the same coalesced group,
@@ -1343,17 +1349,78 @@ group's elapsed fallback uses only its own tool events. The turn-wide task
 list renders once, in the group holding the
 message's first activity part.
 
-COLLAPSED BY DEFAULT (BST-1677 wave 3, Sean's request): a group's body renders
-collapsed at ALL times — running or done — `AssistantActivityGroup`'s
-`expanded` derivation is `userExpanded ?? false`, never `?? isActive`. The
-header is the live "cycler" instead: while the group is active it reads
-"Thinking" (shimmer text, no active tool label) while a reasoning part in this
-group is `status.type === 'running'` and no tool has started yet, and switches
-to "Working `<tool>` `<arg>`" the moment a tool call becomes the active step
-(`ActivityGroup` computes this `reasoningActive` flag from the group's own
-parts). An explicit user toggle (`AssistantActivityGroup`'s `userExpanded`
-state) sticks for the life of the mounted group, exactly as before — it can
-still be expanded while running.
+COLLAPSED BY DEFAULT (BST-1677 wave 3, Sean's request; header now
+`ActivityTrace`, BST-1679): a group's body renders collapsed at ALL times —
+running or done — `ActivityTrace`'s `expanded` derivation is
+`userExpanded ?? false`, never `?? isActive`. An explicit user toggle sticks
+for the life of the mounted trace, exactly as before — it can still be
+expanded while running.
+
+`ActivityTrace` (`activity-trace.tsx`) renders the header as two rows: the
+status row (glyph, label, elapsed) and, only while active, a fixed-height
+detail line (`bs-trace-detail`, one line, entirely removed from the DOM once
+the group finishes — never a zero-height placeholder). While running, the
+live label follows a fixed precedence in `summarizeActivity`'s `liveLabel`
+(`activity-trace-model.ts`, over `deriveActivitySteps`'s step list):
+`Waiting for approval` (any step `waiting`) > `<Verb-ing> <target>` (the last
+running tool step) > `Thinking` (a running reasoning step, no tool running
+yet) > `Working` (no step running yet). The detail line under it names only
+the current running tool's target; it carries no label of its own.
+
+At rest the headline is the verb summary from `restingLabel`: unique
+DONE-verb phrases in first-occurrence order, capped at three (`+N more` for
+the rest), with file counts on the `edit`/`read` verb families deduped on the
+untruncated `targetKey` rather than the display-capped `target` (so two long
+paths sharing a head/tail after 64-char middle-ellipsising still count as two
+files) — `edit` folds to "Edited N files", `read` folds to "Read N files"
+once N > 1. The meta reads `Worked for Ns · N steps · N failed` (step/failed
+counts from `summary.counts`, each segment omitted when zero). `Stopped after
+Ns` and `Activity failed` remain the headlines for the GROUP'S OWN incomplete
+status (unchanged rule: cancelled → Stopped, any other reason → Activity
+failed) — a failed tool step alone never fails the group, only its own
+`incompleteReason` does — and whenever either headline wins, the verb summary
+that would otherwise have been the headline is demoted to a
+`· <verb summary>` meta segment instead of disappearing. A reasoning-only
+group (no settled tool step) reads `Thought` at rest; a live reasoning
+block's own disclosure pill uses the same pair, `Thinking` while its part
+streams and `Thought` once it settles (`ActivityReasoningBlock`,
+`assistant-activity-parts.tsx`) — the identical `Thinking`/`Thought` pair
+`deriveActivitySteps` assigns every reasoning step (`REASONING_VERB`).
+
+The resting headline can be overridden by
+`message.metadata.custom.brainstrikeActivitySummary`
+(`readActivitySummaryOverride`, `assistant-activity-parts.tsx`): read-only
+today, a non-empty (post-trim) string is used verbatim; a non-string or
+blank value is ignored, never coerced. No producer writes this key in this
+repo — it is a seam for a future model-written summary (spec §4.2).
+
+Layout is fixed-height by design (scroll-anchoring rule, §4.7 of the design
+spec): the status row is `min-height: 2rem` and the phase glyph sits in a
+`1rem` box (`bs-trace-phase-glyph`/`bs-trace-phase-icon`) regardless of
+whether it holds a lucide icon or the animated mark, so swapping icons never
+changes the row's height. The live-label region carries `aria-live="off"` (a
+cycling label would narrate every tool) plus a visually hidden
+`aria-live="polite"` phrase that flips only on phase change: `Working` /
+`Waiting for approval` (the one case whose text isn't just the phase's fixed
+string) / `Finished` / `Stopped` / `Failed`.
+
+Every verb (`active`/`done`/icon family) lives in `activity-verbs.ts`'s
+`TOOL_VERBS`, total over `NATIVE_TOOL_IDS` — 39 native tool ids (36
+`brainstrike.*` desktop ids plus the three unprefixed Agent Skills ids
+`skill`/`skill_read`/`skill_search`) — pinned both by
+`activity-verbs.test.ts` and by the `Record<NativeToolId, ActivityVerb>` type
+itself (a tool added to the catalog without a verb entry fails to compile).
+Non-native tool names fall through `verbForTool`: a subagent delegation
+(`agent-<persona>` prefix) reads `Delegating to <persona>` /
+`Delegated to <persona>`; a dotted, non-`brainstrike.`-prefixed name (an MCP
+tool, `server.tool`) reads `Calling server.tool` / `Called server.tool`;
+anything else reads `Using <name>` / `Used <name>` rather than guessing.
+
+Test ids and data attributes are unchanged from the pre-`ActivityTrace`
+header: `assistant-activity-group`, `assistant-activity-summary`,
+`assistant-activity-body`, `assistant-activity-working`,
+`assistant-activity-failed-count`, `data-active`, `data-failed`,
+`data-failed-steps`, `data-state`.
 
 HYDRATION LIVENESS (do not relitigate): every animated "still happening"
 indicator carries `data-live="true"` (`BrainstrikeThinkingMark`,
