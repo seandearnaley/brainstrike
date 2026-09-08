@@ -181,8 +181,10 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       expect(staticMark).toHaveClass('bs-thinking-mark-static');
       expect(staticMark).toHaveAttribute('data-live', 'false');
       // Scoped to the fold: a running tool card legitimately renders its own
-      // thinking indicator elsewhere in the document, so asserting on
-      // `screen` directly here would be a false negative for this check.
+      // thinking indicator elsewhere in the document, and the message-level
+      // `indicator="no-text"` placeholder also renders while the message runs
+      // and its last part is not text/reasoning, so asserting on `screen`
+      // directly here would be a false negative for this check.
       expect(within(fold).queryByTestId('assistant-thinking-indicator')).toBeNull();
       expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-active', 'true');
     } finally {

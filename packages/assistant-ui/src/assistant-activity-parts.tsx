@@ -283,10 +283,12 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
  * running message's LAST part was not `text`/`reasoning` — e.g. only a
  * `run.started` data part has arrived so far. `"never"` blanked the assistant
  * bubble for the whole gap between Send and the first part landing, which
- * regressed both cases. There is no double indicator: when an empty running
- * TEXT part exists, that part IS the last part and IS text, so the library's
- * predicate does not fire here — `markdown-text.tsx` owns that placeholder on
- * its own.
+ * regressed both cases. When an empty running text part exists it is normally
+ * the LAST part (the stream never opens a text part and then appends another
+ * part before its first delta), so the library emits no indicator and
+ * `markdown-text.tsx` owns the placeholder; the one theoretical overlap (an
+ * empty running text part that is not last) is a shape the legacy
+ * `MessagePrimitive.Parts` path shared.
  */
 export function AssistantActivityParts(): ReactNode {
   return (
