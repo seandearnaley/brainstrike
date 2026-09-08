@@ -1,7 +1,7 @@
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 import { render } from '@testing-library/react';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 function px(value: string): number {
   return Number.parseFloat(value);
@@ -13,9 +13,9 @@ function px(value: string): number {
 // standard CSS Transitions timeline semantics (the animated value is pinned
 // to its start keyframe until at least one rendering opportunity elapses),
 // confirmed here against a plain `opacity` transition too, not specific to
-// `grid-template-rows`. So the test awaits the transition's declared duration
-// (220ms + margin) before reading the settled value, which is the standard
-// way to assert a CSS transition's end state.
+// `grid-template-rows`. So the test polls until the transition settles
+// (`vi.waitFor`, bounded well above the declared 220ms) instead of sleeping a
+// hard-coded margin that a loaded CI runner could overrun.
 test('grid-rows disclosure opens to content height and closes to zero, with a transition declared', async () => {
   const { container, rerender } = render(
     <div className="assistant-ui-panel">
@@ -37,8 +37,10 @@ test('grid-rows disclosure opens to content height and closes to zero, with a tr
       </div>
     </div>
   );
-  await new Promise((resolve) => setTimeout(resolve, 260));
-  expect(px(getComputedStyle(collapse).gridTemplateRows)).toBeGreaterThanOrEqual(40);
+  await vi.waitFor(
+    () => expect(px(getComputedStyle(collapse).gridTemplateRows)).toBeGreaterThanOrEqual(40),
+    { interval: 20, timeout: 2000 }
+  );
   expect(getComputedStyle(collapse).transitionProperty).toContain('grid-template-rows');
 });
 
