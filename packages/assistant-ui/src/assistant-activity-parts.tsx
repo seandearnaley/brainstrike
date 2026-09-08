@@ -243,8 +243,18 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
   // coalesced key. Treat that case as active too, so the card doesn't look
   // finished a beat before the next call actually starts.
   const isTrailingGroup = indices.at(-1) === messageParts.length - 1;
+  // `requires-action` is a genuine live pause, not a settled state: a call
+  // paused at its approval gate carries this status on the message (and
+  // therefore on its own resultless tool-call part / the group that mirrors
+  // it — see `trailingGroupHasActivity`'s doc comment) for as long as the
+  // gate is open, never `running`. Without this branch the group reads as
+  // finished ("Worked") the instant a call reaches its gate, and the model's
+  // `toolStepState`/`liveLabel` 'waiting' → 'Waiting for approval' branch
+  // (already unit-pinned in activity-trace-model.test.ts) never becomes
+  // observable (BST-1679 task 6).
   const isActivityActive =
     status.type === 'running' ||
+    status.type === 'requires-action' ||
     (isMessageRunning && isTrailingGroup && status.type !== 'incomplete');
   // Finding 1 (PR #3061 review), narrowed in the fix round: `getGroupStatus`
   // mirrors the group's LAST member part, so a group whose own last member is

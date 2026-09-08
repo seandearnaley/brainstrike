@@ -116,6 +116,40 @@ describe('AssistantActivityParts (hydrated messages)', () => {
     const group = screen.getByTestId('assistant-activity-group');
     expect(group.contains(text)).toBe(false);
   });
+
+  // BST-1679 task 6: a call paused at its approval gate carries
+  // `requires-action` on the message (and therefore on its own resultless
+  // tool-call part — see `toMessagePartStatus`), never `running` — this is a
+  // genuine LIVE pause, not something reload/hydration produces (that case
+  // settles to `complete`; see assistant-hydration-liveness.test.tsx's
+  // "abandoned approval" case). `Harness`'s `initialMessages` seeds exactly
+  // this in-session shape without needing a live deferred adapter.
+  it('reads Waiting for approval while a call is paused at its gate', async () => {
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: [
+              tool('x', {
+                args: { command: 'rm x' },
+                argsText: '{"command":"rm x"}',
+                result: undefined,
+                toolName: 'brainstrike.executeCommand',
+              }),
+            ],
+            role: 'assistant',
+            status: { reason: 'interrupt', type: 'requires-action' },
+          },
+        ]}
+      />
+    );
+    const group = await screen.findByTestId('assistant-activity-group');
+    expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
+      'Waiting for approval'
+    );
+    expect(group).toHaveAttribute('data-state', 'running');
+  });
 });
 
 describe('AssistantActivityParts (running reasoning, real runtime)', () => {
@@ -395,6 +429,76 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       await waitFor(() => expect(indicatorsOutsideGroups()).toHaveLength(1));
       expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute('data-live', 'true');
     } finally {
+      await act(async () => {
+        deferred.release();
+        await deferred.promise;
+      });
+    }
+  }, 20_000);
+
+  // BST-1679 task 6: the built-in Explorer persona's delegation tool is
+  // `agent-explore` (`SUBAGENT_DELEGATION_TOOL_PREFIX` + persona id `explore`,
+  // see activity-verbs.ts / personas.ts) — its verb reads "Delegating to
+  // Explorer" while the call is open and "Delegated to Explorer" once it
+  // resolves. No primary-arg key on an empty `args` object, so the live
+  // label is the bare verb with no trailing target.
+  it('reads Delegating to Explorer while a delegation runs, then Delegated once it resolves', async () => {
+    const user = userEvent.setup();
+    const deferred = createDeferred();
+    const adapter: ChatModelAdapter = {
+      async *run() {
+        yield {
+          content: [
+            {
+              args: {},
+              argsText: '{}',
+              toolCallId: 'delegate-1',
+              toolName: 'agent-explore',
+              type: 'tool-call' as const,
+            },
+          ],
+        };
+        await deferred.promise;
+        yield {
+          content: [
+            {
+              args: {},
+              argsText: '{}',
+              result: { subAgentToolResults: [], text: 'Found it.' },
+              toolCallId: 'delegate-1',
+              toolName: 'agent-explore',
+              type: 'tool-call' as const,
+            },
+          ],
+        };
+      },
+    };
+
+    try {
+      render(<Harness adapter={adapter} />);
+      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Explore.');
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+
+      const group = await screen.findByTestId('assistant-activity-group');
+      expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
+        'Delegating to Explorer'
+      );
+      expect(group).toHaveAttribute('data-state', 'running');
+
+      await act(async () => {
+        deferred.release();
+        await deferred.promise;
+      });
+
+      await waitFor(() => expect(group).toHaveAttribute('data-state', 'done'));
+      expect(
+        within(group).getByText('Delegated to Explorer', { selector: '.bs-activity-summary-label' })
+      ).toBeInTheDocument();
+    } finally {
+      // `release` and awaiting an already-resolved `promise` are both
+      // idempotent — this mirrors the other tests' unconditional
+      // release-in-finally even though this test's try body already
+      // released once to unblock the second (resolved) yield.
       await act(async () => {
         deferred.release();
         await deferred.promise;
