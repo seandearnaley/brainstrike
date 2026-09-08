@@ -186,6 +186,10 @@ describe('AssistantActivityGroup', () => {
     expect(screen.getByText('Worked')).toBeInTheDocument();
     expect(screen.getByText(/for 12\.0s/)).toBeInTheDocument();
     expect(screen.getByText(/5 steps/)).toBeInTheDocument();
+    expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute(
+      'data-failed-steps',
+      '0'
+    );
     // Auto-collapsed when not active.
     expect(screen.getByTestId('assistant-activity-body')).toHaveAttribute('hidden');
   });
@@ -200,6 +204,10 @@ describe('AssistantActivityGroup', () => {
     );
 
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'false');
+    expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute(
+      'data-failed-steps',
+      '1'
+    );
     expect(screen.getByText('Worked')).toBeInTheDocument();
     expect(screen.getByText(/for 12\.0s/)).toBeInTheDocument();
     expect(screen.getByText(/5 steps/)).toBeInTheDocument();

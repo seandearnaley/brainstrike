@@ -73,9 +73,14 @@ function ActivityToolPart(props: ToolCallMessagePartProps) {
  * tool calls) never opens or closes them together. Default open state
  * follows the part's own `status.type === 'running'`: open while it streams,
  * settling collapsed the moment it completes; a manual toggle sticks for the
- * life of the mounted block (BST-1656 "expansion survives an intervening
- * tool call" — the library keys a leaf on its own part id, so this block
- * does not remount when later parts arrive).
+ * life of the mounted block. Reasoning leaves have no `idKey` in
+ * `@assistant-ui/core`'s `MessageGroupedParts` (only tool calls do, via
+ * `toolCallId`) — they are keyed by absolute part index instead, which stays
+ * stable because streaming is append-only and group nodes keep their own
+ * `nodeKey` as siblings append, so this block does not remount when a later
+ * part (e.g. an intervening tool call) arrives. Guarded by
+ * "a manually opened block survives an intervening tool call and the turn
+ * finishing (BST-1656)" in assistant-reasoning-disclosure.behavior.test.tsx.
  */
 function ActivityReasoningBlock({
   part,

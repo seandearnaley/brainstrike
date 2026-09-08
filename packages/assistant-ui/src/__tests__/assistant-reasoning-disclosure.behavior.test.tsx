@@ -195,6 +195,60 @@ describe('assistant reasoning disclosure (real streaming runtime)', () => {
     expect(screen.getByTestId('local-chain-of-thought')).toHaveAttribute('aria-expanded', 'false');
   }, 20_000);
 
+  it('a manually opened block survives an intervening tool call and the turn finishing (BST-1656)', async () => {
+    const user = userEvent.setup();
+    const stream = createStreamingReasoningAdapter();
+
+    render(<StreamingReasoningHarness adapter={stream.adapter} />);
+
+    await user.type(screen.getByRole('textbox', { name: 'Message input' }), 'Build a website.');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    // The first block auto-opens on its own while it streams. Capture its
+    // panel id (`aria-controls`, backed by `useId()`) as a mount fingerprint
+    // — a remount hands the block a fresh id, so comparing this value later
+    // is how the test tells "same instance, state preserved" apart from
+    // "fresh instance that happens to compute the same open/closed value."
+    const streamingToggle = await screen.findByRole('button', { name: 'Hide thinking' });
+    const panelId = streamingToggle.getAttribute('aria-controls');
+
+    // The tool call in this chunk settles the reasoning part; the block
+    // follows `isStreaming` back down and settles collapsed on its own.
+    stream.nextChunk();
+    const settledToggle = await screen.findByRole('button', { name: 'Show thinking' });
+    expect(settledToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(settledToggle).toHaveAttribute('aria-controls', panelId);
+
+    // Manually reopen the settled block.
+    await user.click(settledToggle);
+    const reopenedToggle = screen.getByRole('button', { name: 'Hide thinking' });
+    expect(reopenedToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(reopenedToggle).toHaveAttribute('aria-controls', panelId);
+    expect(screen.getByText('Inspect the workspace root.', { exact: false })).toBeVisible();
+
+    stream.finish();
+    await waitFor(() => {
+      expect(screen.getByText('Done.')).toBeVisible();
+    });
+    // The manual open sticks through the turn finishing: it's still the
+    // same button — same panel id, so the block never remounted when the
+    // tool call's result and the trailing text part arrived — still
+    // expanded, and its panel still holds the text (now including the
+    // later-arriving segment). The activity group itself auto-collapses
+    // once done (pre-existing, unrelated `AssistantActivityGroup`
+    // behavior), which hides the panel from the accessibility tree —
+    // `toHaveTextContent` reads it regardless, the same way the
+    // hydrated-message tests in assistant-activity-parts.test.tsx already
+    // do.
+    const survivingToggle = screen.getByTestId('local-chain-of-thought');
+    expect(survivingToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(survivingToggle).toHaveAttribute('aria-label', 'Hide thinking');
+    expect(survivingToggle).toHaveAttribute('aria-controls', panelId);
+    expect(screen.getByTestId('local-reasoning-part')).toHaveTextContent(
+      'Inspect the workspace root. Then enumerate the files.'
+    );
+  }, 20_000);
+
   it('discloses each reasoning part independently within one group', async () => {
     const user = userEvent.setup();
     const neverRun = {
