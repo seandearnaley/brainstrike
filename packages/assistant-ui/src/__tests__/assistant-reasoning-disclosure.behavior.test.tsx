@@ -9,7 +9,7 @@ import {
   useLocalRuntime,
 } from '@assistant-ui/react';
 import { TooltipProvider } from '@brainstrike/ui';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
@@ -167,8 +167,14 @@ describe('assistant reasoning disclosure (real streaming runtime)', () => {
     expect(settledToggle).toHaveAttribute('aria-label', 'Show thinking');
     // Past tense once the block settled (BST-1679): the pill reads "Thinking"
     // only while its own part streams. No reasoning duration is derivable in
-    // this harness (no run events), so it stays the bare verb.
-    expect(screen.getByTestId('assistant-reasoning-indicator')).toHaveTextContent('Thought');
+    // this harness (no run events), so it stays the bare verb — assert the
+    // exact label, not a substring (e.g. a stray "Thoughts" would also pass
+    // `toHaveTextContent`).
+    expect(
+      within(screen.getByTestId('assistant-reasoning-indicator')).getByText('Thought', {
+        exact: true,
+      })
+    ).toBeInTheDocument();
     expect(screen.getByTestId('assistant-reasoning-static-mark')).toBeInTheDocument();
     expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
     // Real streaming runtime + userEvent typing: comfortably sub-second when

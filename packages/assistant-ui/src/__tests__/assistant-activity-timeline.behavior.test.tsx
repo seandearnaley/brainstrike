@@ -172,7 +172,12 @@ describe('assistant activity chronology through the real runtime', () => {
     );
     await screen.findByText('Activity failed', { selector: HEADLINE_SELECTOR });
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'true');
-    expect(screen.queryByText('Worked', { selector: HEADLINE_SELECTOR })).not.toBeInTheDocument();
+    // `headlineFor` never returns the literal "Worked" (it's always "Worked
+    // for Ns" meta text next to the verb headline), so a bare
+    // `queryByText('Worked', ...)` can never match and would silently pass
+    // even for a broken failed-rule that renders the meta. Assert against
+    // the group's full text content instead.
+    expect(screen.getByTestId('assistant-activity-group')).not.toHaveTextContent('Worked for');
   });
 
   it('marks an explicit tool-result error in only its completed activity group', async () => {
@@ -486,7 +491,7 @@ describe('activity-part-derived group status (BST-1677 wave 3 fix round, PR #306
     );
     await screen.findByText('Stopped', { selector: HEADLINE_SELECTOR });
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'false');
-    expect(screen.queryByText('Worked', { selector: HEADLINE_SELECTOR })).not.toBeInTheDocument();
+    expect(screen.getByTestId('assistant-activity-group')).not.toHaveTextContent('Worked for');
   });
 
   it('reads "Activity failed" (not "Worked") when a resultless tool call is masked by a trailing tool.completed data part, message errored', async () => {
@@ -504,7 +509,7 @@ describe('activity-part-derived group status (BST-1677 wave 3 fix round, PR #306
     );
     await screen.findByText('Activity failed', { selector: HEADLINE_SELECTOR });
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'true');
-    expect(screen.queryByText('Worked', { selector: HEADLINE_SELECTOR })).not.toBeInTheDocument();
+    expect(screen.getByTestId('assistant-activity-group')).not.toHaveTextContent('Worked for');
   });
 
   it('reads "Worked" (not "Stopped") when the tool call HAS a result, even though the owning message was cancelled', async () => {

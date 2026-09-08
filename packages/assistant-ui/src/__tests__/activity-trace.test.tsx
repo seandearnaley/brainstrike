@@ -2,7 +2,8 @@
 import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { act } from 'react';
+import { describe, expect, it, vi } from 'vitest';
 import { ActivityTrace } from '../activity-trace';
 import type { ActivitySummary } from '../activity-trace-model';
 
@@ -18,7 +19,7 @@ const done: ActivitySummary = {
 };
 
 describe('ActivityTrace', () => {
-  it('names the current step while active, ticks elapsed, and stays collapsed', () => {
+  it('names the current step while active and stays collapsed', () => {
     render(
       <ActivityTrace
         detail="foo"
@@ -142,5 +143,113 @@ describe('ActivityTrace', () => {
       'aria-expanded',
       'true'
     );
+  });
+
+  // Ported from the deleted `assistant-activity-group.test.tsx` (BST-1677) —
+  // these three cases pin `useElapsedMs`'s live-timer behavior. Scoped to
+  // their own fake-timer lifecycle (rather than the whole describe block) so
+  // they don't interfere with the userEvent-driven case above.
+  describe('live elapsed timer', () => {
+    it('ticks elapsed time while active', () => {
+      vi.useFakeTimers();
+      try {
+        render(
+          <ActivityTrace
+            detail={null}
+            fallbackMs={undefined}
+            incompleteReason={undefined}
+            isActive
+            restingOverride={null}
+            summary={live}
+          />
+        );
+
+        act(() => {
+          vi.advanceTimersByTime(3400);
+        });
+
+        expect(screen.getByText('3.4s')).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('seeds the live timer from the elapsed fallback (no flash back to 0)', () => {
+      // The trace mounts 2s into the turn — the clock must continue from
+      // ~2.0s, not reset to 0 (which flashed 1.8s → 0.2s; BST-1677).
+      vi.useFakeTimers();
+      try {
+        render(
+          <ActivityTrace
+            detail={null}
+            fallbackMs={2000}
+            incompleteReason={undefined}
+            isActive
+            restingOverride={null}
+            summary={live}
+          />
+        );
+        expect(screen.getByText('2.0s')).toBeInTheDocument();
+
+        act(() => {
+          vi.advanceTimersByTime(1000);
+        });
+        expect(screen.getByText('3.0s')).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('retains reasoning time when the same group resumes after a completed tool', () => {
+      vi.useFakeTimers();
+      try {
+        const { rerender } = render(
+          <ActivityTrace
+            detail={null}
+            fallbackMs={undefined}
+            incompleteReason={undefined}
+            isActive
+            restingOverride={null}
+            summary={live}
+          />
+        );
+        act(() => {
+          vi.advanceTimersByTime(3400);
+        });
+        rerender(
+          <ActivityTrace
+            detail={null}
+            fallbackMs={1000}
+            incompleteReason={undefined}
+            isActive={false}
+            restingOverride={null}
+            summary={done}
+          />
+        );
+        expect(screen.getByTestId('assistant-activity-summary')).toHaveTextContent(
+          'Worked for 3.4s'
+        );
+        act(() => {
+          vi.advanceTimersByTime(500);
+        });
+        rerender(
+          <ActivityTrace
+            detail={null}
+            fallbackMs={1000}
+            incompleteReason={undefined}
+            isActive
+            restingOverride={null}
+            summary={live}
+          />
+        );
+        expect(screen.getByText('3.4s')).toBeInTheDocument();
+        act(() => {
+          vi.advanceTimersByTime(1000);
+        });
+        expect(screen.getByText('4.4s')).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
