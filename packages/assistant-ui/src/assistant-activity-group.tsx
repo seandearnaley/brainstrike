@@ -43,8 +43,8 @@ function useElapsedMs(isActive: boolean, fallbackMs: number | undefined): number
 }
 
 interface AssistantActivityGroupProps {
-  children?: ReactNode;
-  fallbackMs?: number | undefined;
+  readonly children?: ReactNode;
+  readonly fallbackMs?: number | undefined;
   // Derived from MessageStatus, not MessagePartStatus. The value this prop
   // receives is `state.chainOfThought.status.reason` — a MESSAGE-level status —
   // and through @assistant-ui/react 0.15.14 the two incomplete-reason unions
@@ -53,18 +53,19 @@ interface AssistantActivityGroupProps {
   // keeping it on the message union, and the mismatch surfaced as TS2322 at the
   // one call site. Naming the union the value actually comes from is the fix;
   // widening or casting here would just re-hide the coupling.
-  incompleteReason?: Extract<MessageStatus, { type: 'incomplete' }>['reason'] | undefined;
+  readonly incompleteReason?: Extract<MessageStatus, { type: 'incomplete' }>['reason'] | undefined;
   /** True while the turn is still producing tool activity. */
-  isActive: boolean;
+  readonly isActive: boolean;
   /**
-   * True while a reasoning part in this group is currently streaming and no
-   * tool has started yet — drives the header's "Thinking" cycler text while
-   * running. Required (not defaulted) so a caller can never silently lose the
-   * cycler: a caller with no reasoning of its own to report passes `false`
-   * explicitly (e.g. the isolated unit/browser tests below).
+   * True while a reasoning part in this group is currently streaming,
+   * regardless of whether a tool has also started; `ActivityWorkingLabel`
+   * shows "Thinking" only when no tool is active, else "Working <tool>".
+   * Required (not defaulted) so a caller can never silently lose the cycler:
+   * a caller with no reasoning of its own to report passes `false` explicitly
+   * (e.g. the isolated unit/browser tests below).
    */
   readonly reasoningActive: boolean;
-  summary: ToolActivitySummary;
+  readonly summary: ToolActivitySummary;
 }
 
 /**

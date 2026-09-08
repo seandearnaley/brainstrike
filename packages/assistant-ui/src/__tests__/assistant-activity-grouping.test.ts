@@ -12,6 +12,7 @@ import {
   ACTIVITY_GROUP_KEY,
   groupAssistantActivityPart,
   isActivityPart,
+  trailingGroupHasActivity,
 } from '../assistant-activity-grouping';
 
 const complete = { type: 'complete' } as const;
@@ -93,5 +94,47 @@ describe('isActivityPart', () => {
     expect(isActivityPart({ type: 'tool-call' })).toBe(true);
     expect(isActivityPart({ type: 'data' })).toBe(false);
     expect(isActivityPart(null)).toBe(false);
+  });
+});
+
+describe('trailingGroupHasActivity', () => {
+  const reasoning = part({ text: 'hmm', type: 'reasoning' });
+  const toolCall = part({
+    args: {},
+    argsText: '{}',
+    toolCallId: 'a',
+    toolName: 'x',
+    type: 'tool-call',
+  });
+  const text = part({ text: 'Done.', type: 'text' });
+
+  it('is false for an empty message and for only standalone data (run.started)', () => {
+    expect(trailingGroupHasActivity([])).toBe(false);
+    expect(trailingGroupHasActivity([runEvent('run.started', 'running')])).toBe(false);
+  });
+
+  it('is true while the trailing group holds an activity part, even behind transparent data', () => {
+    expect(trailingGroupHasActivity([reasoning])).toBe(true);
+    expect(trailingGroupHasActivity([reasoning, toolCall, runEvent('tool.completed')])).toBe(true);
+    expect(trailingGroupHasActivity([toolCall, runEvent('tool.started', 'running')])).toBe(true);
+  });
+
+  it('is false once text (a standalone part) ends the group — the trailing data part is a bare group', () => {
+    expect(trailingGroupHasActivity([reasoning, toolCall, text])).toBe(false);
+    expect(
+      trailingGroupHasActivity([
+        reasoning,
+        toolCall,
+        runEvent('tool.completed'),
+        text,
+        runEvent('tool.started', 'running'),
+      ])
+    ).toBe(false);
+  });
+
+  it('stops at an always-visible run event (standalone) rather than walking past it', () => {
+    expect(trailingGroupHasActivity([toolCall, runEvent('run.cancelled', 'cancelled')])).toBe(
+      false
+    );
   });
 });

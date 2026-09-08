@@ -68,10 +68,26 @@ export function isActivityPart(part: unknown): boolean {
  *   the resumed leg starts a new group.
  */
 export function groupAssistantActivityPart(part: PartState): readonly ActivityGroupKey[] {
+  return classifyPart(part);
+}
+
+/**
+ * The fields `groupAssistantActivityPart` actually reads. Both the enriched
+ * `PartState` the library hands `groupBy` and the plain `state.message.parts`
+ * entries satisfy it, so the same classification serves the renderer's
+ * message-level questions (`trailingGroupHasActivity`) without a cast.
+ */
+interface GroupablePart {
+  readonly data?: unknown;
+  readonly name?: unknown;
+  readonly type: string;
+}
+
+function classifyPart(part: GroupablePart): readonly ActivityGroupKey[] {
   if (ACTIVITY_PART_TYPES.has(part.type)) {
     return ACTIVITY_GROUP;
   }
-  if (part.type !== 'data') {
+  if (part.type !== 'data' || typeof part.name !== 'string') {
     return STANDALONE;
   }
   if (part.name === ASSISTANT_RUN_EVENT_DATA_NAME) {
@@ -83,4 +99,26 @@ export function groupAssistantActivityPart(part: PartState): readonly ActivityGr
   // Unknown data names ALSO stay standalone by this fallthrough — an
   // unrecognised part is never guessed to be safe inside the activity group.
   return GROUP_TRANSPARENT_DATA_NAMES.has(part.name) ? ACTIVITY_GROUP : STANDALONE;
+}
+
+/**
+ * True when the group that holds the message's LAST part contains an activity
+ * part — i.e. the trailing group is a live activity group whose header is the
+ * running-state signal. Walks back over group-transparent members (run
+ * events, shell output, …) that would join that group and stops at the first
+ * standalone part, so `[…, text, tool.started]` is `false` (the data part
+ * forms a bare data-only group and the earlier group is no longer trailing)
+ * while `[…, tool-call, tool.completed]` is `true`.
+ */
+export function trailingGroupHasActivity(parts: readonly GroupablePart[]): boolean {
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (part === undefined || classifyPart(part) !== ACTIVITY_GROUP) {
+      return false;
+    }
+    if (isActivityPart(part)) {
+      return true;
+    }
+  }
+  return false;
 }

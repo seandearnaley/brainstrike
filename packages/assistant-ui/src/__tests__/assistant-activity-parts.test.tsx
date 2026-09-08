@@ -333,10 +333,67 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
       // group never shows a second "Thinking" row beneath its own cycler
       // (CDT pass 4 defect). The running card's own indicator lives INSIDE the
       // group body and is not what this pins.
-      const outsideGroup = [
-        ...document.querySelectorAll('[data-testid="assistant-thinking-indicator"]'),
-      ].filter((element) => element.closest('[data-testid="assistant-activity-group"]') === null);
-      expect(outsideGroup).toHaveLength(0);
+      expect(indicatorsOutsideGroups()).toHaveLength(0);
+    } finally {
+      await act(async () => {
+        deferred.release();
+        await deferred.promise;
+      });
+    }
+  }, 20_000);
+
+  it('keeps the message-level indicator when text ended the group and only a transparent data part trails', async () => {
+    const user = userEvent.setup();
+    const deferred = createDeferred();
+    const adapter: ChatModelAdapter = {
+      async *run() {
+        yield {
+          content: [
+            { text: 'Looking.', type: 'reasoning' as const },
+            {
+              args: { path: 'a.ts' },
+              argsText: '{"path":"a.ts"}',
+              result: { ok: true },
+              toolCallId: 'call-1',
+              toolName: 'brainstrike.readWorkspaceFile',
+              type: 'tool-call' as const,
+            },
+            runEventPart({
+              id: 'e-done',
+              kind: 'tool.completed',
+              status: 'completed',
+              timestamp: '2026-09-05T10:00:01.000Z',
+              toolCallId: 'call-1',
+            }),
+            { text: 'Now the second step.', type: 'text' as const },
+            runEventPart({
+              id: 'e-next',
+              kind: 'tool.started',
+              status: 'running',
+              timestamp: '2026-09-05T10:00:02.000Z',
+              toolCallId: 'call-2',
+            }),
+          ],
+        };
+        await deferred.promise;
+      },
+    };
+
+    try {
+      render(<Harness adapter={adapter} />);
+      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Investigate.');
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+
+      await screen.findByText('Now the second step.');
+      // Text split the activity: the first group is no longer trailing and
+      // reads as settled, and the trailing `tool.started` forms a bare
+      // data-only group that renders nothing. The message-level indicator is
+      // therefore the turn's ONLY live affordance until the next tool-call
+      // part lands — suppressing it on "any activity part anywhere" darkened
+      // this window (wave-3 review finding).
+      expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-state', 'done');
+      await waitFor(() => expect(indicatorsOutsideGroups()).toHaveLength(1));
+      expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute('data-live', 'true');
     } finally {
       await act(async () => {
         deferred.release();
@@ -345,3 +402,9 @@ describe('AssistantActivityParts (running reasoning, real runtime)', () => {
     }
   }, 20_000);
 });
+
+function indicatorsOutsideGroups(): Element[] {
+  return [...document.querySelectorAll('[data-testid="assistant-thinking-indicator"]')].filter(
+    (element) => element.closest('[data-testid="assistant-activity-group"]') === null
+  );
+}

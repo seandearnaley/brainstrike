@@ -16,6 +16,7 @@ import {
   type ActivityGroupKey,
   groupAssistantActivityPart,
   isActivityPart,
+  trailingGroupHasActivity,
 } from './assistant-activity-grouping';
 import { AssistantMessageText } from './assistant-message-text';
 import { AssistantReasoningPart } from './assistant-reasoning-part';
@@ -66,11 +67,11 @@ function isPartRunning(part: PartState): boolean {
 }
 
 /**
- * A part's own status (`part.status?.type`, `part.status?.reason` — the same
- * fields the file already reads elsewhere for `reasoningActive`). A part with
- * no `status` (i.e. `undefined`, from `Array#at` on a possibly-empty list)
- * counts as `complete` — matching the library's own `normalizePartStatus`
- * fallback.
+ * A part's own status (`part.status.type` / `.reason` — the same fields the
+ * file already reads elsewhere for `reasoningActive`). `PartState.status` is
+ * always present; the `undefined` case is `Array#at(-1)` on a group with no
+ * activity part, which counts as `complete` — matching the library's own
+ * `normalizePartStatus` fallback.
  */
 function activityPartStatus(
   part: PartState | undefined
@@ -294,8 +295,14 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
  * part is a tool call or a transparent data part — i.e. while an activity
  * group is live — and rendering it there put a second "Thinking" row under a
  * collapsed group whose header already cycles the current step (CDT pass 4).
- * So the slot renders only while the message has NO activity part yet; once a
- * group exists its header is the sole live status. When an empty running text part exists it is normally
+ * So the slot is dropped exactly when the TRAILING group holds an activity
+ * part (`trailingGroupHasActivity`): that group's header is the live status.
+ * It still renders for zero parts, for only standalone data (`run.started`),
+ * and for `[…, text, tool.started]` — there the earlier group is no longer
+ * trailing (it reads "Worked") and the bare data-only group renders nothing,
+ * so without the slot a running turn would have no live affordance at all
+ * until the next tool-call part lands. When an empty running text part exists
+ * it is normally
  * the LAST part (the stream never opens a text part and then appends another
  * part before its first delta), so the library emits no indicator and
  * `markdown-text.tsx` owns the placeholder; the one theoretical overlap (an
@@ -303,7 +310,7 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
  * `MessagePrimitive.Parts` path shared.
  */
 export function AssistantActivityParts(): ReactNode {
-  const hasActivityParts = useAuiState((state) => state.message.parts.some(isActivityPart));
+  const trailingGroupActive = useAuiState((state) => trailingGroupHasActivity(state.message.parts));
   return (
     <MessagePrimitive.GroupedParts<ActivityGroupKey>
       groupBy={groupAssistantActivityPart}
@@ -330,7 +337,7 @@ export function AssistantActivityParts(): ReactNode {
           case 'data':
             return part.dataRendererUI;
           case 'indicator':
-            return hasActivityParts ? null : (
+            return trailingGroupActive ? null : (
               <AssistantThinkingIndicator
                 className="bs-streaming-thinking"
                 markClassName="size-4"
