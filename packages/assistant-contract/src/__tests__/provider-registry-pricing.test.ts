@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { listProviderLlmModels, listProviders } from '../provider-registry.js';
 
-const KNOWN_FREE_PRICED_MODEL_KEYS = new Set(['openrouter/stealth/ox-alpha']);
+// BST-1697 delisted openrouter/stealth/ox-alpha, the only route that ever
+// earned an explicit 0/0 rate. The allowlist stays as the guard: a new zero
+// rate must be reviewed and added here rather than shipped silently.
+const KNOWN_FREE_PRICED_MODEL_KEYS = new Set<string>([]);
 
 describe('model pricing metadata', () => {
   it('keeps paid rates positive and limits zero rates to reviewed free routes', () => {
@@ -119,13 +122,6 @@ describe('model pricing metadata', () => {
     for (const model of listProviderLlmModels('local')) {
       expect(model.pricing, `local/${model.id}`).toBeUndefined();
     }
-  });
-
-  it('records Ox Alpha as free during its OpenRouter stealth preview', () => {
-    const oxAlpha = listProviderLlmModels('openrouter').find(
-      (model) => model.id === 'stealth/ox-alpha'
-    );
-    expect(oxAlpha?.pricing).toEqual({ inputPerMTok: 0, outputPerMTok: 0 });
   });
 
   it('new hosted models carry current base-rate estimates', () => {

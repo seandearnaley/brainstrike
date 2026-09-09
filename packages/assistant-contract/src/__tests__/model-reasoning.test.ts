@@ -58,8 +58,11 @@ describe('resolveModelReasoningSupport', () => {
 });
 
 describe('resolveReasoningControlsAvailability', () => {
-  it('keeps Ox Alpha mandatory and excludes an Off effort', () => {
-    expect(resolveReasoningControlsAvailability('openrouter', 'stealth/ox-alpha')).toEqual({
+  // Retargeted from the delisted stealth/ox-alpha (BST-1697) to GLM 5.3,
+  // which declares the same mandatory max/high/low ladder. The behaviour under
+  // test is that a mandatory ladder gets no synthesized Off effort.
+  it('keeps a mandatory OpenRouter ladder free of an Off effort', () => {
+    expect(resolveReasoningControlsAvailability('openrouter', 'z-ai/glm-5.3')).toEqual({
       available: true,
       defaultEffort: 'max',
       efforts: ['max', 'high', 'low'],

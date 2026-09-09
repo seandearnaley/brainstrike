@@ -686,26 +686,6 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Anonymous stealth-preview identity, route, modalities, context/output\nlimits, reasoning controls, tool/structured-output support, and zero\ngateway pricing: OpenRouter Models and endpoint APIs, revalidated\n2026-08-22 (BST-1399). Revalidate the preview rate when this route\nleaves stealth. OpenRouter does not identify the vendor, so there is\nno vendor-authoritative default output window to record; Auto honors\nthe mandatory published max effort under the generic coding ceiling.",
-        "contextWindow": 1048576,
-        "id": "stealth/ox-alpha",
-        "label": "Ox Alpha (OpenRouter)",
-        "maxOutputTokens": 131072,
-        "pricing": {
-          "inputPerMTok": 0,
-          "outputPerMTok": 0
-        },
-        "reasoning": {
-          "defaultEffort": "max",
-          "defaultEnabled": true,
-          "mandatory": true,
-          "supportedEfforts": ["max", "high", "low"]
-        },
-        "supportsStreaming": true,
-        "type": "llm",
-        "vision": "supported"
-      },
-      {
         "_note": "Capabilities and limits: official Qwen model card at commit\n1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0. Route, max completion,\nand gateway pricing: OpenRouter Models API, retrieved 2026-08-15\n(BST-1302).\nAuto intentionally follows Qwen's documented xhigh default. The\nofficial ladder skips high: xhigh, medium, low. No paid route smoke\nwas available (BST-1302), and Qwen publishes recommended maxima for\nseparate reasoning/final output rather than a distinct default\nthinking+answer reservation, so vendorDefaultOutputTokens is absent.",
         "contextWindow": 262144,
         "id": "qwen/qwen3.8-27b",
@@ -746,26 +726,6 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Vendor identity, modalities, limits, and tool/structured-output support:\nofficial Alibaba Cloud Model Studio model page, retrieved 2026-08-15.\nRoute, gateway pricing, and reasoning controls: OpenRouter Models API,\nretrieved 2026-08-15 (BST-1309). Cache prices are omitted because this\nstatic schema has no cache-price fields.\nUnlike the sibling Qwen routes, OpenRouter explicitly advertises\n`high` and `minimal` for Max; preserve the route's five-rung ladder.\nAlibaba documents 131,072 as a maximum, not a distinct default\nthinking+answer window, so there is no vendorDefaultOutputTokens fact.",
-        "contextWindow": 1000000,
-        "id": "qwen/qwen3.8-max",
-        "label": "Qwen3.8 Max (OpenRouter)",
-        "maxOutputTokens": 131072,
-        "pricing": {
-          "inputPerMTok": 2,
-          "outputPerMTok": 6
-        },
-        "reasoning": {
-          "defaultEffort": "xhigh",
-          "defaultEnabled": true,
-          "mandatory": true,
-          "supportedEfforts": ["xhigh", "high", "medium", "low", "minimal"]
-        },
-        "supportsStreaming": true,
-        "type": "llm",
-        "vision": "supported"
-      },
-      {
         "_note": "Identity, GA status, text modality, optional reasoning, and native\ncontext: official NVIDIA model card at revision d468880b, retrieved\n2026-08-17. Route, effective hosted limits, and gateway pricing:\nOpenRouter Models API, retrieved 2026-08-17 (BST-1343).\nNVIDIA documents reasoning as optional on/off but publishes no effort\nladder. Declare only the explicit `none` control so offline menus and\npersisted model-switch settings preserve the verified off state.",
         "contextWindow": 262144,
         "id": "nvidia/nemotron-3.5-lightning",
@@ -802,15 +762,6 @@
         "supportsStreaming": true,
         "type": "llm",
         "vision": "supported"
-      },
-      {
-        "contextWindow": 262144,
-        "id": "inclusionai/ling-3.0-flash:free",
-        "label": "Ling 3.0 Flash Free (OpenRouter)",
-        "maxOutputTokens": 32768,
-        "supportsStreaming": true,
-        "type": "llm",
-        "vision": "unsupported"
       },
       {
         "contextWindow": 1048576,
@@ -900,19 +851,6 @@
         "supportsStreaming": true,
         "type": "llm",
         "vision": "supported"
-      },
-      {
-        "contextWindow": 256000,
-        "id": "kwaipilot/kat-coder-air-v2.5",
-        "label": "KAT-Coder Air V2.5 (OpenRouter)",
-        "maxOutputTokens": 80000,
-        "pricing": {
-          "inputPerMTok": 0.15,
-          "outputPerMTok": 0.6
-        },
-        "supportsStreaming": true,
-        "type": "llm",
-        "vision": "unsupported"
       },
       {
         "contextWindow": 256000,

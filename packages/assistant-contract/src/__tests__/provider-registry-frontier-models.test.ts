@@ -152,7 +152,6 @@ describe('frontier model refresh (2026-07)', () => {
       const ids = llmIds('openrouter');
       expect(ids).toEqual(
         expect.arrayContaining([
-          'stealth/ox-alpha',
           'openai/gpt-5.6-sol',
           'openai/gpt-5.6-terra',
           'openai/gpt-5.6-luna',
@@ -171,18 +170,15 @@ describe('frontier model refresh (2026-07)', () => {
           'meta/muse-spark-1.2',
           'meta/muse-spark-1.1',
           'moonshotai/kimi-k3',
-          'inclusionai/ling-3.0-flash:free',
           'poolside/laguna-s-2.1',
           'poolside/laguna-xs-2.1',
           'qwen/qwen3.8-2.4t-a95b',
-          'qwen/qwen3.8-max',
           'nvidia/nemotron-3.5-lightning',
           'google/gemini-3.7-flash',
           'google/gemini-3.6-flash',
           'google/gemini-3.5-flash-lite',
           'meituan/longcat-2.0',
           'thinkingmachines/inkling',
-          'kwaipilot/kat-coder-air-v2.5',
           'kwaipilot/kat-coder-pro-v2.5',
           'x-ai/grok-4.6',
           'x-ai/grok-4.5',
@@ -203,31 +199,20 @@ describe('frontier model refresh (2026-07)', () => {
       );
       expect(ids).not.toContain('anthropic/claude-sonnet-4.5');
       expect(ids).not.toContain('google/gemini-3-flash-preview');
+      // BST-1697: delisted upstream, so they must not come back into the
+      // catalog without a fresh route check.
+      for (const delisted of [
+        'stealth/ox-alpha',
+        'qwen/qwen3.8-max',
+        'inclusionai/ling-3.0-flash:free',
+        'kwaipilot/kat-coder-air-v2.5',
+      ]) {
+        expect(ids).not.toContain(delisted);
+      }
     });
 
     it('defaults to openai/gpt-5.6-terra', () => {
       expect(resolveDefaultModel('openrouter')).toBe('openai/gpt-5.6-terra');
-    });
-
-    it('declares Ox Alpha from live OpenRouter route metadata', () => {
-      const oxAlpha = getLlmModelDefinition('openrouter', 'stealth/ox-alpha');
-
-      expect(oxAlpha).toEqual({
-        contextWindow: 1_048_576,
-        id: 'stealth/ox-alpha',
-        label: 'Ox Alpha (OpenRouter)',
-        maxOutputTokens: 131_072,
-        pricing: { inputPerMTok: 0, outputPerMTok: 0 },
-        reasoning: {
-          defaultEffort: 'max',
-          defaultEnabled: true,
-          mandatory: true,
-          supportedEfforts: ['max', 'high', 'low'],
-        },
-        supportsStreaming: true,
-        type: 'llm',
-        vision: 'supported',
-      });
     });
 
     it('declares GLM 5.3 from the frozen OpenRouter catalog facts', () => {
@@ -279,18 +264,11 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it("declares Curator's July coding models with their audited limits", () => {
-      const ling = getLlmModelDefinition('openrouter', 'inclusionai/ling-3.0-flash:free');
       const gemini = getLlmModelDefinition('openrouter', 'google/gemini-3.6-flash');
       const inkling = getLlmModelDefinition('openrouter', 'thinkingmachines/inkling');
       const grok = getLlmModelDefinition('openrouter', 'x-ai/grok-4.5');
       const longcat = getLlmModelDefinition('openrouter', 'meituan/longcat-2.0');
 
-      expect(ling).toMatchObject({
-        contextWindow: 262_144,
-        maxOutputTokens: 32_768,
-        vision: 'unsupported',
-      });
-      expect(ling?.pricing).toBeUndefined();
       expect(gemini).toMatchObject({
         contextWindow: 1_048_576,
         maxOutputTokens: 65_536,
@@ -322,9 +300,7 @@ describe('frontier model refresh (2026-07)', () => {
         longcat,
         getLlmModelDefinition('openrouter', 'poolside/laguna-s-2.1'),
         getLlmModelDefinition('openrouter', 'poolside/laguna-xs-2.1'),
-        getLlmModelDefinition('openrouter', 'kwaipilot/kat-coder-air-v2.5'),
         getLlmModelDefinition('openrouter', 'kwaipilot/kat-coder-pro-v2.5'),
-        ling,
       ]) {
         expect(undeclared?.reasoning).toBeUndefined();
       }
@@ -470,27 +446,6 @@ describe('frontier model refresh (2026-07)', () => {
         supportsStreaming: true,
         type: 'llm',
         vision: 'unsupported',
-      });
-    });
-
-    it('declares Qwen3.8 Max from vendor capabilities and gateway metadata', () => {
-      const qwen = getLlmModelDefinition('openrouter', 'qwen/qwen3.8-max');
-
-      expect(qwen).toEqual({
-        contextWindow: 1_000_000,
-        id: 'qwen/qwen3.8-max',
-        label: 'Qwen3.8 Max (OpenRouter)',
-        maxOutputTokens: 131_072,
-        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
-        reasoning: {
-          defaultEffort: 'xhigh',
-          defaultEnabled: true,
-          mandatory: true,
-          supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
-        },
-        supportsStreaming: true,
-        type: 'llm',
-        vision: 'supported',
       });
     });
 
