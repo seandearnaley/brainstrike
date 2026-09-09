@@ -10,6 +10,7 @@ import {
   electronArchForTarget,
   fetchPythonRuntime,
   PYTHON_RUNTIME_SENTINEL_FILE_NAME,
+  pruneForeignExecutables,
   unpackPythonRuntime,
 } from '../../../scripts/fetch-python-runtime.mjs';
 
@@ -317,5 +318,53 @@ describe.skipIf(!fs.existsSync('/usr/bin/tar'))('unpack-python-runtime (build-ti
       'python/bin/python3'
     );
     expect(fs.existsSync(path.join(resourcesDir, 'unpacked', 'arm64'))).toBe(false);
+  });
+});
+
+describe('pruneForeignExecutables', () => {
+  it('removes Windows PE launchers at any depth and reports them, leaving everything else', async () => {
+    const tree = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-prune-'));
+    cleanupPaths.push(tree);
+    const vendored = path.join(
+      tree,
+      'python',
+      'lib',
+      'python3.13',
+      'site-packages',
+      'pip',
+      '_vendor',
+      'distlib'
+    );
+    mkdirSync(vendored, { recursive: true });
+    for (const name of ['t32.exe', 't64-arm.exe', 'W64.EXE']) {
+      writeFileSync(path.join(vendored, name), 'MZ\u0000fake-pe');
+    }
+    const keptDylib = path.join(tree, 'python', 'lib', 'libpython3.13.dylib');
+    const keptScript = path.join(vendored, 'shim.py');
+    mkdirSync(path.dirname(keptDylib), { recursive: true });
+    writeFileSync(keptDylib, 'fake-macho');
+    writeFileSync(keptScript, 'print(1)');
+
+    const removed = await pruneForeignExecutables(tree);
+
+    // Case-insensitive match, sorted, reported as tree-relative paths.
+    expect(removed).toEqual(
+      [
+        path.join('python/lib/python3.13/site-packages/pip/_vendor/distlib', 'W64.EXE'),
+        path.join('python/lib/python3.13/site-packages/pip/_vendor/distlib', 't32.exe'),
+        path.join('python/lib/python3.13/site-packages/pip/_vendor/distlib', 't64-arm.exe'),
+      ].sort()
+    );
+    expect(fs.existsSync(keptDylib)).toBe(true);
+    expect(fs.existsSync(keptScript)).toBe(true);
+    expect(fs.existsSync(path.join(vendored, 't32.exe'))).toBe(false);
+  });
+
+  it('reports an empty list for a tree with nothing to prune', async () => {
+    const tree = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-prune-clean-'));
+    cleanupPaths.push(tree);
+    mkdirSync(path.join(tree, 'python', 'bin'), { recursive: true });
+    writeFileSync(path.join(tree, 'python', 'bin', 'python3'), '#!/bin/sh\n');
+    await expect(pruneForeignExecutables(tree)).resolves.toEqual([]);
   });
 });

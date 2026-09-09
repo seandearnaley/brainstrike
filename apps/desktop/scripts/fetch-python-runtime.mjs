@@ -202,6 +202,36 @@ async function isUnpackedTreeUsable(installDir, expectedSha256) {
   }
 }
 
+/**
+ * python-build-standalone bundles pip, and pip vendors distlib's WINDOWS
+ * launcher stubs (`t32.exe`, `w64-arm.exe`, ...). They are PE executables with
+ * no purpose in a macOS bundle, but @electron/osx-sign walks Contents/ with an
+ * `isBinaryFile` heuristic that flags them, so each one becomes a `codesign`
+ * call with its own round-trip to Apple's timestamp server. That is how
+ * BST-1627's first rebuild died: `t32.exe: The timestamp service is not
+ * available`. Removing them at unpack time makes the signed tree contain only
+ * files that are actually signable, and removes 6 pointless timestamp
+ * round-trips from every release build.
+ *
+ * Returns the repo-relative paths removed, so the caller can report them.
+ */
+export async function pruneForeignExecutables(treeDir) {
+  const removed = [];
+  const walk = async (dir) => {
+    for (const item of await fsPromises.readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, item.name);
+      if (item.isDirectory()) {
+        await walk(full);
+      } else if (item.isFile() && item.name.toLowerCase().endsWith('.exe')) {
+        await fsPromises.rm(full);
+        removed.push(path.relative(treeDir, full));
+      }
+    }
+  };
+  await walk(treeDir);
+  return removed.sort();
+}
+
 async function unpackOne({ archivePath, entry, installDir, log }) {
   // Re-verify right before extraction: the fetch step verified the download,
   // but the file on disk is what actually gets unpacked and signed.
@@ -218,6 +248,10 @@ async function unpackOne({ archivePath, entry, installDir, log }) {
       throw new Error(
         `python-runtime: ${path.basename(archivePath)} did not contain an executable at python/bin/python3.`
       );
+    }
+    const pruned = await pruneForeignExecutables(stagingDir);
+    if (pruned.length > 0) {
+      log(`python-runtime: pruned ${pruned.length} non-macOS executable(s): ${pruned.join(', ')}`);
     }
     await fsPromises.writeFile(
       path.join(stagingDir, PYTHON_RUNTIME_SENTINEL_FILE_NAME),
