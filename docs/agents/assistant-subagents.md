@@ -467,3 +467,22 @@ logging. A broken diagnostic sink is surfaced, not silently swallowed. The
 start hook validates and clamps typed scalar limits; it does not log or await
 after acquiring its counters. Completion releases its slot before reporting
 usage or diagnostics.
+
+## Child conversation interaction contract (BST-1717)
+
+The planned first-class child UI is specified in
+[`docs/design/subagent-threads/README.md`](../design/subagent-threads/README.md),
+with a clickable isolated design fixture beside it and behavioral browser
+coverage in `apps/web/e2e/subagent-design-prototype.test.ts`. It is a design
+contract for BST-1724/1725, not a claim that the current runtime persists full
+child threads or enables writable personas.
+
+Reuse the current thread renderer, runtime adapter, activity rows, color tokens,
+tabs and TreeTable adapter. A child is selected by durable conversation identity;
+persona id and call sign are separate. Mount transcripts only for visible panes.
+Closing a tab changes presentation only. Stopping a child stops its owned branch;
+root stop covers the tree. Direct steering must acknowledge delivery and notify
+the parent without rewriting a completed delegation result. Every inherited
+control must have a working child-scoped command and persistence path before it
+appears enabled. The linked parity matrix names the existing owners and delivery
+responsibilities; BST-1728 verifies actual runtime parity.
