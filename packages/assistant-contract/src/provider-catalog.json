@@ -588,7 +588,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1,048,576 context, image input and gateway pricing: OpenRouter\nModels API, retrieved 2026-09-08 (BST-1695). Unlike the sibling 1.2\nroute, which reports max_completion_tokens: null, this route reports\n943,718 — recorded as read rather than omitted. No reasoning ladder is\nrecorded: this pass consulted no Meta doc, and the 1.2 row's ladder\ncame from vendor material this ticket did not re-verify.",
+        "_note": "Route, 1,048,576 context, image input and gateway pricing: OpenRouter\nModels API, retrieved 2026-09-08 (BST-1695). Unlike the sibling 1.2\nroute, which reports max_completion_tokens: null, this route reports\n943,718 — recorded as read rather than omitted. No reasoning ladder is\nrecorded: this pass consulted no Meta doc, and the 1.2 row's ladder\ncame from vendor material this ticket did not re-verify.\nThat hard maximum is NOT the window a run reserves: the OpenRouter\nrequest path caps output at OPENROUTER_CODING_MAX_OUTPUT_TOKENS\n(32,000), so the run's effective input limit is 964,147. Compaction's\nresolveCompactionInputBudget() reads this field instead of that\nresolved limit and lands on 52,429 — a pre-existing desktop-runtime\ndefect, not a property of this value: it already makes\nmoonshotai/kimi-k3's budget throw on main. Tracked in BST-1707; the\nfix belongs there, not in a fudged catalog fact.",
         "contextWindow": 1048576,
         "id": "meta/muse-spark-1.3",
         "label": "Muse Spark 1.3 (OpenRouter)",
