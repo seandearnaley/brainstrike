@@ -50,6 +50,13 @@ jobs:
       # Skip Turborepo cache for local runs to avoid download overhead/conflicts
       # unless specifically desired. Assuming fresh run is safer or reusing container.
       
+      # BST-1715: an unused third-party apt source (Google Chrome, added by the
+      # runner image) serving an inconsistent index makes the apt-get update
+      # below exit non-zero and kills this step. Drop the source rather than
+      # relaxing apt's exit status.
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
       - name: Install system dependencies for Electron
         run: |
           sudo apt-get update
