@@ -880,6 +880,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: browser-test-results
+          include-hidden-files: true
           path: |
             packages/db/test-results/
             packages/assistant-ui/test-results/
@@ -892,6 +893,7 @@ jobs:
             packages/embedding-worker/.vitest/attachments/failure-screenshots/
             packages/ui/.vitest/attachments/failure-screenshots/
             packages/storage/.vitest/attachments/failure-screenshots/
+            packages/mcp-app-host/.vitest/attachments/failure-screenshots/
           retention-days: 1
           if-no-files-found: ignore
 

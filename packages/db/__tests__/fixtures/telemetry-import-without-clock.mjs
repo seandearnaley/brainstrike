@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   resolveThroughAliases,
   workspaceSrcAliases,
@@ -10,7 +10,8 @@ import {
 const aliases = workspaceSrcAliases(fileURLToPath(new URL('../../../', import.meta.url)));
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    return nextResolve(resolveThroughAliases(specifier, aliases) ?? specifier, context);
+    const sourcePath = resolveThroughAliases(specifier, aliases);
+    return nextResolve(sourcePath ? pathToFileURL(sourcePath).href : specifier, context);
   },
 });
 globalThis.performance = undefined;

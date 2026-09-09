@@ -694,6 +694,9 @@ including all five stable required contexts (`Static`, `Unit`, `Build`,
 db/ui/storage/assistant-ui/embedding-worker in the pinned Playwright container;
 expensive enough that it keeps the same
 quiet-head gate, and `quiet-head-admission-contract.test.mjs` verifies it).
+Browser artifact uploads explicitly include hidden files and the resolved
+attachment directories for all six browser packages; the paired screenshot
+contract checks the installed Vitest configuration against the upload paths.
 Vitest generated failure captures stay in ignored package-local
 `.vitest/attachments/failure-screenshots` directories. Intentional `toMatchScreenshot` references are
 rerouted by `@brainstrike/config` to trackable `__image_snapshots__`

@@ -56,6 +56,8 @@ Nothing in this repo subscribes twice to one handle, so that fix is inert here.
 
 Vitest 5 migration (BST-1689): the clock-less package import regression runs
 in an isolated Node/tsx process using the shared workspace source aliases.
+The resolver converts absolute source paths to file URLs for Windows ESM, and
+child assertion errors inherit stderr so import failures remain diagnosable.
 Removing `performance` from a Vitest worker breaks the runner's own clock and
 cannot test package initialization reliably. The child must import the public
 DB source entry without a clock, then fail explicitly when telemetry is used.

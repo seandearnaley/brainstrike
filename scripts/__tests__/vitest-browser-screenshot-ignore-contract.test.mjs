@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { resolveConfig } from 'vitest/node';
+import { parse } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -66,6 +68,40 @@ test('every package browser project reroutes intentional baselines', () => {
       config,
       /expect:\s*\{\s*toMatchScreenshot:\s*\{\s*resolveScreenshotPath: resolveVisualBaselinePath/s,
       `expected ${configPath} to reroute intentional baselines`
+    );
+  }
+});
+
+test('browser artifact uploads include the resolved Vitest attachment directories and hidden files', async () => {
+  const workflow = parse(readFileSync(path.join(repoRoot, '.github/workflows/test.yml'), 'utf8'));
+  const browserJob = Object.values(workflow.jobs).find((job) =>
+    job.steps?.some((step) => step.name === 'Upload browser test artifacts')
+  );
+  assert.ok(browserJob, 'browser artifact job must exist');
+  const upload = browserJob.steps.find((step) => step.name === 'Upload browser test artifacts');
+  assert.equal(
+    upload.with['include-hidden-files'],
+    true,
+    'dot-directory artifacts must be included'
+  );
+  const uploadPaths = upload.with.path.trim().split(/\s+/u);
+  for (const packageName of [
+    'db',
+    'assistant-ui',
+    'embedding-worker',
+    'ui',
+    'storage',
+    'mcp-app-host',
+  ]) {
+    const root = path.join(repoRoot, 'packages', packageName);
+    const { test: config } = await resolveConfig({
+      config: path.join(root, 'vitest.config.mts'),
+      root,
+    });
+    const captures = path.join(config.attachmentsDir, 'failure-screenshots');
+    assert.ok(
+      uploadPaths.some((entry) => path.resolve(repoRoot, entry) === captures),
+      `missing resolved failure screenshots for ${packageName}: ${captures}`
     );
   }
 });

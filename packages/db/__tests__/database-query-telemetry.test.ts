@@ -378,7 +378,11 @@ describe('DatabaseQueryTelemetry', () => {
           'tsx',
           fileURLToPath(new URL('./fixtures/telemetry-import-without-clock.mjs', import.meta.url)),
         ],
-        { cwd: new URL('../', import.meta.url), stdio: 'pipe', timeout: 10_000 }
+        {
+          cwd: new URL('../', import.meta.url),
+          stdio: ['ignore', 'pipe', 'inherit'],
+          timeout: 10_000,
+        }
       )
     ).not.toThrow();
   });
