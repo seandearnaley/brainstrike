@@ -20,14 +20,15 @@
     "keyFormatHint": "sk-...",
     "models": [
       {
+        "_note": "BST-1698: OpenAI cut Sol from 5/30 to 4/20 $/MTok on 2026-08-21.\nStandard short-context tier, retrieved 2026-09-08:\nhttps://developers.openai.com/api/docs/pricing\nhttps://developers.openai.com/api/docs/changelog — \"GPT-5.6 Sol now\ncosts $4 per million input tokens and $20 per million output tokens,\nrepresenting 20% lower input pricing and 33% lower output pricing\",\nwhich reconstructs the prior 5/30 exactly and confirms the column\nreading. The vendor page also publishes long-context, batch, flex and\nfast tiers for this model; this schema carries one rate pair, so the\nstandard short-context tier is declared, as on every other row.\nOpenAI describes the new rate as promotional through at least\n2026-11-21 — re-check on the next catalog sweep.",
         "contextWindow": 1050000,
         "id": "gpt-5.6-sol",
         "label": "GPT-5.6 Sol",
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
-          "inputPerMTok": 5,
-          "outputPerMTok": 30
+          "inputPerMTok": 4,
+          "outputPerMTok": 20
         },
         "supportsStreaming": true,
         "tokenMeasurement": {
@@ -938,13 +939,14 @@
         "vision": "supported"
       },
       {
+        "_note": "BST-1698: PRICED FROM OPENROUTER'S OWN CATALOG, NOT OPENAI'S.\nhttps://openrouter.ai/api/v1/models retrieved 2026-09-08 reports\nprompt \"0.000002\" / completion \"0.00001\" => 2/10 $/MTok, plus a\n>=272000 prompt-token override at 4/15. OpenAI's own standard tier for\nthe same model is 4/20 (see the `openai` block), so the two ROUTES\nDIFFER: every OpenRouter Sol figure is exactly half OpenAI's, and they\ncoincide with OpenAI's batch/flex column. The sibling rows are faithful\npass-throughs (OpenRouter terra 2/12 and luna 0.2/1.2 match OpenAI's\npage exactly), so the divergence is Sol-specific and may be an upstream\ndata error rather than a real discount. Declared from OpenRouter anyway\nbecause this block is a \"curated current subset from OpenRouter's model\ncatalog\" and OpenRouter is the route that bills the user; provider-\nreported billed cost stays authoritative at runtime and this rate is a\ndisplay estimate. Re-check on the next catalog sweep.",
         "contextWindow": 1050000,
         "id": "openai/gpt-5.6-sol",
         "label": "GPT-5.6 Sol (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
-          "inputPerMTok": 5,
-          "outputPerMTok": 30
+          "inputPerMTok": 2,
+          "outputPerMTok": 10
         },
         "supportsStreaming": true,
         "type": "llm",

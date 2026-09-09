@@ -134,7 +134,8 @@ describe('model pricing metadata', () => {
     const sonnet = listProviderLlmModels('anthropic').find(
       (model) => model.id === 'claude-sonnet-5'
     );
-    expect(sol?.pricing).toEqual({ inputPerMTok: 5, outputPerMTok: 30 });
+    // BST-1698: OpenAI's 2026-08-21 cut, standard short-context tier.
+    expect(sol?.pricing).toEqual({ inputPerMTok: 4, outputPerMTok: 20 });
     expect(fable?.pricing).toEqual({
       cacheReadPerMTok: 1,
       cacheWritePerMTok: 12.5,
@@ -159,5 +160,24 @@ describe('model pricing metadata', () => {
     expect(glm?.pricing).toEqual({ inputPerMTok: 0.9282, outputPerMTok: 2.9172 });
     expect(spark?.pricing).toEqual({ inputPerMTok: 1.25, outputPerMTok: 4.25 });
     expect(kimi?.pricing).toEqual({ inputPerMTok: 3, outputPerMTok: 15 });
+  });
+
+  /**
+   * BST-1698. The two GPT-5.6 Sol routes are priced from DIFFERENT sources on
+   * purpose: the `openai` row from OpenAI's standard short-context tier (4/20
+   * after the 2026-08-21 cut) and the `openrouter` row from OpenRouter's own
+   * published catalog (2/10, retrieved 2026-09-08). Every other GPT-5.6 row is
+   * a faithful OpenRouter pass-through, so a future sweep could easily "fix"
+   * this back into a mirror without reading the row note. This pin makes that
+   * a failing test rather than a silent 2x cost misreport.
+   */
+  it('prices the two GPT-5.6 Sol routes from their own sources', () => {
+    const platformSol = listProviderLlmModels('openai').find((model) => model.id === 'gpt-5.6-sol');
+    const routedSol = listProviderLlmModels('openrouter').find(
+      (model) => model.id === 'openai/gpt-5.6-sol'
+    );
+    expect(platformSol?.pricing).toEqual({ inputPerMTok: 4, outputPerMTok: 20 });
+    expect(routedSol?.pricing).toEqual({ inputPerMTok: 2, outputPerMTok: 10 });
+    expect(routedSol?.pricing).not.toEqual(platformSol?.pricing);
   });
 });

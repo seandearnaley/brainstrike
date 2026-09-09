@@ -157,6 +157,40 @@ describe('resolveReasoningControlsAvailability', () => {
     });
   });
 
+  /**
+   * BST-1698. GPT-5.6 Sol declares no per-model `reasoning` block, so it
+   * resolves through the undeclared OpenAI-family default set. This pins that
+   * `xhigh` reaches the menu — the question the ticket asked — and records the
+   * rest of today's shape so any change to it has to be deliberate.
+   *
+   * Asserted against a LITERAL list rather than
+   * `OPENAI_FAMILY_DEFAULT_EFFORTS`: the sibling test above compares the
+   * resolver's output to the very constant that feeds it, so dropping a rung
+   * from the constant moves both sides together and stays green. This is the
+   * pin that actually goes red.
+   *
+   * The offered set does NOT match Sol's vendor ladder in either direction,
+   * which is a BEHAVIOUR question deliberately left to a follow-up rather than
+   * ridden along on a pricing fix. Sol's model page
+   * (https://developers.openai.com/api/docs/models/gpt-5.6-sol, retrieved
+   * 2026-09-08) documents "none, low, medium (default), high, xhigh, and max":
+   * - `max` is offered only where a model declares its own
+   *   `reasoning.supportedEfforts`, so Sol cannot reach it from the menu even
+   *   though the vendor supports it.
+   * - `minimal` IS offered but is absent from Sol's documented ladder — the
+   *   same "offering an effort a route rejects is a broken menu entry" hazard
+   *   the Bedrock ladders call out.
+   * - `none` is expressed as "Auto (default)" (unset) rather than a menu rung.
+   */
+  it('offers xhigh but clamps max for GPT-5.6 Sol on the OpenAI path', () => {
+    const controls = resolveReasoningControlsAvailability('openai', 'gpt-5.6-sol');
+    expect(controls).toEqual({
+      available: true,
+      efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+      family: 'openai',
+    });
+  });
+
   it.each([
     ['claude-fable-5', ['low', 'medium', 'high', 'xhigh', 'max']],
     ['claude-opus-5', ['low', 'medium', 'high', 'xhigh', 'max']],
