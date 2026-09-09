@@ -120,6 +120,7 @@ import { migration118AssistantThreadRuns } from './118-assistant-thread-runs.js'
 import { migration119OpenrouterCatalogModels } from './119-openrouter-catalog-models.js';
 import { migration120OpenrouterCatalogModels } from './120-openrouter-catalog-models.js';
 import { migration121RetireDelistedOpenRouterModels } from './121-retire-delisted-openrouter-models.js';
+import { migration122AnthropicBedrockCatalogModels } from './122-anthropic-bedrock-catalog-models.js';
 import { migration123OpenaiGpt6Astra } from './123-openai-gpt-6-astra.js';
 import type { Migration } from './migration-runner';
 
@@ -248,6 +249,7 @@ export const migrations: Migration[] = [
   migration120OpenrouterCatalogModels,
   migration121RetireDelistedOpenRouterModels,
   migration123OpenaiGpt6Astra,
+  migration122AnthropicBedrockCatalogModels,
 ];
 
 // Export base migrations (without chunks table) for test environments

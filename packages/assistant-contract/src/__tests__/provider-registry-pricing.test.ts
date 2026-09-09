@@ -6,6 +6,23 @@ import { listProviderLlmModels, listProviders } from '../provider-registry.js';
 // rate must be reviewed and added here rather than shipped silently.
 const KNOWN_FREE_PRICED_MODEL_KEYS = new Set<string>([]);
 
+/**
+ * Anthropic prices cache reads at 0.1x base input on every Claude model EXCEPT
+ * Claude Fable 5.1 (and the invite-only Claude Mythos 5.1), which read at
+ * 0.025x — $0.25 / MTok against $10 / MTok input. Retrieved 2026-09-08 from
+ * https://platform.claude.com/docs/en/about-claude/pricing (BST-1691). Keyed on
+ * the model identity WITHOUT the Bedrock `anthropic.` vendor prefix, so the
+ * Bedrock route inherits the same documented exception rather than a second
+ * hand-maintained list. Cache WRITES stay at the ordinary 1.25x on this model.
+ */
+const CACHE_READ_INPUT_MULTIPLIERS = new Map([['claude-fable-5-1', 0.025]]);
+const DEFAULT_CACHE_READ_INPUT_MULTIPLIER = 0.1;
+
+function cacheReadMultiplier(modelId: string): number {
+  const identity = modelId.startsWith('anthropic.') ? modelId.slice('anthropic.'.length) : modelId;
+  return CACHE_READ_INPUT_MULTIPLIERS.get(identity) ?? DEFAULT_CACHE_READ_INPUT_MULTIPLIER;
+}
+
 describe('model pricing metadata', () => {
   it('keeps paid rates positive and limits zero rates to reviewed free routes', () => {
     for (const provider of listProviders()) {
@@ -37,7 +54,7 @@ describe('model pricing metadata', () => {
       }
       const { cacheReadPerMTok, cacheWritePerMTok, inputPerMTok } = model.pricing;
       expect(cacheReadPerMTok, `anthropic/${model.id} cacheReadPerMTok`).toBeCloseTo(
-        inputPerMTok * 0.1,
+        inputPerMTok * cacheReadMultiplier(model.id),
         10
       );
       expect(cacheWritePerMTok, `anthropic/${model.id} cacheWritePerMTok`).toBeCloseTo(
@@ -84,7 +101,7 @@ describe('model pricing metadata', () => {
         throw new Error(`bedrock/${model.id} must declare pricing`);
       }
       expect(pricing.cacheReadPerMTok, `bedrock/${model.id} cacheReadPerMTok`).toBeCloseTo(
-        pricing.inputPerMTok * 0.1,
+        pricing.inputPerMTok * cacheReadMultiplier(model.id),
         10
       );
       expect(pricing.cacheWritePerMTok, `bedrock/${model.id} cacheWritePerMTok`).toBeCloseTo(

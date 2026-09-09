@@ -32,6 +32,7 @@ describe('resolveBedrockModelId', () => {
   describe('us regions', () => {
     const usProfileIds = [
       'anthropic.claude-fable-5',
+      'anthropic.claude-fable-5-1',
       'anthropic.claude-opus-4-8',
       'anthropic.claude-sonnet-5',
       'anthropic.claude-sonnet-4-6',
@@ -91,6 +92,11 @@ describe('resolveBedrockModelId', () => {
       }
       expect(resolveBedrockModelId('anthropic.claude-fable-5', 'eu-west-1')).toBe(
         'eu.anthropic.claude-fable-5'
+      );
+      // Fable 5.1 has a us. profile but NO eu. one (models.dev, 2026-09-08),
+      // so eu regions send it verbatim rather than guessing a profile.
+      expect(resolveBedrockModelId('anthropic.claude-fable-5-1', 'eu-west-1')).toBe(
+        'anthropic.claude-fable-5-1'
       );
       expect(
         resolveBedrockModelId('anthropic.claude-haiku-4-5-20251001-v1:0', 'eu-central-1')

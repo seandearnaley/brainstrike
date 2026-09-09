@@ -4,6 +4,7 @@ import { listProviderLlmModels } from '../provider-registry.js';
 // Vendor effort and model-overview tables, retrieved 2026-09-04 (BST-847).
 describe('direct Anthropic registry reasoning ladders', () => {
   it.each([
+    ['claude-fable-5-1', ['low', 'medium', 'high', 'xhigh', 'max']],
     ['claude-fable-5', ['low', 'medium', 'high', 'xhigh', 'max']],
     ['claude-opus-5', ['low', 'medium', 'high', 'xhigh', 'max']],
     ['claude-opus-4-8', ['low', 'medium', 'high', 'xhigh', 'max']],
@@ -27,7 +28,7 @@ describe('direct Anthropic registry reasoning ladders', () => {
     const ladders = listProviderLlmModels('anthropic').flatMap((model) =>
       model.anthropicReasoning ? [model.anthropicReasoning] : []
     );
-    expect(ladders).toHaveLength(5);
+    expect(ladders).toHaveLength(6);
     for (const ladder of ladders) {
       expect(ladder.supportedEfforts).toContain(ladder.defaultEffort);
       let previous = -1;

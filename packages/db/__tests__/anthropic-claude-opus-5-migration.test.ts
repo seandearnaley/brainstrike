@@ -5,6 +5,9 @@ import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createPGliteTestDataDir } from './test-data-dir.js';
 
+// Migration 122 (BST-1691) appends Claude Fable 5.1 after the existing rows,
+// so the post-migration order below is one longer than it was when migration
+// 116 shipped. Opus 5 keeps slot 2.
 const expectedOrder = [
   'claude-fable-5',
   'claude-opus-5',
@@ -12,6 +15,7 @@ const expectedOrder = [
   'claude-sonnet-5',
   'claude-sonnet-4-6',
   'claude-haiku-4-5',
+  'claude-fable-5-1',
 ].map((id, index) => ({ id, sort_order: index + 1 }));
 
 // BST-957: additive direct Anthropic Claude Opus 5 catalog route.
@@ -52,14 +56,7 @@ describe('anthropic claude opus 5 migration', () => {
     );
     const rows = ordered.rows;
 
-    expect(rows.map((row) => row.id)).toEqual([
-      'claude-fable-5',
-      'claude-opus-5',
-      'claude-opus-4-8',
-      'claude-sonnet-5',
-      'claude-sonnet-4-6',
-      'claude-haiku-4-5',
-    ]);
+    expect(rows.map((row) => row.id)).toEqual(expectedOrder.map((entry) => entry.id));
 
     const opus = rows.find((row) => row.id === 'claude-opus-5');
     expect(opus).toBeDefined();
