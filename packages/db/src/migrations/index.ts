@@ -119,6 +119,7 @@ import { migration117MastraMemorySchema } from './117-mastra-memory-schema.js';
 import { migration118AssistantThreadRuns } from './118-assistant-thread-runs.js';
 import { migration119OpenrouterCatalogModels } from './119-openrouter-catalog-models.js';
 import { migration121RetireDelistedOpenRouterModels } from './121-retire-delisted-openrouter-models.js';
+import { migration123OpenaiGpt6Astra } from './123-openai-gpt-6-astra.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -244,6 +245,7 @@ export const migrations: Migration[] = [
   migration118AssistantThreadRuns,
   migration119OpenrouterCatalogModels,
   migration121RetireDelistedOpenRouterModels,
+  migration123OpenaiGpt6Astra,
 ];
 
 // Export base migrations (without chunks table) for test environments

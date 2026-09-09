@@ -19,6 +19,7 @@ describe('frontier model refresh (2026-07)', () => {
       const ids = llmIds('openai');
       expect(ids).toEqual(
         expect.arrayContaining([
+          'gpt-6-astra',
           'gpt-5.6-sol',
           'gpt-5.6-terra',
           'gpt-5.6-luna',
@@ -38,6 +39,40 @@ describe('frontier model refresh (2026-07)', () => {
 
     it('defaults to the balanced gpt-5.6-terra', () => {
       expect(resolveDefaultModel('openai')).toBe('gpt-5.6-terra');
+    });
+
+    /**
+     * BST-1692. Exhaustive so the row cannot gain a field by accident — in
+     * particular `pricing.cacheReadPerMTok` / `cacheWritePerMTok`. OpenAI
+     * publishes $1 cached input and $12.50 cache writes for this model, but a
+     * cache RATE may only travel with a `promptCaching` dialect (BST-1354,
+     * provider-registry-pricing.test.ts) and that enum has no `openai` member,
+     * so the rates stay out of the catalog until a dialect exists.
+     */
+    it('declares GPT-6 Astra from the vendor model page, cache rates excluded (BST-1692)', () => {
+      expect(getLlmModelDefinition('openai', 'gpt-6-astra')).toEqual({
+        contextWindow: 1_050_000,
+        id: 'gpt-6-astra',
+        label: 'GPT-6 Astra',
+        maxOutputTokens: 128_000,
+        nativeToolSearch: 'openai',
+        pricing: {
+          inputPerMTok: 10,
+          outputPerMTok: 50,
+        },
+        supportsStreaming: true,
+        tokenMeasurement: {
+          mode: 'declared-compatible-reference',
+          tokenizer: 'o200k_base',
+        },
+        type: 'llm',
+        vision: 'supported',
+      });
+    });
+
+    /** BST-1692: OpenAI's own docs list no Astra Pro; OpenRouter is not the source. */
+    it('does not carry a direct gpt-6-astra-pro row', () => {
+      expect(llmIds('openai')).not.toContain('gpt-6-astra-pro');
     });
   });
 
