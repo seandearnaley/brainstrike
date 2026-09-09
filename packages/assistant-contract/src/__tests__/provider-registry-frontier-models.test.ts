@@ -241,6 +241,55 @@ describe('frontier model refresh (2026-07)', () => {
         vision: 'supported',
       });
     });
+
+    it('declares Gemini 3.8 Flash at the introductory 0.75/3.75 rate (BST-1693)', () => {
+      expect(getLlmModelDefinition('google', 'gemini-3.8-flash')).toEqual({
+        contextWindow: 1_048_576,
+        id: 'gemini-3.8-flash',
+        label: 'Gemini 3.8 Flash',
+        maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.75, outputPerMTok: 3.75 },
+        supportsStreaming: true,
+        tagline: 'Long-horizon software engineering and autonomous agents at Flash speed',
+        type: 'llm',
+        vision: 'supported',
+      });
+    });
+
+    it('declares Gemini 3.6 Flash at the introductory 0.75/3.75 rate (BST-1693)', () => {
+      expect(getLlmModelDefinition('google', 'gemini-3.6-flash')).toEqual({
+        contextWindow: 1_048_576,
+        id: 'gemini-3.6-flash',
+        label: 'Gemini 3.6 Flash',
+        maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.75, outputPerMTok: 3.75 },
+        supportsStreaming: true,
+        tagline: 'Frontier intelligence for code generation and agentic execution',
+        type: 'llm',
+        vision: 'supported',
+      });
+    });
+
+    it('declares Gemini 3.5 Flash-Lite at its flat 0.30/2.50 rate (BST-1693)', () => {
+      expect(getLlmModelDefinition('google', 'gemini-3.5-flash-lite')).toEqual({
+        contextWindow: 1_048_576,
+        id: 'gemini-3.5-flash-lite',
+        label: 'Gemini 3.5 Flash-Lite',
+        maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 },
+        supportsStreaming: true,
+        tagline: 'Low-latency multimodal for high-throughput subagent tasks and document parsing',
+        type: 'llm',
+        vision: 'supported',
+      });
+    });
+
+    it('keeps gemini-3.5-flash as the google default — 3.8 Flash is NOT promoted', () => {
+      expect(resolveDefaultModel('google')).toBe('gemini-3.5-flash');
+      expect(
+        listProviderLlmModels('google').filter((model) => model.default === true)
+      ).toHaveLength(1);
+    });
   });
 
   describe('OpenRouter', () => {

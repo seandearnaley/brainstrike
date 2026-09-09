@@ -472,6 +472,21 @@
     "keyNotes": "Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.",
     "models": [
       {
+        "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash\nhttps://ai.google.dev/gemini-api/docs/pricing",
+        "contextWindow": 1048576,
+        "id": "gemini-3.8-flash",
+        "label": "Gemini 3.8 Flash",
+        "maxOutputTokens": 65536,
+        "pricing": {
+          "inputPerMTok": 0.75,
+          "outputPerMTok": 3.75
+        },
+        "supportsStreaming": true,
+        "tagline": "Long-horizon software engineering and autonomous agents at Flash speed",
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
         "_note": "Direct Google GA route and introductory pricing through 2026-12-31,\nrevalidated 2026-08-20:\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash\nhttps://ai.google.dev/gemini-api/docs/models\nhttps://ai.google.dev/gemini-api/docs/latest-model\nhttps://ai.google.dev/gemini-api/docs/changelog\nhttps://ai.google.dev/gemini-api/docs/pricing (BST-1339).",
         "contextWindow": 1048576,
         "id": "gemini-3.7-flash",
@@ -487,6 +502,21 @@
         "vision": "supported"
       },
       {
+        "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash\nhttps://ai.google.dev/gemini-api/docs/pricing",
+        "contextWindow": 1048576,
+        "id": "gemini-3.6-flash",
+        "label": "Gemini 3.6 Flash",
+        "maxOutputTokens": 65536,
+        "pricing": {
+          "inputPerMTok": 0.75,
+          "outputPerMTok": 3.75
+        },
+        "supportsStreaming": true,
+        "tagline": "Frontier intelligence for code generation and agentic execution",
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
         "contextWindow": 1048576,
         "default": true,
         "id": "gemini-3.5-flash",
@@ -498,6 +528,21 @@
         },
         "supportsStreaming": true,
         "tagline": "Best mix of smarts and speed",
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Direct Google GA route. Not introductory pricing: Google publishes a\nflat $0.30 input / $2.50 output per 1M tokens. Verified 2026-09-08\n(BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite\nhttps://ai.google.dev/gemini-api/docs/pricing",
+        "contextWindow": 1048576,
+        "id": "gemini-3.5-flash-lite",
+        "label": "Gemini 3.5 Flash-Lite",
+        "maxOutputTokens": 65536,
+        "pricing": {
+          "inputPerMTok": 0.3,
+          "outputPerMTok": 2.5
+        },
+        "supportsStreaming": true,
+        "tagline": "Low-latency multimodal for high-throughput subagent tasks and document parsing",
         "type": "llm",
         "vision": "supported"
       },
