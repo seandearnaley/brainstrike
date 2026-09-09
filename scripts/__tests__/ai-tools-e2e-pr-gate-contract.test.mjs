@@ -19,6 +19,20 @@ const WEB_SMOKE_COMMAND = [
   '--max-failures=1',
   '--global-timeout=600000',
 ].join(' ');
+// BST-1713: `--global-timeout` on this lane is a FAILURE CEILING, not a latency
+// target, and it must stay one as the lane grows. It was calibrated at 300000
+// on 2026-05-20, when the lane was three files finishing in 28.3s
+// (docs/architecture-reset/pipeline-calibration-desktop-smoke-2026-05-20.json)
+// — a 10x ceiling. Nobody revisited it while the lane grew to 16 files and 34
+// tests. Ten green CI runs on 2026-09-08/09 measured 226.5s-278.4s of test
+// time, and run 34353940887 measured 297.5s on a ~7% slower runner: the global
+// deadline landed mid-test, Playwright marked a HEALTHY worktree-mode test
+// `interrupted`, and gave teardown the already-elapsed deadline so the
+// in-flight trace zip was never finalised (`ENOENT ... .playwright-artifacts-0/
+// *.zip`). Nothing was wrong with the test — it is simply last in this
+// alphabetical file list. 600000 matches WEB_SMOKE_COMMAND above and restores
+// ~2x headroom over the measured maximum, inside the job's 25-minute bound.
+// Raise it again before adding files, not after the next interruption.
 const DESKTOP_SMOKE_COMMAND = [
   'node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn --',
   'xvfb-maybe pnpm exec playwright test',
@@ -42,7 +56,7 @@ const DESKTOP_SMOKE_COMMAND = [
   '--workers=1',
   '--retries=0',
   '--max-failures=1',
-  '--global-timeout=300000',
+  '--global-timeout=600000',
   '--grep="@smoke"',
 ].join(' ');
 const DESKTOP_TOOLS_NIGHTLY_COMMAND = [
