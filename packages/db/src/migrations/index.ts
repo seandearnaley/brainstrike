@@ -122,6 +122,7 @@ import { migration120OpenrouterCatalogModels } from './120-openrouter-catalog-mo
 import { migration121RetireDelistedOpenRouterModels } from './121-retire-delisted-openrouter-models.js';
 import { migration122AnthropicBedrockCatalogModels } from './122-anthropic-bedrock-catalog-models.js';
 import { migration123OpenaiGpt6Astra } from './123-openai-gpt-6-astra.js';
+import { migration124GoogleCatalogModels } from './124-google-catalog-models.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -250,6 +251,7 @@ export const migrations: Migration[] = [
   migration121RetireDelistedOpenRouterModels,
   migration123OpenaiGpt6Astra,
   migration122AnthropicBedrockCatalogModels,
+  migration124GoogleCatalogModels,
 ];
 
 // Export base migrations (without chunks table) for test environments
