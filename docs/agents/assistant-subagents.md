@@ -454,3 +454,16 @@ per request, so edits apply on the next turn).
 When changing this flow, update this section and the paired tests.
 
 ---
+
+### Maintaining the native contract proof
+
+Re-run `mastra-subagent-contract.integration.spec.ts` and update the capability
+matrix when upgrading `@mastra/core` or `@mastra/memory`. The agent package uses
+`*.integration.spec.ts` (its explicit integration include and unit exclude),
+so this real-PGlite suite belongs only to the uncached integration task.
+
+The fail-closed strategy covers every delegation hook, including diagnostic
+logging. A broken diagnostic sink is surfaced, not silently swallowed. The
+start hook validates and clamps typed scalar limits; it does not log or await
+after acquiring its counters. Completion releases its slot before reporting
+usage or diagnostics.

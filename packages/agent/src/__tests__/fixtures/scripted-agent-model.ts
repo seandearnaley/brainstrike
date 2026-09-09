@@ -67,7 +67,11 @@ export function hasToolResult(options: LanguageModelV2CallOptions, toolName: str
   );
 }
 
-export function toolThenAnswer(toolName: string, callId: string, args: Record<string, unknown>) {
+export function toolThenAnswer(
+  toolName: string,
+  callId: string,
+  args: Record<string, unknown>
+): ReturnType<typeof scriptedAgentModel> {
   return scriptedAgentModel((options) =>
     hasToolResult(options, toolName)
       ? textParts(`${callId} answered`)

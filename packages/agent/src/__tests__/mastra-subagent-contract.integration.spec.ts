@@ -33,21 +33,46 @@ async function collect(stream: AsyncIterable<ChunkType>): Promise<ChunkType[]> {
 describe('installed Mastra delegation contract (BST-1716)', () => {
   let database: PGlite;
   let backing: Awaited<ReturnType<typeof createPgliteMastraMemory>>;
-  const hosts: Mastra[] = [];
+  const hosts = new Set<Mastra>();
+
+  // Adapt readonly seam parameters to PGlite's mutable parameter-array type.
+  // Transactions still execute on the real driver and store, without a cast.
+  function memoryDatabase(): PgliteDatabase {
+    return {
+      exec: (query) => database.exec(query),
+      query: (query, values) => database.query(query, values ? [...values] : undefined),
+      transaction: (operation) =>
+        database.transaction((tx) =>
+          operation({
+            exec: (query) => tx.exec(query),
+            query: (query, values) => tx.query(query, values ? [...values] : undefined),
+          })
+        ),
+    };
+  }
+
+  async function shutdownHost(host: Mastra): Promise<void> {
+    hosts.delete(host);
+    await host.shutdown();
+  }
 
   beforeEach(async () => {
     database = await createEnginePglite();
     backing = await createPgliteMastraMemory({
-      database: database as unknown as PgliteDatabase,
+      database: memoryDatabase(),
       memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
     });
   });
 
   afterEach(async () => {
-    for (const host of hosts.splice(0)) {
-      await host.shutdown();
-    }
+    const results = await Promise.allSettled([...hosts].map(shutdownHost));
     await database.close();
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'Mastra fixture shutdown failed');
+    }
   });
 
   function tree({
@@ -66,7 +91,17 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     suspend?: boolean;
     abortController?: AbortController;
     rootModel?: ReturnType<typeof scriptedAgentModel>;
-  } = {}) {
+  } = {}): {
+    child: Agent;
+    childModel: ReturnType<typeof scriptedAgentModel>;
+    childScopes: unknown[];
+    effect: ReturnType<typeof vi.fn<() => Promise<{ value: string }>>>;
+    host: Mastra;
+    leaf: Agent;
+    leafModel: ReturnType<typeof scriptedAgentModel>;
+    parent: Agent;
+    parentModel: ReturnType<typeof scriptedAgentModel>;
+  } {
     const effect = vi.fn(() => {
       abortController?.abort();
       return Promise.resolve({ value: 'leaf result' });
@@ -122,7 +157,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       name: 'Parent',
     });
     const host = new Mastra({ agents: { parent }, logger: false, storage: backing.storage });
-    hosts.push(host);
+    hosts.add(host);
     return { child, childModel, childScopes, effect, host, leaf, leafModel, parent, parentModel };
   }
 
@@ -236,9 +271,9 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       if (approval?.type !== 'tool-call-approval') {
         throw new Error('Missing root approval');
       }
-      await host.shutdown();
+      await shutdownHost(host);
       backing = await createPgliteMastraMemory({
-        database: database as unknown as PgliteDatabase,
+        database: memoryDatabase(),
         memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
       });
       const recreated = tree({ requireApproval: true });
@@ -340,6 +375,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     const rows = await database.query<{ thread_id: string }>(
       'SELECT DISTINCT thread_id FROM mastra_messages'
     );
+    // One root + two child conversations + their two grandchildren.
     expect(rows.rows).toHaveLength(5);
   });
 
@@ -385,14 +421,12 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
   });
 
   it('demonstrates that the implicit background-task store is not durable (negative control)', async () => {
-    const { parent } = tree();
     const host = new Mastra({
-      agents: { parent },
       backgroundTasks: { enabled: true },
       logger: false,
       storage: backing.storage,
     });
-    hosts.push(host);
+    hosts.add(host);
     const store = await host.backgroundTaskManager?.getStorage();
     if (!store) {
       throw new Error('Missing background manager');
@@ -411,9 +445,9 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       toolName: 'agent-child',
     });
     expect(await store.getTask('background-proof')).not.toBeNull();
-    await host.shutdown();
+    await shutdownHost(host);
     const recreated = await createPgliteMastraMemory({
-      database: database as unknown as PgliteDatabase,
+      database: memoryDatabase(),
       memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
     });
     const nextHost = new Mastra({
@@ -421,7 +455,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       logger: false,
       storage: recreated.storage,
     });
-    hosts.push(nextHost);
+    hosts.add(nextHost);
     const nextStore = await nextHost.backgroundTaskManager?.getStorage();
     if (!nextStore) {
       throw new Error('Missing recreated background manager');
