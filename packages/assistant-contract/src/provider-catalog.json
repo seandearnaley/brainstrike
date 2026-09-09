@@ -298,7 +298,7 @@
     "keyFormatHint": "sk-ant-...",
     "models": [
       {
-        "_note": "Vendor overview and pricing, retrieved 2026-09-08:\nhttps://platform.claude.com/docs/en/models/fable-5-1/overview\nhttps://platform.claude.com/docs/en/about-claude/pricing\nCache reads are 0.025x base input on Fable 5.1 ($0.25/MTok), not the\n0.1x multiplier every other Claude model uses.",
+        "_note": "Vendor overview and pricing, retrieved 2026-09-08:\nhttps://platform.claude.com/docs/en/models/fable-5-1/overview\nhttps://platform.claude.com/docs/en/about-claude/pricing\nCache reads are 0.025x base input on Fable 5.1 ($0.25/MTok), not the\n0.1x multiplier every other Claude model uses.\nAdaptive thinking on this model is ALWAYS ON and cannot be disabled; only\nthe effort level is configurable. The schema has no way to say that, so\nthis row declares the ordinary ladder — byte-identical to the Fable 5 row\nthat has carried the same constraint since BST-847. Modelling the\nmandatory case (and the resulting Thinking-toggle / legacy `enabled`\nserialization defects, which predate this row) is BST-1706.",
         "anthropicReasoning": {
           "defaultEffort": "high",
           "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
