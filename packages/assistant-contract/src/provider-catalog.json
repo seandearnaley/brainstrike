@@ -1330,6 +1330,118 @@
         "supportsStreaming": true,
         "type": "llm",
         "vision": "supported"
+      },
+      {
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n64,000 ceilings, text-only input modality and gateway pricing\n(0.000000834 / 0.000002501 per token), retrieved 2026-09-08\n(BST-1696). Tencent publishes no effort ladder on this preview route,\nso no `reasoning` block is declared: absence is never guessed as\nsupport. Re-confirm the preview rate when the route leaves preview.",
+        "contextWindow": 1048576,
+        "id": "tencent/hy4-preview",
+        "inputModalities": ["text"],
+        "label": "Hy4 Preview (OpenRouter)",
+        "maxOutputTokens": 64000,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.834,
+          "outputPerMTok": 2.501
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "unsupported"
+      },
+      {
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,310,720 /\n131,072 ceilings, text/image/video input modalities and gateway\npricing (0.000000075 / 0.00000025 per token), retrieved 2026-09-08\n(BST-1696). Z.ai publishes no effort ladder for this Flash route, so\nno `reasoning` block is declared.",
+        "contextWindow": 1310720,
+        "id": "z-ai/glm-5.3-flash",
+        "inputModalities": ["text", "image", "video"],
+        "label": "GLM 5.3 Flash (OpenRouter)",
+        "maxOutputTokens": 131072,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.075,
+          "outputPerMTok": 0.25
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "OpenRouter Models API owns this fixed route's identity, 262,144 /\n128,000 ceilings, text-only input modality and gateway pricing\n(0.000000132 / 0.000000528 per token), retrieved 2026-09-08\n(BST-1696). BST-1696 listed the context window as UNVERIFIED; the\nlive route reports 262,144, not the 1M this family's newer routes\ncarry. Tencent's configurable reasoning effort is not enumerated on\nthe route, so no `reasoning` block is declared.",
+        "contextWindow": 262144,
+        "id": "tencent/hy3",
+        "inputModalities": ["text"],
+        "label": "Hy3 (OpenRouter)",
+        "maxOutputTokens": 128000,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.132,
+          "outputPerMTok": 0.528
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "unsupported"
+      },
+      {
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,050,000 /\n131,072 ceilings, text/audio/image/video input modalities and gateway\npricing (0.00000014 / 0.00000028 per token), retrieved 2026-09-08\n(BST-1696). Audio and video are declared inputs on the route; the\ncatalog's `vision` flag only gates the composer's image affordance.",
+        "contextWindow": 1050000,
+        "id": "xiaomi/mimo-v2.5",
+        "inputModalities": ["text", "audio", "image", "video"],
+        "label": "MiMo-V2.5 (OpenRouter)",
+        "maxOutputTokens": 131072,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.14,
+          "outputPerMTok": 0.28
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "OpenRouter Models API owns this fixed route's identity, 524,288 /\n131,072 ceilings, text-only input modality and gateway pricing\n(0.00000003 / 0.00000012 per token), retrieved 2026-09-08 (BST-1696).",
+        "contextWindow": 524288,
+        "id": "upstage/solar-pro4",
+        "inputModalities": ["text"],
+        "label": "Solar Pro 4 (OpenRouter)",
+        "maxOutputTokens": 131072,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.03,
+          "outputPerMTok": 0.12
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "unsupported"
+      },
+      {
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n393,216 ceilings, text-only input modality and gateway pricing\n(0.00000057948 / 0.00000173844 per token), retrieved 2026-09-08\n(BST-1696). Dated GA snapshot of the already-carried\n`deepseek/deepseek-v4-pro` route; both are kept so a pinned snapshot\nstays selectable.",
+        "contextWindow": 1048576,
+        "id": "deepseek/deepseek-v4-pro-0813",
+        "inputModalities": ["text"],
+        "label": "DeepSeek V4 Pro 0813 (OpenRouter)",
+        "maxOutputTokens": 393216,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.57948,
+          "outputPerMTok": 1.73844
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "unsupported"
+      },
+      {
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,310,720 /\n943,718 ceilings, text-only input modality and gateway pricing\n(0.000000065 / 0.00000018 per token), retrieved 2026-09-08 (BST-1041).\nThe route existence BST-1041 could not confirm in 2026-07 is now\nlive; its snapshot figures (1,048,576 context, 0.00000014 /\n0.00000028) are stale and the live route's numbers are used instead.",
+        "contextWindow": 1310720,
+        "id": "deepseek/deepseek-v4-flash-0731",
+        "inputModalities": ["text"],
+        "label": "DeepSeek V4 Flash 0731 (OpenRouter)",
+        "maxOutputTokens": 943718,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.065,
+          "outputPerMTok": 0.18
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "unsupported"
       }
     ],
     "runtime": "gateway"
