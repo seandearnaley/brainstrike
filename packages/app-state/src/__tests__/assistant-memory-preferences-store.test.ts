@@ -102,6 +102,50 @@ describe('assistant-memory-preferences-store', () => {
     );
   });
 
+  // BST-1697. Memory targets are provider-PREFIXED composite keys, so an
+  // OpenRouter route carries its own vendor segment too
+  // ('openrouter/stealth/ox-alpha', not 'stealth/ox-alpha'). Getting that shape
+  // wrong is silent: the key simply never matches and observational memory
+  // keeps running against a delisted route.
+  it.each([
+    ['openrouter/stealth/ox-alpha', 'openrouter/qwen/qwen3.8-flash'],
+    ['openrouter/qwen/qwen3.8-max', 'openrouter/qwen/qwen3.8-max-0902'],
+    ['openrouter/inclusionai/ling-3.0-flash:free', 'openrouter/nvidia/nemotron-3.5-lightning'],
+    ['openrouter/kwaipilot/kat-coder-air-v2.5', 'openrouter/kwaipilot/kat-coder-pro-v2.5'],
+  ])('remaps the delisted OpenRouter memory target %s', async (from, to) => {
+    const persistApi = (useAssistantMemoryPreferencesStore as MemoryPersistApi).persist;
+    const options = persistApi?.getOptions?.();
+    if (!(persistApi && options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    const stale: StorageValue<unknown> = {
+      state: {
+        observationalMemory: {
+          enabled: true,
+          messageTokens: 30_000,
+          modelTarget: from,
+          observationTokens: 40_000,
+          retrievalMode: 'off',
+          scope: 'thread',
+        },
+        semanticRecall: {
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          enabled: false,
+          messageRange: 2,
+          scope: 'resource',
+          topK: 5,
+        },
+      },
+      version: 2,
+    };
+
+    options.storage.setItem(options.name, stale);
+    await persistApi.rehydrate?.();
+
+    expect(useAssistantMemoryPreferencesStore.getState().observationalMemory.modelTarget).toBe(to);
+  });
+
   it('enables observations by default with the auto observer target (BST-940) and disables semantic recall', () => {
     const state = useAssistantMemoryPreferencesStore.getState();
 
