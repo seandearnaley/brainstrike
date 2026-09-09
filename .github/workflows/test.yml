@@ -600,7 +600,13 @@ jobs:
     if: needs.admission.outputs.admitted == 'true'
     needs: [admission]
     runs-on: windows-latest
-    timeout-minutes: 20
+    # BST-1712: 20 -> 30. A retry the job timeout guillotines is not a retry.
+    # The observed abort wasted 240s of dead wait before node-gyp gave up, and
+    # the failing run had already spent 9m of its 20 by then; two such attempts
+    # plus a good one plus build/test does not fit under 20. 30 is this repo's
+    # standard failure ceiling (docs/agents/ci-quality.md), not a latency target
+    # — the healthy path is unchanged and still finishes well inside 20.
+    timeout-minutes: 30
     env:
       # BST-1375: pin node-gyp's dev dir (default `%LOCALAPPDATA%\node-gyp\Cache`)
       # to a path the cache steps below can name. node-gyp reads this the same
@@ -638,6 +644,12 @@ jobs:
       # abort. A cold cache still downloads twice and keeps today's exposure —
       # this narrows the window rather than making the fetch itself robust.
       #
+      # BST-1712 closed that remaining window: a cold cache is now a RETRIED
+      # install (see the Setup workspace step). Cache is the fast path, retry is
+      # the backstop; neither replaces the other, because a cold cache is not
+      # rare — key misses happen on every Node patch bump and on LRU eviction,
+      # and run 34353973428 was exactly a `Cache not found for input keys` run.
+      #
       # Restore is prefix-only because `.nvmrc` pins a major (`24`) and the
       # exact version is not known until setup-node runs inside the composite
       # below; the save step keys on that resolved version, so a patch bump
@@ -654,9 +666,28 @@ jobs:
       # the composite's install step works on windows-latest via the runner's
       # bundled Git Bash, same as every other step in this composite already
       # running fine cross-platform.
+      #
+      # BST-1712: the cold-cache path is retried. The comment above already
+      # predicted this gap ("a cold cache still downloads twice and keeps
+      # today's exposure"), and run 34353973428 walked straight into it:
+      # `Cache not found for input keys`, both packages GET the tarball ~0.9s
+      # apart, both get 200, and 240s later one stream aborts in undici's
+      # `client-h2.js` — two concurrent ~30MB bodies multiplexed over one HTTP/2
+      # connection to nodejs.org, one of which the server dropped mid-body.
+      #
+      # node-gyp's own undici `RetryHandler` is IN that stack, so "node-gyp
+      # already retries" is not an answer: undici's retry covers connect/idle
+      # errors, not a 200 whose body is aborted part-way. The attempt has to be
+      # restarted from outside node-gyp, which means restarting the install.
+      #
+      # 3 attempts, and the retries are cheap: node_modules is already
+      # materialised after attempt 1, so a repeat pass re-runs only the failed
+      # lifecycle scripts (see the composite's comment for the measurement).
       - name: Setup workspace
         id: setup
         uses: ./.github/actions/setup-workspace
+        with:
+          install-attempts: '3'
 
       # Explicit build first: the package's `test` script deliberately does NOT
       # build inline anymore (an inline `pnpm build &&` raced turbo's own
