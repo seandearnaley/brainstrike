@@ -40,6 +40,10 @@ describe('migration 120: 2026-09 OpenRouter open-weight catalog refresh', () => 
     const idList = newIds.map((id) => `'${id}'`).join(', ');
 
     await runner.initialize();
+    // 119 is RESERVED by the sibling BST-1695 branch and is deliberately absent
+    // from this branch's manifest, so this filter currently means "everything
+    // before 120" and keeps meaning that once 119 lands. It is a boundary, not
+    // a reference to a migration this file expects to exist.
     await runner.up(migrations.filter(({ version }) => version <= 119));
 
     const before = await db.query<{ max_sort_order: number | null }>(
@@ -151,11 +155,35 @@ describe('migration 120: 2026-09 OpenRouter open-weight catalog refresh', () => 
     await db.query(
       "UPDATE models SET is_enabled = true, name = 'stale name' WHERE id = 'tencent/hy3'"
     );
-    await db.exec(up);
-    const reapplied = await db.query<{ is_enabled: boolean; name: string }>(
-      "SELECT is_enabled, name FROM models WHERE id = 'tencent/hy3'"
+    await db.query(
+      "UPDATE models SET tagline = 'stale tagline', best_for = '[\"stale\"]' WHERE id = 'tencent/hy3'"
     );
-    expect(reapplied.rows[0]).toEqual({ is_enabled: true, name: 'Hy3 (OpenRouter)' });
+    await db.exec(up);
+    const reapplied = await db.query<{
+      best_for: readonly string[] | null;
+      is_enabled: boolean;
+      name: string;
+      sort_order: number;
+      tagline: string | null;
+    }>(
+      "SELECT is_enabled, name, tagline, best_for, sort_order FROM models WHERE id = 'tencent/hy3'"
+    );
+    expect(reapplied.rows[0]).toEqual({
+      best_for: ['Reasoning', 'Agentic workflows', 'Production use'],
+      is_enabled: true,
+      name: 'Hy3 (OpenRouter)',
+      // sort_order DRIFTS by +7 on re-application and that is pinned here on
+      // purpose rather than hidden. The generator emits
+      // `MAX(sort_order) + N` over the whole provider, so the second run's
+      // MAX already includes the seven rows the first run inserted. Harmless
+      // in production (the ledger applies a migration once, and relative order
+      // survives), but it is real: BST-1704 fixes it in the GENERATOR, which
+      // owns the shape ~30 shipped migrations share. Diverging this one
+      // hand-edited file would be worse. If BST-1704 lands, this literal
+      // becomes `maxBefore + 3` and the assertion is what tells you.
+      sort_order: maxBefore + 7 + 3,
+      tagline: 'Mixture-of-experts model for reasoning and agentic workflows',
+    });
 
     await runner.down(migrations, 119);
     const afterRollback = await db.query<{ id: string }>(
