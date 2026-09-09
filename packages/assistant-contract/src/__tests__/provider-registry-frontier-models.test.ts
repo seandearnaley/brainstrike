@@ -48,6 +48,11 @@ describe('frontier model refresh (2026-07)', () => {
      * cache RATE may only travel with a `promptCaching` dialect (BST-1354,
      * provider-registry-pricing.test.ts) and that enum has no `openai` member,
      * so the rates stay out of the catalog until a dialect exists.
+     *
+     * The `reasoning` block is the ladder OpenAI's model page documents. It is
+     * declared rather than inherited because OPENAI_FAMILY_DEFAULT_EFFORTS
+     * offers `minimal` (not on the page) and withholds `max` (on the page) —
+     * see model-reasoning.test.ts for the availability-level pin.
      */
     it('declares GPT-6 Astra from the vendor model page, cache rates excluded (BST-1692)', () => {
       expect(getLlmModelDefinition('openai', 'gpt-6-astra')).toEqual({
@@ -59,6 +64,10 @@ describe('frontier model refresh (2026-07)', () => {
         pricing: {
           inputPerMTok: 10,
           outputPerMTok: 50,
+        },
+        reasoning: {
+          mandatory: false,
+          supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         },
         supportsStreaming: true,
         tokenMeasurement: {
