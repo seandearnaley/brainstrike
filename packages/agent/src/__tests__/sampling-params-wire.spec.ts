@@ -31,6 +31,9 @@
  * `top_p`, Google under `generationConfig`, Bedrock under `inferenceConfig` /
  * `additionalModelRequestFields`), so a top-level-only assertion would go dark
  * on three of the five.
+ *
+ * The invariant this suite pins is recorded in docs/agents/assistant-providers.md
+ * ("Sampling params are never sent on a default request").
  */
 import type { LanguageModelV2Prompt } from '@ai-sdk/provider';
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
@@ -74,17 +77,46 @@ function findSamplingKeyPaths(value: unknown, path = '$'): string[] {
   });
 }
 
-function parseBody(init: RequestInit | undefined): unknown {
-  return typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+/**
+ * Decode the request body from EITHER valid Fetch call shape.
+ * `fetch(url, init)` and `fetch(new Request(url, init))` are both legal, and an
+ * adapter may switch between them across a dependency bump with nothing in this
+ * repo changing. Reading only `init.body` would record `null` for the Request
+ * shape, the recursive scan would find no sampling keys in `null`, and the suite
+ * would go green on exactly the drift it exists to catch. Returns `undefined`
+ * when the request carried no body at all, so the caller can decline to record
+ * it and the `bodies.length` assertion stays a real check.
+ */
+async function readJsonBody(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined
+): Promise<unknown> {
+  if (typeof init?.body === 'string') {
+    return JSON.parse(init.body);
+  }
+  const raw = await new Request(input instanceof Request ? input : String(input), init).text();
+  return raw === '' ? undefined : JSON.parse(raw);
+}
+
+/** Record a request body, skipping bodyless requests rather than storing `null`. */
+async function captureBody(
+  bodies: unknown[],
+  input: RequestInfo | URL,
+  init: RequestInit | undefined
+): Promise<void> {
+  const body = await readJsonBody(input, init);
+  if (body !== undefined) {
+    bodies.push(body);
+  }
 }
 
 /** Capturing fetch for the `custom_fetch` auth seam (openai/anthropic/google). */
 function makeCapturingFetch(bodies: unknown[]): typeof globalThis.fetch {
-  return (_input, init) => {
-    bodies.push(parseBody(init));
+  return async (input, init) => {
+    await captureBody(bodies, input, init);
     // Reaching fetch at all is what the assertion needs; a 500 makes the SDK
     // throw AFTER the capture, so no per-adapter success fixture is required.
-    return Promise.resolve(new Response('{}', { status: 500 }));
+    return new Response('{}', { status: 500 });
   };
 }
 
@@ -121,11 +153,7 @@ describe('BST-1699 default request carries no sampling params', () => {
       if (!url.includes('bedrock')) {
         return realFetch(input as RequestInfo, init);
       }
-      const rawBody =
-        typeof init?.body === 'string'
-          ? init.body
-          : await new Request(input as RequestInfo, init).text();
-      bodies.push(JSON.parse(rawBody));
+      await captureBody(bodies, input, init);
       return new Response(
         JSON.stringify({
           output: { message: { content: [{ text: 'ok' }], role: 'assistant' } },
@@ -170,20 +198,18 @@ describe('BST-1699 default request carries no sampling params', () => {
       'anthropic',
       {
         apiKey: 'fixture-key',
-        fetch: ((_input: unknown, init: RequestInit | undefined) => {
-          bodies.push(parseBody(init));
-          return Promise.resolve(
-            Response.json({
-              content: [{ text: 'ok', type: 'text' }],
-              id: 'msg_fixture',
-              model: 'claude-opus-5',
-              role: 'assistant',
-              stop_reason: 'end_turn',
-              stop_sequence: null,
-              type: 'message',
-              usage: { input_tokens: 1, output_tokens: 1 },
-            })
-          );
+        fetch: (async (input: RequestInfo | URL, init: RequestInit | undefined) => {
+          await captureBody(bodies, input, init);
+          return Response.json({
+            content: [{ text: 'ok', type: 'text' }],
+            id: 'msg_fixture',
+            model: 'claude-opus-5',
+            role: 'assistant',
+            stop_reason: 'end_turn',
+            stop_sequence: null,
+            type: 'message',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          });
         }) as unknown as typeof globalThis.fetch,
         kind: 'custom_fetch',
       },
@@ -202,6 +228,7 @@ describe('BST-1699 default request carries no sampling params', () => {
     });
 
     // Not on the wire, so no 400 — and no notice either.
+    expect(bodies.length).toBeGreaterThan(0);
     expect(bodies.flatMap((body) => findSamplingKeyPaths(body))).toEqual([]);
     expect(
       (result.warnings ?? [])
@@ -213,8 +240,8 @@ describe('BST-1699 default request carries no sampling params', () => {
 
   it('openrouter pass-through', async () => {
     const bodies: unknown[] = [];
-    vi.stubGlobal('fetch', (_input: RequestInfo | URL, init?: RequestInit) => {
-      bodies.push(parseBody(init));
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      await captureBody(bodies, input, init);
       const sse = [
         'data: {"id":"cmpl-1","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"}}]}',
         '',
@@ -224,9 +251,7 @@ describe('BST-1699 default request carries no sampling params', () => {
         '',
         '',
       ].join('\n');
-      return Promise.resolve(
-        new Response(sse, { headers: { 'content-type': 'text/event-stream' }, status: 200 })
-      );
+      return new Response(sse, { headers: { 'content-type': 'text/event-stream' }, status: 200 });
     });
 
     const config = createProvider('openrouter', { apiKey: 'test-key', kind: 'api_key' });
