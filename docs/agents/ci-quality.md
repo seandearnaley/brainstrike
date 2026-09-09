@@ -66,6 +66,31 @@ is correct. `scripts/__tests__/ci-input-locality.test.mjs` executes the pinned
 Turbo binary to prove both selection and hash locality, including a negative
 control. Shared configuration and lockfile changes still receive broad checks.
 
+An E2E lane's `--global-timeout` is a **failure ceiling, not a latency target**,
+and it stops being one silently. Read a lane's budget as a ratio against its
+measured runtime, never as an absolute number: the desktop smoke lane's 300000
+was calibrated on 2026-05-20 against three files finishing in 28.3s
+(`docs/architecture-reset/pipeline-calibration-desktop-smoke-2026-05-20.json`),
+a 10x ceiling, and nobody revisited it while the lane grew to 16 files and 34
+tests. By 2026-09-09 ten green runs measured 226.5s-278.4s and run
+`34353940887` measured 297.5s on a ~7% slower runner — 99.2% of budget. The
+deadline landed mid-test and produced a failure that looks like a product bug
+and is not one (BST-1713): Playwright marks the in-flight test `interrupted`
+(**not** failed), reports two `Timed out waiting Ns for the ...` entries as
+"errors not part of any test", and hands teardown the ALREADY-ELAPSED deadline,
+so the trace zip is never finalised and the blob reporter raises
+`ENOENT ... blob-report/.playwright-artifacts-<n>/<hash>.zip`. The named test is
+whichever one was running — with `--workers=1` that is just the last file in
+the lane's file list, and the surface it exercises is a red herring. Diagnose
+this shape by checking the run's total against its budget FIRST; app shutdown
+noise in the same log (git-inventory drain abandonment, `DB host closed.`,
+`the worker is ending`) is per-test teardown chatter that also appears in green
+runs, and timestamps place it minutes away from the interruption. Raise a
+lane's budget when you add work to it, not after the next interruption. The
+exact lane commands are pinned by
+`scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs`, which is the guard
+that forces the change to be deliberate.
+
 Draft PRs already run the full Test workflow on opened/synchronize. Marking a
 draft ready must not rerun the same code: run `33929271597` repeated successful
 run `33927789987` on the same head after PR #2962 became ready. Test therefore
