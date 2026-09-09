@@ -701,9 +701,20 @@ test('the install step is frozen, exactly as the CI composite installs', () => {
   assert.equal(typeof compositeInstall?.run, 'string');
   assert.match(
     compositeInstall.run,
-    /(^|\n)\s*pnpm install --frozen-lockfile(\n|$)/,
+    /(^|\n)\s*pnpm install --frozen-lockfile(\s|$)/,
     'the CI composite this mirrors must still install frozen'
   );
+  // BST-1712 wrapped that command in a bounded retry loop, so it is no longer
+  // alone on its line — hence `\s` above rather than `\n`. That loosening would
+  // let an UNFROZEN second invocation hide behind the frozen one, so pin the
+  // flag per invocation instead: a plain `pnpm install` anywhere in this script
+  // would update pnpm-lock.yaml on manifest drift, which is the exact drift
+  // this whole test exists to reject.
+  const unfrozen = compositeInstall.run
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('#'))
+    .filter((line) => /\bpnpm install\b/.test(line) && !line.includes('--frozen-lockfile'));
+  assert.deepEqual(unfrozen, [], 'every `pnpm install` in the CI composite must be frozen');
 
   const install = buildPlan(parseFlags([])).find((step) => step.id === 'install');
   assert.ok(install, 'the default plan must install');
