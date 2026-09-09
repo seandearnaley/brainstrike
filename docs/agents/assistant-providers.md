@@ -1141,6 +1141,34 @@ point of the move; do not reintroduce an AST walk over a TypeScript literal
 retired). The DB `models` mirroring rules stay in
 `docs/agents/database.md` (model catalog section).
 
+#### Model pricing is per-ROUTE, not per-model (BST-1698)
+
+Each row's `pricing` is declared from the source that BILLS that route: a
+first-party `openai` row from developers.openai.com, an `openrouter/*` row
+from OpenRouter's live Models API (`https://openrouter.ai/api/v1/models`,
+whose per-token decimal strings are x 1e6 to reach $/MTok). Two rows for the
+same underlying model may therefore carry DIFFERENT rates, and a divergence
+between a direct row and its OpenRouter twin is EXPECTED DATA, not drift —
+do not "fix" one row to match the other.
+
+The live instance: `gpt-5.6-sol` is 4/20 $/MTok on the `openai` row and 2/10
+on `openai/gpt-5.6-sol` (both retrieved 2026-09-08; OpenRouter also publishes
+a `>=272,000` prompt-token override at 4/15, which this one-rate-pair schema
+does not carry). The divergence is Sol-specific — the sibling GPT-5.6 routes
+match figure-for-figure across both providers (terra 2.5/15, luna 1/6) — and
+OpenRouter's Sol figure is exactly half OpenAI's while coinciding with
+OpenAI's batch/flex column, so it MAY be an upstream OpenRouter data error.
+It is recorded rather than resolved: OpenRouter is the route that bills the
+user, provider-reported billed cost stays authoritative at runtime, and a
+declared rate is a display estimate.
+`packages/assistant-contract/src/__tests__/provider-registry-pricing.test.ts`
+pins both rows AND asserts they differ, so a sweep that mirrors them fails.
+
+BST-1705 carries the broader finding that roughly 20 of the 47 `openrouter`
+rows have drifted from that API (`google/gemini-3.6-flash` stated at 2x,
+`google/gemini-3.7-flash` carrying the `:batch` rate). Re-pricing them is
+that ticket's job, and still one row per its OWN source.
+
 ### Provider registry auth metadata (BST-1349)
 
 `ProviderDefinition` in
