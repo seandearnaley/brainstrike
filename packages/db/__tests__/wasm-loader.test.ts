@@ -8,9 +8,9 @@ describe('wasmLoader.ensureWasmLoaded', () => {
   beforeEach(async () => {
     // Clear all modules and reset state before each test
     vi.resetModules();
-    vi.unmock('@electric-sql/pglite');
-    vi.unmock('@electric-sql/pglite-pgvector');
-    vi.unmock('@electric-sql/pglite/contrib/pg_trgm');
+    vi.doUnmock('@electric-sql/pglite');
+    vi.doUnmock('@electric-sql/pglite-pgvector');
+    vi.doUnmock('@electric-sql/pglite/contrib/pg_trgm');
 
     vi.doMock('@electric-sql/pglite', () => {
       PGliteMock = vi.fn().mockImplementation(function (this: Record<string, unknown>) {
@@ -45,9 +45,9 @@ describe('wasmLoader.ensureWasmLoaded', () => {
 
   afterEach(() => {
     vi.resetModules();
-    vi.unmock('@electric-sql/pglite');
-    vi.unmock('@electric-sql/pglite-pgvector');
-    vi.unmock('@electric-sql/pglite/contrib/pg_trgm');
+    vi.doUnmock('@electric-sql/pglite');
+    vi.doUnmock('@electric-sql/pglite-pgvector');
+    vi.doUnmock('@electric-sql/pglite/contrib/pg_trgm');
   });
 
   it('returns the same promise when called twice', async () => {

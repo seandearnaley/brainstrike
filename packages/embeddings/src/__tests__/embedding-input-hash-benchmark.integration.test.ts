@@ -362,7 +362,7 @@ function createPersistedWorkerHotPathOptions(db: IDatabase): LoadAndFilterChunks
   };
 }
 
-describe.sequential('embedding input hash relocation benchmark', () => {
+describe('embedding input hash relocation benchmark', { concurrent: false }, () => {
   it(
     'reports worker-hot-path and relocated end-to-end medians by batch and content size',
     async () => {

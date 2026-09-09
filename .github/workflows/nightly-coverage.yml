@@ -166,7 +166,7 @@ jobs:
       - name: Clear coverage directories
         run: |
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
-          rm -rf packages/db/.vitest-reports .nyc_output
+          rm -rf packages/db/.vitest/blob .nyc_output
 
       - name: Run DB coverage shard
         timeout-minutes: 25
@@ -186,7 +186,7 @@ jobs:
 
       - name: Verify DB blob report
         run: |
-          blob_count=$(find packages/db/.vitest-reports -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
+          blob_count=$(find packages/db/.vitest/blob -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
           if [ "$blob_count" -ne 1 ]; then
             echo "::error::Expected one Vitest blob from ${{ matrix.shard }}; found ${blob_count}."
             exit 1
@@ -197,7 +197,7 @@ jobs:
         with:
           include-hidden-files: true
           name: db-vitest-blob-${{ matrix.shard }}
-          path: packages/db/.vitest-reports/blob-*.json
+          path: packages/db/.vitest/blob/blob-*.json
           retention-days: 7
           if-no-files-found: error
 
@@ -219,18 +219,18 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           pattern: db-vitest-blob-*
-          path: packages/db/.vitest-reports
+          path: packages/db/.vitest/blob
           merge-multiple: true
 
       - name: Merge DB coverage with Vitest
         run: |
-          blob_count=$(find packages/db/.vitest-reports -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
+          blob_count=$(find packages/db/.vitest/blob -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
           if [ "$blob_count" -ne 2 ]; then
             echo "::error::Expected two Vitest DB blob reports; found ${blob_count}."
             exit 1
           fi
           pnpm --filter @brainstrike/db exec vitest \
-            --merge-reports=.vitest-reports \
+            --merge-reports=.vitest/blob \
             --project=unit \
             --coverage \
             --coverage.reportsDirectory=coverage \

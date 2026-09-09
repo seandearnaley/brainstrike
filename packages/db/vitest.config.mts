@@ -34,12 +34,7 @@ export function resolveDbTestShard(
 
 const dbTestShard = resolveDbTestShard();
 
-/**
- * Shared workspace source aliases. Vitest inline `projects` do NOT inherit the
- * top-level `resolve.alias`, so the unit project spreads this map explicitly
- * (plus the OM-schema source subpath) to keep `@brainstrike/*` resolving to
- * source the way the rest of the db test suite expects.
- */
+/** Shared source aliases; subpath aliases must precede prefix aliases. */
 const sharedAliases: Record<string, string> = {
   '@': path.resolve(__dirname, 'src'),
   // Root import (registry↔migration vision agreement test) resolves to source
@@ -81,7 +76,7 @@ const unitAliases: Record<string, string> = {
 };
 
 /**
- * Vitest 4 configuration for @brainstrike/db
+ * Vitest 5 configuration for @brainstrike/db
  *
  * Test projects:
  * - unit: node/jsdom tests running REAL PGlite (WASM Postgres). The
@@ -94,7 +89,7 @@ const unitAliases: Record<string, string> = {
  */
 export default defineConfig({
   resolve: {
-    alias: sharedAliases,
+    alias: unitAliases,
   },
   test: {
     // `shard` is a Vitest runner option, not a per-project option. Keeping it
@@ -103,12 +98,7 @@ export default defineConfig({
     ...(dbTestShard ? { shard: dbTestShard } : {}),
     projects: [
       {
-        // Inline projects do not inherit the top-level resolve.alias, so the
-        // full alias set (including the OM schema source subpath) is declared
-        // here for the unit project.
-        resolve: {
-          alias: unitAliases,
-        },
+        // Vitest 5 inherits the ordered source aliases from the root config.
         test: {
           // Default to `node`: the vast majority of db unit tests are pure
           // repository/SQL/migration logic and paid ~57s/run of jsdom
@@ -138,12 +128,7 @@ export default defineConfig({
         },
       },
       {
-        // Browser project: same source aliases as the unit project — inline
-        // projects do not inherit the top-level resolve.alias, and workspace
-        // imports must execute source, not dist (incident #1066/#1207).
-        resolve: {
-          alias: unitAliases,
-        },
+        // Browser shares the root source aliases, while snapshot setup stays unit-only.
         test: {
           browser: {
             enabled: true,

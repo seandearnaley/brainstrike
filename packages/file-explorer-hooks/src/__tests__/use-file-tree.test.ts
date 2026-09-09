@@ -979,7 +979,9 @@ describe('useFileTree', () => {
     });
   });
 
-  it('creates a logger scoped to useFileTree', () => {
+  it('creates a logger scoped to useFileTree', async () => {
+    vi.resetModules();
+    await import('../use-file-tree.js');
     expect(createLoggerMock).toHaveBeenCalledWith('useFileTree');
   });
 });

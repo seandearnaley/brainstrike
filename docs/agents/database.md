@@ -54,6 +54,18 @@ collection, terminalizing the handle for every listener. 0.5.5 fixes the shadow
 (`(cb) => cb !== callback`), so a handle with other listeners now stays live.
 Nothing in this repo subscribes twice to one handle, so that fix is inert here.
 
+Vitest 5 migration (BST-1689): the clock-less package import regression runs
+in an isolated Node/tsx process using the shared workspace source aliases.
+The resolver converts absolute source paths to file URLs for Windows ESM, and
+child assertion errors inherit stderr so import failures remain diagnosable.
+Removing `performance` from a Vitest worker breaks the runner's own clock and
+cannot test package initialization reliably. The child must import the public
+DB source entry without a clock, then fail explicitly when telemetry is used.
+DB browser-storage tests stub and restore `navigator` with Vitest's global
+helpers; hook cleanup uses `vi.doUnmock`, since hoisted `vi.unmock` is module-only.
+Root source aliases are shared by inline projects through Vitest 5 inheritance;
+keep the snapshot `globalSetup` on the unit project only.
+
 ## DESKTOP LIVE-QUERY MEMORY TEST DIAGNOSTICS
 
 BST-438's memory regression lane observes live-query ownership without widening

@@ -694,8 +694,11 @@ including all five stable required contexts (`Static`, `Unit`, `Build`,
 db/ui/storage/assistant-ui/embedding-worker in the pinned Playwright container;
 expensive enough that it keeps the same
 quiet-head gate, and `quiet-head-admission-contract.test.mjs` verifies it).
+Browser artifact uploads explicitly include hidden files and the resolved
+attachment directories for all six browser packages; the paired screenshot
+contract checks the installed Vitest configuration against the upload paths.
 Vitest generated failure captures stay in ignored package-local
-`__screenshots__` directories. Intentional `toMatchScreenshot` references are
+`.vitest/attachments/failure-screenshots` directories. Intentional `toMatchScreenshot` references are
 rerouted by `@brainstrike/config` to trackable `__image_snapshots__`
 directories; the db and storage projects that construct browser options
 directly use the same resolver. Keep those paths separate so failure debris
@@ -1505,7 +1508,10 @@ per-PR coverage is advisory Codecov patch signal only.
 When DB is directly changed, the advisory workflow isolates its coverage from
 the recursive package runner. It executes the same native Vitest `1/2` + `2/2`
 shard set as required Unit and nightly coverage, sequentially on the single
-2-vCPU host, then uses `--merge-reports`. Other affected packages retain
+2-vCPU host, then uses `--merge-reports=.vitest/blob`.
+Vitest 5 blob output, cleanup, counting and upload/download paths all use
+`packages/db/.vitest/blob`; keep the two-blob assertion and hidden uploads.
+Paired: `scripts/__tests__/nightly-coverage-sharding-contract.test.mjs`. Other affected packages retain
 `--workspace-concurrency=4` and explicitly exclude DB. This boundary is
 load-bearing: run 30704747207 let DB share the host with another package and a
 10-second type-contract test timed out after 24 minutes. Do not widen that test
@@ -2249,6 +2255,30 @@ run completed. The aggregate runner closes the ordinary lane-failure blind
 window and prints per-lane START/PASS/FAIL plus a final failure summary, but a
 static reachability verdict is not a run-artifact audit.
 
+### Vitest 5 migration (BST-1689)
+
+Accept the default `clearMocks: true`: tests must establish their own call
+history. Desktop preload specs re-import their module before each test, and
+main-process lifecycle mocks retain registered handlers independently of call
+history (as the real event emitter does). Module-initialization assertions must import a fresh module inside
+the test after `vi.resetModules()`, as in the file-explorer-hooks logger-scope
+specs; do not restore cross-test history globally. DOM test projects include `@brainstrike/test-utils/vitest-matchers`: Vitest 5
+extends `Matchers<R, T>`, while jest-dom 7 still declares the old `Assertion<T>`.
+The shared declaration uses Vitest's public extension interface and preserves
+synchronous versus promise assertion return types; runtime matchers are unchanged.
+Preserve real `import.meta.url` in app-shell: its source-boundary tests resolve
+files relative to their own module, so a global mock URL invalidates the guards.
+Sharding contract tests read `resolveConfig(...).test` with the Vitest 5 API.
+Async assertions and bench
+fixture `.run()` calls must be awaited. Serialized shared-DB suites use
+`{ concurrent: false }` instead of the removed `.sequential` API.
+
+The root aggregator references package directories, so those configs do not
+inherit root options. Inline projects inherit and merge arrays in Vitest 5;
+keep setup files deliberate. Stryker remains 10.0.0 (its Vitest peer is >=2).
+Generated reports and attachments live under ignored `.vitest/`, while
+intentional visual baselines remain trackable in `__image_snapshots__`.
+
 ### The `__vitest_worker__` mutation guard (was: @vitest/runner teardown patch)
 
 The "every test passes but vitest exits 1" flake (`Vitest failed to access its
@@ -2262,8 +2292,19 @@ event-loop starvation, so the flake surfaced in loaded full-graph/CI runs and
 never in isolation. A pnpm patch on `@vitest/runner` that cancelled the timer
 at end-of-run shipped 2026-07-12 and was later shown to be a placebo (an
 end-of-run stray timer no-ops on already-flushed packs); it was removed in
-BST-592 and the repo now carries ZERO `patchedDependencies` by policy — fix
-dependencies upstream or at config level, never via `pnpm patch`.
+BST-592. Dependency fixes normally belong upstream or in supported configuration.
+The sole user-authorized exception is `@stryker-mutator/vitest-runner@10.0.0`
+(BST-1690): carry upstream [PR #6220](https://github.com/stryker-mutator/stryker-js/pull/6220)
+as a tracked pnpm patch until a compatible release ships. Vitest 5 joins full
+test names with ` > `; the runner and sandbox must use that same separator
+for report IDs, per-test coverage, and filtered mutant runs. Keep mutation
+thresholds and `perTest` coverage unchanged. Remove the patch when upgrading
+to a release containing the fix, after re-running the mutation lanes.
+The installed-package regression in
+`scripts/__tests__/stryker-vitest-5-compatibility.test.mjs` must kill every
+fixture mutant and attribute it to the nested test; a successful dry run alone
+does not prove compatibility. This exception does not reinstate the ineffective
+Vitest teardown patch or permit mutating Vitest worker globals.
 
 Regression guard: `scripts/verify-no-vitest-worker-mutation.mjs` (test:
 `scripts/__tests__/vitest-worker-global-mutation.test.mjs`, run in the Static
@@ -2300,8 +2341,9 @@ source, it needs a narrow config-local override: web Vitest maps
 shared spread, and its integration config inherits that base alias verbatim.
 
 The guard EXECUTES each discovered vitest config (base + integration + mutation +
-models, and each inline project — projects do NOT inherit top-level
-`resolve.alias`). Discovery is the `vitest.*config*.*` filename convention made
+models, and each inline project). Vitest 5 inline projects inherit root aliases
+unless `extends: false`; string `extends` selects a separate config. The guard
+uses Vite `mergeConfig` to preserve actual object/array alias precedence. Discovery is the `vitest.*config*.*` filename convention made
 a CHECKED invariant: every vitest `--config`/`-c` reference in package scripts
 and every stryker `configFile:` must be in the discovered set, else the guard
 throws. Per config/project it closes the runtime `@brainstrike/*` specifier set

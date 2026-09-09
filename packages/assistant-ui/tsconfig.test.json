@@ -3,7 +3,7 @@
   "compilerOptions": {
     "types": [
       "vitest/globals",
-      "@testing-library/jest-dom",
+      "@brainstrike/test-utils/vitest-matchers",
       "node"
     ],
     "skipLibCheck": true,

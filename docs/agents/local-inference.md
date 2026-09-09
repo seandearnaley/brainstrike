@@ -182,6 +182,9 @@ Vector device preference is ONE canonical record (BST-1380):
 
 ### Embedding input hash relocation benchmark (BST-393)
 
+The relocation and queue-load integration suites explicitly set
+`concurrent: false` under Vitest 5; their shared PGlite state remains serialized.
+
 - `packages/embeddings/src/__tests__/embedding-input-hash-benchmark.integration.test.ts`
   compares the historical claim-path filter hash with the persisted-payload path from
   BST-391 for batch sizes 1, 8, and 32 and source contents of 128 and 4096 bytes.
