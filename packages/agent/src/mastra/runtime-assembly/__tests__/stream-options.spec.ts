@@ -318,3 +318,43 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
     expect(actual).not.toHaveProperty('delegation');
   });
 });
+
+/**
+ * BST-1699. `buildModelSettingsOption` is the LAST Brainstrike-owned seam
+ * before Mastra hands `modelSettings` to the AI SDK adapter, and the only one
+ * that ADDS to what the client sent (the OpenRouter and local
+ * `maxOutputTokens` backstops). OpenAI `gpt-6-astra`, the latest Gemini models
+ * and Anthropic Opus 4.7+ (including its Bedrock Fable 5.1 route) reject or
+ * deprecate non-default `temperature` / `top_p` / `top_k`, so a backstop that
+ * ever grew a sampling default would 400 every one of those models at once.
+ *
+ * The assertion is on the KEY SET, per provider, for a default request: an
+ * added sampling key fails even if its value looks innocuous. The adapter half
+ * of the proof — that no AI SDK provider package injects a sampling default of
+ * its own once these options are empty — lives in
+ * `src/__tests__/sampling-params-wire.spec.ts`.
+ */
+describe('buildModelSettingsOption emits no sampling params by default (BST-1699)', () => {
+  const samplingKeys = ['temperature', 'topP', 'top_p', 'topK', 'top_k'];
+
+  it.each(['anthropic', 'bedrock', 'google', 'openai', 'openrouter'] as const)(
+    '%s: a default request carries no temperature/top_p/top_k',
+    (provider) => {
+      const option = buildModelSettingsOption({ provider } as RuntimeData);
+      const keys = Object.keys(option.modelSettings ?? {});
+      expect(keys.filter((key) => samplingKeys.includes(key))).toEqual([]);
+      // OpenRouter is the only one of the five that gets a backstop, and it is
+      // an output budget — pinned so "no sampling params" cannot be satisfied
+      // by the option going empty for the wrong reason.
+      expect(keys).toEqual(provider === 'openrouter' ? ['maxOutputTokens'] : []);
+    }
+  );
+
+  it('adds no sampling key to a client-sent output budget', () => {
+    const option = buildModelSettingsOption({
+      modelSettings: { maxOutputTokens: 4096 },
+      provider: 'anthropic',
+    } as RuntimeData);
+    expect(option.modelSettings).toEqual({ maxOutputTokens: 4096 });
+  });
+});

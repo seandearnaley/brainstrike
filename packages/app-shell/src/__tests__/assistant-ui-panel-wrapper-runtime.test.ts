@@ -1067,6 +1067,33 @@ describe('assistant runtime helpers', () => {
     expect(extractPreparedRunId({ memory: { runId: ' ' } })).toBeNull();
   });
 
+  /**
+   * BST-1699: OpenAI `gpt-6-astra`, the latest Gemini models and Anthropic
+   * Opus 4.7+ (and its Bedrock Fable 5.1 route) reject or deprecate
+   * non-default `temperature` / `top_p` / `top_k`. `buildModelSettings` is the
+   * ONLY producer of `RuntimeData.modelSettings` for an ordinary assistant
+   * run, so this is where a sampling default would enter every provider's
+   * request at once. It must stay an output-budget-only projection: the key
+   * SET is asserted, not just the values, so a new sampling key cannot be
+   * added without this failing. (A user CAN still set `temperature`/`topP`
+   * deliberately through a Prompt Workbench prompt item — that path is
+   * explicit and separate.)
+   */
+  it('projects only the output budget into model settings (no sampling params)', () => {
+    const populated = {
+      agentInputTokenLimit: 2048,
+      agentMaxSteps: 4,
+      anthropicEffort: 'high',
+      maxOutputTokens: 4096,
+      reasoningEffort: 'high',
+      reasoningSummary: 'detailed',
+    } as unknown as Parameters<typeof buildModelSettings>[0];
+    expect(buildModelSettings(populated)).toEqual({ maxOutputTokens: 4096 });
+    expect(Object.keys(buildModelSettings(populated) ?? {})).toEqual(['maxOutputTokens']);
+    expect(buildModelSettings(undefined)).toBeUndefined();
+    expect(buildModelSettings({} as Parameters<typeof buildModelSettings>[0])).toBeUndefined();
+  });
+
   it('builds provider-specific model, agent loop, and provider options', () => {
     expect(buildModelSettings({ maxOutputTokens: 42.9 })).toEqual({ maxOutputTokens: 42 });
     expect(buildAgentLoopSettings({ agentInputTokenLimit: 2048.2, agentMaxSteps: 4.8 })).toEqual({
