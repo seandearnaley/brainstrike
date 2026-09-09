@@ -298,6 +298,29 @@
     "keyFormatHint": "sk-ant-...",
     "models": [
       {
+        "_note": "Vendor overview and pricing, retrieved 2026-09-08:\nhttps://platform.claude.com/docs/en/models/fable-5-1/overview\nhttps://platform.claude.com/docs/en/about-claude/pricing\nCache reads are 0.025x base input on Fable 5.1 ($0.25/MTok), not the\n0.1x multiplier every other Claude model uses.",
+        "anthropicReasoning": {
+          "defaultEffort": "high",
+          "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        "contextWindow": 1000000,
+        "id": "claude-fable-5-1",
+        "label": "Claude Fable 5.1",
+        "maxOutputTokens": 128000,
+        "nativeToolSearch": "anthropic",
+        "pricing": {
+          "cacheReadPerMTok": 0.25,
+          "cacheWritePerMTok": 12.5,
+          "inputPerMTok": 10,
+          "outputPerMTok": 50
+        },
+        "promptCaching": "anthropic",
+        "supportsStreaming": true,
+        "tagline": "For demanding reasoning and long-horizon agentic work",
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
         "_note": "Vendor OFFERED ladder and default; retrieved 2026-09-04:\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/about-claude/models/overview",
         "anthropicReasoning": {
           "defaultEffort": "high",
@@ -1412,6 +1435,25 @@
     "id": "bedrock",
     "keyNotes": "Use an Amazon Bedrock API key (bearer token) from the AWS console. IAM SigV4 credentials and AWS profiles are not supported yet. Requests also need an AWS region: set AWS_REGION or store it with the key.",
     "models": [
+      {
+        "_note": "Bedrock model id from the vendor model-ID table, pricing/limits from\nmodels.dev (amazon-bedrock provider, the id source for this block),\nboth retrieved 2026-09-08:\nhttps://platform.claude.com/docs/en/models/fable-5-1/overview\nhttps://models.dev/api.json",
+        "bedrockReasoning": "adaptive",
+        "contextWindow": 1000000,
+        "id": "anthropic.claude-fable-5-1",
+        "label": "Claude Fable 5.1 (Bedrock)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "cacheReadPerMTok": 0.25,
+          "cacheWritePerMTok": 12.5,
+          "inputPerMTok": 10,
+          "outputPerMTok": 50
+        },
+        "promptCaching": "bedrock",
+        "supportsStreaming": true,
+        "tagline": "For demanding reasoning and long-horizon agentic work",
+        "type": "llm",
+        "vision": "supported"
+      },
       {
         "bedrockReasoning": "adaptive",
         "contextWindow": 1000000,

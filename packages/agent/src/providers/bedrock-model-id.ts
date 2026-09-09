@@ -34,9 +34,15 @@
 
 const CROSS_REGION_PREFIXES = ['global.', 'us.', 'eu.', 'jp.', 'apac.', 'au.'] as const;
 
-/** Unprefixed ids with a `us.<id>` profile (models.dev 2026-08-18). */
+/**
+ * Unprefixed ids with a `us.<id>` profile (models.dev 2026-08-18, plus
+ * `anthropic.claude-fable-5-1` re-checked against the same source on
+ * 2026-09-08 for BST-1691 — models.dev lists `us.` and `global.` profiles for
+ * it and no `eu.`/`jp.`/`au.` ones, so it appears in this set only).
+ */
 const US_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-fable-5',
+  'anthropic.claude-fable-5-1',
   'anthropic.claude-haiku-4-5-20251001-v1:0',
   'anthropic.claude-opus-4-1-20250805-v1:0',
   'anthropic.claude-opus-4-5-20251101-v1:0',

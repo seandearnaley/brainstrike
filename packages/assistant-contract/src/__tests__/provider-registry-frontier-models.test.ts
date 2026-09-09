@@ -86,9 +86,10 @@ describe('frontier model refresh (2026-07)', () => {
   });
 
   describe('Anthropic', () => {
-    it('exposes Opus 5 / Fable 5 / Sonnet 5 alongside the retained Opus and Haiku models', () => {
+    it('exposes Fable 5.1 / Fable 5 / Opus 5 / Sonnet 5 alongside the retained Opus and Haiku models', () => {
       const ids = llmIds('anthropic');
       expect(ids).toEqual([
+        'claude-fable-5-1',
         'claude-fable-5',
         'claude-opus-5',
         'claude-opus-4-8',
@@ -96,6 +97,57 @@ describe('frontier model refresh (2026-07)', () => {
         'claude-sonnet-4-6',
         'claude-haiku-4-5',
       ]);
+    });
+
+    it('declares Claude Fable 5.1 from the vendor model-overview facts (BST-1691)', () => {
+      const fable = getLlmModelDefinition('anthropic', 'claude-fable-5-1');
+
+      expect(fable).toEqual({
+        anthropicReasoning: {
+          defaultEffort: 'high',
+          supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        },
+        contextWindow: 1_000_000,
+        id: 'claude-fable-5-1',
+        label: 'Claude Fable 5.1',
+        maxOutputTokens: 128_000,
+        nativeToolSearch: 'anthropic',
+        pricing: {
+          // Cache reads are 0.025x base input on this model, not 0.1x.
+          cacheReadPerMTok: 0.25,
+          cacheWritePerMTok: 12.5,
+          inputPerMTok: 10,
+          outputPerMTok: 50,
+        },
+        promptCaching: 'anthropic',
+        supportsStreaming: true,
+        tagline: 'For demanding reasoning and long-horizon agentic work',
+        type: 'llm',
+        vision: 'supported',
+      });
+    });
+
+    it('declares the Bedrock Claude Fable 5.1 route with the AWS model id (BST-1691)', () => {
+      const fable = getLlmModelDefinition('bedrock', 'anthropic.claude-fable-5-1');
+
+      expect(fable).toEqual({
+        bedrockReasoning: 'adaptive',
+        contextWindow: 1_000_000,
+        id: 'anthropic.claude-fable-5-1',
+        label: 'Claude Fable 5.1 (Bedrock)',
+        maxOutputTokens: 128_000,
+        pricing: {
+          cacheReadPerMTok: 0.25,
+          cacheWritePerMTok: 12.5,
+          inputPerMTok: 10,
+          outputPerMTok: 50,
+        },
+        promptCaching: 'bedrock',
+        supportsStreaming: true,
+        tagline: 'For demanding reasoning and long-horizon agentic work',
+        type: 'llm',
+        vision: 'supported',
+      });
     });
 
     it('declares Claude Opus 5 from the vendor model-overview facts (BST-957)', () => {

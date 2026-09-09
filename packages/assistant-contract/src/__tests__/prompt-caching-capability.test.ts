@@ -27,6 +27,7 @@ describe('prompt-caching capability declarations', () => {
       byDialect.set(key, [...(byDialect.get(key) ?? []), model.id]);
     }
     expect(byDialect.get('bedrock')).toEqual([
+      'anthropic.claude-fable-5-1',
       'anthropic.claude-fable-5',
       'anthropic.claude-opus-4-8',
       'anthropic.claude-sonnet-5',
