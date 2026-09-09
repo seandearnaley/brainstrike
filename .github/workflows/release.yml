@@ -55,6 +55,11 @@ env:
   TURBO_CACHE_DIR: .turbo
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+  # Default-deny for every step in this file: nothing may pick up a signing
+  # identity by ambient keychain discovery. The `Package DMGs` step overrides
+  # this with the resolved posture, so a new macOS packaging step added later
+  # inherits "never half-signed" rather than auto-discovery (#2960 review).
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
 jobs:
   context:
@@ -91,7 +96,11 @@ jobs:
     name: Build macOS (arm64 + x64)
     needs: [context]
     runs-on: macos-latest
-    timeout-minutes: 60
+    # Build (~20 min) plus notarization, which now happens INSIDE this job. A
+    # warm Team ID notarizes in minutes, but Apple's in-depth-analysis path can
+    # take far longer, and macOS runners bill at 10x — so this bounds a stalled
+    # `notarytool` wait rather than inheriting the 6-hour default (#2960 review).
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -132,6 +141,12 @@ jobs:
           KEY_FILE="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
           umask 077
           printf '%s\n' "$APPLE_API_KEY_CONTENTS" > "$KEY_FILE"
+          # notarytool wants a PATH, but the secret holds the .p8 CONTENTS, so
+          # APPLE_API_KEY reaches Package DMGs through GITHUB_ENV as a path.
+          # Do NOT "fix" the inconsistency by adding
+          # `APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}` to that step's env —
+          # that passes the contents where a path is expected and fails only
+          # after a full build, with an opaque notarization error (#2960 review).
           echo "APPLE_API_KEY=$KEY_FILE" >> "$GITHUB_ENV"
 
       - name: Package DMGs
@@ -151,31 +166,83 @@ jobs:
       - name: Verify signing evidence
         env:
           SIGNED: ${{ steps.signing.outputs.signed }}
+          VERSION: ${{ needs.context.outputs.version }}
         run: |
           set -euo pipefail
-          VERSION="${{ needs.context.outputs.version }}"
           cd apps/desktop/release
+
+          # One unmount path for every exit, including `set -e` deaths inside a
+          # check: four of the five checks used to detach by hand and the
+          # remaining one leaked the volume (#2960 review). -force because a
+          # transient mds/Spotlight hold must not fail a release whose signing
+          # evidence already verified.
+          MOUNT=""
+          cleanup() {
+            if [[ -n "$MOUNT" ]]; then
+              hdiutil detach "$MOUNT" -force >/dev/null 2>&1 || true
+              MOUNT=""
+            fi
+          }
+          trap cleanup EXIT
+
+          fail() { echo "::error::$1"; exit 1; }
+
           for ARCH in arm64 x64; do
             DMG="Brainstrike-${VERSION}-macos-${ARCH}.dmg"
-            [[ -f "$DMG" ]] || { echo "::error::missing ${DMG}"; exit 1; }
-            MOUNT=$(hdiutil attach "$DMG" -nobrowse -readonly | awk -F'\t' '/\/Volumes\//{print $NF; exit}')
-            APP=$(find "$MOUNT" -maxdepth 1 -name '*.app' | head -1)
+            [[ -f "$DMG" ]] || fail "missing ${DMG}"
+
+            # `| awk '…exit'` and `| head -1` both close the pipe early, which
+            # under `set -o pipefail` can kill the job on SIGPIPE with no
+            # diagnostic — an intermittent failure, since it is a race (#2960
+            # review). Capture first, then parse; -print -quit needs no pipe.
+            ATTACH=$(hdiutil attach "$DMG" -nobrowse -readonly)
+            MOUNT=$(awk -F'\t' '/\/Volumes\//{print $NF}' <<<"$ATTACH" | tail -1)
+            [[ -n "$MOUNT" ]] || fail "${DMG}: hdiutil attach reported no /Volumes mount point"
+            APP=$(find "$MOUNT" -maxdepth 1 -name '*.app' -print -quit)
+            [[ -n "$APP" ]] || fail "${DMG}: no .app found at the root of the mounted image"
+
             if [[ "$SIGNED" == "true" ]]; then
               echo "== ${DMG}: signing evidence"
               codesign --verify --deep --strict --verbose=2 "$APP"
-              codesign -dvv "$APP" 2>&1 | grep -E '^Authority=Developer ID Application:' || { echo "::error::${DMG}: app is not signed with a Developer ID Application identity"; hdiutil detach "$MOUNT"; exit 1; }
-              codesign -d --entitlements - --xml "$APP" 2>/dev/null | grep -q 'com.apple.security.cs.disable-library-validation' || { echo "::error::${DMG}: hardened-runtime entitlements are missing"; hdiutil detach "$MOUNT"; exit 1; }
-              xcrun stapler validate "$APP" || { echo "::error::${DMG}: notarization ticket is not stapled to the app"; hdiutil detach "$MOUNT"; exit 1; }
+              codesign -dvv "$APP" 2>&1 | grep -E '^Authority=Developer ID Application:' \
+                || fail "${DMG}: app is not signed with a Developer ID Application identity"
+
+              # Hardened runtime is the `runtime` CODE-SIGNING FLAG, not an
+              # entitlement. The previous check grepped the entitlements for
+              # `disable-library-validation`, which an app signed WITHOUT
+              # hardened runtime also carries — verified: such a binary reports
+              # flags=0x0(none) and passed the old check (#2960 review).
+              codesign -dvv "$APP" 2>&1 | grep -qE '^CodeDirectory .*flags=0x[0-9a-f]*10000( |\()' \
+                || fail "${DMG}: hardened runtime is not enabled (no 'runtime' flag in the code signature)"
+
+              # Prove entitlements were APPLIED at all: a misconfigured
+              # `entitlementsInherit` signs a runnable-looking app with none,
+              # and Electron then dies on first JIT. `allow-jit` is the right
+              # probe because removing it breaks the app, so it can never be a
+              # deliberate future improvement — unlike the weakening
+              # `disable-library-validation` this step used to REQUIRE (#2960
+              # review). The exact set is pinned by the desktop package's own
+              # tests, not re-pinned here, so the plist stays free to change.
+              # `--entitlements -` already emits XML (`--xml` is redundant on
+              # current codesign); stderr is kept so a failed invocation is
+              # distinguishable from "entitlement absent".
+              ENTITLEMENTS=$(codesign -d --entitlements - "$APP" 2>&1) \
+                || fail "${DMG}: could not read entitlements from the signed app"
+              grep -q 'com\.apple\.security\.cs\.allow-jit' <<<"$ENTITLEMENTS" \
+                || fail "${DMG}: signed app carries no allow-jit entitlement, so entitlements were not applied"
+
+              xcrun stapler validate "$APP" || fail "${DMG}: notarization ticket is not stapled to the app"
               ASSESS=$(spctl -a -t exec -vv "$APP" 2>&1 || true)
               echo "$ASSESS"
-              grep -q 'source=Notarized Developer ID' <<<"$ASSESS" || { echo "::error::${DMG}: Gatekeeper does not report a notarized Developer ID app"; hdiutil detach "$MOUNT"; exit 1; }
+              grep -q 'source=Notarized Developer ID' <<<"$ASSESS" \
+                || fail "${DMG}: Gatekeeper does not report a notarized Developer ID app"
             else
               echo "== ${DMG}: UNSIGNED posture (no CSC_LINK); asserting no half-signed identity"
               if codesign -dvv "$APP" 2>&1 | grep -q '^Authority=Developer ID'; then
-                echo "::error::${DMG}: app carries a Developer ID signature although CSC_LINK is absent; posture is inconsistent"; hdiutil detach "$MOUNT"; exit 1
+                fail "${DMG}: app carries a Developer ID signature although CSC_LINK is absent; posture is inconsistent"
               fi
             fi
-            hdiutil detach "$MOUNT"
+            cleanup
           done
 
       - name: Smoke-test packaged apps
