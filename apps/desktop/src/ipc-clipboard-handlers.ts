@@ -2,7 +2,7 @@ import type { clipboardContract } from './ipc-domains/clipboard.contract';
 import { type Handlers, ipcFailure, ipcOk } from './platform/ipc-contract';
 
 export interface ClipboardLike {
-  writeText: (text: string) => void;
+  writeText: (text: string) => Promise<void>;
 }
 
 interface ClipboardIpcDependencies {
@@ -16,15 +16,15 @@ function toErrorMessage(error: unknown): string {
 /**
  * Main-side handlers for the clipboard contract. Input validation lives in
  * the contract's `parseArgs` (a non-string payload never reaches here); a
- * clipboard write throw settles as the `IpcResult` failure taxonomy.
+ * clipboard write rejection settles as the `IpcResult` failure taxonomy.
  */
 export function createClipboardIpcHandlers({
   clipboard,
 }: ClipboardIpcDependencies): Handlers<typeof clipboardContract> {
   return {
-    writeText: (text) => {
+    writeText: async (text) => {
       try {
-        clipboard.writeText(text);
+        await clipboard.writeText(text);
         return ipcOk(undefined);
       } catch (error) {
         return ipcFailure('clipboard', 'write_failed', toErrorMessage(error));
