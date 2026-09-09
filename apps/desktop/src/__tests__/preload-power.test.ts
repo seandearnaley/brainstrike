@@ -1,6 +1,6 @@
 import Module from 'node:module';
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CHUNKING_HOST_CHUNK_BATCH_CHANNEL,
   CHUNKING_HOST_CHUNK_FILE_CHANNEL,
@@ -80,7 +80,8 @@ afterAll(() => {
 });
 
 describe('preload power bridge', () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
+    vi.resetModules();
     process.env['ELECTRON_IS_E2E_TEST'] = 'true';
     await import('../preload');
   });

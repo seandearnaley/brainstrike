@@ -887,11 +887,11 @@ jobs:
             packages/ui/test-results/
             packages/storage/test-results/
             packages/mcp-app-host/test-results/
-            packages/db/**/__screenshots__/
-            packages/assistant-ui/**/__screenshots__/
-            packages/embedding-worker/**/__screenshots__/
-            packages/ui/**/__screenshots__/
-            packages/storage/**/__screenshots__/
+            packages/db/.vitest/attachments/failure-screenshots/
+            packages/assistant-ui/.vitest/attachments/failure-screenshots/
+            packages/embedding-worker/.vitest/attachments/failure-screenshots/
+            packages/ui/.vitest/attachments/failure-screenshots/
+            packages/storage/.vitest/attachments/failure-screenshots/
           retention-days: 1
           if-no-files-found: ignore
 

@@ -21,11 +21,11 @@ function isIgnored(candidate) {
 
 test('Vitest browser failure screenshots are ignored across browser-mode packages', () => {
   for (const candidate of [
-    'packages/assistant-ui/src/__tests__/__screenshots__/failure.png',
-    'packages/ui/src/__tests__/__screenshots__/failure.png',
-    'packages/db/__tests__/__screenshots__/failure.png',
-    'packages/storage/src/__tests__/__screenshots__/failure.png',
-    'packages/config/__tests__/__screenshots__/failure.png',
+    'packages/assistant-ui/.vitest/attachments/failure-screenshots/failure.png',
+    'packages/ui/.vitest/attachments/failure-screenshots/failure.png',
+    'packages/db/.vitest/attachments/failure-screenshots/failure.png',
+    'packages/storage/.vitest/attachments/failure-screenshots/failure.png',
+    'packages/config/.vitest/attachments/failure-screenshots/failure.png',
   ]) {
     assert.equal(isIgnored(candidate), true, `expected ${candidate} to be ignored`);
   }
@@ -45,7 +45,7 @@ test('every package browser project reroutes intentional baselines', () => {
   const contract = readFileSync(path.join(repoRoot, 'docs/agents/ci-quality.md'), 'utf8');
   assert.match(
     contract,
-    /generated failure captures.*`__screenshots__`.*intentional `toMatchScreenshot` references.*`__image_snapshots__`/is
+    /generated failure captures.*`\.vitest\/attachments\/failure-screenshots`.*intentional `toMatchScreenshot` references.*`__image_snapshots__`/is
   );
 
   const sharedConfig = readFileSync(

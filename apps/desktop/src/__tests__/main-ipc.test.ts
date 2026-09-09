@@ -2,12 +2,18 @@ import path from 'node:path';
 import type { createIpcMainMock, createIpcRendererMock } from '@brainstrike/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const lifecycleHandlers = vi.hoisted(() => new Map<string, () => void>());
+
 // Hoist the Electron mock to avoid factory/temporal dead zone issues
 vi.mock('electron', async () => {
   const electronUtils = await import('@brainstrike/test-utils');
   const app = electronUtils.createAppMock({
     documentsPath: '/mock/userData',
     whenReadyResolved: true,
+  });
+  app.on.mockImplementation((event: string, listener: () => void) => {
+    lifecycleHandlers.set(event, listener);
+    return app;
   });
   const ipcMain = electronUtils.createIpcMainMock();
   Object.assign(ipcMain, {
@@ -78,7 +84,7 @@ vi.mock('electron', async () => {
 });
 
 // Import mocked Electron parts for use in assertions
-import { app, ipcMain, ipcRenderer } from 'electron';
+import { ipcMain, ipcRenderer } from 'electron';
 
 // Use function syntax for Vitest 4 constructor mocks
 vi.mock('@brainstrike/file-system/electron', () => {
@@ -127,9 +133,7 @@ describe('db:getUserDataPath IPC handler', () => {
 
   it('unregisters MCP IPC handlers during will-quit shutdown', async () => {
     await Promise.resolve();
-    const willQuitHandler = vi
-      .mocked(app.on)
-      .mock.calls.find(([event]) => String(event) === 'will-quit')?.[1];
+    const willQuitHandler = lifecycleHandlers.get('will-quit');
     if (typeof willQuitHandler !== 'function') {
       throw new Error('will-quit handler not registered');
     }

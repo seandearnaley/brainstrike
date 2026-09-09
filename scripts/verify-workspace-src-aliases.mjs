@@ -18,8 +18,7 @@
 //    `configFile:` in its stryker config must be in the discovered set — a
 //    reference the convention missed throws loudly (checked invariant, not a
 //    silent gap). Each config is `import()`ed to get the REAL resolved object,
-//    including per-project `resolve.alias` arrays (vitest inline projects do
-//    NOT inherit the top-level resolve.alias — see packages/db/vitest.config.mts).
+//    including inherited and merged inline-project aliases in Vitest 5.
 // 3. For each (config, project): close the specifier set to a FIXPOINT over the
 //    src-resolved graph — when a specifier resolves into another workspace
 //    package's source, that package's own (non-test) runtime specifiers join
@@ -43,7 +42,7 @@ import ts from 'typescript';
 // bundler-based config loading tolerates but plain Node ESM resolution does
 // not. Using the same loader Vite/Vitest use for real keeps this guard's
 // "execute the real config" premise honest for apps/*, not just packages/*.
-import { loadConfigFromFile } from 'vite';
+import { loadConfigFromFile, mergeConfig } from 'vite';
 import { resolveThroughAliases } from '../packages/test-utils/workspace-src-aliases.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -270,8 +269,8 @@ function normalizeAliasEntries(alias) {
 
 /**
  * Import a vitest config module and return its effective projects:
- * `[{ label, aliasEntries }]`. Inline `test.projects` do NOT inherit the
- * top-level `resolve.alias`, so each project contributes ONLY its own aliases.
+ * `[{ label, aliasEntries }]`. Vitest 5 inline projects inherit the root
+ * unless extends is false or names a different config file.
  */
 export async function loadConfigProjects(configPath) {
   const result = await loadConfigFromFile(
@@ -285,12 +284,32 @@ export async function loadConfigProjects(configPath) {
   }
   const projects = cfg.test?.projects;
   if (Array.isArray(projects)) {
-    return projects
-      .filter((project) => project && typeof project === 'object')
-      .map((project, index) => ({
-        aliasEntries: normalizeAliasEntries(project.resolve?.alias),
-        label: project.test?.name ?? `project#${index}`,
-      }));
+    return Promise.all(
+      projects
+        .filter((project) => project && typeof project === 'object')
+        .map(async (project, index) => {
+          let base = cfg;
+          if (project.extends === false) {
+            base = {};
+          } else if (typeof project.extends === 'string') {
+            const extendedPath = resolve(dirname(configPath), project.extends);
+            const extended = await loadConfigFromFile(
+              { command: 'serve', mode: 'test' },
+              extendedPath,
+              dirname(configPath)
+            );
+            if (!extended?.config) {
+              throw new Error(`workspace-src-alias guard: cannot load ${extendedPath}`);
+            }
+            base = extended.config;
+          }
+          const effective = mergeConfig(base, project);
+          return {
+            aliasEntries: normalizeAliasEntries(effective.resolve?.alias),
+            label: project.test?.name ?? `project#${index}`,
+          };
+        })
+    );
   }
   return [{ aliasEntries: normalizeAliasEntries(cfg.resolve?.alias), label: 'root' }];
 }

@@ -8,9 +8,8 @@ import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
 export default defineConfig({
-  define: {
-    'import.meta.url': JSON.stringify('file:///mock/url'),
-  },
+  // Preserve real module URLs: source-boundary tests read files relative to them.
+  // Vitest 5 applies define replacements to test modules too (BST-1689).
   resolve: {
     alias: [
       {

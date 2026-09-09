@@ -1,5 +1,5 @@
 import Module from 'node:module';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clipboardContract } from '../ipc-domains/clipboard.contract';
 import { contextFilesContract } from '../ipc-domains/context-files.contract';
 import { skillsContract } from '../ipc-domains/skills.contract';
@@ -44,7 +44,8 @@ function exposedApi(name: string): Record<string, (...args: unknown[]) => unknow
 }
 
 describe('preload contract-derived bridges', () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
+    vi.resetModules();
     moduleWithLoader._load = function (this: typeof Module, id: string, ...rest: unknown[]) {
       if (id === 'electron') {
         return mockElectron;

@@ -5,7 +5,7 @@
  *
  * These benchmarks validate the performance of the embedding math functions.
  */
-import { bench, describe } from 'vitest';
+import { describe, test } from 'vitest';
 import {
   calculateCosineSimilarity,
   calculateDotProduct,
@@ -36,8 +36,10 @@ describe('Cosine Similarity', () => {
     const a = generateEmbedding(size);
     const b = generateEmbedding(size);
 
-    bench(`cosine (${name})`, () => {
-      calculateCosineSimilarity(a, b);
+    test(`cosine (${name})`, async ({ bench }) => {
+      await bench(`cosine (${name})`, () => {
+        calculateCosineSimilarity(a, b);
+      }).run();
     });
   }
 });
@@ -47,8 +49,10 @@ describe('L2 Distance', () => {
     const a = generateEmbedding(size);
     const b = generateEmbedding(size);
 
-    bench(`l2 (${name})`, () => {
-      calculateL2Distance(a, b);
+    test(`l2 (${name})`, async ({ bench }) => {
+      await bench(`l2 (${name})`, () => {
+        calculateL2Distance(a, b);
+      }).run();
     });
   }
 });
@@ -58,8 +62,10 @@ describe('Dot Product', () => {
     const a = generateEmbedding(size);
     const b = generateEmbedding(size);
 
-    bench(`dot (${name})`, () => {
-      calculateDotProduct(a, b);
+    test(`dot (${name})`, async ({ bench }) => {
+      await bench(`dot (${name})`, () => {
+        calculateDotProduct(a, b);
+      }).run();
     });
   }
 });
@@ -68,8 +74,10 @@ describe('Magnitude', () => {
   for (const [name, size] of Object.entries(EMBEDDING_SIZES)) {
     const a = generateEmbedding(size);
 
-    bench(`magnitude (${name})`, () => {
-      magnitude(a);
+    test(`magnitude (${name})`, async ({ bench }) => {
+      await bench(`magnitude (${name})`, () => {
+        magnitude(a);
+      }).run();
     });
   }
 });
@@ -78,8 +86,10 @@ describe('Normalize', () => {
   for (const [name, size] of Object.entries(EMBEDDING_SIZES)) {
     const a = generateEmbedding(size);
 
-    bench(`normalize (${name})`, () => {
-      normalize(a);
+    test(`normalize (${name})`, async ({ bench }) => {
+      await bench(`normalize (${name})`, () => {
+        normalize(a);
+      }).run();
     });
   }
 });

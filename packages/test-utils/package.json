@@ -26,6 +26,7 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./vitest-matchers": "./vitest-matchers.d.ts",
     "./vitest.setup": "./src/vitest.setup.ts",
     "./vitest.browser.setup": "./src/vitest.browser.setup.ts",
     "./vitest.timeouts.setup": "./src/vitest.timeouts.setup.ts",

@@ -136,7 +136,7 @@ jobs:
       - name: Clear coverage directories
         run: |
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
-          rm -rf packages/db/.vitest-reports .nyc_output
+          rm -rf packages/db/.vitest/blob .nyc_output
 
       # See test.yml's Unit job for the rationale. Coverage instrumentation
       # runs tests so it has the same build-dependency requirement.
@@ -185,13 +185,13 @@ jobs:
               --log-order=grouped \
               --cache-dir=.turbo
           done
-          blob_count=$(find packages/db/.vitest-reports -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
+          blob_count=$(find packages/db/.vitest/blob -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
           if [ "$blob_count" -ne 2 ]; then
             echo "::error::Expected two Vitest DB blob reports; found ${blob_count}."
             exit 1
           fi
           pnpm --filter @brainstrike/db exec vitest \
-            --merge-reports=.vitest-reports \
+            --merge-reports=.vitest/blob \
             --project=unit \
             --coverage \
             --coverage.reportsDirectory=coverage \

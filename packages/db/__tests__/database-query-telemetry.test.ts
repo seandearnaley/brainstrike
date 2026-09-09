@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { addLogListener } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DatabaseQueryTelemetryRecord } from '../src/database-query-telemetry';
@@ -365,15 +367,20 @@ describe('DatabaseQueryTelemetry', () => {
     expect(telemetry.getSnapshot().features['file-tree'].failureCount).toBe(1);
   });
 
-  it('does not read the monotonic clock while importing the database package', async () => {
-    vi.resetModules();
-    vi.stubGlobal('performance', undefined);
-
-    const telemetryModule = await import('../src/index');
-
-    expect(() => telemetryModule.databaseQueryTelemetry.snapshot()).toThrow(
-      'Database query telemetry requires the Performance monotonic clock'
-    );
+  it('does not read the monotonic clock while importing the database package', () => {
+    // Vitest 5 uses performance.now while importing modules. Isolate the absent
+    // global in a native process while still resolving workspace source.
+    expect(() =>
+      execFileSync(
+        process.execPath,
+        [
+          '--import',
+          'tsx',
+          fileURLToPath(new URL('./fixtures/telemetry-import-without-clock.mjs', import.meta.url)),
+        ],
+        { cwd: new URL('../', import.meta.url), stdio: 'pipe', timeout: 10_000 }
+      )
+    ).not.toThrow();
   });
 
   it('aggregates token-estimation cache hits from lookup counts', () => {

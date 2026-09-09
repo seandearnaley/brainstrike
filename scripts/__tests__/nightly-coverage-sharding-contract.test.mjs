@@ -77,7 +77,7 @@ function assertNativeDbShardContract(unitSource, coverageSource) {
   assert.match(coverageSource, /pnpm turbo run test:coverage:db:shard/u);
   assert.match(coverageSource, /DB_TEST_SHARD: \$\{\{ matrix\.vitest_shard \}\}/u);
   assert.doesNotMatch(shardJob, /--shard=|coverage\.reportsDirectory/u);
-  assert.match(coverageSource, /--merge-reports=\.vitest-reports/u);
+  assert.match(coverageSource, /--merge-reports=\.vitest\/blob/u);
   assert.match(shardJob, /include-hidden-files: true/u);
   assert.match(coverageSource, /if \[ "\$blob_count" -ne 2 \]/u);
   assert.doesNotMatch(
@@ -101,7 +101,7 @@ function assertPrCoverageDbShardContract(unitSource, coverageSource) {
     /DB_TEST_SHARD="\$db_test_shard" pnpm turbo run test:coverage:db:shard/u
   );
   assert.match(coverageSource, /if \[ "\$blob_count" -ne 2 \]/u);
-  assert.match(coverageSource, /--merge-reports=\.vitest-reports/u);
+  assert.match(coverageSource, /--merge-reports=\.vitest\/blob/u);
   assert.match(coverageSource, /packages\/db\/coverage\/coverage-final\.json/u);
   assert.match(
     coverageSource,
@@ -170,7 +170,7 @@ test('money test: duplicate nightly shard indices fail parity', () => {
 });
 
 test('money test: removing native Vitest merge fails the contract', () => {
-  const mutated = workflow.replace('--merge-reports=.vitest-reports', '--no-merge-reports');
+  const mutated = workflow.replace('--merge-reports=.vitest/blob', '--no-merge-reports');
   assert.notEqual(mutated, workflow, 'the merge control must mutate real workflow');
   assert.throws(() => assertNativeDbShardContract(unitWorkflow, mutated), /merge-reports/);
 });

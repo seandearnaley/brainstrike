@@ -1,5 +1,5 @@
 /**
- * Shared Vitest 4 Browser Mode configuration utilities
+ * Shared Vitest 5 Browser Mode configuration utilities
  * Used for packages requiring real browser APIs (WASM, IndexedDB, localStorage)
  *
  * @see https://vitest.dev/guide/browser/
@@ -100,7 +100,7 @@ interface VisualBaselinePathData {
 
 /**
  * Keeps intentional `toMatchScreenshot` references separate from Vitest's
- * generated failure captures, which remain under the ignored `__screenshots__`.
+ * generated failure captures, which remain under the ignored `.vitest/attachments/failure-screenshots`.
  */
 export function resolveVisualBaselinePath(data: VisualBaselinePathData): string {
   return path.join(
@@ -114,7 +114,7 @@ export function resolveVisualBaselinePath(data: VisualBaselinePathData): string 
 
 /**
  * Vitest builds the Playwright trace chunk name from the full sanitized test
- * name, unbounded, and later copies the trace into `.vitest-attachments` as
+ * name, unbounded, and later copies the trace into `.vitest/attachments` as
  * `<sanitized package-relative trace path>-<40-char sha1>.zip`. Long
  * describe/test names push that basename past the 255-byte filesystem limit,
  * so the copy dies with ENAMETOOLONG and masks the real test failure
@@ -190,7 +190,7 @@ const boundedTraceChunkCommands = new WeakSet<TraceChunkCommand>();
 /**
  * Both trace chunk commands resolve the trace zip path deterministically from
  * the chunk `name`, so bounding the name here bounds the trace filename and,
- * downstream, the `.vitest-attachments` copy destination.
+ * downstream, the `.vitest/attachments` copy destination.
  */
 export function bindTraceChunkNameBounding(browser: TraceChunkCommandRegistry): void {
   for (const command of TRACE_CHUNK_COMMANDS) {
@@ -244,7 +244,7 @@ export function withBoundedTraceChunkNames(
 }
 
 /**
- * Creates Playwright provider options for Vitest 4 Browser Mode
+ * Creates Playwright provider options for Vitest 5 Browser Mode
  */
 export function createPlaywrightOptions(config?: BrowserTestConfig): PlaywrightProviderOptions {
   const isCI = resolveIsCI(config);
@@ -306,7 +306,7 @@ function resolveSetupFiles(setupFiles: readonly string[]): string[] {
 }
 
 /**
- * Creates a browser test project configuration for Vitest 4
+ * Creates a browser test project configuration for Vitest 5
  *
  * @example
  * ```ts

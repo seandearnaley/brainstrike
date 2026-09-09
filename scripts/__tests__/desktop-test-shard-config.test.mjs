@@ -30,7 +30,7 @@ test('both desktop lanes resolve native sharding without changing file serializa
   process.env.DESKTOP_TEST_SHARD = '2/3';
   try {
     for (const config of ['vitest.config.mts', 'vitest.integration.config.mts']) {
-      const { vitestConfig } = await resolveConfig({
+      const { test: vitestConfig } = await resolveConfig({
         config: path.resolve('apps/desktop', config),
         fileParallelism: false,
         maxWorkers: 1,
@@ -81,7 +81,10 @@ test('native desktop shards discover every real unit and integration file exactl
         { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
       )
     );
-    const { vitestConfig } = await resolveConfig({ config: path.join(root, lane.config), root });
+    const { test: vitestConfig } = await resolveConfig({
+      config: path.join(root, lane.config),
+      root,
+    });
     const full = files.map((file) => file.file).sort();
     assert.ok(full.length > 60, 'the real desktop inventory must not be empty or truncated');
     const specs = full.map((moduleId) => ({ moduleId }));
