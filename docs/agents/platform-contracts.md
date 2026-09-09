@@ -404,6 +404,18 @@ allowlist:
   package `*_BRIDGE_REQUIRED_METHODS` resolver sets and exercises `parseArgs`;
   `platform/register-domain.test.ts` and `platform/ipc-bridge.test.ts` pin
   the two derivations.
+- Electron 44 clipboard writes return `Promise<void>`. The main-side
+  `ipc-clipboard-handlers.ts` must await the write inside its catch boundary:
+  success means the write settled, and rejection returns
+  `ipcFailure('clipboard', 'write_failed', message)`. The rejection spec in
+  `__tests__/ipc-clipboard.test.ts` must fail when the await is removed.
+  Renderers use the existing IPC bridge; Electron 44 removes their clipboard
+  module. The synthetic clipboard import in `preload-sandbox-imports.test.ts`
+  still tests rejection of an impure sibling module, without executing it.
+  Electron 44 requires macOS 13+ and 64-bit targets. The desktop builder has
+  no minimum-system-version override, 32-bit target, or custom ANGLE library
+  handling; it inherits Electron's minimum. Signing/notarization remains
+  BST-1627's separate release work.
 - **Global manifest test (there is deliberately no registry singleton).**
   `createDesktopIpcRegistry` rejects a duplicate channel per INSTANCE only;
   production composes ~38 per-domain instances. `__tests__/main/
