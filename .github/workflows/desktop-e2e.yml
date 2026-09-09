@@ -57,6 +57,14 @@ jobs:
       # the Chromium system libraries (apt), never the browser binary download
       # from cdn.playwright.dev that was stalling and hanging this job to its
       # timeout. `install-deps` is apt-only and does not touch the browser CDN.
+
+      # BST-1715: an unused third-party apt source (Google Chrome, added by the
+      # runner image) serving an inconsistent index makes the apt-get update
+      # below exit non-zero and kills this step. Drop the source rather than
+      # relaxing apt's exit status.
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
       - name: Install Chromium system dependencies
         run: pnpm exec playwright install-deps chromium
 
@@ -119,6 +127,14 @@ jobs:
       # the Chromium system libraries (apt), never the browser binary download
       # from cdn.playwright.dev that was stalling and hanging this job to its
       # timeout. `install-deps` is apt-only and does not touch the browser CDN.
+
+      # BST-1715: an unused third-party apt source (Google Chrome, added by the
+      # runner image) serving an inconsistent index makes the apt-get update
+      # below exit non-zero and kills this step. Drop the source rather than
+      # relaxing apt's exit status.
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
       - name: Install Chromium system dependencies
         run: pnpm exec playwright install-deps chromium
 

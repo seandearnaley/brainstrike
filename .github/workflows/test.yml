@@ -312,6 +312,14 @@ jobs:
       # packages/agent: shard membership is a filter list two screens up, and a
       # dependency that silently stops being installed when a package moves
       # shards is the exact failure this step exists to end.
+
+      # BST-1715: an unused third-party apt source (Google Chrome, added by the
+      # runner image) serving an inconsistent index makes the apt-get update
+      # below exit non-zero and kills this step. Drop the source rather than
+      # relaxing apt's exit status.
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
       - name: Install the Linux OS-fence dependencies
         run: |
           set -euo pipefail
@@ -743,6 +751,13 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
 
+      # BST-1715: an unused third-party apt source (Google Chrome, added by the
+      # runner image) serving an inconsistent index makes the apt-get update
+      # below exit non-zero and kills this step. Drop the source rather than
+      # relaxing apt's exit status.
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
       - name: Provision Linux desktop services
         run: |
           sudo apt-get update
@@ -1061,6 +1076,14 @@ jobs:
       # only need the Chromium system libraries (apt), not the browser binary
       # download from cdn.playwright.dev (which was stalling and hanging the
       # job). `install-deps` is apt-only and does not touch the browser CDN.
+
+      # BST-1715: an unused third-party apt source (Google Chrome, added by the
+      # runner image) serving an inconsistent index makes the apt-get update
+      # below exit non-zero and kills this step. Drop the source rather than
+      # relaxing apt's exit status.
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
       - name: Install Chromium system dependencies
         run: pnpm exec playwright install-deps chromium
 
