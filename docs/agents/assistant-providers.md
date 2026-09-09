@@ -1154,10 +1154,16 @@ do not "fix" one row to match the other.
 The live instance: `gpt-5.6-sol` is 4/20 $/MTok on the `openai` row and 2/10
 on `openai/gpt-5.6-sol` (both retrieved 2026-09-08; OpenRouter also publishes
 a `>=272,000` prompt-token override at 4/15, which this one-rate-pair schema
-does not carry). The divergence is Sol-specific — the sibling GPT-5.6 routes
-match figure-for-figure across both providers (terra 2.5/15, luna 1/6) — and
-OpenRouter's Sol figure is exactly half OpenAI's while coinciding with
-OpenAI's batch/flex column, so it MAY be an upstream OpenRouter data error.
+does not carry). The divergence is Sol-specific, and the evidence for that is
+LIVE-vs-LIVE, not our own rows: on 2026-09-09 the OpenRouter Models API and
+developers.openai.com agree exactly on every sibling checked — terra 2/12,
+luna 0.2/1.2, gpt-5.5 5/30, gpt-6-astra 10/50 — so OpenRouter is a faithful
+pass-through and only Sol (2/10 vs 4/20) departs. Do NOT argue this from two
+catalog rows agreeing with each other: our terra, luna and gpt-5.5 rows are
+stale in BOTH blocks and agree only because they were copied from one stale
+source (BST-1705). OpenRouter's Sol figure is exactly half OpenAI's while
+coinciding with OpenAI's batch/flex column, so it MAY be an upstream
+OpenRouter data error.
 It is recorded rather than resolved: OpenRouter is the route that bills the
 user, provider-reported billed cost stays authoritative at runtime, and a
 declared rate is a display estimate.
