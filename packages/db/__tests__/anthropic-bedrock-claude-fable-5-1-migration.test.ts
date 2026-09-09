@@ -61,7 +61,13 @@ describe('anthropic + bedrock claude fable 5.1 migration', () => {
     timeout: 60_000,
   }, async () => {
     const baseline = await baselineOrders();
-    await runner.up(migrations);
+    // Stop AT 122. `appended()` asserts a provider's row list is EXACTLY the
+    // baseline plus this migration's single row, so running the whole manifest
+    // makes any later migration touching `anthropic` or `bedrock` read as a
+    // failure here. Migration 125 (BST-1694, Claude Opus 5 on Bedrock) is the
+    // first to do that. The append guarantee under test belongs to 122, so the
+    // measurement stops at 122; later migrations are free to add siblings.
+    await runner.up(migrations.filter(({ version }) => version <= 122));
 
     expect((await order('anthropic')).rows).toEqual(
       appended(baseline.anthropic, ADDED_IDS.anthropic)

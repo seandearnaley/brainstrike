@@ -1754,6 +1754,17 @@ factory per request (see the auth-input EXACTLY-ONE rule above).
   verbatim and Bedrock reports the outcome. Never double-prefixes; `us-gov*`
   excluded; no `apac.` profiles exist today. Refresh procedure lives in the
   module header.
+- **An AWS model card OUTRANKS models.dev (BST-1694, PR #3080 review).**
+  models.dev is a third-party mirror and can list a regional profile AWS
+  never published; emitting one is a client-MANUFACTURED failure, strictly
+  worse than the verbatim id Bedrock can answer for. Where a card enumerates
+  a model's profiles, the card wins and the divergence is recorded inline in
+  the module header. Today's one override: `anthropic.claude-opus-5` is NOT
+  in the `jp.` set — its card publishes `us.`/`eu.`/`au.`/`global.` only and
+  marks ap-northeast-1 Global-only. Pre-existing, NOT fixed here: the same
+  divergence for `anthropic.claude-sonnet-5` (BST-1710), and the module has
+  no `global.` ROUTING at all, so Global-only regions get the verbatim id
+  (BST-1711).
 - **Exclusions:** no embeddings (`createEmbeddingProvider` throws), not a
   persistent-memory provider (`PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS`),
   and NOT in `HOSTED_WEB_ASSISTANT_PROVIDERS` (desktop-only until a web ticket

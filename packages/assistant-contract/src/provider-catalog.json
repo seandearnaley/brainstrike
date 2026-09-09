@@ -1629,6 +1629,25 @@
         "vision": "supported"
       },
       {
+        "_note": "Bedrock id, limits and capabilities read from the AWS model card,\nretrieved 2026-09-08:\nhttps://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5.html\nIts Programmatic Access table gives the bedrock-runtime Model ID as the\nbare `anthropic.claude-opus-5` (geo profiles us./eu./au., global.), so\nthere is no -v1:0 suffix; 1M context, 128K max output, image input and\nresponse streaming all come from the same card. Reasoning is adaptive\nthinking, on by default. Explicit prompt caching is supported (512 min\ntokens per checkpoint, 4 checkpoints, 5min/1hr TTL).\nAWS defers pricing to the Marketplace listing, so the rates here are\nmodels.dev (amazon-bedrock, retrieved 2026-09-08), which matches\nAnthropic's own $5/$25 first-party rate for the same model.",
+        "bedrockReasoning": "adaptive",
+        "contextWindow": 1000000,
+        "id": "anthropic.claude-opus-5",
+        "label": "Claude Opus 5 (Bedrock)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "cacheReadPerMTok": 0.5,
+          "cacheWritePerMTok": 6.25,
+          "inputPerMTok": 5,
+          "outputPerMTok": 25
+        },
+        "promptCaching": "bedrock",
+        "supportsStreaming": true,
+        "tagline": "For complex agentic coding and enterprise work",
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
         "bedrockReasoning": "adaptive",
         "contextWindow": 1000000,
         "id": "anthropic.claude-opus-4-8",

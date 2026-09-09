@@ -173,6 +173,33 @@ describe('resolveBedrockModelId', () => {
         'amazon.nova-pro-v1:0'
       );
     });
+
+    /**
+     * BST-1694 (PR #3080 review): models.dev lists a `jp.anthropic.claude-opus-5`
+     * profile that AWS does NOT publish. The Opus 5 model card's Programmatic
+     * Access / Data residency tables give exactly `anthropic.claude-opus-5`,
+     * `us.`, `eu.`, `au.` and `global.` — no `jp.` — and list ap-northeast-1 as
+     * Global-only. Emitting `jp.` there would target a profile that does not
+     * exist; the AWS card outranks models.dev, so the id passes through
+     * verbatim and Bedrock reports the routing outcome (module contract).
+     */
+    it('leaves opus-5 unprefixed in jp — AWS publishes no jp. profile for it', () => {
+      expect(resolveBedrockModelId('anthropic.claude-opus-5', 'ap-northeast-1')).toBe(
+        'anthropic.claude-opus-5'
+      );
+    });
+
+    it('still emits the us./eu./au. profiles the opus-5 card DOES publish', () => {
+      expect(resolveBedrockModelId('anthropic.claude-opus-5', 'us-east-1')).toBe(
+        'us.anthropic.claude-opus-5'
+      );
+      expect(resolveBedrockModelId('anthropic.claude-opus-5', 'eu-west-1')).toBe(
+        'eu.anthropic.claude-opus-5'
+      );
+      expect(resolveBedrockModelId('anthropic.claude-opus-5', 'ap-southeast-2')).toBe(
+        'au.anthropic.claude-opus-5'
+      );
+    });
   });
 
   describe('other ap regions', () => {

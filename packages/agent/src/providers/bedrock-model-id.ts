@@ -18,6 +18,23 @@
  *   au./jp./apac. profile and stays unprefixed in those geographies.
  * - `apac.` profiles do not exist at all today, so it is never emitted.
  *
+ * AWS-CARD OVERRIDE (BST-1694, PR #3080 review): where an AWS model card
+ * enumerates a model's inference profiles, the CARD outranks models.dev —
+ * models.dev is a third-party mirror and can list a profile AWS never
+ * published. The one such divergence today is
+ * `jp.anthropic.claude-opus-5`: the Opus 5 card
+ * (docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5.html,
+ * retrieved 2026-09-08) lists `anthropic.claude-opus-5` plus `us.`, `eu.`,
+ * `au.` and `global.` only, and its Data residency table covers exactly the
+ * US, EU and AU geos plus Global. So Opus 5 is absent from the jp. set below;
+ * in ap-northeast-1 (which that card marks Global-only) the id is sent
+ * verbatim and Bedrock reports the outcome, per the rule in the next
+ * paragraph. Emitting a profile AWS does not publish fails harder — it can
+ * only ever be a client-manufactured error. Pre-existing and NOT fixed with
+ * it: `jp.anthropic.claude-sonnet-5` is the same models.dev phantom
+ * (BST-1710), and this module emits no `global.` profile at all, so the
+ * Global-only regions get the verbatim id (BST-1711).
+ *
  * When no regional profile exists for a model+region the id is sent
  * VERBATIM and Bedrock itself reports the routing outcome — guessing a
  * profile that may not exist would fail worse. Ids already carrying a
@@ -72,12 +89,14 @@ const EU_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-sonnet-5',
 ]);
 
-/** Unprefixed ids with a `jp.<id>` profile (models.dev 2026-08-18). */
+/**
+ * Unprefixed ids with a `jp.<id>` profile (models.dev 2026-08-18), MINUS the
+ * ids an AWS model card contradicts — see the AWS-card override note above.
+ */
 const JP_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-haiku-4-5-20251001-v1:0',
   'anthropic.claude-opus-4-7',
   'anthropic.claude-opus-4-8',
-  'anthropic.claude-opus-5',
   'anthropic.claude-sonnet-4-5-20250929-v1:0',
   'anthropic.claude-sonnet-4-6',
   'anthropic.claude-sonnet-5',
