@@ -194,6 +194,25 @@ describe('resolveReasoningControlsAvailability', () => {
     });
   });
 
+  /**
+   * BST-1692. GPT-6 Astra is the first DIRECT OpenAI row to declare its own
+   * ladder, because the undeclared default is wrong in both directions for it:
+   * it offers `minimal`, which OpenAI's Astra model page does not list, and it
+   * withholds `max`, which that page does list. Offering an effort the route
+   * rejects is a silent-degradation hazard; hiding one it accepts is a
+   * capability we never surface.
+   */
+  it('offers the documented GPT-6 Astra ladder, not the OpenAI family default', () => {
+    const availability = resolveReasoningControlsAvailability('openai', 'gpt-6-astra');
+    expect(availability).toEqual({
+      available: true,
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      family: 'openai',
+    });
+    expect(OPENAI_FAMILY_DEFAULT_EFFORTS).toContain('minimal');
+    expect(OPENAI_FAMILY_DEFAULT_EFFORTS).not.toContain('max');
+  });
+
   it.each([
     ['claude-fable-5', ['low', 'medium', 'high', 'xhigh', 'max']],
     ['claude-opus-5', ['low', 'medium', 'high', 'xhigh', 'max']],
