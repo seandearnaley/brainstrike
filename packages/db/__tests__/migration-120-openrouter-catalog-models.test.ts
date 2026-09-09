@@ -51,7 +51,14 @@ describe('migration 120: 2026-09 OpenRouter open-weight catalog refresh', () => 
     );
     const maxBefore = before.rows[0]?.max_sort_order ?? 0;
 
-    await runner.up(migrations);
+    // Stop AT 120. Running the whole manifest here would measure migration
+    // 121 as well, and 121 (BST-1697, retire four delisted OpenRouter ids)
+    // deliberately renumbers the provider with a `row_number()` sweep after
+    // deleting rows — which moves the very rows this assertion is about, by
+    // -4 for the deletions and +1 for 0-based to 1-based. The `appended`
+    // guarantee under test belongs to 120, so 120 is where the measurement
+    // stops. Later migrations are free to reorder; that is their business.
+    await runner.up(migrations.filter(({ version }) => version <= 120));
 
     const rows = await db.query<{
       best_for: readonly string[] | null;
