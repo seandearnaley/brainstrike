@@ -10,6 +10,11 @@ import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
+import {
+  createProviderCallWarningSink,
+  type ProviderCallWarningSink,
+  wrapModelWithCallWarningCapture,
+} from '../providers/provider-call-warnings';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
 import {
   resolveToolResultBudgetForModel,
@@ -196,6 +201,20 @@ export interface MastraAgentRuntime {
   permissionEnforced: boolean;
   /** Persona id → definition for the registered delegation tools (delegation caps). */
   personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
+  /**
+   * Provider warnings this run's model reported about the requests it served
+   * (BST-1701). Filled UNDER Mastra by the model observer, drained into
+   * always-visible run-event rows by `streamAttemptChunks`.
+   *
+   * `undefined` when the provider is configured by DESCRIPTOR rather than by
+   * model instance (ollama, lmstudio): Mastra builds those models itself, so
+   * there is no Brainstrike-owned seam to observe. Their OpenAI-compatible
+   * route forwards sampling params rather than dropping them, so no signal is
+   * being discarded there today - see docs/agents/assistant-providers.md.
+   * Required-with-`undefined` (like `toolHistoryFilter`) so an assembled
+   * runtime always states which of the two it is.
+   */
+  providerCallWarnings: ProviderCallWarningSink | undefined;
   resilienceConfig: AssistantResilienceConfig;
   /** Per-run budget shared by fresh producers and runtime projection guards. */
   resolvedToolResultBudget: ScaledToolResultBudget;
@@ -220,6 +239,35 @@ export interface MastraAgentRuntime {
 }
 
 const logger = createLogger('MastraAgent');
+
+/**
+ * Attach BST-1701's provider-warning observer to a model instance.
+ *
+ * `createProvider` returns EITHER a model instance (every hosted provider plus
+ * the built-in local runtime) or a Mastra model DESCRIPTOR (ollama, lmstudio),
+ * and only an instance carries the `doStream`/`doGenerate` seam the observer
+ * reads. A descriptor is handed back untouched with NO sink: Mastra
+ * materializes that model itself, so the boundary is structural. It is
+ * narrowed explicitly instead of being wrapped into a proxy that could never
+ * observe anything, so the gap stays documented rather than silent.
+ */
+function observeProviderCallWarnings(languageModel: MastraModelConfig): {
+  model: MastraModelConfig;
+  sink: ProviderCallWarningSink | undefined;
+} {
+  const isInstance =
+    typeof languageModel === 'object' &&
+    languageModel !== null &&
+    typeof (languageModel as { doStream?: unknown }).doStream === 'function';
+  if (!isInstance) {
+    return { model: languageModel, sink: undefined };
+  }
+  const sink = createProviderCallWarningSink();
+  return {
+    model: wrapModelWithCallWarningCapture(languageModel as object, sink) as MastraModelConfig,
+    sink,
+  };
+}
 
 function instantiateLanguageModel(
   provider: string,
@@ -502,6 +550,19 @@ export async function createMastraAgentRuntime(
     );
 
   assertModernLanguageModel(languageModel, normalizedProvider, modelName);
+  // BST-1701. The adapter answers a setting the model rejects by DROPPING it
+  // and listing it on the call's `warnings`; Mastra never carries that array
+  // onto the stream, so the observer has to sit here, between the model and
+  // the Agent that will use it. It reads results only - the request is
+  // untouched, which BST-1699's wire-level specs continue to pin.
+  //
+  // A DESCRIPTOR-configured provider (ollama, lmstudio) returns a plain
+  // `{id, url, apiKey}` config that Mastra materializes itself, so there is no
+  // instance to wrap and this run carries no sink at all. Explicitly narrowed
+  // rather than duck-typed into a no-op wrapper: the absence is a documented
+  // boundary, not a silent one.
+  const { model: observedLanguageModel, sink: providerCallWarnings } =
+    observeProviderCallWarnings(languageModel);
   // Resolve once per run. Static catalog models use their declared context
   // window; runtime-discovered Ollama/LM Studio ids share the conservative
   // 32,768-token declaration from @brainstrike/assistant-contract.
@@ -671,7 +732,7 @@ export async function createMastraAgentRuntime(
   const agent = new Agent({
     id: 'brainstrike-assistant',
     instructions: composedInstructions.agentInstructions,
-    model: languageModel,
+    model: observedLanguageModel,
     name: 'Brainstrike Assistant',
     tools: modelProjectedTools,
     ...(hasSubAgents ? { agents: subAgents } : {}),
@@ -711,6 +772,7 @@ export async function createMastraAgentRuntime(
     // global-approval run (see resolveResumeApprovalGate / MastraAgentRuntime).
     permissionEnforced: permissionSnapshot !== undefined,
     personasById,
+    providerCallWarnings,
     resilienceConfig,
     resolvedToolResultBudget,
     tokenDiagnostics,

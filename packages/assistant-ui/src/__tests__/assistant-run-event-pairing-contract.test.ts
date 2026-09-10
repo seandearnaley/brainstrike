@@ -151,6 +151,15 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'pr.checks',
     'pr.merged',
     'pr.opened',
+    // BST-1701's provider call warning. Emitted `status: 'failed'`
+    // (`makeProviderCallWarningChunks` in
+    // packages/agent/src/mastra/provider-warning-run-events.ts), never
+    // `'running'`: by the time the adapter reports what it dropped, the
+    // decision is already made and nothing is in flight. A standalone
+    // breadcrumb that stays VISIBLE rather than paired - pinned by 'forces a
+    // dropped provider setting to stay visible (BST-1701)' in
+    // assistant-run-timeline.test.tsx.
+    'provider.request.warned',
     'run.cancelled',
     // BST-1345's saturation-retry breadcrumb: `run-critical-database.ts` emits
     // it with `status: 'info'` (one retry notice), never `'running'`.

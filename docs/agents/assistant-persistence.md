@@ -1227,6 +1227,39 @@ Emission scope is fresh turns ONLY. The approval- and suspend-resume legs call
 re-runs discovery, it re-emits nothing. See
 `docs/agents/assistant-providers.md` for the discovery-side contract.
 
+### PROVIDER CALL-WARNING KIND (BST-1701)
+
+`provider.request.warned` is an additive `ASSISTANT_RUN_EVENT_KINDS` member
+recording that the provider did NOT carry a request out as written — every AI
+SDK adapter answers a setting the model rejects by DROPPING it and listing it on
+the call's `warnings` array instead of returning 400, so a user-set
+`temperature` from the Prompt Workbench is simply ignored on a model that
+refuses one.
+
+Like `mcp.tools.unavailable` it comes from the AGENT STREAM, not a main-process
+writer, and reaches persistence through the ordinary run-event chunk path. It is
+NOT a prelude: a call warning does not exist until the request has gone out, so
+`streamAttemptChunks` drains it per part
+(`drainProviderCallWarningChunks`), which lands the row as soon as the adapter
+opens its stream and never after the finish chunk that stops the consumer
+pulling. Status is always `'failed'`, never `'running'`, so it declares no
+terminal and cannot leave a row spinning; it is filed under `NEVER_RUNNING` in
+`assistant-run-event-pairing-contract.test.ts`, and the emitted status is
+asserted directly by
+`packages/agent/src/mastra/__tests__/provider-warning-run-events.spec.ts`.
+
+It is in `isAlwaysVisibleRunEvent`, LOAD-BEARING for the same reason: the turn
+completes normally, so there is no failed tool, no error bubble and no card of
+any kind — this row is the only evidence the setting was dropped, and a row
+hidden at default detail would leave the silent degradation exactly as it was
+found.
+
+One row per DISTINCT warning: the same rejection recurs on every step of a
+multi-step turn (it is a property of the request), and the sink dedupes it to
+one fact, one row. The capture-side contract — including why the warnings are
+read at the MODEL rather than off a Mastra chunk — is in
+`docs/agents/assistant-providers.md`.
+
 ### Threads-panel active-run projection (BST-1244)
 
 The Threads panel derives its running indicators directly from

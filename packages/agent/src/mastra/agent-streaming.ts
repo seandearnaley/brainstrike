@@ -88,6 +88,7 @@ import {
 } from './mastra-chunk-decoding';
 import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
 import type { PermissionAskToolMetadata } from './permission-tool-gate';
+import { drainProviderCallWarningChunks } from './provider-warning-run-events';
 import { assertNoUnsupportedDirectStreamOptions } from './runtime-assembly/stream-options';
 import {
   accumulateSteppedUsage,
@@ -1156,6 +1157,14 @@ export async function* streamAttemptChunks({
       }
     );
     for await (const part of source) {
+      // BST-1701. The provider's own report about the request it just served
+      // (a dropped `temperature`, a deprecated setting) is recorded UNDER
+      // Mastra by the model observer, because Mastra drops the adapter's
+      // `stream-start` part and never carries `warnings` onto this stream.
+      // Drained here, per part, so the row lands as soon as the adapter opens
+      // its stream - ahead of the first token, and never after the finish
+      // chunk that stops the consumer from pulling.
+      yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
       yield* await delegatedProjection.project(part, toolNames);
       const { chunks, finished } = await processMastraStreamPart(
         part,
@@ -1203,6 +1212,9 @@ export async function* streamAttemptChunks({
         return;
       }
     }
+    // A stream that ended without a finish (or was aborted) may still have
+    // recorded a warning after its last part - or produced no part at all.
+    yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
     yield* drainDelegationUsageChunks(delegationUsage);
     yield* delegatedProjection.settle();
     // Aborted mid-run: settle any orphaned delegations (a cancelled parent must

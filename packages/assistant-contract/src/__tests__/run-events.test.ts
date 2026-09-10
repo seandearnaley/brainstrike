@@ -67,4 +67,17 @@ describe('ASSISTANT_RUN_EVENT_KINDS', () => {
     expect(mcpKinds).toEqual(['mcp.tools.unavailable']);
     expect(mcpKinds.some((kind) => kind.endsWith('.started'))).toBe(false);
   });
+
+  it('declares the provider call-warning kind (BST-1701)', () => {
+    expect(ASSISTANT_RUN_EVENT_KINDS).toContain('provider.request.warned');
+  });
+
+  it('keeps the provider call-warning kind OUT of the `.started` lifecycle namespace', () => {
+    // Another standalone breadcrumb. The provider has already decided what it
+    // would not honor by the time the row exists, so nothing is in flight and
+    // there is no terminal to pair against.
+    const providerKinds = ASSISTANT_RUN_EVENT_KINDS.filter((kind) => kind.startsWith('provider.'));
+    expect(providerKinds).toEqual(['provider.request.warned']);
+    expect(providerKinds.some((kind) => kind.endsWith('.started'))).toBe(false);
+  });
 });
