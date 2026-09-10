@@ -8,6 +8,7 @@ export * from './context-breakdown.js';
 export * from './context-budget.js';
 export * from './context-packer.js';
 export * from './conversation-rewind.js';
+export * from './delegated-conversation-stream.js';
 export * from './edit-checkpoints.js';
 export * from './file-mention-directive.js';
 export * from './guarded-tool-error.js';

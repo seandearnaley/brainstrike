@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DelegatedConversationIdentity, DelegatedRunIdentity } from '@brainstrike/agent';
 import {
+  type AssistantRunEvent,
+  sanitizeAssistantRunEventMetadata,
+} from '@brainstrike/assistant-contract/run-events';
+import {
   type AssistantChildRunUsage,
   isAssistantDelegatedUsageIdentity,
 } from '@brainstrike/assistant-contract/run-usage';
@@ -53,8 +57,16 @@ export function createDesktopDelegatedConversationHost(
   database: DelegatedConversationDatabase,
   hostRunId: string
 ): {
-  bindRun(identity: DelegatedRunIdentity): Promise<void>;
+  bindRun(
+    identity: DelegatedRunIdentity
+  ): Promise<{ readonly threadId: string; readonly messageId?: string }>;
   persist(identity: DelegatedConversationIdentity): Promise<void>;
+  persistEvent(
+    identity: DelegatedRunIdentity,
+    messageId: string,
+    event: AssistantRunEvent,
+    sequence: number
+  ): Promise<AssistantRunEvent>;
   persistUsage(usage: AssistantChildRunUsage): Promise<void>;
 } {
   if (!hostRunId.trim()) {
@@ -79,7 +91,16 @@ export function createDesktopDelegatedConversationHost(
   return {
     async bindRun(identity) {
       const scope = await readScope();
-      await repository.bindInvocationRun(scope, identity, identity.childRuntimeRunId, hostRunId);
+      const invocation = await repository.bindInvocationRun(
+        scope,
+        identity,
+        identity.childRuntimeRunId,
+        hostRunId
+      );
+      return {
+        threadId: invocation.threadId,
+        ...(invocation.messageId ? { messageId: invocation.messageId } : {}),
+      };
     },
     async persist(identity) {
       const scope = await readScope();
@@ -103,6 +124,34 @@ export function createDesktopDelegatedConversationHost(
         personaId: identity.personaId,
         threadId: identity.childThreadId,
       });
+    },
+    async persistEvent(identity, messageId, event, sequence) {
+      const scope = await readScope();
+      identityString.parse(messageId);
+      // Opaque host-leg identity, never parsed for ancestry or authorization.
+      const childRunId = `delegated-run-${createHash('sha256')
+        .update(
+          JSON.stringify([
+            hostRunId,
+            identity.parentRuntimeRunId,
+            identity.parentToolCallId,
+            identity.childRuntimeRunId,
+          ])
+        )
+        .digest('hex')}`;
+      const persisted = {
+        ...event,
+        metadata:
+          sanitizeAssistantRunEventMetadata({
+            ...event.metadata,
+            ...identity,
+            nativeMessageId: messageId,
+          }) ?? {},
+        runId: childRunId,
+        sequence,
+      };
+      await repository.recordInvocationEvent(scope, identity, hostRunId, persisted);
+      return persisted;
     },
     async persistUsage(usage) {
       if (

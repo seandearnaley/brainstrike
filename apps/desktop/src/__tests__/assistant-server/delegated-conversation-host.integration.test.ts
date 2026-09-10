@@ -3,12 +3,20 @@ import type {
   DelegatedRunIdentity,
   StreamChunk,
 } from '@brainstrike/agent';
+import {
+  createAssistantThreadHistoryAdapter,
+  createPgliteAssistantThreadRepository,
+} from '@brainstrike/assistant-data';
 import { createDelegatedConversationRepository, migrate, wasmLoader } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
 import { desktopAssistantServerLogger as logger } from '../../assistant-server/logger';
-import { persistDesktopChildRunUsage } from '../../assistant-server/run-persistence';
+import {
+  observeDesktopAssistantRunEvents,
+  persistDesktopChildRunUsage,
+} from '../../assistant-server/run-persistence';
 
 describe('desktop delegated conversation authority', () => {
   let database: PGlite;
@@ -88,6 +96,203 @@ describe('desktop delegated conversation authority', () => {
     source: 'subagent',
   } as const;
 
+  const childStarted = {
+    id: 'child-start',
+    kind: 'run.started',
+    label: 'Child started',
+    status: 'running',
+    timestamp: '2026-09-10T01:00:00.000Z',
+  } as const;
+
+  it('recovers only the bound invocation native message identity before resume publication', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    expect(await host.bindRun(run)).toEqual({ threadId: 'child' });
+    await host.persistEvent(run, 'observed-before-pause', childStarted, 0);
+    expect(
+      await createDesktopDelegatedConversationHost(database, 'resume-leg').bindRun(run)
+    ).toEqual({ messageId: 'observed-before-pause', threadId: 'child' });
+    await expect(
+      createDesktopDelegatedConversationHost(database, 'other-turn-leg').bindRun(run)
+    ).rejects.toThrow();
+    await expect(
+      host.bindRun({ ...run, childRuntimeRunId: 'different-native-run' })
+    ).rejects.toThrow();
+  });
+
+  it('publishes the same sanitized metadata that reload reads', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    await host.bindRun(run);
+    const event = await host.persistEvent(
+      run,
+      'native-message',
+      {
+        ...childStarted,
+        metadata: { nested: { authorization: 'private' }, prompt: 'private payload', safe: 'kept' },
+      },
+      0
+    );
+    const row = (
+      await database.query<{ metadata: unknown }>(
+        'SELECT metadata FROM brainstrike_assistant_run_events'
+      )
+    ).rows[0];
+    expect(event.metadata).toEqual(row?.metadata);
+    expect(event.metadata).toMatchObject({ nested: {}, safe: 'kept' });
+    expect(event.metadata).not.toHaveProperty('prompt');
+  });
+
+  it.each(['other-turn-leg', 'other-root-leg', 'missing-leg'])(
+    'rejects child events through unauthorized host %s without partial writes',
+    async (leg) => {
+      const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+      await host.persist(identity);
+      await host.bindRun(run);
+      await expect(
+        createDesktopDelegatedConversationHost(database, leg).persistEvent(
+          run,
+          'native-message',
+          childStarted,
+          0
+        )
+      ).rejects.toThrow();
+      expect(
+        (
+          await database.query(
+            "SELECT id FROM brainstrike_assistant_thread_runs WHERE thread_id = 'child'"
+          )
+        ).rows
+      ).toEqual([]);
+      expect(
+        (await database.query('SELECT id FROM brainstrike_assistant_run_events')).rows
+      ).toEqual([]);
+    }
+  );
+
+  it('requires bound child/persona/message identities and preserves exact duplicate events', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    await expect(host.persistEvent(run, 'native-message', childStarted, 0)).rejects.toThrow();
+    await host.bindRun(run);
+    await expect(
+      host.persistEvent({ ...run, personaId: 'wrong' }, 'native-message', childStarted, 0)
+    ).rejects.toThrow();
+    await expect(
+      host.persistEvent({ ...run, childRuntimeRunId: 'wrong' }, 'native-message', childStarted, 0)
+    ).rejects.toThrow();
+    await expect(host.persistEvent(run, '', childStarted, 0)).rejects.toThrow();
+    const first = await host.persistEvent(run, 'native-message', childStarted, 0);
+    expect(await host.persistEvent(run, 'native-message', childStarted, 0)).toEqual(first);
+    const before = (await database.query('SELECT * FROM brainstrike_assistant_run_events')).rows;
+    await expect(
+      host.persistEvent(run, 'native-message', { ...childStarted, label: 'changed' }, 0)
+    ).rejects.toThrow();
+    expect((await database.query('SELECT * FROM brainstrike_assistant_run_events')).rows).toEqual(
+      before
+    );
+  });
+
+  it.each([
+    { accepted: true, model: { modelId: 'pinned', provider: 'anthropic' } },
+    { accepted: false, model: null },
+    { accepted: false, model: { modelId: 'pinned', provider: '' } },
+  ])(
+    'records the actual pinned child model or rejects malformed pins: $model',
+    async ({ model, accepted }) => {
+      const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+      await host.persist({
+        ...identity,
+        configuration: { maxSteps: 16, persona: { id: 'explore', model } },
+      });
+      await host.bindRun(run);
+      const write = host.persistEvent(run, 'native-message', childStarted, 0);
+      if (!accepted) {
+        await expect(write).rejects.toThrow();
+        expect(
+          (
+            await database.query(
+              "SELECT id FROM brainstrike_assistant_thread_runs WHERE thread_id = 'child'"
+            )
+          ).rows
+        ).toEqual([]);
+        return;
+      }
+      await write;
+      expect(
+        (
+          await database.query(
+            "SELECT provider, model, model_settings, provider_options FROM brainstrike_assistant_thread_runs WHERE thread_id = 'child'"
+          )
+        ).rows
+      ).toEqual([
+        { model: 'pinned', model_settings: null, provider: 'anthropic', provider_options: null },
+      ]);
+    }
+  );
+
+  it('persists child lifecycle in ordinary child run/event records while keeping the root running', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    await host.bindRun(run);
+    const timestamp = new Date().toISOString();
+    async function* source(): AsyncIterable<StreamChunk> {
+      for (const [id, kind, status] of [
+        ['child-start', 'run.started', 'running'],
+        ['child-finish', 'run.finished', 'completed'],
+      ] as const) {
+        yield {
+          chunk: { event: { id, kind, label: kind, status, timestamp }, type: 'run-event' },
+          identity: run,
+          messageId: 'native-child-message',
+          type: 'delegated-conversation-chunk',
+        };
+      }
+    }
+    const output: StreamChunk[] = [];
+    for await (const chunk of observeDesktopAssistantRunEvents(
+      source(),
+      'initial-leg',
+      [],
+      async () => database
+    )) {
+      output.push(chunk);
+    }
+    const records = (
+      await database.query<{
+        id: string;
+      }>(`SELECT runs.id, runs.thread_id, runs.resource_id, runs.provider, runs.model, runs.status,
+      runs.turn_message_id, event.id AS event_id, event.run_id, event.sequence, event.metadata
+      FROM brainstrike_assistant_thread_runs runs JOIN brainstrike_assistant_run_events event ON event.run_id = runs.id
+      WHERE runs.thread_id = 'child' ORDER BY event.sequence`)
+    ).rows;
+    expect(records).toHaveLength(2);
+    expect(records[0]).toMatchObject({
+      event_id: 'child-start',
+      metadata: { childRuntimeRunId: 'child-native-run', nativeMessageId: 'native-child-message' },
+      model: 'test',
+      provider: 'openai',
+      resource_id: 'native-child-owner',
+      sequence: 0,
+      status: 'completed',
+      thread_id: 'child',
+      turn_message_id: null,
+    });
+    expect(records[1]).toMatchObject({ event_id: 'child-finish', sequence: 1 });
+    expect(records[0]?.['id']).not.toBe('initial-leg');
+    expect(
+      (
+        await database.query(
+          "SELECT status FROM brainstrike_assistant_thread_runs WHERE id = 'initial-leg'"
+        )
+      ).rows
+    ).toEqual([{ status: 'running' }]);
+    expect(output[0]).toMatchObject({
+      chunk: { event: { runId: records[0]?.['id'], sequence: 0 } },
+      type: 'delegated-conversation-chunk',
+    });
+  });
+
   it('uses the existing usage writer for one cumulative row across host resume legs', async () => {
     const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
     await host.persist(identity);
@@ -107,6 +312,75 @@ describe('desktop delegated conversation authority', () => {
         output_tokens: 6,
         run_id: 'initial-leg',
       },
+    ]);
+  });
+
+  it('hydrates both host resume legs onto their observed native assistant message', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    await host.bindRun(run);
+    await database.query(
+      `INSERT INTO mastra_messages (id, thread_id, "resourceId", role, type, content, "createdAt")
+      VALUES ('native-child-message', 'child', 'native-child-owner', 'assistant', 'v2', $1, $2)`,
+      [
+        JSON.stringify({ format: 2, parts: [{ text: 'Full child answer', type: 'text' }] }),
+        '2026-09-10T01:00:00Z',
+      ]
+    );
+    const first = await host.persistEvent(
+      run,
+      'native-child-message',
+      {
+        id: 'before-pause',
+        kind: 'tool.approval.requested',
+        label: 'Approval',
+        status: 'info',
+        timestamp: '2026-09-10T01:00:01.000Z',
+      },
+      0
+    );
+    const middle = await host.persistEvent(
+      run,
+      'native-child-message',
+      {
+        id: 'pause-visible',
+        kind: 'tool.approval.requested',
+        label: 'Waiting for approval',
+        status: 'info',
+        timestamp: '2026-09-10T01:00:02.000Z',
+      },
+      1
+    );
+    const second = await createDesktopDelegatedConversationHost(
+      database,
+      'resume-leg'
+    ).persistEvent(
+      run,
+      'native-child-message',
+      {
+        id: 'after-resume',
+        kind: 'run.finished',
+        label: 'Complete',
+        status: 'completed',
+        timestamp: '2026-09-10T01:00:03.000Z',
+      },
+      0
+    );
+    expect(first.runId).not.toBe(second.runId);
+    const history = await createAssistantThreadHistoryAdapter({
+      repository: createPgliteAssistantThreadRepository(database as unknown as DbHandle),
+      resourceId: 'native-child-owner',
+      threadId: 'child',
+    }).load();
+    const parts = history.messages.flatMap(({ message }) =>
+      message.role === 'assistant' ? message.content : []
+    );
+    expect(
+      parts.filter((part) => part.type === 'data' && part.name === 'brainstrike.run-event')
+    ).toEqual([
+      { data: first, name: 'brainstrike.run-event', type: 'data' },
+      { data: middle, name: 'brainstrike.run-event', type: 'data' },
+      { data: second, name: 'brainstrike.run-event', type: 'data' },
     ]);
   });
 

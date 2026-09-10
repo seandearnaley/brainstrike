@@ -1,5 +1,5 @@
 import { type GuardedToolError, ToolInputError } from '@brainstrike/assistant-contract';
-import { readToolCallId } from './read-tool-call-id';
+import { readToolCallId, readToolExecutionThreadId } from './read-tool-call-id';
 import type { ToolExecutionDurations } from './tool-execution-durations';
 import { registerToolGuardDeadlineSignal } from './tool-guard-deadline';
 import type { ToolLogger } from './types';
@@ -138,7 +138,11 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
       // it run before failing" is exactly what a reader wants there.
       const toolCallId = readToolCallId(args);
       if (durations && toolCallId) {
-        durations.record(toolCallId, performance.now() - startedAt);
+        durations.record(
+          toolCallId,
+          performance.now() - startedAt,
+          readToolExecutionThreadId(args)
+        );
       }
     }
   };

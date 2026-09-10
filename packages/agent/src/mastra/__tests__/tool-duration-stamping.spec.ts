@@ -6,6 +6,7 @@ import {
   makePendingToolOutputRunEventChunks,
   mapToolLifecyclePart,
 } from '../tool-lifecycle-processors';
+import { createTurnAttemptLifecycleState } from '../turn-attempts';
 
 /**
  * The WIRING between the guard's measurement and the terminal run event.
@@ -62,6 +63,30 @@ describe('terminal tool run events carry the measured duration', () => {
     ) as { event: { durationMs?: number } } | undefined;
 
     expect(event?.event.durationMs).toBe(2000);
+  });
+
+  it('reads each root or child terminal from its own native thread measurement', () => {
+    const durations = createToolExecutionDurations();
+    for (const [threadId, duration] of [
+      ['root', 7],
+      ['child-a', 11],
+      ['child-b', 29],
+    ] as const) {
+      durations.record('call-1', duration, threadId);
+    }
+    for (const [threadId, duration] of [
+      ['root', 7],
+      ['child-a', 11],
+      ['child-b', 29],
+    ] as const) {
+      const state = createTurnAttemptLifecycleState({ memory: { threadId } }, undefined, durations);
+      expect(terminalEvent(state, 'success')).toContainEqual(
+        expect.objectContaining({
+          event: expect.objectContaining({ durationMs: duration, kind: 'tool.completed' }),
+          type: 'run-event',
+        })
+      );
+    }
   });
 
   it('rounds a fractional measured duration to integer milliseconds', () => {

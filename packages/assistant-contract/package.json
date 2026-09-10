@@ -235,6 +235,11 @@
       "types": "./dist/model-reasoning.d.ts",
       "import": "./dist/model-reasoning.js",
       "require": "./dist/model-reasoning.js"
+    },
+    "./delegated-conversation-stream": {
+      "types": "./dist/delegated-conversation-stream.d.ts",
+      "import": "./dist/delegated-conversation-stream.js",
+      "require": "./dist/delegated-conversation-stream.js"
     }
   },
   "files": [

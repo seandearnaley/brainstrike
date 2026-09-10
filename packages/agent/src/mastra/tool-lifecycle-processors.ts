@@ -54,6 +54,8 @@ interface OutputOnlyToolEvent {
 }
 
 export interface ToolLifecycleState {
+  /** Only calls still needing a terminal; retain their already-resolved display identity. */
+  activeToolEvents?: Map<string, StreamChunkTool>;
   /**
    * Token totals from EARLIER attempts of the same turn (BST-1409), zero on a
    * turn that never stalled.
@@ -163,6 +165,7 @@ export interface ToolLifecycleState {
    * fabricated number.
    */
   toolExecutionDurations?: ToolExecutionDurations;
+  toolExecutionThreadId?: string;
   warnedUnknownChunkTypes: Set<string>;
 }
 
@@ -377,7 +380,10 @@ function withToolExecutionDuration(
   lifecycleState: ToolLifecycleState,
   toolCallId: string
 ): StreamChunk {
-  const durationMs = lifecycleState.toolExecutionDurations?.read(toolCallId);
+  const durationMs = lifecycleState.toolExecutionDurations?.read(
+    toolCallId,
+    lifecycleState.toolExecutionThreadId
+  );
   if (durationMs === undefined) {
     return chunk;
   }
@@ -443,7 +449,8 @@ function withRunEventDuration(chunk: StreamChunk, rawDurationMs: number): Stream
 function makeToolStartedRunEventChunk(
   toolCallId: string | undefined,
   metadata: AssistantRunEventMetadata,
-  lifecycleState: ToolLifecycleState
+  lifecycleState: ToolLifecycleState,
+  toolEvent: StreamChunkTool
 ): StreamChunk | undefined {
   if (!toolCallId) {
     return;
@@ -452,6 +459,8 @@ function makeToolStartedRunEventChunk(
     return;
   }
   lifecycleState.startedToolCallIds.add(toolCallId);
+  lifecycleState.activeToolEvents ??= new Map();
+  lifecycleState.activeToolEvents.set(toolCallId, toolEvent);
   return makeRunEventChunk('tool.started', 'running', 'Tool started', metadata);
 }
 
@@ -465,7 +474,7 @@ export function makeToolLifecycleRunEventChunk(
 
   switch (toolEvent.status) {
     case 'start':
-      return makeToolStartedRunEventChunk(toolCallId, metadata, lifecycleState);
+      return makeToolStartedRunEventChunk(toolCallId, metadata, lifecycleState, toolEvent);
     case 'success': {
       if (!toolCallId) {
         // Mastra terminal tool parts must carry the same stable call id as their
@@ -486,6 +495,7 @@ export function makeToolLifecycleRunEventChunk(
         return;
       }
       lifecycleState.terminalToolCallStates.set(toolCallId, 'completed');
+      lifecycleState.activeToolEvents?.delete(toolCallId);
       lifecycleState.outputOnlyToolEvents.delete(toolCallId);
       return withToolExecutionDuration(
         makeRunEventChunk('tool.completed', 'completed', 'Tool completed', metadata),
@@ -501,6 +511,7 @@ export function makeToolLifecycleRunEventChunk(
         return;
       }
       lifecycleState.terminalToolCallStates.set(toolCallId, 'failed');
+      lifecycleState.activeToolEvents?.delete(toolCallId);
       lifecycleState.outputOnlyToolEvents.delete(toolCallId);
       return withToolExecutionDuration(
         makeRunEventChunk('tool.failed', 'failed', 'Tool failed', metadata),
@@ -516,6 +527,7 @@ export function makeToolLifecycleRunEventChunk(
         return;
       }
       lifecycleState.terminalToolCallStates.set(toolCallId, 'failed');
+      lifecycleState.activeToolEvents?.delete(toolCallId);
       lifecycleState.outputOnlyToolEvents.delete(toolCallId);
       // A declined `requireApproval` call (@mastra/core 1.59 `tool-output-denied`)
       // keeps the `tool.failed` KIND deliberately, and only relabels. The kind is
@@ -549,6 +561,7 @@ export function makePendingToolOutputRunEventChunks(
       continue;
     }
     lifecycleState.terminalToolCallStates.set(toolCallId, 'completed');
+    lifecycleState.activeToolEvents?.delete(toolCallId);
     // Sequence remains the ordering source of truth; this timestamp preserves
     // when the output-only terminal observation happened for duration metrics.
     chunks.push(

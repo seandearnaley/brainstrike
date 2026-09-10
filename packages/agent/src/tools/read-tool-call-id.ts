@@ -12,11 +12,25 @@
  * The argument position is Mastra's: input first, execution context second.
  */
 export function readToolCallId(args: readonly unknown[]): string | undefined {
+  return readExecutionIdentity(args, 'toolCallId');
+}
+
+/** Native thread IDs are globally unique; never substitute persona or root identity. */
+export function readToolExecutionThreadId(args: readonly unknown[]): string | undefined {
+  return readExecutionIdentity(args, 'threadId');
+}
+
+function readExecutionIdentity(
+  args: readonly unknown[],
+  key: 'toolCallId' | 'threadId'
+): string | undefined {
   const context = args[1];
   if (!(context && typeof context === 'object')) {
     return;
   }
-  const record = context as { agent?: { toolCallId?: unknown }; toolCallId?: unknown };
-  const candidate = record.agent?.toolCallId ?? record.toolCallId;
+  const record = context as { agent?: Partial<Record<typeof key, unknown>> } & Partial<
+    Record<typeof key, unknown>
+  >;
+  const candidate = record.agent?.[key] ?? record[key];
   return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate : undefined;
 }

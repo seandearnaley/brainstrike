@@ -1,3 +1,9 @@
+import {
+  type AssistantRunEvent,
+  sanitizeAssistantRunEventMetadata,
+} from '@brainstrike/assistant-contract';
+import type { DelegatedRunIdentity } from '@brainstrike/assistant-contract/delegated-conversation-stream';
+
 /**
  * Host-owned graph over native Mastra conversations. Write inputs come from
  * the host's observed delegation scope, never model arguments or renderer ids.
@@ -74,7 +80,7 @@ export interface DelegatedConversationRepository {
     key: DelegatedInvocationKey & { readonly personaId: string },
     childRuntimeRunId: string,
     currentHostRunId?: string
-  ): Promise<DelegatedInvocation>;
+  ): Promise<DelegatedInvocation & { messageId?: string }>;
 
   /** Register the root first; write inputs must be observed by the trusted host. */
   createChild(
@@ -97,6 +103,12 @@ export interface DelegatedConversationRepository {
     scope: DelegatedConversationScope,
     parentThreadId: string
   ): Promise<DelegatedConversationNode[]>;
+  recordInvocationEvent(
+    scope: DelegatedConversationScope,
+    identity: DelegatedRunIdentity,
+    currentHostRunId: string,
+    event: AssistantRunEvent & { readonly runId: string; readonly sequence: number }
+  ): Promise<void>;
   recordInvocationUsage(
     scope: DelegatedConversationScope,
     key: DelegatedInvocationKey & { readonly personaId: string },
@@ -292,7 +304,7 @@ export function createDelegatedConversationRepository(
       key: DelegatedInvocationKey & { readonly personaId: string },
       childRuntimeRunId: string,
       currentHostRunId?: string
-    ): Promise<DelegatedInvocation> {
+    ): Promise<DelegatedInvocation & { messageId?: string }> {
       const result = await database.query(
         `${AUTHORIZED_GRAPH} UPDATE brainstrike_delegated_invocations invocation
          SET child_runtime_run_id = $5
@@ -308,7 +320,19 @@ export function createDelegatedConversationRepository(
            AND invocation.persona_id = $6
            AND invocation.thread_id = child.thread_id
            AND (invocation.child_runtime_run_id IS NULL OR invocation.child_runtime_run_id = $5)
-         RETURNING invocation.*, child.parent_thread_id`,
+         RETURNING invocation.*, child.parent_thread_id,
+           (SELECT event.metadata->>'nativeMessageId'
+            FROM brainstrike_assistant_run_events event
+            JOIN brainstrike_assistant_thread_runs event_run ON event_run.id = event.run_id
+            WHERE event.thread_id = invocation.thread_id
+              AND event.metadata->>'childRuntimeRunId' = $5
+              AND event.metadata->>'parentRuntimeRunId' = $3
+              AND event.metadata->>'parentToolCallId' = $4
+              AND event.metadata->>'personaId' = $6
+              AND event.metadata->>'nativeMessageId' IS NOT NULL
+            ORDER BY event_run.started_at DESC, event_run.created_at DESC, event_run.id DESC,
+              event.sequence DESC
+            LIMIT 1) AS native_message_id`,
         [
           ...invocationParameters(scope, key),
           requireString(childRuntimeRunId),
@@ -319,7 +343,11 @@ export function createDelegatedConversationRepository(
       if (result.rows.length !== 1) {
         throw new DelegatedConversationIdentityError('invocation-binding-conflict');
       }
-      return readInvocation(result.rows[0]);
+      const invocation = readInvocation(result.rows[0]);
+      const messageId = nullableString(
+        (result.rows[0] as Record<string, unknown>)['native_message_id']
+      );
+      return { ...invocation, ...(messageId ? { messageId } : {}) };
     },
     async createChild(
       scope: DelegatedConversationScope,
@@ -446,6 +474,95 @@ export function createDelegatedConversationRepository(
         [...scopeParameters(scope), requireString(parentThreadId)]
       );
       return result.rows.map(readNode);
+    },
+    async recordInvocationEvent(scope, identity, currentHostRunId, event) {
+      const terminalStatus =
+        event.kind === 'run.finished'
+          ? 'completed'
+          : event.kind === 'run.cancelled'
+            ? 'cancelled'
+            : event.kind === 'run.failed'
+              ? 'failed'
+              : null;
+      const result = await database.query(
+        `${AUTHORIZED_GRAPH}, authorized AS (
+          SELECT child.*, original.provider, original.model, original.runtime_kind
+          FROM brainstrike_delegated_invocations invocation
+          JOIN owned_nodes child ON child.thread_id = invocation.thread_id
+          JOIN brainstrike_assistant_thread_runs original ON original.id = invocation.host_run_id
+            AND original.resource_id = $1 AND original.thread_id = $2
+            AND original.turn_message_id = invocation.turn_message_id
+          JOIN brainstrike_assistant_thread_runs current_leg ON current_leg.id = $7
+            AND current_leg.resource_id = $1 AND current_leg.thread_id = $2
+            AND current_leg.turn_message_id = invocation.turn_message_id
+          WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
+            AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4
+            AND invocation.child_runtime_run_id = $5 AND invocation.persona_id = $6
+            AND (child.configuration #> '{persona,model}' IS NULL OR (
+              jsonb_typeof(child.configuration #> '{persona,model,provider}') = 'string'
+              AND length(btrim(child.configuration #>> '{persona,model,provider}')) > 0
+              AND jsonb_typeof(child.configuration #> '{persona,model,modelId}') = 'string'
+              AND length(btrim(child.configuration #>> '{persona,model,modelId}')) > 0))
+            AND NOT EXISTS (SELECT 1 FROM brainstrike_assistant_run_events prior
+              WHERE prior.id = $9 AND ROW(prior.run_id, prior.resource_id, prior.thread_id,
+                prior.sequence, prior.kind, prior.status, prior.label, prior.detail,
+                prior.metadata, prior.occurred_at, prior.duration_ms) IS DISTINCT FROM
+                ROW($8::text, child.resource_id, child.thread_id, $10::integer, $11::text,
+                  $12::text, $13::text, $14::text, $15::jsonb, $16::timestamptz, $17::integer))
+        ), child_run AS (
+          INSERT INTO brainstrike_assistant_thread_runs AS stored
+            (id, resource_id, thread_id, provider, model, runtime_kind, status,
+             started_at, completed_at, created_at, updated_at)
+          SELECT $8, resource_id, thread_id,
+            COALESCE(configuration #>> '{persona,model,provider}', provider),
+            COALESCE(configuration #>> '{persona,model,modelId}', model), runtime_kind,
+            COALESCE($18::text, 'running'), $16::timestamptz,
+            CASE WHEN $18::text IS NOT NULL THEN $16::timestamptz END, NOW(), NOW()
+          FROM authorized
+          ON CONFLICT (id) DO UPDATE SET
+            status = COALESCE($18::text, stored.status),
+            completed_at = CASE WHEN $18::text IS NOT NULL THEN $16::timestamptz ELSE stored.completed_at END,
+            updated_at = NOW()
+          WHERE stored.thread_id = EXCLUDED.thread_id AND stored.resource_id = EXCLUDED.resource_id
+            AND stored.provider = EXCLUDED.provider AND stored.model = EXCLUDED.model
+            AND stored.runtime_kind = EXCLUDED.runtime_kind
+            AND ($18::text IS NULL OR stored.status = 'running' OR stored.status = $18)
+          RETURNING *
+        ) INSERT INTO brainstrike_assistant_run_events AS stored
+          (id, run_id, resource_id, thread_id, sequence, kind, status, label, detail,
+           metadata, occurred_at, duration_ms, created_at, updated_at)
+          SELECT $9, id, resource_id, thread_id, $10::integer, $11, $12, $13, $14,
+            $15::jsonb, $16::timestamptz, $17::integer, NOW(), NOW() FROM child_run
+          ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
+          WHERE stored.run_id = EXCLUDED.run_id AND stored.resource_id = EXCLUDED.resource_id
+            AND stored.thread_id = EXCLUDED.thread_id AND stored.sequence = EXCLUDED.sequence
+            AND stored.kind = EXCLUDED.kind AND stored.status = EXCLUDED.status
+            AND stored.label = EXCLUDED.label AND stored.detail IS NOT DISTINCT FROM EXCLUDED.detail
+            AND stored.metadata IS NOT DISTINCT FROM EXCLUDED.metadata
+            AND stored.occurred_at = EXCLUDED.occurred_at
+            AND stored.duration_ms IS NOT DISTINCT FROM EXCLUDED.duration_ms
+          RETURNING id`,
+        [
+          ...invocationParameters(scope, identity),
+          requireString(identity.childRuntimeRunId),
+          requireString(identity.personaId),
+          requireString(currentHostRunId),
+          requireString(event.runId),
+          requireString(event.id),
+          requireTokenCount(event.sequence),
+          event.kind,
+          event.status,
+          event.label,
+          event.detail ?? null,
+          JSON.stringify(sanitizeAssistantRunEventMetadata(event.metadata) ?? {}),
+          event.timestamp,
+          event.durationMs ?? null,
+          terminalStatus,
+        ]
+      );
+      if (result.rows.length !== 1) {
+        throw new DelegatedConversationIdentityError('event-binding-conflict');
+      }
     },
     async recordInvocationUsage(scope, key, usage) {
       const result = await database.query(

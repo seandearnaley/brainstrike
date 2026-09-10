@@ -762,6 +762,7 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
           expect(await memory.getThreadById({ threadId: child.childThreadId })).toMatchObject({
             resourceId: child.childResourceId,
           });
+          return { threadId: child.childThreadId };
         }
       );
       const conversationBinding = {
@@ -795,8 +796,10 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
         }
       );
       const progress: string[] = [];
+      const chunks: StreamChunk[] = [];
       const consume = async (): Promise<void> => {
         for await (const chunk of iterator) {
+          chunks.push(chunk);
           if (chunk.type === 'run-event' && chunk.event.kind.startsWith('subagent.tool.')) {
             expect(bindRun).toHaveBeenCalledOnce();
             progress.push(chunk.event.kind);
@@ -809,8 +812,24 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
       } else {
         await consume();
         expect(progress).toContain('subagent.tool.started');
+        // Full child content has its own native invocation and message identity;
+        // it must not be flattened into the parent assistant's text.
+        expect(chunks).toContainEqual(
+          expect.objectContaining({
+            chunk: { type: 'text-delta', value: 'CHILD_ANSWER: found FLAG-42 in the workspace.' },
+            identity: expect.objectContaining(bindRun.mock.calls[0]?.[0]),
+            messageId: expect.any(String),
+            type: 'delegated-conversation-chunk',
+          })
+        );
+        expect(chunks.filter((chunk) => chunk.type === 'text-delta')).not.toContainEqual({
+          type: 'text-delta',
+          value: 'CHILD_ANSWER: found FLAG-42 in the workspace.',
+        });
         if (toolFailure) {
           await expect(execute.mock.results[0]?.value).rejects.toThrow('Native child tool failed');
+          expect(progress).toContain('subagent.tool.failed');
+          expect(progress).not.toContain('subagent.tool.completed');
         }
       }
       expect(bindRun).toHaveBeenCalledOnce();

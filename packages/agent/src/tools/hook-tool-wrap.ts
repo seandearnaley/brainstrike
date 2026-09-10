@@ -27,7 +27,7 @@ import {
   type HookBlockedToolError,
   readHookResultEnvelope,
 } from './hook-runner';
-import { readToolCallId } from './read-tool-call-id';
+import { readToolCallId, readToolExecutionThreadId } from './read-tool-call-id';
 import type { ToolExecutionDurations } from './tool-execution-durations';
 import type { ToolLogger } from './types';
 
@@ -254,7 +254,11 @@ export function applyToolHooks<TMap extends Record<string, unknown>>(
         // makes the consumer fall back to a gap spanning the approval wait.
         const toolCallId = readToolCallId(args);
         if (durations && toolCallId) {
-          durations.record(toolCallId, performance.now() - startedAt);
+          durations.record(
+            toolCallId,
+            performance.now() - startedAt,
+            readToolExecutionThreadId(args)
+          );
         }
         return blocked;
       }

@@ -224,7 +224,9 @@ export function resolveMemoryOption(
  *   accumulators from the attempt being replaced.
  */
 export function createTurnAttemptLifecycleState(
-  runtimeData: RuntimeData | undefined,
+  runtimeData:
+    | (Pick<RuntimeData, 'provider' | 'steering'> & { memory?: { threadId: string } })
+    | undefined,
   delegationOutcomes: DelegationOutcomeCapture | undefined,
   toolExecutionDurations: ToolExecutionDurations | undefined,
   carried?: ToolLifecycleState
@@ -241,6 +243,9 @@ export function createTurnAttemptLifecycleState(
     // Carried so the terminal tool run event can state the time `execute`
     // actually ran — the only honest number for an approval-gated call.
     ...(toolExecutionDurations ? { toolExecutionDurations } : {}),
+    ...(runtimeData?.memory?.threadId
+      ? { toolExecutionThreadId: runtimeData.memory.threadId }
+      : {}),
     includeCacheTokenClasses: runtimeData?.provider === 'anthropic',
     outputOnlyToolEvents: new Map(),
     requiresBilledCost: runtimeData?.provider === 'openrouter',

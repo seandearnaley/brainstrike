@@ -275,6 +275,7 @@ export function createAssistantRunEvent(input: {
 export function sanitizeAssistantRunEventMetadata(
   metadata: AssistantRunEventMetadata | Record<string, unknown> | undefined
 ): AssistantRunEventMetadata | undefined {
+  // Must be idempotent: publication and durable storage each enforce this boundary.
   if (!metadata) {
     return;
   }

@@ -45,7 +45,10 @@ below are LIVE.
    (`packages/agent/src/mastra/runtime-assembly/tool-pipeline.ts`) after local
    and MCP tools are sanitized/discovered. Tool timeouts and throws resolve to structured
    `GuardedToolError` payloads; guarded timeout/failure payloads are surfaced as
-   failed tool events, not successful completions. Generic exceptions retain a
+   failed tool events, not successful completions. Delegated `tool-result` parts
+   use the same display projection and canonical guarded-error classification as
+   root tool results; native `isError` alone cannot classify a guarded failure.
+   Generic exceptions retain a
    redacted `tool_failed` message because they may contain host paths or secrets.
    Trusted `ToolInputError` validation failures instead retain their bounded,
    model-correctable message as `tool_input_invalid`; only application-owned

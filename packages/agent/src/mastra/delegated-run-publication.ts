@@ -1,12 +1,9 @@
-import type { DelegatedConversationBinding } from './delegated-conversation-binding';
+import type { DelegatedRunIdentity } from '@brainstrike/assistant-contract/delegated-conversation-stream';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 
-export interface DelegatedRunIdentity {
-  readonly childRuntimeRunId: string;
-  readonly parentRuntimeRunId: string;
-  readonly parentToolCallId: string;
-  readonly personaId: string;
-}
+export type { DelegatedRunIdentity } from '@brainstrike/assistant-contract/delegated-conversation-stream';
+
+type AuthorizeDelegatedRun = (identity: DelegatedRunIdentity) => Promise<unknown>;
 
 function requireIdentity(value: string | undefined): string {
   if (!value?.trim()) {
@@ -17,15 +14,15 @@ function requireIdentity(value: string | undefined): string {
 
 /** Each attempt/resume leg must authorize its first child event from durable host state. */
 export function createDelegatedRunPublicationGuard(
-  bindRun: NonNullable<DelegatedConversationBinding['bindRun']>,
+  bindRun: AuthorizeDelegatedRun,
   personas: ReadonlyMap<string, string>
 ): (part: unknown) => Promise<void>;
 export function createDelegatedRunPublicationGuard(
-  bindRun: DelegatedConversationBinding['bindRun'],
+  bindRun: AuthorizeDelegatedRun | undefined,
   personas: ReadonlyMap<string, string>
 ): ((part: unknown) => Promise<void>) | undefined;
 export function createDelegatedRunPublicationGuard(
-  bindRun: DelegatedConversationBinding['bindRun'],
+  bindRun: AuthorizeDelegatedRun | undefined,
   personas: ReadonlyMap<string, string>
 ): ((part: unknown) => Promise<void>) | undefined {
   if (!bindRun) {

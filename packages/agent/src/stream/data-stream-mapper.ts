@@ -4,6 +4,10 @@ import {
   type ProviderId,
 } from '@brainstrike/assistant-contract';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
+import {
+  DELEGATED_CONVERSATION_DATA_NAME,
+  type DelegatedConversationStreamData,
+} from '@brainstrike/assistant-contract/delegated-conversation-stream';
 import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-usage';
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract/shell-output';
 import {
@@ -20,6 +24,7 @@ import type {
   StreamChunk,
   StreamChunkChildRunUsage,
   StreamChunkContextBreakdown,
+  StreamChunkDelegatedConversation,
   StreamChunkFinish,
   StreamChunkMessageFinish,
   StreamChunkReasoning,
@@ -346,6 +351,7 @@ export class DataStreamMapper {
   private readonly pendingToolErrorTexts = new Map<string, string>();
   private startNewStepForNextText = false;
   private readonly warnedUnknownChunkTypes = new Set<string>();
+  private readonly delegatedMappers = new Map<string, DataStreamMapper>();
   /**
    * True while a text/reasoning part is streaming. Data parts emitted while a
    * part is open CLOSE it downstream (assistant-stream's appendData ends the
@@ -402,6 +408,9 @@ export class DataStreamMapper {
     }
 
     switch (chunk.type) {
+      case 'delegated-conversation-chunk':
+        yield* this.handleDelegatedConversation(chunk);
+        return;
       case 'text-delta':
         yield* this.handleTextDelta(chunk);
         return;
@@ -455,6 +464,51 @@ export class DataStreamMapper {
         return;
       }
     }
+  }
+
+  private *handleDelegatedConversation(
+    chunk: StreamChunkDelegatedConversation
+  ): Generator<EncodedChunk> {
+    if (!chunk.messageId?.trim()) {
+      throw new Error('Delegated transport requires an observed native message identity.');
+    }
+    const key = JSON.stringify([
+      chunk.identity.parentRuntimeRunId,
+      chunk.identity.parentToolCallId,
+      chunk.identity.childRuntimeRunId,
+    ]);
+    let mapper = this.delegatedMappers.get(key);
+    const frames: EncodedChunk[] = [];
+    if (!mapper) {
+      // One invocation owns the same decoder across native message/step changes.
+      // Each envelope retains the observed native message id for durable routing.
+      // A pinned child must not inherit a model-specific parent error explanation.
+      mapper = new DataStreamMapper(chunk.messageId);
+      this.delegatedMappers.set(key, mapper);
+      frames.push(...mapper.initialChunks());
+    }
+    frames.push(...mapper.handleChunk(chunk.chunk));
+    if (chunk.chunk.type === 'message-finish' || chunk.chunk.type === 'finish') {
+      this.delegatedMappers.delete(key);
+    }
+    if (frames.length === 0) {
+      return;
+    }
+    const data: DelegatedConversationStreamData = {
+      frames,
+      identity: chunk.identity,
+      messageId: chunk.messageId,
+      ...(chunk.partId ? { partId: chunk.partId } : {}),
+    };
+    const encoded: EncodedChunk = {
+      code: DataStreamCode.auiDataPart,
+      value: { data: toJsonSafe(data), name: DELEGATED_CONVERSATION_DATA_NAME },
+    };
+    if (this.mustDeferDataParts()) {
+      this.pendingRunEventChunks.push(encoded);
+      return;
+    }
+    yield encoded;
   }
 
   *handleError(error: unknown): Generator<EncodedChunk> {
