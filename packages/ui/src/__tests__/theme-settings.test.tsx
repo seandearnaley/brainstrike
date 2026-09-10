@@ -59,6 +59,9 @@ describe('ThemeSettings', () => {
   it('paints each card swatch from the registry', () => {
     render(<ThemeSettings />);
     const ember = THEMES.find((t) => t.id === 'ember');
+    // `toHaveStyle({ backgroundColor: undefined })` passes vacuously, so prove
+    // the registry entry exists before asserting against it.
+    expect(ember).toBeDefined();
     const swatch = screen.getByTestId('theme-swatch-ember-light-primary');
     expect(swatch).toHaveStyle({ backgroundColor: ember?.swatch.light.primary });
   });

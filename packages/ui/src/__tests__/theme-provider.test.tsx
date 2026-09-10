@@ -83,6 +83,39 @@ describe('ThemeProvider', () => {
     expect(document.documentElement.classList.contains('dark')).toBe(true);
   });
 
+  it('warns but still switches when persisting the preference rejects', async () => {
+    const storage = createStorage();
+    const failure = new Error('quota exceeded');
+    storage.setItem = vi.fn(() => Promise.reject(failure));
+    const { result } = renderHook(() => useTheme(), {
+      wrapper: wrapperFor(storage, { storageKey: 'k-mode', themeStorageKey: 'k-theme' }),
+    });
+    await waitFor(() => expect(result.current.mode).toBe('system'));
+
+    await act(async () => {
+      result.current.setMode('dark');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      result.current.setTheme('orchid');
+      await Promise.resolve();
+    });
+
+    // The switch still applies in memory; only durability is lost.
+    expect(result.current.mode).toBe('dark');
+    expect(result.current.theme).toBe('orchid');
+    await waitFor(() => {
+      expect(mockWarn).toHaveBeenCalledWith(
+        'Failed to persist theme preference',
+        expect.objectContaining({ error: failure, key: 'k-mode' })
+      );
+    });
+    expect(mockWarn).toHaveBeenCalledWith(
+      'Failed to persist theme preference',
+      expect.objectContaining({ error: failure, key: 'k-theme' })
+    );
+  });
+
   it('resets an unknown persisted theme to the default and warns', async () => {
     const storage = createStorage({ 'ui-theme-palette': 'retired-theme' });
     const { result } = renderHook(() => useTheme(), { wrapper: wrapperFor(storage) });

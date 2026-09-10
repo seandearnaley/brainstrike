@@ -48,7 +48,9 @@ function ThemeCard({
       aria-label={theme.label}
       className={cn(
         'flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors',
-        active ? 'border-primary ring-2 ring-ring/50' : 'border-border hover:bg-accent'
+        active
+          ? 'border-primary ring-2 ring-ring/50'
+          : 'border-border hover:bg-accent hover:text-accent-foreground'
       )}
       data-testid={`theme-card-${theme.id}`}
       onClick={onSelect}

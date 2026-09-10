@@ -111,6 +111,47 @@ test('no source uses the legacy hsl(var(--x)) idiom (including hsla and inner sp
   assert.deepEqual(hits, [], `legacy idiom found:\n${hits.join('\n')}`);
 });
 
+/** Slice an at-rule's body out by brace balance (its `{` ... matching `}`). */
+function mediaBlockBody(css, atRule) {
+  const start = css.indexOf(atRule);
+  assert.notEqual(start, -1, `${atRule} block present`);
+  const open = css.indexOf('{', start);
+  assert.notEqual(open, -1, `${atRule} must open a block`);
+  let depth = 0;
+  for (let i = open; i < css.length; i += 1) {
+    if (css[i] === '{') {
+      depth += 1;
+    } else if (css[i] === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return css.slice(open + 1, i);
+      }
+    }
+  }
+  throw new Error(`${atRule} block is unbalanced`);
+}
+
+/** Every selector group inside a block body, whitespace-normalized, in order. */
+function selectorGroups(body) {
+  const groups = [];
+  let cursor = 0;
+  let depth = 0;
+  for (let i = 0; i < body.length; i += 1) {
+    if (body[i] === '{') {
+      if (depth === 0) {
+        groups.push(body.slice(cursor, i).replace(/\s+/gu, ' ').trim());
+      }
+      depth += 1;
+    } else if (body[i] === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        cursor = i + 1;
+      }
+    }
+  }
+  return groups;
+}
+
 test('globals.css imports the theme files first and the high-contrast override outranks every theme', () => {
   const globals = read('packages/ui/src/globals.css');
   assert.match(
@@ -118,18 +159,16 @@ test('globals.css imports the theme files first and the high-contrast override o
     /^@import "\.\/themes\/index\.css";/u,
     'themes/index.css must be the first statement'
   );
-  const highContrast = globals.split('@media (prefers-contrast: more)')[1];
-  assert.ok(highContrast, 'high-contrast block present');
-  assert.match(
-    highContrast,
-    /:root\[data-theme\] \{/u,
-    'light high-contrast selector must be :root[data-theme]'
-  );
-  assert.match(
-    highContrast,
-    /:root\[data-theme\]\.dark \{/u,
-    'dark high-contrast selector must be :root[data-theme].dark'
-  );
+  const highContrast = mediaBlockBody(globals, '@media (prefers-contrast: more)');
+  // Exactly two rule groups, and exactly these selectors. The themed halves are
+  // 0,2,0 / 0,3,0 so they tie generated `:root[data-theme="<id>"]` themes and win
+  // on order; the `:not([data-theme])` halves carry the same specificity and keep
+  // high contrast working with or without the attribute — before the provider
+  // mounts, and on any host that never writes it.
+  assert.deepEqual(selectorGroups(highContrast), [
+    ':root[data-theme], :root:not([data-theme])',
+    ':root[data-theme].dark, :root:not([data-theme]).dark',
+  ]);
   assert.doesNotMatch(
     highContrast,
     /^\s*:root \{|^\s*\.dark \{/mu,

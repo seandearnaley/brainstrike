@@ -109,7 +109,11 @@ export function ThemeProvider({
 
   const setMode = React.useCallback(
     (next: ThemeMode) => {
-      void storageAdapter.setItem(storageKey, next);
+      // Persistence is best-effort, but a failure is REPORTED, never swallowed:
+      // the in-memory switch still applies, it just will not survive a reload.
+      storageAdapter.setItem(storageKey, next).catch((error: unknown) => {
+        logger.warn('Failed to persist theme preference', { error, key: storageKey });
+      });
       setModeState(next);
     },
     [storageAdapter, storageKey]
@@ -117,7 +121,9 @@ export function ThemeProvider({
 
   const setTheme = React.useCallback(
     (next: ThemeId) => {
-      void storageAdapter.setItem(themeStorageKey, next);
+      storageAdapter.setItem(themeStorageKey, next).catch((error: unknown) => {
+        logger.warn('Failed to persist theme preference', { error, key: themeStorageKey });
+      });
       setThemeState(next);
     },
     [storageAdapter, themeStorageKey]

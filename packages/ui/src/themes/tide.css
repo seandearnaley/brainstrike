@@ -1,6 +1,7 @@
 /*
  * Theme "tide" — GENERATED from shadcn preset bNRM0gzE1. Do not hand-edit values.
  * Regenerate: node scripts/import-shadcn-theme.mjs bNRM0gzE1 tide
+ *             (pins npx -y shadcn@4.21.0)
  * Preview:    https://ui.shadcn.com/create?preset=bNRM0gzE1
  *
  * Decoded preset:
@@ -14,6 +15,9 @@
  *   radius      small
  *   style       luma
  *   theme       cyan
+ *
+ *   accentNormalized: true — preset menuAccent is a menu axis Brainstrike does
+ *   not adopt; accent normalized to the subtle tint.
  *
  * Only the colour palette and radius are adopted. Style, fonts and icons are
  * project-wide choices and are not part of a theme. Semantic status tokens
@@ -33,8 +37,8 @@
   --bs-secondary-foreground: oklch(0.21 0.006 285.885);
   --bs-muted: oklch(0.963 0.002 197.1);
   --bs-muted-foreground: oklch(0.56 0.021 213.5);
-  --bs-accent: oklch(0.52 0.105 223.128);
-  --bs-accent-foreground: oklch(0.984 0.019 200.873);
+  --bs-accent: var(--bs-muted);
+  --bs-accent-foreground: var(--bs-foreground);
   --bs-destructive: oklch(0.577 0.245 27.325);
   --bs-border: oklch(0.925 0.005 214.3);
   --bs-input: oklch(0.925 0.005 214.3);
@@ -70,8 +74,8 @@
   --bs-secondary-foreground: oklch(0.985 0 0);
   --bs-muted: oklch(0.275 0.011 216.9);
   --bs-muted-foreground: oklch(0.723 0.014 214.4);
-  --bs-accent: oklch(0.45 0.085 224.283);
-  --bs-accent-foreground: oklch(0.984 0.019 200.873);
+  --bs-accent: var(--bs-muted);
+  --bs-accent-foreground: var(--bs-foreground);
   --bs-destructive: oklch(0.704 0.191 22.216);
   --bs-border: oklch(1 0 0 / 10%);
   --bs-input: oklch(1 0 0 / 15%);

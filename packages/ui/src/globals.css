@@ -61,11 +61,16 @@
  * Selector shape is load-bearing: generated themes declare their tokens under
  * :root[data-theme="<id>"] (specificity 0,2,0). A bare `:root` here would LOSE
  * to them. `:root[data-theme]` ties, and this block sits after the theme
- * imports, so accessibility wins for every palette. The provider always sets
- * data-theme (the default writes "brainstrike"), so the attribute is never absent.
+ * imports, so accessibility wins for every palette.
+ *
+ * The `:root:not([data-theme])` twin (also 0,2,0) covers the window before the
+ * provider mounts and writes the attribute, and any host that never writes it
+ * at all: high contrast applies with or without `data-theme`, never only after
+ * hydration. The `.dark` pair is 0,3,0 for the same reason.
  */
 @media (prefers-contrast: more) {
-  :root[data-theme] {
+  :root[data-theme],
+  :root:not([data-theme]) {
     --bs-background: hsl(0 0% 100%); /* Pure white */
     --bs-foreground: hsl(0 0% 0%); /* Pure black */
     --bs-card: hsl(0 0% 100%);
@@ -92,7 +97,8 @@
     --bs-sidebar-ring: hsl(0 0% 0%);
   }
 
-  :root[data-theme].dark {
+  :root[data-theme].dark,
+  :root:not([data-theme]).dark {
     --bs-background: hsl(0 0% 0%); /* Pure black */
     --bs-foreground: hsl(0 0% 100%); /* Pure white */
     --bs-card: hsl(0 0% 5%);

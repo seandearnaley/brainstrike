@@ -414,11 +414,19 @@ When modifying TreeTable strategy or pagination behavior:
   `scripts/import-shadcn-theme.mjs <preset-code> <id>`; values are never
   hand-edited (`import-shadcn-theme.test.mjs` proves regenerate is a no-op).
   Selectors are `:root[data-theme="<id>"]` / `...dark` (0,2,0 / 0,3,0) so import
-  order is irrelevant; the high-contrast block uses `:root[data-theme]` and
-  sits after the imports so accessibility wins. Do not "fix" import placement.
-  `ThemeProvider` renders null until storage resolves, so for that first instant
-  `data-theme` is absent and a `prefers-contrast: more` user sees baseline tokens
-  rather than the high-contrast override — accepted trade-off, not a bug to fix.
+  order is irrelevant; the high-contrast block uses
+  `:root[data-theme], :root:not([data-theme])` (and the `.dark` pair) and sits
+  after the imports so accessibility wins. Do not "fix" import placement.
+  High contrast applies WITH OR WITHOUT `data-theme`: the `:not([data-theme])`
+  half carries the same specificity and covers the instant before
+  `ThemeProvider` resolves storage and writes the attribute, plus any host that
+  never writes it. The contract test pins both selector lists exactly.
+- A preset whose `accent` equals its `primary` (shadcn's `menuAccent: bold`) is
+  NORMALIZED by the generator to `--bs-accent: var(--bs-muted)` /
+  `--bs-accent-foreground: var(--bs-foreground)`, and the file header records
+  `accentNormalized: true`. shadcn's menu axes (`menuAccent`, `menuColor`) are
+  deliberately not adopted: `bg-accent` is Brainstrike's subtle hover tint and
+  most call sites use it without a paired `text-accent-foreground`.
 - Token ownership: preset-provided colours, radius, chart and sidebar sets, plus
   derived `panel-divider`/`panel-surface` and a `destructive-foreground`
   fallback come from the theme file. Both derived tokens originate from
