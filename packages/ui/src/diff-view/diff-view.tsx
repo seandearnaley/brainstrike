@@ -44,13 +44,13 @@ const MONO_FONT_FAMILY =
 const DIFF_THEME: Extension = EditorView.theme({
   // Merge-view chunk highlighting (tinted via theme tokens so it tracks dark mode).
   '.cm-changedLine': {
-    backgroundColor: 'hsl(var(--primary) / 0.08)',
+    backgroundColor: 'color-mix(in oklab, var(--primary) 8%, transparent)',
   },
   '.cm-changedText': {
-    backgroundColor: 'hsl(var(--primary) / 0.18)',
+    backgroundColor: 'color-mix(in oklab, var(--primary) 18%, transparent)',
   },
   '.cm-content': {
-    caretColor: 'hsl(var(--foreground))',
+    caretColor: 'var(--foreground)',
     fontFamily: MONO_FONT_FAMILY,
     fontSize: '0.8125rem',
     lineHeight: '1.55',
@@ -58,7 +58,7 @@ const DIFF_THEME: Extension = EditorView.theme({
     padding: '0.5rem 0',
   },
   '.cm-deletedChunk': {
-    backgroundColor: 'hsl(var(--destructive) / 0.12)',
+    backgroundColor: 'color-mix(in oklab, var(--destructive) 12%, transparent)',
   },
   '.cm-editor': {
     height: '100%',
@@ -67,9 +67,9 @@ const DIFF_THEME: Extension = EditorView.theme({
     outline: 'none',
   },
   '.cm-gutters': {
-    backgroundColor: 'hsl(var(--muted) / 0.35)',
-    borderRight: '1px solid hsl(var(--border))',
-    color: 'hsl(var(--muted-foreground))',
+    backgroundColor: 'color-mix(in oklab, var(--muted) 35%, transparent)',
+    borderRight: '1px solid var(--border)',
+    color: 'var(--muted-foreground)',
   },
   '.cm-insertedLine': {
     backgroundColor: 'hsl(142 70% 45% / 0.14)',
@@ -83,8 +83,8 @@ const DIFF_THEME: Extension = EditorView.theme({
     overflow: 'auto',
   },
   '&': {
-    backgroundColor: 'hsl(var(--background))',
-    color: 'hsl(var(--foreground))',
+    backgroundColor: 'var(--background)',
+    color: 'var(--foreground)',
     height: '100%',
     minHeight: '100%',
   },

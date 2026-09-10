@@ -33,8 +33,8 @@
   }
 
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    background-color: var(--background);
+    color: var(--foreground);
     /* Primary: Geist Variable via @fontsource, then system fonts */
     font-family: var(--bs-font-sans);
     /* Enhanced OpenType features for premium typography */
@@ -90,7 +90,7 @@
 /* Basic scrollbar styling for consistency */
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground)) hsl(var(--muted));
+  scrollbar-color: var(--muted-foreground) var(--muted);
 }
 
 .scrollbar-thin::-webkit-scrollbar {
@@ -99,23 +99,23 @@
 }
 
 .scrollbar-thin::-webkit-scrollbar-track {
-  background-color: hsl(var(--muted));
+  background-color: var(--muted);
   border-radius: 9999px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--muted-foreground));
+  background-color: var(--muted-foreground);
   border-radius: 9999px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background-color: hsl(var(--foreground));
+  background-color: var(--foreground);
 }
 
 /* Nice scrollbar for file tree */
 .file-tree-scroll {
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.5) transparent;
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 50%, transparent) transparent;
 }
 
 .file-tree-scroll::-webkit-scrollbar {
@@ -127,15 +127,15 @@
 }
 
 .file-tree-scroll::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--muted-foreground) / 0.3);
+  background-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent);
   border-radius: 4px;
   transition: background-color 0.2s;
 }
 
 .file-tree-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: hsl(var(--muted-foreground) / 0.5);
+  background-color: color-mix(in oklab, var(--muted-foreground) 50%, transparent);
 }
 
 .file-tree-scroll::-webkit-scrollbar-thumb:active {
-  background-color: hsl(var(--muted-foreground) / 0.7);
+  background-color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
 }

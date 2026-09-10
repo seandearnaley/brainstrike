@@ -187,7 +187,7 @@
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: hsl(var(--border));
+    border-color: var(--border);
   }
 
   /* ============================================================================
@@ -291,7 +291,7 @@
 
   /* Keep a fallback focus affordance for text-entry primitives only. */
   :where(a[href], input, textarea, select):focus-visible {
-    outline: 1.5px solid hsl(var(--foreground) / 0.2);
+    outline: 1.5px solid color-mix(in oklab, var(--foreground) 20%, transparent);
     outline-offset: 2px;
   }
 
@@ -317,7 +317,7 @@
   /* Global scrollbar styling */
   body {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground)) hsl(var(--muted));
+    scrollbar-color: var(--muted-foreground) var(--muted);
   }
 
   body::-webkit-scrollbar {
@@ -326,21 +326,21 @@
   }
 
   body::-webkit-scrollbar-track {
-    background: hsl(var(--muted));
+    background: var(--muted);
     border-radius: 4px;
   }
 
   body::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted-foreground));
+    background: var(--muted-foreground);
     border-radius: 4px;
   }
 
   body::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--accent-foreground));
+    background: var(--accent-foreground);
   }
 
   body::-webkit-scrollbar-corner {
-    background: hsl(var(--muted)); /* Or transparent */
+    background: var(--muted); /* Or transparent */
   }
 
   /* ==========================================================================

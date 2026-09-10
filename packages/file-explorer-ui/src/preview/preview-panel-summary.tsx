@@ -113,12 +113,12 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
             <linearGradient id={gradientFillId} x1="0" x2="0" y1="0" y2="1">
               <stop
                 offset="0%"
-                stopColor={isOverBudget ? 'hsl(var(--destructive))' : 'hsl(var(--primary))'}
+                stopColor={isOverBudget ? 'var(--destructive)' : 'var(--primary)'}
                 stopOpacity="0.28"
               />
               <stop
                 offset="100%"
-                stopColor={isOverBudget ? 'hsl(var(--destructive))' : 'hsl(var(--primary))'}
+                stopColor={isOverBudget ? 'var(--destructive)' : 'var(--primary)'}
                 stopOpacity="0.04"
               />
             </linearGradient>
@@ -127,7 +127,7 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
           <polyline
             fill="none"
             points={geometry.polylinePoints}
-            stroke={isOverBudget ? 'hsl(var(--destructive))' : 'hsl(var(--primary))'}
+            stroke={isOverBudget ? 'var(--destructive)' : 'var(--primary)'}
             strokeLinecap="round"
             strokeLinejoin="round"
             strokeWidth="2"
@@ -326,7 +326,7 @@ const ExpandedSummaryInsights = memo<ExpandedSummaryInsightsProps>(
           visualValue: tokenUsage.selectedTokens * budgetRatio,
         },
         {
-          className: 'bg-[hsl(var(--chart-2))]/80',
+          className: 'bg-chart-2/80',
           id: 'tree',
           label: 'Tree',
           value: treeTokens,

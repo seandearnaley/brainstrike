@@ -259,7 +259,7 @@ export const TokenSummaryBar = memo<TokenSummaryBarProps>(function TokenSummaryB
             <div className="cursor-default">
               <StatItem
                 icon={TreePine}
-                iconColor="text-[hsl(var(--chart-2))]"
+                iconColor="text-chart-2"
                 label=""
                 muted={!includeTree}
                 value={treeTokensValue}

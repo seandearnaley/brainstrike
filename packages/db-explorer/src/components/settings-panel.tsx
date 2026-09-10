@@ -431,7 +431,7 @@ export function SettingsPanel({
     <TooltipProvider delayDuration={200}>
       <div
         className={cn(
-          'mt-2 max-h-[min(78vh,640px)] space-y-3 overflow-y-auto rounded-xl border border-border/70 bg-[linear-gradient(180deg,hsl(var(--background))_0%,hsl(var(--muted)/0.45)_100%)] p-3 shadow-sm',
+          'mt-2 max-h-[min(78vh,640px)] space-y-3 overflow-y-auto rounded-xl border border-border/70 bg-[linear-gradient(180deg,var(--background)_0%,color-mix(in_oklab,_var(--muted)_45%,_transparent)_100%)] p-3 shadow-sm',
           className
         )}
       >

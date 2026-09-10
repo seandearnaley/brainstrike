@@ -150,7 +150,7 @@ export function AssistantThreadTabDropIndicator({
 }): ReactElement {
   return (
     <span
-      className={`pointer-events-none absolute inset-y-0 z-20 w-0.5 rounded-full bg-primary shadow-[0_0_0_1px_hsl(var(--background))] ${
+      className={`pointer-events-none absolute inset-y-0 z-20 w-0.5 rounded-full bg-primary shadow-[0_0_0_1px_var(--background)] ${
         edge === 'left' ? '-left-[3px]' : '-right-[3px]'
       }`}
       data-edge={edge}

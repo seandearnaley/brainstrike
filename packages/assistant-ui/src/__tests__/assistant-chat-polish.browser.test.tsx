@@ -433,7 +433,7 @@ describe('ActivityTrace (real browser)', () => {
             USER_MESSAGE_LAYOUT_SHIM comment above), so the comparison below
             measures the real destructive design token in real Chromium
             rather than hardcoding an expected color string. */}
-        <style>{'.text-destructive { color: hsl(var(--destructive)); }'}</style>
+        <style>{'.text-destructive { color: var(--destructive); }'}</style>
         <span className="text-destructive" data-testid="destructive-token-probe" />
         <ActivityTrace
           detail={null}
