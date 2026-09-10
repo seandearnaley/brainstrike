@@ -3,7 +3,17 @@ import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
+import type { BrowserCommand } from 'vitest/node';
 import { createBrowserProject } from '../config/src/vitest-browser.ts';
+
+const emulateReducedMotion: BrowserCommand<[options: { enabled: boolean | null }]> = async (
+  { page },
+  { enabled }
+): Promise<void> => {
+  await page.emulateMedia({
+    reducedMotion: enabled === null ? null : enabled ? 'reduce' : 'no-preference',
+  });
+};
 
 const browserProject = createBrowserProject({
   // Carries TEST_TIMEOUT_MULTIPLIER into the browser page, where `process`
@@ -95,6 +105,10 @@ export default defineConfig({
         },
         test: {
           ...browserProject.test,
+          browser: {
+            ...browserProject.test.browser,
+            commands: { emulateReducedMotion },
+          },
           globals: true,
           sequence: {
             groupOrder: 1,

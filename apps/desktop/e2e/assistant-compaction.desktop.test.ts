@@ -59,7 +59,7 @@ test.describe('assistant compaction summary (desktop)', () => {
     await expect(card).toContainText('AI-generated summary');
     await expect(card).toContainText('Keep the compaction divider visible.');
 
-    const input = window.locator('#assistant-input');
+    const input = window.getByRole('textbox', { name: 'Message input' });
     await input.fill(FOLLOW_UP_PROMPT);
     await window.getByRole('button', { exact: true, name: 'Send' }).click();
 

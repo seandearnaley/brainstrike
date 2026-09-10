@@ -2,6 +2,15 @@
 
 > Extracted from AGENTS.md (2026-07-12). Read before changing the assistant tool/stream chain, tool approval, lifecycle hooks, or plan-mode/suspension. Keep this doc updated with the code.
 
+## Existing-runtime conversation panels
+
+`AssistantConversationPanel` binds the main `ChatThreadUI` to a supplied public
+assistant-ui runtime. Opening/closing a visible panel must not invoke a model or
+cancel its host-owned run. Every pane has its own runtime provider, error
+boundary and composer input identity; callbacks and `threadKey` must name the
+same conversation. See `assistant-subagents.md` for the host integration limits
+and paired runtime/browser tests. Main runtime construction is unchanged.
+
 ## ASSISTANT RESILIENCE (CRITICAL)
 
 The assistant tool→stream chain must never freeze the thread. The renderer safety

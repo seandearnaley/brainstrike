@@ -578,7 +578,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     const viewport = page.getByTestId('assistant-ui-viewport');
     await expect(viewport).toBeVisible();
 
-    await page.locator('#assistant-input').fill('tell me a joke');
+    await page.getByRole('textbox', { name: 'Message input' }).fill('tell me a joke');
     const sendBtn = page.getByRole('button', { exact: true, name: 'Send' });
     await sendBtn.click();
 
@@ -610,7 +610,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     const viewport = page.getByTestId('assistant-ui-viewport');
     await expect(viewport).toBeVisible();
 
-    await page.locator('#assistant-input').fill('echo hidden tool details');
+    await page.getByRole('textbox', { name: 'Message input' }).fill('echo hidden tool details');
     await page.getByRole('button', { exact: true, name: 'Send' }).click();
 
     // Since #1237/#1240 a turn's tool cards live inside a per-turn Activity
@@ -713,7 +713,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       ),
     ].join('\n\n');
 
-    const input = page.locator('#assistant-input');
+    const input = page.getByRole('textbox', { name: 'Message input' });
     await input.fill(longPrompt);
     await composerShell.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(viewport.getByText(/Mock response from tests/i)).toHaveCount(1, {
