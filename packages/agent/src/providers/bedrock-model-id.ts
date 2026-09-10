@@ -18,22 +18,44 @@
  *   au./jp./apac. profile and stays unprefixed in those geographies.
  * - `apac.` profiles do not exist at all today, so it is never emitted.
  *
- * AWS-CARD OVERRIDE (BST-1694, PR #3080 review): where an AWS model card
- * enumerates a model's inference profiles, the CARD outranks models.dev —
- * models.dev is a third-party mirror and can list a profile AWS never
- * published. The one such divergence today is
- * `jp.anthropic.claude-opus-5`: the Opus 5 card
- * (docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5.html,
- * retrieved 2026-09-08) lists `anthropic.claude-opus-5` plus `us.`, `eu.`,
- * `au.` and `global.` only, and its Data residency table covers exactly the
- * US, EU and AU geos plus Global. So Opus 5 is absent from the jp. set below;
- * in ap-northeast-1 (which that card marks Global-only) the id is sent
- * verbatim and Bedrock reports the outcome, per the rule in the next
- * paragraph. Emitting a profile AWS does not publish fails harder — it can
- * only ever be a client-manufactured error. Pre-existing and NOT fixed with
- * it: `jp.anthropic.claude-sonnet-5` is the same models.dev phantom
- * (BST-1710), and this module emits no `global.` profile at all, so the
- * Global-only regions get the verbatim id (BST-1711).
+ * AWS-CARD OVERRIDE (BST-1694, PR #3080 review; audit completed in BST-1710):
+ * where an AWS model card enumerates a model's inference profiles, the CARD
+ * outranks models.dev. models.dev is a third-party mirror: it can list a
+ * profile AWS never published, and it can equally MISS one AWS does publish.
+ * Emitting a profile AWS does not publish fails harder than sending the id
+ * verbatim — it can only ever be a client-manufactured error, aimed at an id
+ * Bedrock will never answer.
+ *
+ * BST-1710 audited every `jp.` entry against its own card (retrieved
+ * 2026-09-10):
+ * - PUBLISHED, kept — `anthropic.claude-opus-4-7`,
+ *   `anthropic.claude-opus-4-8`, `anthropic.claude-sonnet-4-5-20250929-v1:0`,
+ *   `anthropic.claude-sonnet-4-6`, `anthropic.claude-haiku-4-5-20251001-v1:0`.
+ *   Each card's Programmatic Access row lists a `jp.<id>` Geo inference ID and
+ *   carries a "Geo: JP" section sourced from ap-northeast-1.
+ * - PHANTOM, removed — `anthropic.claude-sonnet-5`. Its card
+ *   (docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5.html)
+ *   gives Geo ids `us.`, `eu.`, `au.` and Global `global.anthropic.claude-sonnet-5`
+ *   only, has no "Geo: JP" section, and marks ap-northeast-1 In-Region ✗ /
+ *   Geo ✗ / Global ✓.
+ * - PHANTOM, removed earlier by BST-1694 on the same evidence shape —
+ *   `anthropic.claude-opus-5`.
+ *
+ * The audit cuts BOTH ways. The same pass found `anthropic.claude-opus-4-7`
+ * MISSING from the au. set although its card publishes
+ * `au.anthropic.claude-opus-4-7` and marks ap-southeast-2/-4 Geo ✓ while
+ * marking the bare id In-Region ✗ everywhere — so Sydney/Melbourne were being
+ * handed an id Bedrock cannot invoke. It was added. The us./eu. sets matched
+ * their cards for all six audited ids.
+ *
+ * Cards NOT read in that pass keep their models.dev-derived membership
+ * unchanged: fable-5, fable-5-1, opus-4-1, opus-4-5, opus-4-6-v1,
+ * deepseek.r1 and the llama4 pair. None of them is in the jp. set, so none can
+ * be a jp. phantom.
+ *
+ * Still open: this module emits no `global.` profile at all, so every region a
+ * card marks Geo ✗ / Global ✓ — ap-northeast-1 for sonnet-5 and opus-5 among
+ * them — receives the verbatim id (BST-1711).
  *
  * When no regional profile exists for a model+region the id is sent
  * VERBATIM and Bedrock itself reports the routing outcome — guessing a
@@ -45,8 +67,10 @@
  * typed init failure — never a silent `us-east-1`.
  *
  * Refresh procedure: re-run the models.dev extraction (prefixed keys grouped
- * by prefix), update the sets, update bedrock-model-id.spec.ts, and bump the
- * retrieval date above.
+ * by prefix), then CHECK EVERY ID YOU ADD OR KEEP against its AWS model card's
+ * Programmatic Access row — the card wins in both directions, and a mirror
+ * diff alone has twice now been wrong. Update the sets, update
+ * bedrock-model-id.spec.ts, and bump the retrieval date above.
  */
 
 const CROSS_REGION_PREFIXES = ['global.', 'us.', 'eu.', 'jp.', 'apac.', 'au.'] as const;
@@ -90,8 +114,9 @@ const EU_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Unprefixed ids with a `jp.<id>` profile (models.dev 2026-08-18), MINUS the
- * ids an AWS model card contradicts — see the AWS-card override note above.
+ * Unprefixed ids with a `jp.<id>` profile. Every member was confirmed against
+ * its own AWS model card in the BST-1710 audit (2026-09-10); the ids the cards
+ * contradict are gone — see the AWS-card override note above.
  */
 const JP_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-haiku-4-5-20251001-v1:0',
@@ -99,13 +124,17 @@ const JP_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-opus-4-8',
   'anthropic.claude-sonnet-4-5-20250929-v1:0',
   'anthropic.claude-sonnet-4-6',
-  'anthropic.claude-sonnet-5',
 ]);
 
-/** Unprefixed ids with an `au.<id>` profile (models.dev 2026-08-18). */
+/**
+ * Unprefixed ids with an `au.<id>` profile (models.dev 2026-08-18, plus
+ * `anthropic.claude-opus-4-7` added by the BST-1710 card audit — its card
+ * publishes `au.anthropic.claude-opus-4-7` and models.dev had missed it).
+ */
 const AU_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-haiku-4-5-20251001-v1:0',
   'anthropic.claude-opus-4-6-v1',
+  'anthropic.claude-opus-4-7',
   'anthropic.claude-opus-4-8',
   'anthropic.claude-opus-5',
   'anthropic.claude-sonnet-4-5-20250929-v1:0',
