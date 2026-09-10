@@ -32,9 +32,10 @@ export function AppLayout({
 
   return (
     <ThemeProvider
-      defaultTheme="light"
+      defaultMode="light"
       storageAdapter={storageAdapter}
       storageKey={config.themeStorageKey}
+      themeStorageKey={config.themePaletteStorageKey}
     >
       <TooltipProvider delayDuration={300} skipDelayDuration={100}>
         <FileExplorerProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>

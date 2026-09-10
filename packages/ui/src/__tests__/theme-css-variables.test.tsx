@@ -23,7 +23,7 @@ describe('Theme Provider CSS Class Management', () => {
       await act(async () => {
         render(
           <ThemeProvider
-            defaultTheme="light"
+            defaultMode="light"
             storageAdapter={themeStorageAdapter}
             storageKey="test-theme-light"
           >
@@ -38,6 +38,7 @@ describe('Theme Provider CSS Class Management', () => {
         expect(document.documentElement.classList.contains('dark')).toBe(false);
         expect(document.documentElement.classList.contains('light')).toBe(true);
       });
+      expect(document.documentElement.dataset['theme']).toBe('brainstrike');
     });
   });
 
@@ -46,7 +47,7 @@ describe('Theme Provider CSS Class Management', () => {
       await act(async () => {
         render(
           <ThemeProvider
-            defaultTheme="dark"
+            defaultMode="dark"
             storageAdapter={themeStorageAdapter}
             storageKey="test-theme-dark"
           >
@@ -67,7 +68,7 @@ describe('Theme Provider CSS Class Management', () => {
       await act(async () => {
         render(
           <ThemeProvider
-            defaultTheme="system"
+            defaultMode="system"
             storageAdapter={themeStorageAdapter}
             storageKey="test-theme-system"
           >
@@ -94,7 +95,7 @@ describe('Theme Provider CSS Class Management', () => {
       await act(async () => {
         const result = render(
           <ThemeProvider
-            defaultTheme="light"
+            defaultMode="light"
             storageAdapter={themeStorageAdapter}
             storageKey="test-theme-light-1"
           >
@@ -120,7 +121,7 @@ describe('Theme Provider CSS Class Management', () => {
       await act(async () => {
         render(
           <ThemeProvider
-            defaultTheme="dark"
+            defaultMode="dark"
             storageAdapter={themeStorageAdapter}
             storageKey="test-theme-dark-2"
           >

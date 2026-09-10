@@ -9,6 +9,7 @@ export interface NavigationItem {
 export interface AppShellConfig {
   description: string;
   navigationItems: NavigationItem[];
+  themePaletteStorageKey: string;
   themeStorageKey: string;
   title: string;
 }

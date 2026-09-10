@@ -8,7 +8,7 @@ import { Label } from './label';
 import { useTheme } from './theme-provider';
 
 export function ThemeSettings() {
-  const { theme, setTheme } = useTheme();
+  const { mode, setMode } = useTheme();
 
   return (
     <div className="grid gap-6">
@@ -17,24 +17,24 @@ export function ThemeSettings() {
         <div className="grid grid-cols-3 gap-4">
           <Button
             className="w-full"
-            onClick={() => setTheme('light')}
-            variant={theme === 'light' ? 'default' : 'outline'}
+            onClick={() => setMode('light')}
+            variant={mode === 'light' ? 'default' : 'outline'}
           >
             <Sun className="mr-2 h-5 w-5" data-testid="light-theme-icon" />
             Light
           </Button>
           <Button
             className="w-full"
-            onClick={() => setTheme('dark')}
-            variant={theme === 'dark' ? 'default' : 'outline'}
+            onClick={() => setMode('dark')}
+            variant={mode === 'dark' ? 'default' : 'outline'}
           >
             <Moon className="mr-2 h-5 w-5" data-testid="dark-theme-icon" />
             Dark
           </Button>
           <Button
             className="w-full"
-            onClick={() => setTheme('system')}
-            variant={theme === 'system' ? 'default' : 'outline'}
+            onClick={() => setMode('system')}
+            variant={mode === 'system' ? 'default' : 'outline'}
           >
             <Monitor className="mr-2 h-5 w-5" data-testid="system-theme-icon" />
             System

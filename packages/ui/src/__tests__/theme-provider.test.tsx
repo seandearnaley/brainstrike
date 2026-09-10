@@ -1,195 +1,121 @@
 /**
  * @vitest-environment happy-dom
  */
-import { act, renderHook } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import type { ComponentProps, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThemeProvider, type ThemeStorageAdapter, useTheme } from '../theme-provider';
 
-// Mock storage adapter
-let mockStorageAdapter: ThemeStorageAdapter;
+const { mockWarn } = vi.hoisted(() => ({ mockWarn: vi.fn() }));
+vi.mock('@brainstrike/logging', () => ({
+  createLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: mockWarn }),
+}));
 
-// Mock classList
-const mockClassList = {
-  add: vi.fn(),
-  contains: vi.fn(),
-  entries: vi.fn(),
-  forEach: vi.fn(),
-  item: vi.fn(),
-  keys: vi.fn(),
-  length: 0,
-  remove: vi.fn(),
-  replace: vi.fn(),
-  toggle: vi.fn(),
-  toString: vi.fn(),
-  value: '',
-  values: vi.fn(),
-  [Symbol.iterator]: vi.fn(),
-} as unknown as DOMTokenList;
+function createStorage(
+  seed: Record<string, string> = {}
+): ThemeStorageAdapter & { data: Map<string, string> } {
+  const data = new Map(Object.entries(seed));
+  return {
+    data,
+    getItem: vi.fn(async (key: string) => data.get(key) ?? null),
+    setItem: vi.fn(async (key: string, value: string) => {
+      data.set(key, value);
+    }),
+  };
+}
+
+function wrapperFor(
+  storage: ThemeStorageAdapter,
+  extra: Partial<Omit<ComponentProps<typeof ThemeProvider>, 'children' | 'storageAdapter'>> = {}
+) {
+  return ({ children }: { children: ReactNode }) => (
+    <ThemeProvider storageAdapter={storage} {...extra}>
+      {children}
+    </ThemeProvider>
+  );
+}
 
 describe('ThemeProvider', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    vi.useFakeTimers();
-
-    // Create fresh mock storage adapter
-    mockStorageAdapter = {
-      clear: vi.fn().mockResolvedValue(undefined),
-      getAllKeys: vi.fn().mockResolvedValue([]),
-      getItem: vi.fn().mockResolvedValue(null),
-      removeItem: vi.fn().mockResolvedValue(undefined),
-      setItem: vi.fn().mockResolvedValue(undefined),
-    } as ThemeStorageAdapter;
-
-    // Set the classList on the document element
-    Object.defineProperty(document.documentElement, 'classList', {
-      value: mockClassList,
-      writable: true,
-    });
-
-    // Mock window.matchMedia
-    global.matchMedia = vi.fn().mockImplementation((query) => ({
+    mockWarn.mockClear();
+    document.documentElement.className = '';
+    document.documentElement.dataset['theme'] = undefined;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
       addEventListener: vi.fn(),
-      addListener: vi.fn(),
-      dispatchEvent: vi.fn(),
       matches: query === '(prefers-color-scheme: dark)',
       media: query,
-      onchange: null,
       removeEventListener: vi.fn(),
-      removeListener: vi.fn(),
-    }));
+    })) as unknown as typeof window.matchMedia;
   });
 
   afterEach(() => {
-    vi.useRealTimers();
-    vi.resetAllMocks();
+    vi.clearAllMocks();
   });
 
-  // Default wrapper without explicit defaultTheme
-  const wrapper = ({ children }: { children: ReactNode }) => (
-    <ThemeProvider storageAdapter={mockStorageAdapter}>{children}</ThemeProvider>
-  );
-
-  it('provides default theme state', async () => {
-    (mockStorageAdapter.getItem as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-    const { result } = renderHook(() => useTheme(), { wrapper });
-
-    // Wait for mounted state
-    await act(async () => {
-      vi.runAllTimers();
-      await vi.runAllTicks();
-    });
-
-    expect(result.current.theme).toBe('system');
+  it('defaults to system mode and the brainstrike theme', async () => {
+    const { result } = renderHook(() => useTheme(), { wrapper: wrapperFor(createStorage()) });
+    await waitFor(() => expect(result.current.mode).toBe('system'));
+    expect(result.current.theme).toBe('brainstrike');
+    expect(document.documentElement.dataset['theme']).toBe('brainstrike');
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
   });
 
-  it('loads theme from storage if available', async () => {
-    (mockStorageAdapter.getItem as ReturnType<typeof vi.fn>).mockResolvedValue('dark');
-    const { result } = renderHook(() => useTheme(), { wrapper });
-
-    await act(async () => {
-      vi.runAllTimers();
-      await vi.runAllTicks();
-    });
-
-    expect(result.current.theme).toBe('dark');
+  it('loads a persisted mode and theme from separate keys', async () => {
+    const storage = createStorage({ 'ui-theme': 'light', 'ui-theme-palette': 'tide' });
+    const { result } = renderHook(() => useTheme(), { wrapper: wrapperFor(storage) });
+    await waitFor(() => expect(result.current.theme).toBe('tide'));
+    expect(result.current.mode).toBe('light');
+    expect(document.documentElement.dataset['theme']).toBe('tide');
+    expect(document.documentElement.classList.contains('light')).toBe(true);
   });
 
-  it('updates theme when setTheme is called', async () => {
-    const { result } = renderHook(() => useTheme(), { wrapper });
-
-    await act(async () => {
-      vi.runAllTimers();
-      await vi.runAllTicks();
+  it('persists setMode and setTheme under their own keys', async () => {
+    const storage = createStorage();
+    const { result } = renderHook(() => useTheme(), {
+      wrapper: wrapperFor(storage, { storageKey: 'k-mode', themeStorageKey: 'k-theme' }),
     });
-
-    act(() => {
-      result.current.setTheme('dark');
-    });
-
-    expect(result.current.theme).toBe('dark');
-    expect(mockStorageAdapter.setItem).toHaveBeenCalledWith('ui-theme', 'dark');
+    await waitFor(() => expect(result.current.mode).toBe('system'));
+    act(() => result.current.setMode('dark'));
+    act(() => result.current.setTheme('orchid'));
+    expect(storage.setItem).toHaveBeenCalledWith('k-mode', 'dark');
+    expect(storage.setItem).toHaveBeenCalledWith('k-theme', 'orchid');
+    expect(document.documentElement.dataset['theme']).toBe('orchid');
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
   });
 
-  it('applies system theme when theme is set to system', async () => {
-    // Mock system theme as dark
-    global.matchMedia = vi.fn().mockImplementation((query) => ({
-      addEventListener: vi.fn(),
-      addListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-      matches: query === '(prefers-color-scheme: dark)',
-      media: query,
-      onchange: null,
-      removeEventListener: vi.fn(),
-      removeListener: vi.fn(),
-    }));
-
-    const { result } = renderHook(() => useTheme(), { wrapper });
-
-    await act(async () => {
-      vi.runAllTimers();
-      await vi.runAllTicks();
-    });
-
-    act(() => {
-      result.current.setTheme('system');
-    });
-
-    await act(async () => {
-      vi.runAllTimers();
-      await vi.runAllTicks();
-    });
-
-    expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark');
-    expect(mockClassList.add).toHaveBeenCalledWith('dark');
-  });
-
-  it('throws error when useTheme is used outside provider', () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    expect(() => {
-      renderHook(() => useTheme());
-    }).toThrow('useTheme must be used within a ThemeProvider');
-
-    consoleSpy.mockRestore();
-  });
-
-  it('handles custom defaultTheme prop', async () => {
-    const customWrapper = ({ children }: { children: ReactNode }) => (
-      <ThemeProvider defaultTheme="dark" storageAdapter={mockStorageAdapter}>
-        {children}
-      </ThemeProvider>
+  it('resets an unknown persisted theme to the default and warns', async () => {
+    const storage = createStorage({ 'ui-theme-palette': 'retired-theme' });
+    const { result } = renderHook(() => useTheme(), { wrapper: wrapperFor(storage) });
+    await waitFor(() => expect(result.current.theme).toBe('brainstrike'));
+    expect(mockWarn).toHaveBeenCalledWith(
+      'Ignoring unknown persisted theme',
+      expect.objectContaining({ key: 'ui-theme-palette', value: 'retired-theme' })
     );
-
-    (mockStorageAdapter.getItem as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-    const { result } = renderHook(() => useTheme(), { wrapper: customWrapper });
-
-    await act(async () => {
-      vi.runAllTimers();
-      await vi.runAllTicks();
-    });
-
-    expect(result.current.theme).toBe('dark');
   });
 
-  it('handles custom storageKey prop', async () => {
-    const customWrapper = ({ children }: { children: ReactNode }) => (
-      <ThemeProvider storageAdapter={mockStorageAdapter} storageKey="custom-theme-key">
-        {children}
-      </ThemeProvider>
+  it('resets an unknown persisted mode to the default and warns', async () => {
+    const storage = createStorage({ 'ui-theme': 'sepia' });
+    const { result } = renderHook(() => useTheme(), {
+      wrapper: wrapperFor(storage, { defaultMode: 'light' }),
+    });
+    await waitFor(() => expect(result.current.mode).toBe('light'));
+    expect(mockWarn).toHaveBeenCalledWith(
+      'Ignoring unknown persisted theme mode',
+      expect.objectContaining({ key: 'ui-theme', value: 'sepia' })
     );
+  });
 
-    const { result } = renderHook(() => useTheme(), { wrapper: customWrapper });
-
-    await act(async () => {
-      vi.runAllTimers();
-      await vi.runAllTicks();
+  it('honours defaultMode and defaultTheme when nothing is persisted', async () => {
+    const { result } = renderHook(() => useTheme(), {
+      wrapper: wrapperFor(createStorage(), { defaultMode: 'light', defaultTheme: 'ember' }),
     });
+    await waitFor(() => expect(result.current.theme).toBe('ember'));
+    expect(result.current.mode).toBe('light');
+  });
 
-    act(() => {
-      result.current.setTheme('light');
-    });
-
-    expect(mockStorageAdapter.setItem).toHaveBeenCalledWith('custom-theme-key', 'light');
+  it('throws when useTheme is used outside the provider', () => {
+    expect(() => renderHook(() => useTheme())).toThrow(
+      'useTheme must be used within a ThemeProvider'
+    );
   });
 });

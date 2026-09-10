@@ -14,8 +14,8 @@ import {
 vi.mock('../../theme-provider', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   useTheme: () => ({
-    setTheme: vi.fn(),
-    theme: 'light',
+    mode: 'light',
+    setMode: vi.fn(),
   }),
 }));
 

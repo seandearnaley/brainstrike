@@ -17,7 +17,7 @@ const renderThemeToggle = () =>
   );
 
 describe('ThemeToggle', () => {
-  const mockSetTheme = vi.fn();
+  const mockSetMode = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -25,8 +25,8 @@ describe('ThemeToggle', () => {
 
   it('renders toggle button with correct aria-label for light mode', () => {
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      setTheme: mockSetTheme,
-      theme: 'light',
+      mode: 'light',
+      setMode: mockSetMode,
     });
 
     renderThemeToggle();
@@ -35,8 +35,8 @@ describe('ThemeToggle', () => {
 
   it('renders toggle button with correct aria-label for dark mode', () => {
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      setTheme: mockSetTheme,
-      theme: 'dark',
+      mode: 'dark',
+      setMode: mockSetMode,
     });
 
     renderThemeToggle();
@@ -46,19 +46,19 @@ describe('ThemeToggle', () => {
   it('toggles theme when clicked', async () => {
     const user = userEvent.setup();
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      setTheme: mockSetTheme,
-      theme: 'light',
+      mode: 'light',
+      setMode: mockSetMode,
     });
 
     renderThemeToggle();
     await user.click(screen.getByRole('button'));
-    expect(mockSetTheme).toHaveBeenCalledWith('dark');
+    expect(mockSetMode).toHaveBeenCalledWith('dark');
   });
 
   it('renders sun and moon icons with aria-hidden', () => {
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      setTheme: mockSetTheme,
-      theme: 'light',
+      mode: 'light',
+      setMode: mockSetMode,
     });
 
     renderThemeToggle();
@@ -74,8 +74,8 @@ describe('ThemeToggle', () => {
 
   it('includes screen reader text', () => {
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      setTheme: mockSetTheme,
-      theme: 'light',
+      mode: 'light',
+      setMode: mockSetMode,
     });
 
     renderThemeToggle();
@@ -85,8 +85,8 @@ describe('ThemeToggle', () => {
   it('shows tooltip on hover', async () => {
     const user = userEvent.setup();
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      setTheme: mockSetTheme,
-      theme: 'light',
+      mode: 'light',
+      setMode: mockSetMode,
     });
 
     renderThemeToggle();
@@ -100,8 +100,8 @@ describe('ThemeToggle', () => {
 
   it('has correct styling for tactile feedback', () => {
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      setTheme: mockSetTheme,
-      theme: 'light',
+      mode: 'light',
+      setMode: mockSetMode,
     });
 
     renderThemeToggle();

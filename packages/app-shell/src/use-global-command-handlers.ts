@@ -35,7 +35,7 @@ import { useConnectFolder } from './workspace-connect/use-connect-folder';
 export function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHandlers {
   const { openPicker } = useConnectFolder();
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
-  const { theme, setTheme } = useTheme();
+  const { mode, setMode } = useTheme();
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const openQuickOpen = useQuickOpenStore((state) => state.open);
 
@@ -58,15 +58,16 @@ export function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHand
 
   const toggleTheme = useCallback(() => {
     // Resolve `system` toward its effective value, then flip — so a single
-    // invocation always produces a visible change.
+    // invocation always produces a visible change. Flips MODE only; the
+    // palette (`theme`) is untouched.
     const effective =
-      theme === 'system'
+      mode === 'system'
         ? window.matchMedia('(prefers-color-scheme: dark)').matches
           ? 'dark'
           : 'light'
-        : theme;
-    setTheme(effective === 'dark' ? 'light' : 'dark');
-  }, [theme, setTheme]);
+        : mode;
+    setMode(effective === 'dark' ? 'light' : 'dark');
+  }, [mode, setMode]);
 
   return useMemo<GlobalCommandHandlers>(
     () => ({

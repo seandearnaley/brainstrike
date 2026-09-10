@@ -8,11 +8,11 @@ export type ResolvedTheme = 'light' | 'dark';
  * the user's preference via matchMedia.
  */
 export function useResolvedTheme(): ResolvedTheme {
-  const { theme: configuredTheme } = useTheme();
+  const { mode: configuredMode } = useTheme();
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('light');
 
   useEffect(() => {
-    if (configuredTheme === 'system') {
+    if (configuredMode === 'system') {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
       setResolvedTheme(mediaQuery.matches ? 'dark' : 'light');
 
@@ -24,9 +24,9 @@ export function useResolvedTheme(): ResolvedTheme {
       return () => mediaQuery.removeEventListener('change', handler);
     }
 
-    setResolvedTheme(configuredTheme as ResolvedTheme);
+    setResolvedTheme(configuredMode);
     return () => {};
-  }, [configuredTheme]);
+  }, [configuredMode]);
 
   return resolvedTheme;
 }
