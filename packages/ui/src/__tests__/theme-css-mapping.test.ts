@@ -18,11 +18,58 @@ describe('theme.css mapping', () => {
     /@theme inline \{(?<body>[\s\S]*?)\n\}/u.exec(themeCss)?.groups?.['body'] ?? '';
 
   it('maps every colour token from the bridge with the inline idiom', () => {
-    const tokens = bridgeTokens().filter((t) => t !== 'radius' && !t.startsWith('panel-surface'));
+    const tokens = bridgeTokens().filter((t) => t !== 'radius' && t !== 'panel-surface');
     expect(tokens.length).toBeGreaterThan(30);
     for (const token of tokens) {
       expect(inlineBlock, token).toContain(`--color-${token}: var(--${token});`);
     }
+  });
+
+  it('declares exactly the expected bridge tokens on :root', () => {
+    // The bridge is the single seam between the `--bs-*` palette and the
+    // Tailwind mapping. Pin it exactly: an extra token silently ships an
+    // unmapped variable, a missing one silently drops a utility.
+    const expected = [
+      'background',
+      'foreground',
+      'card',
+      'card-foreground',
+      'popover',
+      'popover-foreground',
+      'primary',
+      'primary-foreground',
+      'secondary',
+      'secondary-foreground',
+      'muted',
+      'muted-foreground',
+      'accent',
+      'accent-foreground',
+      'destructive',
+      'destructive-foreground',
+      'warning',
+      'warning-foreground',
+      'border',
+      'panel-divider',
+      'panel-surface',
+      'input',
+      'ring',
+      'chart-1',
+      'chart-2',
+      'chart-3',
+      'chart-4',
+      'chart-5',
+      'sidebar',
+      'sidebar-foreground',
+      'sidebar-primary',
+      'sidebar-primary-foreground',
+      'sidebar-accent',
+      'sidebar-accent-foreground',
+      'sidebar-border',
+      'sidebar-ring',
+      'radius',
+    ];
+    expect(expected).toHaveLength(37);
+    expect([...bridgeTokens()].sort()).toEqual([...expected].sort());
   });
 
   it('never wraps a mapping in hsl()', () => {

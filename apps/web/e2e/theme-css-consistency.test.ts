@@ -24,24 +24,86 @@ interface HslParts {
 }
 
 /**
- * Resolve a root colour token to normalized `#rrggbb`. The production build
- * rewrites colour literals inside custom properties (`hsl(30 25% 99%)` becomes
- * `#fdfcfc`), so the suite must never compare authored token text. Canvas
- * `fillStyle` normalizes any parseable CSS colour (hsl, hex, oklch) to hex.
+ * Normalize any CSS colour to an sRGB `#rrggbb` string by painting it onto a
+ * 1x1 canvas and reading the pixel back.
+ *
+ * Pixel readback is the only normalization that covers every syntax the theme
+ * layer can emit — `hsl()`, hex, `rgb()`, `oklch()`, `color-mix()` and relative
+ * colour syntax all collapse to the same sRGB triple. Canvas `fillStyle`
+ * serialization on its own does NOT: Chrome echoes the ORIGINAL text back for
+ * `oklch()`/`oklab()` and returns an absolute `oklch()` for relative colours,
+ * so comparing `fillStyle` strings would compare authored text, not colour.
+ *
+ * The production build also rewrites colour literals inside custom properties
+ * (`hsl(30 25% 99%)` becomes `#fdfcfc`), so the suite must never compare
+ * authored token text.
  */
-async function resolveTokenColor(page: Page, token: `--${string}`): Promise<string> {
-  return page.evaluate((name) => {
-    const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    if (!raw) {
-      throw new Error(`${name} is not defined on :root`);
+async function normalizeCssColor(
+  page: Page,
+  source: { literal: string | null; token: string | null }
+): Promise<string> {
+  return page.evaluate((input) => {
+    let raw: string;
+    let label: string;
+    if (input.token === null) {
+      raw = (input.literal ?? '').trim();
+      label = 'colour literal';
+      if (!raw) {
+        throw new Error('cannot normalize an empty colour literal');
+      }
+    } else {
+      raw = getComputedStyle(document.documentElement).getPropertyValue(input.token).trim();
+      label = input.token;
+      if (!raw) {
+        throw new Error(`${input.token} is not defined on :root`);
+      }
     }
-    const context = document.createElement('canvas').getContext('2d');
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
     if (!context) {
       throw new Error('canvas 2d context unavailable');
     }
+    // An unparseable colour leaves fillStyle untouched, so prove the assignment took.
+    const sentinel = '#010203';
+    context.fillStyle = sentinel;
     context.fillStyle = raw;
-    return context.fillStyle;
-  }, token);
+    if (context.fillStyle === sentinel && raw.replace(/\s/gu, '').toLowerCase() !== sentinel) {
+      throw new Error(`${label} is not a parseable CSS colour: "${raw}"`);
+    }
+    context.clearRect(0, 0, 1, 1);
+    context.fillRect(0, 0, 1, 1);
+    const pixel = context.getImageData(0, 0, 1, 1).data;
+    const r = pixel[0];
+    const g = pixel[1];
+    const b = pixel[2];
+    const a = pixel[3];
+    if (r === undefined || g === undefined || b === undefined || a === undefined) {
+      throw new Error(`${label}: canvas readback returned an empty pixel`);
+    }
+    if (a !== 255) {
+      throw new Error(`${label} is not opaque (alpha ${a}): "${raw}"`);
+    }
+    const hex = (n: number) => n.toString(16).padStart(2, '0');
+    return `#${hex(r)}${hex(g)}${hex(b)}`;
+  }, source);
+}
+
+/**
+ * Resolve a root colour token to normalized `#rrggbb` via {@link normalizeCssColor}.
+ */
+async function resolveTokenColor(page: Page, token: `--${string}`): Promise<string> {
+  return normalizeCssColor(page, { literal: null, token });
+}
+
+/**
+ * Normalize a literal colour string (e.g. a computed `backgroundColor`) through
+ * the exact same in-page routine used for tokens, so the two are comparable.
+ */
+async function normalizeColor(page: Page, literal: string): Promise<string> {
+  return normalizeCssColor(page, { literal, token: null });
 }
 
 function hexToHsl(hex: string): HslParts {
@@ -141,7 +203,13 @@ test.describe('Theme CSS Consistency (E2E)', () => {
 
     expect(variables.bsBackground).toBeTruthy();
     expect(variables.background).toBeTruthy();
-    expect(variables.bodyBackground).not.toBe('rgba(0, 0, 0, 0)');
+    // Pin the whole utility -> token -> palette chain: the body's painted
+    // background must be the very colour `--background` resolves to.
+    const [bodyBackground, backgroundToken] = await Promise.all([
+      normalizeColor(page, variables.bodyBackground),
+      resolveTokenColor(page, '--background'),
+    ]);
+    expect(bodyBackground).toBe(backgroundToken);
 
     // Light mode should have high lightness
     const bsBackgroundColor = await resolveTokenColor(page, '--bs-background');
@@ -170,7 +238,13 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     expect(variables.isDarkMode).toBe(true);
     expect(variables.bsBackground).toBeTruthy();
     expect(variables.background).toBeTruthy();
-    expect(variables.bodyBackground).not.toBe('rgba(0, 0, 0, 0)');
+    // Pin the whole utility -> token -> palette chain: the body's painted
+    // background must be the very colour `--background` resolves to.
+    const [bodyBackground, backgroundToken] = await Promise.all([
+      normalizeColor(page, variables.bodyBackground),
+      resolveTokenColor(page, '--background'),
+    ]);
+    expect(bodyBackground).toBe(backgroundToken);
 
     // Dark mode should have low lightness
     const bsBackgroundColor = await resolveTokenColor(page, '--bs-background');

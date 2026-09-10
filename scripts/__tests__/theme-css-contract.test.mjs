@@ -21,6 +21,21 @@ test('apps import the shared theme mapping exactly once and own no mapping of th
       /@custom-variant dark/u,
       `${file} must not redeclare the dark variant`
     );
+
+    // Tailwind resolves utilities against the @theme it has already seen. If a
+    // local @layer block is parsed before the shared mapping is imported, the
+    // build fails with `Cannot apply unknown utility class`, so the import must
+    // come first.
+    const importIndex = source.indexOf('@import "@brainstrike/ui/theme.css"');
+    const layerIndex = source.indexOf('@layer');
+    assert.notEqual(importIndex, -1, `${file} must import @brainstrike/ui/theme.css`);
+    if (layerIndex !== -1) {
+      assert.ok(
+        importIndex < layerIndex,
+        `${file} must import @brainstrike/ui/theme.css before its first @layer block, ` +
+          'otherwise Tailwind fails with `Cannot apply unknown utility class`'
+      );
+    }
   }
 });
 
@@ -41,13 +56,13 @@ function grepIdiom() {
     const output = execFileSync(
       'grep',
       [
-        '-rn',
+        '-rnE',
         '--include=*.ts',
         '--include=*.tsx',
         '--include=*.css',
         '--exclude-dir=node_modules',
         '--exclude-dir=dist',
-        'hsl(var(--',
+        String.raw`hsla?\(\s*var\(`,
         ...IDIOM_SCAN_ROOTS,
       ],
       { cwd: repoRoot, encoding: 'utf8' }
@@ -63,7 +78,7 @@ function grepIdiom() {
   }
 }
 
-test('no source uses the legacy hsl(var(--x)) idiom', () => {
+test('no source uses the legacy hsl(var(--x)) idiom (including hsla and inner spacing)', () => {
   const hits = grepIdiom();
   assert.deepEqual(hits, [], `legacy idiom found:\n${hits.join('\n')}`);
 });
