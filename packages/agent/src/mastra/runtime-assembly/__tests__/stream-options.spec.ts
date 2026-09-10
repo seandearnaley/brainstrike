@@ -199,9 +199,10 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
     const runtime = makeRuntime({ personasById: new Map([['p1', {} as never]]) });
     const delegationOutcomes = subagentDelegation.createDelegationOutcomeCapture();
     const onChildUsage = vi.fn();
+    const abortSignal = new AbortController().signal;
 
     const actual = buildStreamOptions({
-      abortSignal: new AbortController().signal,
+      abortSignal,
       delegationOutcomes,
       delegationUsage: { onChildUsage } as never,
       leg: 'initial',
@@ -213,10 +214,12 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
 
     expect(createDelegationConfigSpy).toHaveBeenCalledTimes(1);
     expect(createDelegationConfigSpy).toHaveBeenCalledWith({
+      abortSignal,
       delegationOutcomes,
       logger: expect.anything(),
       onChildUsage,
       personasById: runtime.personasById,
+      turnPersistence: runtime.delegatedTurnPersistence,
     });
     expect(actual.delegation).toBeDefined();
   });

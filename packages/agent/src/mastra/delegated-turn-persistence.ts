@@ -1,0 +1,117 @@
+import type { DelegationCompleteContext, DelegationStartContext } from '@mastra/core/agent';
+import { type MastraMemory, parseMemoryRequestContext } from '@mastra/core/memory';
+import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
+import {
+  type AbortedTurnPersistence,
+  createAbortedTurnPersistence,
+} from './aborted-turn-persistence';
+
+export interface DelegatedTurnPersistence {
+  complete: (context: DelegationCompleteContext) => void;
+  finalize: () => Promise<void>;
+  prepare: (context: DelegationStartContext, signal: AbortSignal | undefined) => void;
+  readonly processor: InputProcessor & OutputProcessor;
+}
+
+interface NativeTurn {
+  cleanupAbort?: () => void;
+  complete: () => void;
+  completion: Promise<void>;
+  persistence?: AbortedTurnPersistence;
+  signal: AbortSignal;
+}
+
+/** Native completion joins the delegation writer before the captured Stop snapshot is saved. */
+export function createDelegatedTurnPersistence(
+  memory: MastraMemory | undefined
+): DelegatedTurnPersistence | undefined {
+  if (!memory) {
+    return;
+  }
+  const turns = new Map<string, NativeTurn>();
+  const contexts = new WeakMap<DelegationStartContext['requestContext'], NativeTurn>();
+  const key = (context: { runId: string; toolCallId: string }) =>
+    JSON.stringify([context.runId, context.toolCallId]);
+  return {
+    complete(context) {
+      const turn = turns.get(key(context));
+      if (!turn) {
+        throw new Error('Delegated persistence has no prepared native invocation.');
+      }
+      turn.cleanupAbort?.();
+      turn.complete();
+    },
+    async finalize() {
+      const settled = await Promise.allSettled(
+        Array.from(turns.values(), async (turn) => {
+          if (!turn.persistence) {
+            // An abort during input preparation may precede processInputStep.
+            await turn.completion;
+          }
+          await turn.persistence?.finalize();
+          // A normally finished child may still have its native save in flight.
+          await turn.completion;
+        })
+      );
+      const errors = settled.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : []
+      );
+      if (errors.length > 0) {
+        throw new AggregateError(
+          errors,
+          errors.map((error) => (error instanceof Error ? error.message : String(error))).join('; ')
+        );
+      }
+    },
+    prepare(context, signal) {
+      if (!signal) {
+        throw new Error('Delegated persistence requires its owning attempt abort signal.');
+      }
+      const identity = key(context);
+      if (turns.has(identity)) {
+        throw new Error('Delegated persistence already owns this native invocation.');
+      }
+      const { promise, resolve } = Promise.withResolvers<void>();
+      const turn: NativeTurn = { complete: resolve, completion: promise, signal };
+      const capture = () => turn.persistence?.captureSnapshot();
+      signal.addEventListener('abort', capture, { once: true });
+      turn.cleanupAbort = () => signal.removeEventListener('abort', capture);
+      turns.set(identity, turn);
+      contexts.set(context.requestContext, turn);
+    },
+    processor: {
+      id: 'brainstrike-delegated-turn-persistence',
+      async processInputStep({ messageList, messageId, requestContext }) {
+        const context = parseMemoryRequestContext(requestContext);
+        if (context?.memoryConfig?.readOnly) {
+          return messageList;
+        }
+        const turn = requestContext ? contexts.get(requestContext) : undefined;
+        if (!(turn && context?.thread?.id && context.resourceId && messageId)) {
+          throw new Error(
+            'Delegated persistence requires native invocation, memory and message identities.'
+          );
+        }
+        turn.persistence ??= createAbortedTurnPersistence({
+          assistantMessageId: messageId,
+          beforePersist: () => turn.completion,
+          memory,
+          runtimeData: { memory: { resourceId: context.resourceId, threadId: context.thread.id } },
+          shouldPersist: () => turn.signal.aborted,
+        });
+        await turn.persistence.attachMessageList(messageList, messageId);
+        if (turn.signal.aborted) {
+          turn.persistence.captureSnapshot();
+        }
+        return messageList;
+      },
+      processOutputResult({ messageList, requestContext }) {
+        const turn = requestContext ? contexts.get(requestContext) : undefined;
+        if (turn && !turn.signal.aborted) {
+          turn.persistence?.markNormalFinish();
+        }
+        return messageList;
+      },
+    },
+  };
+}

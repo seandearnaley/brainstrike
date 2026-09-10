@@ -347,6 +347,8 @@ export function buildStreamOptions(
     ...(delegationUsage
       ? {
           delegation: createDelegationConfig({
+            abortSignal,
+            turnPersistence: runtime.delegatedTurnPersistence,
             ...(runtime.conversationBinding
               ? { conversationBinding: runtime.conversationBinding }
               : {}),

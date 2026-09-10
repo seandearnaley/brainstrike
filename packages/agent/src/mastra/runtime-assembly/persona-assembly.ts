@@ -11,6 +11,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import type { Agent, ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
+import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import type { DelegationPersonaSummary } from '../default-instructions';
@@ -52,6 +53,7 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
  * map here would bake the wrong budget into every pinned persona's tools.
  */
 export function resolvePersonaRuntimeParts(params: {
+  turnPersistenceProcessor?: (InputProcessor & OutputProcessor) | undefined;
   conversationBinding?: DelegatedConversationBinding | undefined;
   guardedTools: ToolsInput;
   languageModel: MastraModelConfig;
@@ -68,6 +70,7 @@ export function resolvePersonaRuntimeParts(params: {
     return EMPTY_PERSONA_RUNTIME_PARTS;
   }
   const personaBuild = buildPersonaSubAgents({
+    turnPersistenceProcessor: params.turnPersistenceProcessor,
     ...(params.conversationBinding ? { conversationBinding: params.conversationBinding } : {}),
     guardedTools: params.guardedTools,
     languageModel: params.languageModel,

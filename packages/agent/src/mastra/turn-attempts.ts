@@ -109,11 +109,13 @@ interface StreamResultLike {
 }
 
 export function createRuntimeAbortedTurnPersistence({
+  finalizeAbortedDelegatedTurns,
   memory,
   memoryOption,
   runtimeData,
   streamAbortContext,
 }: {
+  finalizeAbortedDelegatedTurns?: (() => Promise<void>) | undefined;
   memory: MastraMemory | undefined;
   memoryOption: AgentMemoryOption | undefined;
   runtimeData: RuntimeData | undefined;
@@ -127,6 +129,7 @@ export function createRuntimeAbortedTurnPersistence({
   }
   return createAbortedTurnPersistence({
     assistantMessageId: runtimeData.assistantMessageId ?? generateUUID(),
+    beforePersist: finalizeAbortedDelegatedTurns,
     memory,
     runtimeData,
     shouldPersist: () =>

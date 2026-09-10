@@ -32,6 +32,10 @@ import {
   type DelegationPersonaSummary,
 } from './default-instructions';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
+import {
+  createDelegatedTurnPersistence,
+  type DelegatedTurnPersistence,
+} from './delegated-turn-persistence';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import type { McpAppToolAdmissionCapability } from './mcp-app-tool-call';
@@ -150,6 +154,7 @@ export interface MastraAgentRuntime {
   /** Fail-loud completion check for the client-provided persisted assistant id. */
   assertAssistantMessageIdPersisted?: () => void;
   conversationBinding?: DelegatedConversationBinding | undefined;
+  delegatedTurnPersistence?: DelegatedTurnPersistence | undefined;
   /**
    * 'agent-<personaId>' → personaId for every registered delegation tool. Empty
    * when personas are absent/skipped. Consumed by the stream mapper (T4) to emit
@@ -580,6 +585,7 @@ export async function createMastraAgentRuntime(
 
   // Subagent personas (D10): built BEFORE the instructions so guidance only
   // names personas that actually registered a delegation tool this run.
+  const delegatedTurnPersistence = createDelegatedTurnPersistence(memory);
   const {
     delegationToolPersonas,
     hasSubAgents,
@@ -623,6 +629,7 @@ export async function createMastraAgentRuntime(
     // see `RunTokenDiagnostics.recordSubagentToolOutput`'s doc comment.
     toolOutputObserver: (toolId, output) =>
       tokenDiagnostics.recordSubagentToolOutput(toolId, output),
+    turnPersistenceProcessor: delegatedTurnPersistence?.processor,
   });
   registeredDelegationToolNames = Array.from(delegationToolPersonas, ([toolName, personaId]) =>
     personasById.get(personaId)?.allowedToolIds.includes(NATIVE_TOOL_ID.readToolOutputArtifact)
@@ -687,6 +694,7 @@ export async function createMastraAgentRuntime(
     ...assistantIdentityRuntime,
     askTools,
     conversationBinding: options.conversationBinding,
+    delegatedTurnPersistence,
     delegationToolPersonas,
     dispose: async () => {
       invalidateMcpAppAdmission?.();

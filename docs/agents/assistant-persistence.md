@@ -260,6 +260,16 @@ replaced by a successful continuation is not an aborted turn and does not
 persist an abort snapshot; abort finalization runs only when the turn itself
 becomes terminal.
 
+The same terminal owner also joins delegated child snapshots (BST-1719). Native
+delegation sets `lastMessages: false`, so the child cannot rely on automatic
+MessageHistory output persistence. Capture the child's public native MessageList
+at Stop and await native delegation completion before re-saving that snapshot:
+saving before completion allowed a late native write to restore a tool result
+and erase the abort marker after the root had returned. All captured child saves
+settle even if one fails; the root still attempts its own snapshot and the
+existing coded abort-persistence failure reports the errors. No second transcript
+store or client-generated child prompt/message id is introduced.
+
 3. **Edited-prompt branch topology:** Mastra remains the only writer of message
    CONTENT, but its rows do not retain assistant-ui's parent graph. The client
    history adapter therefore persists only `{messageId,parentId}` edges in

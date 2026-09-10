@@ -151,6 +151,15 @@ below are LIVE.
    write-free. Ordinary completion still uses Mastra's finish writer only;
    teardown never performs a second normal write.
 
+   Delegated children (BST-1719) capture their native MessageList on the abort
+   signal, independent of consumer speed. Their native delegation completion
+   hook joins the normal child writer before the same abort snapshot is saved;
+   root disposal awaits all child finalizers. Native `lastMessages: false`
+   disables the child's automatic MessageHistory output processor, so the
+   root-only join is insufficient. No incomplete child tool call is restored
+   by a late native save. See `assistant-subagents.md` for the real desktop
+   cancellation/reconstruction proof and the remaining nested-resume boundary.
+
 4. **Mastra error-processor layer (LIVE)** —
    `packages/agent/src/mastra/error-processors.ts`, wired into `new Agent` +
    `buildToolLoopOptions` (`new Agent` in `agent-runtime.ts`; the tool-loop

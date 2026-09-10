@@ -22,6 +22,7 @@ import {
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
 import { Agent, type AgentExecutionOptions, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
+import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import {
   resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
@@ -87,6 +88,7 @@ export interface BuildPersonaSubAgentsParams {
   /** Forwarded to `applyToolModelOutputProjections` for every child (BST-1196
    * subagent telemetry attribution — see its call site in agent-runtime.ts). */
   readonly toolOutputObserver?: ModelOutputProjectionObserver;
+  readonly turnPersistenceProcessor?: (InputProcessor & OutputProcessor) | undefined;
 }
 
 /**
@@ -281,6 +283,25 @@ function resolvePersonaToolResultBudget(
 /**
  * Build persona child Agents for the parent supervisor.
  */
+function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
+  inputProcessors?: InputProcessor[];
+  outputProcessors?: OutputProcessor[];
+} {
+  const inputProcessors: InputProcessor[] = [];
+  if (params.conversationBinding) {
+    inputProcessors.push(params.conversationBinding.inputProcessor);
+  }
+  if (params.turnPersistenceProcessor) {
+    inputProcessors.push(params.turnPersistenceProcessor);
+  }
+  return {
+    ...(inputProcessors.length > 0 ? { inputProcessors } : {}),
+    ...(params.turnPersistenceProcessor
+      ? { outputProcessors: [params.turnPersistenceProcessor] }
+      : {}),
+  };
+}
+
 export function buildPersonaSubAgents(
   params: BuildPersonaSubAgentsParams
 ): PersonaSubAgentBuildResult {
@@ -382,9 +403,7 @@ export function buildPersonaSubAgents(
       description: delegationDescriptionForPersona(persona),
       id: persona.id,
       instructions: buildChildInstructions(persona, keptOriginalNames),
-      ...(params.conversationBinding
-        ? { inputProcessors: [params.conversationBinding.inputProcessor] }
-        : {}),
+      ...buildChildProcessors(params),
       // Any `errorProcessors` flips Mastra's processor-retry default, so the
       // pinned budget travels with them exactly as it does on the parent.
       ...(childErrorProcessors

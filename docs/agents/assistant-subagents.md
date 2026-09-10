@@ -717,6 +717,38 @@ that missing scope. Both child and grandchild finish once with valid identities.
 This proves the mapping seam, not the later production approval UI/routing ticket.
 
 This layer does not close BST-1719. Nested pause/resume production proofs,
-cancelled native transcript durability, oversized artifact reload recovery and
+oversized artifact reload recovery and
 complete receiver routing remain acceptance work. Child UI and controls remain
 BST-1720/1723/1724/1725; read-only/no-nesting restrictions stay in force.
+
+### Cancelled child transcript durability (BST-1719)
+
+Native delegation uses `lastMessages: false`. On core 1.64 this also suppresses
+the automatic MessageHistory output processor; the delegation's normal save
+occurs after consuming the child stream. Root Stop can return before that save.
+The desktop regression first lost all child assistant content, then exposed a
+late native save overwriting an early cancellation snapshot.
+
+The child processor captures the public `MessageList`, memory scope and current
+native `messageId` at `processInputStep`. The existing root abort finalizer joins
+these child turns. Each captures its unsaved native messages on the owning
+attempt's abort signal, awaits
+`onDelegationComplete` (after the native delegation writer), then uses the same
+abort snapshot policy and awaited `Memory.saveMessages` as the root. It retains
+partial text, removes unfinished tool calls and appends the abort marker without
+inventing a child message id. Normal completion/pause does not write an abort
+snapshot. Per-invocation completion is correlated by native parent run/tool call
+and the existing isolated RequestContext identity, never persona name.
+
+The real desktop test covers Stop during a tool with and without partial text,
+equivalent history on the still-open and reconstructed engines, exact lifecycle
+event retention and absence of the unfinished tool call. It does not claim a
+packaged process restart or cancellation during snapshot-resumed tool execution;
+those remain in the nested resume and assembled E2E acceptance.
+
+The delayed-consumer case waits for the real native late-result save before
+allowing terminal consumption. It failed when snapshot capture and normal-finish
+classification relied on the child's propagated signal: that signal can lag the
+owner's cancellation. The owner signal supplied by `buildStreamOptions` governs
+both decisions; the child may not turn an already-cancelled owner turn back into
+a normal finish. No sleeps, retries or timeout changes establish this ordering.
