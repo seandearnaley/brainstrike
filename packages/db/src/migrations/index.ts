@@ -125,6 +125,7 @@ import { migration123OpenaiGpt6Astra } from './123-openai-gpt-6-astra.js';
 import { migration124GoogleCatalogModels } from './124-google-catalog-models.js';
 import { migration125BedrockAnthropicClaudeOpus5 } from './125-bedrock-anthropic-claude-opus-5.js';
 import { migration126DelegatedConversations } from './126-delegated-conversations.js';
+import { migration127DelegatedInvocations } from './127-delegated-invocations.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -256,6 +257,7 @@ export const migrations: Migration[] = [
   migration124GoogleCatalogModels,
   migration125BedrockAnthropicClaudeOpus5,
   migration126DelegatedConversations,
+  migration127DelegatedInvocations,
 ];
 
 // Export base migrations (without chunks table) for test environments

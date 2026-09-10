@@ -195,6 +195,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       const graph = createDelegatedConversationRepository(database);
       const rootScope = { ownerResourceId: 'owner', rootThreadId: 'root' };
       const scopes = new Map<string, { threadId: string; resourceId: string }>();
+      const parentRuns = new Map<string, string>();
       const processedRuns = new Map<string, Set<string>>();
       const publishedRuns = new Map<string, string>();
       const completions = vi.fn<(context: DelegationCompleteContext) => void>();
@@ -212,6 +213,20 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
           resourceId: identity.childResourceId,
           threadId: identity.childThreadId,
         });
+        await database.query(`INSERT INTO brainstrike_assistant_thread_runs
+          (id, resource_id, thread_id, provider, model, runtime_kind, status,
+            started_at, created_at, updated_at, turn_message_id)
+          VALUES ('host-leg', 'owner', 'root', 'openai', 'scripted', 'desktop', 'running',
+            NOW(), NOW(), NOW(), 'user-turn') ON CONFLICT (id) DO NOTHING`);
+        await graph.createInvocation(rootScope, {
+          hostRunId: 'host-leg',
+          parentRuntimeRunId: identity.parentRuntimeRunId,
+          parentThreadId: identity.parentThreadId,
+          parentToolCallId: identity.parentToolCallId,
+          personaId: identity.personaId,
+          threadId: identity.childThreadId,
+        });
+        parentRuns.set(identity.parentToolCallId, identity.parentRuntimeRunId);
         scopes.set(identity.parentToolCallId, {
           resourceId: identity.childResourceId,
           threadId: identity.childThreadId,
@@ -292,9 +307,23 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
           displayName: invocation,
           resourceId: boundScope.resourceId,
         });
+        const parentRuntimeRunId = parentRuns.get(invocation);
+        if (!parentRuntimeRunId) {
+          throw new Error('Missing observed parent run');
+        }
+        const key = { parentRuntimeRunId, parentToolCallId: invocation };
         if (nested.type === 'start') {
+          await graph.bindInvocationRun(rootScope, key, nested.runId);
           publishedRuns.set(invocation, nested.runId);
         }
+        expect(
+          await createDelegatedConversationRepository(database).getInvocation(rootScope, key)
+        ).toMatchObject({
+          childRuntimeRunId: nested.runId,
+          hostRunId: 'host-leg',
+          threadId: boundScope.threadId,
+          turnMessageId: 'user-turn',
+        });
       }
       expect(effect).toHaveBeenCalledTimes(2);
       expect(completions).toHaveBeenCalledTimes(2);

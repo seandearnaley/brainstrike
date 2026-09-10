@@ -20,6 +20,7 @@ export {
 export { BaseFileRecordRepository } from './base-repository.js';
 export {
   type CreateDelegatedChild,
+  type CreateDelegatedInvocation,
   createDelegatedConversationRepository,
   type DelegatedConversationColor,
   type DelegatedConversationDatabase,
@@ -27,6 +28,8 @@ export {
   type DelegatedConversationNode,
   type DelegatedConversationRepository,
   type DelegatedConversationScope,
+  type DelegatedInvocation,
+  type DelegatedInvocationKey,
 } from './delegated-conversation-repository.js';
 export {
   DIAGNOSTIC_EVENTS_PURGE_LIMIT,

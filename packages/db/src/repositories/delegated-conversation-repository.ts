@@ -39,16 +39,47 @@ export interface DelegatedConversationNode extends DelegatedConversationScope {
   readonly workspaceRootId: string | null;
 }
 
+export interface DelegatedInvocationKey {
+  readonly parentRuntimeRunId: string;
+  readonly parentToolCallId: string;
+}
+
+export interface CreateDelegatedInvocation extends DelegatedInvocationKey {
+  readonly hostRunId: string;
+  readonly parentThreadId: string;
+  readonly personaId: string;
+  readonly threadId: string;
+}
+
+export interface DelegatedInvocation extends CreateDelegatedInvocation, DelegatedConversationScope {
+  readonly childRuntimeRunId: string | null;
+  readonly turnMessageId: string;
+}
+
 export interface DelegatedConversationRepository {
+  bindInvocationRun(
+    scope: DelegatedConversationScope,
+    key: DelegatedInvocationKey,
+    childRuntimeRunId: string
+  ): Promise<DelegatedInvocation>;
+
   /** Register the root first; write inputs must be observed by the trusted host. */
   createChild(
     scope: DelegatedConversationScope,
     child: CreateDelegatedChild
   ): Promise<DelegatedConversationNode>;
+  createInvocation(
+    scope: DelegatedConversationScope,
+    invocation: CreateDelegatedInvocation
+  ): Promise<DelegatedInvocation>;
   get(
     scope: DelegatedConversationScope,
     threadId: string
   ): Promise<DelegatedConversationNode | null>;
+  getInvocation(
+    scope: DelegatedConversationScope,
+    key: DelegatedInvocationKey
+  ): Promise<DelegatedInvocation | null>;
   listChildren(
     scope: DelegatedConversationScope,
     parentThreadId: string
@@ -166,6 +197,25 @@ function readNode(value: unknown): DelegatedConversationNode {
   };
 }
 
+function readInvocation(value: unknown): DelegatedInvocation {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new DelegatedConversationIdentityError();
+  }
+  const row = value as Record<string, unknown>;
+  return {
+    childRuntimeRunId: nullableString(row['child_runtime_run_id']),
+    hostRunId: requireString(row['host_run_id']),
+    ownerResourceId: requireString(row['owner_resource_id']),
+    parentRuntimeRunId: requireString(row['parent_runtime_run_id']),
+    parentThreadId: requireString(row['parent_thread_id']),
+    parentToolCallId: requireString(row['parent_tool_call_id']),
+    personaId: requireString(row['persona_id']),
+    rootThreadId: requireString(row['root_thread_id']),
+    threadId: requireString(row['thread_id']),
+    turnMessageId: requireString(row['turn_message_id']),
+  };
+}
+
 const TABLE = 'brainstrike_delegated_conversations';
 // Walk outward from the authorized root. Checking only the requested node
 // would leave grandchildren accessible after an intermediate scope changed.
@@ -198,7 +248,41 @@ export function createDelegatedConversationRepository(
     }
   }
 
+  function invocationParameters(
+    scope: DelegatedConversationScope,
+    key: DelegatedInvocationKey
+  ): string[] {
+    return [
+      ...scopeParameters(scope),
+      requireString(key.parentRuntimeRunId),
+      requireString(key.parentToolCallId),
+    ];
+  }
+
   return {
+    async bindInvocationRun(
+      scope: DelegatedConversationScope,
+      key: DelegatedInvocationKey,
+      childRuntimeRunId: string
+    ): Promise<DelegatedInvocation> {
+      const result = await database.query(
+        `${AUTHORIZED_GRAPH} UPDATE brainstrike_delegated_invocations invocation
+         SET child_runtime_run_id = $5
+         FROM owned_nodes child, brainstrike_assistant_thread_runs host
+         WHERE host.id = invocation.host_run_id AND host.thread_id = $2
+           AND host.resource_id = $1 AND host.turn_message_id = invocation.turn_message_id
+           AND invocation.root_thread_id = $2 AND invocation.owner_resource_id = $1
+           AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4
+           AND invocation.thread_id = child.thread_id
+           AND (invocation.child_runtime_run_id IS NULL OR invocation.child_runtime_run_id = $5)
+         RETURNING invocation.*, child.parent_thread_id`,
+        [...invocationParameters(scope, key), requireString(childRuntimeRunId)]
+      );
+      if (result.rows.length !== 1) {
+        throw new DelegatedConversationIdentityError();
+      }
+      return readInvocation(result.rows[0]);
+    },
     async createChild(
       scope: DelegatedConversationScope,
       child: CreateDelegatedChild
@@ -243,6 +327,45 @@ export function createDelegatedConversationRepository(
       }
       return readNode(result.rows[0]);
     },
+    async createInvocation(
+      scope: DelegatedConversationScope,
+      invocation: CreateDelegatedInvocation
+    ): Promise<DelegatedInvocation> {
+      const result = await database.query(
+        `${AUTHORIZED_GRAPH}, inserted AS (
+         INSERT INTO brainstrike_delegated_invocations
+           (owner_resource_id, root_thread_id, thread_id, host_run_id, turn_message_id,
+            parent_runtime_run_id, parent_tool_call_id, persona_id)
+         SELECT child.owner_resource_id, child.root_thread_id, child.thread_id, host.id,
+           host.turn_message_id, $3, $4, $8
+         FROM owned_nodes child
+         JOIN brainstrike_assistant_thread_runs host ON host.id = $7
+           AND host.resource_id = $1 AND host.thread_id = $2
+         WHERE child.thread_id = $5 AND child.parent_thread_id = $6
+           AND length(btrim(host.turn_message_id)) > 0
+         ON CONFLICT (root_thread_id, parent_runtime_run_id, parent_tool_call_id)
+         DO UPDATE SET thread_id = EXCLUDED.thread_id
+         WHERE brainstrike_delegated_invocations.owner_resource_id = EXCLUDED.owner_resource_id
+           AND brainstrike_delegated_invocations.thread_id = EXCLUDED.thread_id
+           AND brainstrike_delegated_invocations.host_run_id = EXCLUDED.host_run_id
+           AND brainstrike_delegated_invocations.turn_message_id = EXCLUDED.turn_message_id
+           AND brainstrike_delegated_invocations.persona_id = EXCLUDED.persona_id
+         RETURNING *)
+         SELECT inserted.*, child.parent_thread_id FROM inserted
+         JOIN owned_nodes child ON child.thread_id = inserted.thread_id`,
+        [
+          ...invocationParameters(scope, invocation),
+          requireString(invocation.threadId),
+          requireString(invocation.parentThreadId),
+          requireString(invocation.hostRunId),
+          requireString(invocation.personaId),
+        ]
+      );
+      if (result.rows.length !== 1) {
+        throw new DelegatedConversationIdentityError();
+      }
+      return readInvocation(result.rows[0]);
+    },
 
     async get(
       scope: DelegatedConversationScope,
@@ -254,6 +377,24 @@ export function createDelegatedConversationRepository(
         [...scopeParameters(scope), requireString(threadId)]
       );
       return result.rows.length === 0 ? null : readNode(result.rows[0]);
+    },
+    async getInvocation(
+      scope: DelegatedConversationScope,
+      key: DelegatedInvocationKey
+    ): Promise<DelegatedInvocation | null> {
+      await requireOwner(scope);
+      const result = await database.query(
+        `${AUTHORIZED_GRAPH} SELECT invocation.*, child.parent_thread_id
+         FROM brainstrike_delegated_invocations invocation
+         JOIN owned_nodes child ON child.thread_id = invocation.thread_id
+         JOIN brainstrike_assistant_thread_runs host ON host.id = invocation.host_run_id
+           AND host.thread_id = $2 AND host.resource_id = $1
+           AND host.turn_message_id = invocation.turn_message_id
+         WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
+           AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4`,
+        invocationParameters(scope, key)
+      );
+      return result.rows.length === 0 ? null : readInvocation(result.rows[0]);
     },
 
     async listChildren(

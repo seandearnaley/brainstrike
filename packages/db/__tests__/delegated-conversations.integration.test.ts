@@ -254,14 +254,16 @@ describe('durable delegated conversation graph (BST-1718)', () => {
 
   it('upgrades a legacy database through the production ledger and replays without changes', async () => {
     // Only this isolated test database is rewound to its pre-126 shape.
-    await database.exec('DROP TABLE brainstrike_delegated_conversations');
+    await database.exec(
+      'DROP TABLE brainstrike_delegated_invocations; DROP TABLE brainstrike_delegated_conversations'
+    );
     await database.query(
-      "DELETE FROM __drizzle_migrations WHERE hash = 'custom-126-delegated-conversations'"
+      "DELETE FROM __drizzle_migrations WHERE hash IN ('custom-126-delegated-conversations', 'custom-127-delegated-invocations')"
     );
     const nativeBefore = await database.query('SELECT * FROM mastra_threads ORDER BY id');
     const first = await runMigrations(database);
     expect(first.success).toBe(true);
-    expect(first.appliedMigrations).toHaveLength(1);
+    expect(first.appliedMigrations).toHaveLength(2);
     const repository = createDelegatedConversationRepository(database);
     expect(await repository.get(scope, 'child')).toBeNull();
     expect((await database.query('SELECT * FROM mastra_threads ORDER BY id')).rows).toEqual(

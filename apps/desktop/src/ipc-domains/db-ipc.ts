@@ -956,6 +956,7 @@ export function registerDatabaseIpcHandlers(
             // parents, and clear both before the Mastra threads they organize.
             await clearOptionalRelation(tx, 'brainstrike_assistant_thread_placements');
             await clearOptionalRelation(tx, 'brainstrike_assistant_thread_workspaces');
+            await clearOptionalRelation(tx, 'brainstrike_delegated_invocations');
             await clearOptionalRelation(tx, 'brainstrike_delegated_conversations');
             await clearOptionalRelation(tx, 'brainstrike_assistant_thread_groups');
             // Mastra creates all of its memory relations lazily, so a fresh
