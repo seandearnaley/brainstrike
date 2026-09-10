@@ -348,10 +348,10 @@ jobs:
       # no-build `topo` transit node instead of `^build` (turbo.jsonc). The few
       # lanes that genuinely consume built artifacts (packages/utils' own-dist
       # test, packages/db's nested-tsc test) declare exact `#build` edges in
-      # their own turbo.json, and `turbo run test` SELF-BUILDS exactly those
-      # (verified: the whole-repo test+test:integration graph contains 3 build
-      # tasks — utils + its dep closure — and a full clean-state no-dist run is
-      # green; see the B4 PR). The predecessor step's #1066/#1207 rationale
+      # their own turbo.json, and Turbo SELF-BUILDS exactly those. Desktop's
+      # native restart verifier additionally declares agent/assistant-data builds:
+      # its child Node processes resolve public exports outside Vitest aliases.
+      # The predecessor step's #1066/#1207 rationale
       # ("exports maps pointing at dist fail to resolve at test time") is
       # retired by source resolution, and unlike that incident a regression
       # here fails LOUDLY on the always-clean CI runner instead of passing
@@ -394,7 +394,7 @@ jobs:
       # named steps (not one `&&` step) give clearer failure attribution in the
       # UI; turbo re-resolves quickly on the second invocation. turbo.jsonc's
       # `test:integration` has `dependsOn: ["topo"]` (the B4 no-build transit
-      # node), so phase 2's graph builds nothing and is cheap. turbo skips each
+      # node), plus explicit package-local built-artifact edges. turbo skips each
       # task for packages that do not define it (no `--if-present` needed).
       # COVERAGE="false" (2026-07-20): the PR path previously omitted this,
       # and per-package vitest configs enable V8 coverage whenever CI==='true'
