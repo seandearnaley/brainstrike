@@ -106,14 +106,39 @@ describe('desktop delegated conversation authority', () => {
     timestamp: '2026-09-10T01:00:00.000Z',
   } as const;
 
-  it.each(['claimed', 'consumed', 'interrupted'] as const)(
-    'rediscovers %s admission for its exact native leaf without crossing owner/root/call scope',
-    async (state) => {
+  it.each(
+    ([1, 2] as const).flatMap((depth) =>
+      (['claimed', 'consumed', 'interrupted'] as const).map((state) => ({ depth, state }))
+    )
+  )(
+    'rediscovers $state admission at depth $depth for its exact native leaf without crossing owner/root/call scope',
+    async ({ depth, state }) => {
       const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
       await host.persist(identity);
       await host.bindRun(run);
+      const path = [run];
+      if (depth === 2) {
+        const grandchild = {
+          ...identity,
+          childResourceId: 'native-sibling-owner',
+          childThreadId: 'sibling',
+          parentResourceId: identity.childResourceId,
+          parentRuntimeRunId: run.childRuntimeRunId,
+          parentThreadId: identity.childThreadId,
+          parentToolCallId: 'grandchild-call',
+        };
+        const grandchildRun = {
+          ...run,
+          childRuntimeRunId: 'grandchild-run',
+          parentRuntimeRunId: grandchild.parentRuntimeRunId,
+          parentToolCallId: grandchild.parentToolCallId,
+        };
+        await host.persist(grandchild);
+        await host.bindRun(grandchildRun);
+        path.push(grandchildRun);
+      }
       const action = {
-        delegation: { path: [run], toolCallId: 'read-1' },
+        delegation: { path, toolCallId: 'read-1' },
         runId: run.parentRuntimeRunId,
         toolCallId: run.parentToolCallId,
       };
@@ -127,7 +152,7 @@ describe('desktop delegated conversation authority', () => {
         );
         await reapOrphanedThreadRuns(database, new Date());
       }
-      const key = JSON.stringify([run.childRuntimeRunId, 'read-1']);
+      const key = JSON.stringify([path.at(-1)?.childRuntimeRunId, 'read-1']);
       expect(await readDelegatedDecisionStates(database, scope, [action])).toEqual(
         new Map([[key, state]])
       );

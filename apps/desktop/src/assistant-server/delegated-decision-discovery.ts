@@ -2,6 +2,7 @@ import {
   type DelegatedToolActionIdentity,
   type DelegatedToolDecisionState,
   getToolActionIdentityKey,
+  isDelegatedToolDecisionState,
 } from '@brainstrike/assistant-contract';
 import type { DelegatedConversationDatabase } from '@brainstrike/db';
 import { z } from 'zod';
@@ -16,7 +17,7 @@ const decisionRow = z.object({
   childRuntimeRunId: z.string().min(1),
   leafToolCallId: z.string().min(1),
   runId: z.string().min(1),
-  state: z.enum(['claimed', 'consumed', 'interrupted']),
+  state: z.custom<DelegatedToolDecisionState>(isDelegatedToolDecisionState),
   toolCallId: z.string().min(1),
 });
 

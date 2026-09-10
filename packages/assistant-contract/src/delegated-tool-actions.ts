@@ -156,6 +156,7 @@ export function isDelegatedToolDecisionState(value: unknown): value is Delegated
 
 /** An absent state is resumable; a present unknown state must fail validation. */
 export function hasValidDelegatedDecisionState(value: Record<string, unknown>): boolean {
+  // Inherited and explicitly undefined states are present-but-invalid, not absent.
   if (!('decisionState' in value)) {
     return true;
   }

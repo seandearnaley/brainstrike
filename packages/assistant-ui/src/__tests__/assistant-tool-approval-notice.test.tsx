@@ -409,7 +409,7 @@ describe('AssistantToolApprovalNotice skill script preview', () => {
 });
 
 describe('durable delegated approval recovery', () => {
-  it.each(['claimed', 'consumed', 'interrupted', 'unknown'])(
+  it.each(['claimed', 'consumed', 'interrupted', 'unknown', undefined])(
     'keeps the original tool preview but blocks a %s decision',
     (decisionState) => {
       renderNotice({

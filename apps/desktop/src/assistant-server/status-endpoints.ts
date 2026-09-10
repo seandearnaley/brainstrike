@@ -12,7 +12,10 @@ import {
   resolveRunPythonExecutionContext,
   type SuspendedRunsResponse,
 } from '@brainstrike/agent';
-import { getToolActionIdentityKey } from '@brainstrike/assistant-contract';
+import {
+  type DelegatedToolDecisionState,
+  getToolActionIdentityKey,
+} from '@brainstrike/assistant-contract';
 import { respondJson } from '@brainstrike/assistant-service/http';
 import { getDatabase } from '../db-main';
 import { getProviderAuthEngine } from '../provider-auth/provider-auth-runtime';
@@ -334,16 +337,52 @@ export async function handleSuspendedRunsRequest(
       }
     );
 
-    const decisionStates = await readDelegatedDecisionStates(
-      await getDatabase(),
-      { ownerResourceId: resourceId, rootThreadId: threadId },
-      [...discovery.approvals, ...discovery.suspends]
+    // BST-1084: rediscovered suspend() pauses ride the same response. An
+    // UNREGISTERED tool's pause is flagged resumeSupported:false and NEVER
+    // dropped. The flag is WIRE HONESTY, not a renderer input: the notice
+    // picks its dead-end branch from hasRegisteredSuspendResumeUi(toolName)
+    // against the same REGISTERED_SUSPEND_RESUME_TOOL_IDS constant this
+    // process reads (same build, same answer) — the field exists so the
+    // payload states what this build concluded, and for any future consumer
+    // that is NOT the same build (logs, debug bundles, version-skewed
+    // clients).
+    //
+    // BOUNDED (#2223 review): abandoned suspends accumulate — a user who
+    // ignores an askUser/submitPlan card and types a new message leaves that
+    // run suspended in workflow storage permanently, and unlike approvals
+    // there is no Decline that settles them. Without a cap every thread open
+    // would append one card per abandoned question/plan, forever. Keep the
+    // NEWEST N (discovery sorts oldest-first) and log the dropped count —
+    // truncation is visible in the log, and the dropped runs stay resumable
+    // in storage if a later build adds a management surface.
+    const cappedSuspends = discovery.suspends.slice(-MAX_REDISCOVERED_SUSPENDS);
+    if (cappedSuspends.length < discovery.suspends.length) {
+      logger.warn('Capping rediscovered suspend pauses for thread hydration', {
+        code: 'assistant_suspended_pause_cap_applied',
+        droppedCount: discovery.suspends.length - cappedSuspends.length,
+        keptCount: cappedSuspends.length,
+        threadId,
+      });
+    }
+    const delegatedPauses = [...discovery.approvals, ...cappedSuspends].filter(
+      (pause) => pause.delegation !== undefined
     );
+    // A failed durable-state read must stay visible: an empty map would make
+    // an already-admitted decision appear actionable again.
+    const decisionStates = delegatedPauses.length
+      ? await readDelegatedDecisionStates(
+          await getDatabase(),
+          { ownerResourceId: resourceId, rootThreadId: threadId },
+          delegatedPauses
+        )
+      : new Map<string, DelegatedToolDecisionState>();
     const riskByTool = buildNativeToolRiskMap();
     const staleThresholdMs = resolveApprovalStaleMs();
     const now = Date.now();
     const approvals: RediscoveredToolApproval[] = discovery.approvals.map((approval) => {
-      const decisionState = decisionStates.get(getToolActionIdentityKey(approval));
+      const decisionState = approval.delegation
+        ? decisionStates.get(getToolActionIdentityKey(approval))
+        : undefined;
       // Discovery returns the ORIGINAL dotted tool name (the agent maps the
       // stored sanitized id back — see listSuspendedMastraRuns), so this lookup
       // hits for every known native tool.
@@ -381,35 +420,10 @@ export async function handleSuspendedRunsRequest(
       };
     });
 
-    // BST-1084: rediscovered suspend() pauses ride the same response. An
-    // UNREGISTERED tool's pause is flagged resumeSupported:false and NEVER
-    // dropped. The flag is WIRE HONESTY, not a renderer input: the notice
-    // picks its dead-end branch from hasRegisteredSuspendResumeUi(toolName)
-    // against the same REGISTERED_SUSPEND_RESUME_TOOL_IDS constant this
-    // process reads (same build, same answer) — the field exists so the
-    // payload states what this build concluded, and for any future consumer
-    // that is NOT the same build (logs, debug bundles, version-skewed
-    // clients).
-    //
-    // BOUNDED (#2223 review): abandoned suspends accumulate — a user who
-    // ignores an askUser/submitPlan card and types a new message leaves that
-    // run suspended in workflow storage permanently, and unlike approvals
-    // there is no Decline that settles them. Without a cap every thread open
-    // would append one card per abandoned question/plan, forever. Keep the
-    // NEWEST N (discovery sorts oldest-first) and log the dropped count —
-    // truncation is visible in the log, and the dropped runs stay resumable
-    // in storage if a later build adds a management surface.
-    const cappedSuspends = discovery.suspends.slice(-MAX_REDISCOVERED_SUSPENDS);
-    if (cappedSuspends.length < discovery.suspends.length) {
-      logger.warn('Capping rediscovered suspend pauses for thread hydration', {
-        code: 'assistant_suspended_pause_cap_applied',
-        droppedCount: discovery.suspends.length - cappedSuspends.length,
-        keptCount: cappedSuspends.length,
-        threadId,
-      });
-    }
     const suspends: RediscoveredToolSuspend[] = cappedSuspends.map((pause) => {
-      const decisionState = decisionStates.get(getToolActionIdentityKey(pause));
+      const decisionState = pause.delegation
+        ? decisionStates.get(getToolActionIdentityKey(pause))
+        : undefined;
       const resumable = hasRegisteredSuspendResumeUi(pause.toolName);
       if (!resumable) {
         logger.warn('Rediscovered suspend pause has no registered resume UI in this build', {

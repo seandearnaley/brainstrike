@@ -1057,3 +1057,11 @@ contract tests, and assistant-approval-reload-linearity.desktop.test.ts.
 The Electron test exercises renderer reload and real history hydration with a
 scripted discovery response; the database test independently verifies admission
 state and ownership. Neither claims packaged process-restart UI parity.
+
+The decision-state lookup uses only returned pauses (including the existing
+newest-ten suspend cap). Ordinary pauses require no extra decision-database
+read. A failed query or invalid saved state remains a visible discovery error;
+it must never become an empty annotation map that re-enables a consumed leaf.
+Explicitly undefined/inherited decision-state fields are invalid, not absent.
+Interrupted claims cannot safely offer retry: follow-up/cancellation controls
+remain part of BST-1723, and never erase the original admission record.

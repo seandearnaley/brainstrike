@@ -410,7 +410,9 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
       await expect(question.getByRole('button', { name: 'Send' })).toBeDisabled();
       expect(await readAssistantMockRequests(window)).toHaveLength(0);
       expect(await readThreadEdges(window, threadId)).toHaveLength(2);
+      await window.screenshot({
+        path: testInfo.outputPath(`delegated-decision-recovery-${state}.png`),
+      });
     }
-    await window.screenshot({ path: testInfo.outputPath('delegated-decision-recovery.png') });
   });
 });
