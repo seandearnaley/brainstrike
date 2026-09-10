@@ -39,6 +39,7 @@ import type {
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
 import { formatDiagnosticChunkType } from './diagnostic-chunk-type';
 import { toJsonSafe } from './json';
+import { completeToolInputText } from './tool-input-completion';
 import { boundToolOutputForModel, readToolOutputErrorText } from './tool-output-limits';
 
 interface ToolState {
@@ -748,15 +749,7 @@ export class DataStreamMapper {
     if (!state || state.argsEmitted) {
       return;
     }
-    state.argsEmitted = true;
-    yield {
-      code: DataStreamCode.toolCall,
-      value: {
-        args: toArgsObject(state.lastInput, state.pendingArgsText),
-        toolCallId: callId,
-        toolName: state.toolName,
-      },
-    } satisfies EncodedChunk;
+    yield* this.finishToolArgs(callId, state);
   }
 
   /**
@@ -794,16 +787,19 @@ export class DataStreamMapper {
       return;
     }
 
+    const existingState = this.toolState.get(callId);
+    if (existingState && chunk.status !== 'progress') {
+      // Native terminal events may carry complete input after the final delta was lost.
+      const nextInput = extractToolInput(chunk.payload);
+      if (
+        nextInput !== undefined &&
+        !(hasNonEmptyToolInput(existingState.lastInput) && !hasNonEmptyToolInput(nextInput))
+      ) {
+        existingState.lastInput = nextInput;
+      }
+    }
     if (chunk.status === 'start') {
-      const existingState = this.toolState.get(callId);
       if (existingState) {
-        const nextInput = extractToolInput(chunk.payload);
-        if (
-          nextInput !== undefined &&
-          !(hasNonEmptyToolInput(existingState.lastInput) && !hasNonEmptyToolInput(nextInput))
-        ) {
-          existingState.lastInput = nextInput;
-        }
         return;
       }
       yield* this.handleToolStart(toolName, callId, chunk.payload);
@@ -863,15 +859,7 @@ export class DataStreamMapper {
     const state = this.toolState.get(callId);
     const args = chunk.args ?? state?.lastInput;
     if (state && !state.argsEmitted) {
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: {
-          args: toArgsObject(args, state.pendingArgsText),
-          toolCallId: callId,
-          toolName: state.toolName,
-        },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state, args);
     }
     // Deferred run events flush only now, AFTER the args-complete `9` — the
     // pre-BST-962 top-of-handler flush landed them inside the open args
@@ -941,15 +929,7 @@ export class DataStreamMapper {
     // pause data, not the tool input, so args default to the recorded input.
     const state = this.toolState.get(callId);
     if (state && !state.argsEmitted) {
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: {
-          args: toArgsObject(state.lastInput, state.pendingArgsText),
-          toolCallId: callId,
-          toolName: state.toolName,
-        },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
     }
     // Text-part deferral contract: deferred run events flush AFTER this call's
     // args-complete `9` (a flush inside the open args stream is the BST-962
@@ -1031,21 +1011,48 @@ export class DataStreamMapper {
     // provider path (a `tool-call` part; no input_stream_* events will
     // follow), so the args window would otherwise stay open across the whole
     // EXECUTION — deferring live shell output and run events until the
-    // result. Close it now: `b` immediately followed by its `9`. Streaming
+    // result. Send its complete input and close it now. Streaming
     // providers map `tool-call-input-streaming-start` to a start WITHOUT
     // input, so they are unaffected; a defensive late delta is dropped by the
     // argsEmitted guard either way.
     if (hasNonEmptyToolInput(state.lastInput)) {
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: {
-          args: toArgsObject(state.lastInput),
-          toolCallId: callId,
-          toolName,
-        },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
       yield* this.completeArgsStream(callId);
+    }
+  }
+
+  /** After `b`, the native decoder reads arguments from `c`; `9` only closes them. */
+  private *finishToolArgs(
+    callId: string,
+    state: ToolState,
+    input: unknown = state.lastInput
+  ): Generator<EncodedChunk> {
+    const args = toArgsObject(input, state.pendingArgsText);
+    let missingText = '';
+    let completionError: Error | undefined;
+    try {
+      if (state.pendingArgsText.length === 0 || (input !== undefined && input !== null)) {
+        missingText = completeToolInputText(state.pendingArgsText, args);
+      }
+    } catch (error) {
+      completionError = error instanceof Error ? error : new Error(String(error));
+    }
+    state.argsEmitted = true;
+    if (missingText.length > 0) {
+      state.pendingArgsText += missingText;
+      yield {
+        code: DataStreamCode.toolCallArgsTextDelta,
+        value: { argsTextDelta: missingText, toolCallId: callId },
+      } satisfies EncodedChunk;
+    }
+    yield {
+      code: DataStreamCode.toolCall,
+      value: { args, toolCallId: callId, toolName: state.toolName },
+    } satisfies EncodedChunk;
+    // Close the append-only input exactly once before failing the session.
+    // Otherwise handleError would attempt the same invalid completion again.
+    if (completionError) {
+      throw completionError;
     }
   }
 
@@ -1073,6 +1080,11 @@ export class DataStreamMapper {
         logger.debug('Dropping tool args delta after args completion', { toolCallId: callId });
         return;
       }
+      // Deltas supersede an earlier empty placeholder. A later terminal's
+      // explicit empty input is still authoritative and can complete `{`/`[`.
+      if (!hasNonEmptyToolInput(state.lastInput)) {
+        state.lastInput = undefined;
+      }
       state.pendingArgsText += delta;
       yield {
         code: DataStreamCode.toolCallArgsTextDelta,
@@ -1090,12 +1102,7 @@ export class DataStreamMapper {
       if (!state || state.argsEmitted) {
         return;
       }
-      const args = toArgsObject(state.lastInput, state.pendingArgsText);
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: { args, toolCallId: callId, toolName: state.toolName },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
       yield* this.completeArgsStream(callId);
     }
   }
@@ -1121,12 +1128,7 @@ export class DataStreamMapper {
     const bounded = boundToolOutputForModel(state?.toolName ?? toolName, output);
     if (bounded.errorText) {
       if (state && !state.argsEmitted) {
-        const args = toArgsObject(state.lastInput, state.pendingArgsText);
-        state.argsEmitted = true;
-        yield {
-          code: DataStreamCode.toolCall,
-          value: { args, toolCallId: callId, toolName: state.toolName },
-        } satisfies EncodedChunk;
+        yield* this.finishToolArgs(callId, state);
       }
       this.toolState.delete(callId);
       this.settledToolCallIds.add(callId);
@@ -1140,12 +1142,7 @@ export class DataStreamMapper {
       return;
     }
     if (state && !state.argsEmitted) {
-      const args = toArgsObject(state.lastInput, state.pendingArgsText);
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: { args, toolCallId: callId, toolName: state.toolName },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
     }
     this.toolState.delete(callId);
     this.settledToolCallIds.add(callId);
@@ -1173,12 +1170,7 @@ export class DataStreamMapper {
     // Emit ToolCall with args if we haven't already (needed for UI to display tool)
     const state = this.toolState.get(callId);
     if (state && !state.argsEmitted) {
-      const args = toArgsObject(state.lastInput, state.pendingArgsText);
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: { args, toolCallId: callId, toolName: state.toolName },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
     }
 
     this.toolState.delete(callId);
@@ -1218,15 +1210,7 @@ export class DataStreamMapper {
     }
     const state = this.toolState.get(callId);
     if (state && !state.argsEmitted) {
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: {
-          args: toArgsObject(state.lastInput, state.pendingArgsText),
-          toolCallId: callId,
-          toolName: state.toolName,
-        },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
     }
     this.toolState.delete(callId);
     this.settledToolCallIds.add(callId);

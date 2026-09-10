@@ -135,6 +135,7 @@ export function mapMastraToolEvent(
       return {
         name: displayName,
         payload: {
+          args: readMastraStreamPartValue(candidate, 'args'),
           callId,
           dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
           error,

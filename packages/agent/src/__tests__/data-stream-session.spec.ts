@@ -463,6 +463,7 @@ describe('AssistantDataStreamSession', () => {
     expect(parsed.map((entry) => entry.code)).toStrictEqual([
       'f',
       'b',
+      'c', // complete input reaches the decoder before args closure
       '9',
       'a',
       'aui-data',
