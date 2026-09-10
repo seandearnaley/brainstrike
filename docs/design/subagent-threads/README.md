@@ -157,7 +157,7 @@ write conflicts, native app reload, provider errors and background recovery.
 BST-1728 must verify those through the real web/packaged desktop boundaries and
 close every capability row above. A screenshot or this fixture cannot substitute.
 
-Verification checkpoint: 17 deterministic Chromium browser tests passed, including
+Verification checkpoint: 19 deterministic Chromium browser tests passed, including
 390px/1280px light/dark viewport bounds, sampled rendered text contrast of at least
 4.5:1, and the static layout under reduced-motion preferences. The late lifecycle negative controls cover closing
 the final root tab and stopping live descendants after the root itself has finished.
@@ -168,3 +168,7 @@ the original document and pass with explicit state validation. A same-thread
 scroll regression passes across state, stop and theme changes; positions clamp
 naturally if the new content is shorter. The fixture keeps scroll/draft edits in
 memory and saves on navigation or page exit, not on every scroll/keystroke.
+
+Root approval and decline both retain their outcome notice in the root transcript
+and reload successfully; the two regression cases failed before correcting the
+notice recipient. Child outcomes still notify their immediate parent.

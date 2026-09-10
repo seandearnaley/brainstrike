@@ -1289,7 +1289,7 @@
           const node = state.nodes[id];
           node.state = d.approve ? "completed" : "no-answer";
           notice(
-            node.parent,
+            node.parent || node.id,
             `${node.name}: ${d.approve ? "approval granted; simulated checks passed and result returned." : "approval declined; no command ran."}`,
           );
           render();

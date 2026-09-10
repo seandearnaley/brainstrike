@@ -341,3 +341,18 @@ test('saved presentation strings cannot become executable markup', async ({ page
   await expect(page).toHaveTitle('Subagent threads · Brainstrike design');
   await expect(page.getByRole('button', { exact: true, name: 'Open Cedar' })).toBeVisible();
 });
+
+for (const action of ['Approve once', 'Decline']) {
+  test(`root approval ${action} remains valid after reload`, async ({ page }) => {
+    await page.getByLabel('State of selected agent').selectOption('needs-input');
+    await page.getByRole('button', { exact: true, name: action }).click();
+    await page.reload();
+    await expect(page.getByRole('alert')).toBeHidden();
+    await expect(page.getByLabel('State of selected agent')).toHaveValue(
+      action === 'Approve once' ? 'completed' : 'no-answer'
+    );
+    await expect(page.getByRole('region', { name: 'Conversation' })).toContainText(
+      'Repository report:'
+    );
+  });
+}
