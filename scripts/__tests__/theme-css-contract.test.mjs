@@ -67,3 +67,29 @@ test('no source uses the legacy hsl(var(--x)) idiom', () => {
   const hits = grepIdiom();
   assert.deepEqual(hits, [], `legacy idiom found:\n${hits.join('\n')}`);
 });
+
+test('globals.css imports the theme files first and the high-contrast override outranks every theme', () => {
+  const globals = read('packages/ui/src/globals.css');
+  assert.match(
+    globals,
+    /^@import "\.\/themes\/index\.css";/u,
+    'themes/index.css must be the first statement'
+  );
+  const highContrast = globals.split('@media (prefers-contrast: more)')[1];
+  assert.ok(highContrast, 'high-contrast block present');
+  assert.match(
+    highContrast,
+    /:root\[data-theme\] \{/u,
+    'light high-contrast selector must be :root[data-theme]'
+  );
+  assert.match(
+    highContrast,
+    /:root\[data-theme\]\.dark \{/u,
+    'dark high-contrast selector must be :root[data-theme].dark'
+  );
+  assert.doesNotMatch(
+    highContrast,
+    /^\s*:root \{|^\s*\.dark \{/mu,
+    'bare :root/.dark would lose to themed selectors'
+  );
+});
