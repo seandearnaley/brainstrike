@@ -4,12 +4,15 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 const REPOSITORY_ROOT = join(import.meta.dirname, '..', '..');
-const SHARED_THEME = readFileSync(join(REPOSITORY_ROOT, 'packages/ui/src/globals.css'), 'utf8');
-const WEB_THEME = readFileSync(join(REPOSITORY_ROOT, 'apps/web/src/app/globals.css'), 'utf8');
-const DESKTOP_THEME = readFileSync(
-  join(REPOSITORY_ROOT, 'apps/desktop/src/renderer/styles.css'),
+const SHARED_THEME_BRIDGE = readFileSync(
+  join(REPOSITORY_ROOT, 'packages/ui/src/globals.css'),
   'utf8'
 );
+const PALETTE = readFileSync(
+  join(REPOSITORY_ROOT, 'packages/ui/src/themes/brainstrike.css'),
+  'utf8'
+);
+const SHARED_MAPPING = readFileSync(join(REPOSITORY_ROOT, 'packages/ui/src/theme.css'), 'utf8');
 const STATUS_GLYPH = readFileSync(
   join(REPOSITORY_ROOT, 'packages/app-shell/src/thread-row-status-glyph.tsx'),
   'utf8'
@@ -17,16 +20,18 @@ const STATUS_GLYPH = readFileSync(
 
 function blockFor(selector) {
   const escapedSelector = selector.replace('.', '\\.');
-  const match = SHARED_THEME.match(new RegExp(`${escapedSelector}\\s*\\{([\\s\\S]*?)\\n\\}`));
+  const match = PALETTE.match(new RegExp(`${escapedSelector}\\s*\\{([\\s\\S]*?)\\n\\}`));
   if (!match?.[1]) {
-    throw new Error(`Missing ${selector} block in packages/ui/src/globals.css`);
+    throw new Error(`Missing ${selector} block in packages/ui/src/themes/brainstrike.css`);
   }
   return match[1];
 }
 
 function hslToken(block, name) {
   const match = block.match(
-    new RegExp(`--bs-${name}:\\s*(\\d+(?:\\.\\d+)?)\\s+(\\d+(?:\\.\\d+)?)%\\s+(\\d+(?:\\.\\d+)?)%`)
+    new RegExp(
+      `--bs-${name}:\\s*hsl\\((\\d+(?:\\.\\d+)?)\\s+(\\d+(?:\\.\\d+)?)%\\s+(\\d+(?:\\.\\d+)?)%\\)`
+    )
   );
   if (!match) {
     throw new Error(`Missing --bs-${name} HSL token`);
@@ -72,13 +77,11 @@ function contrastRatio(first, second) {
 }
 
 describe('semantic warning theme contract', () => {
-  it('exposes one warning utility through the shared semantic token in both apps', () => {
-    assert.match(SHARED_THEME, /--warning:\s*var\(--bs-warning\);/);
-    assert.match(SHARED_THEME, /--warning-foreground:\s*var\(--bs-warning-foreground\);/);
-    for (const appTheme of [WEB_THEME, DESKTOP_THEME]) {
-      assert.match(appTheme, /--color-warning:\s*hsl\(var\(--warning\)\);/);
-      assert.match(appTheme, /--color-warning-foreground:\s*hsl\(var\(--warning-foreground\)\);/);
-    }
+  it('exposes one warning utility through the shared semantic token and mapping', () => {
+    assert.match(SHARED_THEME_BRIDGE, /--warning:\s*var\(--bs-warning\);/);
+    assert.match(SHARED_THEME_BRIDGE, /--warning-foreground:\s*var\(--bs-warning-foreground\);/);
+    assert.match(SHARED_MAPPING, /--color-warning:\s*var\(--warning\);/);
+    assert.match(SHARED_MAPPING, /--color-warning-foreground:\s*var\(--warning-foreground\);/);
     assert.match(STATUS_GLYPH, /className: 'bg-warning'/);
     assert.doesNotMatch(STATUS_GLYPH, /bg-amber-/);
   });

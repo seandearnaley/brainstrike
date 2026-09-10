@@ -8,10 +8,8 @@ const REPOSITORY_ROOT = join(import.meta.dirname, '..', '..');
 const read = (relativePath) => readFileSync(join(REPOSITORY_ROOT, relativePath), 'utf8');
 
 const SHARED_THEME = read('packages/ui/src/globals.css');
-const APP_THEMES = [
-  ['apps/web/src/app/globals.css', read('apps/web/src/app/globals.css')],
-  ['apps/desktop/src/renderer/styles.css', read('apps/desktop/src/renderer/styles.css')],
-];
+const MAPPING_PATH = 'packages/ui/src/theme.css';
+const MAPPING_THEME = read(MAPPING_PATH);
 
 /**
  * Every `--sidebar*` alias declared in the shared palette. A Tailwind v4 utility
@@ -140,15 +138,13 @@ describe('sidebar theme contract', () => {
     }
   });
 
-  it('registers every --sidebar alias as a --color-* token in both apps', () => {
-    for (const [path, theme] of APP_THEMES) {
-      for (const token of SIDEBAR_TOKENS) {
-        assert.match(
-          theme,
-          new RegExp(`--color-${token}:\\s*hsl\\(var\\(--${token}\\)\\);`),
-          `${path} @theme must define --color-${token}; without it every ${token} utility silently emits no CSS`
-        );
-      }
+  it('registers every --sidebar alias as a --color-* token in the shared mapping', () => {
+    for (const token of SIDEBAR_TOKENS) {
+      assert.match(
+        MAPPING_THEME,
+        new RegExp(`--color-${token}:\\s*var\\(--${token}\\);`),
+        `${MAPPING_PATH} @theme inline must define --color-${token}; without it every ${token} utility silently emits no CSS`
+      );
     }
   });
 
@@ -167,12 +163,10 @@ describe('sidebar theme contract', () => {
       // Redundant by construction — the assertion above plus the registration
       // test already cover this, and with a stricter regex. Kept only because it
       // names the offending class and file, which those two cannot.
-      for (const [themePath, theme] of APP_THEMES) {
-        assert.ok(
-          theme.includes(`--color-${token}:`),
-          `${path}: "${candidate}" is mounted in the app but ${themePath} defines no --color-${token}`
-        );
-      }
+      assert.ok(
+        MAPPING_THEME.includes(`--color-${token}:`),
+        `${path}: "${candidate}" is mounted in the app but ${MAPPING_PATH} defines no --color-${token}`
+      );
     }
   });
 

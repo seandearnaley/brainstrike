@@ -7,6 +7,7 @@
 
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+@import "@brainstrike/ui/theme.css";
 @import "@brainstrike/ui/styles.css";
 @import "@brainstrike/assistant-ui/styles.css";
 @import "@brainstrike/mcp-app-host-ui/styles.css";
@@ -34,8 +35,7 @@
       "rlig" 1; /* Required ligatures */
     font-kerning: auto;
     /* Primary: Geist Variable via @fontsource, then system fonts */
-    font-family:
-      "Geist Variable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: var(--bs-font-sans);
     /* Text rendering optimization */
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
@@ -61,132 +61,6 @@
  * Features excellent legibility at small sizes with variable font support.
  * License: SIL Open Font License (OFL-1.1) - free for commercial use.
  */
-
-@custom-variant dark (&:is(.dark *));
-
-@theme {
-  /* ========================================================================
-   * TYPOGRAPHY SCALE - 2025 Visual Identity
-   * ========================================================================
-   * Refined typography scale with proper tracking (letter-spacing) for
-   * improved readability and premium feel.
-   */
-
-  /* Font Families - using @fontsource-variable packages */
-  --font-sans:
-    "Geist Variable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono:
-    "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-
-  /* Typography Scale - Sizes */
-  --text-display: clamp(2rem, 4vw, 3rem); /* 32-48px - Hero text */
-  --text-h1: clamp(1.5rem, 2.5vw, 2rem); /* 24-32px - Page titles */
-  --text-h2: 1.25rem; /* 20px - Section titles */
-  --text-h3: 1rem; /* 16px - Subsections */
-  --text-body: 0.9375rem; /* 15px - Primary content */
-  --text-ui: 0.8125rem; /* 13px - Interface elements */
-  --text-caption: 0.75rem; /* 12px - Secondary, labels */
-  --text-micro: 0.6875rem; /* 11px - Badges, timestamps */
-
-  /* Typography Scale - Weights */
-  --weight-light: 300;
-  --weight-normal: 400;
-  --weight-medium: 500;
-  --weight-semibold: 600;
-  --weight-bold: 700;
-
-  /* Typography Scale - Tracking (Letter Spacing) */
-  --tracking-tighter: -0.02em; /* Display text */
-  --tracking-tight: -0.015em; /* Headlines */
-  --tracking-normal: 0; /* Body text */
-  --tracking-wide: 0.01em; /* UI elements */
-  --tracking-wider: 0.02em; /* Captions, labels */
-  --tracking-widest: 0.03em; /* Micro text, badges */
-
-  /* Typography Scale - Line Heights */
-  --leading-none: 1;
-  --leading-tight: 1.25;
-  --leading-snug: 1.375;
-  --leading-normal: 1.5;
-  --leading-relaxed: 1.625;
-  --leading-loose: 2;
-
-  /* ========================================================================
-   * COLORS
-   * ======================================================================== */
-  --color-border: hsl(var(--border));
-  --color-panel-divider: hsl(var(--panel-divider));
-  --color-input: hsl(var(--input));
-  --color-ring: hsl(var(--ring));
-  --color-background: hsl(var(--background));
-  --color-foreground: hsl(var(--foreground));
-
-  --color-primary: hsl(var(--primary));
-  --color-primary-foreground: hsl(var(--primary-foreground));
-
-  --color-secondary: hsl(var(--secondary));
-  --color-secondary-foreground: hsl(var(--secondary-foreground));
-
-  --color-destructive: hsl(var(--destructive));
-  --color-destructive-foreground: hsl(var(--destructive-foreground));
-  --color-warning: hsl(var(--warning));
-  --color-warning-foreground: hsl(var(--warning-foreground));
-
-  --color-muted: hsl(var(--muted));
-  --color-muted-foreground: hsl(var(--muted-foreground));
-
-  --color-accent: hsl(var(--accent));
-  --color-accent-foreground: hsl(var(--accent-foreground));
-
-  --color-popover: hsl(var(--popover));
-  --color-popover-foreground: hsl(var(--popover-foreground));
-
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
-
-  --color-sidebar: hsl(var(--sidebar));
-  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
-  --color-sidebar-primary: hsl(var(--sidebar-primary));
-  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
-  --color-sidebar-accent: hsl(var(--sidebar-accent));
-  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
-  --color-sidebar-border: hsl(var(--sidebar-border));
-  --color-sidebar-ring: hsl(var(--sidebar-ring));
-
-  /* ========================================================================
-   * SPACING & LAYOUT
-   * ======================================================================== */
-  --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-sm: calc(var(--radius) - 4px);
-
-  /* Breakpoints */
-  --breakpoint-sm: 640px;
-  --breakpoint-md: 768px;
-  --breakpoint-lg: 1024px;
-  --breakpoint-xl: 1280px;
-  --breakpoint-2xl: 1536px;
-
-  --animate-accordion-down: accordion-down 0.2s ease-out;
-  --animate-accordion-up: accordion-up 0.2s ease-out;
-
-  @keyframes accordion-down {
-    from {
-      height: 0;
-    }
-    to {
-      height: var(--radix-accordion-content-height);
-    }
-  }
-  @keyframes accordion-up {
-    from {
-      height: var(--radix-accordion-content-height);
-    }
-    to {
-      height: 0;
-    }
-  }
-}
 
 /* Using Tailwind's container utilities */
 @layer components {
@@ -221,8 +95,7 @@ pre,
 kbd,
 samp,
 .font-mono {
-  font-family:
-    "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--bs-font-mono);
 }
 
 @layer components {
