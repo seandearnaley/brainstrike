@@ -319,7 +319,7 @@ boundaries. The repository creates children only beneath existing ancestors;
 it exposes no reparent operation and conflicting duplicate delivery fails.
 
 Unlike the older FK-less presentation sidecars, this graph references
-`mastra_threads`: migration 117 now guarantees that table exists before 126,
+`mastra_threads`: migration 117 already guarantees that table exists before 126,
 as it already does for the run tables in migration 118. Native thread deletion
 cascades its graph node and descendant graph nodes. This does **not** cascade
 upward into descendant native transcripts; the production branch-deletion
@@ -1172,3 +1172,9 @@ scheduling layers. Full rationale, revisit conditions, and verification
 probes: `docs/db-rollup-and-wakeup-modernization-decision-2026-07.md`.
 
 ---
+
+Delegated graph reads authorize against current native scope. A scope change hides
+the branch; restoring the exact native scope restores visibility. This storage
+layer does not promise permanent revocation or garbage collection. The host must
+source child write identities from observed native delegation, never caller ids;
+thread creation timestamps are not proof of ownership or delegation.

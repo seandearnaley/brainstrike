@@ -36,6 +36,35 @@ describe('durable delegated conversation graph (BST-1718)', () => {
     await database.close();
   });
 
+  it.each(['', '   ', 42, { path: 'invalid' }])(
+    'rejects malformed workspace metadata %j without binding a child',
+    async (workspace) => {
+      const repository = createDelegatedConversationRepository(database);
+      await repository.registerRoot(scope);
+      await database.query('UPDATE mastra_threads SET metadata = $1::jsonb WHERE id = $2', [
+        JSON.stringify({ operatingRootId: workspace }),
+        'root',
+      ]);
+      await expect(repository.createChild(scope, child)).rejects.toBeInstanceOf(
+        DelegatedConversationIdentityError
+      );
+      expect(await repository.listChildren(scope, 'root')).toEqual([]);
+    }
+  );
+
+  it('rejects an out-of-palette color from an untyped caller', async () => {
+    const repository = createDelegatedConversationRepository(database);
+    await repository.registerRoot(scope);
+    await expect(
+      repository.createChild(scope, {
+        ...child,
+        // @ts-expect-error Exercise a value arriving outside the typed host API.
+        color: 'red',
+      })
+    ).rejects.toBeInstanceOf(DelegatedConversationIdentityError);
+    expect(await repository.listChildren(scope, 'root')).toEqual([]);
+  });
+
   it('reloads the exact child identity, ancestry, configuration and workspace binding', async () => {
     const repository = createDelegatedConversationRepository(database);
     await repository.registerRoot(scope);

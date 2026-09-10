@@ -17,9 +17,11 @@ export interface DelegatedConversationScope {
   readonly rootThreadId: string;
 }
 
+export type DelegatedConversationColor = 'blue' | 'emerald' | 'amber' | 'rose' | 'violet' | 'slate';
+
 export interface CreateDelegatedChild {
-  readonly color: string;
-  readonly configuration: JsonObject;
+  readonly color: DelegatedConversationColor;
+  readonly configuration: unknown;
   readonly displayName: string;
   readonly parentThreadId: string;
   readonly resourceId: string;
@@ -27,7 +29,7 @@ export interface CreateDelegatedChild {
 }
 
 export interface DelegatedConversationNode extends DelegatedConversationScope {
-  readonly color: string | null;
+  readonly color: DelegatedConversationColor | null;
   readonly configuration: JsonObject | null;
   readonly createdAt: Date;
   readonly displayName: string | null;
@@ -38,6 +40,7 @@ export interface DelegatedConversationNode extends DelegatedConversationScope {
 }
 
 export interface DelegatedConversationRepository {
+  /** Register the root first; write inputs must be observed by the trusted host. */
   createChild(
     scope: DelegatedConversationScope,
     child: CreateDelegatedChild
@@ -69,6 +72,20 @@ function requireString(value: unknown): string {
   return value;
 }
 
+function requireColor(value: unknown): DelegatedConversationColor {
+  if (
+    value === 'blue' ||
+    value === 'emerald' ||
+    value === 'amber' ||
+    value === 'rose' ||
+    value === 'violet' ||
+    value === 'slate'
+  ) {
+    return value;
+  }
+  throw new DelegatedConversationIdentityError();
+}
+
 function nullableString(value: unknown): string | null {
   return value === null ? null : requireString(value);
 }
@@ -89,9 +106,12 @@ function isJsonValue(value: unknown, ancestors = new Set<object>()): value is Js
   if (Reflect.ownKeys(value).some((key) => typeof key !== 'string')) {
     return false;
   }
-  const descriptors = Object.entries(Object.getOwnPropertyDescriptors(value))
-    .filter(([key]) => !Array.isArray(value) || key !== 'length')
-    .map(([, descriptor]) => descriptor);
+  const descriptors: PropertyDescriptor[] = [];
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+    if (!Array.isArray(value) || key !== 'length') {
+      descriptors.push(descriptor);
+    }
+  }
   // Holes and extra properties cannot survive a JSON round trip intact.
   if (
     Array.isArray(value) &&
@@ -132,7 +152,7 @@ function readNode(value: unknown): DelegatedConversationNode {
     throw new DelegatedConversationIdentityError();
   }
   return {
-    color: nullableString(row['color']),
+    color: row['color'] === null ? null : requireColor(row['color']),
     configuration:
       row['configuration'] === null ? null : requireConfiguration(row['configuration']),
     createdAt,
@@ -196,7 +216,9 @@ export function createDelegatedConversationRepository(
         JOIN mastra_threads native ON native.id = $4 AND native."resourceId" = $5
         WHERE parent.owner_resource_id = $1 AND parent.root_thread_id = $2 AND parent.thread_id = $3
           AND (parent.parent_thread_id IS NOT NULL OR native_parent.metadata->'operatingRootId' IS NULL
-            OR jsonb_typeof(native_parent.metadata->'operatingRootId') IN ('string', 'null'))
+            OR jsonb_typeof(native_parent.metadata->'operatingRootId') = 'null'
+            OR (jsonb_typeof(native_parent.metadata->'operatingRootId') = 'string'
+              AND length(btrim(native_parent.metadata->>'operatingRootId')) > 0))
         ON CONFLICT (thread_id) DO UPDATE SET thread_id = EXCLUDED.thread_id
         WHERE ${TABLE}.owner_resource_id = EXCLUDED.owner_resource_id
           AND ${TABLE}.root_thread_id = EXCLUDED.root_thread_id
@@ -213,7 +235,7 @@ export function createDelegatedConversationRepository(
           requireString(child.resourceId),
           JSON.stringify(requireConfiguration(child.configuration)),
           requireString(child.displayName),
-          requireString(child.color),
+          requireColor(child.color),
         ]
       );
       if (result.rows.length !== 1) {

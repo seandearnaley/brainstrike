@@ -810,8 +810,7 @@ Every SQL path that enumerates tables clears all six: desktop `db:clearAll` in
 **The SET those three lists clear is owned by the reset-table registry**
 (`packages/db/src/reset-table-registry.ts`, BST-992): all three clear the same
 42-relation set (27 `brainstrike_*` — including delegated conversation ancestry,
-the principal-bound
-`brainstrike_mcp_tasks` handle store, its durable authority-epoch ledger, and the `brainstrike_mind_ops`
+the principal-bound `brainstrike_mcp_tasks` handle store, its durable authority-epoch ledger, and the `brainstrike_mind_ops`
 op-log, whose tombstones must not outlive the mind they describe (BST-993),
 and the `brainstrike_assistant_run_treatments` experiment-treatment store
 (BST-1250; retained on thread delete like run_outcomes, but never a true

@@ -157,15 +157,7 @@ export type {
 } from './queue/index.js';
 // Queue
 export { JobQueue } from './queue/index.js';
-export {
-  type CreateDelegatedChild,
-  createDelegatedConversationRepository,
-  type DelegatedConversationDatabase,
-  DelegatedConversationIdentityError,
-  type DelegatedConversationNode,
-  type DelegatedConversationRepository,
-  type DelegatedConversationScope,
-} from './repositories/delegated-conversation-repository.js';
+
 // Repository exports
 export * from './repositories/index.js';
 export {
