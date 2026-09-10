@@ -14,6 +14,7 @@
  *    four warning shapes the provider spec declares.
  */
 import type { LanguageModelV2Prompt } from '@ai-sdk/provider';
+import { MAX_RUN_EVENT_REASON_CHARS } from '@brainstrike/assistant-contract';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createProviderCallWarningSink,
@@ -159,7 +160,7 @@ describe('provider call warnings: reading the channel', () => {
     expect(readProviderCallWarning(raw)).toEqual(expected);
   });
 
-  it.each([[null], ['temperature ignored'], [42], [[]]])(
+  it.each([[null], [42], [[]]])(
     'records an unreadable entry (%j) rather than dropping it',
     (raw) => {
       expect(readProviderCallWarning(raw)).toEqual({
@@ -167,6 +168,41 @@ describe('provider call warnings: reading the channel', () => {
       });
     }
   );
+
+  it('preserves the explanation in a string-shaped warning', () => {
+    expect(readProviderCallWarning('temperature ignored')).toEqual({
+      detail: 'temperature ignored',
+      type: UNRECOGNIZED_PROVIDER_WARNING_TYPE,
+    });
+  });
+
+  it('bounds every retained provider-controlled field before deduplication', () => {
+    const sink = createProviderCallWarningSink();
+    sink.record([{ details: 'd'.repeat(5000), feature: 'f'.repeat(5000), type: 't'.repeat(5000) }]);
+    const [warning] = sink.drain();
+    expect(warning).toBeDefined();
+    for (const value of [warning?.type, warning?.subject, warning?.detail]) {
+      expect(Array.from(value ?? '')).toHaveLength(MAX_RUN_EVENT_REASON_CHARS);
+      expect(value?.endsWith('…')).toBe(true);
+    }
+  });
+
+  it('attributes identical warnings to each model without collapsing different models', () => {
+    const sink = createProviderCallWarningSink();
+    const warning = [{ feature: 'temperature', type: 'unsupported' }];
+    const origin = { modelId: 'gpt-5.6-terra', provider: 'openai' };
+    sink.record(warning, origin);
+    sink.record(warning, origin);
+    sink.record(warning, { modelId: 'gpt-5.6-sol', provider: 'openai' });
+    expect(sink.drain()).toEqual([
+      { origin, subject: 'temperature', type: 'unsupported' },
+      {
+        origin: { modelId: 'gpt-5.6-sol', provider: 'openai' },
+        subject: 'temperature',
+        type: 'unsupported',
+      },
+    ]);
+  });
 
   it('reports one distinct warning once, however many steps repeat it', () => {
     const sink = createProviderCallWarningSink();

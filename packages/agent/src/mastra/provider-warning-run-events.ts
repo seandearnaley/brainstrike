@@ -12,6 +12,7 @@
  * and `stream-run-event-chunks.ts` is the leaf every other streaming concern
  * depends on, so it cannot import a provider module.
  */
+import { boundRunEventReason } from '@brainstrike/assistant-contract';
 import type {
   ProviderCallWarning,
   ProviderCallWarningSink,
@@ -26,6 +27,8 @@ export const PROVIDER_CALL_WARNING_RUN_EVENT_KIND = 'provider.request.warned' as
 
 /** Cap for the rendered + persisted detail, using the one shared clamp. */
 export const MAX_PROVIDER_CALL_WARNING_DETAIL_CHARS = 240;
+/** Reserve visible space for the explanation after the model identity. */
+const MAX_PROVIDER_CALL_WARNING_ORIGIN_CHARS = 80;
 
 /**
  * Per-type row headings. A MAP WITH A DEFAULT, not a filter: an unknown type
@@ -54,10 +57,15 @@ function detailFor(warning: ProviderCallWarning): string {
   const parts = [warning.subject, warning.detail].filter(
     (part): part is string => part !== undefined
   );
-  if (parts.length === 0) {
-    return `The provider reported a "${warning.type}" warning about this request without any detail.`;
-  }
-  return truncateStreamDetail(parts.join(': '), MAX_PROVIDER_CALL_WARNING_DETAIL_CHARS);
+  const body =
+    parts.length === 0
+      ? `The provider reported a "${warning.type}" warning about this request without any detail.`
+      : parts.join(': ');
+  const source =
+    warning.origin === undefined
+      ? ''
+      : `${truncateStreamDetail(`${warning.origin.provider}/${warning.origin.modelId}`, MAX_PROVIDER_CALL_WARNING_ORIGIN_CHARS)}: `;
+  return truncateStreamDetail(`${source}${body}`, MAX_PROVIDER_CALL_WARNING_DETAIL_CHARS);
 }
 
 /**
@@ -67,8 +75,14 @@ function detailFor(warning: ProviderCallWarning): string {
  */
 function metadataFor(warning: ProviderCallWarning): AssistantRunEventMetadata {
   return {
-    ...(warning.subject === undefined ? {} : { feature: warning.subject }),
-    warningType: warning.type,
+    ...(warning.subject === undefined ? {} : { feature: boundRunEventReason(warning.subject) }),
+    ...(warning.origin === undefined
+      ? {}
+      : {
+          modelId: boundRunEventReason(warning.origin.modelId),
+          provider: boundRunEventReason(warning.origin.provider),
+        }),
+    warningType: boundRunEventReason(warning.type),
   };
 }
 

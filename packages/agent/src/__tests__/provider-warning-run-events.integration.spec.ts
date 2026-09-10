@@ -16,6 +16,7 @@ import type {
   LanguageModelV4CallOptions,
   LanguageModelV4StreamPart,
 } from '@ai-sdk/provider';
+import { Agent } from '@mastra/core/agent';
 import { createTool } from '@mastra/core/tools';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -29,17 +30,19 @@ vi.mock('../providers/provider-factory', async (importActual) => {
   const actual = await importActual<typeof import('../providers/provider-factory')>();
   return {
     ...actual,
-    createProvider: () => {
+    createProvider: vi.fn(() => {
       if (!modelHolder.current) {
         throw new Error('test fake model was not configured');
       }
       return modelHolder.current;
-    },
+    }),
     getDefaultModel: () => 'gpt-5.6-terra',
   };
 });
 
+const { createProvider } = await import('../providers/provider-factory');
 const { streamMastraAgent } = await import('../mastra/agent-streaming');
+const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
 /**
  * The v4 finish-reason shape: `{unified, raw}`, not a bare string. Spelled the
@@ -118,6 +121,99 @@ async function collectRunEvents(warnings: readonly unknown[]): Promise<{
 }
 
 describe('provider warnings on the turn (real Mastra loop)', () => {
+  it.each(['inherited', 'pinned', 'different-model-pin', 'descriptor-parent'] as const)(
+    'captures %s persona model warnings in the parent run sink',
+    async (mode) => {
+      vi.mocked(createProvider).mockClear();
+      modelHolder.current = modelWarning([{ feature: 'temperature', type: 'unsupported' }]);
+      const runtime = await createMastraAgentRuntime({
+        ...(mode === 'descriptor-parent'
+          ? {
+              modelOverride: {
+                apiKey: 'fixture',
+                id: 'ollama/fixture',
+                url: 'http://127.0.0.1:11434/v1',
+              },
+            }
+          : {}),
+        personas: [
+          {
+            allowedToolIds: ['brainstrike.grepSearch'],
+            description: 'Explore the workspace',
+            id: 'explore',
+            instructions: 'Answer the question.',
+            label: 'Explorer',
+            maxSteps: 4,
+            ...(mode === 'inherited'
+              ? {}
+              : {
+                  model: {
+                    modelId: mode === 'different-model-pin' ? 'gpt-5.6-sol' : 'gpt-5.6-terra',
+                    provider: 'openai',
+                  },
+                }),
+          },
+        ],
+        runtime: {
+          apiKey: 'test-key',
+          personaProviderApiKeys: { openai: 'test-key' },
+          provider: mode === 'descriptor-parent' ? 'ollama' : 'openai',
+        },
+        tools: {
+          'brainstrike.grepSearch': createTool({
+            description: 'Search the workspace.',
+            execute: async () => ({ matches: [] }),
+            id: TOOL_ID,
+            inputSchema: z.object({ pattern: z.string() }),
+          }),
+        },
+      });
+      try {
+        const child = (await runtime.agent.listAgents())['explore'];
+        expect(child).toBeInstanceOf(Agent);
+        if (!(child instanceof Agent)) {
+          throw new Error('Expected the production persona agent.');
+        }
+        const response = await child.stream('Find the answer.');
+        for await (const _part of response.fullStream) {
+          // Consume the real native agent stream so the model observer runs.
+        }
+        expect(await response.text).toBe('ANSWER');
+        expect(runtime.providerCallWarnings.drain()).toEqual([
+          {
+            origin: {
+              modelId: mode === 'different-model-pin' ? 'gpt-5.6-sol' : 'gpt-5.6-terra',
+              provider: 'openai',
+            },
+            subject: 'temperature',
+            type: 'unsupported',
+          },
+        ]);
+        if (mode === 'descriptor-parent') {
+          // Only the pin uses the factory: the supervisor kept its explicit descriptor.
+          expect(createProvider).toHaveBeenCalledTimes(1);
+          return;
+        }
+        const parent = await runtime.agent.stream('Answer without delegating.');
+        for await (const _part of parent.fullStream) {
+          // The same warning on the parent must share the per-run dedupe set.
+        }
+        expect(runtime.providerCallWarnings.drain()).toEqual(
+          mode === 'different-model-pin'
+            ? [
+                {
+                  origin: { modelId: 'gpt-5.6-terra', provider: 'openai' },
+                  subject: 'temperature',
+                  type: 'unsupported',
+                },
+              ]
+            : []
+        );
+      } finally {
+        await runtime.dispose();
+      }
+    }
+  );
   it('surfaces a dropped sampling param as a visible row on an otherwise healthy turn', async () => {
     const { events, text } = await collectRunEvents([
       {
@@ -130,9 +226,15 @@ describe('provider warnings on the turn (real Mastra loop)', () => {
     const notices = events.filter((event) => event.kind === 'provider.request.warned');
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatchObject({
-      detail: 'temperature: temperature is not supported by claude-opus-5 and will be ignored',
+      detail:
+        'openai/gpt-5.6-terra: temperature: temperature is not supported by claude-opus-5 and will be ignored',
       label: 'Provider ignored an unsupported setting',
-      metadata: { feature: 'temperature', warningType: 'unsupported' },
+      metadata: {
+        feature: 'temperature',
+        modelId: 'gpt-5.6-terra',
+        provider: 'openai',
+        warningType: 'unsupported',
+      },
       status: 'failed',
     });
 
@@ -170,7 +272,7 @@ describe('provider warnings on the turn (real Mastra loop)', () => {
 
     expect(events.filter((event) => event.kind === 'provider.request.warned')).toMatchObject([
       {
-        detail: 'maxTokens: maxTokens is deprecated, use maxOutputTokens',
+        detail: 'openai/gpt-5.6-terra: maxTokens: maxTokens is deprecated, use maxOutputTokens',
         label: 'Provider reported a deprecated setting',
         metadata: { feature: 'maxTokens', warningType: 'deprecated' },
         status: 'failed',

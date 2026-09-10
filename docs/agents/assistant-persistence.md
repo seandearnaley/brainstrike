@@ -1245,6 +1245,10 @@ the call's `warnings` array instead of returning 400, so a user-set
 `temperature` from the Prompt Workbench is simply ignored on a model that
 refuses one.
 
+Rows identify the configured provider/model in the detail prefix and metadata.
+Identical warnings deduplicate per model within a run; a distinct pinned model
+retains its own warning. Origin fields use the same bounded redaction contract.
+
 Like `mcp.tools.unavailable` it comes from the AGENT STREAM, not a main-process
 writer, and reaches persistence through the ordinary run-event chunk path. It is
 NOT a prelude: a call warning does not exist until the request has gone out, so
@@ -1263,9 +1267,13 @@ any kind — this row is the only evidence the setting was dropped, and a row
 hidden at default detail would leave the silent degradation exactly as it was
 found.
 
-One row per DISTINCT warning: the same rejection recurs on every step of a
+One row per DISTINCT bounded warning: the same rejection recurs on every step of a
 multi-step turn (it is a property of the request), and the sink dedupes it to
-one fact, one row. The capture-side contract — including why the warnings are
+one fact, one row across supervisor and persona calls. Provider-controlled
+fields are bounded/redacted before the sink retains them, and metadata and
+no-detail prose are bounded at presentation too. Exceptional termination drains
+captured warnings before propagating the original failure (BST-1745).
+The capture-side contract — including why the warnings are
 read at the MODEL rather than off a Mastra chunk — is in
 `docs/agents/assistant-providers.md`.
 
