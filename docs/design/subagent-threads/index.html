@@ -958,7 +958,9 @@
       const mark = (node) =>
         `<span class="mark ${node.color}" aria-hidden="true">${node.mark}</span>`;
       const status = (node) =>
-        `<span class="pill ${node.state}"><span aria-hidden="true">${states[node.state][0]}</span>${states[node.state][1]}</span>`;
+        node.state === "needs-input"
+          ? `<button class="pill ${node.state}" data-review="${node.id}" aria-label="${node.name} needs input, review request"><span aria-hidden="true">${states[node.state][0]}</span>${states[node.state][1]} ↗</button>`
+          : `<span class="pill ${node.state}"><span aria-hidden="true">${states[node.state][0]}</span>${states[node.state][1]}</span>`;
       const notice = (id, text) => {
         state.notices[id] ??= [];
         state.notices[id].push(text);
@@ -976,6 +978,9 @@
       function restoreView(id, restoreFocus) {
         const view = state.views[id];
         $("conversation").scrollTop = view?.scroll || 0;
+        if (!view && state.nodes[id].state === "needs-input") {
+          document.querySelector(".approval")?.scrollIntoView({ block: "end" });
+        }
         if (restoreFocus && view?.focus && $(view.focus)) {
           $(view.focus).focus({ preventScroll: true });
           return;
@@ -1140,6 +1145,14 @@
         const button = event.target.closest("button");
         if (!button) return;
         const d = button.dataset;
+        if (d.review) {
+          if (state.active !== d.review) openThread(d.review);
+          document.querySelector(".approval")?.scrollIntoView({ block: "end" });
+          document
+            .querySelector("[data-approve]")
+            ?.focus({ preventScroll: true });
+          return;
+        }
         if (d.open) {
           openThread(d.open);
           return;

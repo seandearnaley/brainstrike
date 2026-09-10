@@ -46,6 +46,11 @@ running, failed-unseen, done-unseen; aggregate descendant attention is separatel
 labelled. The fixture displays individual states; aggregate badges and search
 are specified here for BST-1725, not implemented by this study.
 
+On first opening a child that needs input, reveal the request and its decision
+buttons immediately. Later visits preserve the saved position; the **Needs input**
+header shortcut returns to the request. An unread attention badge alone is not
+sufficient if the user cannot find the decision.
+
 At narrow widths the conversation keeps the space. **Threads** reveals the
 hierarchy; opening a row returns to the conversation. Tabs scroll horizontally,
 breadcrumbs wrap, and the composer always stays reachable. No transcript is
@@ -145,5 +150,7 @@ Verification checkpoint: 14 deterministic Chromium browser tests passed, includi
 390px/1280px light/dark viewport bounds, sampled rendered text contrast of at least
 4.5:1, and reduced-motion checks. The late lifecycle negative controls cover closing
 the final root tab and stopping live descendants after the root itself has finished.
-The Web E2E PR run must still verify the same checked-in fixture through its normal
-configuration; these local fixture checks are not production application E2E proof.
+The same 14 tests passed through the checked-in Web E2E functional configuration
+with its built preview server on the explicit free port 8799. The application
+on port 8080 was left undisturbed. These fixture checks are not production
+application E2E proof.

@@ -205,6 +205,10 @@ for (const theme of ['light', 'dark']) {
         expect(box.bottom, box.selector).toBeLessThanOrEqual(844);
         expect(box.height, box.selector).toBeGreaterThan(0);
       }
+      await expect(
+        page.getByRole('button', { exact: true, name: 'Approve once' })
+      ).toBeInViewport();
+      await expect(page.getByRole('button', { exact: true, name: 'Decline' })).toBeInViewport();
       await expect(page.getByLabel('Message Wren', { exact: true })).toBeVisible();
       await expect(page.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();
       const contrasts = await page.evaluate(() => {
