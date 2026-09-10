@@ -359,8 +359,18 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         expect.objectContaining({ toolCallId: 'leaf-1', toolName: 'agent-leaf' }),
       ])
     );
-    expect(parentResult.result.usage?.totalTokens).toBeGreaterThan(0);
-    expect(childResult.result.usage?.totalTokens).toBeGreaterThan(0);
+    // Each scripted agent makes two provider calls at one input/output token each.
+    // Native child usage excludes its descendants, so the tree sums each run once.
+    expect(parentResult.result.usage).toMatchObject({
+      inputTokens: 2,
+      outputTokens: 2,
+      totalTokens: 4,
+    });
+    expect(childResult.result.usage).toMatchObject({
+      inputTokens: 2,
+      outputTokens: 2,
+      totalTokens: 4,
+    });
     const rows = await database.query<{ thread_id: string }>(
       'SELECT DISTINCT thread_id FROM mastra_messages'
     );
