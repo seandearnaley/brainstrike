@@ -55,13 +55,15 @@ function detailFor(warning: ProviderCallWarning): string {
   const parts = [warning.subject, warning.detail].filter(
     (part): part is string => part !== undefined
   );
-  if (parts.length === 0) {
-    return truncateStreamDetail(
-      `The provider reported a "${warning.type}" warning about this request without any detail.`,
-      MAX_PROVIDER_CALL_WARNING_DETAIL_CHARS
-    );
-  }
-  return truncateStreamDetail(parts.join(': '), MAX_PROVIDER_CALL_WARNING_DETAIL_CHARS);
+  const body =
+    parts.length === 0
+      ? `The provider reported a "${warning.type}" warning about this request without any detail.`
+      : parts.join(': ');
+  const source =
+    warning.origin === undefined
+      ? ''
+      : `${truncateStreamDetail(`${warning.origin.provider}/${warning.origin.modelId}`, 80)}: `;
+  return truncateStreamDetail(`${source}${body}`, MAX_PROVIDER_CALL_WARNING_DETAIL_CHARS);
 }
 
 /**
@@ -72,6 +74,12 @@ function detailFor(warning: ProviderCallWarning): string {
 function metadataFor(warning: ProviderCallWarning): AssistantRunEventMetadata {
   return {
     ...(warning.subject === undefined ? {} : { feature: boundRunEventReason(warning.subject) }),
+    ...(warning.origin === undefined
+      ? {}
+      : {
+          modelId: boundRunEventReason(warning.origin.modelId),
+          provider: boundRunEventReason(warning.origin.provider),
+        }),
     warningType: boundRunEventReason(warning.type),
   };
 }

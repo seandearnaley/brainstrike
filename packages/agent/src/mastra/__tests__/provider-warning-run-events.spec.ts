@@ -109,6 +109,25 @@ describe('provider warning run events', () => {
     expect(row?.detail?.length).toBeLessThanOrEqual(MAX_PROVIDER_CALL_WARNING_DETAIL_CHARS);
   });
 
+  it('identifies the warning model in visible detail and persisted metadata', () => {
+    const [row] = rows(
+      makeProviderCallWarningChunks([
+        {
+          origin: { modelId: 'gpt-5.6-sol', provider: 'openai' },
+          subject: 'temperature',
+          type: 'unsupported',
+        },
+      ])
+    );
+    expect(row?.detail).toBe('openai/gpt-5.6-sol: temperature');
+    expect(row?.metadata).toEqual({
+      feature: 'temperature',
+      modelId: 'gpt-5.6-sol',
+      provider: 'openai',
+      warningType: 'unsupported',
+    });
+  });
+
   it('bounds no-detail warning prose and all provider-controlled metadata values', () => {
     const [withoutDetail, withFeature] = rows(
       makeProviderCallWarningChunks([

@@ -1245,6 +1245,10 @@ the call's `warnings` array instead of returning 400, so a user-set
 `temperature` from the Prompt Workbench is simply ignored on a model that
 refuses one.
 
+Rows identify the configured provider/model in the detail prefix and metadata.
+Identical warnings deduplicate per model within a run; a distinct pinned model
+retains its own warning. Origin fields use the same bounded redaction contract.
+
 Like `mcp.tools.unavailable` it comes from the AGENT STREAM, not a main-process
 writer, and reaches persistence through the ordinary run-event chunk path. It is
 NOT a prelude: a call warning does not exist until the request has gone out, so

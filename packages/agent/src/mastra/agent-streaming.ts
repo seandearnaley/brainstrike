@@ -1209,8 +1209,8 @@ export async function* streamAttemptChunks({
       yield* drainToolCallTelemetryChunks(finished, runtime, toolCallTelemetryState);
       if (finished) {
         yield* delegatedProjection.settle();
-        // Settlement may await child publication. Flush any warnings recorded
-        // during that wait before downstream stops pulling at the finish.
+        // Publishing child terminal chunks yields to the consumer. Flush warnings
+        // recorded during publication before downstream stops at the finish.
         yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
       }
       for (const chunk of chunks) {
@@ -1227,6 +1227,7 @@ export async function* streamAttemptChunks({
     yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
     yield* drainDelegationUsageChunks(delegationUsage);
     yield* delegatedProjection.settle();
+    yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
     // Aborted mid-run: settle any orphaned delegations (a cancelled parent must
     // never leave a forever-"running" subagent.started). Otherwise finalize a
     // missing-finish stream with pending tool output + a synthetic finish.
@@ -1252,6 +1253,7 @@ export async function* streamAttemptChunks({
     // the original stream failure, including cancellation/watchdog paths.
     yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
     yield* delegatedProjection.settle();
+    yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
     // Best-effort telemetry must not be lost on an ordinary stream/projector
     // failure after earlier tool calls already completed — drain whatever was
     // accumulated before propagating the failure (review fix). Since BST-1409

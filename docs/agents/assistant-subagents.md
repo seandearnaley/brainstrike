@@ -7,7 +7,9 @@
 Provider call warnings from inherited and pinned persona model instances share
 the parent run's bounded warning sink (BST-1745). Runtime assembly wraps every
 owned model instance, including a hosted pin under a descriptor-configured
-parent. Warning capture neither changes model input nor grants tools. The real
+parent. Warnings carry their configured provider/model in visible text and
+metadata; repeats deduplicate per model, so a pinned model does not suppress
+the same warning from a different supervisor model. Warning capture neither changes model input nor grants tools. The real
 Mastra runtime/stream regression is
 `provider-warning-run-events.integration.spec.ts`; descriptor models themselves
 remain outside capture until BST-1740.

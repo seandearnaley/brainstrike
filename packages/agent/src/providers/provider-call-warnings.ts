@@ -39,6 +39,11 @@ import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('MastraAgent');
 
+export interface ProviderCallWarningOrigin {
+  readonly modelId: string;
+  readonly provider: string;
+}
+
 /**
  * One provider warning, normalized across the spec's four shapes.
  *
@@ -49,6 +54,8 @@ const logger = createLogger('MastraAgent');
 export interface ProviderCallWarning {
   /** The provider's own explanation (`details` / `message`), when it gave one. */
   readonly detail?: string;
+  /** Configured model that produced this warning, including persona pins. */
+  readonly origin?: ProviderCallWarningOrigin;
   /** What the warning is ABOUT (`feature` / `setting`), when the shape names one. */
   readonly subject?: string;
   readonly type: string;
@@ -74,7 +81,7 @@ export interface ProviderCallWarningSink {
   /** Take everything recorded since the last drain; dedupe memory is kept. */
   drain(): readonly ProviderCallWarning[];
   /** Record a provider `warnings` array (any shape, including a non-array). */
-  record(value: unknown): void;
+  record(value: unknown, origin?: ProviderCallWarningOrigin): void;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -120,7 +127,13 @@ export function readProviderCallWarning(value: unknown): ProviderCallWarning {
 }
 
 function warningSignature(warning: ProviderCallWarning): string {
-  return [warning.type, warning.subject ?? '', warning.detail ?? ''].join('|');
+  return JSON.stringify([
+    warning.origin?.provider,
+    warning.origin?.modelId,
+    warning.type,
+    warning.subject ?? '',
+    warning.detail ?? '',
+  ]);
 }
 
 export function createProviderCallWarningSink(): ProviderCallWarningSink {
@@ -136,14 +149,24 @@ export function createProviderCallWarningSink(): ProviderCallWarningSink {
       pending = [];
       return drained;
     },
-    record(value: unknown) {
+    record(value: unknown, origin?: ProviderCallWarningOrigin) {
       if (!Array.isArray(value)) {
         // Not a report: an adapter with nothing to say omits the field or
         // sends `[]`. A non-array is never coerced into one.
         return;
       }
       for (const entry of value) {
-        const warning = readProviderCallWarning(entry);
+        const warning: ProviderCallWarning = {
+          ...readProviderCallWarning(entry),
+          ...(origin === undefined
+            ? {}
+            : {
+                origin: {
+                  modelId: boundRunEventReason(origin.modelId),
+                  provider: boundRunEventReason(origin.provider),
+                },
+              }),
+        };
         const signature = warningSignature(warning);
         if (seen.has(signature)) {
           // The same call warning repeats on every step of a multi-step turn.
@@ -185,13 +208,14 @@ interface CallResultLike {
  */
 function tapStreamStartWarnings(
   stream: ReadableStream<unknown>,
-  sink: ProviderCallWarningSink
+  sink: ProviderCallWarningSink,
+  origin?: ProviderCallWarningOrigin
 ): ReadableStream<unknown> {
   return stream.pipeThrough(
     new TransformStream<unknown, unknown>({
       transform(chunk, controller) {
         if (isRecord(chunk) && chunk['type'] === 'stream-start') {
-          sink.record(chunk['warnings']);
+          sink.record(chunk['warnings'], origin);
         }
         controller.enqueue(chunk);
       },
@@ -199,7 +223,11 @@ function tapStreamStartWarnings(
   );
 }
 
-function observeCallResult(result: unknown, sink: ProviderCallWarningSink): unknown {
+function observeCallResult(
+  result: unknown,
+  sink: ProviderCallWarningSink,
+  origin?: ProviderCallWarningOrigin
+): unknown {
   if (!isRecord(result)) {
     return result;
   }
@@ -207,13 +235,13 @@ function observeCallResult(result: unknown, sink: ProviderCallWarningSink): unkn
   // `doGenerate` reports warnings on the result itself; `doStream` reports
   // them on the first stream part. An adapter may do both, so neither branch
   // excludes the other.
-  sink.record(typed.warnings);
+  sink.record(typed.warnings, origin);
   if (!(typed.stream instanceof ReadableStream)) {
     // No stream to tap: a `doGenerate` result, or a shape this observer has no
     // business rewriting. Returned exactly as the adapter built it.
     return result;
   }
-  return { ...result, stream: tapStreamStartWarnings(typed.stream, sink) };
+  return { ...result, stream: tapStreamStartWarnings(typed.stream, sink, origin) };
 }
 
 /**
@@ -230,7 +258,8 @@ function observeCallResult(result: unknown, sink: ProviderCallWarningSink): unkn
  */
 export function wrapModelWithCallWarningCapture<M extends object>(
   model: M,
-  sink: ProviderCallWarningSink
+  sink: ProviderCallWarningSink,
+  origin?: ProviderCallWarningOrigin
 ): M {
   return new Proxy(model, {
     get(target, property) {
@@ -248,7 +277,7 @@ export function wrapModelWithCallWarningCapture<M extends object>(
       const method = value as (...args: unknown[]) => unknown;
       if (typeof property === 'string' && OBSERVED_CALL_METHODS.has(property)) {
         return async (...args: unknown[]) =>
-          observeCallResult(await method.apply(target, args), sink);
+          observeCallResult(await method.apply(target, args), sink, origin);
       }
       return method.bind(target);
     },

@@ -12,6 +12,7 @@ import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import {
   createProviderCallWarningSink,
+  type ProviderCallWarningOrigin,
   type ProviderCallWarningSink,
   wrapModelWithCallWarningCapture,
 } from '../providers/provider-call-warnings';
@@ -208,9 +209,9 @@ export interface MastraAgentRuntime {
    *
    * Shared by the supervisor and every persona model instance. Descriptor
    * models still have no observer, but their hosted persona pins can report
-   * into this same run sink. Optional for externally assembled runtimes.
+   * into this same run sink.
    */
-  providerCallWarnings: ProviderCallWarningSink | undefined;
+  providerCallWarnings: ProviderCallWarningSink;
   resilienceConfig: AssistantResilienceConfig;
   /** Per-run budget shared by fresh producers and runtime projection guards. */
   resolvedToolResultBudget: ScaledToolResultBudget;
@@ -249,7 +250,8 @@ const logger = createLogger('MastraAgent');
  */
 function observeProviderCallWarnings(
   languageModel: MastraModelConfig,
-  sink: ProviderCallWarningSink
+  sink: ProviderCallWarningSink,
+  origin: ProviderCallWarningOrigin
 ): MastraModelConfig {
   const isInstance =
     typeof languageModel === 'object' &&
@@ -258,7 +260,11 @@ function observeProviderCallWarnings(
   if (!isInstance) {
     return languageModel;
   }
-  return wrapModelWithCallWarningCapture(languageModel as object, sink) as MastraModelConfig;
+  return wrapModelWithCallWarningCapture(
+    languageModel as object,
+    sink,
+    origin
+  ) as MastraModelConfig;
 }
 
 function instantiateLanguageModel(
@@ -550,11 +556,13 @@ export async function createMastraAgentRuntime(
   //
   // A DESCRIPTOR-configured provider (ollama, lmstudio) returns a plain
   // `{id, url, apiKey}` config that Mastra materializes itself, so there is no
-  // instance to wrap. The run still owns a sink for hosted persona pins. Explicitly narrowed
-  // rather than duck-typed into a no-op wrapper: the absence is a documented
-  // boundary, not a silent one.
+  // instance to wrap. The run still owns a sink for hosted persona pins;
+  // descriptor capture remains a documented boundary (BST-1740).
   const providerCallWarnings = createProviderCallWarningSink();
-  const observedLanguageModel = observeProviderCallWarnings(languageModel, providerCallWarnings);
+  const observedLanguageModel = observeProviderCallWarnings(languageModel, providerCallWarnings, {
+    modelId: modelName,
+    provider: normalizedProvider,
+  });
   // Resolve once per run. Static catalog models use their declared context
   // window; runtime-discovered Ollama/LM Studio ids share the conservative
   // 32,768-token declaration from @brainstrike/assistant-contract.
@@ -669,7 +677,8 @@ export async function createMastraAgentRuntime(
       instantiate: (provider, auth, pinnedModelName, runtime) =>
         observeProviderCallWarnings(
           instantiateLanguageModel(provider, auth, pinnedModelName, runtime),
-          providerCallWarnings
+          providerCallWarnings,
+          { modelId: pinnedModelName, provider }
         ),
       parentProvider: normalizedProvider,
       runtime: sanitizedRuntime,

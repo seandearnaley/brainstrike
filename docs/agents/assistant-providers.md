@@ -2293,7 +2293,8 @@ that can never fire. The observer instead sits UNDER Mastra, at the model:
 `createMastraAgentRuntime` hands the wrapped model to the supervisor and
 inherited personas. Pinned persona instances are wrapped at creation against
 the SAME per-run sink (BST-1745), so child and parent warnings share the
-deduplication and capacity bound. It is an
+deduplication and capacity bound. Each warning retains its configured provider/model
+in visible text and metadata, and deduplication includes that identity. It is an
 OBSERVER: call arguments and stream chunks pass through untouched, which is what
 keeps the "never sent on a default request" ruling above intact. Do not turn it
 into a transform — `prompt-transform-proxy.ts` is the seam for that.
@@ -2309,10 +2310,13 @@ anything. Descriptor-model warning capture remains tracked in BST-1740.
 
 The sink bounds every provider-controlled field with the shared
 `boundRunEventReason` redaction/200-code-point contract before retaining it for
-deduplication; string-shaped warnings preserve their explanation. A warning
+deduplication, including model identity; string-shaped warnings preserve their
+explanation. All warning types share the existing 20-entry cap; accepted entries
+are never evicted. A warning
 recorded before exceptional stream termination is drained before the original
 error propagates, even if Mastra never yielded a mapped part. Terminal
-settlement also drains before the finish closes downstream consumption.
+settlement also drains after child terminal publication, on both success and
+error paths, before downstream consumption ends.
 
 The rows themselves — kind `provider.request.warned`, `status: 'failed'`,
 always-visible, one row per DISTINCT warning per run — are specified in

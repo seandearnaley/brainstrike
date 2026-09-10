@@ -181,10 +181,27 @@ describe('provider call warnings: reading the channel', () => {
     sink.record([{ details: 'd'.repeat(5000), feature: 'f'.repeat(5000), type: 't'.repeat(5000) }]);
     const [warning] = sink.drain();
     expect(warning).toBeDefined();
-    for (const value of Object.values(warning ?? {})) {
-      expect(Array.from(value)).toHaveLength(MAX_RUN_EVENT_REASON_CHARS);
-      expect(value.endsWith('…')).toBe(true);
+    for (const value of [warning?.type, warning?.subject, warning?.detail]) {
+      expect(Array.from(value ?? '')).toHaveLength(MAX_RUN_EVENT_REASON_CHARS);
+      expect(value?.endsWith('…')).toBe(true);
     }
+  });
+
+  it('attributes identical warnings to each model without collapsing different models', () => {
+    const sink = createProviderCallWarningSink();
+    const warning = [{ feature: 'temperature', type: 'unsupported' }];
+    const origin = { modelId: 'gpt-5.6-terra', provider: 'openai' };
+    sink.record(warning, origin);
+    sink.record(warning, origin);
+    sink.record(warning, { modelId: 'gpt-5.6-sol', provider: 'openai' });
+    expect(sink.drain()).toEqual([
+      { origin, subject: 'temperature', type: 'unsupported' },
+      {
+        origin: { modelId: 'gpt-5.6-sol', provider: 'openai' },
+        subject: 'temperature',
+        type: 'unsupported',
+      },
+    ]);
   });
 
   it('reports one distinct warning once, however many steps repeat it', () => {
