@@ -468,7 +468,8 @@ describe('frontier model refresh (2026-07)', () => {
         id: 'google/gemini-3.7-flash',
         label: 'Gemini 3.7 Flash (OpenRouter)',
         maxOutputTokens: 65_536,
-        pricing: { inputPerMTok: 0.375, outputPerMTok: 1.875 },
+        // BST-1705: 0.375 / 1.875 is the `:batch` route's rate, not this one's.
+        pricing: { inputPerMTok: 0.75, outputPerMTok: 3.75 },
         reasoning: {
           defaultEffort: 'medium',
           defaultEnabled: true,
@@ -531,7 +532,8 @@ describe('frontier model refresh (2026-07)', () => {
         id: 'qwen/qwen3.8-27b',
         label: 'Qwen3.8 27B (OpenRouter)',
         maxOutputTokens: 131_072,
-        pricing: { inputPerMTok: 0.45, outputPerMTok: 3.2 },
+        // BST-1705: re-priced from the live Models API on 2026-09-10.
+        pricing: { inputPerMTok: 0.42, outputPerMTok: 3 },
         reasoning: {
           defaultEffort: 'xhigh',
           defaultEnabled: true,

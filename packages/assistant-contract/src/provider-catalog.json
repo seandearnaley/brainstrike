@@ -637,7 +637,7 @@
     "runtime": "hosted"
   },
   {
-    "_note": "OpenRouter uses provider-prefixed model slugs (examples in docs):\nhttps://openrouter.ai/docs/guides/routing/auto-model-selection\nCurated current subset from OpenRouter's model catalog. Provider-reported\nbilled cost is authoritative at runtime; these rates are display estimates.",
+    "_note": "OpenRouter uses provider-prefixed model slugs (examples in docs):\nhttps://openrouter.ai/docs/guides/routing/auto-model-selection\nCurated current subset from OpenRouter's model catalog. Provider-reported\nbilled cost is authoritative at runtime; these rates are display estimates.\nPRICING SOURCE RULE (BST-1705): every rate in this block is the STANDARD\nroute's BASE rate, re-verified against the live Models API on 2026-09-10.\nTwo things in that API will hand you a different number if you read it\nnaively, and both have already corrupted rows here:\n1. `pricing.overrides` — an array of bands that REPLACE the base rate.\n   `utc_days`/`utc_start`/`utc_end` bands are time-of-day surge pricing, so\n   `pricing.prompt` inside a peak window is the rate RIGHT NOW, not the\n   standing price (this is how tencent/hy3 was recorded at its 1.6x surge).\n   `min_prompt_tokens` bands are long-context tiers (BST-1708) that this\n   one-rate-pair schema does not carry. Record the base: on a banded route\n   that is THE CHEAPEST BAND. Not \"the rate outside every band\" (bands\n   that leave part of the week uncovered are rejected, so there is no\n   outside) and not the band covering most of the week (hy3 surges 16\n   hours in 24, so its modal band IS the surge). Known limit: a\n   promotional band under the standing rate would read as the base;\n   nothing live does that as of 2026-09-10.\n2. Variant routes — `<id>:batch`, `:free`, `:nitro`. A variant is a\n   DIFFERENT route with its own price and belongs in a row of its own if we\n   ever ship one; its rate must never occupy the standard route's row (this\n   is how google/gemini-3.7-flash and z-ai/glm-5.3-flash were recorded).\nBoth rules are mechanised in scripts/openrouter-pricing-audit.mjs — run\n`pnpm run audit:openrouter-pricing` when adding or re-pricing a row.",
     "authType": "api_key",
     "capabilities": {
       "embeddings": false,
@@ -784,8 +784,8 @@
         "label": "Qwen3.8 27B (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
-          "inputPerMTok": 0.45,
-          "outputPerMTok": 3.2
+          "inputPerMTok": 0.42,
+          "outputPerMTok": 3
         },
         "reasoning": {
           "defaultEffort": "xhigh",
@@ -836,14 +836,14 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Capabilities and limits: official Google model page, last updated\n2026-08-13. Route and gateway pricing: OpenRouter Models API,\nretrieved 2026-08-14 (BST-1265).\nOpenRouter explicitly reports both mandatory=true and\ndefault_enabled=true. Preserve both so Auto uses the gateway's\ndeclared medium default rather than inferring one. Google documents\n65,536 as a maximum, not a distinct default thinking+answer window,\nso there is no vendorDefaultOutputTokens fact to record.",
+        "_note": "Capabilities and limits: official Google model page, last updated\n2026-08-13. Route and gateway pricing: OpenRouter Models API,\nretrieved 2026-08-14 (BST-1265), RE-PRICED 2026-09-10 (BST-1705): the\n2026-08-14 read recorded 0.375 / 1.875, which is the price of the\nSEPARATE `google/gemini-3.7-flash:batch` route, not of this one. The\nstandard route is 0.75 / 3.75.\nOpenRouter explicitly reports both mandatory=true and\ndefault_enabled=true. Preserve both so Auto uses the gateway's\ndeclared medium default rather than inferring one. Google documents\n65,536 as a maximum, not a distinct default thinking+answer window,\nso there is no vendorDefaultOutputTokens fact to record.",
         "contextWindow": 1048576,
         "id": "google/gemini-3.7-flash",
         "label": "Gemini 3.7 Flash (OpenRouter)",
         "maxOutputTokens": 65536,
         "pricing": {
-          "inputPerMTok": 0.375,
-          "outputPerMTok": 1.875
+          "inputPerMTok": 0.75,
+          "outputPerMTok": 3.75
         },
         "reasoning": {
           "defaultEffort": "medium",
@@ -861,8 +861,8 @@
         "label": "Laguna S 2.1 (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
-          "inputPerMTok": 0.1,
-          "outputPerMTok": 0.2
+          "inputPerMTok": 0.09,
+          "outputPerMTok": 0.18
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -882,13 +882,14 @@
         "vision": "unsupported"
       },
       {
+        "_note": "Gateway pricing re-verified against the OpenRouter Models API on\n2026-09-10 (BST-1705): 0.75 / 3.75. The row previously held 1.5 / 7.5,\nwhich matches neither this route nor its `google/gemini-3.6-flash:batch`\nvariant (0.375 / 1.875) — it was a Google DIRECT list price copied into a\ngateway row. Priced from OpenRouter because OpenRouter bills this route.",
         "contextWindow": 1048576,
         "id": "google/gemini-3.6-flash",
         "label": "Gemini 3.6 Flash (OpenRouter)",
         "maxOutputTokens": 65536,
         "pricing": {
-          "inputPerMTok": 1.5,
-          "outputPerMTok": 7.5
+          "inputPerMTok": 0.75,
+          "outputPerMTok": 3.75
         },
         "reasoning": {
           "defaultEffort": "medium",
@@ -1072,8 +1073,8 @@
         "label": "GPT-5.6 Terra (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
-          "inputPerMTok": 2.5,
-          "outputPerMTok": 15
+          "inputPerMTok": 2,
+          "outputPerMTok": 12
         },
         "supportsStreaming": true,
         "tagline": "Most capable for everyday work",
@@ -1086,8 +1087,8 @@
         "label": "GPT-5.6 Luna (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
-          "inputPerMTok": 1,
-          "outputPerMTok": 6
+          "inputPerMTok": 0.2,
+          "outputPerMTok": 1.2
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1128,8 +1129,8 @@
         "label": "GLM-5.2 (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
-          "inputPerMTok": 0.9282,
-          "outputPerMTok": 2.9172
+          "inputPerMTok": 0.28,
+          "outputPerMTok": 0.88
         },
         "reasoning": {
           "defaultEffort": "high",
@@ -1160,8 +1161,8 @@
         "label": "DeepSeek V4 Pro (OpenRouter)",
         "maxOutputTokens": 384000,
         "pricing": {
-          "inputPerMTok": 0.435,
-          "outputPerMTok": 0.87
+          "inputPerMTok": 0.87,
+          "outputPerMTok": 1.74
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1173,8 +1174,8 @@
         "label": "DeepSeek V4 Flash (OpenRouter)",
         "maxOutputTokens": 65536,
         "pricing": {
-          "inputPerMTok": 0.09,
-          "outputPerMTok": 0.18
+          "inputPerMTok": 0.08708,
+          "outputPerMTok": 0.17416
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1186,8 +1187,8 @@
         "label": "Qwen3.7 Max (OpenRouter)",
         "maxOutputTokens": 65536,
         "pricing": {
-          "inputPerMTok": 1.25,
-          "outputPerMTok": 3.75
+          "inputPerMTok": 1.475,
+          "outputPerMTok": 4.425
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1224,7 +1225,7 @@
         "id": "qwen/qwen3-coder-next",
         "label": "Qwen3 Coder Next (OpenRouter)",
         "pricing": {
-          "inputPerMTok": 0.11,
+          "inputPerMTok": 0.12,
           "outputPerMTok": 0.8
         },
         "supportsStreaming": true,
@@ -1236,8 +1237,8 @@
         "id": "moonshotai/kimi-k2.6",
         "label": "Kimi K2.6 (OpenRouter)",
         "pricing": {
-          "inputPerMTok": 0.66,
-          "outputPerMTok": 3.41
+          "inputPerMTok": 0.95,
+          "outputPerMTok": 4
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1248,8 +1249,8 @@
         "id": "moonshotai/kimi-k2.7-code",
         "label": "Kimi K2.7 Code (OpenRouter)",
         "pricing": {
-          "inputPerMTok": 0.719,
-          "outputPerMTok": 3.49
+          "inputPerMTok": 0.71,
+          "outputPerMTok": 3.5
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1261,8 +1262,8 @@
         "label": "GPT-5.5 (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
-          "inputPerMTok": 1.25,
-          "outputPerMTok": 10
+          "inputPerMTok": 5,
+          "outputPerMTok": 30
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1274,8 +1275,8 @@
         "label": "GPT-5.4 (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
-          "inputPerMTok": 1.25,
-          "outputPerMTok": 10
+          "inputPerMTok": 2.5,
+          "outputPerMTok": 15
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1287,8 +1288,8 @@
         "label": "GPT-5.4 Mini (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
-          "inputPerMTok": 0.25,
-          "outputPerMTok": 2
+          "inputPerMTok": 0.75,
+          "outputPerMTok": 4.5
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1300,8 +1301,8 @@
         "label": "GPT-5.3 Codex (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
-          "inputPerMTok": 1.25,
-          "outputPerMTok": 10
+          "inputPerMTok": 1.75,
+          "outputPerMTok": 14
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1313,8 +1314,8 @@
         "label": "GPT-5.2 (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
-          "inputPerMTok": 1.25,
-          "outputPerMTok": 10
+          "inputPerMTok": 1.75,
+          "outputPerMTok": 14
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1361,13 +1362,14 @@
         "vision": "supported"
       },
       {
+        "_note": "Gateway pricing re-verified against the OpenRouter Models API on\n2026-09-10 (BST-1705): 1.5 / 9. The row previously held 0.3 / 2.5, which is\nthe rate of the SIBLING google/gemini-3.5-flash-lite and google/gemini-2.5-\nflash routes, not of this one — Gemini 3.5 Flash is a near-Pro tier model\nand OpenRouter prices it 5x its Lite sibling. The direct `google` block\nstill carries 0.3 / 2.5 for its own gemini-3.5-flash row; that row is out of\nthis ticket's scope and is separately suspect. Do NOT mirror it back here.",
         "contextWindow": 1048576,
         "id": "google/gemini-3.5-flash",
         "label": "Gemini 3.5 Flash (OpenRouter)",
         "maxOutputTokens": 65536,
         "pricing": {
-          "inputPerMTok": 0.3,
-          "outputPerMTok": 2.5
+          "inputPerMTok": 1.5,
+          "outputPerMTok": 9
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1416,7 +1418,7 @@
         "vision": "unsupported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 1,310,720 /\n131,072 ceilings, text/image/video input modalities and gateway\npricing (0.000000075 / 0.00000025 per token), retrieved 2026-09-08\n(BST-1696). Z.ai publishes no effort ladder for this Flash route, so\nno `reasoning` block is declared.",
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,310,720 /\n131,072 ceilings, text/image/video input modalities and gateway\npricing (0.00000015 / 0.0000005 per token), retrieved 2026-09-08 and\nre-verified 2026-09-10 (BST-1696, BST-1705). The 2026-09-08 read\nrecorded 0.000000075 / 0.00000025, which is the price of the separate\n`z-ai/glm-5.3-flash:batch` route, not of this one. Z.ai publishes no\neffort ladder for this Flash route, so no `reasoning` block is\ndeclared.",
         "contextWindow": 1310720,
         "id": "z-ai/glm-5.3-flash",
         "inputModalities": ["text", "image", "video"],
@@ -1424,15 +1426,15 @@
         "maxOutputTokens": 131072,
         "outputModalities": ["text"],
         "pricing": {
-          "inputPerMTok": 0.075,
-          "outputPerMTok": 0.25
+          "inputPerMTok": 0.15,
+          "outputPerMTok": 0.5
         },
         "supportsStreaming": true,
         "type": "llm",
         "vision": "supported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 262,144 /\n128,000 ceilings, text-only input modality and gateway pricing\n(0.000000132 / 0.000000528 per token), retrieved 2026-09-08\n(BST-1696). BST-1696 listed the context window as UNVERIFIED; the\nlive route reports 262,144, not the 1M this family's newer routes\ncarry. Tencent's configurable reasoning effort is not enumerated on\nthe route, so no `reasoning` block is declared.",
+        "_note": "OpenRouter Models API owns this fixed route's identity, 262,144 /\n128,000 ceilings, text-only input modality and gateway pricing\n(0.0000000825 / 0.00000033 per token), retrieved 2026-09-08 and\nre-verified 2026-09-10 (BST-1696, BST-1705). The 2026-09-08 read\nrecorded 0.000000132 / 0.000000528 — this route's SURGE rate. Its\n`pricing.overrides` carry two time bands, 00:00-16:00 UTC at\n0.000000132 / 0.000000528 and 16:00-00:00 UTC at the base\n0.0000000825 / 0.00000033, and `pricing.prompt` reports whichever is\nin force at read time. The base rate is what this row records.\nBST-1696 listed the context window as UNVERIFIED; the\nlive route reports 262,144, not the 1M this family's newer routes\ncarry. Tencent's configurable reasoning effort is not enumerated on\nthe route, so no `reasoning` block is declared.",
         "contextWindow": 262144,
         "id": "tencent/hy3",
         "inputModalities": ["text"],
@@ -1440,8 +1442,8 @@
         "maxOutputTokens": 128000,
         "outputModalities": ["text"],
         "pricing": {
-          "inputPerMTok": 0.132,
-          "outputPerMTok": 0.528
+          "inputPerMTok": 0.0825,
+          "outputPerMTok": 0.33
         },
         "supportsStreaming": true,
         "type": "llm",

@@ -1152,28 +1152,93 @@ between a direct row and its OpenRouter twin is EXPECTED DATA, not drift —
 do not "fix" one row to match the other.
 
 The live instance: `gpt-5.6-sol` is 4/20 $/MTok on the `openai` row and 2/10
-on `openai/gpt-5.6-sol` (both retrieved 2026-09-08; OpenRouter also publishes
-a `>=272,000` prompt-token override at 4/15, which this one-rate-pair schema
-does not carry). The divergence is Sol-specific, and the evidence for that is
-LIVE-vs-LIVE, not our own rows: on 2026-09-09 the OpenRouter Models API and
-developers.openai.com agree exactly on every sibling checked — terra 2/12,
-luna 0.2/1.2, gpt-5.5 5/30, gpt-6-astra 10/50 — so OpenRouter is a faithful
-pass-through and only Sol (2/10 vs 4/20) departs. Do NOT argue this from two
-catalog rows agreeing with each other: our terra, luna and gpt-5.5 rows are
-stale in BOTH blocks and agree only because they were copied from one stale
-source (BST-1705). OpenRouter's Sol figure is exactly half OpenAI's while
-coinciding with OpenAI's batch/flex column, so it MAY be an upstream
-OpenRouter data error.
+on `openai/gpt-5.6-sol` (both retrieved 2026-09-08). The divergence is
+Sol-specific, and the evidence for that is LIVE-vs-LIVE, not our own rows: on
+2026-09-09 the OpenRouter Models API and developers.openai.com agree exactly
+on every sibling checked — terra 2/12, luna 0.2/1.2, gpt-5.5 5/30,
+gpt-6-astra 10/50 — so OpenRouter is a faithful pass-through and only Sol
+(2/10 vs 4/20) departs. Do NOT argue this from two catalog rows agreeing with
+each other: the `openai` block's terra, luna and gpt-5.5 rows are stale and
+agree only because they were copied from one stale source (BST-1705 re-priced
+the `openrouter` block; the direct `openai` rows still carry the old figures
+and need their own pass against developers.openai.com).
 It is recorded rather than resolved: OpenRouter is the route that bills the
 user, provider-reported billed cost stays authoritative at runtime, and a
 declared rate is a display estimate.
 `packages/assistant-contract/src/__tests__/provider-registry-pricing.test.ts`
 pins both rows AND asserts they differ, so a sweep that mirrors them fails.
 
-BST-1705 carries the broader finding that roughly 20 of the 47 `openrouter`
-rows have drifted from that API (`google/gemini-3.6-flash` stated at 2x,
-`google/gemini-3.7-flash` carrying the `:batch` rate). Re-pricing them is
-that ticket's job, and still one row per its OWN source.
+**What BST-1705 settled about Sol, and what it did NOT.** SETTLED: the 4/15
+figure that sits beside OpenRouter's 2/10 is a declared `min_prompt_tokens:
+272000` LONG-CONTEXT TIER in the route's `pricing.overrides` — not a
+time-of-day surge band, and not an anomaly. 2/10 is what the route charges an
+ordinary prompt and 4/15 is what it charges above 272K input tokens; our
+one-rate-pair schema carries the base and drops the tier (BST-1708 owns
+modelling tiers), so 2/10 is the right number to hold for THIS route under
+the per-ROUTE rule above.
+
+NOT SETTLED, and do not read this section as if it were: **why the gateway
+says 2/10 where developers.openai.com says 4/20**. The tier explains what
+4/15 IS; it does not reconcile that gap, which is the thing the older caveat
+flagged. The tier arguably makes the alternative reading STRONGER, not
+weaker — OpenRouter's long-context input rate is 4 and the direct row's
+disputed figure is 4/20, which is as consistent with "the direct Sol row was
+read off OpenAI's >=272K tier" as with "Sol genuinely diverges". So the row
+`_note` on `openrouter/openai/gpt-5.6-sol` still says the divergence MAY be
+an upstream data error, and that stands: re-read both sources during the
+`openai`-block pass (the same pass that owes terra, luna and gpt-5.5 their
+own re-pricing) rather than treating either row as settled here. What the
+pin in `provider-registry-pricing.test.ts` asserts is only that the two rows
+DIFFER and are sourced separately — not that 2/10-vs-4/20 has been explained.
+
+#### Read the BASE rate, not the rate in force right now (BST-1705)
+
+`pricing.prompt` / `pricing.completion` are the rate AT READ TIME. Two kinds
+of `pricing.overrides` entry move them, and both have already put a wrong
+number in the catalog:
+
+| override key | meaning | trap |
+| --- | --- | --- |
+| `min_prompt_tokens` | long-context tier (63 live routes) | a size surcharge this schema does not carry (BST-1708) |
+| `utc_days` / `utc_start` / `utc_end` | time-of-day SURGE band (2 live routes) | inside a peak window the top-level rate IS the surge rate |
+
+Those are the only two shapes, and the audit recognises each by POSITIVE
+evidence: of the 65 live routes carrying `pricing.overrides` on 2026-09-10,
+63 are `min_prompt_tokens` tiers, 2 are clock bands, and 0 are anything else.
+An entry matching neither — or mixing both — throws. Classifying by
+elimination is fail-open here, because the band reader defaults every absent
+UTC field: an unrecognised entry would become a band covering the whole week
+and could then WIN the cheapest-band comparison and become the recorded base
+rate. A third shape gets read by a human and taught to the script.
+
+`tencent/hy3` shipped at 0.132 / 0.528 — its 00:00-16:00 UTC band — because
+BST-1696 read the API during that window. Nothing in the response says so:
+the base 0.0825 / 0.33 is only visible in `overrides`. A third trap needs no
+overrides at all — `<id>:batch`, `<id>:free` and `<id>:nitro` are SEPARATE
+routes with their own prices, and `google/gemini-3.7-flash` and
+`z-ai/glm-5.3-flash` both shipped carrying their `:batch` twin's rate.
+
+So: record the standard route's base rate. On a route with clock bands that
+means THE CHEAPEST BAND, not "the rate outside every band" — a payload whose
+bands leave part of the week uncovered is rejected outright, so there is no
+outside, and it is not "the band covering most of the week" either, because
+`tencent/hy3` surges for 16 hours in every 24 and its modal band IS the surge.
+The known limit of the cheapest-band rule is a promotional window priced BELOW
+the standing rate, which would be read as the base; nothing live does that
+(2026-09-10) and the payload carries no field separating a discount window
+from a surge window, so the rule stands and the limit is recorded rather than
+guessed around. `scripts/openrouter-pricing-audit.mjs` derives it
+(time-independently, failing closed on any shape it does not recognise) and
+diffs the whole `openrouter` block against the live API:
+`pnpm run audit:openrouter-pricing`. Run it when adding or re-pricing a row.
+It is deliberately NOT part of `lint:ci` — the fact lives upstream and
+OpenRouter re-prices roughly weekly, so a network gate would fail PRs for
+reasons outside them, and skipping it on a network error would be exactly the
+silent degradation this repo forbids. What IS in the required Static lane is
+`scripts/__tests__/openrouter-pricing-audit.test.mjs`, which pins the
+derivation offline against real payload shapes — including the same surge
+payload captured at a peak and an off-peak moment, which must yield the same
+answer.
 
 ### Provider registry auth metadata (BST-1349)
 
