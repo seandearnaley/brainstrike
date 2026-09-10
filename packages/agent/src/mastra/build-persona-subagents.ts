@@ -26,6 +26,7 @@ import {
   resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
 } from '../stream/tool-output-limits';
+import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
 import {
   filterToolsByPermissionWithMetadata,
@@ -47,6 +48,7 @@ export interface PersonaSubAgentBuildResult {
 }
 
 export interface BuildPersonaSubAgentsParams {
+  readonly conversationBinding?: DelegatedConversationBinding;
   /** Parent's post-guard tool map (keyed by sanitized id), RAW — not yet
    * model-output-projected. Each child projects its own selected subset
    * against its own resolved budget (see {@link resolvedToolResultBudget}). */
@@ -380,6 +382,9 @@ export function buildPersonaSubAgents(
       description: delegationDescriptionForPersona(persona),
       id: persona.id,
       instructions: buildChildInstructions(persona, keptOriginalNames),
+      ...(params.conversationBinding
+        ? { inputProcessors: [params.conversationBinding.inputProcessor] }
+        : {}),
       // Any `errorProcessors` flips Mastra's processor-retry default, so the
       // pinned budget travels with them exactly as it does on the parent.
       ...(childErrorProcessors

@@ -31,6 +31,7 @@ import {
   buildLocalDefaultInstructions,
   type DelegationPersonaSummary,
 } from './default-instructions';
+import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import type { McpAppToolAdmissionCapability } from './mcp-app-tool-call';
@@ -64,6 +65,8 @@ export interface MastraAgentRuntimeOptions {
    * the legacy runtime/env key resolution.
    */
   authInput?: ProviderAuthInput;
+  /** Host-owned native identity persistence; never serialized through RuntimeData. */
+  conversationBinding?: DelegatedConversationBinding | undefined;
   /**
    * Server-injected tool-lifecycle hook runner (desktop). Composed OUTSIDE the
    * guard and BEFORE the permission gate. Overrides `runtime.hookRunner` when
@@ -146,6 +149,7 @@ export interface MastraAgentRuntime {
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
   /** Fail-loud completion check for the client-provided persisted assistant id. */
   assertAssistantMessageIdPersisted?: () => void;
+  conversationBinding?: DelegatedConversationBinding | undefined;
   /**
    * 'agent-<personaId>' → personaId for every registered delegation tool. Empty
    * when personas are absent/skipped. Consumed by the stream mapper (T4) to emit
@@ -583,6 +587,7 @@ export async function createMastraAgentRuntime(
     personasById,
     subAgents,
   } = resolvePersonaRuntimeParts({
+    conversationBinding: options.conversationBinding,
     // BST-1206 review (P2): a persona that pins its OWN model must project
     // its tools against THAT model's resolved budget, not the parent's — so
     // `guardedTools` here is deliberately the RAW (pre-model-output-projection)
@@ -681,6 +686,7 @@ export async function createMastraAgentRuntime(
     agent,
     ...assistantIdentityRuntime,
     askTools,
+    conversationBinding: options.conversationBinding,
     delegationToolPersonas,
     dispose: async () => {
       invalidateMcpAppAdmission?.();

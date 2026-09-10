@@ -1,5 +1,6 @@
 import { createDelegatedConversationRepository, runDrizzleMigrations } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
+import { createLogger } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 import {
   Agent,
@@ -15,6 +16,7 @@ import type { ChunkType } from '@mastra/core/stream';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { createDelegatedConversationBinding } from '../mastra/delegated-conversation-binding';
 import { createDelegationConfig } from '../mastra/subagent-delegation';
 import { createPgliteMastraMemory, type PgliteDatabase } from '../pglite-mastra-memory';
 import {
@@ -196,41 +198,35 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       const processedRuns = new Map<string, Set<string>>();
       const publishedRuns = new Map<string, string>();
       const completions = vi.fn<(context: DelegationCompleteContext) => void>();
-      const invocationKey = 'brainstrike-test-invocation';
-      const processor: InputProcessor & OutputProcessor = {
-        id: 'child-identity-proof',
-        processInput: async ({ messages, requestContext }) => {
-          const scope = parseMemoryRequestContext(requestContext);
-          const invocation = requestContext?.get(invocationKey);
-          if (!(scope?.thread?.id && scope.resourceId && typeof invocation === 'string')) {
-            throw new Error('Child memory or invocation identity is missing');
-          }
-          // Native memory has created the thread before host input processing.
-          // Await the durable graph write before any child publication.
-          const nativeThread = await backing.memory.getThreadById({ threadId: scope.thread.id });
-          expect(nativeThread?.resourceId, 'native thread must exist before graph binding').toBe(
-            scope.resourceId
-          );
-          await graph.registerRoot(rootScope);
-          await graph.createChild(rootScope, {
-            color: 'blue',
-            configuration: { personaId: 'child' },
-            displayName: invocation,
-            parentThreadId: 'root',
-            resourceId: scope.resourceId,
-            threadId: scope.thread.id,
-          });
-          scopes.set(invocation, { resourceId: scope.resourceId, threadId: scope.thread.id });
-          return messages;
-        },
+      const binding = createDelegatedConversationBinding(async (identity) => {
+        const nativeThread = await backing.memory.getThreadById({
+          threadId: identity.childThreadId,
+        });
+        expect(nativeThread?.resourceId).toBe(identity.childResourceId);
+        await graph.registerRoot(rootScope);
+        await graph.createChild(rootScope, {
+          color: 'blue',
+          configuration: identity.configuration,
+          displayName: identity.parentToolCallId,
+          parentThreadId: identity.parentThreadId,
+          resourceId: identity.childResourceId,
+          threadId: identity.childThreadId,
+        });
+        scopes.set(identity.parentToolCallId, {
+          resourceId: identity.childResourceId,
+          threadId: identity.childThreadId,
+        });
+      });
+      const processor: OutputProcessor = {
+        id: 'child-run-proof',
         processOutputStream: async ({ part, requestContext }) => {
-          const invocation = requestContext?.get(invocationKey);
-          if (typeof invocation !== 'string') {
-            throw new Error('Child invocation identity is missing');
+          const scope = parseMemoryRequestContext(requestContext);
+          if (!scope?.thread?.id) {
+            throw new Error('Child scope is missing');
           }
-          const runs = processedRuns.get(invocation) ?? new Set<string>();
+          const runs = processedRuns.get(scope.thread.id) ?? new Set<string>();
           runs.add(part.runId);
-          processedRuns.set(invocation, runs);
+          processedRuns.set(scope.thread.id, runs);
           return part;
         },
       };
@@ -242,16 +238,31 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
               ...toolCallParts('agent-child', 'second', { prompt: 'Second task' }).slice(1),
             ]
       );
+      const delegationPolicy = createDelegationConfig({
+        conversationBinding: binding,
+        logger: createLogger('SubagentBindingTest'),
+        personasById: new Map([
+          [
+            'child',
+            {
+              allowedToolIds: [],
+              description: 'Read',
+              id: 'child',
+              instructions: 'Read',
+              label: 'Child',
+              maxSteps: 16,
+            },
+          ],
+        ]),
+      });
       const { parent, effect } = tree({
-        childInputProcessor: processor,
+        childInputProcessor: binding.inputProcessor,
         childMemory,
         childOutputProcessor: processor,
         delegation: {
           hookErrorStrategy: 'throw',
           onDelegationComplete: completions,
-          onDelegationStart: ({ requestContext, toolCallId }) => {
-            requestContext.set(invocationKey, toolCallId);
-          },
+          onDelegationStart: (context) => delegationPolicy.onDelegationStart?.(context),
         },
         rootModel,
       });
@@ -295,21 +306,41 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
           resourceId: completion.result.subAgentResourceId,
           threadId: completion.result.subAgentThreadId,
         });
-        expect(processedRuns.get(completion.toolCallId)).toEqual(
+        if (!completion.result.subAgentThreadId) {
+          throw new Error('Completed child has no native thread');
+        }
+        expect(processedRuns.get(completion.result.subAgentThreadId)).toEqual(
           new Set([publishedRuns.get(completion.toolCallId)])
         );
       }
     }
   );
 
+  it('rejects a child whose parent was not registered by the trusted delegation hook', async () => {
+    const persist = vi.fn(async () => undefined);
+    const binding = createDelegatedConversationBinding(persist);
+    const { parent, childModel, effect } = tree({ childInputProcessor: binding.inputProcessor });
+    const output = await parent.stream('Find evidence', {
+      memory: { resource: 'owner', thread: 'root' },
+    });
+    const chunks = await collect(output.fullStream);
+    expect(JSON.stringify(chunks)).toContain('no trusted parent binding');
+    expect(persist).not.toHaveBeenCalled();
+    expect(childModel.prompts).toHaveLength(0);
+    expect(effect).not.toHaveBeenCalled();
+  });
+
   it('surfaces failed input identity binding before child model or tool execution', async () => {
+    const binding = createDelegatedConversationBinding(async () => {
+      await database.query('SELECT 1');
+      throw new Error('Delegated identity persistence failed');
+    });
     const { parent, childModel, effect } = tree({
-      childInputProcessor: {
-        id: 'failed-child-identity',
-        processInput: async () => {
-          await database.query('SELECT 1');
-          throw new Error('Delegated identity persistence failed');
-        },
+      childInputProcessor: binding.inputProcessor,
+      delegation: {
+        hookErrorStrategy: 'throw',
+        onDelegationStart: (context) =>
+          binding.prepare(context, { personaId: context.primitiveId }),
       },
     });
     const output = await parent.stream('Find evidence', {

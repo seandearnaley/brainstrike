@@ -479,8 +479,9 @@ child event, including the initial `start`, observes its own recorded identity.
 The scope agrees with `onDelegationComplete`'s actual child thread/resource;
 the nested stream's run id agrees with the child output processor's run id.
 
-Use a host-owned invocation marker set in `onDelegationStart`'s copied
-RequestContext to join the child input scope to the parent's tool-call id.
+Use `createDelegatedConversationBinding` to join the child input scope to the
+parent's tool-call id. It keys a host-owned WeakMap by the child RequestContext
+object supplied to `onDelegationStart`; no product entries are added to that map.
 Neither persona name, completion order nor parsing generated ids establishes
 this relationship. The child's native resource can differ from the root's
 resource, so it is not the user's ownership authority.
@@ -540,3 +541,23 @@ child input processor is not invoked on snapshot resume. A production resume
 must authorize persisted ancestry and invocation identity at the host boundary
 before forwarding any resumed child event; rerunning the input processor cannot
 be assumed. See the current [processor interface timing](https://mastra.ai/reference/processors/processor-interface).
+
+### Host binding adapter (BST-1718, host activation pending)
+
+The direct `MastraAgentRuntimeOptions.conversationBinding` capability is threaded
+through persona construction and the native delegation policy. The policy first
+checks persona availability and budgets, then snapshots its configuration and
+clamped maxSteps. Each child input processor awaits the capability's persistence
+callback before model/tool execution. Missing parent registration or a rejected
+write fails the child visibly. The callback receives observed native parent run,
+thread/resource, parent tool-call, persona and actual child thread/resource ids;
+it does not receive a fabricated child run id before native streaming exposes it.
+
+The adapter stores ephemeral correlation in a WeakMap, not RequestContext entries
+or RuntimeData. Its configuration snapshot is cloned before child execution.
+The real production stream fixture proves callback-before-tool ordering and zero
+child tool executions on persistence rejection. Removing the persona processor
+wiring makes both regression cases fail. Existing read-only/no-recursion gating
+is preserved. This adapter does not activate desktop graph writes on its own:
+the host caller, durable invocation store, resume validation, usage reconciliation
+and native branch cleanup are still required before BST-1718 is complete.

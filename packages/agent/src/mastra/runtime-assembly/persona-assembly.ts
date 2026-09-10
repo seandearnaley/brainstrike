@@ -14,6 +14,7 @@ import type { MastraModelConfig } from '@mastra/core/llm';
 import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import type { DelegationPersonaSummary } from '../default-instructions';
+import type { DelegatedConversationBinding } from '../delegated-conversation-binding';
 import type { PermissionToolGateSnapshot } from '../permission-tool-gate';
 import { shouldEnablePersonas } from '../subagent-delegation';
 import type { ModelOutputProjectionObserver } from '../tool-model-output';
@@ -51,6 +52,7 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
  * map here would bake the wrong budget into every pinned persona's tools.
  */
 export function resolvePersonaRuntimeParts(params: {
+  conversationBinding?: DelegatedConversationBinding | undefined;
   guardedTools: ToolsInput;
   languageModel: MastraModelConfig;
   permissionSnapshot: PermissionToolGateSnapshot | undefined;
@@ -66,6 +68,7 @@ export function resolvePersonaRuntimeParts(params: {
     return EMPTY_PERSONA_RUNTIME_PARTS;
   }
   const personaBuild = buildPersonaSubAgents({
+    ...(params.conversationBinding ? { conversationBinding: params.conversationBinding } : {}),
     guardedTools: params.guardedTools,
     languageModel: params.languageModel,
     logger,
