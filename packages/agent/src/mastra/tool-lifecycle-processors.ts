@@ -678,14 +678,15 @@ export function mapGenericToolEvent(
 /**
  * Per-leg bridge from `onDelegationComplete` (a Mastra callback OUTSIDE the
  * chunk loop) to the stream: completed child usage queues here and the
- * generator drains it into `child-run-usage` chunks on the next loop
- * iteration (the delegation tool-result part always follows the completion
- * callback) with a post-loop drain as the backstop. Model attribution is the
+ * generator drains bound reports at their matching parent terminal, after
+ * native child publication. A completion may race ahead of a slow consumer;
+ * an unrelated earlier part must not publish unbound usage. Unbound reports
+ * retain next-part delivery, with a post-loop drain for both paths. Model attribution is the
  * persona's model pin when present, else the parent run's model — the same
  * resolution the child actually executed with (never a guess).
  */
 export interface DelegationUsageCapture {
-  drain: () => StreamChunk[];
+  drain: (part?: unknown) => StreamChunk[];
   onChildUsage: (report: SubagentChildUsageReport) => void;
 }
 
@@ -693,9 +694,33 @@ export function createDelegationUsageCapture(
   personasById: ReadonlyMap<string, AssistantPersonaDefinition>,
   runtimeData: RuntimeData | undefined
 ): DelegationUsageCapture {
-  const pending: StreamChunk[] = [];
+  const pending: Extract<StreamChunk, { type: 'child-run-usage' }>[] = [];
   return {
-    drain: () => pending.splice(0, pending.length),
+    drain: (part) => {
+      if (part === undefined) {
+        return pending.splice(0);
+      }
+      const event = asMastraStreamPart(part);
+      const ready: StreamChunk[] = [];
+      for (let index = 0; index < pending.length; ) {
+        const chunk = pending[index];
+        if (!chunk) {
+          break;
+        }
+        const identity = chunk.value.delegation;
+        const terminal =
+          event.type === 'finish' ||
+          ((event.type === 'tool-result' || event.type === 'tool-error') &&
+            readMastraStreamPartString(event.payload, 'toolCallId') === identity?.parentToolCallId);
+        if (!identity || (terminal && event.runId === identity.parentRuntimeRunId)) {
+          ready.push(chunk);
+          pending.splice(index, 1);
+        } else {
+          index += 1;
+        }
+      }
+      return ready;
+    },
     onChildUsage: (report) => {
       const pin = personasById.get(report.personaId)?.model;
       const model = pin?.modelId ?? runtimeData?.model;
@@ -703,6 +728,7 @@ export function createDelegationUsageCapture(
       pending.push({
         type: 'child-run-usage',
         value: {
+          ...(report.delegation ? { delegation: report.delegation } : {}),
           estimated: false,
           inputTokens: report.inputTokens,
           ...(model ? { model } : {}),
@@ -787,7 +813,9 @@ export function mapToolLifecyclePart(
   if (!delegation) {
     return generic;
   }
+  const parentRuntimeRunId = readMastraStreamPartString(part, 'runId');
   const metadata: AssistantRunEventMetadata = {
+    ...(parentRuntimeRunId ? { parentRuntimeRunId } : {}),
     personaId: delegation.personaId,
     toolName: delegation.toolName,
     ...(delegation.parentToolCallId ? { parentToolCallId: delegation.parentToolCallId } : {}),

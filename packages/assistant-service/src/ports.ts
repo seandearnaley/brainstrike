@@ -28,6 +28,7 @@ type LocalLlmWarmupArgs = Parameters<LocalLlmHostClient['warmup']>;
 
 type SerializableIndependentStreamRuntimeOptions = Pick<
   MastraAgentRuntimeOptions,
+  | 'conversationBinding'
   | 'memory'
   | 'storage'
   | 'toolOutputArtifactInlineMaxSerializedCharsByToolName'

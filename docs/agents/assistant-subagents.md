@@ -494,19 +494,16 @@ invocation/run binding at its stream-publication boundary. The paired failure
 case proves that an input binding error is visible and prevents child model
 and tool execution.
 
-This establishes an initial-call API seam, not durable graph storage or access
-control. A durable-snapshot resume may skip input preparation; production
-resume authorization must use a persisted mapping and check the exact root,
-invocation, child thread and run before publication. Migration, resource
-ownership, reconstructed-host identity hydration and usage reconciliation remain
-BST-1718 acceptance work. See the current [processor lifecycle reference](https://mastra.ai/reference/processors/processor-interface).
+The initial-call seam is paired with durable graph storage and host access
+checks below. A durable-snapshot resume may skip input preparation; production
+resume authorization uses the persisted invocation and checks the exact root,
+turn, persona and native run before publication. See the current [processor lifecycle reference](https://mastra.ai/reference/processors/processor-interface).
 
 The first storage layer adds the host-only delegated conversation graph in
 `@brainstrike/db`, with exact native scope checks across the full ancestor chain,
 immutable child configuration/workspace binding, and explicit legacy absence.
-It is not yet called by production delegation. Invocation/run identity, complete
-native branch cleanup, host publication/resume and usage reconciliation remain
-required before enabling it. See `assistant-persistence.md` and `database.md`.
+Desktop production delegation now uses this graph together with invocation/run
+identity, branch cleanup, publication/resume checks and usage reconciliation. See `assistant-persistence.md` and `database.md`.
 
 ## Child conversation interaction contract (BST-1717)
 
@@ -542,7 +539,7 @@ must authorize persisted ancestry and invocation identity at the host boundary
 before forwarding any resumed child event; rerunning the input processor cannot
 be assumed. See the current [processor interface timing](https://mastra.ai/reference/processors/processor-interface).
 
-### Host binding adapter (BST-1718, host activation pending)
+### Host binding adapter (BST-1718)
 
 The direct `MastraAgentRuntimeOptions.conversationBinding` capability is threaded
 through persona construction and the native delegation policy. The policy first
@@ -558,11 +555,16 @@ or RuntimeData. Its configuration snapshot is cloned before child execution.
 The real production stream fixture proves callback-before-tool ordering and zero
 child tool executions on persistence rejection. Removing the persona processor
 wiring makes both regression cases fail. Existing read-only/no-recursion gating
-is preserved. This adapter does not activate desktop graph writes on its own:
-the host caller, durable invocation store, resume validation, usage reconciliation
-and native branch cleanup are still required before BST-1718 is complete.
+is preserved. Desktop run-scoped memory now installs this capability through
+`getDesktopMastraMemory` and the shared service runtime options. The host derives
+owner, root and turn from its persisted server run; child resource ids remain
+native execution scopes. Resume reauthorizes the original invocation against the
+current leg's owner/root/turn. Names and colors are allocated once in the graph.
+Thread deletion expands the complete native branch through the same authorized
+graph (single, bulk and native Memory paths); revoked ancestry rejects the whole
+delete, and overlapping bulk roots produce one deletion per native thread.
 
-### Native run publication boundary (BST-1718, host activation pending)
+### Native run publication boundary (BST-1718)
 
 A host may additionally supply `conversationBinding.bindRun`. The shared
 `streamAttemptChunks` path awaits it before mapping the first native child
@@ -574,8 +576,8 @@ child run under the same parent call. A recreated resume therefore authorizes
 again, even though Mastra skips child `processInput` and may omit a new start.
 No database lookup is performed for every text/reasoning delta.
 
-This does not yet activate the desktop adapter or change child transcript/UI
-routing. The parent delegation-tool start can still render before native child
+Desktop now activates this boundary; child transcript/UI routing remains
+BST-1719/BST-1724. The parent delegation-tool start can still render before native child
 progress exists. A rejected publication binding propagates through the existing
 stream error/abort path; cooperative abort is not proof that every asynchronous
 native memory write has settled. The failure-path publication test uses Mastra's
@@ -585,10 +587,51 @@ Paired production-stream tests cover awaited binding, single binding per attempt
 and visible rejection without child progress; real recreated native approval
 and decline tests prove the guard sees the same persisted native run identity.
 
-Review clarification: the publication host must compare observed `personaId` with
-`getInvocation(...).personaId` before calling `bindInvocationRun`; the latter
-binds only the native run key. Missing/changed native identities remain fatal to
+The repository's `bindInvocationRun` includes the observed persona in its atomic
+SQL predicate, both on first publication and reauthorization. A separate host
+read cannot substitute for that mutation-time check. Missing/changed native identities remain fatal to
 publication, rather than being skipped and potentially forwarded as authorized.
 A real native child-tool failure retains its native chunk identity and is covered
 by the production-stream guard test. With no `bindRun` capability, the guard is
 absent and the stream loop adds no authorization promise/microtask per chunk.
+
+
+### Durable delegated usage (BST-1718)
+
+Bound completion reports carry the public Mastra parent run/tool call and child
+thread/resource ids. The existing desktop child-usage writer resolves these to
+the authorized, published invocation and its original host leg. Migration 128
+adds a nullable invocation join to the existing usage table; historical rows are
+left unattributed. Duplicate reports and cumulative resumed totals update one
+row with monotonic token maxima, never additive replay. Model/provider cannot
+change on that row. Recreated native approval/decline tests prove the completed
+child's usage is cumulative across its two model steps and absent at the pause;
+this is not intermediate provider billing coverage while a child is paused.
+
+The completion hook can run ahead of a slow stream consumer. Bound reports stay
+queued until the matching parent result/error or finish, after native child
+publication has authorized its run. Final draining still requires the durable
+binding at the writer; missing/changed identity or a failed write propagates
+before the transient usage refresh. Unbound callers retain their existing
+usage contract. Local unbilled calls do not create billing rows.
+
+`delegated-runtime.integration.test.ts` drives desktop memory, the real Mastra
+loop and the existing usage writer with only model transport/DB handle injection
+scripted. It forces a fast child ahead of the consumer and reconstructs a PGlite
+engine to verify durable identity/usage. This is host integration evidence, not
+packaged Electron E2E or a process-restart guarantee. The separate graph/host,
+branch deletion, contract and stream-ordering tests cover rejection and replay.
+
+
+Lifecycle stays in the existing `brainstrike_assistant_run_events` journal.
+Native delegation start/finish/failure events now carry `parentRuntimeRunId`
+alongside `parentToolCallId`, so the host run/root ownership plus this key joins
+the exact invocation, including repeated tool-call names in different runs.
+Legacy events lacking the key are not fabricated into child lifecycle history.
+The desktop production-loop test verifies this durable terminal correlation.
+Root archive is presentation state on the existing root, not a second copied
+child flag; child navigation must inherit root visibility (BST-1725). There is
+no automatic invocation retention sweep. Host-run retention must preserve
+resumable invocations or explicitly remove the complete branch. Dedicated child
+transcript statuses, approval presentation and lifecycle controls remain in
+BST-1719/1720/1723 as specified by their contracts.

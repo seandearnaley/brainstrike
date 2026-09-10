@@ -1110,10 +1110,10 @@ export async function* streamAttemptChunks({
         runtimeData,
         task: titleGenerationTask,
       });
-      // Drain completed-delegation usage BEFORE the part's own chunks: the
-      // completion callback fired before Mastra emitted this part, so the
-      // child's usage must not land after a finishing part closes the stream.
-      yield* drainDelegationUsageChunks(delegationUsage);
+      // Bound usage waits for its parent terminal, after child publication
+      // authorized the native run. Fast producers can queue completion while
+      // this consumer is still reading earlier parts. Drain before finish closes it.
+      yield* drainDelegationUsageChunks(delegationUsage, part);
       yield* drainTokenEstimateCalibrationChunk(
         finished,
         runtime,

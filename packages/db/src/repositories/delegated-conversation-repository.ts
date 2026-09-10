@@ -4,7 +4,8 @@
  * Read authorization joins the live root owner and exact native child scope.
  */
 export interface DelegatedConversationDatabase {
-  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+  /** Only scalar SQL parameters and explicitly serialized configuration JSON. */
+  query(sql: string, params?: (string | number | null)[]): Promise<{ rows: unknown[] }>;
 }
 
 type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonObject;
@@ -56,10 +57,21 @@ export interface DelegatedInvocation extends CreateDelegatedInvocation, Delegate
   readonly turnMessageId: string;
 }
 
+export interface DelegatedInvocationUsage {
+  readonly currentHostRunId: string;
+  readonly id: string;
+  readonly inputTokens: number;
+  readonly model?: string;
+  readonly outputTokens: number;
+  readonly provider?: string;
+  readonly resourceId: string;
+  readonly threadId: string;
+}
+
 export interface DelegatedConversationRepository {
   bindInvocationRun(
     scope: DelegatedConversationScope,
-    key: DelegatedInvocationKey,
+    key: DelegatedInvocationKey & { readonly personaId: string },
     childRuntimeRunId: string
   ): Promise<DelegatedInvocation>;
 
@@ -84,6 +96,11 @@ export interface DelegatedConversationRepository {
     scope: DelegatedConversationScope,
     parentThreadId: string
   ): Promise<DelegatedConversationNode[]>;
+  recordInvocationUsage(
+    scope: DelegatedConversationScope,
+    key: DelegatedInvocationKey & { readonly personaId: string },
+    usage: DelegatedInvocationUsage
+  ): Promise<void>;
   registerRoot(scope: DelegatedConversationScope): Promise<DelegatedConversationNode>;
 }
 
@@ -98,6 +115,13 @@ export class DelegatedConversationIdentityError extends Error {
 
 function requireString(value: unknown): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new DelegatedConversationIdentityError();
+  }
+  return value;
+}
+
+function requireTokenCount(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
     throw new DelegatedConversationIdentityError();
   }
   return value;
@@ -262,7 +286,7 @@ export function createDelegatedConversationRepository(
   return {
     async bindInvocationRun(
       scope: DelegatedConversationScope,
-      key: DelegatedInvocationKey,
+      key: DelegatedInvocationKey & { readonly personaId: string },
       childRuntimeRunId: string
     ): Promise<DelegatedInvocation> {
       const result = await database.query(
@@ -273,10 +297,15 @@ export function createDelegatedConversationRepository(
            AND host.resource_id = $1 AND host.turn_message_id = invocation.turn_message_id
            AND invocation.root_thread_id = $2 AND invocation.owner_resource_id = $1
            AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4
+           AND invocation.persona_id = $6
            AND invocation.thread_id = child.thread_id
            AND (invocation.child_runtime_run_id IS NULL OR invocation.child_runtime_run_id = $5)
          RETURNING invocation.*, child.parent_thread_id`,
-        [...invocationParameters(scope, key), requireString(childRuntimeRunId)]
+        [
+          ...invocationParameters(scope, key),
+          requireString(childRuntimeRunId),
+          requireString(key.personaId),
+        ]
       );
       if (result.rows.length !== 1) {
         throw new DelegatedConversationIdentityError();
@@ -408,6 +437,49 @@ export function createDelegatedConversationRepository(
         [...scopeParameters(scope), requireString(parentThreadId)]
       );
       return result.rows.map(readNode);
+    },
+    async recordInvocationUsage(scope, key, usage) {
+      const result = await database.query(
+        `${AUTHORIZED_GRAPH} INSERT INTO brainstrike_assistant_run_usage AS stored
+          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens,
+           run_kind, delegation_parent_run_id, delegation_tool_call_id)
+         SELECT $5, invocation.root_thread_id, invocation.host_run_id, invocation.owner_resource_id,
+           COALESCE($10, original.model), COALESCE($11, original.provider), $12::integer, $13::integer,
+           'subagent', invocation.parent_runtime_run_id, invocation.parent_tool_call_id
+         FROM brainstrike_delegated_invocations invocation
+         JOIN owned_nodes child ON child.thread_id = invocation.thread_id
+         JOIN brainstrike_assistant_thread_runs original ON original.id = invocation.host_run_id
+           AND original.resource_id = $1 AND original.thread_id = $2
+           AND original.turn_message_id = invocation.turn_message_id
+         JOIN brainstrike_assistant_thread_runs current_leg ON current_leg.id = $6
+           AND current_leg.resource_id = $1 AND current_leg.thread_id = $2
+           AND current_leg.turn_message_id = invocation.turn_message_id
+         WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
+           AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4
+           AND invocation.thread_id = $7 AND invocation.persona_id = $8
+           AND invocation.child_runtime_run_id IS NOT NULL AND child.resource_id = $9
+         ON CONFLICT (thread_id, delegation_parent_run_id, delegation_tool_call_id)
+         DO UPDATE SET input_tokens = GREATEST(stored.input_tokens, EXCLUDED.input_tokens),
+           output_tokens = GREATEST(stored.output_tokens, EXCLUDED.output_tokens)
+         WHERE stored.run_id = EXCLUDED.run_id AND stored.resource_id = EXCLUDED.resource_id
+           AND stored.model = EXCLUDED.model AND stored.provider = EXCLUDED.provider
+         RETURNING id`,
+        [
+          ...invocationParameters(scope, key),
+          requireString(usage.id),
+          requireString(usage.currentHostRunId),
+          requireString(usage.threadId),
+          requireString(key.personaId),
+          requireString(usage.resourceId),
+          usage.model === undefined ? null : requireString(usage.model),
+          usage.provider === undefined ? null : requireString(usage.provider),
+          requireTokenCount(usage.inputTokens),
+          requireTokenCount(usage.outputTokens),
+        ]
+      );
+      if (result.rows.length !== 1) {
+        throw new DelegatedConversationIdentityError();
+      }
     },
     async registerRoot(scope: DelegatedConversationScope): Promise<DelegatedConversationNode> {
       const result = await database.query(

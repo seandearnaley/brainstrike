@@ -315,7 +315,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         }
         const key = { parentRuntimeRunId, parentToolCallId: invocation };
         if (nested.type === 'start') {
-          await graph.bindInvocationRun(rootScope, key, nested.runId);
+          await graph.bindInvocationRun(rootScope, { ...key, personaId: 'child' }, nested.runId);
           publishedRuns.set(invocation, nested.runId);
         }
         expect(await reloadedGraph.getInvocation(rootScope, key)).toMatchObject({
@@ -474,11 +474,13 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
   it.each([true, false])(
     'routes grandchild approval through recreated agents and storage (approved=%s)',
     async (approved) => {
+      const completions = vi.fn();
       const initialInput = vi.fn(
         ({ messages }: Parameters<NonNullable<InputProcessor['processInput']>>[0]) => messages
       );
       const { parent, effect, host } = tree({
         childInputProcessor: { id: 'resume-input-proof', processInput: initialInput },
+        delegation: { onDelegationComplete: completions },
         requireApproval: true,
       });
       const output = await parent.stream('Read evidence', {
@@ -497,6 +499,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         chunks.push(chunk);
       }
       expect(initialBindings).toHaveLength(1);
+      expect(completions).not.toHaveBeenCalled();
       const approval = chunks.find((chunk) => chunk.type === 'tool-call-approval');
       expect(approval).toBeDefined();
       expect(effect).not.toHaveBeenCalled();
@@ -514,6 +517,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       );
       const recreated = tree({
         childInputProcessor: { id: 'resume-input-proof', processInput: resumeInput },
+        delegation: { onDelegationComplete: completions },
         requireApproval: true,
       });
       const resume = approved
@@ -540,6 +544,12 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       expect(recreated.effect).toHaveBeenCalledTimes(approved ? 1 : 0);
       expect(resumeInput).not.toHaveBeenCalled();
       expect(await resume.text).toBe('child-1 answered');
+      expect(completions).toHaveBeenCalledOnce();
+      expect(completions.mock.calls[0]?.[0]).toMatchObject({
+        result: { usage: { inputTokens: 2, outputTokens: 2, totalTokens: 4 } },
+        runId: output.runId,
+        toolCallId: 'child-1',
+      });
     }
   );
 

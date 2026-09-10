@@ -14,6 +14,7 @@ import {
 import {
   ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
   DEFAULT_THREAD_TITLE,
+  DELEGATED_THREAD_DELETE_CTES,
   MASTRA_MEMORY_TABLES,
   MIND_OPS_TABLE,
   THREAD_DELETE_SIDECAR_TABLES,
@@ -742,6 +743,7 @@ export function requiredAssistantMemoryRelations(): readonly string[] {
       ASSISTANT_RUN_OUTCOMES_TABLE,
       ASSISTANT_EDIT_CHECKPOINTS_TABLE,
       MIND_OPS_TABLE,
+      'brainstrike_delegated_conversations',
       // `roots` is not assistant-owned (migration 039 creates it), but
       // CROSS_ROOT_USAGE_AGGREGATION_SQL reads it through `LEFT JOIN roots`.
       // Without it here, a handle carrying every assistant relation but no
@@ -2947,28 +2949,31 @@ export function createPgliteAssistantThreadRepository(
       const sidecarStages = THREAD_DELETE_SIDECAR_TABLES.map(
         ({ table, threadColumn }) => `deleted_${table} AS (
             DELETE FROM ${table}
-            WHERE ${threadColumn} = $1
+            WHERE ${threadColumn} IN (SELECT id FROM deletion_threads)
             RETURNING ${threadColumn}
           )`
       ).join(',\n          ');
       const sidecarCounts = THREAD_DELETE_SIDECAR_TABLES.map(
         ({ table }) => `(SELECT count(*) FROM deleted_${table}) AS "deleted_${table}_count"`
       ).join(',\n          ');
-      await database.query(
-        `WITH deleted_observational_memory AS (
+      const result = await database.query<{ allAuthorized: boolean }>(
+        `WITH RECURSIVE requested(id) AS (VALUES ($1::text)),
+          ${DELEGATED_THREAD_DELETE_CTES},
+          deleted_observational_memory AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
-            WHERE "threadId" = $1 OR "lookupKey" = $2
+            WHERE "threadId" IN (SELECT id FROM deletion_threads)
+              OR "lookupKey" IN (SELECT 'thread:' || id FROM deletion_threads)
             RETURNING id
           ),
           deleted_messages AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.messages}
-            WHERE thread_id = $1
+            WHERE thread_id IN (SELECT id FROM deletion_threads)
             RETURNING id
           ),
           ${sidecarStages},
           deleted_thread AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
-            WHERE id = $1
+            WHERE id IN (SELECT id FROM deletion_threads)
             RETURNING id, "resourceId"
           ),
           inserted_mind_ops AS (
@@ -2977,21 +2982,26 @@ export function createPgliteAssistantThreadRepository(
             RETURNING seq
           )
          SELECT
+          (SELECT all_authorized FROM deletion_scope_validation) AS "allAuthorized",
           (SELECT count(*) FROM deleted_observational_memory) AS deleted_observational_memory_count,
           (SELECT count(*) FROM deleted_messages) AS deleted_message_count,
           ${sidecarCounts},
           (SELECT count(*) FROM deleted_thread) AS deleted_thread_count,
           (SELECT count(*) FROM inserted_mind_ops) AS inserted_mind_op_count`,
-        [threadId, `thread:${threadId}`]
+        [threadId]
       );
+      if (result.rows[0]?.allAuthorized !== true) {
+        throw new Error('Delegated branch deletion requires unchanged native ownership.');
+      }
     },
     async deleteThreads(threadIds: readonly string[]): Promise<void> {
       requireAssistantThreadIds(threadIds);
       await initialize();
       const result = await database.query<Record<string, unknown>>(
-        `WITH requested(id) AS (
+        `WITH RECURSIVE requested(id) AS (
             VALUES ${threadIdValuesSql(threadIds)}
           ),
+          ${DELEGATED_THREAD_DELETE_CTES},
           validation AS (
             SELECT COUNT(threads.id) = ${threadIds.length} AS all_found
             FROM requested
@@ -3001,29 +3011,29 @@ export function createPgliteAssistantThreadRepository(
             DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
             WHERE (SELECT all_found FROM validation)
               AND (
-                "threadId" IN (SELECT id FROM requested)
-                OR "lookupKey" IN (SELECT 'thread:' || id FROM requested)
+                "threadId" IN (SELECT id FROM deletion_threads)
+                OR "lookupKey" IN (SELECT 'thread:' || id FROM deletion_threads)
               )
             RETURNING id
           ),
           deleted_messages AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.messages}
             WHERE (SELECT all_found FROM validation)
-              AND thread_id IN (SELECT id FROM requested)
+              AND thread_id IN (SELECT id FROM deletion_threads)
             RETURNING id
           ),
           ${THREAD_DELETE_SIDECAR_TABLES.map(
             ({ table, threadColumn }) => `deleted_${table} AS (
             DELETE FROM ${table}
             WHERE (SELECT all_found FROM validation)
-              AND ${threadColumn} IN (SELECT id FROM requested)
+              AND ${threadColumn} IN (SELECT id FROM deletion_threads)
             RETURNING ${threadColumn}
           )`
           ).join(',\n          ')},
           deleted_threads AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
             WHERE (SELECT all_found FROM validation)
-              AND id IN (SELECT id FROM requested)
+              AND id IN (SELECT id FROM deletion_threads)
             RETURNING id, "resourceId"
           ),
           inserted_mind_ops AS (
@@ -3033,6 +3043,7 @@ export function createPgliteAssistantThreadRepository(
           )
          SELECT
           (SELECT all_found FROM validation) AS "allFound",
+          (SELECT all_authorized FROM deletion_scope_validation) AS "allAuthorized",
           (SELECT count(*) FROM deleted_observational_memory) AS "deletedObservationalMemoryCount",
           (SELECT count(*) FROM deleted_messages) AS "deletedMessageCount",
           ${THREAD_DELETE_SIDECAR_TABLES.map(
@@ -3043,6 +3054,9 @@ export function createPgliteAssistantThreadRepository(
         [...threadIds]
       );
       assertAllBulkThreadsFound(result.rows[0]);
+      if (result.rows[0]?.['allAuthorized'] !== true) {
+        throw new Error('Delegated branch deletion requires unchanged native ownership.');
+      }
     },
     async getCrossRootUsage(resourceId: string): Promise<readonly CrossRootUsageRow[]> {
       await initialize();

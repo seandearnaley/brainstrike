@@ -255,6 +255,9 @@ describe('listRunRangeCheckpoints', () => {
     // together, and the timeline's foreign key means the parent cannot be
     // dropped alone.
     // Migration 127 adds another dependent relation to this intentionally missing-schema fixture.
+    await db.query(
+      'ALTER TABLE brainstrike_assistant_run_usage DROP CONSTRAINT brainstrike_assistant_run_usage_delegation_fk'
+    );
     await db.query('DROP TABLE brainstrike_delegated_invocations');
     await db.query('DROP TABLE brainstrike_assistant_run_events');
     await db.query(`DROP TABLE ${RUNS_TABLE}`);

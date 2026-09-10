@@ -68,6 +68,7 @@ import {
 } from './memory-row-mapping';
 import {
   ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
+  DELEGATED_THREAD_DELETE_CTES,
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
   MIND_OPS_TABLE,
@@ -323,31 +324,55 @@ export class PgliteMemoryStore extends MemoryStorage {
       // five sequential to_regclass round trips collapsed into one).
       const probed = await tx.query<{ table: string }>(
         'SELECT t AS table FROM unnest($1::text[]) AS t WHERE to_regclass(t) IS NOT NULL',
-        [[...THREAD_DELETE_SIDECAR_TABLES.map((entry) => entry.table), MIND_OPS_TABLE]]
+        [
+          [
+            ...THREAD_DELETE_SIDECAR_TABLES.map((entry) => entry.table),
+            MIND_OPS_TABLE,
+            'brainstrike_delegated_conversations',
+          ],
+        ]
       );
       const present = new Set(probed.rows.map((row) => row.table));
+      let threadIds = [threadId];
+      if (present.has('brainstrike_delegated_conversations')) {
+        const scope = await tx.query<{ allAuthorized: boolean; threadIds: string[] }>(
+          `WITH RECURSIVE requested(id) AS (VALUES ($1::text)), ${DELEGATED_THREAD_DELETE_CTES}
+           SELECT (SELECT all_authorized FROM deletion_scope_validation) AS "allAuthorized",
+             ARRAY(SELECT id FROM deletion_threads) AS "threadIds"`,
+          [threadId]
+        );
+        const row = scope.rows[0];
+        if (row?.allAuthorized !== true || !Array.isArray(row.threadIds)) {
+          throw new Error('Delegated branch deletion requires unchanged native ownership.');
+        }
+        threadIds = row.threadIds;
+      }
       await tx.query(
         `DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
-         WHERE "threadId" = $1 OR "lookupKey" = $2`,
-        [threadId, `thread:${threadId}`]
+         WHERE "threadId" = ANY($1::text[]) OR "lookupKey" = ANY($2::text[])`,
+        [threadIds, threadIds.map((id) => `thread:${id}`)]
       );
-      await tx.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.messages} WHERE thread_id = $1`, [
-        threadId,
-      ]);
+      await tx.query(
+        `DELETE FROM ${MASTRA_MEMORY_TABLES.messages} WHERE thread_id = ANY($1::text[])`,
+        [threadIds]
+      );
       for (const { table, threadColumn } of THREAD_DELETE_SIDECAR_TABLES) {
         if (present.has(table)) {
-          await tx.query(`DELETE FROM ${table} WHERE ${threadColumn} = $1`, [threadId]);
+          await tx.query(`DELETE FROM ${table} WHERE ${threadColumn} = ANY($1::text[])`, [
+            threadIds,
+          ]);
         }
       }
       const deleted = await tx.query<{ id: string; resourceId: string | null }>(
-        `DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = $1 RETURNING id, "resourceId"`,
-        [threadId]
+        `DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = ANY($1::text[]) RETURNING id, "resourceId"`,
+        [threadIds]
       );
       if (deleted.rows.length > 0 && present.has(MIND_OPS_TABLE)) {
         await tx.query(
           `INSERT INTO ${MIND_OPS_TABLE} (entity_kind, entity_id, op, resource_id)
-           VALUES ('thread', $1, 'delete', $2)`,
-          [threadId, deleted.rows[0]?.resourceId ?? null]
+           SELECT 'thread', id, 'delete', resource
+           FROM unnest($1::text[], $2::text[]) AS deleted(id, resource)`,
+          [deleted.rows.map((row) => row.id), deleted.rows.map((row) => row.resourceId)]
         );
       }
     });
