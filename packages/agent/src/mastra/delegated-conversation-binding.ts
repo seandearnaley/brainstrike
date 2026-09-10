@@ -18,7 +18,9 @@ export interface DelegatedConversationIdentity {
 
 export interface DelegatedConversationBinding {
   /** Host capability required for durable invocation publication/resume authorization. */
-  readonly bindRun?: (identity: DelegatedRunIdentity) => Promise<void>;
+  readonly bindRun?: (
+    identity: DelegatedRunIdentity
+  ) => Promise<{ readonly threadId: string; readonly messageId?: string }>;
   readonly inputProcessor: InputProcessor;
   prepare(context: DelegationStartContext, configuration: unknown): void;
 }

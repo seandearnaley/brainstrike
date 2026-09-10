@@ -16,12 +16,16 @@ import type { ChunkType } from '@mastra/core/stream';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { processMastraStreamPart } from '../mastra/agent-streaming';
 import { createDelegatedConversationBinding } from '../mastra/delegated-conversation-binding';
 import {
   createDelegatedRunPublicationGuard,
   type DelegatedRunIdentity,
 } from '../mastra/delegated-run-publication';
+import { createDelegatedStreamProjection } from '../mastra/delegated-stream-projection';
 import { createDelegationConfig } from '../mastra/subagent-delegation';
+import { readMastraStreamPartString, readMastraStreamPartValue } from '../mastra/tool-event-mapper';
+import { createTurnAttemptLifecycleState } from '../mastra/turn-attempts';
 import { createPgliteMastraMemory, type PgliteDatabase } from '../pglite-mastra-memory';
 import {
   hasToolResult,
@@ -37,6 +41,33 @@ async function collect(stream: AsyncIterable<ChunkType>): Promise<ChunkType[]> {
     chunks.push(chunk);
   }
   return chunks;
+}
+
+function initialChildMessageIdentities(chunks: readonly unknown[]): Map<string, string> {
+  const observedRuns = new Map<string, string>();
+  const visit = (part: unknown): void => {
+    if (readMastraStreamPartString(part, 'type') !== 'tool-output') {
+      return;
+    }
+    const nested = readMastraStreamPartValue(part, 'output');
+    const runId = readMastraStreamPartString(nested, 'runId');
+    if (!runId) {
+      return;
+    }
+    if (!observedRuns.has(runId)) {
+      const messageId = readMastraStreamPartString(nested, 'messageId');
+      if (!messageId) {
+        throw new Error('Initial native child has no message id');
+      }
+      observedRuns.set(runId, messageId);
+    }
+    visit(nested);
+  };
+  for (const chunk of chunks) {
+    visit(chunk);
+  }
+  expect(observedRuns.size).toBe(2);
+  return observedRuns;
 }
 
 describe('installed Mastra delegation contract (BST-1716)', () => {
@@ -499,6 +530,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         chunks.push(chunk);
       }
       expect(initialBindings).toHaveLength(1);
+      const nativeMessages = initialChildMessageIdentities(chunks);
       expect(completions).not.toHaveBeenCalled();
       const approval = chunks.find((chunk) => chunk.type === 'tool-call-approval');
       expect(approval).toBeDefined();
@@ -536,9 +568,58 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         },
         new Map([['agent-child', 'child']])
       );
+      const resumedChunks: ChunkType[] = [];
+      const personas = new Map([
+        ['agent-child', 'child'],
+        ['agent-leaf', 'leaf'],
+      ]);
+      const projection = createDelegatedStreamProjection({
+        authorize: async (identity) => {
+          const messageId = nativeMessages.get(identity.childRuntimeRunId);
+          if (!messageId) {
+            throw new Error('Unknown resumed native invocation');
+          }
+          const rows = await database.query<{ thread_id: string }>(
+            'SELECT thread_id FROM mastra_messages WHERE id = $1',
+            [messageId]
+          );
+          const threadId = rows.rows[0]?.thread_id;
+          if (!threadId) {
+            throw new Error('Missing persisted native child message');
+          }
+          return { messageId, threadId };
+        },
+        createState: (_personaId, threadId) =>
+          createTurnAttemptLifecycleState({ memory: { threadId } }, undefined, undefined),
+        mapPart: async (part, state, toolNames) => {
+          const result = await processMastraStreamPart(
+            part,
+            toolNames,
+            state,
+            undefined,
+            new Map(),
+            personas
+          );
+          return {
+            ...result,
+            chunks: result.chunks.filter((chunk) => chunk.type !== 'delegated-conversation-chunk'),
+          };
+        },
+        personas,
+      });
+      const projected = [];
       for await (const chunk of resume.fullStream) {
         await authorizeResume(chunk);
+        resumedChunks.push(chunk);
+        projected.push(...((await projection?.project(chunk, new Map())) ?? []));
       }
+      const firstNested = resumedChunks.find((chunk) => chunk.type === 'tool-output');
+      expect(
+        readMastraStreamPartString(readMastraStreamPartValue(firstNested, 'output'), 'messageId')
+      ).toBeUndefined();
+      expect(new Set(projected.map((chunk) => chunk.identity.childRuntimeRunId)).size).toBe(2);
+      expect(projected.every((chunk) => Boolean(chunk.messageId))).toBe(true);
+      expect(projected.filter((chunk) => chunk.chunk.type === 'message-finish')).toHaveLength(2);
       expect(resumedBindings).toEqual(initialBindings);
       expect(effect).not.toHaveBeenCalled();
       expect(recreated.effect).toHaveBeenCalledTimes(approved ? 1 : 0);

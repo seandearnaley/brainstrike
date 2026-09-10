@@ -417,7 +417,7 @@ function absorbEmptyAttemptSpend(part: unknown, lifecycleState: ToolLifecycleSta
   lifecycleState.sawStepWithoutBilledCost = true;
 }
 
-async function processMastraStreamPart(
+export async function processMastraStreamPart(
   part: unknown,
   toolNames: Map<string, string>,
   lifecycleState: ToolLifecycleState,
@@ -1049,11 +1049,12 @@ function createAttemptDelegatedProjection({
 } {
   const delegatedProjection = createDelegatedStreamProjection({
     authorize: runtime.conversationBinding?.bindRun,
-    createState: (personaId) => {
+    createState: (personaId, threadId) => {
       const provider =
         runtime.personasById.get(personaId)?.model?.provider ?? runtimeData?.provider;
+      // Children own their execution scope and must not consume parent steering.
       return createTurnAttemptLifecycleState(
-        provider ? { provider } : undefined,
+        { ...(provider ? { provider } : {}), memory: { threadId } },
         undefined,
         lifecycleState.toolExecutionDurations
       );

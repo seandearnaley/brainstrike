@@ -9,6 +9,7 @@ import {
   createDelegatedConversationBinding,
   type DelegatedConversationIdentity,
 } from '../mastra/delegated-conversation-binding';
+import type { DelegatedRunIdentity } from '../mastra/delegated-run-publication';
 import {
   hasToolResult,
   scriptedAgentModel,
@@ -56,6 +57,27 @@ function makeChildTool(execute: () => Promise<{ matches: string[] }>) {
   });
 }
 
+function makeBinding() {
+  const identities: DelegatedConversationIdentity[] = [];
+  const bindRun = vi.fn(async (run: DelegatedRunIdentity) => {
+    const identity = identities.find(
+      (entry) =>
+        entry.parentRuntimeRunId === run.parentRuntimeRunId &&
+        entry.parentToolCallId === run.parentToolCallId
+    );
+    if (!identity) {
+      throw new Error('Missing observed child scope');
+    }
+    return { threadId: identity.childThreadId };
+  });
+  return {
+    ...createDelegatedConversationBinding(async (identity) => {
+      identities.push(identity);
+    }),
+    bindRun,
+  };
+}
+
 describe('delegated conversation stream (real Mastra)', () => {
   it('keeps an empty child response failure scoped to the child instead of retrying the root', async () => {
     let childCalls = 0;
@@ -71,10 +93,7 @@ describe('delegated conversation stream (real Mastra)', () => {
     const stream = await streamMastraAgent(
       [{ id: 'user', parts: [{ text: 'Read evidence', type: 'text' }], role: 'user' }],
       {
-        conversationBinding: {
-          ...createDelegatedConversationBinding(async () => undefined),
-          bindRun: async () => undefined,
-        },
+        conversationBinding: makeBinding(),
         memory: new Memory({ storage: new InMemoryStore({ id: 'empty-child' }) }),
         personas: [testPersona],
         runtime: {
@@ -131,10 +150,7 @@ describe('delegated conversation stream (real Mastra)', () => {
     const stream = await streamMastraAgent(
       [{ id: 'user', parts: [{ text: 'Read evidence', type: 'text' }], role: 'user' }],
       {
-        conversationBinding: {
-          ...createDelegatedConversationBinding(async () => undefined),
-          bindRun: async () => undefined,
-        },
+        conversationBinding: makeBinding(),
         memory,
         personas: [testPersona],
         runtime: {
@@ -187,6 +203,17 @@ describe('delegated conversation stream (real Mastra)', () => {
       )
     ).toHaveLength(1);
     expect(child.filter(({ chunk }) => chunk.type === 'message-finish')).toHaveLength(1);
+    expect(
+      child.filter(
+        ({ chunk }) =>
+          chunk.type === 'run-event' &&
+          chunk.event.kind === 'tool.failed' &&
+          chunk.event.status === 'cancelled'
+      )
+    ).toHaveLength(1);
+    expect(
+      child.filter(({ chunk }) => chunk.type === 'tool-event' && chunk.status === 'error')
+    ).toMatchObject([{ chunk: { payload: { toolCallId: 'waiting-tool' } } }]);
     expect(new Set(child.map(({ messageId }) => messageId)).size).toBe(1);
   });
 
@@ -225,7 +252,17 @@ describe('delegated conversation stream (real Mastra)', () => {
     modelHolder.current = model.model;
     const memory = new Memory({ options: { generateTitle: false }, storage: new InMemoryStore() });
     const identities: DelegatedConversationIdentity[] = [];
-    const bindRun = vi.fn(async () => {});
+    const bindRun = vi.fn(async (run: DelegatedRunIdentity) => {
+      const identity = identities.find(
+        (entry) =>
+          entry.parentRuntimeRunId === run.parentRuntimeRunId &&
+          entry.parentToolCallId === run.parentToolCallId
+      );
+      if (!identity) {
+        throw new Error('Missing observed child scope');
+      }
+      return { threadId: identity.childThreadId };
+    });
     const iterator = await streamMastraAgent(
       [{ id: 'concurrent-user', parts: [{ text: 'Run both tasks', type: 'text' }], role: 'user' }],
       {

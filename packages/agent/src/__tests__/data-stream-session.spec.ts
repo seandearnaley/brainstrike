@@ -107,6 +107,7 @@ describe('AssistantDataStreamSession', () => {
       chunk,
       identity,
       messageId: 'native-child-message',
+      partId: 'native-part',
       type: 'delegated-conversation-chunk',
     });
     const session = new AssistantDataStreamSession(
@@ -147,6 +148,7 @@ describe('AssistantDataStreamSession', () => {
             frames: expect.arrayContaining([{ code: '0', value: 'Child content.' }]),
             identity,
             messageId: 'native-child-message',
+            partId: 'native-part',
           }),
           name: 'brainstrike.delegated-conversation',
         }),

@@ -23,9 +23,46 @@ const part = {
 };
 
 describe('delegated stream terminal ownership', () => {
+  it('uses the authorized persisted message identity when a resume wrapper has none', async () => {
+    const projection = createDelegatedStreamProjection({
+      authorize: async () => ({ messageId: 'persisted-message', threadId: 'child-thread' }),
+      createState: () => ({}),
+      mapPart: async () => ({
+        chunks: [
+          {
+            event: {
+              id: 'event',
+              kind: 'run.started',
+              label: 'Resumed',
+              status: 'running',
+              timestamp: new Date().toISOString(),
+            },
+            type: 'run-event',
+          } as const,
+        ],
+        finished: false,
+      }),
+      personas: new Map([['agent-explore', 'explore']]),
+    });
+    const resumed = {
+      ...part,
+      payload: {
+        ...part.payload,
+        output: { payload: {}, runId: 'child-run', type: 'tool-output' },
+      },
+    };
+    expect(await projection?.project(resumed, new Map())).toMatchObject([
+      { identity, messageId: 'persisted-message' },
+    ]);
+    expect(
+      projection?.finalize(() => [
+        { type: 'finish', usage: { completionTokens: 0, promptTokens: 0 } },
+      ])
+    ).toMatchObject([{ messageId: 'persisted-message' }]);
+  });
   it('settles an unfinished child exactly once without losing its native message identity', async () => {
     const projection = createDelegatedStreamProjection({
-      authorize: async () => undefined,
+      authorize: async () => ({ threadId: 'child-thread' }),
       createState: () => ({}),
       mapPart: async () => ({
         chunks: [{ type: 'text-delta', value: 'Partial' } as const],

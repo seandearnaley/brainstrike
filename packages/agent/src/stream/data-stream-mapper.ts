@@ -487,6 +487,9 @@ export class DataStreamMapper {
       frames.push(...mapper.initialChunks());
     }
     frames.push(...mapper.handleChunk(chunk.chunk));
+    if (chunk.chunk.type === 'message-finish' || chunk.chunk.type === 'finish') {
+      this.delegatedMappers.delete(key);
+    }
     if (frames.length === 0) {
       return;
     }
@@ -494,6 +497,7 @@ export class DataStreamMapper {
       frames,
       identity: chunk.identity,
       messageId: chunk.messageId,
+      ...(chunk.partId ? { partId: chunk.partId } : {}),
     };
     const encoded: EncodedChunk = {
       code: DataStreamCode.auiDataPart,

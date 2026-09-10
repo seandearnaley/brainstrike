@@ -762,6 +762,7 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
           expect(await memory.getThreadById({ threadId: child.childThreadId })).toMatchObject({
             resourceId: child.childResourceId,
           });
+          return { threadId: child.childThreadId };
         }
       );
       const conversationBinding = {

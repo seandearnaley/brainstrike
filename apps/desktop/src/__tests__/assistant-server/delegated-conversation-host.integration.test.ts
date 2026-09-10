@@ -104,6 +104,45 @@ describe('desktop delegated conversation authority', () => {
     timestamp: '2026-09-10T01:00:00.000Z',
   } as const;
 
+  it('recovers only the bound invocation native message identity before resume publication', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    expect(await host.bindRun(run)).toEqual({ threadId: 'child' });
+    await host.persistEvent(run, 'observed-before-pause', childStarted, 0);
+    expect(
+      await createDesktopDelegatedConversationHost(database, 'resume-leg').bindRun(run)
+    ).toEqual({ messageId: 'observed-before-pause', threadId: 'child' });
+    await expect(
+      createDesktopDelegatedConversationHost(database, 'other-turn-leg').bindRun(run)
+    ).rejects.toThrow();
+    await expect(
+      host.bindRun({ ...run, childRuntimeRunId: 'different-native-run' })
+    ).rejects.toThrow();
+  });
+
+  it('publishes the same sanitized metadata that reload reads', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    await host.bindRun(run);
+    const event = await host.persistEvent(
+      run,
+      'native-message',
+      {
+        ...childStarted,
+        metadata: { nested: { authorization: 'private' }, prompt: 'private payload', safe: 'kept' },
+      },
+      0
+    );
+    const row = (
+      await database.query<{ metadata: unknown }>(
+        'SELECT metadata FROM brainstrike_assistant_run_events'
+      )
+    ).rows[0];
+    expect(event.metadata).toEqual(row?.metadata);
+    expect(event.metadata).toMatchObject({ nested: {}, safe: 'kept' });
+    expect(event.metadata).not.toHaveProperty('prompt');
+  });
+
   it.each(['other-turn-leg', 'other-root-leg', 'missing-leg'])(
     'rejects child events through unauthorized host %s without partial writes',
     async (leg) => {
@@ -300,6 +339,18 @@ describe('desktop delegated conversation authority', () => {
       },
       0
     );
+    const middle = await host.persistEvent(
+      run,
+      'native-child-message',
+      {
+        id: 'pause-visible',
+        kind: 'tool.approval.requested',
+        label: 'Waiting for approval',
+        status: 'info',
+        timestamp: '2026-09-10T01:00:02.000Z',
+      },
+      1
+    );
     const second = await createDesktopDelegatedConversationHost(
       database,
       'resume-leg'
@@ -328,6 +379,7 @@ describe('desktop delegated conversation authority', () => {
       parts.filter((part) => part.type === 'data' && part.name === 'brainstrike.run-event')
     ).toEqual([
       { data: first, name: 'brainstrike.run-event', type: 'data' },
+      { data: middle, name: 'brainstrike.run-event', type: 'data' },
       { data: second, name: 'brainstrike.run-event', type: 'data' },
     ]);
   });

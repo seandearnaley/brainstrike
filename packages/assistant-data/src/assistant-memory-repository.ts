@@ -2320,7 +2320,9 @@ function assignNativeMessageRunEvent(
   // An id outside the loaded window must never land on an unrelated turn.
   const group = groups.get(nativeMessageId);
   if (group) {
-    assignments.set(group, [...(assignments.get(group) ?? []), ...toRunEventDataParts([event])]);
+    const parts = assignments.get(group) ?? [];
+    parts.push(...toRunEventDataParts([event]));
+    assignments.set(group, parts);
   }
   return true;
 }

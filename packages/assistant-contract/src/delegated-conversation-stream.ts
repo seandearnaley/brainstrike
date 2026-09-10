@@ -13,4 +13,5 @@ export interface DelegatedConversationStreamData {
   readonly frames: readonly { readonly code: string; readonly value: unknown }[];
   readonly identity: DelegatedRunIdentity;
   readonly messageId: string;
+  readonly partId?: string;
 }

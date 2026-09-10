@@ -43,11 +43,37 @@ import {
 import {
   makeCancelledDelegationRunEventChunks,
   makePendingToolOutputRunEventChunks,
+  makeToolLifecycleRunEventChunk,
   type ProcessStreamPartResult,
   type ToolLifecycleState,
 } from './tool-lifecycle-processors';
 
 const logger = createLogger('MastraAgent');
+
+function settleActiveChildTools(state: ToolLifecycleState, cancelled: boolean): StreamChunk[] {
+  const chunks: StreamChunk[] = [];
+  for (const [toolCallId, active] of state.activeToolEvents ?? []) {
+    const tool = {
+      name: active.name,
+      payload: {
+        error: cancelled
+          ? 'Tool cancelled with the child run.'
+          : 'Tool interrupted before returning a result.',
+        toolCallId,
+      },
+      status: 'error',
+      type: 'tool-event',
+    } as const;
+    const terminal = makeToolLifecycleRunEventChunk(tool, 'tool-error', state);
+    chunks.push(tool);
+    if (terminal?.type === 'run-event') {
+      chunks.push(
+        cancelled ? { ...terminal, event: { ...terminal.event, status: 'cancelled' } } : terminal
+      );
+    }
+  }
+  return chunks;
+}
 
 /** A parent ending must settle every still-open child before its own finish. */
 export function makeDelegatedStreamTermination(
@@ -57,6 +83,7 @@ export function makeDelegatedStreamTermination(
   return [
     ...makeCancelledDelegationRunEventChunks(state),
     ...makePendingToolOutputRunEventChunks(state),
+    ...settleActiveChildTools(state, cancelled),
     cancelled
       ? makeRunEventChunk('run.cancelled', 'cancelled', 'Child run cancelled')
       : makeRunFailedChunk(

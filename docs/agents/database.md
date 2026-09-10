@@ -1245,7 +1245,6 @@ a duplicate write; get still returns the original authorized binding. The host
 must distinguish reading an existing invocation from creating a new one and must
 not use duplicate createChild as a substitute for resume authorization.
 
-
 ### Delegated child run/event headers (BST-1719)
 
 The delegated repository reuses migration 118's ordinary run/event tables;
@@ -1258,3 +1257,9 @@ The child's root-owned invocation remains the access authority; a native child
 resource id alone confers no user ownership. Existing branch deletion/reset
 already removes these ordinary sidecars. Model settings/options and the child
 user message id remain NULL when they have not been observed.
+
+`bindInvocationRun` also returns the latest observed native message id for
+that exact invocation from its existing event records, in the same authorized
+SQL statement. It does not select another run's last transcript row or create
+a second identity store. The returned child thread scopes execution-duration
+lookups; the native resource remains separate from root ownership authority.

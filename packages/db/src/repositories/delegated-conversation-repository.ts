@@ -80,7 +80,7 @@ export interface DelegatedConversationRepository {
     key: DelegatedInvocationKey & { readonly personaId: string },
     childRuntimeRunId: string,
     currentHostRunId?: string
-  ): Promise<DelegatedInvocation>;
+  ): Promise<DelegatedInvocation & { messageId?: string }>;
 
   /** Register the root first; write inputs must be observed by the trusted host. */
   createChild(
@@ -304,7 +304,7 @@ export function createDelegatedConversationRepository(
       key: DelegatedInvocationKey & { readonly personaId: string },
       childRuntimeRunId: string,
       currentHostRunId?: string
-    ): Promise<DelegatedInvocation> {
+    ): Promise<DelegatedInvocation & { messageId?: string }> {
       const result = await database.query(
         `${AUTHORIZED_GRAPH} UPDATE brainstrike_delegated_invocations invocation
          SET child_runtime_run_id = $5
@@ -320,7 +320,19 @@ export function createDelegatedConversationRepository(
            AND invocation.persona_id = $6
            AND invocation.thread_id = child.thread_id
            AND (invocation.child_runtime_run_id IS NULL OR invocation.child_runtime_run_id = $5)
-         RETURNING invocation.*, child.parent_thread_id`,
+         RETURNING invocation.*, child.parent_thread_id,
+           (SELECT event.metadata->>'nativeMessageId'
+            FROM brainstrike_assistant_run_events event
+            JOIN brainstrike_assistant_thread_runs event_run ON event_run.id = event.run_id
+            WHERE event.thread_id = invocation.thread_id
+              AND event.metadata->>'childRuntimeRunId' = $5
+              AND event.metadata->>'parentRuntimeRunId' = $3
+              AND event.metadata->>'parentToolCallId' = $4
+              AND event.metadata->>'personaId' = $6
+              AND event.metadata->>'nativeMessageId' IS NOT NULL
+            ORDER BY event_run.started_at DESC, event_run.created_at DESC, event_run.id DESC,
+              event.sequence DESC
+            LIMIT 1) AS native_message_id`,
         [
           ...invocationParameters(scope, key),
           requireString(childRuntimeRunId),
@@ -331,7 +343,11 @@ export function createDelegatedConversationRepository(
       if (result.rows.length !== 1) {
         throw new DelegatedConversationIdentityError('invocation-binding-conflict');
       }
-      return readInvocation(result.rows[0]);
+      const invocation = readInvocation(result.rows[0]);
+      const messageId = nullableString(
+        (result.rows[0] as Record<string, unknown>)['native_message_id']
+      );
+      return { ...invocation, ...(messageId ? { messageId } : {}) };
     },
     async createChild(
       scope: DelegatedConversationScope,

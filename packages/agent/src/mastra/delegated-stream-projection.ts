@@ -6,14 +6,18 @@ import { resolveDelegationPersona } from './tool-lifecycle-processors';
 interface ChildStreamState<State> {
   finished: boolean;
   readonly identity: DelegatedRunIdentity;
-  messageId?: string;
+  messageId: string;
   readonly state: State;
   readonly toolNames: Map<string, string>;
 }
 
 interface DelegatedStreamProjectionOptions<State> {
-  readonly authorize: ((identity: DelegatedRunIdentity) => Promise<void>) | undefined;
-  readonly createState: (personaId: string) => State;
+  readonly authorize:
+    | ((
+        identity: DelegatedRunIdentity
+      ) => Promise<{ readonly threadId: string; readonly messageId?: string }>)
+    | undefined;
+  readonly createState: (personaId: string, threadId: string) => State;
   readonly mapPart: (
     part: unknown,
     state: State,
@@ -77,11 +81,16 @@ export function createDelegatedStreamProjection<State>(
       throw new Error('Delegated stream changed its native invocation identity.');
     }
     if (!child) {
-      await authorize(identity);
+      const binding = await authorize(identity);
       child = {
         finished: false,
         identity,
-        state: options.createState(identity.personaId),
+        // Snapshot resume can forward a descendant before replaying this
+        // child's message id. Only the authorized invocation's saved id is valid.
+        messageId: requireIdentity(
+          readMastraStreamPartString(nested, 'messageId') ?? binding.messageId
+        ),
+        state: options.createState(identity.personaId, requireIdentity(binding.threadId)),
         toolNames: new Map(),
       };
       children.set(key, child);
@@ -97,19 +106,11 @@ export function createDelegatedStreamProjection<State>(
     const { chunks, finished } = await options.mapPart(nested, child.state, child.toolNames);
     child.finished = finished;
     const projected = chunks.map((chunk): StreamChunkDelegatedConversation => {
-      if (
-        (chunk.type === 'text-delta' ||
-          chunk.type === 'reasoning-delta' ||
-          chunk.type === 'tool-event') &&
-        !child.messageId
-      ) {
-        throw new Error('Delegated content has no observed native message identity.');
-      }
       const partId = readMastraStreamPartString(nested, 'id');
       return {
         identity: child.identity,
+        messageId: child.messageId,
         type: 'delegated-conversation-chunk',
-        ...(child.messageId ? { messageId: child.messageId } : {}),
         ...(partId ? { partId } : {}),
         chunk,
       };
@@ -127,10 +128,10 @@ export function createDelegatedStreamProjection<State>(
         }
         for (const chunk of finish(child.state)) {
           result.push({
-            identity: child.identity,
-            type: 'delegated-conversation-chunk',
-            ...(child.messageId ? { messageId: child.messageId } : {}),
             chunk,
+            identity: child.identity,
+            messageId: child.messageId,
+            type: 'delegated-conversation-chunk',
           });
         }
         child.finished = true;

@@ -697,6 +697,19 @@ partial content; removing settlement fails that test. A child terminal or pause
 settles only its own projection. If the parent ends while a child is still open,
 the child is cancelled on user abort or visibly failed for an interrupted stream.
 
+Active child calls receive an error tool result plus a paired failed/cancelled
+tool run event before synthetic termination, so the normal decoder cannot leave
+them running. Already completed calls are not terminated twice. Execution-time
+measurements use `(native thread id, tool-call id)` inside the request's recorder;
+the guarded executor's public agent context and the host's authorized invocation
+binding supply the two matching scopes. Parent steering is not inherited.
+
+Recreated native grandchild approval and decline tests now run resumed output
+through the production mapper. The first resumed parent wrapper lacks its own
+message id; the authorized invocation's persisted native message id supplies
+that missing scope. Both child and grandchild finish once with valid identities.
+This proves the mapping seam, not the later production approval UI/routing ticket.
+
 This layer does not close BST-1719. Nested pause/resume production proofs,
 cancelled native transcript durability, oversized artifact reload recovery and
 complete receiver routing remain acceptance work. Child UI and controls remain

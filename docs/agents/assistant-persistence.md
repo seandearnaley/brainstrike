@@ -2872,7 +2872,6 @@ writers. Migration 127 now provides invocation/run binding records (see database
 BST-1718 still needs lifecycle and exact usage reconciliation, authenticated
 host wiring, resume hydration, and complete native branch deletion. Full child message persistence/rendering remains BST-1719.
 
-
 ### Scoped child stream hydration (BST-1719 delivery layer)
 
 Native Mastra memory remains the sole child transcript writer. The desktop run
@@ -2883,12 +2882,28 @@ gets its own opaque child host-run id; the root turn id is not a child user
 message id, so the nullable child header field stays unset. Usage remains in
 the existing root-attributed writer and is not duplicated for these headers.
 
+Child lifecycle persistence is deliberately awaited before publication. It
+revalidates the invocation and makes the published event durable; an exhausted
+write or identity failure propagates through the root error path. The root's
+queued writer also fails at final flush, rather than tolerating lost events.
+This child path introduces database backpressure at lifecycle boundaries;
+ordinary text/reasoning deltas do not perform database round trips. Native
+memory's transcript ownership does not make lifecycle authorization optional.
+
 Events retain observed native message identity in sanitized metadata. The
 shared history adapter assigns these events by row id before applying the
 legacy run-window heuristic, permitting several resume legs in one assistant
 group. An observed message outside the loaded window is never assigned to a
 different turn. The normal session buffer replays encoded scoped frames without
 remapping; the normal assistant-stream decoder consumes child frames.
+
+The host returns sanitized metadata to the live stream as well as storage.
+On snapshot resume, a parent wrapper can precede its own native message id.
+Atomic invocation binding returns its latest previously observed message id
+from the existing event journal, restricted to the exact native run, parent
+call and persona. Projection uses that id until Mastra supplies the current
+one. A missing identity fails before child projection state is registered;
+termination never invents a transcript id or silently drops an event.
 
 Paired proofs: desktop `delegated-runtime.integration.test.ts` (real native
 transcript, shared hydration and engine reconstruction),
