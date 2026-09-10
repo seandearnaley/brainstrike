@@ -74,6 +74,7 @@ export * from './tabs';
 export * from './theme-provider';
 export * from './theme-settings';
 export * from './theme-toggle';
+export * from './themes';
 export * from './toast';
 export * from './toaster';
 export * from './tool-approval-dialog';
