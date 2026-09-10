@@ -250,6 +250,36 @@ describe('provider call warnings: the observer is not a transform', () => {
     expect(observed.specificationVersion).toBe('v4');
   });
 
+  it('survives a model whose getters read #private state', async () => {
+    // Mastra's `ModelRouterLanguageModel` and the AI SDK wrapper classes keep
+    // their state in `#private` fields. Reading a prototype getter through the
+    // proxy with the PROXY as receiver throws `TypeError: Cannot read private
+    // member`, and this wrapper is applied to every model the factory returns.
+    class PrivateStateModel {
+      readonly #modelId = 'private-model';
+      get modelId(): string {
+        return this.#modelId;
+      }
+      doStream() {
+        return Promise.resolve({
+          stream: new ReadableStream<unknown>({
+            start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] });
+              controller.close();
+            },
+          }),
+        });
+      }
+    }
+
+    const sink = createProviderCallWarningSink();
+    const observed = wrapModelWithCallWarningCapture(new PrivateStateModel(), sink);
+
+    expect(observed.modelId).toBe('private-model');
+    const { stream } = await observed.doStream();
+    expect(await drainStream(stream)).toHaveLength(1);
+  });
+
   it('reads the warnings a doGenerate result reports on itself', async () => {
     const sink = createProviderCallWarningSink();
     const model = {

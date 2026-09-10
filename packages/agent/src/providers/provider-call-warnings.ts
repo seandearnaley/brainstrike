@@ -226,8 +226,15 @@ export function wrapModelWithCallWarningCapture<M extends object>(
   sink: ProviderCallWarningSink
 ): M {
   return new Proxy(model, {
-    get(target, property, receiver) {
-      const value = Reflect.get(target, property, receiver) as unknown;
+    get(target, property) {
+      // Read with the TARGET as receiver, not the proxy. Mastra's own
+      // `ModelRouterLanguageModel` and the AI SDK wrapper classes hold their
+      // state in `#private` fields; a prototype getter reading one with `this`
+      // bound to the proxy throws `TypeError: Cannot read private member`. This
+      // wrapper is applied to EVERY model the factory returns, so it must be
+      // safe against that whole set rather than just the adapters that happen
+      // to use plain properties today.
+      const value = Reflect.get(target, property) as unknown;
       if (typeof value !== 'function') {
         return value;
       }
