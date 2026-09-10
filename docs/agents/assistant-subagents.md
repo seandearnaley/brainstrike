@@ -1170,3 +1170,29 @@ The native parity assertion pairs the pre-effect marker exclusion with the
 approved leaf result, so the exclusion cannot pass after the fixture marker
 disappears. Terminal projection tests use a nonempty second producer to prove
 that abnormal termination is published only once.
+
+### Host-owned child view binding
+
+The shared child view combines the baseline with its live leg through the
+public assistant-ui external-store runtime and converter. The vendor content
+concatenator updates a repeated tool-call id in place and preserves identical
+text on either side of a resume. It replaces only the active history head;
+saved branch nodes retain their parent edges. Native row ids do not determine
+the lifetime of this live leg.
+
+The app-shell child store publishes complete snapshots, scoped to an exact
+native invocation and authoritative child thread. Current-leg replay replaces
+the prior snapshot; callbacks from a superseded leg cannot overwrite an admitted
+continuation. View unsubscription does not clear the host's output. The shared
+panel subscribes to that store, so closing/reopening a view neither invokes a
+model nor loses output produced while the view was closed.
+
+A child decision is accepted only if its validated native ancestry includes
+that view's invocation. Its action metadata and run configuration go through
+the owning root runtime, without the child's message parent/source ids. The
+root owns its own append topology and the native host still authenticates the
+full decision path. Ordinary follow-up prompts are not decision messages;
+steering and cancellation remain explicit coordination capabilities.
+`AssistantUiPanel.onRuntimeReady` registers the actual owning runtime and its
+returned cleanup runs when that runtime is disposed. Opening a child view must
+never construct another inference runtime.

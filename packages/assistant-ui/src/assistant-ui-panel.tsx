@@ -1,5 +1,6 @@
 import {
   type AssistantDataUIProps,
+  type AssistantRuntime,
   AssistantRuntimeProvider,
   ComposerPrimitive,
   type DataMessagePartComponent,
@@ -351,6 +352,8 @@ export interface AssistantUiPanelProps
   onRunFailed?: (event: AssistantRunEvent) => void;
   /** Reports a `run.finished` run event exactly once (deduped by event id). */
   onRunFinished?: (event: AssistantRunEvent) => void;
+  /** Register this runtime with its owning workspace; cleanup follows runtime disposal. */
+  onRuntimeReady?: ((runtime: AssistantRuntime) => undefined | (() => void)) | undefined;
   /** Mid-run steer transport (BST-588); absent = queue-only (web/local). */
   onSteerActiveRun?: () => Promise<boolean>;
   /**
@@ -470,6 +473,7 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
   onRunEditActivity?: ((event: AssistantRunEvent) => void) | undefined;
   onRunFailed?: ((event: AssistantRunEvent) => void) | undefined;
   onRunFinished?: ((event: AssistantRunEvent) => void) | undefined;
+  onRuntimeReady?: AssistantUiPanelProps['onRuntimeReady'];
   /** Mid-run steer transport (BST-588); absent = queue-only composer. */
   onSteerActiveRun?: (() => Promise<boolean>) | undefined;
   /** Data-stream transport only (BST-953 live tick); same gating as onContextBreakdown. */
@@ -505,6 +509,7 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
  * Uses useLocalRuntime with LocalLlmBackend via transformers.js.
  */
 const LocalRuntimeChat = ({
+  onRuntimeReady,
   composerDraftCommand,
   contextWindow,
   cumulativeUsage,
@@ -595,6 +600,7 @@ const LocalRuntimeChat = ({
   );
 
   const runtime = useLocalRuntime(adapter);
+  useEffect(() => onRuntimeReady?.(runtime), [onRuntimeReady, runtime]);
 
   // Cleanup on unmount
   useEffect(
@@ -650,6 +656,7 @@ const LocalRuntimeChat = ({
  * Uses useDataStreamRuntime for API-based inference.
  */
 const DataStreamRuntimeChat = ({
+  onRuntimeReady,
   composerDraftCommand,
   contextWindow,
   cumulativeUsage,
@@ -799,6 +806,8 @@ const DataStreamRuntimeChat = ({
     ...(onStepUsage ? { onStepUsage } : {}),
     ...(onUsage ? { onUsage } : {}),
   });
+
+  useEffect(() => onRuntimeReady?.(runtime), [onRuntimeReady, runtime]);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -1122,6 +1131,7 @@ function resolveInitialAssistantApi(): string {
 }
 
 export const AssistantUiPanel = ({
+  onRuntimeReady,
   className,
   composerDraftCommand,
   contextWindow,
@@ -1237,6 +1247,7 @@ export const AssistantUiPanel = ({
             onRunEditActivity={onRunEditActivity}
             onRunFailed={onRunFailed}
             onRunFinished={onRunFinished}
+            onRuntimeReady={onRuntimeReady}
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
@@ -1283,6 +1294,7 @@ export const AssistantUiPanel = ({
             onRunEditActivity={onRunEditActivity}
             onRunFailed={onRunFailed}
             onRunFinished={onRunFinished}
+            onRuntimeReady={onRuntimeReady}
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}

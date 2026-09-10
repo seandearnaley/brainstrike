@@ -452,6 +452,16 @@ describe('AssistantUiPanel model picker', () => {
     vi.useRealTimers();
   });
 
+  it('registers its owning runtime and releases the registration when the panel closes', () => {
+    const release = vi.fn();
+    const onRuntimeReady = vi.fn(() => release);
+    const { unmount } = render(<AssistantUiPanel {...baseProps} onRuntimeReady={onRuntimeReady} />);
+    expect(onRuntimeReady).toHaveBeenCalledWith({ runtime: 'test-runtime' });
+    expect(release).not.toHaveBeenCalled();
+    unmount();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
   it('uses the Brainstrike data-stream runtime for hosted providers', () => {
     render(
       <AssistantUiPanel
