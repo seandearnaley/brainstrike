@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import {
   createMcpAppToolInvocationResult,
   NATIVE_TOOL_ID,
@@ -87,6 +88,57 @@ function settlementStore(
 }
 
 describe('tool output artifact settlement', () => {
+  it('keeps root artifact identity bound to the host scope', async () => {
+    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) =>
+      reference(input.content.length)
+    );
+    const tools = applyToolOutputArtifactSettlement(
+      { fixture: executableTool(async () => 'x'.repeat(12_500)) },
+      {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
+        store: settlementStore(store),
+        toolNameMap: new Map(),
+      }
+    );
+    await (tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> }).execute(
+      {},
+      { agent: { threadId: 'native-root', toolCallId: 'root-call' } }
+    );
+    expect(store).toHaveBeenCalledWith({
+      content: 'x'.repeat(12_500),
+      format: 'text',
+      toolCallId: 'root-call',
+    });
+  });
+
+  it('accepts the installed CommonJS memory context at an ESM settlement boundary', async () => {
+    const { RequestContext: CommonJsRequestContext } = createRequire(import.meta.url)(
+      '@mastra/core/request-context'
+    ) as { RequestContext: typeof RequestContext };
+    const requestContext = new CommonJsRequestContext();
+    requestContext.set('MastraMemory', { resourceId: 'owner', thread: { id: 'commonjs-child' } });
+    expect(requestContext).not.toBeInstanceOf(RequestContext);
+    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) =>
+      reference(input.content.length)
+    );
+    const tools = applyToolOutputArtifactSettlement(
+      { fixture: executableTool(async () => 'x'.repeat(12_500)) },
+      {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
+        requireExecutionThreadId: true,
+        store: settlementStore(store),
+        toolNameMap: new Map(),
+      }
+    );
+    await (tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> }).execute(
+      {},
+      { requestContext, toolCallId: 'call' }
+    );
+    expect(store).toHaveBeenCalledWith(
+      expect.objectContaining({ executionThreadId: 'commonjs-child' })
+    );
+  });
+
   it('requires native child execution scope and never accepts it from tool input', async () => {
     const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) =>
       reference(input.content.length)

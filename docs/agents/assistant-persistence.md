@@ -2663,7 +2663,8 @@ The table stores results independently of Mastra message rows:
   IPC.
 - The public id is an opaque uuidv7 token. Every read also requires the active
   `resource_id` and `thread_id`; a wrong scope is indistinguishable from a
-  missing artifact. `run_id`, `execution_thread_id` and `tool_call_id` retain execution provenance,
+  missing artifact. `run_id`, `execution_thread_id` and `tool_call_id` retain
+  execution provenance,
   with one stored result per scoped tool call.
 - Range reads are byte-addressed and capped by the shared 8000-byte page
   maximum. The repository returns bytes; the future reader/resolver owns
@@ -2673,7 +2674,8 @@ The table stores results independently of Mastra message rows:
 - Storage, reads, and purge failures use a typed visible error. Settlement must
   finish the complete write before publishing an artifact envelope; it must
   never substitute a reference after a failed write.
-- Exact replay of `(resource, thread, run, execution thread, tool call)` returns the existing
+- Exact replay of `(resource, thread, run, execution thread, tool call)` returns
+  the existing
   reference only when format and complete bytes match. A different replay
   returns no row and surfaces as a typed storage conflict; settlement never
   overwrites prior evidence.

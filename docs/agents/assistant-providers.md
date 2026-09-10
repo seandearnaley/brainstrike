@@ -4280,7 +4280,7 @@ Native function tools carry execution scope through Mastra's public memory
 RequestContext parser; ToolAction contexts can carry `agent.threadId` directly.
 Both feed the shared execution-identity reader, never tool input.
 
-With a trusted host store, non-media native and MCP output above 12,000 UTF-8 bytes is
+Non-media native and MCP output above 12,000 UTF-8 bytes is
 retained completely before display/transcript receives the bounded envelope. A
 tool may also declare a stricter canonical-name serialized-character ceiling
 when its complete domain projection must fit below that generic transport

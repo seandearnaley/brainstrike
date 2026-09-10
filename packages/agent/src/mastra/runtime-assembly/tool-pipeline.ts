@@ -626,6 +626,8 @@ export async function composeRuntimeToolMap(
     mcpDiscoverySkips,
     resilienceConfig,
     sanitizedLocalToolIds,
+    // Children select a strict subset of these sanitized IDs; they never rename
+    // tools. Current personas cannot delegate, so they advertise no delegation hint.
     settleChildToolOutputs: (tools, budget) =>
       settleRuntimeToolOutputs({
         getDelegationToolNames: undefined,

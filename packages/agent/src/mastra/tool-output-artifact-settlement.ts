@@ -386,7 +386,10 @@ async function settleOutput(
   }
 
   const readerToolName = options.getReaderToolName();
-  const executionThreadId = readToolExecutionThreadId(args);
+  // Root artifacts retain the host-bound key used before child settlement.
+  const executionThreadId = options.requireExecutionThreadId
+    ? readToolExecutionThreadId(args)
+    : undefined;
   if (options.requireExecutionThreadId && !executionThreadId) {
     throw new ToolOutputArtifactSettlementError('missing_execution_thread_id', toolName);
   }

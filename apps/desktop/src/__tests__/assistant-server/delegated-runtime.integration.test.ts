@@ -15,6 +15,7 @@ import {
   isToolOutputArtifactEnvelope,
   isToolOutputArtifactPage,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
+import { buildUserPersona } from '@brainstrike/assistant-contract/user-personas';
 import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
@@ -109,8 +110,16 @@ describe('desktop durable delegation production loop', () => {
   });
 
   it('retains distinct oversized output from siblings that reuse a native tool call id', async () => {
+    const userPersona = buildUserPersona({
+      content: '---\ndescription: Recover complete evidence\n---\nRead and recover all evidence.',
+      fileName: 'artifact-recovery.md',
+    });
+    if (!userPersona.ok) {
+      throw new Error(userPersona.error);
+    }
     let childIndex = 0;
     const recovered: string[] = [];
+    const completions: unknown[] = [];
     const modelPage = z.object({
       type: z.literal('json'),
       value: z.object({
@@ -121,8 +130,8 @@ describe('desktop durable delegation production loop', () => {
       }),
     });
     holder.model = scriptedAgentModel((options) => {
-      const isParent = options.tools?.some((tool) => tool.name === 'agent-explore');
-      if (isParent && hasToolResult(options, 'agent-explore')) {
+      const isParent = options.tools?.some((tool) => tool.name === 'agent-artifact-recovery');
+      if (isParent && hasToolResult(options, 'agent-artifact-recovery')) {
         return textParts('Parent summary.');
       }
       const results = options.prompt.flatMap((message) =>
@@ -134,7 +143,7 @@ describe('desktop durable delegation production loop', () => {
         if (page.next) {
           return toolCallParts(page.next.tool, `read-${results.length}`, page.next.input);
         }
-        expect(page.complete).toBe(true);
+        completions.push(page.complete);
         recovered.push(
           results
             .map((result) => {
@@ -146,14 +155,14 @@ describe('desktop durable delegation production loop', () => {
         return textParts('Child recovered complete evidence.');
       }
       if (isParent) {
+        // One stream-start, two tool calls, then one tool-calls finish.
         return [
-          ...toolCallParts('agent-explore', 'first-delegation', { prompt: 'First task' }).slice(
-            0,
-            2
-          ),
-          ...toolCallParts('agent-explore', 'second-delegation', { prompt: 'Second task' }).slice(
-            1
-          ),
+          ...toolCallParts('agent-artifact-recovery', 'first-delegation', {
+            prompt: 'First task',
+          }).slice(0, 2),
+          ...toolCallParts('agent-artifact-recovery', 'second-delegation', {
+            prompt: 'Second task',
+          }).slice(1),
         ];
       }
       childIndex += 1;
@@ -183,12 +192,7 @@ describe('desktop durable delegation production loop', () => {
       [{ id: 'user-turn', parts: [{ text: 'Run both tasks.', type: 'text' }], role: 'user' }],
       {
         ...memory,
-        personas: [
-          {
-            ...persona,
-            allowedToolIds: [...persona.allowedToolIds, 'brainstrike.readToolOutputArtifact'],
-          },
-        ],
+        personas: [userPersona.persona],
         runtime,
         toolOutputArtifactStore: artifacts.toolOutputArtifactStore,
         tools: {
@@ -271,7 +275,9 @@ describe('desktop durable delegation production loop', () => {
         .map((part) => part.text)
         .join('')
     ).toBe('Parent summary.');
+    expect(fetch).toHaveBeenCalledOnce();
     expect(decoded.size).toBe(2);
+    expect(completions).toEqual([true, true]);
     expect(executed.sort()).toEqual(['child-1', 'child-2']);
     const stored = await database.query<{ id: string }>(
       'SELECT id FROM brainstrike_assistant_tool_output_artifacts ORDER BY id'

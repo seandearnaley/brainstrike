@@ -817,6 +817,11 @@ The public child-stream decoder receives those same artifact envelopes, while
 the parent response remains a compact summary.
 This preserves root-scoped reader authority and the existing reset/expiry path.
 Missing native child identity or a permission-eligible reader is a visible error.
+User personas without an explicit tool list include the read-only artifact reader
+by default; an explicit list remains authoritative and never gains tools implicitly.
+Native request context is parsed through the public memory parser across ESM/CJS
+builds; malformed memory still fails. Root artifacts retain the host-bound thread
+identity rather than accepting a tool-supplied execution scope.
 
 The normal native desktop parity fixture also compares lifecycle data in its
 exact live position, including the tool-start event after its tool part. A

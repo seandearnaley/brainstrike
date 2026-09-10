@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { ToolOutputArtifactRepository } from '../src/repositories/tool-output-artifact-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createPGliteTestDataDir } from './test-data-dir.js';
 
 let db: PGlite;
 let runner: MigrationRunner;
