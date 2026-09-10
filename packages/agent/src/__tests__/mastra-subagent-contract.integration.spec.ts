@@ -17,6 +17,10 @@ import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { createDelegatedConversationBinding } from '../mastra/delegated-conversation-binding';
+import {
+  createDelegatedRunPublicationGuard,
+  type DelegatedRunIdentity,
+} from '../mastra/delegated-run-publication';
 import { createDelegationConfig } from '../mastra/subagent-delegation';
 import { createPgliteMastraMemory, type PgliteDatabase } from '../pglite-mastra-memory';
 import {
@@ -484,7 +488,19 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       const output = await parent.stream('Read evidence', {
         memory: { resource: 'owner', thread: 'approval-root' },
       });
-      const chunks = await collect(output.fullStream);
+      const initialBindings: DelegatedRunIdentity[] = [];
+      const authorizeInitial = createDelegatedRunPublicationGuard(
+        async (identity) => {
+          initialBindings.push(identity);
+        },
+        new Map([['agent-child', 'child']])
+      );
+      const chunks: ChunkType[] = [];
+      for await (const chunk of output.fullStream) {
+        await authorizeInitial(chunk);
+        chunks.push(chunk);
+      }
+      expect(initialBindings).toHaveLength(1);
       const approval = chunks.find((chunk) => chunk.type === 'tool-call-approval');
       expect(approval).toBeDefined();
       expect(effect).not.toHaveBeenCalled();
@@ -513,7 +529,17 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
             runId: output.runId,
             toolCallId: approval.payload.toolCallId,
           });
-      await collect(resume.fullStream);
+      const resumedBindings: DelegatedRunIdentity[] = [];
+      const authorizeResume = createDelegatedRunPublicationGuard(
+        async (identity) => {
+          resumedBindings.push(identity);
+        },
+        new Map([['agent-child', 'child']])
+      );
+      for await (const chunk of resume.fullStream) {
+        await authorizeResume(chunk);
+      }
+      expect(resumedBindings).toEqual(initialBindings);
       expect(effect).not.toHaveBeenCalled();
       expect(recreated.effect).toHaveBeenCalledTimes(approved ? 1 : 0);
       expect(resumeInput).not.toHaveBeenCalled();

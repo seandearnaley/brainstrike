@@ -1,6 +1,7 @@
 import type { DelegationStartContext } from '@mastra/core/agent';
 import { parseMemoryRequestContext } from '@mastra/core/memory';
 import type { InputProcessor } from '@mastra/core/processors';
+import type { DelegatedRunIdentity } from './delegated-run-publication';
 
 /** Observed native identities; the host separately supplies and verifies root ownership. */
 export interface DelegatedConversationIdentity {
@@ -15,6 +16,8 @@ export interface DelegatedConversationIdentity {
 }
 
 export interface DelegatedConversationBinding {
+  /** Host capability required for durable invocation publication/resume authorization. */
+  readonly bindRun?: (identity: DelegatedRunIdentity) => Promise<void>;
   readonly inputProcessor: InputProcessor;
   prepare(context: DelegationStartContext, configuration: unknown): void;
 }

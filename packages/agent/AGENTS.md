@@ -449,8 +449,9 @@ must validate root ownership and persist through the host database; it never
 belongs in RuntimeData or serialized RequestContext entries.
 
 This optional port is not yet activated by desktop. Snapshot resume skips the
-child input processor, so durable invocation authorization must also be connected
-at the resumed stream boundary before activation. Existing read-only/no-nesting
+child input processor. The optional `conversationBinding.bindRun` callback is
+awaited at the first child event of each attempt/resume leg; its host implementation
+must authorize the persisted invocation before desktop activation. Existing read-only/no-nesting
 restrictions remain. The native and production-stream integration suites cover
 this seam; see docs/agents/assistant-subagents.md for the full contract.
 

@@ -876,3 +876,10 @@ reference twice and OpenAI 400s. That re-key is still present verbatim in the
 `createdAt = new Date(existing.createdAt.getTime() + 1)` sites), and the
 processor operates on the PROMPT, so it also protects threads whose twin rows
 were persisted by older builds. `openai-duplicate-item-compat.ts` stays.
+
+BST-1718 publication boundary: `conversationBinding.bindRun` is a direct,
+process-local host callback. `streamAttemptChunks` awaits its native identity
+binding before mapping a child event, with a fresh authorization cache for each
+attempt/resume leg. It never serializes host authority into RequestContext or
+RuntimeData and never treats skipped resume input processing as authorization.
+Desktop activation and its durable host callback remain pending.

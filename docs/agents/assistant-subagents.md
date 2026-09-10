@@ -561,3 +561,26 @@ wiring makes both regression cases fail. Existing read-only/no-recursion gating
 is preserved. This adapter does not activate desktop graph writes on its own:
 the host caller, durable invocation store, resume validation, usage reconciliation
 and native branch cleanup are still required before BST-1718 is complete.
+
+### Native run publication boundary (BST-1718, host activation pending)
+
+A host may additionally supply `conversationBinding.bindRun`. The shared
+`streamAttemptChunks` path awaits it before mapping the first native child
+`tool-output` event in each attempt, including approval and suspension resume
+legs. It receives the observed native parent run/tool call, child run and persona;
+the host must resolve and authorize the durable invocation before returning.
+The guard caches only successful bindings for that attempt and rejects a changed
+child run under the same parent call. A recreated resume therefore authorizes
+again, even though Mastra skips child `processInput` and may omit a new start.
+No database lookup is performed for every text/reasoning delta.
+
+This does not yet activate the desktop adapter or change child transcript/UI
+routing. The parent delegation-tool start can still render before native child
+progress exists. A rejected publication binding propagates through the existing
+stream error/abort path; cooperative abort is not proof that every asynchronous
+native memory write has settled. The failure-path publication test uses Mastra's
+public InMemoryStore; database durability remains separately proven with real
+PGlite. Do not close a live host database merely because iteration rejected.
+Paired production-stream tests cover awaited binding, single binding per attempt
+and visible rejection without child progress; real recreated native approval
+and decline tests prove the guard sees the same persisted native run identity.
