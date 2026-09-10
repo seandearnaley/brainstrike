@@ -180,7 +180,7 @@ try {
         runtime.askTools,
         personas
       );
-      chunks.push(...mapped.chunks.map(projection.decorate));
+      chunks.push(...mapped.chunks.map((chunk) => projection.decorate(chunk)));
     }
     projection.settle();
     const notice = chunks.find((chunk) => chunk.type === 'tool-approval-required');
@@ -235,6 +235,9 @@ try {
     JSON.stringify({ decisions, effects, pid: process.pid, rejected })
   );
 } finally {
-  await mastra.shutdown();
-  await database.close();
+  try {
+    await mastra.shutdown();
+  } finally {
+    await database.close();
+  }
 }

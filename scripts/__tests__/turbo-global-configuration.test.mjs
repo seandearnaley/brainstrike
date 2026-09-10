@@ -45,6 +45,29 @@ function turboDryRunFor(tasks) {
 
 let memoizedTurboDryRun;
 
+test('native desktop restart lanes schedule the public agent build before execution', () => {
+  const graph = turboDryRunFor([
+    'test:integration',
+    'test:coverage',
+    '--filter=@brainstrike/desktop',
+  ]);
+  for (const taskId of [
+    '@brainstrike/desktop#test:integration',
+    '@brainstrike/desktop#test:coverage',
+  ]) {
+    const task = graph.tasks.find((entry) => entry.taskId === taskId);
+    assert.ok(task, `${taskId} must exist in the actual Turbo graph`);
+    assert.ok(
+      task.dependencies.includes('@brainstrike/agent#build'),
+      `${taskId} must build the native fixture's public package exports`
+    );
+    assert.ok(
+      task.dependencies.includes('@brainstrike/desktop#topo'),
+      `${taskId} must retain the inherited source dependency cascade`
+    );
+  }
+});
+
 function turboDryRun() {
   memoizedTurboDryRun ??= turboDryRunFor(['build', 'type-check', 'lint', 'test']);
   return memoizedTurboDryRun;
