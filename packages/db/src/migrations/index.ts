@@ -128,6 +128,7 @@ import { migration126DelegatedConversations } from './126-delegated-conversation
 import { migration127DelegatedInvocations } from './127-delegated-invocations.js';
 import { migration128DelegatedInvocationUsage } from './128-delegated-invocation-usage.js';
 import { migration129ArtifactExecutionScope } from './129-artifact-execution-scope.js';
+import { migration130OpenrouterDeepseekDeepseekV41Flash } from './130-openrouter-deepseek-deepseek-v4-1-flash.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -262,6 +263,7 @@ export const migrations: Migration[] = [
   migration127DelegatedInvocations,
   migration128DelegatedInvocationUsage,
   migration129ArtifactExecutionScope,
+  migration130OpenrouterDeepseekDeepseekV41Flash,
 ];
 
 // Export base migrations (without chunks table) for test environments

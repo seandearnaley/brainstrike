@@ -1510,6 +1510,22 @@
         "supportsStreaming": true,
         "type": "llm",
         "vision": "unsupported"
+      },
+      {
+        "_note": "OpenRouter Models API owns this route's identity, 1,048,576 / 384,000\nceilings, text+image input modality and gateway pricing (0.00000015 /\n0.0000006 per token), retrieved 2026-09-10 (BST-1736). First stable\nvision-capable DeepSeek flash route; it does NOT supersede\n`deepseek/deepseek-v4-flash-0731`, which is cheaper and text-only, so\nboth are carried. The live route also publishes an input_cache_read\nrate (0.000000003) and UTC time-of-day overrides that double the base\nrate during two weekday windows; this one-rate-pair schema carries the\nbase rate only.",
+        "contextWindow": 1048576,
+        "id": "deepseek/deepseek-v4.1-flash",
+        "inputModalities": ["image", "text"],
+        "label": "DeepSeek V4.1 Flash (OpenRouter)",
+        "maxOutputTokens": 384000,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.15,
+          "outputPerMTok": 0.6
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
       }
     ],
     "runtime": "gateway"
