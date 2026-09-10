@@ -45,10 +45,13 @@ test('renderThemeCss emits scoped selectors, renamed tokens and derived tokens',
   assert.match(css, /--bs-primary: oklch\(0\.505 0\.213 27\.518\);/u);
   assert.match(css, /--bs-radius: 0\.875rem;/u);
   assert.match(css, /--bs-destructive-foreground: oklch\(0\.985 0 0\);/u);
-  assert.match(css, /--bs-panel-divider: oklch\(from var\(--bs-border\) calc\(l - 0\.06\) c h\);/u);
   assert.match(
     css,
-    /--bs-panel-divider: oklch\(from var\(--bs-border\) calc\(l \+ 0\.06\) c h\);/u
+    /--bs-panel-divider: oklch\(from var\(--bs-background\) calc\(l - 0\.12\) c h\);/u
+  );
+  assert.match(
+    css,
+    /--bs-panel-divider: oklch\(from var\(--bs-background\) calc\(l \+ 0\.14\) c h\);/u
   );
   assert.match(
     css,

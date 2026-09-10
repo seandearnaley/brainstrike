@@ -214,6 +214,42 @@ test.describe('Theme Switching', () => {
     await expect(html).toHaveAttribute('data-theme', 'ember');
   });
 
+  test('the dark Ember panel divider paints its own colour, not the translucent border', async ({
+    page,
+  }) => {
+    await openSettingsPage(page);
+    await waitForSettingsPage(page);
+    await activateAppearanceThemeButton(page, 'Dark');
+    await activateAppearanceThemeCard(page, 'Ember');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'ember');
+    await expect(page.locator('html')).toHaveClass(/dark/);
+
+    await leaveSettingsPage(page);
+    await waitForContextExplorerPage(page);
+
+    // Only a painted element proves the derivation. `--bs-panel-divider` computes to
+    // the *unresolved* `oklch(from …)` text, and canvas `fillStyle` silently ignores
+    // input it cannot parse, so a token-text probe cannot see this bug class. Every
+    // generated dark `--bs-border` is `oklch(1 0 0 / 10%)`; deriving the divider from
+    // it made relative colour syntax inherit that 10% alpha and clamp `l`, collapsing
+    // the divider into the border. The divider is derived from the opaque background.
+    const divider = page.getByRole('separator', { name: 'Resize Library panel' });
+    await expect(divider).toBeVisible();
+    const dividerColor = await divider.evaluate((el) => getComputedStyle(el).backgroundColor);
+    const borderColor = await page
+      .getByTestId('left-panel-header')
+      .evaluate((el) => getComputedStyle(el).borderBottomColor);
+    const bodyColor = await page
+      .locator('body')
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+
+    expect(dividerColor, 'divider must not resolve to the border colour').not.toBe(borderColor);
+    expect(dividerColor, 'divider must not resolve to the panel background').not.toBe(bodyColor);
+    expect(dividerColor, 'divider must be fully opaque').not.toMatch(
+      /(?:\/\s*0(?:\.0+)?\s*\)|,\s*0(?:\.0+)?\s*\)|^transparent$)/u
+    );
+  });
+
   test('every registered palette paints the body from its own tokens', async ({ page }) => {
     await openSettingsPage(page);
     await waitForSettingsPage(page);

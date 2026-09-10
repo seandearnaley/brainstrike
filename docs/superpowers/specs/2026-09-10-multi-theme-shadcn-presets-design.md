@@ -50,7 +50,7 @@ Token groups and who owns them:
 | group | tokens | owner |
 | --- | --- | --- |
 | preset-provided | background, foreground, card, popover, primary, secondary, muted, accent, destructive (foreground derived: presets omit it, generator emits oklch(0.985 0 0)), border, input, ring, chart-1..5, sidebar set, radius | every theme file |
-| derived | panel-divider, panel-surface | every theme file, via relative colour syntax (see generator) |
+| derived | panel-divider, panel-surface | every theme file, via relative colour syntax off the always-opaque `--bs-background` (see generator) |
 | semantic status | success, warning, info (+foregrounds) | `brainstrike.css` baseline only; themes inherit through the cascade |
 | font hooks | font-sans, font-heading, font-mono | `brainstrike.css` baseline only, set to Geist; a future font theme overrides |
 
@@ -123,9 +123,12 @@ Everything stays unlayered, as today: unlayered declarations beat Tailwind's lay
    `--x` to `--bs-x`, and wraps them in the `:root[data-theme="<id>"]` selectors.
 4. Appends the derived tokens using relative colour syntax so they track the theme
    without the script doing colour math:
-   `--bs-panel-divider: oklch(from var(--bs-border) calc(l - 0.06) c h)` in light,
-   `calc(l + 0.06)` in dark; `--bs-panel-surface: linear-gradient(to bottom,
-   var(--bs-background), var(--bs-muted))` in both.
+   `--bs-panel-divider: oklch(from var(--bs-background) calc(l - 0.12) c h)` in
+   light, `calc(l + 0.14)` in dark; `--bs-panel-surface: linear-gradient(to bottom,
+   var(--bs-background), var(--bs-muted))` in both. The divider originates from the
+   background, never from `--bs-border`: preset dark borders are translucent
+   (`oklch(1 0 0 / 10%)`) and relative colour syntax inherits the origin's alpha, so
+   a border-derived divider would render as the border it is meant to out-contrast.
 5. Writes `packages/ui/src/themes/<id>.css` and prints the registry entry to add.
 
 The header records the preset code and decoded config; values are never hand-edited.

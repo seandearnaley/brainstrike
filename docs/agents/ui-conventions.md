@@ -418,8 +418,11 @@ When modifying TreeTable strategy or pagination behavior:
   sits after the imports so accessibility wins. Do not "fix" import placement.
 - Token ownership: preset-provided colours, radius, chart and sidebar sets, plus
   derived `panel-divider`/`panel-surface` and a `destructive-foreground`
-  fallback come from the theme file; `success`/`warning`/`info` and the
-  `--bs-font-*` hooks are baseline-only and inherit. A future font theme
+  fallback come from the theme file. Both derived tokens originate from
+  `--bs-background`, never `--bs-border`: preset dark borders are translucent
+  (`oklch(1 0 0 / 10%)`) and `oklch(from …)` inherits the origin's alpha, which
+  would collapse the divider into the border. `success`/`warning`/`info` and
+  the `--bs-font-*` hooks are baseline-only and inherit. A future font theme
   overrides the font hooks; loading font files per theme is a separate design.
 - Focus rings stay neutral in every theme (`focus-ring-theme.test.ts`,
   `theme-registry.test.ts` chroma ≤ 0.04).

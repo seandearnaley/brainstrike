@@ -53,11 +53,11 @@ export function extractBlock(css, selector) {
 
 const DERIVED = {
   dark: [
-    ['panel-divider', 'oklch(from var(--bs-border) calc(l + 0.06) c h)'],
+    ['panel-divider', 'oklch(from var(--bs-background) calc(l + 0.14) c h)'],
     ['panel-surface', 'linear-gradient(to bottom, var(--bs-background), var(--bs-muted))'],
   ],
   light: [
-    ['panel-divider', 'oklch(from var(--bs-border) calc(l - 0.06) c h)'],
+    ['panel-divider', 'oklch(from var(--bs-background) calc(l - 0.12) c h)'],
     ['panel-surface', 'linear-gradient(to bottom, var(--bs-background), var(--bs-muted))'],
   ],
 };

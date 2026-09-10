@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -31,12 +31,10 @@ test('theme.css is the only owner of the dark variant and the colour mapping', (
 });
 
 const IDIOM_SCAN_ROOTS = ['apps', 'packages'];
-const IDIOM_EXCLUDES = [
-  'packages/config/tailwind/',
-  'packages/config/__tests__/tailwind-config.test.ts',
-];
+const IDIOM_EXCLUDES = ['packages/config/__tests__/tailwind-config.test.ts'];
+const IDIOM_BUILD_DIRS = ['node_modules', 'dist', 'dist-electron', 'out', 'coverage', 'build'];
 
-function grepIdiom() {
+function grepScan(pattern) {
   try {
     const output = execFileSync(
       'grep',
@@ -45,9 +43,8 @@ function grepIdiom() {
         '--include=*.ts',
         '--include=*.tsx',
         '--include=*.css',
-        '--exclude-dir=node_modules',
-        '--exclude-dir=dist',
-        'hsl(var(--',
+        ...IDIOM_BUILD_DIRS.map((dir) => `--exclude-dir=${dir}`),
+        pattern,
         ...IDIOM_SCAN_ROOTS,
       ],
       { cwd: repoRoot, encoding: 'utf8' }
@@ -63,8 +60,24 @@ function grepIdiom() {
   }
 }
 
+test('the idiom scan actually reaches source files (positive control)', () => {
+  // A scan that reaches nothing reports zero hits and passes forever. Plant a real
+  // violation under a scanned root and require the same grep to find it.
+  const planted = path.join(repoRoot, 'packages/ui/src/__idiom-guard-probe.css');
+  try {
+    writeFileSync(planted, '.probe { color: hsl(var(--probe)); }\n');
+    const hits = grepScan('hsl(var(--');
+    assert.ok(
+      hits.some((line) => line.includes('__idiom-guard-probe.css')),
+      `the scan did not reach packages/ui/src; it is not proving anything:\n${hits.join('\n')}`
+    );
+  } finally {
+    rmSync(planted, { force: true });
+  }
+});
+
 test('no source uses the legacy hsl(var(--x)) idiom', () => {
-  const hits = grepIdiom();
+  const hits = grepScan('hsl(var(--');
   assert.deepEqual(hits, [], `legacy idiom found:\n${hits.join('\n')}`);
 });
 
