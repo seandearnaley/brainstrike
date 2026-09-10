@@ -3320,3 +3320,11 @@ resubmission of claimed, consumed or interrupted decisions. Unknown present
 states fail wire validation. See assistant-subagents.md, “Durable delegated
 decision recovery display”, for the host authority and paired database/renderer
 proof. Missing snapshots still produce the visible discovery error.
+
+Delegated live views receive an immutable pre-leg history baseline from the
+admitted desktop host. The host and the ordinary renderer repository call the
+same `readAssistantHistoryMessages` / `readAssistantHistoryRunEvents` readers,
+so rewind filtering, topology and hydration bounds cannot diverge. The stream
+baseline never writes or replaces native message rows. See
+`assistant-subagents.md`, "Child history boundary for a live stream leg", for
+the admission, replay and identical-text invariants and native proofs.

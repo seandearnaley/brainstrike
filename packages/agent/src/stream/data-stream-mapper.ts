@@ -497,6 +497,7 @@ export class DataStreamMapper {
     }
     const data: DelegatedConversationStreamData = {
       frames,
+      ...(chunk.baseline ? { baseline: chunk.baseline } : {}),
       identity: chunk.identity,
       messageId: chunk.messageId,
       ...(chunk.partId ? { partId: chunk.partId } : {}),

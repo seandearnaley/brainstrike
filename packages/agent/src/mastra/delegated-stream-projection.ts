@@ -1,3 +1,4 @@
+import type { DelegatedConversationBaseline } from '@brainstrike/assistant-contract';
 import {
   type DelegatedToolActionIdentity,
   isDelegatedToolActionIdentity,
@@ -13,6 +14,7 @@ type DelegatedPause = Extract<
 >;
 
 interface ChildStreamState<State> {
+  baseline?: DelegatedConversationBaseline | undefined;
   finished: boolean;
   readonly identity: DelegatedRunIdentity;
   messageId: string;
@@ -22,9 +24,11 @@ interface ChildStreamState<State> {
 
 interface DelegatedStreamProjectionOptions<State> {
   readonly authorize:
-    | ((
-        identity: DelegatedRunIdentity
-      ) => Promise<{ readonly threadId: string; readonly messageId?: string }>)
+    | ((identity: DelegatedRunIdentity) => Promise<{
+        readonly threadId: string;
+        readonly messageId?: string;
+        readonly baseline?: DelegatedConversationBaseline | undefined;
+      }>)
     | undefined;
   readonly createState: (personaId: string, threadId: string) => State;
   readonly mapPart: (
@@ -164,6 +168,7 @@ export function createDelegatedStreamProjection<State>(
     if (!child) {
       const binding = await authorize(identity);
       child = {
+        ...(binding.baseline ? { baseline: binding.baseline } : {}),
         finished: false,
         identity,
         // Snapshot resume can forward a descendant before replaying this
@@ -191,9 +196,10 @@ export function createDelegatedStreamProjection<State>(
       child.toolNames
     );
     child.finished = finished;
-    const projected = chunks.map((chunk): StreamChunkDelegatedConversation => {
+    const projected = chunks.map((chunk, index): StreamChunkDelegatedConversation => {
       const partId = readMastraStreamPartString(nested, 'id');
       return {
+        ...(index === 0 && child.baseline ? { baseline: child.baseline } : {}),
         identity: child.identity,
         messageId: child.messageId,
         type: 'delegated-conversation-chunk',
@@ -207,6 +213,9 @@ export function createDelegatedStreamProjection<State>(
         ),
       };
     });
+    if (projected.length > 0) {
+      child.baseline = undefined;
+    }
     return [...descendants, ...projected];
   };
 
@@ -221,11 +230,13 @@ export function createDelegatedStreamProjection<State>(
         }
         for (const chunk of finish(child.state)) {
           result.push({
+            ...(child.baseline ? { baseline: child.baseline } : {}),
             chunk,
             identity: child.identity,
             messageId: child.messageId,
             type: 'delegated-conversation-chunk',
           });
+          child.baseline = undefined;
         }
         child.finished = true;
       }

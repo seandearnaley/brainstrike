@@ -1,5 +1,8 @@
 import type { ThreadMessage } from '@assistant-ui/react';
-import type { DelegatedConversationStreamData } from '@brainstrike/assistant-contract';
+import type {
+  DelegatedConversationBaseline,
+  DelegatedConversationStreamData,
+} from '@brainstrike/assistant-contract';
 import { DELEGATED_CONVERSATION_DATA_NAME } from '@brainstrike/assistant-contract';
 import type { AssistantMessage } from 'assistant-stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -14,10 +17,12 @@ const frame = (code: string, value: unknown): string => `${code}:${JSON.stringif
 function child(
   id: string,
   frames: DelegatedConversationStreamData['frames'],
-  messageId = `native-${id}`
+  messageId = `native-${id}`,
+  baseline?: DelegatedConversationBaseline
 ): string {
   return frame('aui-data', {
     data: {
+      ...(baseline ? { baseline } : {}),
       frames,
       identity: {
         childRuntimeRunId: id,
@@ -54,6 +59,36 @@ function serve(lines: string[]): void {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('delegated conversations through the normal runtime adapter', () => {
+  it.each(['duplicate', 'late'] as const)(
+    'rejects a %s baseline instead of replacing an already published history boundary',
+    async (mode) => {
+      const baseline = { hostRunId: 'host', messages: [], runEvents: [], threadId: 'child' };
+      serve([
+        frame('f', { messageId: 'parent-message' }),
+        child(
+          'a',
+          [
+            { code: 'f', value: { messageId: 'native-a' } },
+            { code: '0', value: 'Already published' },
+          ],
+          'native-a',
+          mode === 'duplicate' ? baseline : undefined
+        ),
+        child('a', [finish], 'native-a', baseline),
+        frame(finish.code, finish.value),
+      ]);
+      const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+        api: '/test',
+        onDelegatedConversation: vi.fn(),
+      });
+      await expect(async () => {
+        for await (const _ of adapter.run(options())) {
+          /* Drain the real decoder. */
+        }
+      }).rejects.toThrow(/baseline/i);
+    }
+  );
+
   it('keeps concurrent children and open tool input separate across observed native message changes', async () => {
     const children = new Map<string, { message: AssistantMessage; messageId: string }>();
     serve([

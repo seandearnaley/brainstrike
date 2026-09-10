@@ -48,6 +48,7 @@ import {
   type RediscoveredToolSuspend,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-suspend';
+import type { DelegatedConversationDatabase } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import type { SuspendedRunDiscovery } from './assistant-suspended-approvals';
 
@@ -670,7 +671,7 @@ export interface BulkAssistantThreadRepository extends AssistantThreadRepository
   ) => Promise<void>;
 }
 
-interface AssistantHistoryMessage {
+export interface AssistantHistoryMessage {
   readonly content: unknown;
   readonly createdAt: Date;
   readonly id: string;
@@ -2566,7 +2567,7 @@ function orderHistoryGraphForImport(
   return orderedMessages;
 }
 
-function toHistoryRepository(
+export function toHistoryRepository(
   messages: readonly AssistantHistoryMessage[],
   runEvents: readonly AssistantRunEvent[] = []
 ): Awaited<ReturnType<AssistantUiThreadHistoryAdapter['load']>> {
@@ -2758,6 +2759,119 @@ function appendSuspendedDiscoveryError(
   };
 }
 
+export async function readAssistantHistoryMessages(
+  database: DelegatedConversationDatabase,
+  threadId: string,
+  resourceId: string,
+  options?: AssistantThreadMessageListOptions
+): Promise<readonly AssistantHistoryMessage[]> {
+  const limitLatest =
+    typeof options?.limitLatest === 'number' && Number.isSafeInteger(options.limitLatest)
+      ? options.limitLatest
+      : undefined;
+  if (limitLatest !== undefined && limitLatest < 1) {
+    throw new Error('Assistant message history limit must be a positive safe integer.');
+  }
+  const params: (string | number | null)[] = [threadId, resourceId];
+  const limitClause =
+    limitLatest === undefined
+      ? ''
+      : `-- id is a deterministic tie-breaker for same-timestamp rows;
+               -- insertion-order ties need a future monotonic schema column.
+               ORDER BY "createdAt" DESC, id DESC
+               LIMIT $3`;
+  // Soft-rewind exclusion (BST-1115) sits INSIDE the windowing subquery, so
+  // it applies before `limitLatest` — the hydration window is the latest N
+  // VISIBLE messages, not N rows of which some are then dropped. Reload
+  // hydration is this query, which is why a tombstoned message stays gone
+  // across a restart without any renderer-side memory of the rewind.
+  const sql = `SELECT
+          recent_messages.id,
+          recent_messages.role,
+          recent_messages.content,
+          recent_messages."createdAt",
+          message_parents.message_id AS "parentMappingMessageId",
+          message_parents.parent_id AS "parentId"
+        FROM (
+          SELECT id, role, content, "createdAt"
+          FROM ${MASTRA_MEMORY_TABLES.messages}
+          WHERE thread_id = $1 AND "resourceId" = $2
+            AND NOT EXISTS (
+              SELECT 1 FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} AS tombstones
+              WHERE tombstones.message_id = ${MASTRA_MEMORY_TABLES.messages}.id
+            )
+          ${limitClause}
+        ) AS recent_messages
+        LEFT JOIN ${ASSISTANT_MESSAGE_PARENTS_TABLE} AS message_parents
+          ON message_parents.message_id = recent_messages.id
+          AND message_parents.thread_id = $1
+          AND message_parents.resource_id = $2
+        ORDER BY recent_messages."createdAt" ASC, recent_messages.id ASC`;
+  if (limitLatest !== undefined) {
+    params.push(limitLatest);
+  }
+  const result = await database.query(sql, params);
+  return result.rows.map((row) => mapAssistantHistoryMessageRow(requireHistoryRow(row)));
+}
+
+export async function readAssistantHistoryRunEvents(
+  database: DelegatedConversationDatabase,
+  threadId: string,
+  resourceId: string,
+  options?: AssistantThreadRunEventListOptions
+): Promise<readonly AssistantRunEvent[]> {
+  const limitLatestRuns =
+    typeof options?.limitLatestRuns === 'number' && Number.isSafeInteger(options.limitLatestRuns)
+      ? options.limitLatestRuns
+      : undefined;
+  if (limitLatestRuns !== undefined && limitLatestRuns < 1) {
+    throw new Error('Assistant run event history limit must be a positive safe integer.');
+  }
+  const params: (string | number | null)[] = [threadId, resourceId];
+  const boundedRunFilter =
+    limitLatestRuns === undefined
+      ? ''
+      : `AND run.id IN (
+            SELECT recent_run.id
+            FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS recent_run
+            WHERE recent_run.thread_id = $1 AND recent_run.resource_id = $2
+            ORDER BY recent_run.started_at DESC, recent_run.created_at DESC, recent_run.id DESC
+            LIMIT $3
+          )`;
+  if (limitLatestRuns !== undefined) {
+    params.push(limitLatestRuns);
+  }
+  const result = await database.query(
+    `SELECT
+          event.id,
+          event.run_id,
+          event.sequence,
+          event.kind,
+          event.status,
+          event.label,
+          event.detail,
+          event.duration_ms,
+          event.metadata,
+          event.occurred_at
+       FROM ${ASSISTANT_RUN_EVENTS_TABLE} AS event
+       INNER JOIN ${ASSISTANT_THREAD_RUNS_TABLE} AS run ON run.id = event.run_id
+       WHERE event.thread_id = $1
+          AND event.resource_id = $2
+          ${boundedRunFilter}
+       ORDER BY run.started_at ASC, run.created_at ASC, run.id ASC,
+                event.sequence ASC, event.occurred_at ASC, event.id ASC`,
+    params
+  );
+  return result.rows.map((row) => toThreadRunEvent(requireHistoryRow(row)));
+}
+
+function requireHistoryRow(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid assistant history row.');
+  }
+  return value as Record<string, unknown>;
+}
+
 export function createPgliteAssistantThreadRepository(
   database: DbHandle
 ): BulkAssistantThreadRepository {
@@ -2855,49 +2969,7 @@ export function createPgliteAssistantThreadRepository(
     options?: AssistantThreadRunEventListOptions
   ): Promise<readonly AssistantRunEvent[]> => {
     await initialize();
-    const limitLatestRuns =
-      typeof options?.limitLatestRuns === 'number' && Number.isSafeInteger(options.limitLatestRuns)
-        ? options.limitLatestRuns
-        : undefined;
-    if (limitLatestRuns !== undefined && limitLatestRuns < 1) {
-      throw new Error('Assistant run event history limit must be a positive safe integer.');
-    }
-    const params: unknown[] = [threadId, resourceId];
-    const boundedRunFilter =
-      limitLatestRuns === undefined
-        ? ''
-        : `AND run.id IN (
-            SELECT recent_run.id
-            FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS recent_run
-            WHERE recent_run.thread_id = $1 AND recent_run.resource_id = $2
-            ORDER BY recent_run.started_at DESC, recent_run.created_at DESC, recent_run.id DESC
-            LIMIT $3
-          )`;
-    if (limitLatestRuns !== undefined) {
-      params.push(limitLatestRuns);
-    }
-    const result = await database.query<Record<string, unknown>>(
-      `SELECT
-          event.id,
-          event.run_id,
-          event.sequence,
-          event.kind,
-          event.status,
-          event.label,
-          event.detail,
-          event.duration_ms,
-          event.metadata,
-          event.occurred_at
-       FROM ${ASSISTANT_RUN_EVENTS_TABLE} AS event
-       INNER JOIN ${ASSISTANT_THREAD_RUNS_TABLE} AS run ON run.id = event.run_id
-       WHERE event.thread_id = $1
-          AND event.resource_id = $2
-          ${boundedRunFilter}
-       ORDER BY run.started_at ASC, run.created_at ASC, run.id ASC,
-                event.sequence ASC, event.occurred_at ASC, event.id ASC`,
-      params
-    );
-    return result.rows.map(toThreadRunEvent);
+    return readAssistantHistoryRunEvents(database, threadId, resourceId, options);
   };
 
   const repository: BulkAssistantThreadRepository = {
@@ -3321,59 +3393,9 @@ export function createPgliteAssistantThreadRepository(
       return typeof value === 'string' && value.length > 0 ? value : null;
     },
     listLatestThreadRuns,
-    async listMessages(
-      threadId: string,
-      resourceId: string,
-      options?: AssistantThreadMessageListOptions
-    ): Promise<readonly AssistantHistoryMessage[]> {
+    async listMessages(threadId, resourceId, options) {
       await initialize();
-      const limitLatest =
-        typeof options?.limitLatest === 'number' && Number.isSafeInteger(options.limitLatest)
-          ? options.limitLatest
-          : undefined;
-      if (limitLatest !== undefined && limitLatest < 1) {
-        throw new Error('Assistant message history limit must be a positive safe integer.');
-      }
-      const params: unknown[] = [threadId, resourceId];
-      const limitClause =
-        limitLatest === undefined
-          ? ''
-          : `-- id is a deterministic tie-breaker for same-timestamp rows;
-               -- insertion-order ties need a future monotonic schema column.
-               ORDER BY "createdAt" DESC, id DESC
-               LIMIT $3`;
-      // Soft-rewind exclusion (BST-1115) sits INSIDE the windowing subquery, so
-      // it applies before `limitLatest` — the hydration window is the latest N
-      // VISIBLE messages, not N rows of which some are then dropped. Reload
-      // hydration is this query, which is why a tombstoned message stays gone
-      // across a restart without any renderer-side memory of the rewind.
-      const sql = `SELECT
-          recent_messages.id,
-          recent_messages.role,
-          recent_messages.content,
-          recent_messages."createdAt",
-          message_parents.message_id AS "parentMappingMessageId",
-          message_parents.parent_id AS "parentId"
-        FROM (
-          SELECT id, role, content, "createdAt"
-          FROM ${MASTRA_MEMORY_TABLES.messages}
-          WHERE thread_id = $1 AND "resourceId" = $2
-            AND NOT EXISTS (
-              SELECT 1 FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} AS tombstones
-              WHERE tombstones.message_id = ${MASTRA_MEMORY_TABLES.messages}.id
-            )
-          ${limitClause}
-        ) AS recent_messages
-        LEFT JOIN ${ASSISTANT_MESSAGE_PARENTS_TABLE} AS message_parents
-          ON message_parents.message_id = recent_messages.id
-          AND message_parents.thread_id = $1
-          AND message_parents.resource_id = $2
-        ORDER BY recent_messages."createdAt" ASC, recent_messages.id ASC`;
-      if (limitLatest !== undefined) {
-        params.push(limitLatest);
-      }
-      const result = await database.query<Record<string, unknown>>(sql, params);
-      return result.rows.map(mapAssistantHistoryMessageRow);
+      return readAssistantHistoryMessages(database, threadId, resourceId, options);
     },
     listThreadCheckpoints,
     listThreadRunEvents,

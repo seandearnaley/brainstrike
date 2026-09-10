@@ -119,6 +119,7 @@ export async function claimDelegatedToolAction(
   // The durable root claim now excludes competing host resume legs.
   try {
     await assertDelegatedToolActionPending({ action, binding, ...native });
+    await binding.prepareToolAction?.(action);
   } catch (error) {
     // No native resume call has occurred at this boundary. A failed read must
     // not permanently consume a still-pending decision. Later failures and

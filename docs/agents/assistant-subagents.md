@@ -1111,3 +1111,34 @@ would expose the wrong decision action. It must not return an actionable wrapper
 as a fallback. Pending aliases live only for this stream attempt; resume creates
 a new projection, and a subsequent observed leaf replaces the prior alias. They
 are not a cross-resume cache.
+
+### Child history boundary for a live stream leg
+
+A child decoder contains one host stream leg, not a complete conversation.
+Native resume can update a previous row's tool result and append continuation
+text in another row. Its latest observed message id therefore cannot be used
+to remove or replace a single history row. Identical text before and after a
+pause is legitimate content, not evidence of a duplicate.
+
+The desktop binding captures an immutable history baseline after the exact
+leaf decision is claimed and its native snapshot validated, before invoking
+native resume. Every ancestor on that admitted path uses the ordinary history
+readers, including rewind tombstones, message parent topology and the existing
+80-message/run hydration window. All reads must succeed before any baseline
+is published. A different leaf cannot borrow the claim; releasing an
+unexecuted claim clears its snapshots so a later admission reads fresh state.
+For a newly created invocation, only already persisted input rows belong to
+the baseline; the current assistant output belongs to the decoder.
+
+The first delegated envelope carries this baseline with authoritative child
+thread and host-leg ids. Abnormal termination also carries it if no earlier
+renderable chunk did. Subsequent envelopes cannot introduce or replace the
+boundary. Replay recreates the decoder and replays the same boundary. These
+snapshots are ephemeral stream data; native Mastra memory remains the writer.
+
+`delegated-resume-parity.integration.test.ts` proves real approve/decline and
+identical-text native continuations deliver pre-effect history through the
+production decoder. The host integration test proves exact admission and
+release/recapture, and projection/receiver tests pin termination and ordering.
+The baseline is the transport prerequisite for BST-1724's shared live view;
+it does not by itself enable child controls or remove persona capability gates.
