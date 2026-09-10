@@ -84,16 +84,19 @@ const COMPACTION_FAILURE_RUN_EVENT_KIND = 'compaction.failed' as const;
  * per-turn operator evidence is never lost; only the user-facing row is
  * deduplicated.
  *
- * WHEN THE KEY IS ADDED. Only once the breadcrumb has actually been handed
- * downstream — see `markReported` and `prependStreamChunks`. Latching at mint
- * time was wrong (Codex review of #3119): minting happens while the outcome is
- * still being CONSTRUCTED, before `initializeAgentStream` awaits
+ * WHEN THE KEY IS ADDED. Only once the breadcrumb has been handed to the
+ * stream's consumer — see `markReported` and `prependStreamChunks`. Latching at
+ * mint time was wrong (Codex review of #3119): minting happens while the
+ * outcome is still being CONSTRUCTED, before `initializeAgentStream` awaits
  * `resolveInitialAgentStream` (packages/assistant-service/src/stream-init.ts).
  * If that await rejects — or the returned stream is never consumed — the row
  * reaches neither `observe()` nor persistence, yet every later turn with the
  * same thread and reason would be suppressed for the life of the process. That
  * is exactly the silent degradation this ticket exists to remove, reappearing
- * inside its own fix.
+ * inside its own fix. Handing the chunk to the consumer is NOT proof it was
+ * persisted or rendered — a wrapper further out could still drop it — but it
+ * closes by far the widest part of that window, and the residue costs at most
+ * one thread's repeat row rather than a permanent process-wide silence.
  *
  * Intentionally in-memory only (no persistence, no eviction), mirroring
  * `warnedBaselineExceedsTargetThreadIds` in
@@ -103,6 +106,27 @@ const COMPACTION_FAILURE_RUN_EVENT_KIND = 'compaction.failed' as const;
  */
 const reportedCompactionFailures = new Set<string>();
 
+/**
+ * The commit for a breadcrumb that is deliberately NOT latched. Deliberately
+ * empty: an unidentified thread reports on every failing turn.
+ */
+const NEVER_LATCHED = (): void => {
+  return;
+};
+
+function compactionFailureRunEventChunk(reason: string): StreamChunk {
+  return {
+    event: createAssistantRunEvent({
+      detail: `This turn was sent without pre-request compaction — ${reason}`,
+      kind: COMPACTION_FAILURE_RUN_EVENT_KIND,
+      label: 'Conversation compaction unavailable',
+      metadata: { reason },
+      status: 'failed',
+    }),
+    type: 'run-event',
+  };
+}
+
 function compactionFailureChunk(input: {
   readonly error: unknown;
   readonly threadId: string | undefined;
@@ -111,17 +135,20 @@ function compactionFailureChunk(input: {
   // metadata and a rendered row: compaction failures quote provider/model and
   // can carry transport or DB detail.
   const reason = boundRunEventReason(input.error);
+  const threadId = input.threadId;
+  if (!threadId) {
+    // NO THREAD ID, NO LATCH. Keying every unidentified turn under one shared
+    // bucket would let a single delivered row permanently silence a DIFFERENT
+    // conversation failing the same way — the one thing this latch must never
+    // do, in exactly the case where it knows least. Report every time instead.
+    return { chunk: compactionFailureRunEventChunk(reason), markReported: NEVER_LATCHED };
+  }
   // LENGTH-FRAMED, not delimited: unambiguous for any thread id and reason
   // without depending on some character being impossible in either. It was a
-  // NUL separator until the Claude review of #3119 quoted this very line — the
-  // reviewer reproduced that separator as a real NUL character, and
-  // `execFileSync` refuses an argv string containing one, so the trusted
-  // reporter could not publish its disposition and the review gate went red at
-  // two heads with the review itself complete. A key that only ever lives in a
-  // `Set` has no business carrying a byte the rest of the toolchain cannot
-  // transport, and this comment names that byte rather than spelling its escape
-  // for exactly the same reason.
-  const threadId = input.threadId ?? '';
+  // NUL separator until #3119's own review quoted this line and reproduced that
+  // byte, which `execFileSync` refuses in an argv string — see
+  // docs/agents/assistant-persistence.md. A key that never leaves this `Set`
+  // must carry nothing the rest of the toolchain cannot transport.
   const key = `${threadId.length}:${threadId}${reason}`;
   if (reportedCompactionFailures.has(key)) {
     return;
@@ -131,16 +158,7 @@ function compactionFailureChunk(input: {
   // which is honest — both turns really were sent uncompacted — and is the only
   // direction that cannot suppress a row nobody ever saw.
   return {
-    chunk: {
-      event: createAssistantRunEvent({
-        detail: `This turn was sent without pre-request compaction — ${reason}`,
-        kind: COMPACTION_FAILURE_RUN_EVENT_KIND,
-        label: 'Conversation compaction unavailable',
-        metadata: { reason },
-        status: 'failed',
-      }),
-      type: 'run-event',
-    },
+    chunk: compactionFailureRunEventChunk(reason),
     markReported: () => {
       reportedCompactionFailures.add(key);
     },
@@ -152,7 +170,9 @@ interface PreludeChunk {
   /**
    * Runs after the consumer has taken `chunk` AND come back for the next one,
    * so it fires only for a prelude that was genuinely drained: a stream that is
-   * never consumed never runs the generator body at all.
+   * never consumed never runs the generator body at all, and a consumer that
+   * abandons the iterator mid-prelude resumes it with a return completion that
+   * skips this call rather than falling through to it.
    */
   readonly onDelivered?: () => void;
 }

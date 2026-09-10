@@ -2153,7 +2153,17 @@ defect this kind exists to end. The reason is redacted and length-bounded by
 `boundRunEventReason` (`@brainstrike/assistant-contract/run-events`) before it
 becomes durable metadata or a rendered row; that helper is BST-1602's
 `boundMcpDiscoveryReason`, promoted so the two callers share ONE copy of the
-credential-stripping regexes. The row does NOT carry the resolved budget: the
+credential-stripping regexes. Promotion WIDENED that helper's input, and the
+patterns had to widen with it: BST-1602's only caller was MCP discovery, whose
+transports are HTTP, so the userinfo and query patterns were anchored to
+`https?://`. Compaction failures reach `memoryStore` reads/writes,
+`runRecencyPruneScan`, and `recordCompactionRange`, whose driver errors quote
+`postgres://user:pass@host/db` — which both anchored patterns passed straight
+through into durable metadata and an always-visible row. They now match any
+`scheme://`, pinned by `postgres`/`postgresql`/`redis`/`mongodb+srv` cases in
+`run-events.test.ts`; an HTTPS URL merely *named* like a database (the original
+`https://user:hunter2@db.test/x?token=sk-live` fixture) does not exercise this
+and must not be mistaken for coverage of it. The row does NOT carry the resolved budget: the
 failure class where a budget would be most informative is precisely the one
 where no budget was ever resolved.
 
@@ -2166,8 +2176,29 @@ never on the thread alone, so it can never hide a DIFFERENT failure; the `warn`
 log is NOT latched, so per-turn operator evidence is never lost. The latch is an
 in-memory `Set` with no persistence and no eviction, mirroring
 `warnedBaselineExceedsTargetThreadIds` in `conversation-compaction.ts`: a
-restart re-arms it, and it is bounded by thread cardinality times distinct
-reasons, not by request volume.
+restart re-arms it.
+
+KNOWN LIMIT OF THE KEYING (raised by the Claude review of #3119). The
+key contains the whole bounded reason, and two of the reachable throws embed a
+per-message id — `Compaction candidate <id> has no valid creation time.` and
+`Assistant message <id> has conflicting branch topology.`. For those the reason
+differs on every turn, so the row is NOT deduplicated and the `Set` grows one
+entry per failing turn instead of being bounded by thread cardinality times
+distinct reasons. The opposite edge exists too: two failures sharing their first
+199 characters collapse onto one key, because the key uses the already-truncated
+reason. Neither is silent (the extra rows are visible and the `warn` still fires
+per turn), and the growth is ~200 chars per failing turn of a wedged thread, so
+this is recorded rather than fixed here: choosing between a normalized/classified
+key (dedupe on the SHAPE of the throw while rendering the full reason) and a
+capped drop-oldest set is a design ruling, not a patch, and it is owed a ticket
+of its own rather than a rider on this one.
+
+NO THREAD ID, NO LATCH. `runtime.memory?.threadId` can be absent, and keying
+every unidentified turn under one shared bucket would let a single delivered row
+permanently silence a DIFFERENT conversation failing the same way — precisely
+the invariant the reason-keying exists to protect, broken where the latch knows
+least. Such a turn therefore always mints, and its `markReported` is a no-op
+(`NEVER_LATCHED`).
 
 THE KEY IS LENGTH-FRAMED, NOT DELIMITED. `<threadId.length>:<threadId><reason>`
 is unambiguous for any pair without needing a character that cannot occur in

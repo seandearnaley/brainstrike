@@ -203,6 +203,31 @@ describe('runConversationCompactionBeforeStream', () => {
     expect(serialized).not.toContain('sk-live');
   });
 
+  it('never latches a turn with no thread id, so one row cannot silence another conversation', async () => {
+    // Bucketing every unidentified turn under one shared key would let a
+    // delivered row permanently silence a DIFFERENT conversation failing the
+    // same way — the invariant the reason-keying exists to protect, broken in
+    // the one case where the latch knows least.
+    const anonymous = () => {
+      const harness = makeInput({ runtime: { memory: {} } as unknown as RuntimeData });
+      (
+        harness.input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>
+      ).mockRejectedValue(new Error('anonymous budget derivation exploded'));
+      return harness;
+    };
+
+    const first = await runConversationCompactionBeforeStream(anonymous().input as never);
+    expect(await deliverPrelude(first)).toHaveLength(1);
+    const second = await runConversationCompactionBeforeStream(anonymous().input as never);
+
+    expect(runEventOf(second.failure)).toMatchObject({
+      metadata: { reason: 'anonymous budget derivation exploded' },
+    });
+    expect(await deliverPrelude(second)).toHaveLength(1);
+    const third = await runConversationCompactionBeforeStream(anonymous().input as never);
+    expect(third.failure).toBeDefined();
+  });
+
   it('keeps a thread/reason boundary that bare concatenation would collapse', async () => {
     // The latch key is length-framed rather than delimited by an "impossible"
     // character — the previous NUL separator was unpublishable downstream (see

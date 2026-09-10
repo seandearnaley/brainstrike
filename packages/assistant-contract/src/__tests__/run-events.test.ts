@@ -108,6 +108,29 @@ describe('boundRunEventReason', () => {
     expect(reason).toContain('[redacted]');
   });
 
+  it.each([
+    ['postgres://bruce:hunter2@db.internal:5432/brainstrike', 'hunter2'],
+    ['postgresql://bruce:hunter2@db.internal/brainstrike', 'hunter2'],
+    ['redis://default:hunter2@cache.internal:6379', 'hunter2'],
+    ['mongodb+srv://bruce:hunter2@cluster.example.net', 'hunter2'],
+  ])('redacts non-HTTP userinfo in %s', (uri, secret) => {
+    // BST-1737 widened this helper's input from MCP transport errors (always
+    // HTTP) to memory-store and DB failures, which quote driver URIs. A
+    // scheme-restricted pattern would let those through into durable metadata
+    // and an always-visible row.
+    const reason = boundRunEventReason(new Error(`compaction store read failed: ${uri}`));
+    expect(reason).not.toContain(secret);
+    expect(reason).toContain('[redacted]');
+  });
+
+  it('redacts a credential carried in a non-HTTP query string', () => {
+    const reason = boundRunEventReason(
+      new Error('connect failed postgres://db.internal/brainstrike?sslpassword=hunter2')
+    );
+    expect(reason).not.toContain('hunter2');
+    expect(reason).toContain('[redacted]');
+  });
+
   it('leaves an ordinary compaction failure message intact', () => {
     expect(boundRunEventReason(new Error('Unknown compaction input budget for ollama/x.'))).toBe(
       'Unknown compaction input budget for ollama/x.'

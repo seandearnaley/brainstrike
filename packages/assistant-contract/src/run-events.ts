@@ -212,10 +212,19 @@ export type AssistantRunEventSink = (event: AssistantRunEvent) => Promise<void> 
 export const MAX_RUN_EVENT_REASON_CHARS = 200;
 
 const REDACTED = '[redacted]';
-/** `https://user:pass@host` — credentials in the URL's userinfo section. */
-const URL_USERINFO = /(https?:\/\/)[^/\s@]+@/gi;
-/** `https://host/mcp?api_key=…` — credentials in a URL query string. */
-const URL_QUERY = /(https?:\/\/[^\s?]+)\?\S*/gi;
+/**
+ * ANY URI scheme, not just http(s). The scheme class was defensible while the
+ * only caller was MCP discovery, whose transports are HTTP; BST-1737 routes
+ * compaction failures through here, and those reach `memoryStore` reads/writes,
+ * `runRecencyPruneScan`, and `recordCompactionRange` — a driver error quoting
+ * `postgres://user:pass@host/db` would otherwise pass BOTH patterns untouched
+ * into durable metadata and an always-visible row.
+ */
+const SCHEME = '[a-z][a-z0-9+.-]*:\\/\\/';
+/** `postgres://user:pass@host` — credentials in the URI's userinfo section. */
+const URL_USERINFO = new RegExp(`(${SCHEME})[^/\\s@]+@`, 'gi');
+/** `https://host/mcp?api_key=…` — credentials in a URI query string. */
+const URL_QUERY = new RegExp(`(${SCHEME}[^\\s?]+)\\?\\S*`, 'gi');
 
 /**
  * Prepare a failure message for DURABLE run-event metadata and for an
