@@ -821,3 +821,9 @@ snapshots without removing a same-id tool in a later turn or regenerated sibling
 The native message assignment precedes tool anchoring; a trailing tool releases
 its lifecycle queue through the normal final flush. The paired hydration regression
 covers reused native tool ids across turns and their separate inline results.
+
+Scoped tool completion/failure also cannot precede its persisted tool part when
+the loaded journal has no start event. The tool boundary is only a lower bound
+for terminals: their timestamps still preserve text streamed while the tool was
+running. Paired hydration tests cover terminal-only journals and mixed legacy
+events without changing content order or fabricating missing parts.

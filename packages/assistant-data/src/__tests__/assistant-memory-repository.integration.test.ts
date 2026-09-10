@@ -1748,6 +1748,109 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     }
   });
 
+  it.each(['tool.completed', 'tool.failed'] as const)(
+    'keeps scoped %s after its tool when no start event was retained',
+    async (kind) => {
+      const timestamp = '2026-09-10T10:21:02.105Z';
+      const createdAt = Date.parse(timestamp);
+      const history = await loadHistory({
+        messages: [
+          {
+            content: {
+              format: 2,
+              parts: [
+                { createdAt, text: 'Before.', type: 'text' },
+                {
+                  ...makeToolInvocationPart({
+                    result: 'found',
+                    toolCallId: 'child-call',
+                    toolName: 'grep_search',
+                  }),
+                  createdAt,
+                },
+                { createdAt: createdAt + 1, text: 'After.', type: 'text' },
+              ],
+            },
+            createdAt: new Date(createdAt),
+            id: 'native-child',
+            role: 'assistant',
+          },
+        ],
+        runEvents: [
+          {
+            id: 'terminal',
+            kind,
+            label: kind,
+            metadata: { nativeMessageId: 'native-child', toolCallId: 'child-call' },
+            runId: 'child-run',
+            sequence: 0,
+            status: kind === 'tool.completed' ? 'completed' : 'failed',
+            timestamp,
+          },
+          {
+            id: 'legacy-tail',
+            kind: 'run.step.finished',
+            label: 'Step finished',
+            runId: 'child-run',
+            sequence: 1,
+            status: 'completed',
+            timestamp,
+          },
+        ],
+      });
+      expect(
+        history.messages[0]?.message.content.map((part) =>
+          part.type === 'data' ? (part.data as AssistantRunEvent).id : part.type
+        )
+      ).toEqual(['text', 'tool-call', 'terminal', 'legacy-tail', 'text']);
+    }
+  );
+
+  it('does not move a scoped terminal ahead of text emitted while its tool was running', async () => {
+    const createdAt = Date.parse('2026-09-10T10:21:02.100Z');
+    const history = await loadHistory({
+      messages: [
+        {
+          content: {
+            format: 2,
+            parts: [
+              {
+                ...makeToolInvocationPart({
+                  result: 'found',
+                  toolCallId: 'child-call',
+                  toolName: 'grep_search',
+                }),
+                createdAt,
+              },
+              { createdAt: createdAt + 1, text: 'Still searching.', type: 'text' },
+              { createdAt: createdAt + 3, text: 'Finished.', type: 'text' },
+            ],
+          },
+          createdAt: new Date(createdAt),
+          id: 'native-child',
+          role: 'assistant',
+        },
+      ],
+      runEvents: [
+        {
+          id: 'terminal',
+          kind: 'tool.completed',
+          label: 'Completed',
+          metadata: { nativeMessageId: 'native-child', toolCallId: 'child-call' },
+          runId: 'child-run',
+          sequence: 0,
+          status: 'completed',
+          timestamp: new Date(createdAt + 2).toISOString(),
+        },
+      ],
+    });
+    expect(
+      history.messages[0]?.message.content.map((part) =>
+        part.type === 'data' ? (part.data as AssistantRunEvent).id : part.type
+      )
+    ).toEqual(['tool-call', 'text', 'terminal', 'text']);
+  });
+
   it('retains scoped tool lifecycle when cancellation removes the unfinished tool part', async () => {
     const history = await loadHistory({
       messages: [
