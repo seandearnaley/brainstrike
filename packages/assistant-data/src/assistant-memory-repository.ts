@@ -2011,12 +2011,15 @@ function applyToolEventTimes(
   });
 }
 
-/** Only scoped native tool starts have a durable content boundary to override time. */
-function nativeToolStartPosition(
+/** Scoped lifecycle events cannot precede their own persisted tool part. */
+function nativeToolEventPosition(
   event: AssistantRunEvent,
   toolPositions: ReadonlyMap<string, number>
 ): number | undefined {
-  if (event.kind !== 'tool.started' || typeof event.metadata?.['nativeMessageId'] !== 'string') {
+  if (
+    !['tool.started', 'tool.completed', 'tool.failed'].includes(event.kind) ||
+    typeof event.metadata?.['nativeMessageId'] !== 'string'
+  ) {
     return;
   }
   const toolCallId = event.metadata?.['toolCallId'];
@@ -2056,8 +2059,16 @@ function weaveRunEventsIntoContent(
       // Scoped child streams publish tool.started after the tool part. Native
       // message/tool identity preserves that boundary when millisecond clocks tie.
       // A cancelled call may have no saved part; retain its journal event normally.
-      const toolPosition = nativeToolStartPosition(eventPart.data, toolPositions);
-      if (toolPosition === undefined ? runEventTimeMs(eventPart) > at : toolPosition >= partIndex) {
+      const toolPosition = nativeToolEventPosition(eventPart.data, toolPositions);
+      if (toolPosition !== undefined && toolPosition >= partIndex) {
+        break;
+      }
+      // A terminal may follow text streamed while its tool was running. Its
+      // tool boundary is a lower bound; only tool.started overrides event time.
+      if (
+        (toolPosition === undefined || eventPart.data.kind !== 'tool.started') &&
+        runEventTimeMs(eventPart) > at
+      ) {
         break;
       }
       woven.push(eventPart);

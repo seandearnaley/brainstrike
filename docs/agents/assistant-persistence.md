@@ -2927,6 +2927,14 @@ time-based placement. A cancelled call whose unfinished
 tool part was removed still retains its journal events; hydration never invents
 that missing tool part or drops its failure history.
 
+Scoped `tool.completed` and `tool.failed` events also wait until their own tool
+part has been emitted, including when the loaded journal contains no matching
+start. This is a lower bound, not a replacement timestamp: terminal events
+still wait for their recorded time so text emitted while a tool ran remains
+before its completion. Journal order is preserved for following legacy events.
+The paired history tests cover both terminal kinds with tied timestamps and
+no start, mixed legacy events, and text emitted during tool execution.
+
 `delegated-stream-parity.integration.test.ts` compares text, reasoning, tool
 name/id/input/result and every lifecycle data payload in order from the real
 native desktop stream with the current and reconstructed memory engine. The deterministic hydration tests cover tied
