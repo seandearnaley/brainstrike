@@ -48,6 +48,14 @@
       * {
         box-sizing: border-box;
       }
+      .shell[hidden],
+      #saved-error[hidden] {
+        display: none;
+      }
+      #saved-error {
+        padding: 24px;
+        color: var(--red);
+      }
       body {
         height: 100dvh;
         display: grid;
@@ -772,7 +780,7 @@
       </div>
       <div class="lab-controls">
         <label for="scenario">State</label
-        ><select id="scenario" aria-label="Selected agent state">
+        ><select id="scenario" aria-label="State of selected agent">
           <option value="running">Running</option>
           <option value="queued">Queued</option>
           <option value="needs-input">Needs input</option>
@@ -784,6 +792,7 @@
         ><button class="control" id="reset">Reset</button>
       </div>
     </div>
+    <div id="saved-error" role="alert" hidden></div>
     <div class="shell">
       <aside class="sidebar" aria-label="Threads">
         <div class="brand">
@@ -916,6 +925,7 @@
         cancelled: ["□", "Cancelled"],
         failed: ["!", "Failed"],
       };
+      // Bump the version when changing the persisted interaction-state schema.
       const storageKey = "bst-1717-interaction-study-v1";
       const fresh = () => ({
         nodes: structuredClone(initialNodes),
@@ -927,8 +937,85 @@
         notices: {},
         theme: "light",
       });
-      let state =
-        JSON.parse(sessionStorage.getItem(storageKey) || "null") || fresh();
+      let startupError = null;
+      const isRecord = (value) =>
+        Boolean(value && typeof value === "object" && !Array.isArray(value));
+      const isNodeId = (id) =>
+        typeof id === "string" && Object.hasOwn(initialNodes, id);
+      function loadState() {
+        try {
+          const raw = sessionStorage.getItem(storageKey);
+          if (raw === null) return fresh();
+          const saved = JSON.parse(raw);
+          if (
+            !isRecord(saved) ||
+            !isRecord(saved.nodes) ||
+            !isRecord(saved.views) ||
+            !isRecord(saved.drafts) ||
+            !isRecord(saved.notices)
+          )
+            throw new Error("Invalid state object");
+          const next = fresh();
+          for (const id of Object.keys(initialNodes)) {
+            const savedNode = saved.nodes[id];
+            if (!isRecord(savedNode) || !Object.hasOwn(states, savedNode.state))
+              throw new Error("Invalid agent state");
+            // Names, roles, colors, ancestry and copy come only from fixture
+            // constants, never from saved markup or future user input.
+            next.nodes[id].state = savedNode.state;
+          }
+          if (saved.active !== null && !isNodeId(saved.active))
+            throw new Error("Invalid active conversation");
+          for (const key of ["tabs", "expanded"]) {
+            if (
+              !Array.isArray(saved[key]) ||
+              !saved[key].every(isNodeId) ||
+              new Set(saved[key]).size !== saved[key].length
+            )
+              throw new Error("Invalid navigation");
+            next[key] = saved[key];
+          }
+          if (saved.active && !next.tabs.includes(saved.active))
+            throw new Error("Active conversation has no tab");
+          if (saved.theme !== "light" && saved.theme !== "dark")
+            throw new Error("Invalid theme");
+          next.active = saved.active;
+          next.theme = saved.theme;
+          for (const [id, view] of Object.entries(saved.views)) {
+            if (
+              !isNodeId(id) ||
+              !isRecord(view) ||
+              !Number.isFinite(view.scroll) ||
+              view.scroll < 0 ||
+              (view.focus !== undefined &&
+                view.focus !== null &&
+                typeof view.focus !== "string")
+            )
+              throw new Error("Invalid view state");
+            next.views[id] = { scroll: view.scroll, focus: view.focus ?? null };
+          }
+          for (const [id, draft] of Object.entries(saved.drafts)) {
+            if (!isNodeId(id) || typeof draft !== "string")
+              throw new Error("Invalid draft");
+            next.drafts[id] = draft;
+          }
+          for (const [id, notices] of Object.entries(saved.notices)) {
+            if (
+              !isNodeId(id) ||
+              !Array.isArray(notices) ||
+              !notices.every((text) => typeof text === "string")
+            )
+              throw new Error("Invalid notices");
+            next.notices[id] = notices;
+          }
+          return next;
+        } catch {
+          startupError =
+            "Saved design state could not be loaded. Reset this study to continue. The saved entry has not been changed.";
+          return fresh(); // Only supplies inert controls behind the recovery screen.
+        }
+      }
+      let state = loadState();
       const $ = (id) => document.getElementById(id);
       const escape = (value) =>
         String(value).replace(
@@ -953,8 +1040,16 @@
         }
         return nodes;
       };
-      const persist = () =>
-        sessionStorage.setItem(storageKey, JSON.stringify(state));
+      const persist = () => {
+        if (startupError) return;
+        const nodes = Object.fromEntries(
+          Object.entries(state.nodes).map(([id, node]) => [
+            id,
+            { state: node.state },
+          ]),
+        );
+        sessionStorage.setItem(storageKey, JSON.stringify({ ...state, nodes }));
+      };
       const mark = (node) =>
         `<span class="mark ${node.color}" aria-hidden="true">${node.mark}</span>`;
       const status = (node) =>
@@ -967,7 +1062,7 @@
         $("announcement").textContent = text;
       };
       function saveView() {
-        if (!state.active) return;
+        if (startupError || !state.active) return;
         state.views[state.active] = {
           scroll: $("conversation").scrollTop,
           focus: document.activeElement?.id || null,
@@ -1088,6 +1183,13 @@
         ["running", "queued", "needs-input"].includes(state.nodes[id].state) ||
         children(id).some((child) => hasActiveBranch(child.id));
       function render() {
+        $("saved-error").hidden = !startupError;
+        $("saved-error").textContent = startupError || "";
+        document.querySelector(".shell").hidden = Boolean(startupError);
+        if (startupError) {
+          $("scenario").disabled = true;
+          return;
+        }
         const node = state.nodes[state.active];
         document.querySelector(".composer-area").hidden = !node;
         $("scenario").disabled = !node;
@@ -1205,6 +1307,7 @@
           return;
         }
         if (button.id === "reset") {
+          startupError = null;
           state = fresh();
           persist();
           render();
@@ -1308,7 +1411,6 @@
       });
       $("composer-input").addEventListener("input", () => {
         state.drafts[state.active] = $("composer-input").value;
-        persist();
       });
       $("scenario").addEventListener("change", (event) => {
         saveView();
@@ -1324,7 +1426,6 @@
           ...view,
           scroll: $("conversation").scrollTop,
         };
-        persist();
       });
       window.addEventListener("pagehide", saveView);
       render();

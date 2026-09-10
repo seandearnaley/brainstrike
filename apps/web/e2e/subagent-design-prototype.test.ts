@@ -36,6 +36,10 @@ test('returns through ancestry with independent scroll, focus and draft @web-smo
   await conversation.evaluate((element) => {
     element.scrollTop = 80;
   });
+  expect(
+    await conversation.evaluate((element) => element.scrollHeight - element.clientHeight),
+    'Fixture must be scrollable for the restoration check'
+  ).toBeGreaterThan(80);
   const rootScroll = await conversation.evaluate((element) => element.scrollTop);
   expect(rootScroll).toBeGreaterThan(0);
   await page.getByRole('button', { exact: true, name: 'Open Cedar' }).click();
@@ -75,13 +79,13 @@ test('closing an approval tab leaves it waiting; reload retains identity and dra
 test('stopping one branch preserves parent and sibling outcomes @web-smoke', async ({ page }) => {
   await page.getByRole('button', { exact: true, name: 'Open Cedar' }).click();
   await page.getByRole('button', { exact: true, name: 'Stop Cedar branch' }).click();
-  await expect(page.getByLabel('Selected agent state')).toHaveValue('cancelled');
+  await expect(page.getByLabel('State of selected agent')).toHaveValue('cancelled');
   await page.getByRole('button', { exact: true, name: 'Open Wren' }).click();
-  await expect(page.getByLabel('Selected agent state')).toHaveValue('cancelled');
+  await expect(page.getByLabel('State of selected agent')).toHaveValue('cancelled');
   await page.getByRole('button', { exact: true, name: 'View Flint' }).click();
-  await expect(page.getByLabel('Selected agent state')).toHaveValue('completed');
+  await expect(page.getByLabel('State of selected agent')).toHaveValue('completed');
   await page.getByRole('button', { exact: true, name: 'View Repository report' }).click();
-  await expect(page.getByLabel('Selected agent state')).toHaveValue('running');
+  await expect(page.getByLabel('State of selected agent')).toHaveValue('running');
   await expect(page.getByRole('region', { name: 'Conversation' })).toContainText(
     'Cedar stopped with its descendants'
   );
@@ -133,7 +137,7 @@ test('follow-up and approval outcomes notify the owning parent', async ({ page }
   );
   await page.getByRole('button', { exact: true, name: 'Open Wren' }).click();
   await page.getByRole('button', { exact: true, name: 'Approve once' }).click();
-  await expect(page.getByLabel('Selected agent state')).toHaveValue('completed');
+  await expect(page.getByLabel('State of selected agent')).toHaveValue('completed');
   const ancestry = page.getByRole('navigation', { name: 'Conversation ancestry' });
   await ancestry.getByRole('button', { exact: true, name: 'Cedar' }).click();
   await expect(page.getByRole('region', { name: 'Conversation' })).toContainText(
@@ -157,7 +161,7 @@ test('terminal states stay distinct and preserve recorded activity', async ({ pa
     if (!(value && text)) {
       throw new Error('Missing state fixture');
     }
-    await page.getByLabel('Selected agent state').selectOption(value);
+    await page.getByLabel('State of selected agent').selectOption(value);
     await expect(page.getByRole('region', { name: 'Conversation' })).toContainText(text);
     await expect(page.getByRole('region', { name: 'Conversation' })).toContainText('Read 2 files');
   }
@@ -269,11 +273,11 @@ for (const theme of ['light', 'dark']) {
 }
 
 test('root stop still controls live descendants after the root finishes', async ({ page }) => {
-  await page.getByLabel('Selected agent state').selectOption('completed');
+  await page.getByLabel('State of selected agent').selectOption('completed');
   await expect(page.getByRole('button', { exact: true, name: 'Stop all agents' })).toBeEnabled();
   await page.getByRole('button', { exact: true, name: 'Stop all agents' }).click();
   await page.getByRole('button', { exact: true, name: 'Open Cedar' }).click();
-  await expect(page.getByLabel('Selected agent state')).toHaveValue('cancelled');
+  await expect(page.getByLabel('State of selected agent')).toHaveValue('cancelled');
 });
 
 test('closing the final root tab leaves a reopenable conversation, not a new run', async ({
@@ -282,6 +286,58 @@ test('closing the final root tab leaves a reopenable conversation, not a new run
   await page.getByRole('button', { exact: true, name: 'Close Repository report tab' }).click();
   await expect(page.getByRole('tab')).toHaveCount(0);
   await page.getByRole('button', { exact: true, name: 'View Repository report' }).click();
-  await expect(page.getByLabel('Selected agent state')).toHaveValue('running');
+  await expect(page.getByLabel('State of selected agent')).toHaveValue('running');
+  await expect(page.getByRole('button', { exact: true, name: 'Open Cedar' })).toBeVisible();
+});
+
+test('saved-state corruption remains visible and recoverable without silently resetting', async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    sessionStorage.setItem('bst-1717-interaction-study-v1', '{broken')
+  );
+  await page.reload();
+  await expect(page.getByRole('alert')).toContainText('Saved design state could not be loaded');
+  await expect(page.getByRole('tab')).toHaveCount(0);
+  expect(await page.evaluate(() => sessionStorage.getItem('bst-1717-interaction-study-v1'))).toBe(
+    '{broken'
+  );
+  await page.getByRole('button', { exact: true, name: 'Reset' }).click();
+  await expect(page.getByRole('heading', { exact: true, name: 'Repository report' })).toBeVisible();
+  await expect(page.getByRole('alert')).toBeHidden();
+});
+
+test('same-conversation state changes preserve a valid scrolled position', async ({ page }) => {
+  await page.setViewportSize({ height: 620, width: 1000 });
+  await page.getByRole('button', { exact: true, name: 'Open Cedar' }).click();
+  const viewport = page.getByRole('region', { name: 'Conversation' });
+  await viewport.evaluate((element) => {
+    element.scrollTop = 80;
+  });
+  expect(await viewport.evaluate((element) => element.scrollTop)).toBe(80);
+  await page.getByLabel('State of selected agent').selectOption('queued');
+  expect(await viewport.evaluate((element) => element.scrollTop)).toBe(80);
+  await page.getByRole('button', { exact: true, name: 'Stop Cedar branch' }).click();
+  expect(await viewport.evaluate((element) => element.scrollTop)).toBe(80);
+  await page.getByRole('button', { name: 'Switch to dark theme' }).click();
+  expect(await viewport.evaluate((element) => element.scrollTop)).toBe(80);
+});
+
+test('saved presentation strings cannot become executable markup', async ({ page }) => {
+  await page.getByRole('button', { name: 'Switch to dark theme' }).click();
+  await page.addInitScript(() => {
+    const key = 'bst-1717-interaction-study-v1';
+    const saved: { nodes: { cedar: { name?: string } } } | null = JSON.parse(
+      sessionStorage.getItem(key) ?? 'null'
+    );
+    // Ensure the fixture has a saved state before corrupting it.
+    if (!saved) {
+      throw new Error('Expected saved design state');
+    }
+    saved.nodes.cedar.name = '<img src=x onerror="document.title=\'INJECTED\'">';
+    sessionStorage.setItem(key, JSON.stringify(saved));
+  });
+  await page.reload();
+  await expect(page).toHaveTitle('Subagent threads · Brainstrike design');
   await expect(page.getByRole('button', { exact: true, name: 'Open Cedar' })).toBeVisible();
 });

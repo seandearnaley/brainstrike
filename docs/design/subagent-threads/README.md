@@ -5,6 +5,11 @@ contract for BST-1724/1725 and the control semantics consumed by BST-1720–1727
 The runtime foundation is BST-1716. Its native Mastra proof does not make this
 prototype's simulated actions production capabilities.
 
+**Prototype-only state:** this isolated document owns no application store and
+is not loaded by Brainstrike. Its Reset control only resets this study. Malformed
+saved state shows a recovery screen; it is never silently discarded. Presentation
+constants are reconstructed from the fixture, not trusted from sessionStorage.
+
 Open `index.html`, or serve this directory with
 `python3 -m http.server 8768 --bind 127.0.0.1` and visit
 <http://127.0.0.1:8768/>. The page has no external dependencies or agent calls.
@@ -108,7 +113,7 @@ No control may appear enabled until its command and persistence path work.
 | Active conversation runtime and capability commands | Existing assistant panel/runtime adapter, keyed by durable child conversation identity. Reuse assistant-ui ExternalStoreRuntime where the app already owns the transcript. |
 | Messages, viewport/virtualization, scroll, composer | `AssistantThreadMessages` / `AssistantUIPanel`; one active transcript per visible pane, not one per descendant. Extract a shared surface only where required, without a wholesale panel rewrite. |
 | Delegation summary/open affordance | `SubagentExecutionCard` + `StepRowHeader`; inject a typed open-conversation command instead of importing app-shell navigation into assistant-ui. Preserve chronological message boundaries. |
-| Tabs, breadcrumbs and sidebar | `AssistantThreadTabsWorkspace`, existing thread presentation tokens and TreeTable adapter; no parallel tree implementation in production. |
+| Tabs, breadcrumbs and sidebar | `AssistantThreadTabsWorkspace`, existing thread presentation tokens and TreeTable adapter; no parallel tree implementation in production. The four-node fixture traversal is not a production tree algorithm. |
 | View state | Existing thread-keyed drafts, viewport state and active/open-tab stores, extended to child ids and reset through their existing owners. Keep only presentation state while a transcript is unmounted. |
 | Run lifetime | Host-owned scheduler/runtime service. Components subscribe; mounting and unmounting do not create or kill agents. |
 
@@ -128,7 +133,8 @@ inferred from the file-based builder's depth rule.
   ancestry restores the prior opener and scroll position. Switching by tab
   keyboard keeps focus on the selected tab. Drafts stay with their recipients.
 - Status has a glyph and readable name; a call sign stays visible in light,
-  dark and forced-color modes. Motion respects reduced-motion preferences.
+  dark and forced-color modes. This study is static; running it with reduced
+  motion checks the settled layout, not the suppression of an animated transition.
 - Narrow viewports keep header, ancestry, transcript and composer inside the
   viewport. Only the transcript and overflowing tab strip scroll.
 - Tests target rendered behavior, not source-string snapshots. The fixture is
@@ -136,6 +142,11 @@ inferred from the file-based builder's depth rule.
   `apps/web/e2e/subagent-design-prototype.test.ts`; it is not a production route.
   Its four core navigation/lifecycle checks run in the normal Web E2E smoke
   selection; the full fixture suite runs in the existing functional project.
+  These four short cases intentionally protect the active project's interaction
+  contract on every PR. BST-1724/1725 should replace them with the equivalent
+  production-surface cases as those surfaces land; this does not add a new lane.
+  Screenshots use ordinary Playwright attachments for human visual review, not a
+  separate proof registry or a substitute for assertions.
 - RED: initial Open Cedar had no child tab; test failed. Geometry tests then
   found a one-pixel document overflow. GREEN: child navigation and measured
   region bounds pass after the tab implementation and grid layout fix.
@@ -146,11 +157,14 @@ write conflicts, native app reload, provider errors and background recovery.
 BST-1728 must verify those through the real web/packaged desktop boundaries and
 close every capability row above. A screenshot or this fixture cannot substitute.
 
-Verification checkpoint: 14 deterministic Chromium browser tests passed, including
+Verification checkpoint: 17 deterministic Chromium browser tests passed, including
 390px/1280px light/dark viewport bounds, sampled rendered text contrast of at least
-4.5:1, and reduced-motion checks. The late lifecycle negative controls cover closing
+4.5:1, and the static layout under reduced-motion preferences. The late lifecycle negative controls cover closing
 the final root tab and stopping live descendants after the root itself has finished.
-The same 14 tests passed through the checked-in Web E2E functional configuration
-with its built preview server on the explicit free port 8799. The application
-on port 8080 was left undisturbed. These fixture checks are not production
-application E2E proof.
+The same tests passed through the checked-in Web E2E functional configuration
+with its built preview server. These fixture checks are not production
+application E2E proof. Recovery and tampered saved-presentation controls fail on
+the original document and pass with explicit state validation. A same-thread
+scroll regression passes across state, stop and theme changes; positions clamp
+naturally if the new content is shorter. The fixture keeps scroll/draft edits in
+memory and saves on navigation or page exit, not on every scroll/keystroke.
