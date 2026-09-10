@@ -1272,6 +1272,10 @@ lookups; the native resource remains separate from root ownership authority.
 
 ### Delegated decision admission (migration 131, BST-1720)
 
+Startup reaping runs only after database migrations complete. Its decision-state
+update intentionally fails on an unmigrated schema; optional-relation cleanup
+is reserved for reset, not startup recovery.
+
 `brainstrike_delegated_tool_decisions` records host admission of an exact
 root-owned native leaf run/call. Its permanent leaf uniqueness rejects repeat
 answers; a partial unique root index excludes concurrent claimed resume legs.

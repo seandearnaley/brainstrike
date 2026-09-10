@@ -265,6 +265,7 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
         }),
         runtimeData: undefined,
       });
+      expect(persistence.hooks).toHaveBeenCalledExactlyOnceWith(abortSignal);
       const call = { context: { toolCallId: 'read-1' }, input: {}, toolName: 'read' };
       await options.hooks?.beforeToolCall?.(call);
       await options.hooks?.afterToolCall?.({ ...call, output: {} });
