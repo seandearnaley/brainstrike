@@ -245,6 +245,7 @@ export function resolveEligibleArtifactReaderName(
 }
 
 function settleRuntimeToolOutputs(params: {
+  requireExecutionThreadId?: boolean;
   getDelegationToolNames: (() => readonly string[]) | undefined;
   inlineMaxSerializedCharsByToolName: ReadonlyMap<string, number> | undefined;
   store: ToolOutputArtifactSettlementStore | undefined;
@@ -257,6 +258,7 @@ function settleRuntimeToolOutputs(params: {
     return params.tools;
   }
   return applyToolOutputArtifactSettlement(params.tools, {
+    ...(params.requireExecutionThreadId ? { requireExecutionThreadId: true } : {}),
     ...(params.getDelegationToolNames
       ? { getDelegationToolNames: params.getDelegationToolNames }
       : {}),
@@ -463,6 +465,8 @@ export interface RuntimeToolMapResult {
   mcpDiscoverySkips: readonly McpDiscoverySkip[];
   resilienceConfig: AssistantResilienceConfig;
   sanitizedLocalToolIds: ReadonlySet<string>;
+  /** Apply the same settlement policy to an independently gated child tool map. */
+  settleChildToolOutputs: (tools: ToolsInput, budget: ScaledToolResultBudget) => ToolsInput;
   /** Real per-call execution time, written by the guard wrapper. */
   toolExecutionDurations: ToolExecutionDurations;
   toolNameMap: Map<string, string>;
@@ -622,6 +626,19 @@ export async function composeRuntimeToolMap(
     mcpDiscoverySkips,
     resilienceConfig,
     sanitizedLocalToolIds,
+    // Children select a strict subset of these sanitized IDs; they never rename
+    // tools. Current personas cannot delegate, so they advertise no delegation hint.
+    settleChildToolOutputs: (tools, budget) =>
+      settleRuntimeToolOutputs({
+        getDelegationToolNames: undefined,
+        inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName,
+        mcpToolNames,
+        requireExecutionThreadId: true,
+        resolvedToolResultBudget: budget,
+        store: params.toolOutputArtifactStore,
+        toolNameMap,
+        tools,
+      }),
     toolExecutionDurations,
     toolNameMap,
   };

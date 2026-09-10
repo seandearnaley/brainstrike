@@ -66,6 +66,7 @@ export const DEFAULT_USER_PERSONA_TOOL_IDS: readonly string[] = [
   NATIVE_TOOL_ID.findWorkspaceSymbol,
   NATIVE_TOOL_ID.readWorkspaceFile,
   NATIVE_TOOL_ID.readWorkspaceDirectory,
+  NATIVE_TOOL_ID.readToolOutputArtifact,
 ];
 
 const NATIVE_TOOL_ID_PREFIX = 'brainstrike.';

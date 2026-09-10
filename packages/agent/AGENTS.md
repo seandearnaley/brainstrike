@@ -439,6 +439,15 @@ Tips for MCP integration:
 
 ### Host-owned delegated conversation binding (BST-1718)
 
+Persona tools share central artifact settlement after their independent gate and
+before their own model projection. Child settlement requires the observed native
+execution thread; ordinary ToolsInput functions expose it via Mastra's memory
+RequestContext, while ToolAction contexts may expose `agent.threadId`. The shared
+execution identity reader supports both vendor contexts and ignores tool input.
+Artifact ownership stays on the root resource/thread/run; native execution thread
+distinguishes sibling call IDs in migration 129. See the native sibling recovery
+test and `docs/agents/assistant-subagents.md`.
+
 `MastraAgentRuntimeOptions.conversationBinding` accepts
 `createDelegatedConversationBinding(persist)`. This requires parent/child thread
 memory scope and a structured-cloneable configuration snapshot; the host validates

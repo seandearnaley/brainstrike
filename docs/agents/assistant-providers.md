@@ -4272,7 +4272,15 @@ factory-reset cleanup. Exact replay of one scoped tool call is idempotent only
 when format and complete bytes match; a conflicting replay is a hard failure.
 
 `applyToolOutputArtifactSettlement` is the central live settlement seam. With a
-trusted host store, non-media native and MCP output above 12,000 UTF-8 bytes is
+trusted host store, persona tools use that same seam after their own permission
+selection and before their own model projection. Reader eligibility comes from
+the child's final tool map; MCP truncation uses the child's resolved model budget.
+Missing child execution scope or an eligible reader fails visibly before storage.
+Native function tools carry execution scope through Mastra's public memory
+RequestContext parser; ToolAction contexts can carry `agent.threadId` directly.
+Both feed the shared execution-identity reader, never tool input.
+
+Non-media native and MCP output above 12,000 UTF-8 bytes is
 retained completely before display/transcript receives the bounded envelope. A
 tool may also declare a stricter canonical-name serialized-character ceiling
 when its complete domain projection must fit below that generic transport

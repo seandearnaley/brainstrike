@@ -381,6 +381,15 @@ SDK-owned `unknown`. Keep these internal sentinels out of the legacy data-stream
 protocol and never infer provider failure from the AI SDK `unknown` value.
 
 **Raw/model tool-output split (LIVE):**
+
+Persona children apply central artifact settlement after their own permission
+gate and before projection at their own resolved model budget. Settlement
+requires an eligible child reader and observed execution-thread identity;
+ordinary native function tools expose that identity through Mastra's memory
+RequestContext. Storage preserves root read authority while migration 129 keeps
+sibling execution threads distinct, including reused native tool-call IDs.
+The native desktop fixture reconstructs complete model-paged outputs and the
+same content from hydrated envelopes after engine reconstruction.
 `createMastraAgentRuntime` composes tools in this order (the stage sequence
 lives in `runtime-assembly/tool-pipeline.ts`; OpenRouter billed-cost/usage
 extraction lives in `runtime-assembly/usage-metering.ts`):

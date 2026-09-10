@@ -62,6 +62,7 @@ export function resolvePersonaRuntimeParts(params: {
   provider: string;
   resolvedToolResultBudget: ScaledToolResultBudget;
   resolvePinnedModel: (persona: AssistantPersonaDefinition) => MastraModelConfig;
+  settleChildToolOutputs?: (tools: ToolsInput, budget: ScaledToolResultBudget) => ToolsInput;
   toolNameMap: Map<string, string>;
   toolOutputObserver?: ModelOutputProjectionObserver;
   turnPersistenceProcessor?: (InputProcessor & OutputProcessor) | undefined;
@@ -71,6 +72,9 @@ export function resolvePersonaRuntimeParts(params: {
   }
   const personaBuild = buildPersonaSubAgents({
     ...(params.conversationBinding ? { conversationBinding: params.conversationBinding } : {}),
+    ...(params.settleChildToolOutputs
+      ? { settleChildToolOutputs: params.settleChildToolOutputs }
+      : {}),
     guardedTools: params.guardedTools,
     languageModel: params.languageModel,
     logger,

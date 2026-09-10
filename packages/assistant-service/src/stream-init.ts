@@ -82,11 +82,11 @@ interface ToolOutputArtifactCapabilities {
   toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
 }
 
-function buildToolOutputArtifactCapabilities<K extends AgentStreamCapabilityKinds>(
+export function buildToolOutputArtifactCapabilities<K extends AgentStreamCapabilityKinds>(
   runtimeData: RuntimeData | undefined,
   runId: string | undefined,
   getDatabase: AgentStreamDatabaseProvider<K['database']>,
-  deps: AgentStreamHelperDeps<K>
+  deps: { readonly capabilities: Pick<AgentStreamCapabilities<K>, 'artifacts'> }
 ): ToolOutputArtifactCapabilities {
   const resourceId = runtimeData?.memory?.resourceId;
   const threadId = runtimeData?.memory?.threadId;

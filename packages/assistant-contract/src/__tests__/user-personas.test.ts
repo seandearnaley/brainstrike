@@ -176,6 +176,7 @@ describe('buildUserPersona', () => {
     expect(persona.instructions).toBe(VALID_BODY);
     expect(persona.maxSteps).toBe(DEFAULT_USER_PERSONA_MAX_STEPS);
     expect(persona.allowedToolIds).toEqual(DEFAULT_USER_PERSONA_TOOL_IDS);
+    expect(persona.allowedToolIds).toContain(NATIVE_TOOL_ID.readToolOutputArtifact);
     expect(persona.model).toBeUndefined();
     expect(persona.source).toBe('user');
   });

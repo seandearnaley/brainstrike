@@ -1,3 +1,6 @@
+import { parseMemoryRequestContext } from '@mastra/core/memory';
+import type { RequestContext } from '@mastra/core/request-context';
+
 /**
  * Read the tool-call id Mastra passes alongside a tool's input.
  *
@@ -17,7 +20,31 @@ export function readToolCallId(args: readonly unknown[]): string | undefined {
 
 /** Native thread IDs are globally unique; never substitute persona or root identity. */
 export function readToolExecutionThreadId(args: readonly unknown[]): string | undefined {
-  return readExecutionIdentity(args, 'threadId');
+  const explicit = readExecutionIdentity(args, 'threadId');
+  if (explicit) {
+    return explicit;
+  }
+  const context = args[1];
+  if (!(context && typeof context === 'object' && 'requestContext' in context)) {
+    return;
+  }
+  // Native ToolsInput functions receive the AI SDK execution context; Mastra
+  // carries memory scope there through RequestContext, not context.agent.
+  const requestContext = context.requestContext;
+  if (
+    !(
+      requestContext &&
+      typeof requestContext === 'object' &&
+      'get' in requestContext &&
+      typeof requestContext.get === 'function'
+    )
+  ) {
+    return;
+  }
+  // The public parser uses only get(); ESM and CJS expose distinct constructors.
+  // Malformed memory still throws. Never normalize a valid native identity.
+  const threadId = parseMemoryRequestContext(requestContext as RequestContext)?.thread?.id;
+  return threadId?.trim() ? threadId : undefined;
 }
 
 function readExecutionIdentity(

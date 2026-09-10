@@ -421,6 +421,12 @@ Migration 068 owns complete tool-output artifact storage
 `BYTEA`; callers pass hex text through PostgreSQL `decode` because
 worker/Electron boundaries do not preserve a single JavaScript typed-array
 realm. The table has no Mastra FKs, is scoped by resource/thread/run/tool call,
+with migration 129 adding the native `execution_thread_id` to call uniqueness.
+Existing rows retain their root thread as execution identity, preserving exact
+replay, artifact IDs, bytes and expiry. Root resource/thread remain read authority;
+execution identity cannot grant access. Conflicting bytes within one execution
+still fail. Rollback refuses to discard persisted child execution identity.
+The table
 expires after seven days, and is explicitly factory-reset-cleared. Add
 every change to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. Keep the migration/repository/reset
 tests paired with the persistence contract in
