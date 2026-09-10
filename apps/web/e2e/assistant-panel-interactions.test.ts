@@ -1,4 +1,8 @@
-import type { LocalLlmGenerationResult, LocalLlmMessage } from '@brainstrike/assistant-contract';
+import type {
+  LocalLlmBackend,
+  LocalLlmGenerationOptions,
+  LocalLlmGenerationResult,
+} from '@brainstrike/assistant-contract';
 import { expect, test } from '@playwright/test';
 import { openAssistantWorkspace } from './utils/assistant-workspace';
 
@@ -9,8 +13,8 @@ interface ControlledGeneration {
 
 interface StopRetryFixture {
   readonly cancelled: string[];
-  emit: (text: string) => void;
-  finish: (text: string) => void;
+  emit: (requestIndex: number, text: string) => void;
+  finish: (requestIndex: number, text: string) => void;
   readonly requests: ControlledGeneration[];
 }
 
@@ -24,73 +28,68 @@ test.describe('Assistant stop/retry @stateful @web-assistant-state', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       window.__assistantAvailabilityOverride = { state: 'enabled' };
-      const listeners = new Set<(event: unknown) => void>();
       const pending = new Map<
         string,
         {
           resolve: (result: LocalLlmGenerationResult) => void;
-          reject: (error: Error) => void;
+          stream: NonNullable<LocalLlmGenerationOptions['stream']>;
+          cleanup: () => void;
         }
       >();
       const fixture: StopRetryFixture = {
         cancelled: [],
-        emit(text) {
-          const requestId = fixture.requests.at(-1)?.requestId;
+        emit(requestIndex, text) {
+          const requestId = fixture.requests[requestIndex]?.requestId;
           if (!(requestId && pending.has(requestId))) {
             throw new Error('No active generation to stream');
           }
-          for (const listener of listeners) {
-            listener({
-              payload: { clientRequestId: requestId, kind: 'text', text },
-              requestId,
-              type: 'progress',
-            });
-          }
+          pending.get(requestId)?.stream.onTextSnapshot?.(text);
         },
-        finish(text) {
-          const requestId = fixture.requests.at(-1)?.requestId;
+        finish(requestIndex, text) {
+          const requestId = fixture.requests[requestIndex]?.requestId;
           const generation = requestId ? pending.get(requestId) : undefined;
           if (!(requestId && generation)) {
             throw new Error('No active generation to finish');
           }
           pending.delete(requestId);
+          generation.cleanup();
           generation.resolve({ finishReason: 'stop', text });
         },
         requests: [],
       };
-      const host = {
-        cancel: async (requestId: string): Promise<void> => {
-          const generation = pending.get(requestId);
-          if (!generation) {
-            throw new Error('Cancellation targeted an unknown generation');
-          }
-          fixture.cancelled.push(requestId);
-          pending.delete(requestId);
-          generation.reject(new DOMException('Generation cancelled.', 'AbortError'));
+      let ready = false;
+      const backend: LocalLlmBackend = {
+        dispose: async () => {
+          ready = false;
         },
-        generate: ({
-          requestId,
-          messages,
-        }: {
-          requestId?: string;
-          messages: LocalLlmMessage[];
-        }): Promise<LocalLlmGenerationResult> => {
-          if (!requestId || pending.has(requestId)) {
-            throw new Error('Expected a distinct native generation request ID');
+        generate: async (messages, options = {}) => {
+          const { signal, stream } = options;
+          if (!(signal && stream?.onTextSnapshot)) {
+            throw new Error('The browser adapter must supply cancellation and streaming');
           }
+          signal.throwIfAborted();
+          const requestId = crypto.randomUUID();
           fixture.requests.push({ messages, requestId });
           return new Promise<LocalLlmGenerationResult>((resolve, reject) => {
-            pending.set(requestId, { reject, resolve });
+            const onAbort = (): void => {
+              fixture.cancelled.push(requestId);
+              pending.delete(requestId);
+              reject(signal.reason);
+            };
+            signal.addEventListener('abort', onAbort, { once: true });
+            pending.set(requestId, {
+              cleanup: () => signal.removeEventListener('abort', onAbort),
+              resolve,
+              stream,
+            });
           });
         },
-        onProgress: (listener: (event: unknown) => void): (() => void) => {
-          listeners.add(listener);
-          return () => listeners.delete(listener);
+        initialize: async () => {
+          ready = true;
         },
-        warmup: async () => undefined,
+        isReady: () => ready,
       };
-      // The selected local runtime consumes this host, not the hosted HTTP API.
-      Object.defineProperty(window, 'llmHost', { configurable: true, value: host });
+      window.__brainstrikeWebLocalLlmBackendFixture__ = backend;
       window.__assistantStopRetryFixture = fixture;
     });
     await openAssistantWorkspace(page, {
@@ -102,6 +101,7 @@ test.describe('Assistant stop/retry @stateful @web-assistant-state', () => {
   test('stops the owned generation, regenerates the prompt and stops a long response', async ({
     page,
   }) => {
+    expect(await page.evaluate(() => 'llmHost' in window)).toBe(false);
     const viewport = page.getByTestId('assistant-ui-viewport');
     const input = page.getByRole('textbox', { name: 'Message input' });
     const send = page.getByRole('button', { exact: true, name: 'Send' });
@@ -113,7 +113,7 @@ test.describe('Assistant stop/retry @stateful @web-assistant-state', () => {
       .poll(() => page.evaluate(() => window.__assistantStopRetryFixture.requests.length))
       .toBe(1);
     await page.evaluate(() =>
-      window.__assistantStopRetryFixture.emit('Partial response before stop.')
+      window.__assistantStopRetryFixture.emit(0, 'Partial response before stop.')
     );
     await expect(
       viewport.getByText('Partial response before stop.', { exact: true })
@@ -134,8 +134,10 @@ test.describe('Assistant stop/retry @stateful @web-assistant-state', () => {
     );
     expect(generations[1]?.requestId).not.toBe(generations[0]?.requestId);
     await page.evaluate(() => {
-      window.__assistantStopRetryFixture.emit('Completed regenerated response.');
-      window.__assistantStopRetryFixture.finish('Completed regenerated response.');
+      // Host progress is a cumulative snapshot; the final result is the same
+      // complete text, not an additional delta to append.
+      window.__assistantStopRetryFixture.emit(1, 'Completed regenerated response.');
+      window.__assistantStopRetryFixture.finish(1, 'Completed regenerated response.');
     });
     await expect(
       viewport.getByText('Completed regenerated response.', { exact: true })
@@ -148,7 +150,7 @@ test.describe('Assistant stop/retry @stateful @web-assistant-state', () => {
       .poll(() => page.evaluate(() => window.__assistantStopRetryFixture.requests.length))
       .toBe(3);
     await page.evaluate(() =>
-      window.__assistantStopRetryFixture.emit('Long response. '.repeat(300))
+      window.__assistantStopRetryFixture.emit(2, 'Long response. '.repeat(300))
     );
     await expect(viewport.getByText(/^Long response\. Long response\./)).toBeVisible();
     await stop.click();

@@ -1818,16 +1818,25 @@ would otherwise cancel an in-flight 11-14 min Coverage run.
 ### Assistant stop/retry verifier (BST-1728)
 
 `apps/web/e2e/assistant-panel-interactions.test.ts` selects the browser-local
-model explicitly and supplies its actual `window.llmHost` generation/progress/
-cancel seam. An HTTP assistant mock does not intercept this runtime. The test
-controls each pending generation, streams partial content, clicks Stop and
-requires cancellation of the exact request ID. Regenerate uses the current
-accessible name (`Regenerate response`) and must start a distinct generation
-with the original prompt; a completed regeneration must never appear in the
-cancelled-request set. A long response is stopped the same way. No provider key,
-model download, conditional action, sleep, retry or availability skip is needed.
-A negative control disconnecting the adapter's `llmHost.cancel` call must fail
-at the cancellation assertion; passing UI visibility alone is insufficient.
+model and injects a controlled `LocalLlmBackend` at the web app's existing
+backend factory. The explicit fixture is restricted to webdriver automation;
+ordinary sessions still lazily load the native Gemma backend. The test asserts
+that `window.llmHost` is absent: adding this desktop bridge would exercise an
+unreachable hybrid of the web transport and desktop host adapter.
+
+The real browser adapter must supply streaming callbacks and an AbortSignal.
+The fixture streams cumulative text snapshots, and Stop must abort the signal
+owned by that generation. Regenerate uses the current accessible name
+(`Regenerate response`), starts a distinct generation with the original prompt,
+and finishes with the complete text (not an appended delta). That completed
+generation must never enter the cancelled set. A long response is stopped the
+same way. No provider key, model download, conditional action, sleep, retry or
+availability skip is needed.
+
+Before weakening these assertions, repeat the manual falsification procedure:
+disconnect the adapter's AbortSignal from backend generation, verify failure,
+then restore it and verify the test passes. UI visibility alone is insufficient
+evidence of cancellation.
 
 ### `pnpm check` is a mirror of test.yml, not a second CI definition (BST-1009)
 
