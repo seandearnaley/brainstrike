@@ -69,6 +69,35 @@ describe('createSuspendedRunDiscovery', () => {
     });
   });
 
+  it('starts the request deadline only after endpoint and auth resolution', async () => {
+    const order: string[] = [];
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => {
+      order.push('deadline');
+      return new AbortController().signal;
+    });
+    try {
+      const discover = createSuspendedRunDiscovery(
+        async () => {
+          order.push('endpoint');
+          return await resolveBaseUrl();
+        },
+        async () => {
+          order.push('fetch');
+          return makeResponse(200, { approvals: [] });
+        },
+        3000,
+        async () => {
+          order.push('auth');
+          return {};
+        }
+      );
+      expect(await discover('thread-1', 'workspace-1')).toEqual({ approvals: [], suspends: [] });
+      expect(order).toEqual(['endpoint', 'auth', 'deadline', 'fetch']);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
   it('retains valid approvals and reports incomplete recovery for malformed entries', async () => {
     const valid = {
       runId: 'run-1',

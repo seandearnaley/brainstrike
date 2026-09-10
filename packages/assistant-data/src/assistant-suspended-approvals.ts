@@ -99,14 +99,16 @@ export function createSuspendedRunDiscovery(
     if (!(threadId && resourceId)) {
       return EMPTY_DISCOVERY;
     }
-    const signal = AbortSignal.timeout(timeoutMs);
+    let signal: AbortSignal | undefined;
     try {
       const base = trimTrailingSlash(await resolveBaseUrl());
       const url = `${base}/assistant/suspended-runs?threadId=${encodeURIComponent(
         threadId
       )}&resourceId=${encodeURIComponent(resourceId)}`;
+      const headers = { accept: 'application/json', ...(await resolveAuthHeaders()) };
+      signal = AbortSignal.timeout(timeoutMs);
       const response = await fetchImpl(url, {
-        headers: { accept: 'application/json', ...(await resolveAuthHeaders()) },
+        headers,
         signal,
       });
       if (!response.ok) {
@@ -120,7 +122,7 @@ export function createSuspendedRunDiscovery(
       return {
         ...EMPTY_DISCOVERY,
         error: {
-          reason: signal.aborted
+          reason: signal?.aborted
             ? 'timed-out'
             : error instanceof SyntaxError
               ? 'invalid-response'

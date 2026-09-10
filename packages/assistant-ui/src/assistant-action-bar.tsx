@@ -24,7 +24,8 @@ export const AssistantActionBar = () => {
     )
   );
   // Retrying a model response does not reload pending decisions and could
-  // repeat work. This transient recovery notice has no model-message actions.
+  // repeat work. Hydration creates this notice as its own data-only message,
+  // with no model-message actions.
   if (isDiscoveryNotice) {
     return null;
   }

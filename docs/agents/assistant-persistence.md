@@ -3291,6 +3291,11 @@ The current recovery action is to reopen the thread. A future persistent child
 runtime host must provide explicit history refresh rather than equating closing
 an inspection view with resetting its runtime.
 
+The request deadline starts after endpoint and auth resolution and covers the
+fetch and response body. A malformed notice payload renders an explicit invalid
+recovery status beside the saved conversation; it must not throw during render
+and replace the thread with an error boundary.
+
 The real assistant-ui activity renderer and topology adapter have paired tests;
 Electron coverage exercises a failed discovery and successful renderer reload
 with saved content retained and zero model requests. The discovery endpoint is

@@ -2621,7 +2621,8 @@ function toHistoryRepository(
  * Synthetic rediscovered-pause message id prefixes. These ids exist only in
  * the hydrated UI thread (never as Mastra rows), so the topology adapter must
  * treat them as transient parents (BST-1243) — keep the prefix list and the
- * id construction in `appendSuspendedPauseMessages` in lockstep.
+ * id construction in `appendSuspendedPauseMessages` and
+ * `appendSuspendedDiscoveryError` in lockstep.
  */
 const SUSPENDED_PAUSE_MESSAGE_ID_PREFIXES = [
   'suspended-approval',
