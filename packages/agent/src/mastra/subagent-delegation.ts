@@ -234,6 +234,9 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
   let total = 0;
 
   return {
+    // All delegation-hook failures propagate, including diagnostics: silently
+    // continuing could lose policy enforcement, accounting or failure evidence.
+    hookErrorStrategy: 'throw',
     onDelegationComplete: async (context) => {
       inFlight = Math.max(0, inFlight - 1);
       params.logger.info('Subagent delegation completed', {

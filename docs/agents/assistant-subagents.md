@@ -2,6 +2,93 @@
 
 > Extracted from AGENTS.md (2026-07-12). Read before changing persona delegation. Keep updated with the code.
 
+## First-class subagent architecture gate (BST-1716)
+
+The first-class subagent project extends this system in separate tickets.
+**The shipped read-only/no-nesting restrictions below remain in force.** The
+native capability proof is not permission to remove them before durable child
+identity, transcript routing, and nested approvals are implemented.
+
+Executable evidence is
+`packages/agent/src/__tests__/mastra-subagent-contract.integration.spec.ts`,
+alongside the existing production-mapper proof in
+`mastra-subagent-execution.integration.spec.ts`. The new suite scripts only the
+model transport through `fixtures/scripted-agent-model.ts`; Agent, tools,
+delegation hooks, streams, memory and workflow snapshots are real. It uses the
+canonical full-extension PGlite factory. Run it in the uncached integration
+lane, not a new verifier registry.
+
+Verified against installed **core 1.64.0 / memory 1.28.2**:
+
+| Concern | Evidence / integration rule |
+| --- | --- |
+| Programmatic recursion | Root → child → grandchild executes a real leaf tool. Both delegation hooks retain their immediate parent and tool-call identity. |
+| Memory | Configure the shared memory service explicitly on **every** Agent. A root-only memory configuration persisted root + child but omitted the grandchild; the paired negative control demonstrates this. Separate delegation thread/resource ids still isolate writes. |
+| Concurrent persona reuse | Two invocations of one child yield two distinct child threads and two distinct grandchild threads. Persona id is configuration identity, never invocation identity. |
+| Result projection | Raw completion data includes nested tool results, child thread/resource ids and usage. The parent model receives compact answer text; full nested tool results are not injected into its next prompt by default. |
+| Nested approval | Grandchild approval/decline reaches the root and resumes the correct leaf using PGlite workflow snapshots. The approved effect runs once; the declined effect never runs. |
+| Interactive suspension | A grandchild question suspends at the root and resumes with explicit data. This proves the native seam, not Brainstrike's future child-composer UI. |
+| Cancellation | Root abort reaches the leaf loop and prevents its next model step. It is cooperative cancellation, not a claim that an arbitrary tool can be forcibly stopped. |
+| Context | Each delegation gets a separate RequestContext map. This is a **shallow** copy, not deep isolation of mutable values; R5 in mastra-boundary.md still governs product context ownership. |
+| Hook failure | Select `hookErrorStrategy: 'throw'`. The default continues after a filter/observer failure. Brainstrike's `createDelegationConfig` now explicitly fails the delegation if its lifecycle hook throws; the real-loop regression proves a failed usage sink is not reported as a successful result. |
+| Current background API | Use `agent.stream(messages, { untilIdle: true })`; `streamUntilIdle()` is deprecated in the installed declarations. The no-background case completes without a second effect. Full background delivery needs BST-1723. |
+| Background durability | The current composite store supplies an **in-memory** background domain when none is registered. A record disappears when the storage wrapper is recreated over the same PGlite DB. Enabling the manager alone is not durable support. |
+
+The initial failed assertions established that a throwing context filter still
+ran the child under the default policy, and that a throwing Brainstrike usage
+sink still produced a successful delegation. Explicit fail-closed policy makes
+both pass. The missing-grandchild-memory and ephemeral-background-store cases
+remain explicit negative controls rather than being disguised as supported
+product capabilities.
+
+### Implementation decisions for the remaining tickets
+
+- Keep native `Agent` delegation and the existing Brainstrike host services.
+  Do not migrate to `AgentController` for this project: its beta Session host
+  overlaps our permissions, thread/run ownership and workspace services, and
+  its live grants/approvals are not automatically durable. The native tests
+  already prove the recursion and suspension primitives we need. See the
+  named background-lifetime exception in mastra-boundary.md.
+- BST-1718 owns durable root/parent/invocation/child identities, server-owned
+  resource access and usage attribution. Do not derive ancestry by parsing
+  generated thread-id strings. Persist immutable invocation/config identity;
+  follow-ups reuse the child thread but receive their own run identity.
+- BST-1719 maps the nested stream into the same Brainstrike StreamChunk and
+  transcript contracts as root conversations. Compact parent results are not
+  a substitute for full child storage. Never expand parent prompt budgets to
+  obtain richer UI data.
+- BST-1720 must connect native nested approval/suspension to the production
+  host and UI before BST-1721 exposes write/execute/general-worker tools.
+- BST-1722 starts with **three descendant levels**, **two runnable children**
+  and **eight total invocations per root turn**, with **16 steps per child**
+  including its reserved synthesis step. These are proposed product limits
+  using existing budgets, not an inferred Mastra programmatic limit. Enforce
+  them at the root across every descendant and resume leg. The root's selected
+  token budget covers descendant consumption; reject exhaustion visibly. A
+  waiting parent must not hold a runnable slot needed by its child.
+- Preserve read-only Explorer/Analyst definitions. A separate general worker
+  completes deliverables using the root's eligible guarded capabilities and
+  explicit task/context transfer. Profile narrowing never expands host
+  authority. Child workspace writes need BST-1726 conflict/checkpoint rules.
+
+### Verification boundaries
+
+The native suite is **not desktop E2E coverage**. For production-path tests,
+reuse `apps/desktop/e2e/utils/model-provider-shim.ts` with the isolated profile
+and real host launch pattern in `mcp-packaged-core.desktop.test.ts`; script the
+model endpoint, not the assistant stream. The existing renderer-only
+`setupAssistantMock` is suitable for UI states, not execution/persistence proof.
+Each runtime/UI ticket must extend these existing seams with its scenario;
+BST-1728 runs the assembled matrix. No new mock-only lane can stand in for the
+real host route. Renderer reconnect, reconstructed runtime/storage, and an
+actual process restart are separate guarantees and must be reported separately.
+
+Sources: [Mastra subagents](https://mastra.ai/docs/subagents),
+[human-in-the-loop](https://mastra.ai/docs/agents/human-in-the-loop),
+[background tasks](https://mastra.ai/docs/harness/background-tasks), and the
+installed public Agent declarations. The file-based builder's documented
+three-level discovery bound is not a universal runtime recursion guarantee.
+
 ## SUBAGENTS (PERSONA DELEGATION)
 
 The supervisor assistant can delegate to built-in, read-only child personas
@@ -367,3 +454,16 @@ per request, so edits apply on the next turn).
 When changing this flow, update this section and the paired tests.
 
 ---
+
+### Maintaining the native contract proof
+
+Re-run `mastra-subagent-contract.integration.spec.ts` and update the capability
+matrix when upgrading `@mastra/core` or `@mastra/memory`. The agent package uses
+`*.integration.spec.ts` (its explicit integration include and unit exclude),
+so this real-PGlite suite belongs only to the uncached integration task.
+
+The fail-closed strategy covers every delegation hook, including diagnostic
+logging. A broken diagnostic sink is surfaced, not silently swallowed. The
+start hook validates and clamps typed scalar limits; it does not log or await
+after acquiring its counters. Completion releases its slot before reporting
+usage or diagnostics.

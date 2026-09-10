@@ -94,6 +94,33 @@ lifecycle for no capability Brainstrike lacks. Rejected on cost, not on risk.
 
 **Do not relitigate** without a named capability that requires an adapter.
 
+### First-class subagents: host lifetime decision (BST-1716)
+
+Keep `Agent` plus Brainstrike's owned host services for the first-class
+subagent project. The installed native loop already supports recursive
+delegation and nested approval/suspension; the executable matrix and planned
+limits live in `assistant-subagents.md`. `AgentController` is a beta alternative
+session owner, not a prerequisite for those capabilities. Adopting it now would
+duplicate existing permission, workspace, run and thread responsibilities.
+
+**Named capability for BST-1723:** a background child must survive the end of a
+parent's request and deliver its result to the correct live conversation. The
+current per-request Mastra construction/shutdown cannot be treated as that
+long-lived host. That ticket must define manager ownership and drain/cancel
+behavior, register a durable background-task storage domain, and test recovery
+before enabling background dispatch. The current composite store silently
+supplies an in-memory background domain; the native regression stores a record
+and proves it is absent after reconstructing the wrapper on the same database.
+Do not mistake storage availability for durability or adopt the in-memory
+substitution in production.
+
+Use `stream(..., { untilIdle: true })` when that integration is ready. The
+installed `streamUntilIdle()` declaration is deprecated. Consuming the complete
+stream is necessary for continuation output; first-turn aggregate properties
+are not a complete background-run transcript. This lifecycle change does not
+authorize a Mastra HTTP server, replacement workspace tools, or a second
+permission/persistence system.
+
 ## R2 NODE-BUILTIN CONTAINMENT (CRITICAL) — NEW
 
 **`@mastra/core` may only be imported where Node builtins exist. It must stay
