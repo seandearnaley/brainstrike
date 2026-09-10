@@ -1,7 +1,5 @@
 import { createDeclinedToolCallResult } from '@brainstrike/assistant-contract/tool-approval';
 
-export { TOOL_CALL_DECLINED_MESSAGE } from '@brainstrike/assistant-contract/tool-approval';
-
 import { createLogger } from '@brainstrike/logging';
 import {
   getTransformedToolPayload,
@@ -12,6 +10,8 @@ import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { isGuardedToolError } from '../tools/guard-tool-execution';
 import { readHookResultEnvelope } from '../tools/hook-runner';
 import type { StreamChunk } from '../types';
+
+export { TOOL_CALL_DECLINED_MESSAGE } from '@brainstrike/assistant-contract/tool-approval';
 
 type ToolEventPart = {
   type: string;

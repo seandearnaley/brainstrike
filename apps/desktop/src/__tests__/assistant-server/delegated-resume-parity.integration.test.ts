@@ -2,6 +2,7 @@
 /** Script only model transport and DB handle injection; use the real desktop memory,
  * Mastra stream mapper, durable host authority, and existing usage writer. */
 
+import { randomUUID } from 'node:crypto';
 import type { StreamChunk } from '@brainstrike/agent';
 import {
   Agent,
@@ -63,6 +64,8 @@ const settings = {
   },
 };
 const persona: AssistantPersonaDefinition = {
+  // Identity metadata only: this fixture tests native approval projection,
+  // while production persona tool gating is covered by the factory suites.
   allowedToolIds: ['brainstrike.grepSearch'],
   description: 'Find the requested flag.',
   id: 'explore',
@@ -73,9 +76,9 @@ const persona: AssistantPersonaDefinition = {
 
 describe('native approval resume child transcript parity', () => {
   let database: PGlite;
-  const hosts: Mastra[] = [];
+  const hosts = new Set<Mastra>();
   beforeEach(async () => {
-    database = await wasmLoader.createPGlite('memory://delegated-resume-parity');
+    database = await wasmLoader.createPGlite(`memory://delegated-resume-parity-${randomUUID()}`);
     holder.database = database;
     await migrate(database);
     await database.exec(`INSERT INTO mastra_threads
@@ -89,9 +92,10 @@ describe('native approval resume child transcript parity', () => {
   });
   afterEach(async () => {
     vi.unstubAllGlobals();
-    for (const host of hosts.splice(0)) {
+    for (const host of hosts) {
       await host.shutdown();
     }
+    hosts.clear();
     await database.close();
     holder.database = undefined;
   });
@@ -161,7 +165,7 @@ describe('native approval resume child transcript parity', () => {
       name: 'Parent',
     });
     const host = new Mastra({ agents: { parent }, logger: false, storage: backing.storage });
-    hosts.push(host);
+    hosts.add(host);
     return { binding, effect, host, parent };
   }
 
@@ -228,7 +232,12 @@ describe('native approval resume child transcript parity', () => {
     const children = new Map<string, { messageId: string; message: AssistantMessage }>();
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => response)
+      vi.fn(async () => {
+        if (response.bodyUsed) {
+          throw new Error('Unexpected second fetch for a native stream leg');
+        }
+        return response;
+      })
     );
     const adapter = new BrainstrikeDataStreamRuntimeAdapter({
       api: 'http://assistant.test',
@@ -283,10 +292,11 @@ describe('native approval resume child transcript parity', () => {
       const notice = before.nativeChunks.find(
         (part) => z.object({ type: z.literal('tool-call-approval') }).safeParse(part).success
       );
+      expect(notice, 'Native approval notice must be emitted').toBeDefined();
       const approval = z.object({ payload: z.object({ toolCallId: z.string() }) }).parse(notice);
       expect(before.children.size).toBe(2);
       await initial.host.shutdown();
-      hosts.splice(hosts.indexOf(initial.host), 1);
+      expect(hosts.delete(initial.host)).toBe(true);
       const replacement = await createEnginePglite({ loadDataDir: await database.dumpDataDir() });
       await database.close();
       database = replacement;
