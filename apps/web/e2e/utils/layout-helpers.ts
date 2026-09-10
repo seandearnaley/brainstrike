@@ -734,6 +734,22 @@ export async function activateAppearanceThemeButton(
 }
 
 /**
+ * Select a palette card inside the Appearance section. Cards are radios in
+ * the "Theme" radiogroup; dispatchEvent for the same reason as the mode
+ * buttons (a plain click can land on the focus ring while the route settles).
+ */
+export async function activateAppearanceThemeCard(
+  page: Page,
+  label: 'Brainstrike' | 'Ember' | 'Tide' | 'Orchid'
+): Promise<void> {
+  const expect = await getPlaywrightExpect();
+  const appearanceSection = await waitForAppearanceSection(page);
+  const card = appearanceSection.getByRole('radio', { exact: true, name: label });
+  await expect(card).toBeVisible();
+  await card.dispatchEvent('click');
+}
+
+/**
  * Activate a sidebar navigation destination. Settings is a rail item like the
  * rest (BST-1668); {@link openSettingsPage} is this plus the redundant-open
  * guard, and is what specs should call.

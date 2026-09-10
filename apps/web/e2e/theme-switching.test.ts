@@ -2,6 +2,7 @@ import { expect, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import {
   activateAppearanceThemeButton,
+  activateAppearanceThemeCard,
   contextExplorerActiveNavLocator,
   leaveSettingsPage,
   openSettingsPage,
@@ -10,6 +11,7 @@ import {
   waitForContextExplorerPage,
   waitForSettingsPage,
 } from './utils/layout-helpers';
+import { resolveTokenColor } from './utils/theme-colors';
 
 async function activateNavigationThemeToggle(
   page: Page,
@@ -39,7 +41,7 @@ test.describe('Theme Switching', () => {
 
     // Verify theme controls are visible - use settings-specific selectors to avoid nav button conflicts
     const appearanceSection = await waitForAppearanceSection(page);
-    await expect(page.getByText('Theme', { exact: true })).toBeVisible();
+    await expect(page.getByText('Mode', { exact: true })).toBeVisible();
     await expect(
       appearanceSection.getByRole('button', { exact: true, name: 'Light' })
     ).toBeVisible();
@@ -180,5 +182,48 @@ test.describe('Theme Switching', () => {
     await page.reload();
     await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
     await expect(htmlElement).not.toHaveClass(/dark/);
+  });
+
+  test('switches palette independently of mode and persists across reload', async ({ page }) => {
+    const html = page.locator('html');
+    await openSettingsPage(page);
+    await waitForSettingsPage(page);
+    await expect(html).toHaveAttribute('data-theme', 'brainstrike');
+
+    const baselinePrimary = await resolveTokenColor(page, '--bs-primary');
+
+    await activateAppearanceThemeButton(page, 'Dark');
+    await expect(html).toHaveClass(/dark/);
+    await activateAppearanceThemeCard(page, 'Ember');
+    await expect(html).toHaveAttribute('data-theme', 'ember');
+    await expect(html).toHaveClass(/dark/);
+
+    const emberPrimary = await resolveTokenColor(page, '--bs-primary');
+    expect(emberPrimary).not.toBe(baselinePrimary);
+
+    await page.reload();
+    await waitForAppLoad(page, { waitForDatabase: false });
+    await expect(html).toHaveAttribute('data-theme', 'ember');
+    await expect(html).toHaveClass(/dark/);
+
+    // Mode changes leave the palette alone.
+    await openSettingsPage(page);
+    await waitForSettingsPage(page);
+    await activateAppearanceThemeButton(page, 'Light');
+    await expect(html).not.toHaveClass(/dark/);
+    await expect(html).toHaveAttribute('data-theme', 'ember');
+  });
+
+  test('every registered palette paints the body from its own tokens', async ({ page }) => {
+    await openSettingsPage(page);
+    await waitForSettingsPage(page);
+    const seen = new Set<string>();
+    for (const label of ['Brainstrike', 'Ember', 'Tide', 'Orchid'] as const) {
+      await activateAppearanceThemeCard(page, label);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', label.toLowerCase());
+      const primary = await resolveTokenColor(page, '--bs-primary');
+      expect(seen.has(primary), `${label} must not reuse another palette's primary`).toBe(false);
+      seen.add(primary);
+    }
   });
 });

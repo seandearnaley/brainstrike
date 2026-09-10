@@ -1,6 +1,8 @@
 import type { Page } from '@playwright/test';
 
 const APP_STATE_KEYS = [
+  'app-theme',
+  'app-theme-palette',
   'brainstrike.agent-sidebar-tab.v1',
   'panel-layout-store.v1',
   'context-explorer-layout-store.v1',
