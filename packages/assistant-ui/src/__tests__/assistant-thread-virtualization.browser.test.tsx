@@ -559,6 +559,7 @@ test('keeps the end pin when a pending scroll reset lands between row resize del
   } finally {
     timer.mockRestore();
   }
+  expect(pendingReset).toBeUndefined();
   const rows = Array.from(viewport.querySelectorAll<HTMLElement>('[data-testid="thread-message"]'));
   const last = rows.at(-1);
   if (!last) {
@@ -592,4 +593,52 @@ test('keeps the end pin when a pending scroll reset lands between row resize del
   }
   await waitFor(() => expect(delivered).toBe(true));
   await waitFor(() => expect(distanceFromBottom(viewport)).toBeLessThanOrEqual(2));
+});
+
+test('updates the jump affordance when scrolling crosses the end threshold within one virtual range', async () => {
+  render(<ThreadHarness messages={makeMessages(600)} />);
+  const viewport = screen.getByTestId('assistant-ui-viewport');
+  const button = screen.getByTestId('assistant-scroll-to-bottom');
+  await waitForPinnedToEnd(viewport);
+
+  act(() => {
+    viewport.scrollTop =
+      viewport.scrollHeight - viewport.clientHeight - THREAD_END_THRESHOLD_PX - 1;
+    fireEvent.scroll(viewport);
+  });
+  expect(button).toBeEnabled();
+  const mountedRows = Array.from(viewport.querySelectorAll('[data-index]'), (row) =>
+    row.getAttribute('data-index')
+  );
+
+  // Two consecutive scroll notifications in one animation frame have the same
+  // isScrolling value and visible range. Crossing the affordance threshold must
+  // still publish new state; no scrollend or incidental React render is needed.
+  act(() => {
+    viewport.scrollTop += 2;
+    fireEvent.scroll(viewport);
+  });
+  expect(
+    Array.from(viewport.querySelectorAll('[data-index]'), (row) => row.getAttribute('data-index'))
+  ).toEqual(mountedRows);
+  expect(button).toBeDisabled();
+});
+
+test('reattaches vendor layout after a virtual to static to virtual round trip', async () => {
+  const view = render(<ThreadHarness messages={makeMessages(600)} />);
+  await waitForPinnedToEnd(screen.getByTestId('assistant-ui-viewport'));
+  view.rerender(<ThreadHarness messages={makeMessages(20)} />);
+  expect(screen.getByTestId('assistant-ui-viewport')).toHaveAttribute(
+    'data-thread-render-tier',
+    'static'
+  );
+  expect(document.querySelector('.bs-virtual-thread')).toBeNull();
+  view.rerender(<ThreadHarness messages={makeMessages(600)} />);
+  const viewport = screen.getByTestId('assistant-ui-viewport');
+  expect(viewport).toHaveAttribute('data-thread-render-tier', 'virtual');
+  await waitForPinnedToEnd(viewport);
+  expect(
+    document.querySelector('.bs-virtual-thread')?.getBoundingClientRect().height
+  ).toBeGreaterThan(viewport.clientHeight);
+  expect(screen.getByTestId('assistant-scroll-to-bottom')).toBeDisabled();
 });

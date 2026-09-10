@@ -2156,16 +2156,23 @@ viewport, not by thread length.
   control. Keep this on the virtualizer's public API; do not add another scroll
   writer or a longer reset delay.
 - **Virtual layout ownership.** React Virtual's documented `directDomUpdates`
-  owns both container size (`containerRef`) and row transforms; React must not
-  also write their height or main-axis positions. A React sizing commit can
-  otherwise follow the last scroll notification, leaving the jump button
-  reading the previous geometry with no further event to correct it. Keep the
-  ref composed with the list-offset measurement and set this mode for the
-  virtualizer's lifetime, including while it is disabled on the static tier.
+  owns both container size (`containerRef`) and per-item row transforms. React
+  sets only the static absolute-position base (`top: 0`), not the container
+  height or variable row offsets. Keep the ref composed with list-offset
+  measurement and keep the mode constant across static/virtual tier switches.
+- **End affordance subscription.** Virtual Core and React Virtual deliberately
+  coalesce notifications by visible range and `isScrolling`; that is not an
+  end-state subscription. Wrap the exported `observeElementOffset`, call the
+  vendor callback first, then publish `isAtEnd()`. Also publish it from
+  `onChange` after vendor layout writes for size changes. The wrapper delegates
+  observer setup and cleanup unchanged and never writes scroll position.
+  A same-range threshold crossing must update the button before `scrollend`;
+  the real-browser regression proves this without an incidental React render.
 - **Clamped compensation belongs to the vendor.** React Virtual 3.14.11 /
-  Virtual Core 3.17.9 recover a measurement adjustment clamped before React
-  commits the grown sizer. Keep that patch floor; do not add a second scroll
-  writer or weaken the true-bottom assertion. See [upstream #1260](https://github.com/TanStack/virtual/pull/1260).
+  Virtual Core 3.17.9 recover a measurement adjustment clamped before the size
+  container grows, including consumers that synchronously grow it inside
+  `onChange`. Keep that patch floor; do not add a second scroll writer or weaken
+  the true-bottom assertion. See [upstream #1260](https://github.com/TanStack/virtual/pull/1260).
 - **Opening position.** `scrollToBottomOnInitialize` / `scrollToBottomOnRunStart`
   stay `false` in both tiers. Tier 2's equivalent is explicit: entering the
   virtual tier anchors to the newest message with `behavior: 'instant'` (never

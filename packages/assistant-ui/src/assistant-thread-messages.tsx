@@ -7,7 +7,7 @@ import {
   // See __tests__/fast-refresh-hook-aliasing.test.ts.
   unstable_useThreadMessageIds as useThreadMessageIds,
 } from '@assistant-ui/react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { observeElementOffset, useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
 import { ArrowDownIcon } from 'lucide-react';
 import {
   type ComponentProps,
@@ -245,6 +245,22 @@ export const ThreadMessagesRegion = ({
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const [virtualAtEnd, setVirtualAtEnd] = useState(true);
+  // The vendor only notifies React when its range or isScrolling changes.
+  // Pinnedness can change inside one range during the same scroll gesture.
+  // Wrap its public observer so it remains the sole listener/scroll owner,
+  // then publish the end predicate after it has consumed every offset.
+  const observeVirtualOffset = useCallback(
+    (
+      instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
+      callback: (offset: number, isScrolling: boolean) => void
+    ) =>
+      observeElementOffset(instance, (offset, isScrolling) => {
+        callback(offset, isScrolling);
+        setVirtualAtEnd(instance.isAtEnd());
+      }),
+    []
+  );
   // Pinnedness as the FOLLOW ENGINE sees it. The DOM cannot answer this at
   // swap time (see the anchor effect), so the static tier's own signal is
   // recorded while it is still the truth.
@@ -329,6 +345,9 @@ export const ThreadMessagesRegion = ({
     // rendered, and it matches the library's own default extractor.
     getItemKey: (index) => messageIds[index] ?? index,
     getScrollElement: () => viewportRef.current,
+    observeElementOffset: observeVirtualOffset,
+    // Size changes also change pinnedness, even without a new scroll offset.
+    onChange: (instance) => setVirtualAtEnd(instance.isAtEnd()),
     overscan: THREAD_VIRTUAL_OVERSCAN,
     scrollEndThreshold: THREAD_END_THRESHOLD_PX,
     scrollMargin,
@@ -339,9 +358,8 @@ export const ThreadMessagesRegion = ({
   });
   /* eslint-enable react-hooks/incompatible-library */
 
-  // Read in the component that owns the virtualizer, matching TreeTable's
-  // long-standing shape: these move on every scroll frame while the instance
-  // itself never changes identity.
+  // Read the mounted range in the component that owns the virtualizer. Its
+  // instance is stable; offset-only end-state changes are published separately.
   const virtualItems = virtualizer.getVirtualItems();
   const setVirtualList = useCallback(
     (element: HTMLDivElement | null): void => {
@@ -493,7 +511,7 @@ export const ThreadMessagesRegion = ({
         virtualScroll={
           tier === 'virtual'
             ? {
-                atEnd: virtualizer.isAtEnd(),
+                atEnd: virtualAtEnd,
                 jumpToEnd: () =>
                   virtualizer.scrollToEnd({
                     behavior: prefersReducedMotion() ? 'instant' : 'smooth',
