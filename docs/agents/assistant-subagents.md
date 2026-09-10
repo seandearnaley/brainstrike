@@ -803,3 +803,15 @@ fails the session visibly with preceding text retained; it is never concatenated
 as a second JSON object or retried by terminal error handling.
 This also covers root calls, late complete input and approval notices without
 duplicating streamed JSON or changing native persistence.
+
+### Child lifecycle ordering on reload (BST-1719)
+
+The normal native desktop parity fixture also compares lifecycle data in its
+exact live position, including the tool-start event after its tool part. A
+scoped start uses its existing native message/tool-call identity as that
+hydration anchor; timestamps alone reorder activity when several parts share
+a millisecond. Multiple matching tool boundaries remain distinct, and removed
+unfinished calls keep their failure journal without fabricated tool parts.
+Legacy timeline placement is unchanged. This is full content/event ordering for
+the tested normal turn, not a claim about every resume leg or the still-pending
+child receiver.

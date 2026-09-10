@@ -2911,6 +2911,23 @@ group. An observed message outside the loaded window is never assigned to a
 different turn. The normal session buffer replays encoded scoped frames without
 remapping; the normal assistant-stream decoder consumes child frames.
 
+For a scoped child's `tool.started` event, the observed native message id and
+tool-call id anchor the event **after** its persisted tool part, matching the
+shared live encoder. Millisecond timestamps cannot establish this boundary:
+text, reasoning and a tool start can share the same time, and timestamp weaving
+alone moved the event ahead of all three. The shared hydrator preserves content
+and journal order while waiting for that specific tool boundary. Legacy events
+keep their existing time-based placement. A cancelled call whose unfinished
+tool part was removed still retains its journal events; hydration never invents
+that missing tool part or drops its failure history.
+
+`delegated-stream-parity.integration.test.ts` now compares the full ordered
+content and lifecycle data from the real native desktop stream with the current
+and reconstructed memory engine. The deterministic hydration tests cover tied
+timestamps, two distinct tool boundaries and a removed cancelled tool part.
+This proves the tested normal turn; changed native ids across resume and full
+receiver/replay remain separate BST-1719 acceptance.
+
 The host returns sanitized metadata to the live stream as well as storage.
 On snapshot resume, a parent wrapper can precede its own native message id.
 Atomic invocation binding returns its latest previously observed message id

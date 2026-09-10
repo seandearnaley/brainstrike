@@ -3896,3 +3896,14 @@ The `9.args` field remains part of the existing complete-call wire contract;
 the extra delta is needed by started calls in the installed decoder. Native
 persistence does not read either frame. `completeArgsStream` remains a separate
 bookkeeping/data-flush boundary and must still run after input closure.
+
+### Scoped child tool-event chronology (BST-1719)
+
+The shared live encoder creates a tool part before publishing its `tool.started`
+data. Hydration uses the scoped event's existing native message/tool-call ids
+to preserve that boundary even when earlier text/reasoning has the same
+millisecond timestamp. It does not mint ordering timestamps or change the
+event journal. The real desktop parity fixture compares every lifecycle data
+part, in order, alongside text/reasoning/input/result before and after native
+memory reconstruction. Cancelled missing tool parts retain their paired event
+history. Full resumed-message and receiver/replay parity remains BST-1719 work.

@@ -1549,6 +1549,174 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     ]);
   });
 
+  it('keeps a child tool start after its tool when earlier content shares its millisecond', async () => {
+    // Shape/order observed through the real native child decoder in BST-1719:
+    // text -> reasoning -> tool -> tool.started. Millisecond timestamps tie.
+    const timestamp = '2026-09-10T10:21:02.105Z';
+    const createdAt = Date.parse(timestamp);
+    const history = await loadHistory({
+      messages: [
+        {
+          content: {
+            format: 2,
+            parts: [
+              { createdAt, text: 'Child before.', type: 'text' },
+              { createdAt, reasoning: 'Search the source.', type: 'reasoning' },
+              {
+                ...makeToolInvocationPart({
+                  input: { pattern: 'flag' },
+                  result: { matches: ['FLAG-42'] },
+                  toolCallId: 'child-call',
+                  toolName: 'brainstrike_grepSearch',
+                }),
+                createdAt,
+              },
+              { createdAt: createdAt + 1, text: 'Child final.', type: 'text' },
+            ],
+          },
+          createdAt: new Date(timestamp),
+          id: 'native-child-message',
+          role: 'assistant',
+        },
+      ],
+      runEvents: [
+        {
+          id: 'child-tool-started',
+          kind: 'tool.started',
+          label: 'Tool started',
+          metadata: {
+            nativeMessageId: 'native-child-message',
+            toolCallId: 'child-call',
+            toolName: 'brainstrike.grepSearch',
+          },
+          runId: 'child-host-run',
+          sequence: 2,
+          status: 'running',
+          timestamp,
+        },
+      ],
+    });
+    expect(history.messages).toHaveLength(1);
+    expect(
+      history.messages[0]?.message.content.map((part) =>
+        part.type === 'data' ? `event:${(part.data as AssistantRunEvent).id}` : part.type
+      )
+    ).toEqual(['text', 'reasoning', 'tool-call', 'event:child-tool-started', 'text']);
+  });
+
+  it('keeps distinct child tool boundaries when every part and event shares a timestamp', async () => {
+    const timestamp = '2026-09-10T10:21:02.105Z';
+    const createdAt = Date.parse(timestamp);
+    const events = ['first-call', 'second-call'].flatMap((toolCallId, index) =>
+      (['tool.started', 'tool.completed'] as const).map(
+        (kind, offset): AssistantRunEvent => ({
+          id: `${toolCallId}-${kind}`,
+          kind,
+          label: kind,
+          metadata: { nativeMessageId: 'native-child', toolCallId },
+          runId: 'child-host-run',
+          sequence: index * 2 + offset,
+          status: kind === 'tool.started' ? 'running' : 'completed',
+          timestamp,
+        })
+      )
+    );
+    const history = await loadHistory({
+      messages: [
+        {
+          content: {
+            format: 2,
+            parts: [
+              { createdAt, text: 'Before first.', type: 'text' },
+              {
+                ...makeToolInvocationPart({
+                  result: {},
+                  toolCallId: 'first-call',
+                  toolName: 'grep_search',
+                }),
+                createdAt,
+              },
+              { createdAt, text: 'Between calls.', type: 'text' },
+              {
+                ...makeToolInvocationPart({
+                  result: {},
+                  toolCallId: 'second-call',
+                  toolName: 'grep_search',
+                }),
+                createdAt,
+              },
+              { createdAt, text: 'After second.', type: 'text' },
+            ],
+          },
+          createdAt: new Date(timestamp),
+          id: 'native-child',
+          role: 'assistant',
+        },
+      ],
+      runEvents: events,
+    });
+    expect(
+      history.messages[0]?.message.content.map((part) => {
+        if (part.type === 'data') {
+          return (part.data as AssistantRunEvent).id;
+        }
+        if (part.type === 'tool-call') {
+          return part.toolCallId;
+        }
+        return part.type;
+      })
+    ).toEqual([
+      'text',
+      'first-call',
+      'first-call-tool.started',
+      'first-call-tool.completed',
+      'text',
+      'second-call',
+      'second-call-tool.started',
+      'second-call-tool.completed',
+      'text',
+    ]);
+  });
+
+  it('retains scoped tool lifecycle when cancellation removes the unfinished tool part', async () => {
+    const history = await loadHistory({
+      messages: [
+        {
+          content: {
+            format: 2,
+            parts: [
+              {
+                createdAt: Date.parse('2026-09-10T10:21:02.100Z'),
+                text: 'Partial child answer.',
+                type: 'text',
+              },
+            ],
+          },
+          createdAt: new Date('2026-09-10T10:21:02.100Z'),
+          id: 'cancelled-native-child',
+          role: 'assistant',
+        },
+      ],
+      runEvents: (['tool.started', 'tool.failed'] as const).map(
+        (kind, index): AssistantRunEvent => ({
+          id: `cancelled-child-${kind}`,
+          kind,
+          label: kind,
+          metadata: { nativeMessageId: 'cancelled-native-child', toolCallId: 'unfinished-call' },
+          runId: 'cancelled-child-run',
+          sequence: index,
+          status: index === 0 ? 'running' : 'failed',
+          timestamp: `2026-09-10T10:21:02.10${index + 1}Z`,
+        })
+      ),
+    });
+    expect(
+      history.messages[0]?.message.content.map((part) =>
+        part.type === 'data' ? (part.data as AssistantRunEvent).id : part.type
+      )
+    ).toEqual(['text', 'cancelled-child-tool.started', 'cancelled-child-tool.failed']);
+  });
+
   it('interleaves run events with timestamped content parts in live order', async () => {
     const makeEvent = (id: string, timestamp: string, label: string): AssistantRunEvent => ({
       id,
