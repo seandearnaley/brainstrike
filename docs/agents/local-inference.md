@@ -277,6 +277,9 @@ Foreground query coordination (desktop):
   - The query handler drains the in-flight batch via `waitForWorkerIdle` (waits for the
     worker `active` flag, which is true only during inference) before generating, via
     `runCoordinatedQueryEmbedding`.
+- The pure foreground-gate suite controls polling and reopen time with fake timers,
+  restores timer state after every case, and checks release on success, failure and
+  drain timeout. Never substitute a wall-clock sleep for a debounce assertion.
 - Wiring: `embedding-worker-config.ts` (`composeClaimPermit`) +
   `embedding-host-runtime.tsx` (gate per runtime, threaded to the worker config + query
   handler). Constants: FOREGROUND_GATE_REOPEN_MS (250), QUERY_DRAIN_TIMEOUT_MS (5000).

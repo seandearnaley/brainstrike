@@ -9,12 +9,21 @@
 // cause, and any product change re-hashes the entry. No real PGlite/WASM, no
 // network, no native binary — so it stays in the cacheable pure lane, NOT the
 // uncached integration lane.
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createForegroundEmbeddingGate,
   runCoordinatedQueryEmbedding,
   waitForWorkerIdle,
 } from '../foreground-embedding-gate.js';
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
+});
 
 describe('createForegroundEmbeddingGate', () => {
   it('is inactive initially and waitUntilInactive resolves immediately', async () => {
@@ -24,7 +33,6 @@ describe('createForegroundEmbeddingGate', () => {
   });
 
   it('closes on begin and reopens after the debounce on end', async () => {
-    vi.useFakeTimers();
     const gate = createForegroundEmbeddingGate({ reopenDelayMs: 50 });
     gate.begin();
     expect(gate.isActive()).toBe(true);
@@ -40,7 +48,6 @@ describe('createForegroundEmbeddingGate', () => {
     await waiter;
     expect(resolved).toBe(true);
     expect(gate.isActive()).toBe(false);
-    vi.useRealTimers();
   });
 
   it('ref-counts overlapping begins so the gate stays closed until all end', () => {
@@ -52,7 +59,6 @@ describe('createForegroundEmbeddingGate', () => {
   });
 
   it('a begin during the reopen debounce cancels the reopen', async () => {
-    vi.useFakeTimers();
     const gate = createForegroundEmbeddingGate({ reopenDelayMs: 50 });
     gate.begin();
     gate.end();
@@ -60,7 +66,6 @@ describe('createForegroundEmbeddingGate', () => {
     gate.begin(); // cancels pending reopen
     await vi.advanceTimersByTimeAsync(60);
     expect(gate.isActive()).toBe(true);
-    vi.useRealTimers();
   });
 
   it('rejects a pending waitUntilInactive when the signal aborts', async () => {
@@ -80,7 +85,9 @@ describe('waitForWorkerIdle', () => {
   });
 
   it('resolves drained=false on timeout when isActive stays true', async () => {
-    const res = await waitForWorkerIdle({ isActive: () => true, pollMs: 5, timeoutMs: 30 });
+    const pending = waitForWorkerIdle({ isActive: () => true, pollMs: 5, timeoutMs: 30 });
+    await vi.advanceTimersByTimeAsync(30);
+    const res = await pending;
     expect(res.drained).toBe(false);
   });
 
@@ -89,7 +96,9 @@ describe('waitForWorkerIdle', () => {
     setTimeout(() => {
       active = false;
     }, 15);
-    const res = await waitForWorkerIdle({ isActive: () => active, pollMs: 5, timeoutMs: 200 });
+    const pending = waitForWorkerIdle({ isActive: () => active, pollMs: 5, timeoutMs: 200 });
+    await vi.advanceTimersByTimeAsync(15);
+    const res = await pending;
     expect(res.drained).toBe(true);
   });
 });
@@ -102,7 +111,7 @@ describe('runCoordinatedQueryEmbedding', () => {
     setTimeout(() => {
       active = false;
     }, 10);
-    const result = await runCoordinatedQueryEmbedding({
+    const pending = runCoordinatedQueryEmbedding({
       drainTimeoutMs: 200,
       gate,
       generate: async () => {
@@ -112,6 +121,11 @@ describe('runCoordinatedQueryEmbedding', () => {
       isWorkerActive: () => active,
       pollMs: 2,
     });
+    await vi.advanceTimersByTimeAsync(10);
+    const result = await pending;
+    expect(gate.isActive()).toBe(true);
+    await vi.advanceTimersByTimeAsync(5);
+    expect(gate.isActive()).toBe(false);
     expect(result).toBe(42);
     expect(order).toEqual(['generate(active=false)']); // generated only after drain
   });
@@ -128,14 +142,15 @@ describe('runCoordinatedQueryEmbedding', () => {
         isWorkerActive: () => false,
       })
     ).rejects.toThrow('boom');
-    await new Promise((r) => setTimeout(r, 5));
+    expect(gate.isActive()).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
     expect(gate.isActive()).toBe(false);
   });
 
   it('calls onDrainTimeout but still generates when drain times out', async () => {
     const gate = createForegroundEmbeddingGate({ reopenDelayMs: 1 });
     const onDrainTimeout = vi.fn();
-    const result = await runCoordinatedQueryEmbedding({
+    const pending = runCoordinatedQueryEmbedding({
       drainTimeoutMs: 20,
       gate,
       generate: async () => 7,
@@ -143,7 +158,12 @@ describe('runCoordinatedQueryEmbedding', () => {
       onDrainTimeout,
       pollMs: 5,
     });
+    await vi.advanceTimersByTimeAsync(20);
+    const result = await pending;
     expect(result).toBe(7);
+    expect(gate.isActive()).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(gate.isActive()).toBe(false);
     expect(onDrainTimeout).toHaveBeenCalledTimes(1);
   });
 });
