@@ -3865,7 +3865,7 @@ When changing this flow, update this section and the paired tests.
 ### Complete tool arguments at the decoder boundary (BST-1719)
 
 `DataStreamMapper.finishToolArgs` is the shared argument-completion boundary.
-For the installed assistant-stream decoder, `b` creates the tool part, `c`
+For the catalog-pinned assistant-stream 0.3.41 decoder, `b` creates the tool part, `c`
 appends its argument text, and `9` closes that existing argument stream without
 reading `9.args`. Complete non-streaming input must therefore be emitted as a
 `c` before `9`; already streamed JSON is not emitted twice. All existing close
@@ -3873,3 +3873,16 @@ paths use this helper and retain their data/text deferral ordering. The real
 decoder regressions in `data-stream-tool-input.spec.ts` cover direct input, late
 complete input, streamed input, and approval with/without an open input stream.
 This applies to parent and delegated frames through the same encoder.
+
+When complete input arrives after a partial prefix, the append-only argument
+stream receives only the missing suffix before closure. JSON whitespace outside
+strings is ignored for prefix matching; already complete equivalent JSON may
+use different whitespace, key order or escape spelling. A complete input that
+cannot extend the partial prefix, or disagrees with an already complete input,
+fails visibly instead of appending a second JSON object or claiming parity.
+Without authoritative complete input, an aborted partial stream retains its
+existing partial-input behavior. This is not a general JSON repair algorithm.
+The `9.args` field remains part of the existing complete-call wire contract;
+the extra delta is needed by started calls in the installed decoder. Native
+persistence does not read either frame. `completeArgsStream` remains a separate
+bookkeeping/data-flush boundary and must still run after input closure.

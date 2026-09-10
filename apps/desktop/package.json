@@ -135,7 +135,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "assistant-stream": "0.3.41",
+    "assistant-stream": "catalog:",
     "concurrently": "catalog:",
     "electron": "catalog:",
     "electron-builder": "^26.15.3",

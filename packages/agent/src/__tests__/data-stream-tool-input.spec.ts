@@ -84,4 +84,30 @@ describe('tool input through the installed assistant-stream decoder', () => {
       expect(await decodeTool(chunks)).toMatchObject({ args, toolCallId: 'call' });
     }
   );
+  it.each(['approval', 'success', 'error', 'declined'] as const)(
+    'completes partial argument text before %s',
+    async (terminal) => {
+      const chunks: StreamChunk[] = [
+        { ...call, payload: { ...id, step: 'input_stream_start' }, status: 'progress' },
+        {
+          ...call,
+          payload: { ...id, argsTextDelta: '{"pattern":', step: 'input_stream_delta' },
+          status: 'progress',
+        },
+      ];
+      const complete = { pattern: 'flag' };
+      if (terminal === 'approval') {
+        chunks.push({
+          args: complete,
+          runId: 'run',
+          toolCallId: 'call',
+          toolName: call.name,
+          type: 'tool-approval-required',
+        });
+      } else {
+        chunks.push({ ...call, payload: { ...id, args: complete, result: {} }, status: terminal });
+      }
+      expect(await decodeTool(chunks)).toMatchObject({ args: complete });
+    }
+  );
 });

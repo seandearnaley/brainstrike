@@ -169,11 +169,13 @@ describe('desktop child transport and native row parity', () => {
       decoded = message;
     }
     expect(decoded).toBeDefined();
-    const child = (
+    const children = (
       await database.query<{ thread_id: string; resource_id: string }>(
         "SELECT thread_id, resource_id FROM brainstrike_delegated_conversations WHERE parent_thread_id = 'root'"
       )
-    ).rows[0];
+    ).rows;
+    expect(children).toHaveLength(1);
+    const child = children[0];
     if (!child) {
       throw new Error('Missing native child');
     }
@@ -188,7 +190,9 @@ describe('desktop child transport and native row parity', () => {
       args: { pattern: 'flag' },
       toolCallId: 'child-call',
     });
-    expect(nativeRows.map((row) => row.id)).toEqual(observedIds);
+    expect(nativeRows).toHaveLength(1);
+    expect(observedIds).toHaveLength(1);
+    expect(nativeRows[0]?.id).toBe(observedIds[0]);
     const reconstructed = await createEnginePglite({ loadDataDir: await database.dumpDataDir() });
     try {
       const load = (db: PGlite) =>
@@ -220,8 +224,8 @@ describe('desktop child transport and native row parity', () => {
         message.role === 'assistant' ? message.content : []
       );
       // The decoder adds a private Symbol to parsed arguments; storage retains JSON content.
-      expect(meaningfulParts(hydratedParts)).toEqual(
-        JSON.parse(JSON.stringify(meaningfulParts(decoded?.parts ?? [])))
+      expect(JSON.stringify(meaningfulParts(hydratedParts))).toBe(
+        JSON.stringify(meaningfulParts(decoded?.parts ?? []))
       );
       expect(meaningfulParts(hydratedParts).map((part) => part.type)).toEqual([
         'text',

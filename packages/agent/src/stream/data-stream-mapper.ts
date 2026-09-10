@@ -39,6 +39,7 @@ import type {
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
 import { formatDiagnosticChunkType } from './diagnostic-chunk-type';
 import { toJsonSafe } from './json';
+import { completeToolInputText } from './tool-input-completion';
 import { boundToolOutputForModel, readToolOutputErrorText } from './tool-output-limits';
 
 interface ToolState {
@@ -786,16 +787,19 @@ export class DataStreamMapper {
       return;
     }
 
+    const existingState = this.toolState.get(callId);
+    if (existingState && chunk.status !== 'progress') {
+      // Native terminal events may carry complete input after the final delta was lost.
+      const nextInput = extractToolInput(chunk.payload);
+      if (
+        nextInput !== undefined &&
+        !(hasNonEmptyToolInput(existingState.lastInput) && !hasNonEmptyToolInput(nextInput))
+      ) {
+        existingState.lastInput = nextInput;
+      }
+    }
     if (chunk.status === 'start') {
-      const existingState = this.toolState.get(callId);
       if (existingState) {
-        const nextInput = extractToolInput(chunk.payload);
-        if (
-          nextInput !== undefined &&
-          !(hasNonEmptyToolInput(existingState.lastInput) && !hasNonEmptyToolInput(nextInput))
-        ) {
-          existingState.lastInput = nextInput;
-        }
         return;
       }
       yield* this.handleToolStart(toolName, callId, chunk.payload);
@@ -1024,11 +1028,15 @@ export class DataStreamMapper {
     input: unknown = state.lastInput
   ): Generator<EncodedChunk> {
     const args = toArgsObject(input, state.pendingArgsText);
+    const missingText =
+      state.pendingArgsText.length === 0 || hasNonEmptyToolInput(input)
+        ? completeToolInputText(state.pendingArgsText, args)
+        : '';
     state.argsEmitted = true;
-    if (state.pendingArgsText.length === 0) {
+    if (missingText.length > 0) {
       yield {
         code: DataStreamCode.toolCallArgsTextDelta,
-        value: { argsTextDelta: JSON.stringify(args), toolCallId: callId },
+        value: { argsTextDelta: missingText, toolCallId: callId },
       } satisfies EncodedChunk;
     }
     yield {

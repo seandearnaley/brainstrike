@@ -43,7 +43,7 @@
     "@smithy/util-utf8": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "assistant-stream": "0.3.41",
+    "assistant-stream": "catalog:",
     "concurrently": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",
