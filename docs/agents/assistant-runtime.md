@@ -2185,6 +2185,13 @@ viewport, not by thread length.
   container grows, including consumers that synchronously grow it inside
   `onChange`. Keep that patch floor; do not add a second scroll writer or weaken
   the true-bottom assertion. See [upstream #1260](https://github.com/TanStack/virtual/pull/1260).
+- **Browser interaction admission.** The shared-conversation matrix observes
+  native `scrollend` before simulating its independent scroll-away gesture,
+  alongside the real-bottom and loaded-last-row assertions. One animation frame
+  can precede pending row measurement and is not a completion signal. Synthetic
+  scroll plus event delivery belongs in React `act`; keep geometry capture alive
+  through the scroll-away assertion so a failure records both phases. This is
+  test synchronization, not a production delay or a relaxed scroll assertion.
 - **Opening position.** `scrollToBottomOnInitialize` / `scrollToBottomOnRunStart`
   stay `false` in both tiers. Tier 2's equivalent is explicit: entering the
   virtual tier anchors to the newest message with `behavior: 'instant'` (never

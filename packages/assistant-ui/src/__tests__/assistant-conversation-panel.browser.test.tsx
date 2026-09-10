@@ -6,7 +6,7 @@ import {
 import '@testing-library/jest-dom/vitest';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, fireEvent, getConfig, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, expect, onTestFinished, test } from 'vitest';
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest';
 import { commands, userEvent } from 'vitest/browser';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
 import '@brainstrike/ui/globals.css';
@@ -90,6 +90,9 @@ test.each(
     const child = within(panel);
     const viewport = child.getByTestId('assistant-ui-viewport');
     const openingGeometry = recordOpeningGeometry(viewport);
+    const openingEnded = vi.fn();
+    viewport.addEventListener('scrollend', openingEnded, { once: true });
+    onTestFinished(() => viewport.removeEventListener('scrollend', openingEnded));
     await waitFor(() => expect(viewport).toHaveAttribute('data-thread-render-tier', 'virtual'));
     expect(getComputedStyle(viewport).scrollBehavior).toBe('auto');
     await waitFor(() => expect(child.getByText(/Evidence 599:/)).toBeVisible());
@@ -120,13 +123,19 @@ test.each(
           }),
       }
     );
+    // A momentary bottom position or one animation frame does not establish
+    // native completion while lazy rows are still being measured. Match the
+    // virtualizer regression's scrollend boundary before starting a new gesture.
+    await waitFor(() => expect(openingEnded).toHaveBeenCalled());
+    act(() => {
+      viewport.scrollTo({ behavior: 'instant', top: 0 });
+      fireEvent.scroll(viewport);
+    });
+    await waitFor(() => expect(child.getByText(/Evidence 0:/)).toBeVisible(), {
+      onTimeout: (error) =>
+        new Error(`${error.message}\nScroll geometry: ${openingGeometry.read()}`, { cause: error }),
+    });
     openingGeometry.stop();
-    // Native scrollToIndex seals its initial instant landing on the next
-    // animation frame. Let that frame complete before simulating a new scroll.
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    viewport.scrollTo({ behavior: 'instant', top: 0 });
-    fireEvent.scroll(viewport);
-    await waitFor(() => expect(child.getByText(/Evidence 0:/)).toBeVisible());
     const jump = child.getByRole('button', { name: 'Scroll to latest messages' });
     await waitFor(() => expect(jump).toBeEnabled());
     await act(async () => {
