@@ -17,6 +17,69 @@ import {
   waitForSettingsPage,
 } from './utils/layout-helpers';
 
+interface HslParts {
+  hue: number;
+  lightness: number;
+  saturation: number;
+}
+
+/**
+ * Resolve a root colour token to normalized `#rrggbb`. The production build
+ * rewrites colour literals inside custom properties (`hsl(30 25% 99%)` becomes
+ * `#fdfcfc`), so the suite must never compare authored token text. Canvas
+ * `fillStyle` normalizes any parseable CSS colour (hsl, hex, oklch) to hex.
+ */
+async function resolveTokenColor(page: Page, token: `--${string}`): Promise<string> {
+  return page.evaluate((name) => {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    if (!raw) {
+      throw new Error(`${name} is not defined on :root`);
+    }
+    const context = document.createElement('canvas').getContext('2d');
+    if (!context) {
+      throw new Error('canvas 2d context unavailable');
+    }
+    context.fillStyle = raw;
+    return context.fillStyle;
+  }, token);
+}
+
+function hexToHsl(hex: string): HslParts {
+  const match = /^#(?<rgb>[0-9a-f]{6})$/iu.exec(hex);
+  if (!match?.groups?.['rgb']) {
+    throw new Error(`Expected an opaque #rrggbb colour from canvas normalization, got "${hex}"`);
+  }
+  const packed = Number.parseInt(match.groups['rgb'], 16);
+  const r = ((packed >> 16) & 255) / 255;
+  const g = ((packed >> 8) & 255) / 255;
+  const b = (packed & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  const lightness = (max + min) / 2;
+  let hue = 0;
+  let saturation = 0;
+  if (delta !== 0) {
+    saturation = delta / (1 - Math.abs(2 * lightness - 1));
+    if (max === r) {
+      hue = ((g - b) / delta) % 6;
+    } else if (max === g) {
+      hue = (b - r) / delta + 2;
+    } else {
+      hue = (r - g) / delta + 4;
+    }
+    hue *= 60;
+    if (hue < 0) {
+      hue += 360;
+    }
+  }
+  return {
+    hue: Math.round(hue),
+    lightness: Math.round(lightness * 100),
+    saturation: Math.round(saturation * 100),
+  };
+}
+
 /**
  * Open Settings (the nav-rail route — BST-1023/1024/1025 pinned every launch
  * to the canonical layout-helpers flow, and BST-1668 made Settings a full app
@@ -71,18 +134,18 @@ test.describe('Theme CSS Consistency (E2E)', () => {
 
       return {
         background: styles.getPropertyValue('--background').trim(),
+        bodyBackground: getComputedStyle(document.body).backgroundColor,
         bsBackground: styles.getPropertyValue('--bs-background').trim(),
-        colorBackground: styles.getPropertyValue('--color-background').trim(),
       };
     });
 
     expect(variables.bsBackground).toBeTruthy();
     expect(variables.background).toBeTruthy();
-    expect(variables.colorBackground).toBeTruthy();
+    expect(variables.bodyBackground).not.toBe('rgba(0, 0, 0, 0)');
 
     // Light mode should have high lightness
-    const lightness = Number.parseInt(variables.bsBackground.split(' ')[2] ?? '0', 10);
-    expect(lightness).toBeGreaterThan(90);
+    const bsBackgroundColor = await resolveTokenColor(page, '--bs-background');
+    expect(hexToHsl(bsBackgroundColor).lightness).toBeGreaterThan(90);
   });
 
   test('should load CSS variables in dark mode', async ({ page }) => {
@@ -98,8 +161,8 @@ test.describe('Theme CSS Consistency (E2E)', () => {
 
       return {
         background: styles.getPropertyValue('--background').trim(),
+        bodyBackground: getComputedStyle(document.body).backgroundColor,
         bsBackground: styles.getPropertyValue('--bs-background').trim(),
-        colorBackground: styles.getPropertyValue('--color-background').trim(),
         isDarkMode: root.classList.contains('dark'),
       };
     });
@@ -107,11 +170,11 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     expect(variables.isDarkMode).toBe(true);
     expect(variables.bsBackground).toBeTruthy();
     expect(variables.background).toBeTruthy();
-    expect(variables.colorBackground).toBeTruthy();
+    expect(variables.bodyBackground).not.toBe('rgba(0, 0, 0, 0)');
 
     // Dark mode should have low lightness
-    const lightness = Number.parseInt(variables.bsBackground.split(' ')[2] ?? '0', 10);
-    expect(lightness).toBeLessThan(20);
+    const bsBackgroundColor = await resolveTokenColor(page, '--bs-background');
+    expect(hexToHsl(bsBackgroundColor).lightness).toBeLessThan(20);
   });
 
   test('should maintain warm neutral theme in dark mode (not pure black)', async ({ page }) => {
@@ -119,18 +182,8 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
-    const themeValues = await page.evaluate(() => {
-      const root = document.documentElement;
-      const styles = getComputedStyle(root);
-      const background = styles.getPropertyValue('--bs-background').trim();
-
-      const [hue, saturation, lightness] = background.split(' ');
-      return {
-        hue: Number.parseInt(hue ?? '0', 10),
-        lightness: Number.parseInt(lightness ?? '0', 10),
-        saturation: Number.parseInt(saturation ?? '0', 10),
-      };
-    });
+    const background = await resolveTokenColor(page, '--bs-background');
+    const themeValues = hexToHsl(background);
 
     // Warm neutral theme should have warm hue (around 25-35, warm brown/orange)
     expect(themeValues.hue).toBeGreaterThanOrEqual(20);
@@ -152,18 +205,14 @@ test.describe('Theme CSS Consistency (E2E)', () => {
       await clickSettingsThemeButton(page, mode);
       await waitForThemeApplied(page, mode.toLowerCase() as 'light' | 'dark');
 
-      const tokens = await page.evaluate(() => {
-        const styles = getComputedStyle(document.documentElement);
-        return {
-          ring: styles.getPropertyValue('--bs-ring').trim(),
-          sidebarRing: styles.getPropertyValue('--bs-sidebar-ring').trim(),
-        };
-      });
+      const tokens = await Promise.all([
+        resolveTokenColor(page, '--bs-ring'),
+        resolveTokenColor(page, '--bs-sidebar-ring'),
+      ]);
 
-      for (const token of [tokens.ring, tokens.sidebarRing]) {
-        const hue = Number.parseInt(token.split(' ')[0] ?? '', 10);
-        expect(hue).toBeGreaterThanOrEqual(20);
-        expect(hue).toBeLessThanOrEqual(40);
+      for (const token of tokens) {
+        const { hue } = hexToHsl(token);
+        expect(hue === 0 || (hue >= 20 && hue <= 40)).toBe(true);
       }
     }
   });
@@ -238,21 +287,12 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
-    const hasOldValues = await page.evaluate(() => {
-      const root = document.documentElement;
-      const styles = getComputedStyle(root);
-      const background = styles.getPropertyValue('--background').trim();
+    const background = await resolveTokenColor(page, '--background');
 
-      // Old wrong assistant-ui values: "240 10% 3.9%"
-      // Our correct value: "30 8% 9%" (warm neutral dark)
-
-      const [hue, saturation] = background.split(' ');
-      const hueValue = Number.parseInt(hue ?? '0', 10);
-      const satValue = Number.parseInt(saturation ?? '0', 10);
-
-      // Check if it has the old wrong values
-      return hueValue === 240 && satValue === 10;
-    });
+    // Old wrong assistant-ui values: "240 10% 3.9%"
+    // Our correct value: "30 8% 9%" (warm neutral dark)
+    const { hue, saturation } = hexToHsl(background);
+    const hasOldValues = hue === 240 && saturation === 10;
 
     expect(hasOldValues, 'Found old assistant-ui hardcoded theme values! Check overrides.css').toBe(
       false
@@ -264,18 +304,12 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
-    const colorSeparation = await page.evaluate(() => {
-      const root = document.documentElement;
-      const styles = getComputedStyle(root);
+    const [background, muted] = await Promise.all([
+      resolveTokenColor(page, '--bs-background'),
+      resolveTokenColor(page, '--bs-muted'),
+    ]);
 
-      const background = styles.getPropertyValue('--bs-background').trim();
-      const muted = styles.getPropertyValue('--bs-muted').trim();
-
-      const bgLightness = Number.parseInt(background.split(' ')[2] ?? '0', 10);
-      const mutedLightness = Number.parseInt(muted.split(' ')[2] ?? '0', 10);
-
-      return Math.abs(bgLightness - mutedLightness);
-    });
+    const colorSeparation = Math.abs(hexToHsl(background).lightness - hexToHsl(muted).lightness);
 
     // Need at least 5% difference for visible gradients
     expect(
