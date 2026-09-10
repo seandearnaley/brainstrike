@@ -1196,3 +1196,18 @@ steering and cancellation remain explicit coordination capabilities.
 `AssistantUiPanel.onRuntimeReady` registers the actual owning runtime and its
 returned cleanup runs when that runtime is disposed. Opening a child view must
 never construct another inference runtime.
+
+The workspace owns the ephemeral root registry, keyed by owner resource and
+root thread together. The actual panel wrapper publishes delegated snapshots
+and registers its actual runtime into that root; standalone panels without a
+workspace do not advertise child navigation. Runtime cleanup is identity-aware:
+disposing an old runtime cannot unregister a replacement. An unavailable owner
+rejects a decision before append, while previously captured child output stays
+available for inspection. The wrapper behavioral test removes the production
+stream callback as a negative control and must lose the observed child output.
+
+Child workspace tab addresses encode owner, root and child identifiers and use
+the existing workspace selection store's singleton/open/close/hydrate behavior.
+An address is not authority: the durable graph still authorizes history reads.
+Ordinary app ids remain untouched; malformed reserved child addresses must
+surface as errors rather than silently disappear during restoration.

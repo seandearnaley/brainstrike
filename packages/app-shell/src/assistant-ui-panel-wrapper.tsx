@@ -112,6 +112,7 @@ import {
 } from './assistant-ui-panel-wrapper-runtime';
 import { useChangeset } from './changes/use-changeset';
 import { useWrapperRewindWiring } from './changes/use-wrapper-rewind-wiring';
+import { useDelegatedConversationRoot } from './delegated-conversation-root';
 import { useAssistantProviderSource } from './hooks/assistant-provider-source';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
@@ -725,6 +726,7 @@ export function AssistantUiPanelWrapper({
     (state) => state.threadsByResourceId[memoryResourceId] ?? EMPTY_MEMORY_THREADS
   );
   const selectedMemoryThreadId = memoryThreadId ?? selectedThreadByResourceId[memoryResourceId];
+  const delegatedRoot = useDelegatedConversationRoot(memoryResourceId, selectedMemoryThreadId);
   const resourceThreadsReady = loadStateByResourceId[memoryResourceId]?.status === 'ready';
   const refreshThreadsAfterRun = useAssistantThreadTitleSync({
     enabled: Boolean(db && !dbInitializing && resourceThreadsReady),
@@ -1451,6 +1453,12 @@ export function AssistantUiPanelWrapper({
           <DebugBundleProvider value={debugBundleBinding}>
             <BudgetGuardrailProvider value={budgetGuardrailBinding}>
               <AssistantUiPanel
+                {...(delegatedRoot
+                  ? {
+                      onDelegatedConversation: delegatedRoot.onDelegatedConversation,
+                      onRuntimeReady: delegatedRoot.onRuntimeReady,
+                    }
+                  : {})}
                 {...(composerDraftCommand ? { composerDraftCommand } : {})}
                 {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
                 {...(hasDesktopAssistantBridge() ? { onSteerActiveRun: steerActiveRun } : {})}

@@ -63,6 +63,7 @@ import { CommandPaletteHost } from './command-palette-host';
 import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
+import { DelegatedConversationRootsProvider } from './delegated-conversation-root';
 import { deleteRootDataFromDb } from './delete-root-data';
 import {
   type RendererDiagnosticSurface,
@@ -520,53 +521,55 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           context from a common ancestor. */}
       <FileTreeWrapper>
         <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
-          <WorkspaceTabsProvider apps={workspaceApps}>
-            {/* Thread⇄workspace binding (BST-1268): snapshots the live stores
+          <DelegatedConversationRootsProvider>
+            <WorkspaceTabsProvider apps={workspaceApps}>
+              {/* Thread⇄workspace binding (BST-1268): snapshots the live stores
                 per thread and hydrates on switch. Inside FileTreeWrapper so it
                 reaches the file-explorer store; renders nothing. */}
-            <ThreadWorkspaceCoordinator />
-            <AgentWorkspaceLayout
-              assistantContent={
-                <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
-              }
-              sidebarContent={
-                <AgentSidebarPanel
-                  databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-                  preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                  promptsContent={(isActive) => (
-                    <Suspense
-                      fallback={
-                        <div
-                          className="grid h-full place-items-center text-muted-foreground text-xs"
-                          data-testid="prompt-workbench-lazy-fallback"
-                          role="status"
-                        >
-                          Opening Prompt Workbench…
-                        </div>
-                      }
-                    >
-                      <ConnectedPromptManagerLazy
-                        loadEmbeddingQueue={loadEmbeddingQueue}
-                        suggestionsEnabled={visible && isActive}
-                      />
-                    </Suspense>
-                  )}
-                  threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-                />
-              }
-              workspaceContent={
-                <>
-                  {/* ⌘P quick-open + the open-file registration both mount INSIDE
+              <ThreadWorkspaceCoordinator />
+              <AgentWorkspaceLayout
+                assistantContent={
+                  <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
+                }
+                sidebarContent={
+                  <AgentSidebarPanel
+                    databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                    preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                    promptsContent={(isActive) => (
+                      <Suspense
+                        fallback={
+                          <div
+                            className="grid h-full place-items-center text-muted-foreground text-xs"
+                            data-testid="prompt-workbench-lazy-fallback"
+                            role="status"
+                          >
+                            Opening Prompt Workbench…
+                          </div>
+                        }
+                      >
+                        <ConnectedPromptManagerLazy
+                          loadEmbeddingQueue={loadEmbeddingQueue}
+                          suggestionsEnabled={visible && isActive}
+                        />
+                      </Suspense>
+                    )}
+                    threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                  />
+                }
+                workspaceContent={
+                  <>
+                    {/* ⌘P quick-open + the open-file registration both mount INSIDE
                       the outer IdeLayout so they reach its IdeFileEditorContext;
                       the nested explorer layout inherits the same seam. */}
-                  <QuickOpenHost />
-                  <WorkspaceOpenFileBridge />
-                  <WorkspaceBody />
-                </>
-              }
-              workspaceHeaderContent={<WorkspaceTabStrip />}
-            />
-          </WorkspaceTabsProvider>
+                    <QuickOpenHost />
+                    <WorkspaceOpenFileBridge />
+                    <WorkspaceBody />
+                  </>
+                }
+                workspaceHeaderContent={<WorkspaceTabStrip />}
+              />
+            </WorkspaceTabsProvider>
+          </DelegatedConversationRootsProvider>
         </MarkdownPreviewCapabilitiesProvider>
       </FileTreeWrapper>
     </div>
