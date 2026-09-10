@@ -870,3 +870,34 @@ update, including callback replacement during an active run.
 The receiver also retains its first observed failure if decoding or descendant
 settlement subsequently fails; the competing observer/decoder regression pins
 this through the public runtime adapter.
+
+### Native child response boundaries across resume (BST-1719)
+
+Persona children install `createResponseBoundaryProcessor` through Mastra's
+public `processOutputStep` hook. A response step without tool calls marks its
+last native assistant row using `MessageList.markResponseMessageBoundary`.
+Tool steps stay open for their results and ordinary continuation. The processor
+neither mints message IDs nor removes repeated text or tool content.
+
+At core 1.64.0, `Agent.#executeOnFinish` re-adds the response rows to the same
+message list. After approval resume rotates the native assistant ID, re-adding
+an earlier row can otherwise merge its text into the new continuation row.
+The boundary prevents that merge before native persistence runs. This uses the
+public processor/message-list API; no vendor patch or second content writer.
+
+The desktop native verifier runs parent → child → grandchild approval and
+decline after rebuilding Mastra and the database engine. It compares text
+across live stream legs with folded history, retains reasoning/tool ordering
+and non-empty arguments, checks exactly-once approved execution and zero declined
+execution, then reconstructs the database again. Repeated legitimate text in
+the continuation remains present. The fixture uses the production projection,
+host observer and public child decoder; it does not claim that the pending
+BST-1720 approval UI or unrestricted recursive persona factory is enabled.
+
+Reference: [Mastra processors](https://mastra.ai/docs/agents/processors), plus
+installed core 1.64.0 public `MessageList` declarations and native finish path.
+
+The same native test pins declined tool hydration: the `output-denied` row
+produces the shared live decline envelope with its original arguments and
+reason, without reporting success or failure. Approval grants and execution
+routing remain native; this change only preserves the already-made decision.

@@ -34,6 +34,7 @@ import {
   type PermissionToolGateLogger,
   type PermissionToolGateSnapshot,
 } from './permission-tool-gate';
+import { createResponseBoundaryProcessor } from './response-boundary-processor';
 import {
   applyToolModelOutputProjections,
   type ModelOutputProjectionObserver,
@@ -302,9 +303,10 @@ function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
     ...(inputProcessors.length > 0 ? { inputProcessors } : {}),
     // Core 1.64 combines configured, channel and memory output processors.
     // This additive processor does not replace memory's own defaults.
-    ...(params.turnPersistenceProcessor
-      ? { outputProcessors: [params.turnPersistenceProcessor] }
-      : {}),
+    outputProcessors: [
+      createResponseBoundaryProcessor(),
+      ...(params.turnPersistenceProcessor ? [params.turnPersistenceProcessor] : []),
+    ],
   };
 }
 

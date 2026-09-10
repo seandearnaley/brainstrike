@@ -35,6 +35,7 @@ import {
   type AssistantRunUsageKind,
 } from '@brainstrike/assistant-contract/run-usage';
 import {
+  createDeclinedToolCallResult,
   type RediscoveredToolApproval,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
@@ -1775,6 +1776,19 @@ function toHistoryToolCallPartFromInvocation(
   const args = (
     inv['args'] && typeof inv['args'] === 'object' && !Array.isArray(inv['args']) ? inv['args'] : {}
   ) as AssistantHistoryToolCallPart['args'];
+  if (state === 'output-denied') {
+    const approval = inv['approval'];
+    const reason =
+      isRecord(approval) && typeof approval['reason'] === 'string' ? approval['reason'] : undefined;
+    return {
+      args,
+      argsText: stringifyArgsText(args),
+      result: createDeclinedToolCallResult(reason),
+      toolCallId,
+      toolName: denormalizeNativeToolName(toolName),
+      type: 'tool-call',
+    };
+  }
   const hasResult = Object.hasOwn(inv, 'result');
   const errorText = typeof inv['errorText'] === 'string' ? inv['errorText'] : undefined;
   const isError =

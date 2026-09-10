@@ -205,6 +205,8 @@ export function isRediscoveredToolApproval(value: unknown): value is Rediscovere
  * the tool card in `@brainstrike/assistant-ui`.
  */
 export const DECLINED_TOOL_RESULT_KIND = 'declined';
+export const TOOL_CALL_DECLINED_MESSAGE =
+  'The user declined this tool call, so it was not executed.';
 
 export interface DeclinedToolCallResult {
   readonly kind: typeof DECLINED_TOOL_RESULT_KIND;
@@ -215,6 +217,15 @@ export interface DeclinedToolCallResult {
   readonly message: string;
   /** The user's own explanation, present only when they supplied one. */
   readonly reason?: string;
+}
+
+/** The same visible decision for live denial chunks and native persisted denials. */
+export function createDeclinedToolCallResult(reason?: string): DeclinedToolCallResult {
+  return {
+    kind: DECLINED_TOOL_RESULT_KIND,
+    message: TOOL_CALL_DECLINED_MESSAGE,
+    ...(reason ? { reason } : {}),
+  };
 }
 
 /**
