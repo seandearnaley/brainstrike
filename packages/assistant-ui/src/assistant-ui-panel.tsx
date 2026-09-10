@@ -859,7 +859,7 @@ const DataStreamRuntimeChat = ({
  * Shared UI component for the chat thread.
  * Extracted to avoid duplication between local and data stream runtimes.
  */
-const ChatThreadUI = ({
+export const ChatThreadUI = ({
   composerDraftCommand,
   contextWindow,
   cumulativeUsage,

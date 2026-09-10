@@ -2,6 +2,15 @@
 
 > Extracted from AGENTS.md (2026-07-12). Read before changing the assistant tool/stream chain, tool approval, lifecycle hooks, or plan-mode/suspension. Keep this doc updated with the code.
 
+## Existing-runtime conversation panels
+
+`AssistantConversationPanel` binds the main `ChatThreadUI` to a supplied public
+assistant-ui runtime. Opening/closing a visible panel must not invoke a model or
+cancel its host-owned run. Every pane has its own runtime provider, error
+boundary and composer input identity; callbacks and `threadKey` must name the
+same conversation. See `assistant-subagents.md` for the host integration limits
+and paired runtime/browser tests. Main runtime construction is unchanged.
+
 ## ASSISTANT RESILIENCE (CRITICAL)
 
 The assistant tool→stream chain must never freeze the thread. The renderer safety
@@ -2130,6 +2139,40 @@ viewport, not by thread length.
   `scrollTop` in every state — item re-measurement fires while the reader is
   scrolled up too — so native anchoring would double-adjust there as well. Two
   independent selectors setting the same value; they never disagree.
+- **Measurement corrections are immediate.** The virtual tier overrides the
+  static viewport's `scroll-behavior: smooth` with `auto`; explicit user jumps
+  still use the virtualizer's smooth option unless reduced motion is enabled.
+  Inherited CSS animation can make native correction read-backs look like user
+  movement and lose the pin. The shared-renderer browser suite covers this with
+  compiled Tailwind styles and Linux Chromium.
+- **Native scroll completion.** Tier 2 enables the virtualizer's
+  `useScrollendEvent`. Its timer-based reset reports the offset cached by the
+  previous scroll event; a reset delivered between row-resize compensations
+  can overwrite the newer position and drop the end pin. Native `scrollend`
+  reads the current offset. The vendor still uses its timer on engines without
+  native `scrollend`; this guarantee applies to supporting engines, including
+  the shipped Electron and tested Chromium. The browser regression delivers a held reset
+  between two real row reflows, and removing the stale delivery is the negative
+  control. Keep this on the virtualizer's public API; do not add another scroll
+  writer or a longer reset delay.
+- **Virtual layout ownership.** React Virtual's documented `directDomUpdates`
+  owns both container size (`containerRef`) and per-item row transforms. React
+  sets only the static absolute-position base (`position`/`top`/`left`/`width`), not the container
+  height or variable row offsets. Keep the ref composed with list-offset
+  measurement and keep the mode constant across static/virtual tier switches.
+- **End affordance subscription.** Virtual Core and React Virtual deliberately
+  coalesce notifications by visible range and `isScrolling`; that is not an
+  end-state subscription. Wrap the exported `observeElementOffset`, call the
+  vendor callback first, then publish `isAtEnd()`. Also publish it from
+  `onChange` after vendor layout writes for size changes. The wrapper delegates
+  observer setup and cleanup unchanged and never writes scroll position.
+  A same-range threshold crossing must update the button before `scrollend`;
+  the real-browser regression proves this without an incidental React render.
+- **Clamped compensation belongs to the vendor.** React Virtual 3.14.11 /
+  Virtual Core 3.17.9 recover a measurement adjustment clamped before the size
+  container grows, including consumers that synchronously grow it inside
+  `onChange`. Keep that patch floor; do not add a second scroll writer or weaken
+  the true-bottom assertion. See [upstream #1260](https://github.com/TanStack/virtual/pull/1260).
 - **Opening position.** `scrollToBottomOnInitialize` / `scrollToBottomOnRunStart`
   stay `false` in both tiers. Tier 2's equivalent is explicit: entering the
   virtual tier anchors to the newest message with `behavior: 'instant'` (never

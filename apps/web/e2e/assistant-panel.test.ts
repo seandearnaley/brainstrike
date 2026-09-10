@@ -20,7 +20,7 @@ test.describe('Assistant panel (assistant-ui default) @stateful @web-assistant-s
     const viewport = page.getByTestId('assistant-ui-viewport');
     await expect(viewport).toBeVisible();
 
-    await page.locator('#assistant-input').fill('hello world');
+    await page.getByRole('textbox', { name: 'Message input' }).fill('hello world');
     await page.getByRole('button', { exact: true, name: 'Send' }).click();
 
     await expect(viewport.getByText(/Mock response from tests/i).first()).toBeVisible({

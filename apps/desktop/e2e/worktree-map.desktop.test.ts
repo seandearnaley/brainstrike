@@ -210,7 +210,7 @@ function requireModelProviderShim(): ModelProviderShim {
 }
 
 async function sendPrompt(page: Page, prompt: string): Promise<void> {
-  const input = page.locator('#assistant-input');
+  const input = page.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: 30_000 });
   await input.fill(prompt);
   await page.getByRole('button', { exact: true, name: 'Send' }).click();

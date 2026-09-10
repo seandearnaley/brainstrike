@@ -1,0 +1,4 @@
+@import "tailwindcss";
+@import "../../styles.css";
+@import "@brainstrike/ui/styles.css";
+@config "../../../config/tailwind/tailwind.config.js";

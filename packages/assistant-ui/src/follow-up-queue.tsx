@@ -27,13 +27,15 @@
 import { useAui, useAuiState } from '@assistant-ui/react';
 import { createLogger } from '@brainstrike/logging';
 import { ListPlusIcon, Redo2Icon, XIcon } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { use, useEffect, useRef } from 'react';
+import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
 import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store';
 import { useThreadScrollFollow } from './thread-scroll-follow';
 
 const logger = createLogger('FollowUpQueue');
 
 export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
+  const ownsQueue = use(FollowUpQueueOwnershipContext);
   const aui = useAui();
   const follow = useThreadScrollFollow();
   const isRunning = useAuiState((state) => state.thread.isRunning);
@@ -52,6 +54,9 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
   const caughtUpKeyRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
+    if (!ownsQueue) {
+      return;
+    }
     if (seededKeyRef.current !== queueKey) {
       // Thread switch WITHIN one mounted bridge: reseed the baseline from the
       // NEW thread's live state — a switch is not a run end — and let the
@@ -108,7 +113,7 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
       // docs/agents/assistant-runtime.md).
       follow.scrollToBottom();
     }
-  }, [aui, follow, isHistoryLoading, isRunning, queueKey, queueLength]);
+  }, [aui, follow, isHistoryLoading, isRunning, ownsQueue, queueKey, queueLength]);
 }
 
 /** Render-nothing leaf owning the run-end dispatch subscription. */
@@ -216,6 +221,10 @@ export function ComposerRunControls({
   readonly onSteerActiveRun?: (() => Promise<boolean>) | undefined;
   readonly threadKey?: string | undefined;
 }) {
+  const ownsQueue = use(FollowUpQueueOwnershipContext);
+  if (!ownsQueue) {
+    return null;
+  }
   return (
     <>
       <QueueFollowUpButton threadKey={threadKey} />
@@ -228,11 +237,12 @@ export function ComposerRunControls({
 
 /** Removable "queued" chips above the composer; hidden when nothing is queued. */
 export function FollowUpQueueChips({ threadKey }: { readonly threadKey?: string | undefined }) {
+  const ownsQueue = use(FollowUpQueueOwnershipContext);
   const queueKey = followUpQueueKey(threadKey);
   const items = useFollowUpQueueStore((state) => state.queuedByThread[queueKey]);
   const remove = useFollowUpQueueStore((state) => state.remove);
 
-  if (!items?.length) {
+  if (!(ownsQueue && items?.length)) {
     return null;
   }
   return (

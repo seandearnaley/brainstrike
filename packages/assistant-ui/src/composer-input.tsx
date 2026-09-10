@@ -1,6 +1,6 @@
 import { ComposerPrimitive, ThreadPrimitive, useAui } from '@assistant-ui/react';
 import { ArrowUpIcon, ClipboardListIcon, ImageIcon, SquareIcon } from 'lucide-react';
-import type { ClipboardEvent, ReactNode } from 'react';
+import { type ClipboardEvent, type ReactNode, useId } from 'react';
 import { collectImageFilesFromClipboard } from './attachment-adapter';
 import { useBudgetSendGate } from './budget-guardrail-control';
 
@@ -71,6 +71,7 @@ const ComposerInputRow = ({
   // whenever this gate is closed. The Cancel (Stop) button deliberately
   // ignores the gate — stopping an in-flight run must always be possible.
   const budgetSendBlocked = useBudgetSendGate();
+  const inputId = useId();
   const sendDisabled = isComposerDisabled || budgetSendBlocked;
   const InputFrame =
     attachmentsAvailability?.state === 'enabled' && !sendDisabled
@@ -83,7 +84,7 @@ const ComposerInputRow = ({
         aria-label="Message input"
         className="aui-composer-input"
         disabled={sendDisabled}
-        id="assistant-input"
+        id={inputId}
         placeholder="Ask BrainStrike anything..."
         rows={1}
       />
