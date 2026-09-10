@@ -4085,3 +4085,9 @@ interrupted decisions without claiming their effects succeeded. Root/leaf
 admission remains authoritative for races. The full state, ownership and
 verification contract lives in assistant-subagents.md, “Durable delegated
 decision recovery display”; staleness alone remains advisory.
+
+Forwarded delegated pauses are prepared from the observed leaf before the common
+mapper checks typed UI support and approval metadata. The root transport target
+is retained; native `agent-*` wrapper names cannot replace the leaf tool shown
+to the user. See `assistant-subagents.md` and the paired production stream-loop
+and native process-restart tests. Read-only persona gates remain unchanged.

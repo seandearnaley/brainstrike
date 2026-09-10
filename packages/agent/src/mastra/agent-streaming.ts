@@ -1051,6 +1051,7 @@ export function createAttemptDelegatedProjection({
   sanitizedNameMap: Map<string, string> | undefined;
 }): {
   decorate(chunk: StreamChunk): StreamChunk;
+  preparePart(part: unknown): unknown;
   project(part: unknown, toolNames: Map<string, string>): Promise<StreamChunk[]>;
   settle(): StreamChunk[];
 } {
@@ -1102,6 +1103,7 @@ export function createAttemptDelegatedProjection({
       chunk.type === 'delegated-conversation-chunk'
         ? chunk
         : (delegatedProjection?.decorate(chunk) ?? chunk),
+    preparePart: (part) => delegatedProjection?.preparePart(part) ?? part,
     project: async (part, toolNames) => (await delegatedProjection?.project(part, toolNames)) ?? [],
     settle,
   };
@@ -1174,7 +1176,7 @@ export async function* streamAttemptChunks({
       yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
       yield* await delegatedProjection.project(part, toolNames);
       const { chunks, finished } = await processMastraStreamPart(
-        part,
+        delegatedProjection.preparePart(part),
         toolNames,
         lifecycleState,
         sanitizedNameMap,

@@ -1006,7 +1006,12 @@ IDs and a durable effect count, not just reconstructed JavaScript objects.
 
 This is native Node/Mastra restart proof, separate from Electron renderer reload
 and packaged desktop UI coverage. It does not enable write-capable personas or
-claim question/plan, sibling, cancellation, or interactive recovery UI parity.
+claim sibling, cancellation, or packaged interactive recovery UI parity.
+The same fixture now runs the production askUser and submitPlan tools with
+the production sanitizer. A fresh process answers a grandchild question or
+approves/rejects its plan, verifies the exact result in the leaf model prompt
+and the final parent answer, and rejects the consumed decision on another
+restart. No second suspend is accepted as successful completion.
 The paired `delegated-process-restart.integration.test.ts` is discovered by the
 existing desktop integration lane; no bespoke CI lane or production test route.
 Its separate Node processes resolve public package exports rather than Vitest
@@ -1077,3 +1082,20 @@ it must never become an empty annotation map that re-enables a consumed leaf.
 Explicitly undefined/inherited decision-state fields are invalid, not absent.
 Interrupted claims cannot safely offer retry: follow-up/cancellation controls
 remain part of BST-1723, and never erase the original admission record.
+
+### Forwarded interactive pause presentation
+
+A native parent suspension names its delegation tool (`agent-child`), while
+its decision belongs to the leaf. The authorized recursive stream projection
+retains the observed leaf pause and restores its tool name, payload/arguments
+and resume schema before the shared mapper classifies approval or typed resume
+support. Root and intermediate transport run/call coordinates remain unchanged;
+the exact leaf guard still owns decision identity. A changed pause kind throws.
+Unbound or unrelated parts keep their ordinary mapper behavior, and genuinely
+unregistered leaf tools still emit the visible unsupported-resume event.
+
+The production stream-loop regression pairs this contract with the actual
+three-process verifier. Removing the loop's preparation call fails the unit
+cases rather than letting a correctly implemented helper mask missing wiring.
+This does not enable interactive tools in read-only persona profiles or complete
+the child-panel controls, sibling admission, or cancellation acceptance gates.

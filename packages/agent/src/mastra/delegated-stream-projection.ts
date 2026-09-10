@@ -7,6 +7,11 @@ import type { DelegatedRunIdentity } from './delegated-run-publication';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 import { resolveDelegationPersona } from './tool-lifecycle-processors';
 
+type DelegatedPause = Extract<
+  ConversationStreamChunk,
+  { type: 'tool-approval-required' | 'tool-suspend-required' }
+>;
+
 interface ChildStreamState<State> {
   finished: boolean;
   readonly identity: DelegatedRunIdentity;
@@ -43,6 +48,7 @@ export function createDelegatedStreamProjection<State>(
 ):
   | {
       decorate: (chunk: ConversationStreamChunk) => ConversationStreamChunk;
+      preparePart: (part: unknown) => unknown;
       finalize: (
         finish: (state: State) => readonly ConversationStreamChunk[]
       ) => StreamChunkDelegatedConversation[];
@@ -57,7 +63,10 @@ export function createDelegatedStreamProjection<State>(
     return;
   }
   const children = new Map<string, ChildStreamState<State>>();
-  const pendingActions = new Map<string, DelegatedToolActionIdentity>();
+  const pendingActions = new Map<
+    string,
+    { delegation: DelegatedToolActionIdentity; pause: DelegatedPause }
+  >();
   const actionKey = (runId: string, toolCallId: string) => JSON.stringify([runId, toolCallId]);
   const decorate = (
     chunk: ConversationStreamChunk,
@@ -68,7 +77,7 @@ export function createDelegatedStreamProjection<State>(
     }
     const forwarded = pendingActions.get(actionKey(chunk.runId, chunk.toolCallId));
     if (forwarded) {
-      return { ...chunk, delegation: forwarded };
+      return { ...chunk, delegation: forwarded.delegation };
     }
     if (path.length === 0) {
       return chunk;
@@ -78,9 +87,48 @@ export function createDelegatedStreamProjection<State>(
       throw new Error('Delegated tool pause has invalid native ancestry.');
     }
     for (const edge of path) {
-      pendingActions.set(actionKey(edge.parentRuntimeRunId, edge.parentToolCallId), delegation);
+      pendingActions.set(actionKey(edge.parentRuntimeRunId, edge.parentToolCallId), {
+        delegation,
+        pause: chunk,
+      });
     }
     return { ...chunk, delegation };
+  };
+
+  // Native parent pauses name the delegation tool, while their interactive
+  // payload belongs to the leaf. Restore that observed leaf before the common
+  // mapper classifies UI support and builds approval metadata. Resume transport
+  // coordinates remain those of the parent wrapper.
+  const preparePart = (part: unknown): unknown => {
+    const type = readMastraStreamPartString(part, 'type');
+    if (type !== 'tool-call-approval' && type !== 'tool-call-suspended') {
+      return part;
+    }
+    const runId = readMastraStreamPartString(part, 'runId');
+    const toolCallId = readMastraStreamPartString(part, 'toolCallId');
+    if (!(runId && toolCallId)) {
+      return part;
+    }
+    const forwarded = pendingActions.get(actionKey(runId, toolCallId));
+    if (!forwarded) {
+      return part;
+    }
+    const pause = forwarded.pause;
+    if ((type === 'tool-call-approval') !== (pause.type === 'tool-approval-required')) {
+      throw new Error('Forwarded delegated pause changed its decision kind.');
+    }
+    return {
+      payload: {
+        resumeSchema: pause.resumeSchema,
+        toolCallId,
+        toolName: pause.toolName,
+        ...(pause.type === 'tool-approval-required'
+          ? { args: pause.args }
+          : { suspendPayload: pause.suspendPayload }),
+      },
+      runId,
+      type,
+    };
   };
 
   const project = async (
@@ -135,7 +183,11 @@ export function createDelegatedStreamProjection<State>(
     }
     const path = [...ancestors, child.identity];
     const descendants = await project(nested, child.toolNames, path);
-    const { chunks, finished } = await options.mapPart(nested, child.state, child.toolNames);
+    const { chunks, finished } = await options.mapPart(
+      preparePart(nested),
+      child.state,
+      child.toolNames
+    );
     child.finished = finished;
     const projected = chunks.map((chunk): StreamChunkDelegatedConversation => {
       const partId = readMastraStreamPartString(nested, 'id');
@@ -171,6 +223,7 @@ export function createDelegatedStreamProjection<State>(
       }
       return result;
     },
+    preparePart,
     project,
   };
 }
