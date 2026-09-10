@@ -62,6 +62,27 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'pr.checks',
   'pr.merged',
   'pr.opened',
+  // The provider reported that it did NOT carry this request out as written
+  // (BST-1701). Every AI SDK adapter answers a rejected setting by DROPPING it
+  // and listing it on the call's `warnings` array rather than returning 400 -
+  // a user-set `temperature` on a model that refuses one is simply ignored.
+  // The whole array is consumed, not the sampling keys: the spec's warning
+  // union also carries `compatibility`, `deprecated` and `other`.
+  //
+  // Deliberately NOT `run.failed`: the turn is healthy and answers normally.
+  // Deliberately NOT `hook.notice`: that is the workspace-hook channel, and
+  // this is the provider's own report about the request it just served.
+  //
+  // Standalone breadcrumb like `mcp.tools.unavailable`: no `.started`
+  // counterpart and no terminal, so it never leaves a row spinning. Status is
+  // `'failed'` rather than the `worktree.*` `'info'` - those record operations
+  // that SUCCEEDED, this records a setting that did not apply. It is in
+  // `isAlwaysVisibleRunEvent` for the same load-bearing reason: run-event rows
+  // are hidden at default detail, so without the allowlist entry this kind
+  // would reproduce the silent degradation it exists to report. It carries no
+  // `toolCallId` and is not `tool.*`, so it needs no card-suppression
+  // exemption.
+  'provider.request.warned',
   'run.cancelled',
   'run.database.retried',
   'run.failed',

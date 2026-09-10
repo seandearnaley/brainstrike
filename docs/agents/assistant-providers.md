@@ -2118,14 +2118,13 @@ new provider or runtime work must preserve:
   `packages/app-shell/src/prompt-workbench-shared.ts`) is the only surface that
   can produce a user-set `temperature`/`topP` at all.
 
-**Open defect BST-1701 — a user-set value is silently dropped.** On a model that
-rejects sampling params the installed adapter does not 400 and does not forward
-the value: it DROPS it and reports an `unsupported` entry on the result's
-`warnings` array. Nothing in the stream path (`packages/agent`,
-`packages/assistant-ui`, `packages/app-shell`) reads `warnings`, so the user's
-explicit setting vanishes with no notice. Fixing that needs a product decision
-(notice, reject at model selection, or pre-strip with a chip) — it is
-characterized, not fixed, and the characterization test is the "before" half.
+**BST-1701 — a dropped value is now REPORTED (was: silently dropped).** On a
+model that rejects sampling params the installed adapter does not 400 and does
+not forward the value: it DROPS it and reports an `unsupported` entry on the
+call's `warnings`. That array had no consumer, so the user's explicit setting
+vanished with no notice. It is now surfaced; see "Provider call warnings" below.
+The characterization test above is the "before" half and stays as-is — nothing
+about what is SENT changed.
 
 Guarded by `packages/agent/src/__tests__/sampling-params-wire.spec.ts`
 (per-adapter assertion on the SERIALIZED REQUEST BODY through the real
@@ -2136,6 +2135,57 @@ The wire spec's fetch capture must decode BOTH valid call shapes —
 `fetch(url, init)` and `fetch(new Request(url, init))` — since reading only
 `init.body` records `null` under the Request shape and turns the suite green on
 exactly the adapter drift it exists to catch.
+
+### Provider call warnings are surfaced on the turn (BST-1701)
+
+`warnings` is a whole provider signal, not a sampling-param detail. The spec's
+`SharedV4Warning` union carries four shapes — `unsupported` and `compatibility`
+(`feature` + optional `details`), `deprecated` (`setting` + `message`), and
+`other` (`message`) — and an adapter may add more. Brainstrike consumes the
+CHANNEL: nothing filters by `type`, and the two text fields are read by FIELD
+NAME, so an unrecognized type still produces a row.
+
+**Where the capture lives, and why it cannot live on the Mastra stream.**
+Measured against the installed `@mastra/core` 1.64, not assumed:
+
+- On a STREAMING call the adapter reports its warnings on the first stream part,
+  `{type:'stream-start', warnings:[…]}`.
+- Mastra DISCARDS that part: `convertFullStreamChunkToMastra` returns
+  `undefined` for `stream-start`, so it never becomes a `fullStream` chunk.
+- Mastra's own `step-start.payload.warnings` is fed from `stream.warnings` on
+  the doStream RESULT — a field the v4 provider spec does not define — so it
+  arrives `[]` on every hosted provider.
+
+A consumer written against `step-start.warnings` would therefore be a mapping
+that can never fire. The observer instead sits UNDER Mastra, at the model:
+`wrapModelWithCallWarningCapture`
+(`packages/agent/src/providers/provider-call-warnings.ts`) proxies
+`doStream`/`doGenerate` and records what the adapter reports, then
+`createMastraAgentRuntime` hands the wrapped model to the Agent. It is an
+OBSERVER: call arguments and stream chunks pass through untouched, which is what
+keeps the "never sent on a default request" ruling above intact. Do not turn it
+into a transform — `prompt-transform-proxy.ts` is the seam for that.
+
+**Coverage boundary, stated.** `createProvider` returns a model INSTANCE for
+every hosted provider plus the built-in local runtime, and a Mastra model
+DESCRIPTOR (`{id, url, apiKey}`) for `ollama` and `lmstudio`. Mastra builds those
+two models itself, so there is no Brainstrike-owned seam to wrap and those runs
+carry no sink (`MastraAgentRuntime.providerCallWarnings` is `undefined`). It is
+narrowed explicitly rather than wrapped into a proxy that could never observe
+anything. No signal is being discarded there today: their OpenAI-compatible
+route forwards sampling params rather than dropping them.
+
+The rows themselves — kind `provider.request.warned`, `status: 'failed'`,
+always-visible, one row per DISTINCT warning per run — are specified in
+docs/agents/assistant-persistence.md. Paired tests:
+`packages/agent/src/__tests__/provider-call-warnings.spec.ts` (the REAL
+`@ai-sdk/anthropic` adapter dropping `temperature`/`topK`/`topP` on
+`claude-opus-5`, captured through the production `createProvider`),
+`packages/agent/src/mastra/__tests__/provider-warning-run-events.spec.ts`
+(presentation, including a warning type the label table has never seen), and
+`packages/agent/src/__tests__/provider-warning-run-events.integration.spec.ts`
+(the whole chain through the real Mastra loop — the test that would have caught
+the `step-start.warnings` non-fix).
 
 ---
 

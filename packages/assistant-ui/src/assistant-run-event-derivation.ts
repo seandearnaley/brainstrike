@@ -80,6 +80,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Membership here is load-bearing, not decorative: rows are hidden at default
  * detail, so a kind added to the contract alone would still report nothing to
  * the user it exists for.
+ *
+ * `provider.request.warned` (BST-1701) is included on exactly that reasoning.
+ * The provider dropped part of the request - a user-set `temperature` on a
+ * model that rejects one - and answered anyway, so the turn LOOKS healthy:
+ * there is no failed tool, no error bubble, and no card of any kind. This row
+ * is the only evidence the setting was ignored, and hiding it at default
+ * detail would leave the silent degradation exactly as it was found. Like
+ * `run.failed`/`mcp.tools.unavailable` it carries no `toolCallId` and is not
+ * `tool.*`, so it needs no card-suppression exemption.
  */
 export function isAlwaysVisibleRunEvent(data: unknown): boolean {
   const event = readAssistantRunEvent(data);
@@ -88,6 +97,7 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
   }
   return (
     event.kind === 'mcp.tools.unavailable' ||
+    event.kind === 'provider.request.warned' ||
     event.kind === 'run.failed' ||
     event.kind === 'run.cancelled' ||
     event.kind === 'tool.approval.requested' ||

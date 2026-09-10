@@ -236,6 +236,14 @@ describe('isAlwaysVisibleRunEvent', () => {
     expect(isAlwaysVisibleRunEvent(event('mcp.tools.unavailable', 'failed'))).toBe(true);
   });
 
+  it('forces a dropped provider setting to stay visible (BST-1701)', () => {
+    // The provider answered normally after silently discarding part of the
+    // request (a user-set `temperature` on a model that rejects one), so the
+    // turn looks healthy and nothing cards it. Hidden at default detail, this
+    // row would report the silent degradation to nobody.
+    expect(isAlwaysVisibleRunEvent(event('provider.request.warned', 'failed'))).toBe(true);
+  });
+
   it('does not force background bookkeeping or already-carded tool failures', () => {
     // tool.failed already surfaces on its ToolFallback card — never double-report.
     expect(isAlwaysVisibleRunEvent(event('tool.failed', 'failed'))).toBe(false);
