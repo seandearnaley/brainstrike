@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { globSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +28,18 @@ test('theme.css is the only owner of the dark variant and the colour mapping', (
   const themeCss = read('packages/ui/src/theme.css');
   assert.equal((themeCss.match(/@custom-variant dark/gu) ?? []).length, 1);
   assert.match(themeCss, /@theme inline \{[\s\S]*--color-background: var\(--background\);/u);
+});
+
+test('no other package stylesheet declares @theme or the dark variant', () => {
+  // The apps are covered above; this closes the same hole across every package,
+  // where a second @theme block would silently shadow half the mapping.
+  const offenders = globSync('packages/**/*.css', {
+    cwd: repoRoot,
+    exclude: (name) => name === 'node_modules' || name === 'dist',
+  })
+    .filter((relative) => relative.split(path.sep).join('/') !== 'packages/ui/src/theme.css')
+    .filter((relative) => /@theme\b|@custom-variant dark/u.test(read(relative)));
+  assert.deepEqual(offenders, [], `theme.css must be the only owner:\n${offenders.join('\n')}`);
 });
 
 const IDIOM_SCAN_ROOTS = ['apps', 'packages'];

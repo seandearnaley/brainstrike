@@ -39,7 +39,9 @@ describe('theme token format', () => {
     const source = readFileSync(GLOBALS, 'utf8');
     const outsideHighContrast = source.split('@media (prefers-contrast: more)')[0] ?? '';
     expect(collectBsDeclarations(outsideHighContrast)).toHaveLength(0);
-    expect(source).toMatch(/^@import "\.\/themes\/index\.css";/mu);
+    // `startsWith`, not a /m regex: the point is that nothing precedes the import,
+    // and /m would happily match it on any later line.
+    expect(source.startsWith('@import "./themes/index.css";')).toBe(true);
   });
 
   it('the high-contrast override also uses complete colour values', () => {

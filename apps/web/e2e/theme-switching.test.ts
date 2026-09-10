@@ -41,7 +41,7 @@ test.describe('Theme Switching', () => {
 
     // Verify theme controls are visible - use settings-specific selectors to avoid nav button conflicts
     const appearanceSection = await waitForAppearanceSection(page);
-    await expect(page.getByText('Mode', { exact: true })).toBeVisible();
+    await expect(appearanceSection.getByText('Mode', { exact: true })).toBeVisible();
     await expect(
       appearanceSection.getByRole('button', { exact: true, name: 'Light' })
     ).toBeVisible();
@@ -250,10 +250,14 @@ test.describe('Theme Switching', () => {
     );
   });
 
-  test('every registered palette paints the body from its own tokens', async ({ page }) => {
+  test('every registered palette has a distinct primary colour', async ({ page }) => {
     await openSettingsPage(page);
     await waitForSettingsPage(page);
     const seen = new Set<string>();
+    // Kept literal on purpose: importing THEMES from `@brainstrike/ui` drags the
+    // whole React barrel (PNG assets included) into Playwright's node context and
+    // the file fails to load. The registry is packages/ui/src/themes/index.ts, and
+    // theme-registry.test.ts pins it against the theme files.
     for (const label of ['Brainstrike', 'Ember', 'Tide', 'Orchid'] as const) {
       await activateAppearanceThemeCard(page, label);
       await expect(page.locator('html')).toHaveAttribute('data-theme', label.toLowerCase());

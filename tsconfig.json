@@ -224,7 +224,8 @@
   "exclude": [
     "node_modules",
     ".turbo",
-    "dist"
+    "dist",
+    "scripts/shadcn-theme-fixture"
   ],
   "references": [
     {

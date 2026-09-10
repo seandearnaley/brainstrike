@@ -150,8 +150,12 @@ test.describe('Theme CSS Consistency (E2E)', () => {
       ]);
 
       for (const token of tokens) {
-        const { hue } = hexToHsl(token);
-        expect(hue === 0 || (hue >= 20 && hue <= 40)).toBe(true);
+        const { hue, saturation } = hexToHsl(token);
+        // hue 0 is also pure red, so a neutral must additionally be desaturated.
+        const neutral = hue === 0 && saturation <= 10;
+        expect(neutral || (hue >= 20 && hue <= 40), `${token} is neither neutral nor warm`).toBe(
+          true
+        );
       }
     }
   });

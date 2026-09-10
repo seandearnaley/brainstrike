@@ -416,6 +416,9 @@ When modifying TreeTable strategy or pagination behavior:
   Selectors are `:root[data-theme="<id>"]` / `...dark` (0,2,0 / 0,3,0) so import
   order is irrelevant; the high-contrast block uses `:root[data-theme]` and
   sits after the imports so accessibility wins. Do not "fix" import placement.
+  `ThemeProvider` renders null until storage resolves, so for that first instant
+  `data-theme` is absent and a `prefers-contrast: more` user sees baseline tokens
+  rather than the high-contrast override — accepted trade-off, not a bug to fix.
 - Token ownership: preset-provided colours, radius, chart and sidebar sets, plus
   derived `panel-divider`/`panel-surface` and a `destructive-foreground`
   fallback come from the theme file. Both derived tokens originate from

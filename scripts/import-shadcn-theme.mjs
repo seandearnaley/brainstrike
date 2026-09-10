@@ -6,9 +6,10 @@
  *
  * Without --from-css the script copies scripts/shadcn-theme-fixture to a temp
  * dir and runs `npx shadcn@latest apply <code> --only theme` there (network).
- * With --from-css it renders from an already-applied index.css (offline; used
- * by the tests and for capturing fixtures). Values are never hand-edited:
- * re-run this script to change a theme.
+ * With --from-css it renders from an already-applied index.css, which skips the
+ * `apply` step only — decoding the preset for the file header still shells out
+ * to npx. Used by the tests and for capturing fixtures. Values are never
+ * hand-edited: re-run this script to change a theme.
  */
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -144,10 +145,12 @@ function main(argv) {
   }
   assertThemeId(id);
   const fromCssIndex = rest.indexOf('--from-css');
-  const applied =
-    fromCssIndex >= 0
-      ? readFileSync(path.resolve(rest[fromCssIndex + 1]), 'utf8')
-      : applyPreset(code);
+  const fromCssPath = fromCssIndex >= 0 ? rest[fromCssIndex + 1] : undefined;
+  if (fromCssIndex >= 0 && !fromCssPath) {
+    console.error('usage: --from-css <applied-index.css> requires a file path');
+    process.exit(1);
+  }
+  const applied = fromCssPath ? readFileSync(path.resolve(fromCssPath), 'utf8') : applyPreset(code);
   const decoded = decodePreset(code);
   const light = extractBlock(applied, ':root');
   const dark = extractBlock(applied, '.dark');

@@ -6,17 +6,17 @@ export interface HslParts {
   saturation: number;
 }
 
-/**
- * Resolve a root colour token to normalized `#rrggbb`. The production build
- * rewrites colour literals inside custom properties (`hsl(30 25% 99%)` becomes
- * `#fdfcfc`), so callers must never compare authored token text. Canvas
- * `fillStyle` normalizes any parseable CSS colour (hsl, hex, oklch) to hex.
- */
-export async function resolveTokenColor(page: Page, token: `--${string}`): Promise<string> {
-  return page.evaluate((name) => {
-    const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+type NormalizeRequest = { kind: 'literal'; value: string } | { kind: 'token'; value: string };
+
+/** The one in-page canvas body both public helpers go through. */
+async function normalizeInPage(page: Page, request: NormalizeRequest): Promise<string> {
+  return page.evaluate((input) => {
+    const raw =
+      input.kind === 'token'
+        ? getComputedStyle(document.documentElement).getPropertyValue(input.value).trim()
+        : input.value;
     if (!raw) {
-      throw new Error(`${name} is not defined on :root`);
+      throw new Error(`${input.value} is not defined on :root`);
     }
     const context = document.createElement('canvas').getContext('2d');
     if (!context) {
@@ -24,19 +24,22 @@ export async function resolveTokenColor(page: Page, token: `--${string}`): Promi
     }
     context.fillStyle = raw;
     return context.fillStyle;
-  }, token);
+  }, request);
+}
+
+/**
+ * Resolve a root colour token to normalized `#rrggbb`. The production build
+ * rewrites colour literals inside custom properties (`hsl(30 25% 99%)` becomes
+ * `#fdfcfc`), so callers must never compare authored token text. Canvas
+ * `fillStyle` normalizes any parseable CSS colour (hsl, hex, oklch) to hex.
+ */
+export async function resolveTokenColor(page: Page, token: `--${string}`): Promise<string> {
+  return normalizeInPage(page, { kind: 'token', value: token });
 }
 
 /** Normalize any CSS colour literal through the same canvas path as resolveTokenColor. */
 export async function normalizeColor(page: Page, literal: string): Promise<string> {
-  return page.evaluate((value) => {
-    const context = document.createElement('canvas').getContext('2d');
-    if (!context) {
-      throw new Error('canvas 2d context unavailable');
-    }
-    context.fillStyle = value;
-    return context.fillStyle;
-  }, literal);
+  return normalizeInPage(page, { kind: 'literal', value: literal });
 }
 
 export function hexToHsl(hex: string): HslParts {

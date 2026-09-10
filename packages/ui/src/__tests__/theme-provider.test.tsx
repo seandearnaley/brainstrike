@@ -39,7 +39,7 @@ describe('ThemeProvider', () => {
   beforeEach(() => {
     mockWarn.mockClear();
     document.documentElement.className = '';
-    document.documentElement.dataset['theme'] = undefined;
+    document.documentElement.removeAttribute('data-theme');
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({
       addEventListener: vi.fn(),
       matches: query === '(prefers-color-scheme: dark)',

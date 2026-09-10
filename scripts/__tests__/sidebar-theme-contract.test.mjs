@@ -13,8 +13,9 @@ const MAPPING_THEME = read(MAPPING_PATH);
 
 /**
  * Every `--sidebar*` alias declared in the shared palette. A Tailwind v4 utility
- * only emits CSS when its token has a `--color-<name>` entry in the consuming
- * app's `@theme` block, so each alias needs a matching entry in BOTH apps.
+ * only emits CSS when its token has a `--color-<name>` entry in an `@theme`
+ * block, and `packages/ui/src/theme.css` is the single owner of that block, so
+ * each alias needs exactly one matching entry there.
  */
 const SIDEBAR_TOKENS = [
   'sidebar',
