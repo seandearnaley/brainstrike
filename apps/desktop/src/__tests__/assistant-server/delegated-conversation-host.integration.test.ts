@@ -17,6 +17,7 @@ import {
   observeDesktopAssistantRunEvents,
   persistDesktopChildRunUsage,
 } from '../../assistant-server/run-persistence';
+import { reapOrphanedThreadRuns } from '../../assistant-server/thread-run-startup-reaper';
 
 describe('desktop delegated conversation authority', () => {
   let database: PGlite;
@@ -103,6 +104,118 @@ describe('desktop delegated conversation authority', () => {
     status: 'running',
     timestamp: '2026-09-10T01:00:00.000Z',
   } as const;
+
+  it('claims a leaf decision once and serializes sibling resumes across recreated hosts', async () => {
+    const first = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const second = createDesktopDelegatedConversationHost(database, 'resume-leg');
+    await first.persist(identity);
+    await first.bindRun(run);
+    const action = {
+      delegation: { path: [run], toolCallId: 'read-1' },
+      runId: run.parentRuntimeRunId,
+      toolCallId: run.parentToolCallId,
+    };
+    const results = await Promise.allSettled([
+      first.claimToolAction(action),
+      second.claimToolAction(action),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    const siblingIdentity = {
+      ...identity,
+      childResourceId: 'native-sibling-owner',
+      childThreadId: 'sibling',
+      parentToolCallId: 'sibling-call',
+    };
+    const siblingRun = {
+      ...run,
+      childRuntimeRunId: 'sibling-run',
+      parentToolCallId: 'sibling-call',
+    };
+    await first.persist(siblingIdentity);
+    await first.bindRun(siblingRun);
+    const next = {
+      ...action,
+      delegation: { path: [siblingRun], toolCallId: 'read-1' },
+      toolCallId: siblingRun.parentToolCallId,
+    };
+    await expect(second.claimToolAction(next)).rejects.toThrow();
+    // An unrelated recreated host cannot release the successful claimant.
+    await createDesktopDelegatedConversationHost(database, 'initial-leg').finishToolActions();
+    await expect(second.claimToolAction(next)).rejects.toThrow();
+    await first.finishToolActions();
+    await second.finishToolActions();
+    await expect(second.claimToolAction(action)).rejects.toThrow();
+    await expect(second.claimToolAction(next)).resolves.toBeUndefined();
+    await second.finishToolActions();
+    expect(
+      (await database.query('SELECT state FROM brainstrike_delegated_tool_decisions')).rows
+    ).toEqual([{ state: 'consumed' }, { state: 'consumed' }]);
+  });
+
+  it('retains an interrupted decision after startup reaping without replaying its unknown effect', async () => {
+    const original = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await original.persist(identity);
+    await original.bindRun(run);
+    const action = {
+      delegation: { path: [run], toolCallId: 'read-1' },
+      runId: run.parentRuntimeRunId,
+      toolCallId: run.parentToolCallId,
+    };
+    await original.claimToolAction(action);
+    const bootedAt = new Date();
+    await database.query(
+      "UPDATE brainstrike_assistant_thread_runs SET started_at = $1 WHERE id = 'initial-leg'",
+      [new Date(bootedAt.getTime() - 120_000).toISOString()]
+    );
+    const reaped = await reapOrphanedThreadRuns(
+      { query: (sql, params) => database.query(sql, params ? [...params] : undefined) },
+      bootedAt
+    );
+    expect(reaped.reaped).toEqual([{ id: 'initial-leg', threadId: 'root' }]);
+    expect(
+      (await database.query('SELECT state FROM brainstrike_delegated_tool_decisions')).rows
+    ).toEqual([{ state: 'interrupted' }]);
+    const replacement = createDesktopDelegatedConversationHost(database, 'resume-leg');
+    await expect(replacement.claimToolAction(action)).rejects.toThrow();
+    // No stale in-memory owner can overwrite the interrupted disposition.
+    await expect(original.finishToolActions()).rejects.toMatchObject({
+      reason: 'tool-action-claim-lost',
+    });
+  });
+
+  it('resolves tool action ancestry only for the owning root and original turn', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    await host.bindRun(run);
+    const action = {
+      delegation: { path: [run], toolCallId: 'leaf-tool-call' },
+      runId: run.parentRuntimeRunId,
+      toolCallId: run.parentToolCallId,
+    };
+    expect(
+      await createDesktopDelegatedConversationHost(database, 'resume-leg').resolveToolAction(action)
+    ).toEqual([
+      { identity: run, resourceId: identity.childResourceId, threadId: identity.childThreadId },
+    ]);
+    await expect(
+      host.resolveToolAction({ runId: action.runId, toolCallId: action.toolCallId })
+    ).rejects.toThrow();
+    await expect(
+      host.resolveToolAction({
+        ...action,
+        delegation: { ...action.delegation, path: [{ ...run, childRuntimeRunId: 'sibling-run' }] },
+      })
+    ).rejects.toThrow();
+    for (const leg of ['other-turn-leg', 'other-root-leg']) {
+      await expect(
+        createDesktopDelegatedConversationHost(database, leg).resolveToolAction(action)
+      ).rejects.toThrow();
+    }
+    expect(
+      await host.resolveToolAction({ runId: action.runId, toolCallId: 'ordinary-call' })
+    ).toEqual([]);
+  });
 
   it('recovers only the bound invocation native message identity before resume publication', async () => {
     const host = createDesktopDelegatedConversationHost(database, 'initial-leg');

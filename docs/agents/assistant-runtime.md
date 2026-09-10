@@ -3991,3 +3991,25 @@ projection is also exposed through the agent's integration-fixture entrypoint
 so desktop resume tests exercise the real mapper and public receiver. This does
 not change permission selection, enable nesting or replace native memory
 processors. See `assistant-subagents.md` for the reconstructed resume proof.
+
+### Delegated approval and resume coordinates (BST-1720 foundation)
+
+Approval and suspend actions may carry a strictly validated `delegation` path
+plus the exact native leaf tool-call ID. A child notice routes to the root
+transport run/call derived from its first edge. Matching decisions, optimistic
+notice state and notifications use the leaf identity, so a later child pause
+under the same root delegation alias is a new decision. Ordinary root actions
+retain their existing contract. The host validates root ownership and ancestry;
+the agent checks current native snapshots both before and after durable
+admission. Approval and generic resume use their respective native transports
+and must match the pending leaf's pause kind. No new native execution engine or
+workflow snapshot parser is introduced.
+
+The resumed parent start retains its originally observed delegation name and
+arguments, captured by the native before-tool hook and stored with the
+invocation. The approved leaf tool remains separately identified for execution
+configuration, including execute-backed web-search preservation. Rediscovery
+returns leaf payloads with canonical root transport coordinates. See
+`assistant-subagents.md` for admission lifetime, keyless discovery and the
+remaining interaction acceptance gates. The native resume parity fixture,
+`delegated-decision-contract.ts` and desktop host tests pair with this contract.

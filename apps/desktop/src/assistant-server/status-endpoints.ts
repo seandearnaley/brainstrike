@@ -13,7 +13,9 @@ import {
   type SuspendedRunsResponse,
 } from '@brainstrike/agent';
 import { respondJson } from '@brainstrike/assistant-service/http';
+import { getDatabase } from '../db-main';
 import { getProviderAuthEngine } from '../provider-auth/provider-auth-runtime';
+import { createDesktopDelegatedSuspensionResolver } from './delegated-conversation-host';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { getDesktopMastraMemory } from './mastra-memory';
 import {
@@ -316,6 +318,11 @@ export async function handleSuspendedRunsRequest(
     const discovery = await listSuspendedMastraRuns(
       { resourceId, threadId },
       {
+        delegatedSuspensionDiscovery: async (parent) =>
+          createDesktopDelegatedSuspensionResolver(await getDatabase(), {
+            ownerResourceId: resourceId,
+            rootThreadId: threadId,
+          })(parent),
         memory: memoryResult.memory,
         // Keyless, provider-independent, model-free listing (see the doc comment
         // above). `listSuspendedMastraRuns` injects an inert listing-only model,
@@ -353,6 +360,7 @@ export async function handleSuspendedRunsRequest(
           ? resolveRunPythonExecutionContext(approval.args)
           : undefined;
       return {
+        ...(approval.delegation ? { delegation: approval.delegation } : {}),
         runId: approval.runId,
         stale: now - Date.parse(approval.suspendedAt) > staleThresholdMs,
         suspendedAt: approval.suspendedAt,
@@ -401,6 +409,7 @@ export async function handleSuspendedRunsRequest(
         });
       }
       return {
+        ...(pause.delegation ? { delegation: pause.delegation } : {}),
         runId: pause.runId,
         stale: now - Date.parse(pause.suspendedAt) > staleThresholdMs,
         suspendedAt: pause.suspendedAt,

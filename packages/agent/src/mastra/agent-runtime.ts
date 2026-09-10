@@ -699,9 +699,13 @@ export async function createMastraAgentRuntime(
     delegatedTurnPersistence,
     delegationToolPersonas,
     dispose: async () => {
-      invalidateMcpAppAdmission?.();
-      await mastra?.shutdown();
-      await mcpClient?.disconnect();
+      try {
+        invalidateMcpAppAdmission?.();
+        await mastra?.shutdown();
+        await mcpClient?.disconnect();
+      } finally {
+        await options.conversationBinding?.finishToolActions?.();
+      }
     },
     instructionBreakdown,
     mcpAppToolAdmission,

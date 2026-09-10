@@ -177,7 +177,9 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     await db.exec(
       'ALTER TABLE brainstrike_assistant_run_usage DROP CONSTRAINT brainstrike_assistant_run_usage_delegation_fk'
     );
-    await db.exec('DROP TABLE brainstrike_delegated_invocations');
+    await db.exec(
+      'DROP TABLE brainstrike_delegated_tool_decisions; DROP TABLE brainstrike_delegated_invocations'
+    );
     await db.exec('DROP TABLE brainstrike_assistant_run_events');
     await db.exec('DROP TABLE brainstrike_assistant_thread_runs');
 

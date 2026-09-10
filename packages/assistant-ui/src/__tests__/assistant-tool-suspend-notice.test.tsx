@@ -222,6 +222,30 @@ describe('AssistantToolSuspendNotice', () => {
     });
   });
 
+  it('routes a child question to its parent snapshot with exact leaf identity', async () => {
+    const user = userEvent.setup();
+    const delegation = {
+      path: [
+        {
+          childRuntimeRunId: 'run-2',
+          parentRuntimeRunId: 'root-run',
+          parentToolCallId: 'delegate-1',
+          personaId: 'explore',
+        },
+      ],
+      toolCallId: 'call-2',
+    };
+    render(<AssistantToolSuspendNotice data={{ ...askFreeTextRequest, delegation }} />);
+    await user.type(screen.getByRole('textbox'), 'Paris');
+    await user.click(screen.getByRole('button', { name: /^send$/i }));
+    expect(lastResumeAction()).toMatchObject({
+      delegation,
+      resumeData: { answer: 'Paris' },
+      runId: 'root-run',
+      toolCallId: 'delegate-1',
+    });
+  });
+
   it('askUser free-text appends the {answer} envelope (rider-attachable, never a bare string)', async () => {
     const user = userEvent.setup();
     render(<AssistantToolSuspendNotice data={askFreeTextRequest} />);

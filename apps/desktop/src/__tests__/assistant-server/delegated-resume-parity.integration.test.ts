@@ -6,13 +6,17 @@ import { randomUUID } from 'node:crypto';
 import type { StreamChunk } from '@brainstrike/agent';
 import {
   Agent,
+  assertDelegatedToolActionPending,
+  claimDelegatedToolAction,
   createAttemptDelegatedProjection,
   createResponseBoundaryProcessor,
   createTool,
   createTurnAttemptLifecycleState,
   type DelegationStartContext,
+  discoverDelegatedToolPause,
   Mastra,
   processMastraStreamPart,
+  readResumedApprovalToolCall,
 } from '@brainstrike/agent/test-fixtures/delegated-stream';
 
 import {
@@ -36,6 +40,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import type { AssistantMessage } from 'assistant-stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { createDesktopDelegatedSuspensionResolver } from '../../assistant-server/delegated-conversation-host';
 import { getDesktopMastraMemory } from '../../assistant-server/mastra-memory';
 import { observeDesktopAssistantRunEvents } from '../../assistant-server/run-persistence';
 
@@ -145,7 +150,7 @@ describe('native approval resume child transcript parity', () => {
     });
     const child = new Agent({
       agents: { leaf },
-      defaultOptions: { delegation, maxSteps: 4 },
+      defaultOptions: { delegation, hooks: binding.hooks, maxSteps: 4 },
       description: 'Delegate',
       id: 'child',
       inputProcessors: [binding.inputProcessor],
@@ -157,7 +162,7 @@ describe('native approval resume child transcript parity', () => {
     });
     const parent = new Agent({
       agents: { child },
-      defaultOptions: { delegation, maxSteps: 4 },
+      defaultOptions: { delegation, hooks: binding.hooks, maxSteps: 4 },
       id: 'parent',
       instructions: 'Delegate.',
       memory: backing.memory,
@@ -166,7 +171,7 @@ describe('native approval resume child transcript parity', () => {
     });
     const host = new Mastra({ agents: { parent }, logger: false, storage: backing.storage });
     hosts.add(host);
-    return { binding, effect, host, parent };
+    return { binding, effect, host, parent, storage: backing.storage };
   }
 
   async function decode(
@@ -206,6 +211,7 @@ describe('native approval resume child transcript parity', () => {
       },
       sanitizedNameMap: undefined,
     });
+    const rootChunks: StreamChunk[] = [];
     async function* mapped(): AsyncIterable<StreamChunk> {
       const names = new Map<string, string>();
       for (const part of nativeChunks) {
@@ -218,7 +224,11 @@ describe('native approval resume child transcript parity', () => {
           runtime.askTools,
           personas
         );
-        yield* result.chunks;
+        for (const chunk of result.chunks) {
+          const decorated = projection.decorate(chunk);
+          rootChunks.push(decorated);
+          yield decorated;
+        }
         if (result.finished) {
           break;
         }
@@ -273,7 +283,7 @@ describe('native approval resume child transcript parity', () => {
     )) {
       /* Drain the public receiver. */
     }
-    return { children, nativeChunks };
+    return { children, nativeChunks, rootChunks };
   }
 
   it.each([
@@ -305,11 +315,96 @@ describe('native approval resume child transcript parity', () => {
       (id, resource_id, thread_id, provider, model, runtime_kind, status, started_at, created_at, updated_at, turn_message_id)
       VALUES ('resumed', 'owner', 'root', 'openai', 'test', 'desktop', 'running', NOW(), NOW(), NOW(), 'user-turn')`);
       const resumed = await tree('resumed', continuation);
-      const action = { runId: first.runId, toolCallId: approval.payload.toolCallId };
+      const rootNotice = before.rootChunks.find((chunk) => chunk.type === 'tool-approval-required');
+      if (rootNotice?.type !== 'tool-approval-required' || !rootNotice.delegation) {
+        throw new Error('Missing delegated leaf identity on the root approval notice');
+      }
+      const action = {
+        delegation: rootNotice.delegation,
+        runId: first.runId,
+        toolCallId: approval.payload.toolCallId,
+      };
+      expect(action.delegation.path).toHaveLength(2);
+      expect((await resumed.binding.resolveToolAction?.(action))?.[0]).toMatchObject({
+        originalToolCall: {
+          args: { prompt: 'Delegate' },
+          toolName: 'agent-child',
+        },
+      });
+      const readParentStart = () =>
+        readResumedApprovalToolCall(
+          {
+            agent: resumed.parent,
+            conversationBinding: resumed.binding,
+            toolNameMap: new Map(),
+          },
+          { memory: { resourceId: 'owner', threadId: 'root' } },
+          {
+            ...action,
+            action: 'approve',
+          }
+        );
+      await expect(readParentStart()).resolves.toMatchObject({
+        approvedToolName: 'read',
+        args: { prompt: 'Delegate' },
+        displayToolName: 'agent-child',
+        registeredToolName: 'agent-child',
+        toolCallId: 'child-1',
+      });
+      const original = await database.query<{ original_tool_call: unknown }>(
+        `SELECT original_tool_call FROM brainstrike_delegated_invocations
+         WHERE root_thread_id = 'root' AND parent_runtime_run_id = $1 AND parent_tool_call_id = $2`,
+        [action.runId, action.toolCallId]
+      );
+      expect(original.rows).toHaveLength(1);
+      await database.query(
+        `UPDATE brainstrike_delegated_invocations SET original_tool_call = NULL
+         WHERE root_thread_id = 'root' AND parent_runtime_run_id = $1 AND parent_tool_call_id = $2`,
+        [action.runId, action.toolCallId]
+      );
+      await expect(readParentStart()).rejects.toThrow('original delegation input is unavailable');
+      expect(resumed.effect).not.toHaveBeenCalled();
+      await database.query(
+        `UPDATE brainstrike_delegated_invocations SET original_tool_call = $3::jsonb
+         WHERE root_thread_id = 'root' AND parent_runtime_run_id = $1 AND parent_tool_call_id = $2`,
+        [action.runId, action.toolCallId, JSON.stringify(original.rows[0]?.original_tool_call)]
+      );
+      const discovered = await discoverDelegatedToolPause({
+        resolveInvocation: createDesktopDelegatedSuspensionResolver(database, {
+          ownerResourceId: 'owner',
+          rootThreadId: 'root',
+        }),
+        rootThreadId: 'root',
+        runId: action.runId,
+        storage: resumed.storage,
+        toolCall: { requiresApproval: true, toolCallId: action.toolCallId, toolName: 'read' },
+      });
+      expect(discovered).toMatchObject({
+        delegation: action.delegation,
+        toolCall: { args: { query: 'needle' }, toolCallId: 'read-1', toolName: 'read' },
+      });
+      await expect(
+        assertDelegatedToolActionPending({
+          action,
+          agent: resumed.parent,
+          binding: resumed.binding,
+          requiresApproval: true,
+        })
+      ).resolves.toMatchObject({ args: { query: 'needle' }, toolCallId: 'read-1' });
+      const nativeTarget = { agent: resumed.parent, requiresApproval: true };
+      await claimDelegatedToolAction(action, resumed.binding, nativeTarget);
+      await expect(
+        claimDelegatedToolAction(action, resumed.binding, nativeTarget)
+      ).rejects.toThrow();
+      const nativeAction = { runId: action.runId, toolCallId: action.toolCallId };
       const next = approved
-        ? await resumed.parent.approveToolCall(action)
-        : await resumed.parent.declineToolCall(action);
+        ? await resumed.parent.approveToolCall(nativeAction)
+        : await resumed.parent.declineToolCall(nativeAction);
       const after = await decode(next.fullStream, resumed, 'resumed');
+      await resumed.binding.finishToolActions?.();
+      await expect(
+        claimDelegatedToolAction(action, resumed.binding, nativeTarget)
+      ).rejects.toThrow();
       expect(resumed.effect).toHaveBeenCalledTimes(approved ? 1 : 0);
       expect(after.children.size).toBe(2);
       expect(

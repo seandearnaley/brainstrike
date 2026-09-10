@@ -1,5 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { DelegatedConversationIdentity, DelegatedRunIdentity } from '@brainstrike/agent';
+import type {
+  DelegatedConversationBinding,
+  DelegatedConversationIdentity,
+  DelegatedRunIdentity,
+  DelegatedSuspensionResolver,
+  DelegatedToolActionScope,
+} from '@brainstrike/agent';
+import { hasValidDelegatedToolActionTarget } from '@brainstrike/assistant-contract';
 import {
   type AssistantRunEvent,
   sanitizeAssistantRunEventMetadata,
@@ -13,6 +20,7 @@ import {
   type DelegatedConversationColor,
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
+  type DelegatedInvocation,
 } from '@brainstrike/db';
 import { z } from 'zod';
 
@@ -22,6 +30,23 @@ const hostScopeSchema = z.object({
   rootThreadId: identityString,
   turnMessageId: identityString,
 });
+
+function assertActionInvocation(
+  invocation: DelegatedInvocation | null,
+  edge: DelegatedRunIdentity,
+  parentThreadId: string,
+  turnMessageId: string
+): asserts invocation is DelegatedInvocation {
+  if (
+    !invocation ||
+    invocation.childRuntimeRunId !== edge.childRuntimeRunId ||
+    invocation.personaId !== edge.personaId ||
+    invocation.parentThreadId !== parentThreadId ||
+    invocation.turnMessageId !== turnMessageId
+  ) {
+    throw new DelegatedConversationIdentityError('tool-action-ancestry-mismatch');
+  }
+}
 
 const DISPLAY_IDENTITIES = [
   { color: 'blue', name: 'Cedar' },
@@ -60,6 +85,9 @@ export function createDesktopDelegatedConversationHost(
   bindRun(
     identity: DelegatedRunIdentity
   ): Promise<{ readonly threadId: string; readonly messageId?: string }>;
+  resolveToolAction: NonNullable<DelegatedConversationBinding['resolveToolAction']>;
+  claimToolAction: NonNullable<DelegatedConversationBinding['claimToolAction']>;
+  finishToolActions(): Promise<void>;
   persist(identity: DelegatedConversationIdentity): Promise<void>;
   persistEvent(
     identity: DelegatedRunIdentity,
@@ -88,7 +116,8 @@ export function createDesktopDelegatedConversationHost(
     }
     return parsed.data;
   };
-  return {
+  const claims = new Set<string>();
+  const host: ReturnType<typeof createDesktopDelegatedConversationHost> = {
     async bindRun(identity) {
       const scope = await readScope();
       const invocation = await repository.bindInvocationRun(
@@ -101,6 +130,59 @@ export function createDesktopDelegatedConversationHost(
         threadId: invocation.threadId,
         ...(invocation.messageId ? { messageId: invocation.messageId } : {}),
       };
+    },
+    async claimToolAction(action) {
+      const scopes = await host.resolveToolAction(action);
+      const leaf = scopes.at(-1);
+      if (!(leaf && action.delegation)) {
+        throw new DelegatedConversationIdentityError('tool-action-leaf-identity-required');
+      }
+      const scope = await readScope();
+      const id = randomUUID();
+      // Native snapshot validation happens immediately before admission. The
+      // unique leaf key survives completion; the partial root key prevents two
+      // reconstructed native runtimes from resuming the same root concurrently.
+      const result = await database.query(
+        `INSERT INTO brainstrike_delegated_tool_decisions
+          (id, owner_resource_id, root_thread_id, parent_runtime_run_id,
+           parent_tool_call_id, child_thread_id, child_runtime_run_id,
+           tool_call_id, host_run_id, state)
+         SELECT $1, $2, $3, $4, $5, $6, $7, $8, runs.id, 'claimed'
+         FROM brainstrike_assistant_thread_runs runs
+         JOIN mastra_threads root ON root.id = runs.thread_id AND root."resourceId" = runs.resource_id
+         WHERE runs.id = $9 AND runs.resource_id = $2 AND runs.thread_id = $3
+           AND runs.turn_message_id = $10 AND runs.status = 'running'
+         ON CONFLICT DO NOTHING RETURNING id`,
+        [
+          id,
+          scope.ownerResourceId,
+          scope.rootThreadId,
+          action.runId,
+          action.toolCallId,
+          leaf.threadId,
+          leaf.identity.childRuntimeRunId,
+          action.delegation.toolCallId,
+          hostRunId,
+          scope.turnMessageId,
+        ]
+      );
+      if (result.rows.length !== 1) {
+        throw new DelegatedConversationIdentityError('tool-action-already-consumed-or-root-busy');
+      }
+      claims.add(id);
+    },
+    async finishToolActions() {
+      for (const id of claims) {
+        const result = await database.query(
+          `UPDATE brainstrike_delegated_tool_decisions SET state = 'consumed', finished_at = NOW()
+           WHERE id = $1 AND host_run_id = $2 AND state = 'claimed' RETURNING id`,
+          [id, hostRunId]
+        );
+        if (result.rows.length !== 1) {
+          throw new DelegatedConversationIdentityError('tool-action-claim-lost');
+        }
+        claims.delete(id);
+      }
     },
     async persist(identity) {
       const scope = await readScope();
@@ -118,6 +200,7 @@ export function createDesktopDelegatedConversationHost(
       });
       await repository.createInvocation(scope, {
         hostRunId,
+        ...(identity.originalToolCall ? { originalToolCall: identity.originalToolCall } : {}),
         parentRuntimeRunId: identity.parentRuntimeRunId,
         parentThreadId: identity.parentThreadId,
         parentToolCallId: identity.parentToolCallId,
@@ -173,5 +256,74 @@ export function createDesktopDelegatedConversationHost(
         }
       );
     },
+    async resolveToolAction(action) {
+      const scope = await readScope();
+      if (!hasValidDelegatedToolActionTarget(action)) {
+        throw new DelegatedConversationIdentityError('tool-action-path-invalid');
+      }
+      const rootInvocation = await repository.getInvocation(scope, {
+        parentRuntimeRunId: action.runId,
+        parentToolCallId: action.toolCallId,
+      });
+      if (!(rootInvocation || action.delegation)) {
+        return [];
+      }
+      if (!rootInvocation) {
+        throw new DelegatedConversationIdentityError('tool-action-invocation-missing');
+      }
+      if (!action.delegation) {
+        throw new DelegatedConversationIdentityError('tool-action-leaf-identity-required');
+      }
+      const result: DelegatedToolActionScope[] = [];
+      let parentThreadId = scope.rootThreadId;
+      for (const edge of action.delegation.path) {
+        const invocation = await repository.getInvocation(scope, edge);
+        assertActionInvocation(invocation, edge, parentThreadId, scope.turnMessageId);
+        const child = await repository.get(scope, invocation.threadId);
+        if (!child) {
+          throw new DelegatedConversationIdentityError('tool-action-conversation-missing');
+        }
+        result.push({
+          identity: edge,
+          ...(invocation.originalToolCall ? { originalToolCall: invocation.originalToolCall } : {}),
+          resourceId: child.resourceId,
+          threadId: child.threadId,
+        });
+        parentThreadId = child.threadId;
+      }
+      return result;
+    },
+  };
+  return host;
+}
+
+/** Read-only discovery across turns; each edge still joins its original host and root owner. */
+export function createDesktopDelegatedSuspensionResolver(
+  database: DelegatedConversationDatabase,
+  scope: { readonly ownerResourceId: string; readonly rootThreadId: string }
+): DelegatedSuspensionResolver {
+  const repository = createDelegatedConversationRepository(database);
+  return async (parent) => {
+    const invocation = await repository.getInvocation(scope, parent);
+    if (!invocation) {
+      return;
+    }
+    if (!invocation.childRuntimeRunId || invocation.parentThreadId !== parent.parentThreadId) {
+      throw new DelegatedConversationIdentityError('suspended-invocation-ancestry-invalid');
+    }
+    const child = await repository.get(scope, invocation.threadId);
+    if (!child) {
+      throw new DelegatedConversationIdentityError('suspended-child-missing');
+    }
+    return {
+      identity: {
+        childRuntimeRunId: invocation.childRuntimeRunId,
+        parentRuntimeRunId: invocation.parentRuntimeRunId,
+        parentToolCallId: invocation.parentToolCallId,
+        personaId: invocation.personaId,
+      },
+      resourceId: child.resourceId,
+      threadId: child.threadId,
+    };
   };
 }

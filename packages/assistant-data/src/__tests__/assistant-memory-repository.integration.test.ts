@@ -424,6 +424,43 @@ describe('createAssistantThreadHistoryAdapter', () => {
     expect(history.headId).toBe('suspended-approval:run-1:call-1');
   });
 
+  it('gives successive delegated leaf pauses distinct hydrated identities under one parent alias', async () => {
+    const approval = {
+      ...makeApproval({}),
+      delegation: {
+        path: [
+          {
+            childRuntimeRunId: 'child-run',
+            parentRuntimeRunId: 'run-1',
+            parentToolCallId: 'call-1',
+            personaId: 'worker',
+          },
+        ],
+        toolCallId: 'leaf-first',
+      },
+    };
+    const discoverSuspendedRuns = vi.fn(async () => ({ approvals: [approval], suspends: [] }));
+    const adapter = createAssistantThreadHistoryAdapter({
+      discoverSuspendedRuns,
+      repository: makeMessagesOnlyRepository(),
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+    const first = await adapter.load();
+    const nextApproval = {
+      ...approval,
+      delegation: { ...approval.delegation, toolCallId: 'leaf-second' },
+    };
+    discoverSuspendedRuns.mockResolvedValueOnce({ approvals: [nextApproval], suspends: [] });
+    const next = await adapter.load();
+    expect(next.headId).not.toBe(first.headId);
+    expect(next.messages.at(-1)?.parentId).toBe('message-1');
+    expect(next.messages.at(-1)?.message.content).toEqual([
+      { data: nextApproval, name: TOOL_APPROVAL_DATA_NAME, type: 'data' },
+    ]);
+    expect((await adapter.load()).headId).toBe(first.headId);
+  });
+
   it('runs discovery concurrently with the history query (off the serial load path)', async () => {
     let resolveMessages: (
       value: Awaited<ReturnType<AssistantThreadRepository['listMessages']>>

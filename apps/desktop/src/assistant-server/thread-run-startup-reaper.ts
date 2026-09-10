@@ -73,5 +73,15 @@ export async function reapOrphanedThreadRuns(
   db: EditCheckpointDatabase,
   bootedAt: Date
 ): Promise<ThreadRunReapReport> {
-  return reapOrphanedAssistantThreadRuns(db, bootedAt);
+  const report = await reapOrphanedAssistantThreadRuns(db, bootedAt);
+  // A dead execution leg cannot still own native resume admission. Retain the
+  // leaf identity as interrupted: an unknown effect must never be replayed.
+  await db.query(
+    `UPDATE brainstrike_delegated_tool_decisions decisions
+     SET state = 'interrupted', finished_at = NOW()
+     FROM brainstrike_assistant_thread_runs runs
+     WHERE decisions.host_run_id = runs.id AND decisions.state = 'claimed'
+       AND runs.status IN ('completed', 'failed', 'cancelled')`
+  );
+  return report;
 }

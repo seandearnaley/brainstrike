@@ -12,12 +12,17 @@
  *
  * See docs/agents/assistant-runtime.md and docs/agents/mastra-boundary.md.
  */
+import type { DelegatedToolActionIdentity } from '@brainstrike/assistant-contract';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
 import type { Agent } from '@mastra/core/agent';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import type { MastraAgentRuntimeOptions } from './agent-runtime';
 import { initializeMastraRuntime, withRuntimeDerivedStreamOptions } from './agent-streaming';
+import {
+  type DelegatedSuspensionResolver,
+  discoverDelegatedToolPause,
+} from './delegated-suspension-discovery';
 import { createMastraAgentError } from './mastra-agent-error';
 import { assertNoUnsupportedDirectStreamOptions } from './runtime-assembly/stream-options';
 import { resolveRuntimeConfiguration } from './runtime-configuration';
@@ -26,6 +31,7 @@ const logger = createLogger('MastraAgent');
 
 export interface DiscoveredSuspendedApproval {
   readonly args?: unknown;
+  readonly delegation?: DelegatedToolActionIdentity;
   readonly runId: string;
   /** ISO-8601 instant the run suspended (AgentRun.suspendedAt). */
   readonly suspendedAt: string;
@@ -42,6 +48,7 @@ export interface DiscoveredSuspendedApproval {
  * mapped exactly like approvals.
  */
 export interface DiscoveredSuspendedPause {
+  readonly delegation?: DelegatedToolActionIdentity;
   readonly runId: string;
   readonly suspendedAt: string;
   readonly suspendPayload?: unknown;
@@ -107,45 +114,76 @@ type SuspendedRunsForClassification = Awaited<ReturnType<Agent['listSuspendedRun
  * two cards for one call. Only a call missing its ids (e.g. a
  * delegation-thread run) is tolerated + skipped.
  */
-function classifySuspendedToolCalls(
+type ResolveDelegation = (
+  runId: string,
+  toolCall: SuspendedRunsForClassification[number]['toolCalls'][number]
+) => ReturnType<typeof discoverDelegatedToolPause>;
+
+async function resolveDiscoveredCall(
+  run: SuspendedRunsForClassification[number],
+  original: SuspendedRunsForClassification[number]['toolCalls'][number],
+  resolveDelegation: ResolveDelegation | undefined
+) {
+  const delegated = original.toolCallId
+    ? await resolveDelegation?.(run.runId, original)
+    : undefined;
+  const toolCall = delegated?.toolCall ?? original;
+  const suspendedAt = (delegated?.suspendedAt ?? run.suspendedAt).toISOString();
+  const transportToolCallId = original.toolCallId;
+  const decision = delegated ? { delegation: delegated.delegation } : {};
+  if (!(transportToolCallId && toolCall.toolCallId && toolCall.toolName)) {
+    logger.debug('skipping suspended tool call without ids', {
+      code: 'mastra_agent_suspended_run_skipped',
+      requiresApproval: toolCall.requiresApproval,
+      runId: run.runId,
+      toolName: toolCall.toolName,
+    });
+    return;
+  }
+  return {
+    decision,
+    suspendedAt,
+    toolCall: { ...toolCall, toolCallId: toolCall.toolCallId, toolName: toolCall.toolName },
+    transportToolCallId,
+  };
+}
+
+async function classifySuspendedToolCalls(
   runs: SuspendedRunsForClassification,
-  toolNameMap: ReadonlyMap<string, string>
-): { approvals: DiscoveredSuspendedApproval[]; suspends: DiscoveredSuspendedPause[] } {
+  toolNameMap: ReadonlyMap<string, string>,
+  resolveDelegation?: ResolveDelegation
+): Promise<{ approvals: DiscoveredSuspendedApproval[]; suspends: DiscoveredSuspendedPause[] }> {
   const approvals: DiscoveredSuspendedApproval[] = [];
   const suspends: DiscoveredSuspendedPause[] = [];
   const approvalToolCallIds = new Set<string>();
   for (const run of runs) {
-    const suspendedAt = run.suspendedAt.toISOString();
-    for (const toolCall of run.toolCalls) {
-      if (!(toolCall.toolCallId && toolCall.toolName)) {
-        logger.debug('skipping suspended tool call without ids', {
-          code: 'mastra_agent_suspended_run_skipped',
-          requiresApproval: toolCall.requiresApproval,
-          runId: run.runId,
-          toolName: toolCall.toolName,
-        });
+    for (const original of run.toolCalls) {
+      const resolved = await resolveDiscoveredCall(run, original, resolveDelegation);
+      if (!resolved) {
         continue;
       }
+      const { toolCall, suspendedAt, transportToolCallId, decision } = resolved;
       // Snapshots store the REGISTERED (sanitized) id; every client-facing
       // surface is keyed by the ORIGINAL name — map it back here so the
       // desktop route's riskByTool lookup and per-tool overrides match.
       const toolName = resolveDiscoveredApprovalToolName(toolCall.toolName, toolNameMap, run.runId);
       if (toolCall.requiresApproval) {
-        approvalToolCallIds.add(toolCall.toolCallId);
+        approvalToolCallIds.add(JSON.stringify([run.runId, transportToolCallId]));
         approvals.push({
+          ...decision,
           runId: run.runId,
           suspendedAt,
-          toolCallId: toolCall.toolCallId,
+          toolCallId: transportToolCallId,
           toolName,
           ...(toolCall.args === undefined ? {} : { args: toolCall.args }),
         });
         continue;
       }
-      if (approvalToolCallIds.has(toolCall.toolCallId)) {
+      if (approvalToolCallIds.has(JSON.stringify([run.runId, transportToolCallId]))) {
         logger.warn('suspended tool call listed as BOTH approval and suspend; approval wins', {
           code: 'mastra_agent_suspended_run_duplicate_tool_call',
           runId: run.runId,
-          toolCallId: toolCall.toolCallId,
+          toolCallId: transportToolCallId,
           toolName,
         });
         continue;
@@ -153,9 +191,10 @@ function classifySuspendedToolCalls(
       // BST-1084: a tool that called suspend() — carry its durable payload
       // so the rediscovered notice renders the real plan/question.
       suspends.push({
+        ...decision,
         runId: run.runId,
         suspendedAt,
-        toolCallId: toolCall.toolCallId,
+        toolCallId: transportToolCallId,
         toolName,
         ...(toolCall.suspendPayload === undefined
           ? {}
@@ -186,7 +225,9 @@ function classifySuspendedToolCalls(
  */
 export async function listSuspendedMastraRuns(
   filter: { readonly threadId: string; readonly resourceId: string },
-  options: MastraAgentRuntimeOptions = {}
+  options: MastraAgentRuntimeOptions & {
+    readonly delegatedSuspensionDiscovery?: DelegatedSuspensionResolver;
+  } = {}
 ): Promise<ListSuspendedRunsResult> {
   assertNoUnsupportedDirectStreamOptions(options);
   if (!options.storage) {
@@ -211,7 +252,22 @@ export async function listSuspendedMastraRuns(
       threadId: filter.threadId,
     });
 
-    const { approvals, suspends } = classifySuspendedToolCalls(runs, runtime.toolNameMap);
+    const storage = options.storage;
+    const resolver = options.delegatedSuspensionDiscovery;
+    const { approvals, suspends } = await classifySuspendedToolCalls(
+      runs,
+      runtime.toolNameMap,
+      resolver
+        ? (runId, toolCall) =>
+            discoverDelegatedToolPause({
+              resolveInvocation: resolver,
+              rootThreadId: filter.threadId,
+              runId,
+              storage,
+              toolCall,
+            })
+        : undefined
+    );
 
     logger.info('discovered suspended approvals', {
       approvalCount: approvals.length,

@@ -260,7 +260,7 @@ describe('durable delegated conversation graph (BST-1718)', () => {
     }
     await database.exec(migration128DelegatedInvocationUsage.down);
     await database.exec(
-      'DROP TABLE brainstrike_delegated_invocations; DROP TABLE brainstrike_delegated_conversations'
+      'DROP TABLE brainstrike_delegated_tool_decisions; DROP TABLE brainstrike_delegated_invocations; DROP TABLE brainstrike_delegated_conversations'
     );
     await database.query(
       "DELETE FROM __drizzle_migrations WHERE hash IN ('custom-126-delegated-conversations', 'custom-127-delegated-invocations', 'custom-128-delegated-invocation-usage')"

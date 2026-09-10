@@ -338,8 +338,13 @@ export function buildStreamOptions(
   return {
     ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
     abortSignal,
-    ...(delegationUsage && runtime.delegatedTurnPersistence
-      ? { hooks: runtime.delegatedTurnPersistence.hooks(abortSignal) }
+    ...(delegationUsage && (runtime.delegatedTurnPersistence || runtime.conversationBinding?.hooks)
+      ? {
+          hooks: {
+            ...runtime.conversationBinding?.hooks,
+            ...runtime.delegatedTurnPersistence?.hooks(abortSignal),
+          },
+        }
       : {}),
     ...(runId === undefined ? {} : { runId }),
     ...(toolCallId === undefined ? {} : { toolCallId }),

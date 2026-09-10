@@ -1,4 +1,10 @@
 import { type CreateAppendMessage, useAui, useAuiState } from '@assistant-ui/react';
+import {
+  getToolActionIdentityKey,
+  getToolActionTarget,
+  isDelegatedToolActionIdentity,
+  isMatchingToolAction,
+} from '@brainstrike/assistant-contract';
 import type {
   AssistantToolApprovalAction,
   AssistantToolApprovalDecision,
@@ -818,7 +824,9 @@ function isAssistantToolApprovalRequest(value: unknown): value is AssistantToolA
     isRecord(value) &&
     typeof value['runId'] === 'string' &&
     typeof value['toolCallId'] === 'string' &&
-    typeof value['toolName'] === 'string'
+    typeof value['toolName'] === 'string' &&
+    (!('delegation' in value) ||
+      (Object.hasOwn(value, 'delegation') && isDelegatedToolActionIdentity(value['delegation'])))
   );
 }
 
@@ -899,11 +907,7 @@ function fromApprovalRunOutcomeKey(key: ApprovalRunOutcomeKey): ApprovalRunOutco
 }
 
 function isMatchingApprovalAction(value: unknown, approval: AssistantToolApprovalRequest): boolean {
-  return (
-    isRecord(value) &&
-    value['runId'] === approval.runId &&
-    value['toolCallId'] === approval.toolCallId
-  );
+  return isMatchingToolAction(value, approval);
 }
 
 function getMessageRole(message: unknown): unknown {
@@ -1097,6 +1101,11 @@ function resolveApprovalStatusLabel(
 }
 
 export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
+  const key = isAssistantToolApprovalRequest(data) ? getToolActionIdentityKey(data) : 'invalid';
+  return <ToolApprovalNotice data={data} key={key} />;
+}
+
+function ToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
   const aui = useAui();
   const [isExpanded, setIsExpanded] = useState(false);
   const [submittedAction, setSubmittedAction] = useState<AssistantToolApprovalDecision | null>(
@@ -1143,8 +1152,7 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
 
       const approvalAction: AssistantToolApprovalAction = {
         action,
-        runId: approval.runId,
-        toolCallId: approval.toolCallId,
+        ...getToolActionTarget(approval),
         toolName: approval.toolName,
       };
       const verb = action === 'approve' ? 'Approved' : 'Declined';

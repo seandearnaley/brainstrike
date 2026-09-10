@@ -1,3 +1,7 @@
+import {
+  type DelegatedToolActionIdentity,
+  hasValidDelegatedToolActionTarget,
+} from './delegated-tool-actions.js';
 /**
  * Tool SUSPEND transport contract — the wire vocabulary for the two suspending
  * native tools (`submitPlan`, `askUser`). This PARALLELS the tool-APPROVAL
@@ -103,6 +107,7 @@ export const UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND =
  * narrows it by `toolName`.
  */
 export interface AssistantToolSuspendRequest {
+  delegation?: DelegatedToolActionIdentity;
   /** Optional JSON-schema echo of the tool's resumeSchema, for UX/debugging. */
   resumeSchema?: unknown;
   runId: string;
@@ -156,7 +161,8 @@ export function isRediscoveredToolSuspend(value: unknown): value is Rediscovered
     isBoundedIdentifier(value['toolCallId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
     isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS) &&
     typeof value['suspendedAt'] === 'string' &&
-    typeof value['stale'] === 'boolean'
+    typeof value['stale'] === 'boolean' &&
+    hasValidDelegatedToolActionTarget(value)
   );
 }
 
@@ -168,6 +174,7 @@ export function isRediscoveredToolSuspend(value: unknown): value is Rediscovered
  * as `unknown`; Mastra validates it against the tool's `resumeSchema` on resume.
  */
 export interface AssistantToolResumeAction {
+  delegation?: DelegatedToolActionIdentity;
   resumeData: unknown;
   runId: string;
   toolCallId: string;
@@ -179,6 +186,7 @@ export type ToolResumeRunConfigActionReadResult =
   | { readonly invalid: true };
 
 const TOOL_RESUME_ACTION_OWN_KEYS = new Set<PropertyKey>([
+  'delegation',
   'resumeData',
   'runId',
   'toolCallId',
@@ -204,6 +212,7 @@ export function isAssistantToolResumeAction(value: unknown): value is AssistantT
   return (
     isRecord(value) &&
     Reflect.ownKeys(value).every((key) => TOOL_RESUME_ACTION_OWN_KEYS.has(key)) &&
+    hasValidDelegatedToolActionTarget(value) &&
     Object.hasOwn(value, 'resumeData') &&
     Object.hasOwn(value, 'runId') &&
     Object.hasOwn(value, 'toolCallId') &&

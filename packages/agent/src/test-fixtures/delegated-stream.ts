@@ -6,5 +6,11 @@ export {
   createAttemptDelegatedProjection,
   processMastraStreamPart,
 } from '../mastra/agent-streaming';
+export { readResumedApprovalToolCall } from '../mastra/attempt-legs';
+export { discoverDelegatedToolPause } from '../mastra/delegated-suspension-discovery';
+export {
+  assertDelegatedToolActionPending,
+  claimDelegatedToolAction,
+} from '../mastra/delegated-tool-actions';
 export { createResponseBoundaryProcessor } from '../mastra/response-boundary-processor';
 export { createTurnAttemptLifecycleState } from '../mastra/turn-attempts';

@@ -65,6 +65,25 @@ describe('durable delegated invocation identity (BST-1718)', () => {
       started
     );
   });
+  it('retains the observed parent tool input and rejects changing it on an existing invocation', async () => {
+    const repository = createDelegatedConversationRepository(database);
+    const originalToolCall = {
+      args: { prompt: 'Inspect the failing test' },
+      toolName: 'agent-explore',
+    };
+    await repository.createInvocation(scope, { ...invocation, originalToolCall });
+    const recreated = createDelegatedConversationRepository(database);
+    expect(await recreated.getInvocation(scope, invocation)).toMatchObject({ originalToolCall });
+    await expect(
+      recreated.createInvocation(scope, {
+        ...invocation,
+        originalToolCall: { ...originalToolCall, args: { prompt: 'Different work' } },
+      })
+    ).rejects.toThrow();
+    await expect(recreated.createInvocation(scope, invocation)).rejects.toThrow();
+    expect(await recreated.getInvocation(scope, invocation)).toMatchObject({ originalToolCall });
+  });
+
   it('keeps concurrent duplicate creation idempotent and rejects another native child run', async () => {
     const first = createDelegatedConversationRepository(database);
     const second = createDelegatedConversationRepository(database);
@@ -342,12 +361,14 @@ describe('durable delegated invocation identity (BST-1718)', () => {
       throw new Error('Expected SQL migration');
     }
     await database.exec(migration128DelegatedInvocationUsage.down);
-    await database.exec('DROP TABLE brainstrike_delegated_invocations');
+    await database.exec(
+      'DROP TABLE brainstrike_delegated_tool_decisions; DROP TABLE brainstrike_delegated_invocations'
+    );
     await database.query(
-      "DELETE FROM __drizzle_migrations WHERE hash IN ('custom-127-delegated-invocations', 'custom-128-delegated-invocation-usage')"
+      "DELETE FROM __drizzle_migrations WHERE hash IN ('custom-127-delegated-invocations', 'custom-128-delegated-invocation-usage', 'custom-131-delegated-tool-decisions')"
     );
     expect(await runMigrations(database)).toMatchObject({
-      appliedMigrations: [expect.anything(), expect.anything()],
+      appliedMigrations: [expect.anything(), expect.anything(), expect.anything()],
       success: true,
     });
     const repository = createDelegatedConversationRepository(database);

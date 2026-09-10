@@ -911,3 +911,50 @@ reason, without reporting success or failure. Approval grants and execution
 routing remain native; this change only preserves the already-made decision.
 An already persisted valid decline result remains authoritative, including its
 reason; native denials without a result use the shared decline constructor.
+
+### Exact delegated decision identity (BST-1720 foundation)
+
+A delegated pause carries its observed root-to-leaf native invocation path and
+the leaf tool-call ID. The root run/call remains Mastra's transport target; it
+is not the decision identity. Core 1.64 reuses that root alias when a child
+pauses on another tool, so notices, notification dedupe and rediscovered
+message identities key the leaf run/call. Parent and child views send the same
+canonical root action plus the immutable leaf guard. The 32-edge wire ceiling
+bounds parsing only; it does not enable recursion or define an execution budget.
+
+The desktop host reauthorizes every edge against the owning root, original
+turn, native child run, persona and parent thread. Native freshness uses public
+`Agent.listAgents` and `Agent.listSuspendedRuns` under those observed scopes.
+Never derive resource/thread IDs from native ID strings. A missing or ambiguous
+pending leaf rejects before execution. Snapshot validation is repeated after
+acquiring durable root admission, because another resume can finish between the
+initial read and admission. Migration 131 retains a unique leaf decision record
+and permits only one claimed decision per root. Runtime disposal settles only
+its own claims; another recreated host cannot release them. Startup reaping
+marks abandoned claims interrupted and retains their identity, without replay.
+The record describes admission, not whether a tool effect succeeded.
+
+The native `beforeToolCall` hook captures the original parent model invocation
+through Mastra's public `MessageList` adapter, before delegation starts. The
+short-lived capture uses native execution thread/call identity, and the host
+stores that input on the immutable invocation. The hook's `input` already has
+Mastra-injected scope defaults, so it is not substituted for the model's input.
+`onDelegationStart.messages` does not include the current call in core 1.64.
+Approval resume displays the original parent call while preserving the leaf
+tool as the approved operation. Missing original input is a visible refusal,
+never a fabricated delegation call or leaf arguments under a parent ID.
+
+Keyless rediscovery walks the same authorized graph and uses inert Agents with
+the original persona IDs to list native child snapshots. It loads no tools or
+provider credentials and does not resume workflows. The native reconstructed
+parent/child/grandchild fixture checks identity, original parent input, leaf
+arguments, approve-once/decline-never behavior and transcript parity. Host,
+contract, projection, notice, notification and hydration tests cover their own
+boundaries; negative controls remove root uniqueness and advance the native
+leaf during admission. These proofs do not yet constitute packaged process
+restart or complete child interaction UX.
+
+Persona read-only, ask-tool and interactive-tool restrictions remain until the
+remaining BST-1720 production entry, question/plan, interrupted-state UI and
+end-to-end acceptance is green. This foundation does not enable mutation tools
+or unrestricted recursive workers.

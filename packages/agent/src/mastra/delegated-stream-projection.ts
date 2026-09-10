@@ -1,3 +1,7 @@
+import {
+  type DelegatedToolActionIdentity,
+  isDelegatedToolActionIdentity,
+} from '@brainstrike/assistant-contract';
 import type { ConversationStreamChunk, StreamChunkDelegatedConversation } from '../types';
 import type { DelegatedRunIdentity } from './delegated-run-publication';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
@@ -38,6 +42,7 @@ export function createDelegatedStreamProjection<State>(
   options: DelegatedStreamProjectionOptions<State>
 ):
   | {
+      decorate: (chunk: ConversationStreamChunk) => ConversationStreamChunk;
       finalize: (
         finish: (state: State) => readonly ConversationStreamChunk[]
       ) => StreamChunkDelegatedConversation[];
@@ -52,10 +57,36 @@ export function createDelegatedStreamProjection<State>(
     return;
   }
   const children = new Map<string, ChildStreamState<State>>();
+  const pendingActions = new Map<string, DelegatedToolActionIdentity>();
+  const actionKey = (runId: string, toolCallId: string) => JSON.stringify([runId, toolCallId]);
+  const decorate = (
+    chunk: ConversationStreamChunk,
+    path: readonly DelegatedRunIdentity[] = []
+  ): ConversationStreamChunk => {
+    if (chunk.type !== 'tool-approval-required' && chunk.type !== 'tool-suspend-required') {
+      return chunk;
+    }
+    const forwarded = pendingActions.get(actionKey(chunk.runId, chunk.toolCallId));
+    if (forwarded) {
+      return { ...chunk, delegation: forwarded };
+    }
+    if (path.length === 0) {
+      return chunk;
+    }
+    const delegation = { path, toolCallId: chunk.toolCallId };
+    if (!isDelegatedToolActionIdentity(delegation)) {
+      throw new Error('Delegated tool pause has invalid native ancestry.');
+    }
+    for (const edge of path) {
+      pendingActions.set(actionKey(edge.parentRuntimeRunId, edge.parentToolCallId), delegation);
+    }
+    return { ...chunk, delegation };
+  };
 
   const project = async (
     part: unknown,
-    toolNames: Map<string, string>
+    toolNames: Map<string, string>,
+    ancestors: readonly DelegatedRunIdentity[] = []
   ): Promise<StreamChunkDelegatedConversation[]> => {
     if (readMastraStreamPartString(part, 'type') !== 'tool-output') {
       return [];
@@ -102,7 +133,8 @@ export function createDelegatedStreamProjection<State>(
     if (messageId !== undefined) {
       child.messageId = requireIdentity(messageId);
     }
-    const descendants = await project(nested, child.toolNames);
+    const path = [...ancestors, child.identity];
+    const descendants = await project(nested, child.toolNames, path);
     const { chunks, finished } = await options.mapPart(nested, child.state, child.toolNames);
     child.finished = finished;
     const projected = chunks.map((chunk): StreamChunkDelegatedConversation => {
@@ -112,13 +144,14 @@ export function createDelegatedStreamProjection<State>(
         messageId: child.messageId,
         type: 'delegated-conversation-chunk',
         ...(partId ? { partId } : {}),
-        chunk,
+        chunk: decorate(chunk, path),
       };
     });
     return [...descendants, ...projected];
   };
 
   return {
+    decorate,
     finalize: (finish) => {
       const result: StreamChunkDelegatedConversation[] = [];
       // Settle descendants before their parent, retaining each message's identity.

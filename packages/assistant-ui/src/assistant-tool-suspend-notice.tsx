@@ -1,4 +1,10 @@
 import { type CreateAppendMessage, useAui, useAuiState } from '@assistant-ui/react';
+import {
+  getToolActionIdentityKey,
+  getToolActionTarget,
+  isDelegatedToolActionIdentity,
+  isMatchingToolAction,
+} from '@brainstrike/assistant-contract';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import type {
   AskUserOption,
@@ -174,16 +180,14 @@ function isAssistantToolSuspendRequest(value: unknown): value is AssistantToolSu
     isRecord(value) &&
     typeof value['runId'] === 'string' &&
     typeof value['toolCallId'] === 'string' &&
-    typeof value['toolName'] === 'string'
+    typeof value['toolName'] === 'string' &&
+    (!('delegation' in value) ||
+      (Object.hasOwn(value, 'delegation') && isDelegatedToolActionIdentity(value['delegation'])))
   );
 }
 
 function isMatchingResumeAction(value: unknown, request: AssistantToolSuspendRequest): boolean {
-  return (
-    isRecord(value) &&
-    value['runId'] === request.runId &&
-    value['toolCallId'] === request.toolCallId
-  );
+  return isMatchingToolAction(value, request);
 }
 
 function getResumeActionFromMessage(message: unknown): unknown {
@@ -306,8 +310,7 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
       }
       const action: AssistantToolResumeAction = {
         resumeData,
-        runId: request.runId,
-        toolCallId: request.toolCallId,
+        ...getToolActionTarget(request),
         toolName: request.toolName,
       };
       const message = {
@@ -944,7 +947,7 @@ export function AssistantToolSuspendNotice({ data }: AssistantToolSuspendNoticeP
   }
   if (hasRegisteredSuspendResumeUi(request.toolName)) {
     const RegisteredNotice = SUSPEND_NOTICE_BY_TOOL_ID[request.toolName];
-    return <RegisteredNotice request={request} />;
+    return <RegisteredNotice key={getToolActionIdentityKey(request)} request={request} />;
   }
   // Unknown suspending tool: never guess a typed action (no-silent-wrong-render)
   // AND never present it as still-actionable — surface the rejection.
