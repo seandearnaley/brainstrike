@@ -2,78 +2,69 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useTheme } from '../theme-provider';
 import { ThemeSettings } from '../theme-settings';
+import { THEMES } from '../themes';
 
-// Use relative path for vi.mock
 vi.mock('../theme-provider', () => ({
   useTheme: vi.fn(),
 }));
 
 describe('ThemeSettings', () => {
-  const mockSetTheme = vi.fn();
+  const setMode = vi.fn();
+  const setTheme = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     (useTheme as ReturnType<typeof vi.fn>).mockReturnValue({
       mode: 'light',
-      setMode: mockSetTheme,
+      setMode,
+      setTheme,
+      theme: 'brainstrike',
     });
   });
 
-  it('renders all theme options', () => {
+  it('renders the mode buttons and highlights the active one', () => {
     render(<ThemeSettings />);
-
-    expect(screen.getByText('Light')).toBeInTheDocument();
-    expect(screen.getByText('Dark')).toBeInTheDocument();
-    expect(screen.getByText('System')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Light' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Dark' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'System' })).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('highlights the active theme button', () => {
-    (useTheme as ReturnType<typeof vi.fn>).mockReturnValue({
-      mode: 'dark',
-      setMode: mockSetTheme,
-    });
-
+  it('calls setMode with the clicked mode', () => {
     render(<ThemeSettings />);
-
-    // Get all buttons
-    const darkButton = screen.getByRole('button', { name: /dark/i });
-    const lightButton = screen.getByRole('button', { name: /light/i });
-    const systemButton = screen.getByRole('button', { name: /system/i });
-
-    // The active button (dark) should not have the outline class
-    expect(darkButton).not.toHaveClass('border');
-    // The inactive buttons should have the outline class (border)
-    expect(lightButton).toHaveClass('border');
-    expect(systemButton).toHaveClass('border');
+    fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
+    expect(setMode).toHaveBeenCalledWith('dark');
   });
 
-  it('calls setTheme when a theme button is clicked', () => {
+  it('renders one theme card per registry entry inside a radiogroup', () => {
     render(<ThemeSettings />);
-
-    fireEvent.click(screen.getByText('Dark'));
-    expect(mockSetTheme).toHaveBeenCalledWith('dark');
-
-    fireEvent.click(screen.getByText('Light'));
-    expect(mockSetTheme).toHaveBeenCalledWith('light');
-
-    fireEvent.click(screen.getByText('System'));
-    expect(mockSetTheme).toHaveBeenCalledWith('system');
+    const group = screen.getByRole('radiogroup', { name: 'Theme' });
+    const cards = screen.getAllByRole('radio');
+    expect(cards).toHaveLength(THEMES.length);
+    for (const theme of THEMES) {
+      expect(group).toContainElement(screen.getByRole('radio', { name: theme.label }));
+    }
   });
 
-  it('renders theme description text', () => {
+  it('marks the active theme card checked and switches on click', () => {
     render(<ThemeSettings />);
-
-    expect(
-      screen.getByText(
-        'Select your preferred theme mode. System will automatically match your device settings.'
-      )
-    ).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Brainstrike' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+    expect(screen.getByRole('radio', { name: 'Tide' })).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(screen.getByRole('radio', { name: 'Tide' }));
+    expect(setTheme).toHaveBeenCalledWith('tide');
   });
 
-  it('renders theme icons', () => {
+  it('paints each card swatch from the registry', () => {
     render(<ThemeSettings />);
+    const ember = THEMES.find((t) => t.id === 'ember');
+    const swatch = screen.getByTestId('theme-swatch-ember-light-primary');
+    expect(swatch).toHaveStyle({ backgroundColor: ember?.swatch.light.primary });
+  });
 
-    // Check for the presence of each specific icon
+  it('renders the mode icons', () => {
+    render(<ThemeSettings />);
     expect(screen.getByTestId('light-theme-icon')).toBeInTheDocument();
     expect(screen.getByTestId('dark-theme-icon')).toBeInTheDocument();
     expect(screen.getByTestId('system-theme-icon')).toBeInTheDocument();
