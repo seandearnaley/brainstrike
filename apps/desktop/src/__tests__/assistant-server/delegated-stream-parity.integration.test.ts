@@ -97,7 +97,7 @@ describe('desktop child transport and native row parity', () => {
         NOW(), NOW(), NOW(), 'user-turn');`);
   });
 
-  it('retains child tool inputs through live decoding and native reconstruction', async () => {
+  it('retains child content and lifecycle order through live decoding and native reconstruction', async () => {
     holder.model = scriptedAgentModel((options) => {
       if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
         return hasToolResult(options, 'agent-explore')
@@ -204,35 +204,42 @@ describe('desktop child transport and native row parity', () => {
       const history = await load(database);
       expect(await load(reconstructed)).toEqual(history);
       const contentSchema = z.discriminatedUnion('type', [
+        z.object({
+          data: z.unknown(),
+          name: z.literal('brainstrike.run-event'),
+          type: z.literal('data'),
+        }),
         z.object({ text: z.string(), type: z.literal('text') }),
         z.object({ text: z.string(), type: z.literal('reasoning') }),
         z.object({
-          args: z.unknown(),
-          result: z.unknown(),
+          args: z.object({ pattern: z.string() }),
+          result: z.object({ matches: z.array(z.string()) }),
           toolCallId: z.string(),
           toolName: z.string(),
           type: z.literal('tool-call'),
         }),
       ]);
-      const meaningfulParts = (parts: readonly { type: string }[]) =>
+      const transcriptParts = (parts: readonly { type: string }[]) =>
         parts
           .filter(
-            (part) => part.type === 'text' || part.type === 'reasoning' || part.type === 'tool-call'
+            (part) =>
+              part.type === 'text' ||
+              part.type === 'reasoning' ||
+              part.type === 'tool-call' ||
+              part.type === 'data'
           )
           .map((part) => contentSchema.parse(part));
       const hydratedParts = history.messages.flatMap(({ message }) =>
         message.role === 'assistant' ? message.content : []
       );
-      // The decoder adds a private Symbol to parsed arguments; storage retains JSON content.
-      expect(JSON.stringify(meaningfulParts(hydratedParts))).toBe(
-        JSON.stringify(meaningfulParts(decoded?.parts ?? []))
-      );
-      expect(meaningfulParts(hydratedParts).map((part) => part.type)).toEqual([
-        'text',
-        'reasoning',
-        'tool-call',
-        'text',
-      ]);
+      // Parse the known fixture input/result to exclude decoder-private Symbols.
+      // Object equality preserves all event data without depending on JSONB key order.
+      expect(transcriptParts(hydratedParts)).toEqual(transcriptParts(decoded?.parts ?? []));
+      expect(
+        transcriptParts(hydratedParts)
+          .filter((part) => part.type !== 'data')
+          .map((part) => part.type)
+      ).toEqual(['text', 'reasoning', 'tool-call', 'text']);
       expect(JSON.stringify(hydratedParts)).not.toContain('Parent summary.');
     } finally {
       await reconstructed.close();

@@ -2011,6 +2011,18 @@ function applyToolEventTimes(
   });
 }
 
+/** Only scoped native tool starts have a durable content boundary to override time. */
+function nativeToolStartPosition(
+  event: AssistantRunEvent,
+  toolPositions: ReadonlyMap<string, number>
+): number | undefined {
+  if (event.kind !== 'tool.started' || typeof event.metadata?.['nativeMessageId'] !== 'string') {
+    return;
+  }
+  const toolCallId = event.metadata?.['toolCallId'];
+  return typeof toolCallId === 'string' ? toolPositions.get(toolCallId) : undefined;
+}
+
 /**
  * Interleave run events with content parts in live order: each event is
  * emitted before the first content part produced after it. Parts without a
@@ -2026,14 +2038,26 @@ function weaveRunEventsIntoContent(
     return parts.map((timed) => timed.part);
   }
   const woven: Array<AssistantHydratedContentPart | AssistantRunEventDataPart> = [];
+  const toolPositions = new Map(
+    parts.flatMap((timed, index) =>
+      timed.part.type === 'tool-call' ? [[timed.part.toolCallId, index] as const] : []
+    )
+  );
   let eventIndex = 0;
   let lastAt = groupStartMs;
-  for (const timed of parts) {
+  for (const [partIndex, timed] of parts.entries()) {
     const at = timed.at ?? lastAt;
     lastAt = at;
     while (eventIndex < eventParts.length) {
       const eventPart = eventParts[eventIndex];
-      if (!eventPart || runEventTimeMs(eventPart) > at) {
+      if (!eventPart) {
+        break;
+      }
+      // Scoped child streams publish tool.started after the tool part. Native
+      // message/tool identity preserves that boundary when millisecond clocks tie.
+      // A cancelled call may have no saved part; retain its journal event normally.
+      const toolPosition = nativeToolStartPosition(eventPart.data, toolPositions);
+      if (toolPosition === undefined ? runEventTimeMs(eventPart) > at : toolPosition >= partIndex) {
         break;
       }
       woven.push(eventPart);
@@ -2266,6 +2290,7 @@ function buildHistoryUnits(
       return;
     }
     units.push({ kind: 'assistant-group', parts: openGroup.parts, rows: openGroup.rows });
+    seenToolCallsById.clear();
     openGroup = null;
   };
 
