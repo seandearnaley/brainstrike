@@ -1,8 +1,13 @@
+/** Production attempt-stream warning drains across synthetic terminal/error parts. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
 import { createStreamIteratorFromRuntime } from '../mastra/attempt-legs';
 import type { StreamChunk } from '../types';
-import { resetMastraStreamHarness, setStreamPartFailure } from './fixtures/mastra-stream-harness';
+import {
+  resetMastraStreamHarness,
+  setMockStreamParts,
+  setStreamPartFailure,
+} from './fixtures/mastra-stream-harness';
 
 vi.mock(
   '@ai-sdk/openai',
@@ -19,6 +24,55 @@ vi.mock(
 
 describe('provider warnings when the Mastra stream throws', () => {
   beforeEach(resetMastraStreamHarness);
+
+  it.each(['finish', 'missing-finish'] as const)(
+    'publishes late warnings before the %s stops the consumer',
+    async (ending) => {
+      setMockStreamParts([
+        { textDelta: 'Answer.', type: 'text-delta' },
+        ...(ending === 'finish'
+          ? [
+              {
+                finishReason: 'stop',
+                type: 'finish',
+                usage: { completionTokens: 1, promptTokens: 1 },
+              },
+            ]
+          : []),
+      ]);
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      });
+      const chunks: StreamChunk[] = [];
+      try {
+        const iterator = await createStreamIteratorFromRuntime({
+          messages: [{ id: 'u1', parts: [{ text: 'Answer.', type: 'text' }], role: 'user' }],
+          runtime,
+        });
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+          if (chunk.type === 'text-delta') {
+            runtime.providerCallWarnings.record([{ feature: 'temperature', type: 'unsupported' }]);
+          }
+          if (chunk.type === 'run-event' && chunk.event.kind === 'provider.request.warned') {
+            runtime.providerCallWarnings.record([{ setting: 'maxTokens', type: 'deprecated' }]);
+          }
+          if (chunk.type === 'message-finish') {
+            break;
+          }
+        }
+        expect(chunks.at(-1)?.type).toBe('message-finish');
+        expect(
+          chunks.filter(
+            (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'provider.request.warned'
+          )
+        ).toHaveLength(2);
+        expect(runtime.providerCallWarnings.drain()).toEqual([]);
+      } finally {
+        await runtime.dispose();
+      }
+    }
+  );
 
   it.each([false, true])(
     'drains captured warnings before propagating an error (late warning: %s)',

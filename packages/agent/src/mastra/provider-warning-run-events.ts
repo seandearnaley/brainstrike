@@ -27,6 +27,8 @@ export const PROVIDER_CALL_WARNING_RUN_EVENT_KIND = 'provider.request.warned' as
 
 /** Cap for the rendered + persisted detail, using the one shared clamp. */
 export const MAX_PROVIDER_CALL_WARNING_DETAIL_CHARS = 240;
+/** Reserve visible space for the explanation after the model identity. */
+const MAX_PROVIDER_CALL_WARNING_ORIGIN_CHARS = 80;
 
 /**
  * Per-type row headings. A MAP WITH A DEFAULT, not a filter: an unknown type
@@ -62,7 +64,7 @@ function detailFor(warning: ProviderCallWarning): string {
   const source =
     warning.origin === undefined
       ? ''
-      : `${truncateStreamDetail(`${warning.origin.provider}/${warning.origin.modelId}`, 80)}: `;
+      : `${truncateStreamDetail(`${warning.origin.provider}/${warning.origin.modelId}`, MAX_PROVIDER_CALL_WARNING_ORIGIN_CHARS)}: `;
   return truncateStreamDetail(`${source}${body}`, MAX_PROVIDER_CALL_WARNING_DETAIL_CHARS);
 }
 

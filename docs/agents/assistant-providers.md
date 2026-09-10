@@ -2312,7 +2312,8 @@ The sink bounds every provider-controlled field with the shared
 `boundRunEventReason` redaction/200-code-point contract before retaining it for
 deduplication, including model identity; string-shaped warnings preserve their
 explanation. All warning types share the existing 20-entry cap; accepted entries
-are never evicted. A warning
+are never evicted. Distinct model origins consume separate slots in that same
+cap. A warning
 recorded before exceptional stream termination is drained before the original
 error propagates, even if Mastra never yielded a mapped part. Terminal
 settlement also drains after child terminal publication, on both success and
@@ -2325,7 +2326,9 @@ docs/agents/assistant-persistence.md. Paired tests:
 `@ai-sdk/anthropic` adapter dropping `temperature`/`topK`/`topP` on
 `claude-opus-5`, captured through the production `createProvider`),
 `packages/agent/src/mastra/__tests__/provider-warning-run-events.spec.ts`
-(presentation, including a warning type the label table has never seen), and
+(presentation, including a warning type the label table has never seen),
+`packages/agent/src/__tests__/provider-warning-stream-errors.spec.ts` (terminal
+and exceptional attempt drains, including a consumer that stops at finish), and
 `packages/agent/src/__tests__/provider-warning-run-events.integration.spec.ts`
 (the whole chain through the real Mastra loop — the test that would have caught
 the `step-start.warnings` non-fix).
