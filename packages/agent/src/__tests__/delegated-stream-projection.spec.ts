@@ -36,8 +36,11 @@ describe('delegated stream terminal ownership', () => {
     }
     expect(await projection.project(part, new Map())).toEqual([]);
     const terminal = projection.finalize(() => [{ type: 'text-delta', value: 'Interrupted' }]);
+    expect(terminal).toHaveLength(1);
     expect(terminal[0]).toMatchObject({ baseline });
-    expect(projection.finalize(() => [])).toEqual([]);
+    expect(
+      projection.finalize(() => [{ type: 'text-delta', value: 'Duplicate terminal' }])
+    ).toEqual([]);
   });
 
   it('binds child and parent approval cards to the same exact leaf across reused aliases', async () => {

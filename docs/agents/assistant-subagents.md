@@ -1161,3 +1161,12 @@ on resume. A consumed decision retains its baseline until that host leg ends;
 finish runs at runtime disposal, so later continuation uses a new binding.
 Capture or validation failure stops admission and releases the unexecuted claim;
 it must never omit history and proceed as if the child view were complete.
+
+The DB unit and browser test projects must resolve the history reader's
+`assistant-contract/run-events` subpath before their root package alias. A
+root alias targeting `src/index.ts` cannot also resolve a subpath; the static
+workspace-source verifier and the DB entrypoint/worker tests guard this edge.
+The native parity assertion pairs the pre-effect marker exclusion with the
+approved leaf result, so the exclusion cannot pass after the fixture marker
+disappears. Terminal projection tests use a nonempty second producer to prove
+that abnormal termination is published only once.

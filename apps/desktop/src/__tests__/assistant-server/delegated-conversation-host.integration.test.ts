@@ -255,7 +255,7 @@ describe('desktop delegated conversation authority', () => {
     ).toEqual([{ state: 'consumed' }, { state: 'consumed' }]);
   });
 
-  it('shares one immutable initial baseline across concurrent binds of the same invocation', async () => {
+  it('shares one initial baseline across concurrent binds of the same invocation', async () => {
     const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
     await host.persist(identity);
     const [first, second] = await Promise.all([host.bindRun(run), host.bindRun(run)]);
@@ -273,7 +273,9 @@ describe('desktop delegated conversation authority', () => {
       runId: run.parentRuntimeRunId,
       toolCallId: run.parentToolCallId,
     };
-    await expect(host.prepareToolAction(action)).rejects.toThrow();
+    await expect(host.prepareToolAction(action)).rejects.toMatchObject({
+      reason: 'history-requires-admission',
+    });
     await host.claimToolAction(action);
     await expect(
       host.prepareToolAction({

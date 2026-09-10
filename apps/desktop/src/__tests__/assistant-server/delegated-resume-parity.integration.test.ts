@@ -503,6 +503,9 @@ describe('native approval resume child transcript parity', () => {
           if (read?.type === 'tool-call') {
             const args = z.object({ query: z.string() }).parse(read.args);
             expect(args).toEqual({ query: 'needle' });
+            if (approved) {
+              expect(read.result).toEqual({ value: 'APPROVED-EVIDENCE' });
+            }
             const storedRead = hydrated.find(
               (part) => part.type === 'tool-call' && part.toolCallId === read.toolCallId
             );

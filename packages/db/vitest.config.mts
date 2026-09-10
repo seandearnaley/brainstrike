@@ -68,6 +68,10 @@ const unitAliases: Record<string, string> = {
     __dirname,
     '../assistant-contract/src/mastra-memory-schema.ts'
   ),
+  '@brainstrike/assistant-contract/run-events': path.resolve(
+    __dirname,
+    '../assistant-contract/src/run-events.ts'
+  ),
   '@brainstrike/assistant-contract/tool-output-artifact': path.resolve(
     __dirname,
     '../assistant-contract/src/tool-output-artifact.ts'

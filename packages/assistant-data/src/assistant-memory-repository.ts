@@ -52,15 +52,15 @@ import {
   readAssistantHistoryRunEvents,
 } from '@brainstrike/db';
 
+import type { DbHandle } from '@brainstrike/db/react';
+import type { SuspendedRunDiscovery } from './assistant-suspended-approvals';
+
 export {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
   type AssistantHistoryMessage,
   type AssistantThreadMessageListOptions,
   type AssistantThreadRunEventListOptions,
 } from '@brainstrike/db';
-
-import type { DbHandle } from '@brainstrike/db/react';
-import type { SuspendedRunDiscovery } from './assistant-suspended-approvals';
 
 export interface AssistantMemoryThread {
   readonly createdAt: Date;

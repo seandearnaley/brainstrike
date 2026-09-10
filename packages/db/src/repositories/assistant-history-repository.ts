@@ -1,4 +1,5 @@
 import {
+  ASSISTANT_MESSAGE_PARENTS_TABLE,
   ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
   MASTRA_MEMORY_TABLES,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
@@ -18,7 +19,6 @@ interface AssistantHistoryDatabase {
 export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
-const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
 const ASSISTANT_RUN_EVENT_KIND_SET = new Set<AssistantRunEventKind>(ASSISTANT_RUN_EVENT_KINDS);
 const ASSISTANT_RUN_EVENT_STATUS_SET = new Set<AssistantRunEventStatus>(
   ASSISTANT_RUN_EVENT_STATUSES
