@@ -1,5 +1,11 @@
+import { listProviderLlmModels } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
-import { resolveBedrockModelId } from '../providers/bedrock-model-id';
+import {
+  GLOBAL_PROFILE_REGIONS_BY_MODEL,
+  NO_GLOBAL_PROFILE_MODEL_IDS,
+  PROFILE_MODEL_IDS_BY_GROUP,
+  resolveBedrockModelId,
+} from '../providers/bedrock-model-id';
 
 /**
  * BST-1350 (revised per PR #2522 review, finding 2/3): cross-region
@@ -130,10 +136,19 @@ describe('resolveBedrockModelId', () => {
   });
 
   describe('au regions (ap-southeast-2/4)', () => {
+    /**
+     * `anthropic.claude-opus-4-7` was MISSING from the au. set until BST-1710's
+     * card audit: its card publishes `au.anthropic.claude-opus-4-7` and marks
+     * ap-southeast-2/-4 Geo ✓, while marking the bare id In-Region ✗ in every
+     * region — so Sydney and Melbourne were being handed an id Bedrock cannot
+     * invoke. The audit cuts BOTH ways: drop the profiles AWS does not publish,
+     * emit the ones it does.
+     */
     it('prefixes the claude models that HAVE au. profiles', () => {
       for (const id of [
         'anthropic.claude-sonnet-5',
         'anthropic.claude-sonnet-4-6',
+        'anthropic.claude-opus-4-7',
         'anthropic.claude-opus-4-8',
         'anthropic.claude-haiku-4-5-20251001-v1:0',
       ]) {
@@ -158,11 +173,18 @@ describe('resolveBedrockModelId', () => {
   });
 
   describe('jp region (ap-northeast-1)', () => {
-    it('prefixes the claude models that HAVE jp. profiles', () => {
+    /**
+     * BST-1710: every id below was checked against its OWN AWS model card
+     * (retrieved 2026-09-10). Each card's Programmatic Access row lists a
+     * `jp.<id>` Geo inference ID and carries a "Geo: JP" section sourced from
+     * ap-northeast-1, so these are AWS-PUBLISHED profiles — not mirror guesses.
+     */
+    it('prefixes the claude models whose CARD publishes a jp. profile', () => {
       for (const id of [
-        'anthropic.claude-sonnet-5',
-        'anthropic.claude-sonnet-4-6',
+        'anthropic.claude-opus-4-7',
         'anthropic.claude-opus-4-8',
+        'anthropic.claude-sonnet-4-5-20250929-v1:0',
+        'anthropic.claude-sonnet-4-6',
         'anthropic.claude-haiku-4-5-20251001-v1:0',
       ]) {
         expect(resolveBedrockModelId(id, 'ap-northeast-1')).toBe(`jp.${id}`);
@@ -198,8 +220,40 @@ describe('resolveBedrockModelId', () => {
       expect(resolveBedrockModelId('anthropic.claude-opus-5', 'ap-northeast-1')).toBe(
         'global.anthropic.claude-opus-5'
       );
-      expect(resolveBedrockModelId('anthropic.claude-opus-5', 'ap-northeast-1')).not.toContain(
-        'jp.'
+    });
+
+    /**
+     * BST-1710: the SAME models.dev phantom as opus-5, one model later. The
+     * Claude Sonnet 5 card
+     * (docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5.html,
+     * retrieved 2026-09-10) gives Geo inference IDs `us.anthropic.claude-sonnet-5`,
+     * `eu.anthropic.claude-sonnet-5`, `au.anthropic.claude-sonnet-5` and Global
+     * `global.anthropic.claude-sonnet-5` — no `jp.` anywhere, no "Geo: JP"
+     * section, and its regional table marks ap-northeast-1 In-Region ✗ / Geo ✗ /
+     * Global ✓. The card outranks models.dev, so Tokyo never gets `jp.`.
+     *
+     * MERGE NOTE (BST-1711): when BST-1710 landed, dropping the phantom left
+     * Tokyo on the VERBATIM id, which the same card marks In-Region ✗ — still
+     * uninvocable, and that is exactly the row this ticket exists to close.
+     * `global.` is the route the card publishes for ap-northeast-1, so the
+     * expectation moves from the verbatim id to the global profile. Same
+     * ruling, one step further.
+     */
+    it('never emits jp. for sonnet-5, and since BST-1711 routes it global. instead', () => {
+      expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'ap-northeast-1')).toBe(
+        'global.anthropic.claude-sonnet-5'
+      );
+    });
+
+    it('still emits the us./eu./au. profiles the sonnet-5 card DOES publish', () => {
+      expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'us-east-1')).toBe(
+        'us.anthropic.claude-sonnet-5'
+      );
+      expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'eu-west-1')).toBe(
+        'eu.anthropic.claude-sonnet-5'
+      );
+      expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'ap-southeast-2')).toBe(
+        'au.anthropic.claude-sonnet-5'
       );
     });
 
@@ -368,6 +422,24 @@ describe('resolveBedrockModelId', () => {
       );
     });
 
+    /**
+     * PR #3118 review finding 4. `fable-5` is in EU_PROFILE_MODEL_IDS (a
+     * suspected models.dev phantom — its card publishes `us.`/`global.` only)
+     * while EU_PREFIX_REGIONS omits `eu-central-2`. The two facts together
+     * split one model across one geography, which is newly introduced by this
+     * ticket. Pinned so that closing the phantom has to change it on purpose.
+     */
+    it('splits fable-5 INSIDE the EU while the eu. phantom outlives the geo map', () => {
+      // eu-west-1 IS mapped, so geo precedence keeps the (phantom) eu. id.
+      expect(resolveBedrockModelId('anthropic.claude-fable-5', 'eu-west-1')).toBe(
+        'eu.anthropic.claude-fable-5'
+      );
+      // eu-central-2 is NOT mapped, so the card's Geo ✗ / Global ✓ row wins.
+      expect(resolveBedrockModelId('anthropic.claude-fable-5', 'eu-central-2')).toBe(
+        'global.anthropic.claude-fable-5'
+      );
+    });
+
     it('routes the EU regions through global. for Fable 5.1, which has no eu. geo', () => {
       expect(resolveBedrockModelId('anthropic.claude-fable-5-1', 'eu-west-1')).toBe(
         'global.anthropic.claude-fable-5-1'
@@ -381,6 +453,106 @@ describe('resolveBedrockModelId', () => {
       expect(resolveBedrockModelId('global.anthropic.claude-opus-5', 'ap-northeast-1')).toBe(
         'global.anthropic.claude-opus-5'
       );
+    });
+  });
+
+  /**
+   * PR #3118 review finding 1. `resolveBedrockModelId` checks geo BEFORE
+   * global, so a (model, region) pair that is in the global table AND has a
+   * geo profile for that region can never reach the global branch — the row is
+   * dead. A dead row is not automatically wrong (a card that may change, or a
+   * geo phantom already scheduled for removal, is a reason to keep one), but
+   * it must be DECLARED. This iterates the entire table and fails on any pair
+   * that is shadowed without being listed, which converts the module header's
+   * prose caveat into a mechanical guard.
+   *
+   * Exactly one family qualifies today: `anthropic.claude-fable-5` in the seven
+   * EU regions EU_PREFIX_REGIONS maps, because it sits in the `eu.` set even
+   * though its card publishes `us.`/`global.` only (the BST-1710-class phantom
+   * in the module's KNOWN GAPS). Its global rows stay, so that dropping the
+   * phantom needs no second edit here.
+   */
+  describe('the global table carries no UNDECLARED dead rows', () => {
+    const SHADOWED_MODEL_ID = 'anthropic.claude-fable-5';
+    const SHADOWED_REGIONS = [
+      'eu-central-1',
+      'eu-north-1',
+      'eu-south-1',
+      'eu-south-2',
+      'eu-west-1',
+      'eu-west-2',
+      'eu-west-3',
+    ] as const;
+    const KNOWN_SHADOWED_PAIRS: ReadonlySet<string> = new Set(
+      SHADOWED_REGIONS.map((region) => `${SHADOWED_MODEL_ID} @ ${region}`)
+    );
+
+    it('every global entry either wins its region or is a declared shadowed pair', () => {
+      const shadowed: string[] = [];
+      for (const [modelId, regions] of GLOBAL_PROFILE_REGIONS_BY_MODEL) {
+        for (const region of regions) {
+          if (resolveBedrockModelId(modelId, region) !== `global.${modelId}`) {
+            shadowed.push(`${modelId} @ ${region}`);
+          }
+        }
+      }
+      expect(shadowed.filter((pair) => !KNOWN_SHADOWED_PAIRS.has(pair)).sort()).toEqual([]);
+    });
+
+    it('every declared shadowed pair is STILL shadowed — delete it once it is not', () => {
+      for (const region of SHADOWED_REGIONS) {
+        expect(resolveBedrockModelId(SHADOWED_MODEL_ID, region)).toBe(`eu.${SHADOWED_MODEL_ID}`);
+      }
+    });
+  });
+
+  /**
+   * PR #3118 review finding 2 — the REFRESH CONTRACT, which the module header
+   * used to assert in prose ("the four such catalog ids") and nothing checked.
+   * The claim was wrong in both directions: two of the four are not catalog ids
+   * at all, and the catalog carries five more ids with no profile of any kind.
+   *
+   * The invariant that actually matters is a PARTITION: every id this module
+   * names — each Bedrock catalog id, plus every member of the four geo sets —
+   * belongs to exactly one of GLOBAL_PROFILE_REGIONS_BY_MODEL and
+   * NO_GLOBAL_PROFILE_MODEL_IDS. Without it a newly added Claude id silently
+   * gets no global routing and, since the cards mark the base id In-Region ✗
+   * everywhere, is uninvocable outside its geo regions with no test to say so.
+   *
+   * `listProviderLlmModels` is the whole Bedrock catalog surface here — the
+   * provider has no embedding models and `createEmbeddingProvider` throws for
+   * it (documented exclusion in docs/agents/assistant-providers.md).
+   */
+  describe('global-routing classification covers every id the module names', () => {
+    const namedIds: ReadonlySet<string> = new Set([
+      ...listProviderLlmModels('bedrock').map((model) => model.id),
+      ...Object.values(PROFILE_MODEL_IDS_BY_GROUP).flatMap((ids) => [...ids]),
+    ]);
+
+    it('puts each named id in exactly one of the two global tables', () => {
+      const unclassified: string[] = [];
+      const inBoth: string[] = [];
+      for (const id of namedIds) {
+        const hasGlobalRegions = GLOBAL_PROFILE_REGIONS_BY_MODEL.has(id);
+        const declaredNoGlobal = NO_GLOBAL_PROFILE_MODEL_IDS.has(id);
+        if (hasGlobalRegions && declaredNoGlobal) {
+          inBoth.push(id);
+        } else if (!(hasGlobalRegions || declaredNoGlobal)) {
+          unclassified.push(id);
+        }
+      }
+      expect({ inBoth: inBoth.sort(), unclassified: unclassified.sort() }).toEqual({
+        inBoth: [],
+        unclassified: [],
+      });
+    });
+
+    it('classifies no id the module does not name — stale rows fail too', () => {
+      const stale = [
+        ...GLOBAL_PROFILE_REGIONS_BY_MODEL.keys(),
+        ...NO_GLOBAL_PROFILE_MODEL_IDS,
+      ].filter((id) => !namedIds.has(id));
+      expect(stale.sort()).toEqual([]);
     });
   });
 });

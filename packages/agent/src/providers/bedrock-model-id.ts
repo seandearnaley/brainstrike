@@ -18,29 +18,51 @@
  *   au./jp./apac. profile and stays unprefixed in those geographies.
  * - `apac.` profiles do not exist at all today, so it is never emitted.
  *
- * AWS-CARD OVERRIDE (BST-1694, PR #3080 review): where an AWS model card
- * enumerates a model's inference profiles, the CARD outranks models.dev —
- * models.dev is a third-party mirror and can list a profile AWS never
- * published. The one such divergence today is
- * `jp.anthropic.claude-opus-5`: the Opus 5 card
- * (docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5.html,
- * retrieved 2026-09-08) lists `anthropic.claude-opus-5` plus `us.`, `eu.`,
- * `au.` and `global.` only, and its Data residency table covers exactly the
- * US, EU and AU geos plus Global. So Opus 5 is absent from the jp. set below;
- * in ap-northeast-1 (which that card marks Global-only) the id is sent
- * verbatim and Bedrock reports the outcome, per the rule in the next
- * paragraph. Emitting a profile AWS does not publish fails harder — it can
- * only ever be a client-manufactured error. Pre-existing and NOT fixed with
- * it: `jp.anthropic.claude-sonnet-5` is the same models.dev phantom
- * (BST-1710).
+ * AWS-CARD OVERRIDE (BST-1694, PR #3080 review; audit completed in BST-1710):
+ * where an AWS model card enumerates a model's inference profiles, the CARD
+ * outranks models.dev. models.dev is a third-party mirror: it can list a
+ * profile AWS never published, and it can equally MISS one AWS does publish.
+ * Emitting a profile AWS does not publish fails harder than sending the id
+ * verbatim — it can only ever be a client-manufactured error, aimed at an id
+ * Bedrock will never answer.
  *
- * GLOBAL PROFILE ROUTING (BST-1711). The current Claude cards mark the BASE
- * model id In-Region ✗ in every region, so the bare `anthropic.claude-opus-5`
- * is not invocable at `bedrock-runtime` anywhere — a geo or a global profile
- * is mandatory, and AWS's own sample code on those cards calls
- * `global.<id>`. This module previously emitted no `global.` prefix at all
- * (it appeared only in CROSS_REGION_PREFIXES, for pass-through), so every
- * region a card marks Geo ✗ / Global ✓ received an id Bedrock cannot answer.
+ * BST-1710 audited every `jp.` entry against its own card (retrieved
+ * 2026-09-10):
+ * - PUBLISHED, kept — `anthropic.claude-opus-4-7`,
+ *   `anthropic.claude-opus-4-8`, `anthropic.claude-sonnet-4-5-20250929-v1:0`,
+ *   `anthropic.claude-sonnet-4-6`, `anthropic.claude-haiku-4-5-20251001-v1:0`.
+ *   Each card's Programmatic Access row lists a `jp.<id>` Geo inference ID and
+ *   carries a "Geo: JP" section sourced from ap-northeast-1.
+ * - PHANTOM, removed — `anthropic.claude-sonnet-5`. Its card
+ *   (docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5.html)
+ *   gives Geo ids `us.`, `eu.`, `au.` and Global `global.anthropic.claude-sonnet-5`
+ *   only, has no "Geo: JP" section, and marks ap-northeast-1 In-Region ✗ /
+ *   Geo ✗ / Global ✓.
+ * - PHANTOM, removed earlier by BST-1694 on the same evidence shape —
+ *   `anthropic.claude-opus-5`.
+ *
+ * The audit cuts BOTH ways. The same pass found `anthropic.claude-opus-4-7`
+ * MISSING from the au. set although its card publishes
+ * `au.anthropic.claude-opus-4-7` and marks ap-southeast-2/-4 Geo ✓ while
+ * marking the bare id In-Region ✗ everywhere — so Sydney/Melbourne were being
+ * handed an id Bedrock cannot invoke. It was added. The us./eu. sets matched
+ * their cards for all six audited ids.
+ *
+ * Cards NOT read in that pass keep their models.dev-derived membership
+ * unchanged: fable-5, fable-5-1, opus-4-1, opus-4-5, opus-4-6-v1,
+ * deepseek.r1 and the llama4 pair. None of them is in the jp. set, so none can
+ * be a jp. phantom.
+ *
+ * GLOBAL PROFILE ROUTING (BST-1711) — the gap BST-1710 left open. The current
+ * Claude cards mark the BASE model id In-Region ✗ in every region, so the bare
+ * `anthropic.claude-opus-5` is not invocable at `bedrock-runtime` anywhere — a
+ * geo or a global profile is mandatory, and AWS's own sample code on those
+ * cards calls `global.<id>`. This module previously emitted no `global.`
+ * prefix at all (it appeared only in CROSS_REGION_PREFIXES, for pass-through),
+ * so every region a card marks Geo ✗ / Global ✓ received an id Bedrock cannot
+ * answer. The two ap-northeast-1 rows the jp. audit had to leave verbatim —
+ * opus-5 and sonnet-5 — now take `global.<id>`, which is exactly what their
+ * cards publish for Tokyo.
  *
  * PRECEDENCE: geo first, global second, verbatim last. Data residency is the
  * stronger guarantee, so a region that HAS a geo profile for the model keeps
@@ -79,15 +101,22 @@
  *   EU_PREFIX_REGIONS/AU_REGIONS with per-model geo tables.
  * - `anthropic.claude-fable-5` is in EU_PROFILE_MODEL_IDS but its card
  *   publishes `us.` and `global.` ONLY — a BST-1710-class models.dev phantom
- *   found while building this table. Geo precedence therefore still emits
- *   `eu.anthropic.claude-fable-5` in the EU regions, shadowing the global
- *   entries recorded for it above. Same defect class as BST-1710, so it is
- *   filed separately rather than smuggled into a routing PR.
+ *   found while building this table. Same defect class as BST-1710, so it is
+ *   filed separately rather than smuggled into a routing PR. Two consequences
+ *   are pinned by spec cases so closing the phantom has to change them
+ *   deliberately: geo precedence still emits `eu.anthropic.claude-fable-5` in
+ *   the SEVEN mapped EU regions, shadowing this model's global entries for
+ *   them (the only shadowed pairs that exist — the spec enumerates the whole
+ *   global table and fails on any unlisted one); and because EU_PREFIX_REGIONS
+ *   omits `eu-central-2` while EU_COMMERCIAL_REGIONS includes it, fable-5
+ *   splits INSIDE the EU — `eu.` in eu-west-1, `global.` in eu-central-2.
  *
  * Refresh procedure: re-run the models.dev extraction (prefixed keys grouped
- * by prefix), CHECK every id against its AWS model card (the card wins in both
- * directions), re-transcribe the Regional Availability rows for the global
- * table, update bedrock-model-id.spec.ts, and bump the retrieval dates above.
+ * by prefix), then CHECK EVERY ID YOU ADD OR KEEP against its AWS model card's
+ * Programmatic Access row — the card wins in both directions, and a mirror
+ * diff alone has twice now been wrong. Re-transcribe the card's Regional
+ * Availability rows for the global table too. Update the sets, update
+ * bedrock-model-id.spec.ts, and bump the retrieval dates above.
  */
 
 const CROSS_REGION_PREFIXES = ['global.', 'us.', 'eu.', 'jp.', 'apac.', 'au.'] as const;
@@ -131,8 +160,9 @@ const EU_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Unprefixed ids with a `jp.<id>` profile (models.dev 2026-08-18), MINUS the
- * ids an AWS model card contradicts — see the AWS-card override note above.
+ * Unprefixed ids with a `jp.<id>` profile. Every member was confirmed against
+ * its own AWS model card in the BST-1710 audit (2026-09-10); the ids the cards
+ * contradict are gone — see the AWS-card override note above.
  */
 const JP_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-haiku-4-5-20251001-v1:0',
@@ -140,13 +170,17 @@ const JP_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-opus-4-8',
   'anthropic.claude-sonnet-4-5-20250929-v1:0',
   'anthropic.claude-sonnet-4-6',
-  'anthropic.claude-sonnet-5',
 ]);
 
-/** Unprefixed ids with an `au.<id>` profile (models.dev 2026-08-18). */
+/**
+ * Unprefixed ids with an `au.<id>` profile (models.dev 2026-08-18, plus
+ * `anthropic.claude-opus-4-7` added by the BST-1710 card audit — its card
+ * publishes `au.anthropic.claude-opus-4-7` and models.dev had missed it).
+ */
 const AU_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-haiku-4-5-20251001-v1:0',
   'anthropic.claude-opus-4-6-v1',
+  'anthropic.claude-opus-4-7',
   'anthropic.claude-opus-4-8',
   'anthropic.claude-opus-5',
   'anthropic.claude-sonnet-4-5-20250929-v1:0',
@@ -175,6 +209,13 @@ const AU_REGIONS: ReadonlySet<string> = new Set(['ap-southeast-2', 'ap-southeast
  * Regions EVERY global-capable Claude card marks Geo ✗ / Global ✓ (cards
  * retrieved 2026-09-10). Note `us-gov-*` is deliberately absent: the cards
  * that list GovCloud mark it Global ✗.
+ *
+ * `ap-east-1` (Hong Kong) is absent for a different reason, recorded here so
+ * the next transcriber does not re-derive it (PR #3118 review finding 7): it
+ * appears NOWHERE on the cards' Regional Availability tables — not as Geo ✗,
+ * not as Global ✓, not at all (verified on the Opus 5 card, whose table runs
+ * `ap-east-2` straight to `ap-northeast-1`). An absent row is not a Global ✓
+ * row, so Hong Kong keeps sending the verbatim id.
  */
 const GLOBAL_ONLY_CORE_REGIONS = [
   'af-south-1',
@@ -210,46 +251,59 @@ function globalOnlyRegions(...additional: readonly string[]): ReadonlySet<string
   return new Set<string>([...GLOBAL_ONLY_CORE_REGIONS, ...additional]);
 }
 
+/*
+ * Cards that agree share ONE set, so a refresh cannot silently drift the two
+ * halves apart (PR #3118 review finding 5). Splitting a shared const is the
+ * forcing function when a future card revision makes the pair disagree.
+ */
+
+/** Fable 5 / 5.1: `us.` and `global.` only — no EU, no AU, no JP geo at all. */
+const FABLE_GLOBAL_REGIONS = globalOnlyRegions(
+  ...EU_COMMERCIAL_REGIONS,
+  'ap-northeast-1',
+  'ap-northeast-3',
+  'ap-southeast-2',
+  'ap-southeast-4',
+  'ap-southeast-6'
+);
+
+/** Haiku 4.5 / Sonnet 4.5: `ca-west-1` is Geo ✗ on both (Geo ✓ elsewhere). */
+const CA_WEST_GLOBAL_REGIONS = globalOnlyRegions('ca-west-1');
+
+/** Opus 4.7 / 4.8: US+EU+AU+JP geo — only NZ falls through to global. */
+const NZ_ONLY_GLOBAL_REGIONS = globalOnlyRegions('ap-southeast-6');
+
+/** Opus 5 / Sonnet 5: no JP geo, so Tokyo and Osaka join NZ on global. */
+const NO_JP_GEO_GLOBAL_REGIONS = globalOnlyRegions(
+  'ap-northeast-1',
+  'ap-northeast-3',
+  'ap-southeast-6'
+);
+
 /**
  * Per-model regions where the card marks Geo ✗ / Global ✓ — i.e. where
  * `global.<id>` is the only invocable route and the verbatim id is not.
  * Transcribed from each model card's Regional Availability table (bedrock-
  * runtime), retrieved 2026-09-10.
  *
- * A model ABSENT from this map never receives `global.`. The four such
- * catalog ids all publish no Global inference ID at all: their cards read
- * "N/A" (`anthropic.claude-opus-4-1-20250805-v1:0`) or "Not supported"
- * (`deepseek.r1-v1:0`, `meta.llama4-maverick-17b-instruct-v1:0`,
- * `meta.llama4-scout-17b-instruct-v1:0`), and each is a us-only model whose
- * card lists three or four US rows with Global ✗ throughout.
+ * A model ABSENT from this map never receives `global.`, and that absence is
+ * a DECISION rather than a default: every id this module names — each Bedrock
+ * CATALOG id plus every member of the four geo sets — must appear either as a
+ * key here or in NO_GLOBAL_PROFILE_MODEL_IDS below, which carries the per-id
+ * reason. bedrock-model-id.spec.ts asserts that partition in both directions
+ * against the real catalog, so a NEW id fails the suite until someone
+ * classifies it. That guard is the refresh contract: an unclassified Claude id
+ * would silently get no global routing and, since the cards mark the base id
+ * In-Region ✗ everywhere, be uninvocable outside its geo regions. (PR #3118
+ * review finding 2: this header previously claimed "the four such catalog
+ * ids", counting two ids the catalog does not carry and missing five it
+ * does.)
  */
-const GLOBAL_PROFILE_REGIONS_BY_MODEL: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  // No EU and no AU/JP geo on the Fable cards — only `us.` and `global.`.
-  [
-    'anthropic.claude-fable-5',
-    globalOnlyRegions(
-      ...EU_COMMERCIAL_REGIONS,
-      'ap-northeast-1',
-      'ap-northeast-3',
-      'ap-southeast-2',
-      'ap-southeast-4',
-      'ap-southeast-6'
-    ),
-  ],
-  [
-    'anthropic.claude-fable-5-1',
-    globalOnlyRegions(
-      ...EU_COMMERCIAL_REGIONS,
-      'ap-northeast-1',
-      'ap-northeast-3',
-      'ap-southeast-2',
-      'ap-southeast-4',
-      'ap-southeast-6'
-    ),
-  ],
-  // ca-west-1 is Geo ✗ on the Haiku 4.5 and Sonnet 4.5 cards (Geo ✓ elsewhere).
-  ['anthropic.claude-haiku-4-5-20251001-v1:0', globalOnlyRegions('ca-west-1')],
-  ['anthropic.claude-sonnet-4-5-20250929-v1:0', globalOnlyRegions('ca-west-1')],
+export const GLOBAL_PROFILE_REGIONS_BY_MODEL: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ['anthropic.claude-fable-5', FABLE_GLOBAL_REGIONS],
+  ['anthropic.claude-fable-5-1', FABLE_GLOBAL_REGIONS],
+  ['anthropic.claude-haiku-4-5-20251001-v1:0', CA_WEST_GLOBAL_REGIONS],
+  ['anthropic.claude-sonnet-4-5-20250929-v1:0', CA_WEST_GLOBAL_REGIONS],
   // Opus 4.5 publishes `us.`/`eu.` only — no AU and no JP geo anywhere.
   [
     'anthropic.claude-opus-4-5-20251101-v1:0',
@@ -264,25 +318,47 @@ const GLOBAL_PROFILE_REGIONS_BY_MODEL: ReadonlyMap<string, ReadonlySet<string>> 
   ],
   // Opus 4.6 has AU (incl. NZ) but no JP geo.
   ['anthropic.claude-opus-4-6-v1', globalOnlyRegions('ap-northeast-1', 'ap-northeast-3')],
-  // Opus 4.7/4.8 have JP geo (Tokyo + Osaka); only NZ falls through to global.
-  ['anthropic.claude-opus-4-7', globalOnlyRegions('ap-southeast-6')],
-  ['anthropic.claude-opus-4-8', globalOnlyRegions('ap-southeast-6')],
-  // Opus 5 and Sonnet 5 have no JP geo — Tokyo/Osaka are global-only.
-  [
-    'anthropic.claude-opus-5',
-    globalOnlyRegions('ap-northeast-1', 'ap-northeast-3', 'ap-southeast-6'),
-  ],
-  [
-    'anthropic.claude-sonnet-5',
-    globalOnlyRegions('ap-northeast-1', 'ap-northeast-3', 'ap-southeast-6'),
-  ],
+  ['anthropic.claude-opus-4-7', NZ_ONLY_GLOBAL_REGIONS],
+  ['anthropic.claude-opus-4-8', NZ_ONLY_GLOBAL_REGIONS],
+  ['anthropic.claude-opus-5', NO_JP_GEO_GLOBAL_REGIONS],
+  ['anthropic.claude-sonnet-5', NO_JP_GEO_GLOBAL_REGIONS],
   // Sonnet 4.6's card is the widest: US+EU+AU(incl. NZ)+JP(incl. Osaka) geo.
   ['anthropic.claude-sonnet-4-6', globalOnlyRegions()],
 ]);
 
+/**
+ * The OTHER half of the partition described above
+ * GLOBAL_PROFILE_REGIONS_BY_MODEL: ids this module names that deliberately get
+ * no `global.` prefix, each with its reason. Held as an explicit set — rather
+ * than left implicit in "absent from the map" — so the refresh contract is
+ * mechanical rather than a prose promise.
+ *
+ * - CARD PUBLISHES NO GLOBAL INFERENCE ID. `anthropic.claude-opus-4-1-…`
+ *   reads "N/A"; `deepseek.r1-v1:0` and the two `meta.llama4-*` routes read
+ *   "Not supported". Each is a us-only model whose card lists three or four US
+ *   rows with Global ✗ throughout.
+ * - NO CROSS-REGION PROFILE OF ANY KIND. The four `amazon.nova-*` catalog ids
+ *   and `deepseek.v3.2` are in no geo set here either (models.dev 2026-08-18
+ *   lists none, and no card was read for them), so they were already sent
+ *   verbatim everywhere. They are listed to record that the omission was
+ *   CHECKED, not overlooked — behaviour is unchanged.
+ */
+export const NO_GLOBAL_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
+  'amazon.nova-2-lite-v1:0',
+  'amazon.nova-lite-v1:0',
+  'amazon.nova-micro-v1:0',
+  'amazon.nova-pro-v1:0',
+  'anthropic.claude-opus-4-1-20250805-v1:0',
+  'deepseek.r1-v1:0',
+  'deepseek.v3.2',
+  'meta.llama4-maverick-17b-instruct-v1:0',
+  'meta.llama4-scout-17b-instruct-v1:0',
+]);
+
 type PrefixGroup = 'au' | 'eu' | 'jp' | 'us';
 
-const PROFILE_MODEL_IDS_BY_GROUP: Record<PrefixGroup, ReadonlySet<string>> = {
+/** Exported for the partition guard in bedrock-model-id.spec.ts. */
+export const PROFILE_MODEL_IDS_BY_GROUP: Record<PrefixGroup, ReadonlySet<string>> = {
   au: AU_PROFILE_MODEL_IDS,
   eu: EU_PROFILE_MODEL_IDS,
   jp: JP_PROFILE_MODEL_IDS,

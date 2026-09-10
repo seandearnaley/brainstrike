@@ -1754,6 +1754,34 @@ factory per request (see the auth-input EXACTLY-ONE rule above).
   is sent verbatim and Bedrock reports the outcome. Never double-prefixes;
   `us-gov*` excluded from `us.`; no `apac.` profiles exist today. Refresh
   procedure lives in the module header.
+- **An AWS model card OUTRANKS models.dev (BST-1694, PR #3080 review;
+  `jp.` set audited to completion in BST-1710).** models.dev is a third-party
+  mirror: it can list a regional profile AWS never published, and it can
+  equally MISS one AWS does publish. Emitting a profile AWS does not publish is
+  a client-MANUFACTURED failure, strictly worse than the verbatim id Bedrock
+  can answer for. Where a card enumerates a model's profiles the card wins, and
+  the divergence is recorded inline in the module header.
+  - **Phantoms removed:** `anthropic.claude-opus-5` (BST-1694) and
+    `anthropic.claude-sonnet-5` (BST-1710) are NOT in the `jp.` set. Each
+    card publishes `us.`/`eu.`/`au.`/`global.` only, carries no "Geo: JP"
+    section, and marks ap-northeast-1 In-Region ✗ / Geo ✗ / Global ✓.
+  - **The audit cuts both ways:** BST-1710 also found
+    `anthropic.claude-opus-4-7` MISSING from the `au.` set although its card
+    publishes `au.anthropic.claude-opus-4-7` and marks ap-southeast-2/-4
+    Geo ✓ — so ap-southeast-2/-4 were emitting an id Bedrock cannot invoke.
+    It was ADDED. Under-emission and over-emission are the same defect.
+  - **Card-verified as published, kept in `jp.`:** `anthropic.claude-opus-4-7`,
+    `anthropic.claude-opus-4-8`, `anthropic.claude-sonnet-4-5-20250929-v1:0`,
+    `anthropic.claude-sonnet-4-6`,
+    `anthropic.claude-haiku-4-5-20251001-v1:0` (retrieved 2026-09-10). Ids
+    whose cards were not read keep their models.dev membership; none of them
+    is in the `jp.` set, so none can be a `jp.` phantom.
+  - **Closed by BST-1711 (next bullet):** removing a phantom used to leave
+    Tokyo on the verbatim id, because the module emitted no `global.` ROUTING
+    at all. It does now, so the two rows the audit had to leave verbatim
+    resolve to `global.anthropic.claude-opus-5` and
+    `global.anthropic.claude-sonnet-5` in ap-northeast-1 — exactly what those
+    cards publish for it.
 - **`global.` ROUTING, and its precedence (BST-1711).** The current Claude
   cards mark the BASE model id In-Region ✗ in EVERY region, so the bare
   `anthropic.claude-opus-5` is not invocable at `bedrock-runtime` anywhere — a
@@ -1769,33 +1797,38 @@ factory per request (see the auth-input EXACTLY-ONE rule above).
   - **GovCloud never receives `global.`** — `us-gov-west-1`/`us-gov-east-1`
     are Global ✗ on every card that lists them (Opus 5, Fable 5.1, Sonnet
     4.5), so they are in no global set. Pinned by a spec case.
-  - **A model absent from the table never gets `global.`**: the four catalog
-    ids whose cards publish no Global inference ID at all —
-    `anthropic.claude-opus-4-1-20250805-v1:0` ("N/A"), `deepseek.r1-v1:0`,
-    and both `meta.llama4-*` routes ("Not supported").
+  - **A model absent from the table never gets `global.`, and that absence is
+    a DECISION, not a default.** Every id this module names — each Bedrock
+    catalog id plus every member of the four geo sets — must appear either as
+    a key of `GLOBAL_PROFILE_REGIONS_BY_MODEL` or in
+    `NO_GLOBAL_PROFILE_MODEL_IDS`, whose comment carries the per-id reason
+    ("N/A" / "Not supported" on the card, or no cross-region profile of any
+    kind). `bedrock-model-id.spec.ts` asserts that partition in both
+    directions against the real catalog, so a newly added id fails the suite
+    until someone classifies it. That is the refresh contract: an unclassified
+    Claude id would otherwise be silently uninvocable outside its geo regions.
   - The table is per model because the cards genuinely disagree: Opus 4.5 has
     no AU geo (Sydney is global-only for it alone), Fable 5/5.1 have no EU geo
     (all eight EU regions are global-only), and `ca-west-1` is Geo ✗ on the
     Haiku 4.5 / Sonnet 4.5 cards but Geo ✓ on others.
+  - **Shadowed entries are enumerated, not implied.** Because geo is checked
+    first, a global entry for a region the model ALSO has a geo profile in is
+    dead code. Exactly one such family exists today — `fable-5` in the seven
+    mapped EU regions, where the `eu.` set is itself a suspected phantom (see
+    Still open). It is kept, not deleted, because the fix is to drop the
+    phantom rather than the global row; a spec case iterates the whole table
+    and fails if any UNLISTED shadowed pair appears.
   - **Still open (follow-up):** the GEO map is still prefix-shaped, so regions
     the cards mark Geo ✓ that it does not map keep sending the verbatim id —
     `ca-central-1`/`ca-west-1`, `eu-central-2`, `ap-northeast-3`,
     `ap-southeast-6`. Those are UNDER-emissions. Also
     `anthropic.claude-fable-5` sits in the `eu.` set although its card
     publishes `us.`/`global.` only — a BST-1710-class phantom found while
-    building the global table, filed rather than folded in.
-- **An AWS model card OUTRANKS models.dev (BST-1694, PR #3080 review).**
-  models.dev is a third-party mirror and can list a regional profile AWS
-  never published; emitting one is a client-MANUFACTURED failure, strictly
-  worse than the verbatim id Bedrock can answer for. Where a card enumerates
-  a model's profiles, the card wins and the divergence is recorded inline in
-  the module header. Today's one override: `anthropic.claude-opus-5` is NOT
-  in the `jp.` set — its card publishes `us.`/`eu.`/`au.`/`global.` only and
-  marks ap-northeast-1 Global-only. Pre-existing, NOT fixed here: the same
-  divergence for `anthropic.claude-sonnet-5` (BST-1710). Since BST-1711 those
-  Global-only regions no longer fall through to the verbatim id — they take
-  the `global.` profile (see the routing bullet above), so Tokyo resolves to
-  `global.anthropic.claude-opus-5`.
+    building the global table, filed rather than folded in. Its visible
+    symptom is a split INSIDE the EU: `eu.anthropic.claude-fable-5` in
+    `eu-west-1` (mapped, geo wins) but `global.anthropic.claude-fable-5` in
+    `eu-central-2` (unmapped, global wins). Both are pinned, so closing the
+    phantom has to change them deliberately.
 - **Exclusions:** no embeddings (`createEmbeddingProvider` throws), not a
   persistent-memory provider (`PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS`),
   and NOT in `HOSTED_WEB_ASSISTANT_PROVIDERS` (desktop-only until a web ticket
