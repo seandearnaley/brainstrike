@@ -519,6 +519,13 @@ async function handleStreamFailure(err: unknown, runtime: MastraAgentRuntime): P
       code: 'mastra_agent_runtime_dispose_failed',
       error: disposeError instanceof Error ? disposeError.message : String(disposeError),
     });
+    throw createMastraAgentError('mastra_agent_stream_failure', {
+      cause: new AggregateError(
+        [err, disposeError],
+        'Assistant stream construction and runtime cleanup failed.'
+      ),
+      detail: 'Assistant stream construction failed and runtime cleanup did not complete.',
+    });
   }
   if (isMastraAgentError(err)) {
     throw err;

@@ -938,7 +938,10 @@ rolls back only that binding's matching unexecuted claim and propagates the
 failure. Subsequent native failures or cancellation do not release the leaf:
 the effect may already have occurred. Disposal attempts all cleanup owners in
 order and preserves multiple failures in an `AggregateError`; it never logs
-and swallows a failed decision settlement.
+and swallows a failed decision settlement. Construction failures on every
+initial/approve/decline/resume leg retain both the original failure and any
+disposal aggregate as the typed stream error's cause, and explicitly report
+incomplete cleanup to the caller.
 
 The native `beforeToolCall` hook captures the original parent model invocation
 through Mastra's public `MessageList` adapter, before delegation starts. The
