@@ -1123,7 +1123,7 @@ pause is legitimate content, not evidence of a duplicate.
 The desktop binding captures an immutable history baseline after the exact
 leaf decision is claimed and its native snapshot validated, before invoking
 native resume. Every ancestor on that admitted path uses the ordinary history
-readers, including rewind tombstones, message parent topology and the existing
+readers in `@brainstrike/db`, including rewind tombstones, message parent topology and the existing
 80-message/run hydration window. All reads must succeed before any baseline
 is published. A different leaf cannot borrow the claim; releasing an
 unexecuted claim clears its snapshots so a later admission reads fresh state.
@@ -1142,3 +1142,22 @@ production decoder. The host integration test proves exact admission and
 release/recapture, and projection/receiver tests pin termination and ordering.
 The baseline is the transport prerequisite for BST-1724's shared live view;
 it does not by itself enable child controls or remove persona capability gates.
+
+The readers and native row conversion live in the Node-compatible DB package,
+not the renderer-facing `assistant-data` entry. Electron main externalizes
+workspace imports as CJS requires; a browser-only export can type-check and
+still prevent application launch. The main-process external-require verifier
+and real Electron launch smoke are part of this boundary's validation.
+Both renderer and desktop consume the same readers. The desktop database handle
+is released only after migration; the renderer repository's initialize step is
+an assertion, not lazy DDL. Run-event timestamps and metadata are normalized by
+the common row mapper before serialization.
+
+Concurrent binds share a single in-flight initial history read. Mastra 1.64
+creates a new child thread per delegation (even an input thread id gets a UUID
+suffix); the initial baseline therefore contains input, not an earlier child
+turn. The native test asserts this input and non-empty normalized run events
+on resume. A consumed decision retains its baseline until that host leg ends;
+finish runs at runtime disposal, so later continuation uses a new binding.
+Capture or validation failure stops admission and releases the unexecuted claim;
+it must never omit history and proceed as if the child view were complete.

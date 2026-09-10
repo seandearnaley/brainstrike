@@ -59,6 +59,30 @@ function serve(lines: string[]): void {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('delegated conversations through the normal runtime adapter', () => {
+  it('rejects a history row whose content disappeared at the JSON boundary', async () => {
+    const baseline = {
+      hostRunId: 'host',
+      messages: [
+        { content: undefined, createdAt: '2026-09-10T00:00:00.000Z', id: 'saved', role: 'user' },
+      ],
+      runEvents: [],
+      threadId: 'child',
+    };
+    serve([
+      frame('f', { messageId: 'parent-message' }),
+      child('a', [{ code: 'f', value: { messageId: 'native-a' } }, finish], 'native-a', baseline),
+      frame(finish.code, finish.value),
+    ]);
+    await expect(
+      consume(
+        new BrainstrikeDataStreamRuntimeAdapter({
+          api: 'http://assistant.test',
+          onDelegatedConversation: vi.fn(),
+        })
+      )
+    ).rejects.toThrow(/content/i);
+  });
+
   it.each(['duplicate', 'late'] as const)(
     'rejects a %s baseline instead of replacing an already published history boundary',
     async (mode) => {

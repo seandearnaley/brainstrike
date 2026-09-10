@@ -1,3 +1,4 @@
+export * from './assistant-history-repository.js';
 // Interfaces
 
 // Re-export preset types from @brainstrike/types for convenience

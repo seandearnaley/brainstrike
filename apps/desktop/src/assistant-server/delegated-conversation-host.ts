@@ -18,15 +18,13 @@ import {
 } from '@brainstrike/assistant-contract/run-usage';
 import {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
-  readAssistantHistoryMessages,
-  readAssistantHistoryRunEvents,
-} from '@brainstrike/assistant-data';
-import {
   createDelegatedConversationRepository,
   type DelegatedConversationColor,
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
   type DelegatedInvocation,
+  readAssistantHistoryMessages,
+  readAssistantHistoryRunEvents,
 } from '@brainstrike/db';
 import { z } from 'zod';
 
@@ -149,6 +147,7 @@ export function createDesktopDelegatedConversationHost(
   const claims = new Set<string>();
   let claimedActionKey: string | undefined;
   const baselines = new Map<string, DelegatedConversationBaseline>();
+  const initialBaselines = new Map<string, Promise<DelegatedConversationBaseline>>();
   const captureHistory = async (
     threadId: string,
     resourceId: string,
@@ -162,13 +161,18 @@ export function createDesktopDelegatedConversationHost(
         limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
       }),
     ]);
+    const history: DelegatedConversationBaseline['messages'] = [];
+    for (const message of messages) {
+      if (initial && (message.role === 'assistant' || message.role === 'tool')) {
+        continue;
+      }
+      history.push({ ...message, createdAt: message.createdAt.toISOString() });
+    }
     return structuredClone({
       hostRunId,
-      // An invocation created in this leg has no earlier assistant turn. Native
-      // input rows are history; in-flight output belongs to the live decoder.
-      messages: messages
-        .filter((message) => !initial || (message.role !== 'assistant' && message.role !== 'tool'))
-        .map((message) => ({ ...message, createdAt: message.createdAt.toISOString() })),
+      // Mastra generates a fresh child thread per delegation invocation. Native
+      // input rows are history; this invocation's output belongs to its decoder.
+      messages: history,
       runEvents: initial ? [] : [...runEvents],
       threadId,
     });
@@ -183,11 +187,18 @@ export function createDesktopDelegatedConversationHost(
         hostRunId
       );
       if (!baselines.has(invocation.threadId) && invocation.hostRunId === hostRunId) {
-        const node = await repository.get(scope, invocation.threadId);
-        if (!node) {
-          throw new DelegatedConversationIdentityError('missing-history-owner');
+        let pending = initialBaselines.get(invocation.threadId);
+        if (!pending) {
+          pending = (async () => {
+            const node = await repository.get(scope, invocation.threadId);
+            if (!node) {
+              throw new DelegatedConversationIdentityError('missing-history-owner');
+            }
+            return captureHistory(node.threadId, node.resourceId, true);
+          })();
+          initialBaselines.set(invocation.threadId, pending);
         }
-        baselines.set(node.threadId, await captureHistory(node.threadId, node.resourceId, true));
+        baselines.set(invocation.threadId, await pending);
       }
       const baseline = baselines.get(invocation.threadId);
       return {
@@ -371,6 +382,7 @@ export function createDesktopDelegatedConversationHost(
       claims.delete(released.data.id);
       claimedActionKey = undefined;
       baselines.clear();
+      initialBaselines.clear();
     },
     async resolveToolAction(action) {
       const scope = await readScope();
