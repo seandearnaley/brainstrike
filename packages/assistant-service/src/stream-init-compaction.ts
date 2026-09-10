@@ -27,6 +27,23 @@ export interface PreRequestCompactionCapabilityResult {
 }
 
 /**
+ * BST-1737's breadcrumb together with the latch commit that belongs to it.
+ *
+ * ONE value rather than two sibling fields, because the commit is only ever
+ * correct AFTER `chunk` has actually been handed downstream. Binding them makes
+ * the halves inseparable: a caller cannot emit the row without holding the
+ * latch, and cannot latch without having emitted the row.
+ */
+export interface PreRequestCompactionFailureBreadcrumb {
+  readonly chunk: StreamChunk;
+  /**
+   * Commits the (thread, reason) latch. Idempotent — it adds to a `Set`, so
+   * calling it more than once changes nothing.
+   */
+  readonly markReported: () => void;
+}
+
+/**
  * What the pre-request pass produced for THIS turn's stream prelude.
  *
  * Both fields are optional and, in practice, mutually exclusive: a pass that
@@ -42,7 +59,7 @@ export interface PreRequestCompactionOutcome {
    * pass threw AND the (thread, reason) latch below has not already reported
    * it. Undefined on success, on a cancelled turn, and on a repeat.
    */
-  readonly failure?: StreamChunk;
+  readonly failure?: PreRequestCompactionFailureBreadcrumb;
   readonly result?: PreRequestCompactionCapabilityResult;
 }
 
@@ -67,6 +84,17 @@ const COMPACTION_FAILURE_RUN_EVENT_KIND = 'compaction.failed' as const;
  * per-turn operator evidence is never lost; only the user-facing row is
  * deduplicated.
  *
+ * WHEN THE KEY IS ADDED. Only once the breadcrumb has actually been handed
+ * downstream — see `markReported` and `prependStreamChunks`. Latching at mint
+ * time was wrong (Codex review of #3119): minting happens while the outcome is
+ * still being CONSTRUCTED, before `initializeAgentStream` awaits
+ * `resolveInitialAgentStream` (packages/assistant-service/src/stream-init.ts).
+ * If that await rejects — or the returned stream is never consumed — the row
+ * reaches neither `observe()` nor persistence, yet every later turn with the
+ * same thread and reason would be suppressed for the life of the process. That
+ * is exactly the silent degradation this ticket exists to remove, reappearing
+ * inside its own fix.
+ *
  * Intentionally in-memory only (no persistence, no eviction), mirroring
  * `warnedBaselineExceedsTargetThreadIds` in
  * apps/desktop/src/assistant-server/conversation-compaction.ts: a restart
@@ -78,7 +106,7 @@ const reportedCompactionFailures = new Set<string>();
 function compactionFailureChunk(input: {
   readonly error: unknown;
   readonly threadId: string | undefined;
-}): StreamChunk | undefined {
+}): PreRequestCompactionFailureBreadcrumb | undefined {
   // Redacted and length-bounded because this string becomes DURABLE run-event
   // metadata and a rendered row: compaction failures quote provider/model and
   // can carry transport or DB detail.
@@ -87,25 +115,44 @@ function compactionFailureChunk(input: {
   if (reportedCompactionFailures.has(key)) {
     return;
   }
-  reportedCompactionFailures.add(key);
+  // The key is READ here and COMMITTED on delivery. Two turns that fail
+  // identically before either prelude is consumed therefore both mint a row,
+  // which is honest — both turns really were sent uncompacted — and is the only
+  // direction that cannot suppress a row nobody ever saw.
   return {
-    event: createAssistantRunEvent({
-      detail: `This turn was sent without pre-request compaction — ${reason}`,
-      kind: COMPACTION_FAILURE_RUN_EVENT_KIND,
-      label: 'Conversation compaction unavailable',
-      metadata: { reason },
-      status: 'failed',
-    }),
-    type: 'run-event',
+    chunk: {
+      event: createAssistantRunEvent({
+        detail: `This turn was sent without pre-request compaction — ${reason}`,
+        kind: COMPACTION_FAILURE_RUN_EVENT_KIND,
+        label: 'Conversation compaction unavailable',
+        metadata: { reason },
+        status: 'failed',
+      }),
+      type: 'run-event',
+    },
+    markReported: () => {
+      reportedCompactionFailures.add(key);
+    },
   };
 }
 
+interface PreludeChunk {
+  readonly chunk: StreamChunk;
+  /**
+   * Runs after the consumer has taken `chunk` AND come back for the next one,
+   * so it fires only for a prelude that was genuinely drained: a stream that is
+   * never consumed never runs the generator body at all.
+   */
+  readonly onDelivered?: () => void;
+}
+
 async function* prependStreamChunks(
-  chunks: readonly StreamChunk[],
+  prelude: readonly PreludeChunk[],
   source: AsyncIterable<StreamChunk>
 ): AsyncIterable<StreamChunk> {
-  for (const chunk of chunks) {
-    yield chunk;
+  for (const entry of prelude) {
+    yield entry.chunk;
+    entry.onDelivered?.();
   }
   yield* source;
 }
@@ -175,12 +222,17 @@ export function withCompactionPreludeChunks(
   source: AsyncIterable<StreamChunk>,
   outcome: PreRequestCompactionOutcome
 ): AsyncIterable<StreamChunk> {
-  const prelude: StreamChunk[] = [];
+  const prelude: PreludeChunk[] = [];
   if (outcome.failure) {
-    prelude.push(outcome.failure);
+    // The latch commit travels WITH the chunk, so the row cannot be emitted
+    // without arming the latch, nor the latch armed without emitting the row.
+    prelude.push({
+      chunk: outcome.failure.chunk,
+      onDelivered: outcome.failure.markReported,
+    });
   }
   if (outcome.result?.usage) {
-    prelude.push({ type: 'child-run-usage', value: outcome.result.usage });
+    prelude.push({ chunk: { type: 'child-run-usage', value: outcome.result.usage } });
   }
   if (prelude.length === 0) {
     return source;

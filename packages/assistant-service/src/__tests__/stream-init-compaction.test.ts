@@ -20,8 +20,26 @@ function freshThreadId(): string {
   return `thread-${nextThreadId}`;
 }
 
-function runEventOf(chunk: StreamChunk | undefined) {
-  return (chunk as { event?: Record<string, unknown> } | undefined)?.event;
+function runEventOf(breadcrumb: PreRequestCompactionOutcome['failure']) {
+  return (breadcrumb?.chunk as { event?: Record<string, unknown> } | undefined)?.event;
+}
+
+async function collect(source: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
+  const observed: StreamChunk[] = [];
+  for await (const chunk of source) {
+    observed.push(chunk);
+  }
+  return observed;
+}
+
+/**
+ * Drive the outcome's prelude the way a live turn does — through
+ * `withCompactionPreludeChunks`, fully drained. This is the ONLY thing that
+ * arms the (thread, reason) latch, so a test that expects the latch to be armed
+ * has to actually deliver the row.
+ */
+function deliverPrelude(outcome: PreRequestCompactionOutcome): Promise<StreamChunk[]> {
+  return collect(withCompactionPreludeChunks(streamOf([]), outcome));
 }
 
 function makeLogger() {
@@ -185,6 +203,56 @@ describe('runConversationCompactionBeforeStream', () => {
     expect(serialized).not.toContain('sk-live');
   });
 
+  it('does NOT latch a breadcrumb the stream never delivered (Codex review of #3119)', async () => {
+    // The latch used to be armed while the outcome was merely being
+    // CONSTRUCTED — before `initializeAgentStream` awaits
+    // `resolveInitialAgentStream` and before anything consumes the returned
+    // stream. A rejection there, or a stream nobody reads, left the row
+    // reaching neither `observe()` nor persistence while every later turn with
+    // the same thread and reason stayed silent for the life of the process:
+    // this ticket's own defect, reborn inside its fix.
+    const runtime = { memory: { threadId: freshThreadId() } } as unknown as RuntimeData;
+    const reason = 'budget derivation exploded';
+    const failing = (harness: ReturnType<typeof makeInput>) => {
+      (
+        harness.input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>
+      ).mockRejectedValue(new Error(reason));
+      return harness;
+    };
+
+    // Turn 1: the outcome is built, then stream construction throws — the
+    // prelude is never even wrapped, exactly as `initializeAgentStream`'s catch
+    // discards it.
+    const dropped = await runConversationCompactionBeforeStream(
+      failing(makeInput({ runtime })).input as never
+    );
+    expect(dropped.failure).toBeDefined();
+
+    // Turn 2: the wrapped stream IS constructed and then abandoned unread.
+    const abandoned = await runConversationCompactionBeforeStream(
+      failing(makeInput({ runtime })).input as never
+    );
+    expect(abandoned.failure).toBeDefined();
+    withCompactionPreludeChunks(streamOf([]), abandoned);
+
+    // Turn 3 still speaks: neither undelivered row may silence the thread.
+    const delivered = await runConversationCompactionBeforeStream(
+      failing(makeInput({ runtime })).input as never
+    );
+    expect(runEventOf(delivered.failure)).toMatchObject({
+      kind: 'compaction.failed',
+      metadata: { reason },
+    });
+
+    // And once it IS delivered, the latch arms: the next identical turn is
+    // silent, so the fix does not simply disable the de-duplication.
+    expect(await deliverPrelude(delivered)).toHaveLength(1);
+    const repeat = await runConversationCompactionBeforeStream(
+      failing(makeInput({ runtime })).input as never
+    );
+    expect(repeat.failure).toBeUndefined();
+  });
+
   it('reports each thread+reason ONCE, and still reports a NEW reason on that thread', async () => {
     // A sticky cause (unknown model, missing overlay lookup, malformed
     // agentLoop) fails identically on every turn. Unlatched, a thread in that
@@ -207,6 +275,10 @@ describe('runConversationCompactionBeforeStream', () => {
     ).mockRejectedValue(new Error('summary schema validation failed'));
 
     const one = await runConversationCompactionBeforeStream(first.input as never);
+    // The latch arms on DELIVERY, never on construction, so the first turn's
+    // row has to actually reach a consumer before the second turn can be
+    // deduplicated against it.
+    expect(await deliverPrelude(one)).toHaveLength(1);
     const two = await runConversationCompactionBeforeStream(second.input as never);
     const three = await runConversationCompactionBeforeStream(other.input as never);
 
@@ -240,14 +312,6 @@ describe('runConversationCompactionBeforeStream', () => {
 });
 
 describe('withCompactionPreludeChunks', () => {
-  async function collect(source: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
-    const observed: StreamChunk[] = [];
-    for await (const chunk of source) {
-      observed.push(chunk);
-    }
-    return observed;
-  }
-
   it('returns the source untouched when there is nothing to prepend', () => {
     const source = streamOf([]);
     expect(withCompactionPreludeChunks(source, {})).toBe(source);
@@ -277,17 +341,38 @@ describe('withCompactionPreludeChunks', () => {
     // it reaches `observe()` (and therefore run-event persistence and the
     // timeline) through the ordinary run-event chunk path — no second seam.
     const tail: StreamChunk[] = [{ type: 'text-delta', value: 'hi' } as unknown as StreamChunk];
-    const failure = {
+    const chunk = {
       event: { id: 'e', kind: 'compaction.failed', label: 'x', status: 'failed', timestamp: 't' },
       type: 'run-event',
     } as unknown as StreamChunk;
-    const outcome: PreRequestCompactionOutcome = { failure };
+    const markReported = vi.fn();
+    const outcome: PreRequestCompactionOutcome = { failure: { chunk, markReported } };
 
     const observed = await collect(withCompactionPreludeChunks(streamOf(tail), outcome));
 
     expect(observed).toHaveLength(2);
-    expect(observed[0]).toBe(failure);
+    expect(observed[0]).toBe(chunk);
     expect(observed[1]).toEqual(tail[0]);
+    // Delivery is what commits the latch, and it commits exactly once.
+    expect(markReported).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the latch UNcommitted for a stream that is never consumed', async () => {
+    // Constructing the wrapper must have no side effect at all: the generator
+    // body does not run until something pulls from it.
+    const markReported = vi.fn();
+    const chunk = { type: 'run-event' } as unknown as StreamChunk;
+    const wrapped = withCompactionPreludeChunks(streamOf([]), {
+      failure: { chunk, markReported },
+    });
+    expect(markReported).not.toHaveBeenCalled();
+
+    // A consumer that takes the row and walks away has not proved the row
+    // survived the turn either, so the latch stays open for the next one.
+    const iterator = wrapped[Symbol.asyncIterator]();
+    await expect(iterator.next()).resolves.toEqual({ done: false, value: chunk });
+    await iterator.return?.(undefined);
+    expect(markReported).not.toHaveBeenCalled();
   });
 });
 

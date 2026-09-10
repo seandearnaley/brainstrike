@@ -2169,6 +2169,26 @@ in-memory `Set` with no persistence and no eviction, mirroring
 restart re-arms it, and it is bounded by thread cardinality times distinct
 reasons, not by request volume.
 
+THE LATCH ARMS ON DELIVERY, NEVER ON MINT (Codex review of #3119). Minting
+happens while the outcome is still being CONSTRUCTED — `initializeAgentStream`
+then awaits `resolveInitialAgentStream` and only afterwards wraps the prelude.
+Adding the key at mint time meant a rejection in that await, or a returned
+stream nobody consumes, produced a row that reached neither `observe()` nor
+persistence while every later turn with the same thread and reason stayed
+silent for the life of the process — this ticket's own defect, reborn inside its
+fix, and invisible. So `compactionFailureChunk` READS the key and returns the
+chunk bound to a `markReported` commit; `prependStreamChunks` calls it after the
+consumer has taken the chunk and come back for the next one. The pairing is one
+value (`PreRequestCompactionFailureBreadcrumb`), not two sibling fields, so the
+row cannot be emitted without arming the latch nor the latch armed without
+emitting the row. The accepted cost: two turns that fail identically before
+either prelude is consumed both mint a row, which is honest — both turns really
+were sent uncompacted — and is the only direction that cannot suppress a row
+nobody ever saw. Pinned by `stream-init-compaction.test.ts` ("does NOT latch a
+breadcrumb the stream never delivered", "leaves the latch UNcommitted for a
+stream that is never consumed"), and the once-per-(thread, reason) test now has
+to deliver the first row before the second turn is deduplicated against it.
+
 A CANCELLED TURN MINTS NOTHING. When `input.signal.aborted`, the warn still
 fires but no row is minted and the latch is untouched: `run.cancelled` already
 reports a cancelled turn, and a "compaction unavailable" row would be a false
