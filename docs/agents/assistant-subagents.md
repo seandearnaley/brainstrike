@@ -1099,3 +1099,15 @@ three-process verifier. Removing the loop's preparation call fails the unit
 cases rather than letting a correctly implemented helper mask missing wiring.
 This does not enable interactive tools in read-only persona profiles or complete
 the child-panel controls, sibling admission, or cancellation acceptance gates.
+
+The prepared pause is deliberately a narrow input to the common pause mapper:
+only decision payload/schema and transport coordinates are forwarded. Native
+row IDs and provenance are read from the original part by the projection;
+this prepared value is never written back to native memory or used as a stream
+replacement. The observed registered leaf tool ID is retained separately from
+its display name so sanitizer collisions cannot remap an already resolved ID.
+A pause-kind mismatch fails visibly because substituting approval for a question
+would expose the wrong decision action. It must not return an actionable wrapper
+as a fallback. Pending aliases live only for this stream attempt; resume creates
+a new projection, and a subsequent observed leaf replaces the prior alias. They
+are not a cross-resume cache.

@@ -65,12 +65,13 @@ export function createDelegatedStreamProjection<State>(
   const children = new Map<string, ChildStreamState<State>>();
   const pendingActions = new Map<
     string,
-    { delegation: DelegatedToolActionIdentity; pause: DelegatedPause }
+    { delegation: DelegatedToolActionIdentity; pause: DelegatedPause; registeredToolName: string }
   >();
   const actionKey = (runId: string, toolCallId: string) => JSON.stringify([runId, toolCallId]);
   const decorate = (
     chunk: ConversationStreamChunk,
-    path: readonly DelegatedRunIdentity[] = []
+    path: readonly DelegatedRunIdentity[] = [],
+    registeredToolName?: string
   ): ConversationStreamChunk => {
     if (chunk.type !== 'tool-approval-required' && chunk.type !== 'tool-suspend-required') {
       return chunk;
@@ -90,6 +91,7 @@ export function createDelegatedStreamProjection<State>(
       pendingActions.set(actionKey(edge.parentRuntimeRunId, edge.parentToolCallId), {
         delegation,
         pause: chunk,
+        registeredToolName: requireIdentity(registeredToolName),
       });
     }
     return { ...chunk, delegation };
@@ -121,7 +123,7 @@ export function createDelegatedStreamProjection<State>(
       payload: {
         resumeSchema: pause.resumeSchema,
         toolCallId,
-        toolName: pause.toolName,
+        toolName: forwarded.registeredToolName,
         ...(pause.type === 'tool-approval-required'
           ? { args: pause.args }
           : { suspendPayload: pause.suspendPayload }),
@@ -196,7 +198,13 @@ export function createDelegatedStreamProjection<State>(
         messageId: child.messageId,
         type: 'delegated-conversation-chunk',
         ...(partId ? { partId } : {}),
-        chunk: decorate(chunk, path),
+        chunk: decorate(
+          chunk,
+          path,
+          readMastraStreamPartString(nested, 'toolName') ??
+            readMastraStreamPartString(nested, 'name') ??
+            child.toolNames.get(readMastraStreamPartString(nested, 'toolCallId') ?? '')
+        ),
       };
     });
     return [...descendants, ...projected];

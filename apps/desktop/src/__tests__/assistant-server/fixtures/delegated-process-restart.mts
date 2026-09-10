@@ -288,8 +288,8 @@ try {
           : decision === 'approve'
             ? await parent.approveToolCall(target)
             : await parent.declineToolCall(target);
-        for await (const _part of resumed.fullStream) {
-          assert.notEqual(_part.type, 'tool-call-suspended');
+        for await (const part of resumed.fullStream) {
+          assert.notEqual(part.type, 'tool-call-suspended');
         }
         assert.equal(await resumed.text, 'child-1 answered');
         await binding.finishToolActions();

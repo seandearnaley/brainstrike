@@ -40,6 +40,7 @@ beforeEach(resetMastraStreamHarness);
 it.each([
   { toolName: 'brainstrike.askUser', type: 'tool-call-suspended', unsupported: false },
   { toolName: 'brainstrike.submitPlan', type: 'tool-call-suspended', unsupported: false },
+  { toolName: 'mcp_safe', type: 'tool-call-approval', unsupported: false },
   { toolName: 'unknown_suspend_tool', type: 'tool-call-suspended', unsupported: true },
   { toolName: 'brainstrike.executeCommand', type: 'tool-call-approval', unsupported: false },
 ] as const)(
@@ -47,6 +48,7 @@ it.each([
   async ({ type, toolName, unsupported }) => {
     const leafPayload = { question: 'Which workspace?' };
     const leafArgs = { command: 'pnpm build' };
+    // Distinct args/payload values deliberately prove selection of the decision kind.
     const leaf = {
       payload: {
         args: leafArgs,
@@ -54,7 +56,7 @@ it.each([
         resumeSchema: '{}',
         suspendPayload: leafPayload,
         toolCallId: 'leaf-call',
-        toolName,
+        toolName: toolName === 'mcp_safe' ? 'mcp_safe_leaf' : toolName,
       },
       runId: 'child-run',
       type,
@@ -90,6 +92,10 @@ it.each([
     const stream = await createStreamIteratorFromRuntime({
       messages: [{ id: 'user', parts: [{ text: 'Inspect', type: 'text' }], role: 'user' }],
       runtime,
+      sanitizedNameMap: new Map([
+        ['mcp_safe_leaf', 'mcp_safe'],
+        ['mcp_safe', 'mcp.safe'],
+      ]),
     });
     const chunks: StreamChunk[] = [];
     for await (const chunk of stream) {
