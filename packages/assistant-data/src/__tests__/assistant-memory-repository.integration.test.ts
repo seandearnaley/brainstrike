@@ -1286,6 +1286,62 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     return await adapter.load();
   }
 
+  it.each([false, true])(
+    'hydrates native output-denied with its original arguments and reason (persisted result=%s)',
+    async (hasPersistedResult) => {
+      const history = await loadHistory({
+        messages: [
+          {
+            content: {
+              format: 2,
+              parts: [
+                {
+                  toolInvocation: {
+                    approval: {
+                      approved: false,
+                      id: 'denied-call',
+                      ...(hasPersistedResult ? {} : { reason: 'Leave this source alone.' }),
+                    },
+                    ...(hasPersistedResult
+                      ? {
+                          result: {
+                            kind: 'declined',
+                            message: 'The user declined this tool call, so it was not executed.',
+                            reason: 'Leave this source alone.',
+                          },
+                        }
+                      : {}),
+                    args: { query: 'needle' },
+                    state: 'output-denied',
+                    toolCallId: 'denied-call',
+                    toolName: 'brainstrike_grepSearch',
+                  },
+                  type: 'tool-invocation',
+                },
+              ],
+            },
+            createdAt: new Date('2026-09-10T00:00:00Z'),
+            id: 'denied-message',
+            role: 'assistant',
+          },
+        ],
+      });
+      const part = history.messages[0]?.message.content[0];
+      expect(part).toMatchObject({
+        args: { query: 'needle' },
+        result: {
+          kind: 'declined',
+          message: 'The user declined this tool call, so it was not executed.',
+          reason: 'Leave this source alone.',
+        },
+        toolCallId: 'denied-call',
+        toolName: 'brainstrike.grepSearch',
+        type: 'tool-call',
+      });
+      expect(part).not.toHaveProperty('isError', true);
+    }
+  );
+
   it('hydrates tool-invocation parts with inline results from format-2 content', async () => {
     const history = await loadHistory({
       messages: [

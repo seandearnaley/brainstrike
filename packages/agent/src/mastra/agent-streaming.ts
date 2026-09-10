@@ -1033,13 +1033,16 @@ function readMastraReasoningPartKind(part: unknown): 'content' | 'marker' | unde
   return MASTRA_REASONING_PART_KINDS[type as keyof typeof MASTRA_REASONING_PART_KINDS];
 }
 
-function createAttemptDelegatedProjection({
+export function createAttemptDelegatedProjection({
   runtime,
   runtimeData,
   lifecycleState,
   sanitizedNameMap,
 }: {
-  runtime: MastraAgentRuntime;
+  runtime: Pick<
+    MastraAgentRuntime,
+    'conversationBinding' | 'personasById' | 'delegationToolPersonas' | 'askTools'
+  >;
   runtimeData: RuntimeData | undefined;
   lifecycleState: ToolLifecycleState;
   sanitizedNameMap: Map<string, string> | undefined;

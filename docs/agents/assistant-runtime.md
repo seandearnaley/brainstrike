@@ -3980,3 +3980,14 @@ Within a child receiver, the first observed failure remains authoritative across
 observer, decoder, writer-close and descendant settlement errors. The paired
 regression throws in the observer before a malformed subsequent frame fails
 the decoder; the original observer error still reaches the response owner.
+
+### Child response completion boundaries (BST-1719)
+
+Child assembly installs the shared response-boundary output processor alongside
+the existing delegated turn-persistence processor. Through Mastra's public
+`processOutputStep`, terminal response steps retain their native assistant row
+boundary; tool-call steps remain open for results. The production child stream
+projection is also exposed through the agent's integration-fixture entrypoint
+so desktop resume tests exercise the real mapper and public receiver. This does
+not change permission selection, enable nesting or replace native memory
+processors. See `assistant-subagents.md` for the reconstructed resume proof.

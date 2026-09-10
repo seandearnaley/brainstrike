@@ -135,6 +135,9 @@ describe('buildPersonaSubAgents', () => {
     expect(result.delegationToolPersonas.get('agent-explore')).toBe('explore');
     expect(result.personasById.get('explore')).toBe(explorePersona);
     expect(child.hasOwnMemory()).toBe(false);
+    expect(await child.listConfiguredOutputProcessors()).toEqual([
+      expect.objectContaining({ id: 'brainstrike-response-boundaries' }),
+    ]);
 
     const keys = await childToolKeys(child);
     expect(keys).toEqual([

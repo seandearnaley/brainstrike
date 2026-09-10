@@ -3007,3 +3007,21 @@ update, including callback replacement during an active run.
 The receiver also retains its first observed failure if decoding or descendant
 settlement subsequently fails; the competing observer/decoder regression pins
 this through the public runtime adapter.
+
+### Child continuation row identity (BST-1719)
+
+Child output processors preserve the final native response boundary before
+Mastra re-adds response rows during finish. This prevents an earlier approved
+tool row from being merged into the newly rotated continuation ID. PGlite remains
+the native content store; no text-equality deduplication or additional content
+writer is introduced. The reconstructed parent/child/grandchild resume fixture
+compares both live legs against history and retains intentionally repeated text.
+See `assistant-subagents.md` for the native API and verification scope.
+
+Native `toolInvocation.state: output-denied` hydrates to the shared
+`DeclinedToolCallResult`, preserving arguments and the approval reason. It is
+terminal without an error flag, matching live `tool-output-denied`; a missing
+`result` in the native row does not mean the declined call is still pending.
+Both live and hydrated paths use `createDeclinedToolCallResult` from the
+browser-safe approval contract. Existing pending/result/error rows retain their
+original behavior.

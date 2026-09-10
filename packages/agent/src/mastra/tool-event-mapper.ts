@@ -1,7 +1,5 @@
-import {
-  DECLINED_TOOL_RESULT_KIND,
-  type DeclinedToolCallResult,
-} from '@brainstrike/assistant-contract/tool-approval';
+import { createDeclinedToolCallResult } from '@brainstrike/assistant-contract/tool-approval';
+
 import { createLogger } from '@brainstrike/logging';
 import {
   getTransformedToolPayload,
@@ -13,6 +11,8 @@ import { isGuardedToolError } from '../tools/guard-tool-execution';
 import { readHookResultEnvelope } from '../tools/hook-runner';
 import type { StreamChunk } from '../types';
 
+export { TOOL_CALL_DECLINED_MESSAGE } from '@brainstrike/assistant-contract/tool-approval';
+
 type ToolEventPart = {
   type: string;
   payload?: Record<string, unknown>;
@@ -20,8 +20,6 @@ type ToolEventPart = {
 
 const PROGRESS_START_STEP = 'input_stream_start';
 const PROGRESS_END_STEP = 'input_stream_end';
-export const TOOL_CALL_DECLINED_MESSAGE =
-  'The user declined this tool call, so it was not executed.';
 const logger = createLogger('MastraToolEventMapper');
 
 export function mapMastraToolEvent(
@@ -111,11 +109,7 @@ export function mapMastraToolEvent(
       // the decision and the user's own optional words, never tool internals.
       const approval = readMastraStreamPartValue(candidate, 'approval');
       const reason = readMastraStreamPartString(approval, 'reason');
-      const result: DeclinedToolCallResult = {
-        kind: DECLINED_TOOL_RESULT_KIND,
-        message: TOOL_CALL_DECLINED_MESSAGE,
-        ...(reason ? { reason } : {}),
-      };
+      const result = createDeclinedToolCallResult(reason);
       return {
         name: displayName,
         payload: {

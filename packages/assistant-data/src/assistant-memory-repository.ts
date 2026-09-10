@@ -35,6 +35,8 @@ import {
   type AssistantRunUsageKind,
 } from '@brainstrike/assistant-contract/run-usage';
 import {
+  createDeclinedToolCallResult,
+  isDeclinedToolCallResult,
   type RediscoveredToolApproval,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
@@ -1750,6 +1752,16 @@ function toHistoryReasoningPart(
  * `role: 'tool'` rows in this dialect (see the live-loop proof in
  * packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts).
  */
+function readNativeDeclinedResult(invocation: Record<string, unknown>) {
+  if (isDeclinedToolCallResult(invocation['result'])) {
+    return invocation['result'];
+  }
+  const approval = invocation['approval'];
+  const reason =
+    isRecord(approval) && typeof approval['reason'] === 'string' ? approval['reason'] : undefined;
+  return createDeclinedToolCallResult(reason);
+}
+
 function toHistoryToolCallPartFromInvocation(
   record: Record<string, unknown>
 ): AssistantHistoryToolCallPart | undefined {
@@ -1775,6 +1787,16 @@ function toHistoryToolCallPartFromInvocation(
   const args = (
     inv['args'] && typeof inv['args'] === 'object' && !Array.isArray(inv['args']) ? inv['args'] : {}
   ) as AssistantHistoryToolCallPart['args'];
+  if (state === 'output-denied') {
+    return {
+      args,
+      argsText: stringifyArgsText(args),
+      result: readNativeDeclinedResult(inv),
+      toolCallId,
+      toolName: denormalizeNativeToolName(toolName),
+      type: 'tool-call',
+    };
+  }
   const hasResult = Object.hasOwn(inv, 'result');
   const errorText = typeof inv['errorText'] === 'string' ? inv['errorText'] : undefined;
   const isError =
