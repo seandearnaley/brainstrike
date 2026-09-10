@@ -1115,6 +1115,10 @@
         }
         $("messages").setAttribute("role", "tabpanel");
         $("messages").setAttribute("aria-labelledby", `tab-${node.id}`);
+        $(`tab-${node.id}`).parentElement.scrollIntoView({
+          block: "nearest",
+          inline: "nearest",
+        });
         const path = ancestry(node.id);
         $("head").innerHTML =
           `<nav class="breadcrumbs" aria-label="Conversation ancestry"><button class="mobile-tree control" id="show-tree">Threads</button>${path.map((part, index) => (index === path.length - 1 ? `<span aria-current="page">${part.name}</span>` : `<button data-return="${part.id}" id="return-${part.id}">${part.name}</button><span aria-hidden="true">›</span>`)).join("")}</nav><div class="head-line">${mark(node)}<h1 id="thread-title" tabindex="-1">${node.name}</h1><span class="role">${node.role}</span><span class="head-spacer"></span>${status(node)}<button class="control" id="stop" ${hasActiveBranch(node.id) ? "" : "disabled"}>${node.parent ? `Stop ${node.name}${children(node.id).length ? " branch" : ""}` : "Stop all agents"}</button></div><div class="scope">${node.parent ? `<span>Delegated by ${state.nodes[node.parent].name}</span><span>·</span>` : ""}<span>${children(node.id).length} direct ${children(node.id).length === 1 ? "child" : "children"}</span><span>·</span><span>brainstrike / main</span></div>`;

@@ -211,6 +211,12 @@ for (const theme of ['light', 'dark']) {
       await expect(page.getByRole('button', { exact: true, name: 'Decline' })).toBeInViewport();
       await expect(page.getByLabel('Message Wren', { exact: true })).toBeVisible();
       await expect(page.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();
+      const activeTab = await page.getByRole('tab', { exact: true, name: 'Wren' }).boundingBox();
+      if (!activeTab) {
+        throw new Error('Missing active tab');
+      }
+      expect(activeTab.x).toBeGreaterThanOrEqual(0);
+      expect(activeTab.x + activeTab.width).toBeLessThanOrEqual(width);
       const contrasts = await page.evaluate(() => {
         function channels(color: string): number[] {
           return [...color.matchAll(/[\d.]+/g)].map((match) => Number(match[0]));
