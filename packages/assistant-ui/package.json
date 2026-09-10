@@ -56,13 +56,13 @@
       "types": "./dist/assistant-link-capabilities-provider.d.ts",
       "import": "./dist/assistant-link-capabilities-provider.js"
     },
-    "./data-stream-runtime": {
-      "types": "./dist/data-stream-runtime.d.ts",
-      "import": "./dist/data-stream-runtime.js"
-    },
     "./context-usage-store": {
       "types": "./dist/context-usage-store.d.ts",
       "import": "./dist/context-usage-store.js"
+    },
+    "./data-stream-runtime": {
+      "types": "./dist/data-stream-runtime.d.ts",
+      "import": "./dist/data-stream-runtime.js"
     },
     "./follow-up-queue-store": {
       "types": "./dist/follow-up-queue-store.d.ts",

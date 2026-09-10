@@ -43,6 +43,7 @@ import {
   remapAssistantReplayHistoryItem,
   useAssistantRunReattachment,
 } from './assistant-run-reattachment';
+import { deferMessageFinishUntilFlush } from './defer-message-finish';
 import {
   createDelegatedConversationTap,
   type DelegatedConversationUpdate,
@@ -1071,40 +1072,6 @@ function throwIfRunAbortedBeforeTerminalCompletion(
 }
 
 /**
- * assistant-stream's decoder emits `message-finish` before it flushes the
- * active implicit text/reasoning part. The accumulator therefore exposes a
- * completed message while inner part streams are still draining. If the user
- * immediately sends the next turn, assistant-ui aborts that visually complete
- * run and a late append can target an already-closed text controller.
- *
- * Buffer the one terminal message marker until decoder EOF so every part-finish
- * reaches the accumulator before the UI observes completion.
- */
-function deferMessageFinishUntilFlush(
-  onTerminalFinishFlushed?: () => void
-): TransformStream<AssistantStreamChunk, AssistantStreamChunk> {
-  let pendingFinish: AssistantStreamChunk | undefined;
-  return new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
-    flush(controller) {
-      if (pendingFinish) {
-        controller.enqueue(pendingFinish);
-        onTerminalFinishFlushed?.();
-      }
-    },
-    transform(chunk, controller) {
-      if (chunk.type === 'message-finish') {
-        if (pendingFinish) {
-          throw new Error('Assistant data stream emitted more than one message-finish chunk.');
-        }
-        pendingFinish = chunk;
-        return;
-      }
-      controller.enqueue(chunk);
-    },
-  });
-}
-
-/**
  * Decode the response body and insert the optional pass-through taps (provider
  * usage, run-start context breakdown). Each tap is only piped when its consumer
  * is wired — the common no-consumer path keeps the original decoder →
@@ -1236,9 +1203,15 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       await this.options.onResponse?.(response);
     }
 
-    const onDelegatedConversation = this.options.onDelegatedConversation;
-    const delegatedReceiver = onDelegatedConversation
-      ? createDelegatedConversationTap(onDelegatedConversation, abortSignal)
+    const markTerminalFlushed = (): void => {
+      terminalFinishFlushed = true;
+    };
+    const delegatedReceiver = this.options.onDelegatedConversation
+      ? createDelegatedConversationTap(
+          (update) => this.options.onDelegatedConversation?.(update),
+          abortSignal,
+          markTerminalFlushed
+        )
       : undefined;
     const stream = insulateAssistantStreamPipeline({
       abortSignal,
@@ -1247,9 +1220,7 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         const decoded = buildDecodedTapPipeline(
           source,
           this.abortGatedTapOptions(abortSignal),
-          () => {
-            terminalFinishFlushed = true;
-          }
+          delegatedReceiver ? undefined : markTerminalFlushed
         );
         const conversations = delegatedReceiver ? decoded.pipeThrough(delegatedReceiver) : decoded;
         return conversations
@@ -1262,14 +1233,22 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       },
     });
 
+    let failed = false;
     try {
       for await (const accumulatedMessage of asAsyncIterableStream(stream)) {
         this.notifyActivity();
         yield accumulatedMessage;
       }
+    } catch (error) {
+      failed = true;
+      throw error;
     } finally {
       await stream.cancel(abortSignal.reason).catch(() => undefined);
-      await delegatedReceiver?.settle();
+      if (failed || (abortSignal.aborted && !terminalFinishFlushed)) {
+        await delegatedReceiver?.settleAfterFailure();
+      } else {
+        await delegatedReceiver?.settle();
+      }
     }
     throwIfRunAbortedBeforeTerminalCompletion(abortSignal, terminalFinishFlushed);
     this.options.onFinish?.(unstable_getMessage());

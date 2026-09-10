@@ -3957,3 +3957,12 @@ replacement, malformed openings, partial updates, transport failure and abort.
 The desktop native parity fixture now drives the public replay adapter directly
 with the real host response; it no longer extracts child frames by hand. Its
 content/lifecycle assertions still match native memory after reconstruction.
+
+Receiver completion uses the same `deferMessageFinishUntilFlush` transform as the
+parent. Both final part streams and descendant receivers settle before a complete
+snapshot is published. Producer failures/cancellations still emit their required
+`d` finish frame; an error frame alone is a truncated stream, not a valid child
+terminal. Cleanup preserves the primary transport/envelope/abort failure and logs
+secondary settlement failures once. Consumer presence selects receiver installation
+at run start; an installed receiver reads the latest committed callback on each
+update, including callback replacement during an active run.

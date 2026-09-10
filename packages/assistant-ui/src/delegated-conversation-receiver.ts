@@ -3,12 +3,16 @@ import {
   type DelegatedConversationStreamData,
   type DelegatedRunIdentity,
 } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import {
   type AssistantMessage,
   AssistantMessageAccumulator,
   type AssistantStreamChunk,
   DataStreamDecoder,
 } from 'assistant-stream';
+import { deferMessageFinishUntilFlush } from './defer-message-finish';
+
+const logger = createLogger('DelegatedConversationReceiver');
 
 export interface DelegatedConversationUpdate {
   readonly identity: DelegatedRunIdentity;
@@ -161,13 +165,17 @@ class ChildReceiver {
 type DelegatedConversationTap = TransformStream<AssistantStreamChunk, AssistantStreamChunk> & {
   /** The response owner settles children even when upstream fails before flush. */
   settle: () => Promise<void>;
+  /** Preserve an already propagating failure and report secondary cleanup errors. */
+  settleAfterFailure: () => Promise<void>;
 };
 
 /** A response/replay owns one receiver per native invocation, not per row id. */
 export function createDelegatedConversationTap(
   onUpdate: (update: DelegatedConversationUpdate) => void,
-  abortSignal: AbortSignal
+  abortSignal: AbortSignal,
+  onTerminalFinishFlushed?: () => void
 ): DelegatedConversationTap {
+  // Closed receivers reject post-terminal frames instead of silently restarting.
   const children = new Map<string, ChildReceiver>();
   let settling: Promise<void> | undefined;
   const closeChildren = async (): Promise<void> => {
@@ -181,6 +189,20 @@ export function createDelegatedConversationTap(
   const settle = (): Promise<void> => {
     settling ??= closeChildren();
     return settling;
+  };
+  let reportedSettlementFailure = false;
+  const settleAfterFailure = async (): Promise<void> => {
+    try {
+      await settle();
+    } catch (error) {
+      if (!reportedSettlementFailure) {
+        reportedSettlementFailure = true;
+        logger.error('Child settlement failed after the primary stream failure', {
+          code: 'assistant_child_settlement_after_failure',
+          error,
+        });
+      }
+    }
   };
   const stream = new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
     async flush() {
@@ -231,12 +253,17 @@ export function createDelegatedConversationTap(
         }
         await child.receive(envelope);
       } catch (error) {
-        await settle();
+        await settleAfterFailure();
         throw error;
       }
       // Preserve parent part indices; child data never becomes parent text.
       controller.enqueue(chunk);
     },
   });
-  return Object.assign(stream, { settle });
+  return {
+    readable: stream.readable.pipeThrough(deferMessageFinishUntilFlush(onTerminalFinishFlushed)),
+    settle,
+    settleAfterFailure,
+    writable: stream.writable,
+  };
 }

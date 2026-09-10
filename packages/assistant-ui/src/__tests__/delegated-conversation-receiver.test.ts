@@ -303,6 +303,7 @@ it('delivers partial child snapshots before the parent ends and settles children
     vi.fn(async () => new Response(body))
   );
   let signaled = false;
+  let observedStatus: string | undefined;
   const adapter = new BrainstrikeDataStreamRuntimeAdapter({
     api: 'http://assistant.test',
     onDelegatedConversation: (update) => {
@@ -314,13 +315,14 @@ it('delivers partial child snapshots before the parent ends and settles children
         )
       ) {
         signaled = true;
-        expect(update.message.status.type).toBe('running');
+        observedStatus = update.message.status.type;
         source?.error(fault);
       }
     },
   });
   await expect(consume(adapter)).rejects.toBe(fault);
   expect(signaled).toBe(true);
+  expect(observedStatus).toBe('running');
   expect(updates.at(-1)?.message.status).toMatchObject({ reason: 'error', type: 'incomplete' });
 });
 
@@ -402,3 +404,141 @@ it.each(['missing', 'mismatched'] as const)(
     ).rejects.toThrow('native opening frame');
   }
 );
+
+it.each(['text', 'reasoning', 'tool'] as const)(
+  'publishes child completion only after the final %s part settles',
+  async (kind) => {
+    const content =
+      kind === 'tool'
+        ? [
+            { code: '9', value: { args: {}, toolCallId: 'call', toolName: 'grep' } },
+            { code: 'a', value: { result: 'result', toolCallId: 'call' } },
+          ]
+        : [{ code: kind === 'text' ? '0' : 'g', value: 'Final part.' }];
+    serve([
+      frame('f', { messageId: 'root' }),
+      child('a', [{ code: 'f', value: { messageId: 'native-a' } }, ...content, finish]),
+      frame(finish.code, finish.value),
+    ]);
+    const completed: AssistantMessage[] = [];
+    await consume(
+      new BrainstrikeDataStreamRuntimeAdapter({
+        api: 'http://assistant.test',
+        onDelegatedConversation: ({ message }) => {
+          if (message.status.type === 'complete') {
+            completed.push(message);
+          }
+        },
+      })
+    );
+    expect(completed.length).toBeGreaterThan(0);
+    for (const message of completed) {
+      expect(message.parts).toHaveLength(1);
+      expect(message.parts[0]).toMatchObject({ status: { type: 'complete' } });
+      if (kind === 'tool') {
+        expect(message.parts[0]).toMatchObject({ result: 'result' });
+      }
+    }
+  }
+);
+
+it('never publishes parent completion before discovering an unfinished child', async () => {
+  serve([
+    frame('f', { messageId: 'root' }),
+    child('a', [
+      { code: 'f', value: { messageId: 'native-a' } },
+      { code: '0', value: 'Partial.' },
+    ]),
+    frame(finish.code, finish.value),
+  ]);
+  const completed: unknown[] = [];
+  const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+    api: 'http://assistant.test',
+    onDelegatedConversation: vi.fn(),
+  });
+  const run = async (): Promise<void> => {
+    for await (const message of adapter.run(options())) {
+      if (message.status?.type === 'complete') {
+        completed.push(message);
+      }
+    }
+  };
+  await expect(run()).rejects.toThrow('delegated conversation terminal');
+  expect(completed).toEqual([]);
+});
+
+it.each(['transport', 'envelope'] as const)(
+  'preserves the primary %s error when child settlement also fails',
+  async (kind) => {
+    const fault = new Error('Primary transport failure');
+    const cleanup = new Error('Secondary observer failure');
+    let source: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        source = controller;
+        controller.enqueue(
+          new TextEncoder().encode(
+            frame('f', { messageId: 'root' }) +
+              child('a', [
+                { code: 'f', value: { messageId: 'native-a' } },
+                { code: '0', value: 'Partial.' },
+              ])
+          )
+        );
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(body))
+    );
+    let interrupted = false;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test',
+      onDelegatedConversation: ({ message }) => {
+        if (message.status.type === 'incomplete') {
+          throw cleanup;
+        }
+        if (
+          !interrupted &&
+          message.parts.some((part) => part.type === 'text' && part.text === 'Partial.')
+        ) {
+          interrupted = true;
+          if (kind === 'transport') {
+            source?.error(fault);
+          } else {
+            source?.enqueue(
+              new TextEncoder().encode(
+                frame('aui-data', { data: {}, name: DELEGATED_CONVERSATION_DATA_NAME })
+              )
+            );
+            source?.close();
+          }
+        }
+      },
+    });
+    if (kind === 'transport') {
+      await expect(consume(adapter)).rejects.toBe(fault);
+    } else {
+      await expect(consume(adapter)).rejects.toThrow('Invalid delegated conversation identity');
+    }
+  }
+);
+
+it('rejects a truncated child error without its required finish frame', async () => {
+  serve([
+    frame('f', { messageId: 'root' }),
+    child('a', [
+      { code: 'f', value: { messageId: 'native-a' } },
+      { code: '3', value: 'Child failed' },
+    ]),
+    frame(finish.code, finish.value),
+  ]);
+  await expect(
+    consume(
+      new BrainstrikeDataStreamRuntimeAdapter({
+        api: 'http://assistant.test',
+        onDelegatedConversation: vi.fn(),
+      })
+    )
+  ).rejects.toThrow('delegated conversation terminal');
+});

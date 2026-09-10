@@ -17,5 +17,6 @@ export interface AssistantStreamCallbacks {
    * the context usage store; same seam shape as onUsage.
    */
   onContextBreakdown?: ((data: unknown) => void) | undefined;
+  /** Hosted/data-stream snapshots only; never wired to the in-renderer local runtime. */
   onDelegatedConversation?: ((update: DelegatedConversationUpdate) => void) | undefined;
 }

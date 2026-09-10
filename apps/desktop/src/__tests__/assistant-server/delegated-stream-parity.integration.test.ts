@@ -188,6 +188,11 @@ describe('desktop child transport and native row parity', () => {
         .map((part) => part.text)
         .join('')
     ).toBe('Parent summary.');
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith(
+      'http://assistant.test/resume',
+      expect.objectContaining({ method: 'GET' })
+    );
     expect(decoded).toBeDefined();
     const children = (
       await database.query<{ thread_id: string; resource_id: string }>(
