@@ -22,7 +22,7 @@ import {
 import type { GitInventory, WorktreeDescriptor } from '@brainstrike/types';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import type { UseGitInventoryResult } from '../changes/use-git-inventory';
 import type { GitRepository, GitStatus, GitWorktreeSummary } from '../git-panel/git-bridge';
@@ -160,7 +160,36 @@ async function openWorktreeMenu(): Promise<ReturnType<typeof userEvent.setup>> {
   return user;
 }
 
+async function closeWorkbenchMenu(): Promise<void> {
+  const menu = screen.queryByRole('menu');
+  if (!menu) {
+    return;
+  }
+  const triggerId = menu.getAttribute('aria-labelledby');
+  const trigger = triggerId ? document.getElementById(triggerId) : null;
+  if (!trigger) {
+    throw new Error('The open workbench menu must identify its focus-return trigger.');
+  }
+  await userEvent.setup().keyboard('{Escape}');
+  // Radix restores focus in its deferred onCloseAutoFocus callback. Await
+  // that observable completion while this fixture's document still owns it.
+  await waitFor(() => expect(trigger).toHaveFocus());
+}
+
+afterEach(closeWorkbenchMenu);
+
 describe('GitWorkbenchHeader worktree dropdown', () => {
+  it('restores menu trigger focus before fixture teardown', async () => {
+    setInventoryResult({ inventory: makeInventory([makeWorktreeDescriptor()]) });
+    renderHeader(makeRepository());
+    const trigger = screen.getByRole('button', { name: /Current worktree/ });
+    await openWorktreeMenu();
+    expect(trigger).not.toHaveFocus();
+    await closeWorkbenchMenu();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   beforeEach(() => {
     setInventoryResult({});
     usePanelLayoutStore.setState({ activeTab: 'git' });
