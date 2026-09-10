@@ -1,3 +1,4 @@
+import { createDelegatedConversationRepository, runDrizzleMigrations } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { PGlite } from '@electric-sql/pglite';
 import {
@@ -188,6 +189,9 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
   it.each([true, false])(
     'exposes per-invocation identity before child publication (explicit memory=%s)',
     async (childMemory) => {
+      await runDrizzleMigrations(database);
+      const graph = createDelegatedConversationRepository(database);
+      const rootScope = { ownerResourceId: 'owner', rootThreadId: 'root' };
       const scopes = new Map<string, { threadId: string; resourceId: string }>();
       const processedRuns = new Map<string, Set<string>>();
       const publishedRuns = new Map<string, string>();
@@ -201,9 +205,21 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
           if (!(scope?.thread?.id && scope.resourceId && typeof invocation === 'string')) {
             throw new Error('Child memory or invocation identity is missing');
           }
-          // The native input boundary awaits asynchronous work before the start
-          // event. This query proves ordering, not durable graph persistence.
-          await database.query('SELECT 1');
+          // Native memory has created the thread before host input processing.
+          // Await the durable graph write before any child publication.
+          const nativeThread = await backing.memory.getThreadById({ threadId: scope.thread.id });
+          expect(nativeThread?.resourceId, 'native thread must exist before graph binding').toBe(
+            scope.resourceId
+          );
+          await graph.registerRoot(rootScope);
+          await graph.createChild(rootScope, {
+            color: 'blue',
+            configuration: { personaId: 'child' },
+            displayName: invocation,
+            parentThreadId: 'root',
+            resourceId: scope.resourceId,
+            threadId: scope.thread.id,
+          });
           scopes.set(invocation, { resourceId: scope.resourceId, threadId: scope.thread.id });
           return messages;
         },
@@ -253,6 +269,18 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         // Includes the very first native `start`, which bypasses output
         // processors. Correlate by the parent's call id, never persona/FIFO.
         expect(scopes.has(invocation), `${invocation}: ${nested.type}`).toBe(true);
+        const boundScope = scopes.get(invocation);
+        if (!boundScope) {
+          throw new Error('Published child has no bound scope');
+        }
+        const persisted = await createDelegatedConversationRepository(database).get(
+          rootScope,
+          boundScope.threadId
+        );
+        expect(persisted).toMatchObject({
+          displayName: invocation,
+          resourceId: boundScope.resourceId,
+        });
         if (nested.type === 'start') {
           publishedRuns.set(invocation, nested.runId);
         }
@@ -376,7 +404,13 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
   it.each([true, false])(
     'routes grandchild approval through recreated agents and storage (approved=%s)',
     async (approved) => {
-      const { parent, effect, host } = tree({ requireApproval: true });
+      const initialInput = vi.fn(
+        ({ messages }: Parameters<NonNullable<InputProcessor['processInput']>>[0]) => messages
+      );
+      const { parent, effect, host } = tree({
+        childInputProcessor: { id: 'resume-input-proof', processInput: initialInput },
+        requireApproval: true,
+      });
       const output = await parent.stream('Read evidence', {
         memory: { resource: 'owner', thread: 'approval-root' },
       });
@@ -392,7 +426,14 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         database: memoryDatabase(),
         memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
       });
-      const recreated = tree({ requireApproval: true });
+      expect(initialInput).toHaveBeenCalledTimes(1);
+      const resumeInput = vi.fn(
+        ({ messages }: Parameters<NonNullable<InputProcessor['processInput']>>[0]) => messages
+      );
+      const recreated = tree({
+        childInputProcessor: { id: 'resume-input-proof', processInput: resumeInput },
+        requireApproval: true,
+      });
       const resume = approved
         ? await recreated.parent.approveToolCall({
             runId: output.runId,
@@ -405,6 +446,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       await collect(resume.fullStream);
       expect(effect).not.toHaveBeenCalled();
       expect(recreated.effect).toHaveBeenCalledTimes(approved ? 1 : 0);
+      expect(resumeInput).not.toHaveBeenCalled();
       expect(await resume.text).toBe('child-1 answered');
     }
   );

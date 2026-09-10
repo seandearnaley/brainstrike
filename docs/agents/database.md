@@ -1178,3 +1178,9 @@ the branch; restoring the exact native scope restores visibility. This storage
 layer does not promise permanent revocation or garbage collection. The host must
 source child write identities from observed native delegation, never caller ids;
 thread creation timestamps are not proof of ownership or delegation.
+
+Before production host activation, note that createChild revalidates current root
+workspace metadata even on duplicate delivery. Malformed current metadata rejects
+a duplicate write; get still returns the original authorized binding. The host
+must distinguish reading an existing invocation from creating a new one and must
+not use duplicate createChild as a substitute for resume authorization.

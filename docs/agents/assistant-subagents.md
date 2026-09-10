@@ -525,3 +525,18 @@ the parent without rewriting a completed delegation result. Every inherited
 control must have a working child-scoped command and persistence path before it
 appears enabled. The linked parity matrix names the existing owners and delivery
 responsibilities; BST-1728 verifies actual runtime parity.
+
+### Durable binding before publication and resume preparation (BST-1718)
+
+The native contract fixture now awaits a real delegated graph write in the child
+input processor and reloads that binding through a new repository before every
+forwarded child event, including `start`. Public `Memory.getThreadById` confirms
+that the native thread already exists at this seam, with both explicit and
+inherited child memory. This proves the storage prerequisite, not production
+host wiring or invocation/run attribution.
+
+The recreated-agent grandchild approval and decline cases also prove that the
+child input processor is not invoked on snapshot resume. A production resume
+must authorize persisted ancestry and invocation identity at the host boundary
+before forwarding any resumed child event; rerunning the input processor cannot
+be assumed. See the current [processor interface timing](https://mastra.ai/reference/processors/processor-interface).
