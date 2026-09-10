@@ -243,18 +243,49 @@ function requireThreadContext(runtimeData: RuntimeData):
   return { resourceId, threadId };
 }
 
+/**
+ * BST-1707: the run's OWN resolved input limit wins whenever the request
+ * carries one. `agentLoop.inputTokenLimit` is what the turn actually enforces
+ * (Mastra's TokenLimiter budget, the context meter's denominator and the
+ * instruction budget note all read that same number — see the ONE-DERIVATION
+ * invariant in docs/agents/assistant-persistence.md), and it is threaded from
+ * the renderer's `buildAgentLoopSettings` through the request body into
+ * `RuntimeData` unmodified on the desktop path.
+ *
+ * Re-deriving from the catalog's `maxOutputTokens` here diverged from that
+ * number for every provider whose request path reserves LESS output than the
+ * model's hard maximum — OpenRouter caps its reservation at
+ * OPENROUTER_CODING_MAX_OUTPUT_TOKENS (32,000), so 49 of the 57 OpenRouter
+ * catalog rows compacted against a budget smaller than the run's (18x smaller
+ * for `meta/muse-spark-1.3`: 52,429 against the run's 964,147), and
+ * `moonshotai/kimi-k3` (contextWindow === maxOutputTokens) made the derivation
+ * THROW — a throw the pre-request caller swallows, so that recommended coding
+ * model silently got no compaction at all.
+ *
+ * The catalog derivation stays as the fallback for runs that carry no
+ * `agentLoop` (a raw client, or a request built before the settings exist).
+ * A PRESENT-but-unusable `inputTokenLimit` throws rather than quietly falling
+ * back to a different number: the desktop assistant HTTP path does not
+ * sanitize `agentLoop` (only the IPC tool path does), so silently substituting
+ * the catalog value would hide a malformed request behind a plausible budget.
+ */
 export function resolveCompactionInputBudget(runtimeData: RuntimeData): number {
   const provider = runtimeData.provider?.trim();
   const model = runtimeData.model?.trim() || (provider ? getDefaultModel(provider) : '');
   if (!(provider && model)) {
     throw new Error('Conversation compaction requires the run provider and model.');
   }
+  const resolvedBudget = runtimeData.agentLoop?.inputTokenLimit;
+  if (resolvedBudget !== undefined) {
+    if (!(Number.isSafeInteger(resolvedBudget) && resolvedBudget > 0)) {
+      throw new Error(
+        `Conversation compaction received an invalid agentLoop.inputTokenLimit (${resolvedBudget}) for ${provider}/${model}.`
+      );
+    }
+    return resolvedBudget;
+  }
   const definition = findLlmModelDefinition(provider as ProviderId, model);
   if (!definition) {
-    const explicitBudget = runtimeData.agentLoop?.inputTokenLimit;
-    if (Number.isSafeInteger(explicitBudget) && (explicitBudget ?? 0) > 0) {
-      return explicitBudget as number;
-    }
     throw new Error(`Unknown compaction input budget for ${provider}/${model}.`);
   }
   return deriveEffectiveInputBudget(definition.contextWindow, definition.maxOutputTokens);
