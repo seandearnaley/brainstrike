@@ -2925,3 +2925,16 @@ transcript, shared hydration and engine reconstruction),
 idempotency and resumed event grouping), and agent `data-stream-session.spec.ts`
 (decoder and byte-identical replay). These do not claim packaged UI parity or
 cancelled child transcript durability; those scenarios remain tracked.
+
+### Tool input live/reload parity (BST-1719)
+
+Native Mastra storage already retained complete child tool arguments. The
+transport must emit them through the normal decoder's argument-delta path
+before closing a started tool; the completion frame alone does not populate
+that part. `delegated-stream-parity.integration.test.ts` uses the real desktop
+memory, host event observer, native loop, transport encoder, installed decoder
+and shared history adapter. It establishes the observed native message id
+against the actual saved row and compares text/reasoning/tool input/result
+content and order before/after engine reconstruction. There is no duplicate
+content writer or new durable store. Full event placement, changed native ids
+on resume and receiver reattachment remain separate BST-1719 acceptance work.

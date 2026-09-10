@@ -661,6 +661,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 5.0.0(@vitest/browser@5.0.0)(vitest@5.0.0)
+      assistant-stream:
+        specifier: 0.3.41
+        version: 0.3.41
       concurrently:
         specifier: 'catalog:'
         version: 10.0.5

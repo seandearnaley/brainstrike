@@ -748,15 +748,7 @@ export class DataStreamMapper {
     if (!state || state.argsEmitted) {
       return;
     }
-    state.argsEmitted = true;
-    yield {
-      code: DataStreamCode.toolCall,
-      value: {
-        args: toArgsObject(state.lastInput, state.pendingArgsText),
-        toolCallId: callId,
-        toolName: state.toolName,
-      },
-    } satisfies EncodedChunk;
+    yield* this.finishToolArgs(callId, state);
   }
 
   /**
@@ -863,15 +855,7 @@ export class DataStreamMapper {
     const state = this.toolState.get(callId);
     const args = chunk.args ?? state?.lastInput;
     if (state && !state.argsEmitted) {
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: {
-          args: toArgsObject(args, state.pendingArgsText),
-          toolCallId: callId,
-          toolName: state.toolName,
-        },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state, args);
     }
     // Deferred run events flush only now, AFTER the args-complete `9` — the
     // pre-BST-962 top-of-handler flush landed them inside the open args
@@ -941,15 +925,7 @@ export class DataStreamMapper {
     // pause data, not the tool input, so args default to the recorded input.
     const state = this.toolState.get(callId);
     if (state && !state.argsEmitted) {
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: {
-          args: toArgsObject(state.lastInput, state.pendingArgsText),
-          toolCallId: callId,
-          toolName: state.toolName,
-        },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
     }
     // Text-part deferral contract: deferred run events flush AFTER this call's
     // args-complete `9` (a flush inside the open args stream is the BST-962
@@ -1031,22 +1007,34 @@ export class DataStreamMapper {
     // provider path (a `tool-call` part; no input_stream_* events will
     // follow), so the args window would otherwise stay open across the whole
     // EXECUTION — deferring live shell output and run events until the
-    // result. Close it now: `b` immediately followed by its `9`. Streaming
+    // result. Send its complete input and close it now. Streaming
     // providers map `tool-call-input-streaming-start` to a start WITHOUT
     // input, so they are unaffected; a defensive late delta is dropped by the
     // argsEmitted guard either way.
     if (hasNonEmptyToolInput(state.lastInput)) {
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: {
-          args: toArgsObject(state.lastInput),
-          toolCallId: callId,
-          toolName,
-        },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
       yield* this.completeArgsStream(callId);
     }
+  }
+
+  /** After `b`, the native decoder reads arguments from `c`; `9` only closes them. */
+  private *finishToolArgs(
+    callId: string,
+    state: ToolState,
+    input: unknown = state.lastInput
+  ): Generator<EncodedChunk> {
+    const args = toArgsObject(input, state.pendingArgsText);
+    state.argsEmitted = true;
+    if (state.pendingArgsText.length === 0) {
+      yield {
+        code: DataStreamCode.toolCallArgsTextDelta,
+        value: { argsTextDelta: JSON.stringify(args), toolCallId: callId },
+      } satisfies EncodedChunk;
+    }
+    yield {
+      code: DataStreamCode.toolCall,
+      value: { args, toolCallId: callId, toolName: state.toolName },
+    } satisfies EncodedChunk;
   }
 
   private *handleToolProgress(callId: string, payload: unknown): Generator<EncodedChunk> {
@@ -1090,12 +1078,7 @@ export class DataStreamMapper {
       if (!state || state.argsEmitted) {
         return;
       }
-      const args = toArgsObject(state.lastInput, state.pendingArgsText);
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: { args, toolCallId: callId, toolName: state.toolName },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
       yield* this.completeArgsStream(callId);
     }
   }
@@ -1121,12 +1104,7 @@ export class DataStreamMapper {
     const bounded = boundToolOutputForModel(state?.toolName ?? toolName, output);
     if (bounded.errorText) {
       if (state && !state.argsEmitted) {
-        const args = toArgsObject(state.lastInput, state.pendingArgsText);
-        state.argsEmitted = true;
-        yield {
-          code: DataStreamCode.toolCall,
-          value: { args, toolCallId: callId, toolName: state.toolName },
-        } satisfies EncodedChunk;
+        yield* this.finishToolArgs(callId, state);
       }
       this.toolState.delete(callId);
       this.settledToolCallIds.add(callId);
@@ -1140,12 +1118,7 @@ export class DataStreamMapper {
       return;
     }
     if (state && !state.argsEmitted) {
-      const args = toArgsObject(state.lastInput, state.pendingArgsText);
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: { args, toolCallId: callId, toolName: state.toolName },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
     }
     this.toolState.delete(callId);
     this.settledToolCallIds.add(callId);
@@ -1173,12 +1146,7 @@ export class DataStreamMapper {
     // Emit ToolCall with args if we haven't already (needed for UI to display tool)
     const state = this.toolState.get(callId);
     if (state && !state.argsEmitted) {
-      const args = toArgsObject(state.lastInput, state.pendingArgsText);
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: { args, toolCallId: callId, toolName: state.toolName },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
     }
 
     this.toolState.delete(callId);
@@ -1218,15 +1186,7 @@ export class DataStreamMapper {
     }
     const state = this.toolState.get(callId);
     if (state && !state.argsEmitted) {
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: {
-          args: toArgsObject(state.lastInput, state.pendingArgsText),
-          toolCallId: callId,
-          toolName: state.toolName,
-        },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
     }
     this.toolState.delete(callId);
     this.settledToolCallIds.add(callId);

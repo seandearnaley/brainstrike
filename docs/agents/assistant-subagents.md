@@ -781,3 +781,21 @@ classification relied on the child's propagated signal: that signal can lag the
 owner's cancellation. The owner signal supplied by `buildStreamOptions` governs
 both decisions; the child may not turn an already-cancelled owner turn back into
 a normal finish. No sleeps, retries or timeout changes establish this ordering.
+
+### Child tool input transport parity (BST-1719)
+
+A native multi-step child retains its observed message id in the saved Mastra
+assistant row. The desktop production-loop test
+`delegated-stream-parity.integration.test.ts` compares text, provider reasoning,
+tool name/id/input/result and final text after the normal transport decoder and
+a reconstructed native memory engine. This is content parity for the tested
+normal turn, not a claim of complete receiver or resumed-message parity.
+
+The shared encoder must transmit complete tool input through `c` argument
+deltas before the `9` completion frame whenever `b` already started the call.
+The installed assistant-stream decoder ignores `9.args` for an existing call;
+`b` immediately followed by `9` therefore displayed `{}` even though native
+storage retained the real input. The common completion helper emits complete
+input only when no argument deltas have already flowed, then closes the input.
+This also covers root calls, late complete input and approval notices without
+duplicating streamed JSON or changing native persistence.

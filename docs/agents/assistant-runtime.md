@@ -3861,3 +3861,15 @@ assistant-server resume-dispatch tests; and the UI suspend-notice tests.
 When changing this flow, update this section and the paired tests.
 
 ---
+
+### Complete tool arguments at the decoder boundary (BST-1719)
+
+`DataStreamMapper.finishToolArgs` is the shared argument-completion boundary.
+For the installed assistant-stream decoder, `b` creates the tool part, `c`
+appends its argument text, and `9` closes that existing argument stream without
+reading `9.args`. Complete non-streaming input must therefore be emitted as a
+`c` before `9`; already streamed JSON is not emitted twice. All existing close
+paths use this helper and retain their data/text deferral ordering. The real
+decoder regressions in `data-stream-tool-input.spec.ts` cover direct input, late
+complete input, streamed input, and approval with/without an open input stream.
+This applies to parent and delegated frames through the same encoder.

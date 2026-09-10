@@ -636,7 +636,7 @@ describe('aui-data parts never interleave into an open tool-call args stream (BS
   it('streams execution-time data parts live when the start already carries complete args', async () => {
     // Non-streaming provider path: a `tool-call` part maps to a start event
     // with the full input and no input_stream_* events ever follow. The args
-    // window must close at the start (`9` right after `b`), not at
+    // window must close at the start (`b`, complete input `c`, then `9`), not at
     // settlement — otherwise live shell output and run events produced DURING
     // execution are buffered until the result.
     const parsed = await mapChunks([
@@ -660,7 +660,7 @@ describe('aui-data parts never interleave into an open tool-call args stream (BS
 
     expectDecoderSafeArgsStream(parsed);
     const codes = parsed.map((p) => p.code);
-    expect(codes.indexOf('9')).toBe(codes.indexOf('b') + 1);
+    expect(codes.slice(codes.indexOf('b'), codes.indexOf('9') + 1)).toEqual(['b', 'c', '9']);
     const resultIndex = codes.indexOf('a');
     const dataIndices = codes.flatMap((code, i) => (code === 'aui-data' ? [i] : []));
     expect(dataIndices).toHaveLength(3);
