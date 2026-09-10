@@ -66,6 +66,19 @@ is correct. `scripts/__tests__/ci-input-locality.test.mjs` executes the pinned
 Turbo binary to prove both selection and hash locality, including a negative
 control. Shared configuration and lockfile changes still receive broad checks.
 
+Radix menu fixtures must finish their close/focus lifecycle before React cleanup
+and jsdom environment disposal. `git-workbench-header.test.tsx` closes any open
+menu with Escape and awaits focus on that menu's labelled trigger in its local
+`afterEach`. Radix FocusScope schedules its `onCloseAutoFocus` dispatch on a
+zero-delay task; leaving the last menu open lets that callback outlive the DOM
+realm and produce an unhandled Event-brand error even when all assertions pass
+(observed twice in Unit heavy, PRs #3105 and #3107). The lifecycle regression
+deliberately leaves a menu open and observes its trigger focus event from the
+real `afterEach` chain, asserting completion in `afterAll`. It fails when the
+close hook is removed or runs after RTL cleanup. Keep this ownership local to
+the fixture: do not suppress unhandled exceptions, replace Event constructors,
+add global sleeps, or discard pending timers to make the suite pass.
+
 An E2E lane's `--global-timeout` is a **failure ceiling, not a latency target**,
 and it stops being one silently. Read a lane's budget as a ratio against its
 measured runtime, never as an absolute number: the desktop smoke lane's 300000
