@@ -1014,6 +1014,16 @@ runtime is reusable, since `dispose()` only shuts down mastra + the MCP client.
   stream part must surface as a transport rejection the renderer renders as an
   error block (see the renderer safety net above), never as a mid-stream throw.
   Pinned by the `stream_failure`/`empty_stream` cases in `mastra-streaming.spec.ts`.
+- **Construction errors retain cleanup failures.** Initial, approve, decline,
+  and suspend-resume construction failures attempt runtime disposal once. If
+  disposal also fails, the returned typed error carries both failures in an
+  `AggregateError` cause and explicitly reports incomplete cleanup. An original
+  `MastraAgentError` retains its code and context; successful cleanup rethrows
+  that original error unchanged. Disposal attempts every cleanup owner and
+  propagates one failure directly or multiple failures together. Delegated
+  decision settlement follows the same runtime-wide contract (see
+  `assistant-subagents.md`). Paired real-runtime construction tests cover all
+  four entry points, typed errors, and single or multiple cleanup failures.
 - Paired tests: `mastra-stall-recovery.integration.spec.ts` (recovery, budget
   exhaustion, opt-out, user-cancel, continuation prompt contents, orphan drain
   across a recovery). Every recovery case asserts the TOOL-EXECUTION COUNT: a

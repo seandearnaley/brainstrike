@@ -940,8 +940,10 @@ the effect may already have occurred. Disposal attempts all cleanup owners in
 order and preserves multiple failures in an `AggregateError`; it never logs
 and swallows a failed decision settlement. Construction failures on every
 initial/approve/decline/resume leg retain both the original failure and any
-disposal aggregate as the typed stream error's cause, and explicitly report
-incomplete cleanup to the caller.
+disposal aggregate as the typed error's cause, and explicitly report incomplete
+cleanup to the caller while preserving an original typed error's code and
+context. This is the runtime-wide construction error contract in
+`assistant-runtime.md`, not a delegation-only exception.
 
 The native `beforeToolCall` hook captures the original parent model invocation
 through Mastra's public `MessageList` adapter, before delegation starts. The

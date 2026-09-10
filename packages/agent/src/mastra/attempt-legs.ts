@@ -37,7 +37,7 @@ import {
   claimDelegatedToolAction,
 } from './delegated-tool-actions';
 import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
-import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
+import { createMastraAgentError, isMastraAgentError, MastraAgentError } from './mastra-agent-error';
 import { makeMcpDiscoverySkipChunks } from './mcp-discovery-diagnostics';
 import type { PermissionAskToolMetadata } from './permission-tool-gate';
 import { computePromptBreakdown } from './prompt-breakdown';
@@ -519,11 +519,18 @@ async function handleStreamFailure(err: unknown, runtime: MastraAgentRuntime): P
       code: 'mastra_agent_runtime_dispose_failed',
       error: disposeError instanceof Error ? disposeError.message : String(disposeError),
     });
+    const cause = new AggregateError(
+      [err, disposeError],
+      'Assistant stream construction and runtime cleanup failed.'
+    );
+    if (isMastraAgentError(err)) {
+      throw new MastraAgentError(err.code, `${err.message} Runtime cleanup did not complete.`, {
+        cause,
+        ...(err.context ? { context: err.context } : {}),
+      });
+    }
     throw createMastraAgentError('mastra_agent_stream_failure', {
-      cause: new AggregateError(
-        [err, disposeError],
-        'Assistant stream construction and runtime cleanup failed.'
-      ),
+      cause,
       detail: 'Assistant stream construction failed and runtime cleanup did not complete.',
     });
   }

@@ -1912,6 +1912,46 @@ describe('mastra streaming integration', () => {
     expect(mastraInstances[0]?.shutdownCalls).toBe(1);
   });
 
+  it.each([false, true])(
+    'preserves a typed construction failure when cleanup fails=%s',
+    async (cleanupFails) => {
+      const original = new MastraAgentError(
+        'mastra_agent_missing_api_key',
+        'Provider key rejected',
+        { context: { provider: 'openai' } }
+      );
+      const cleanupFailure = new Error('decision settlement failed');
+      const finishToolActions = vi.fn(async () => {
+        if (cleanupFails) {
+          throw cleanupFailure;
+        }
+      });
+      const runtime = await createMastraAgentRuntime({
+        conversationBinding: {
+          ...createDelegatedConversationBinding(async () => undefined),
+          finishToolActions,
+        },
+        runtime: { apiKey: 'key', provider: 'openai' },
+      });
+      vi.spyOn(runtime.agent, 'stream').mockRejectedValue(original);
+      const operation = createStreamIteratorFromRuntime({
+        messages: [{ id: 'user', parts: [{ text: 'go', type: 'text' }], role: 'user' }],
+        runtime,
+      });
+      if (cleanupFails) {
+        await expect(operation).rejects.toMatchObject({
+          cause: { errors: [original, cleanupFailure], name: 'AggregateError' },
+          code: original.code,
+          context: original.context,
+          message: expect.stringContaining('Runtime cleanup did not complete'),
+        });
+      } else {
+        await expect(operation).rejects.toBe(original);
+      }
+      expect(finishToolActions).toHaveBeenCalledOnce();
+    }
+  );
+
   it.each(['initial', 'approve', 'decline', 'resume'] as const)(
     'preserves construction and all settlement errors on the %s leg',
     async (leg) => {
