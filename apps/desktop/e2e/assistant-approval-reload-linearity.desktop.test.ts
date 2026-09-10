@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { setupAssistantMock } from './utils/assistant-mock';
+import { readAssistantMockRequests, setupAssistantMock } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
@@ -261,5 +261,65 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
     }
     await expect(window.getByLabel('Previous branch')).toHaveCount(0);
     await expect(window.getByLabel('Next branch')).toHaveCount(0);
+  });
+
+  test('a failed decision discovery preserves history and clears after successful reload', async ({
+    window,
+  }) => {
+    const prompt = 'Keep this conversation while checking pending decisions.';
+    const reply = 'This saved response must remain visible.';
+    await setupAssistantMock(window, { message: reply, variant: 'simple' });
+    await waitForAssistantChat(window);
+    await sendPrompt(window, prompt);
+    await expect(window.getByText(reply).first()).toBeVisible({
+      timeout: E2E_TIMEOUTS.messageVisibility,
+    });
+    const latest = await readThreadEdges(window, null);
+    const threadId = latest[0]?.threadId;
+    if (!threadId) {
+      throw new Error('Expected the created conversation identity');
+    }
+    await expect.poll(async () => (await readThreadEdges(window, threadId)).length).toBe(2);
+    const chain = toLinearChain(await readThreadEdges(window, threadId));
+    const title = `Decision recovery E2E ${Date.now()}`;
+    await seedContentRowsForChain(window, { chain, texts: [prompt, reply], threadId, title });
+    let failDiscovery = true;
+    await window.route('**/assistant/suspended-runs?*', async (route) => {
+      await route.fulfill({
+        body: JSON.stringify(
+          failDiscovery
+            ? { error: 'ambiguous delegated snapshot' }
+            : { approvals: [], suspends: [] }
+        ),
+        contentType: 'application/json',
+        status: failDiscovery ? 500 : 200,
+      });
+    });
+    const reopen = async () => {
+      await window.reload();
+      const { mockFileSystemOperations } = await loadElectronHelpers();
+      await mockFileSystemOperations(window);
+      await ensureMockWorkspaceOpen(window);
+      await setupAssistantMock(window, { variant: 'simple' });
+      await waitForAssistantChat(window);
+      await window.getByRole('button', { exact: true, name: title }).click();
+      await expect(window.getByText(prompt).first()).toBeVisible({
+        timeout: E2E_TIMEOUTS.messageVisibility,
+      });
+      await expect(window.getByText(reply).first()).toBeVisible();
+    };
+    await reopen();
+    const recovery = window
+      .getByRole('alert')
+      .filter({ hasText: 'Pending decisions could not be restored' });
+    await expect(recovery).toBeVisible();
+    await expect(recovery).toContainText('Reopen this thread to check again.');
+    expect(await readAssistantMockRequests(window)).toHaveLength(0);
+    expect(await readThreadEdges(window, threadId)).toHaveLength(2);
+    failDiscovery = false;
+    await reopen();
+    await expect(recovery).toHaveCount(0);
+    expect(await readThreadEdges(window, threadId)).toHaveLength(2);
+    expect(await readAssistantMockRequests(window)).toHaveLength(0);
   });
 });

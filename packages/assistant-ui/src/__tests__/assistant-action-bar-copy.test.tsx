@@ -58,10 +58,18 @@ const chatModel: ChatModelAdapter = {
   }),
 };
 
-function Harness({ text }: { text: string }) {
+function Harness({ text, recovery = false }: { text: string; recovery?: boolean }) {
   const initialMessages: readonly ThreadMessageLike[] = [
     {
-      content: [{ text, type: 'text' }],
+      content: recovery
+        ? [
+            {
+              data: { reason: 'request-failed' },
+              name: 'suspended-run-discovery-error',
+              type: 'data',
+            },
+          ]
+        : [{ text, type: 'text' }],
       role: 'assistant',
       status: { reason: 'stop', type: 'complete' },
     },
@@ -84,6 +92,13 @@ describe('AssistantActionBar copy', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clipboardMocks.writeText.mockResolvedValue({ ok: true });
+  });
+
+  it('does not offer model regeneration for a decision discovery failure', () => {
+    render(<Harness recovery text="" />);
+    expect(screen.queryByRole('button', { name: 'Regenerate response' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Copy message' })).not.toBeInTheDocument();
+    expect(chatModel.run).not.toHaveBeenCalled();
   });
 
   it('copies the answer without the provider citation markers', async () => {

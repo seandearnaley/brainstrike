@@ -39,6 +39,7 @@ import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { AssistantActionBar } from './assistant-action-bar';
 import { AssistantActivityParts } from './assistant-activity-parts';
 import { ControlsMenu } from './assistant-controls-menu';
+import { assistantDiscoveryErrorDataUI } from './assistant-discovery-error-data-ui';
 import {
   assistantEndpointLogger,
   resolveAssistantAuthHeaders,
@@ -422,6 +423,7 @@ export type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-con
 
 const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantRunTimelineDataUI);
+  useAssistantDataUI(assistantDiscoveryErrorDataUI);
   useAssistantDataUI(assistantToolApprovalDataUI);
   useAssistantDataUI(assistantToolSuspendDataUI);
   useAssistantDataUI(assistantShellOutputDataUI);

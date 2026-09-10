@@ -397,6 +397,47 @@ describe('createAssistantThreadHistoryAdapter', () => {
     ).toBe(true);
   });
 
+  it('retains history and exposes discovery failure without persisting a transient parent', async () => {
+    const recordMessageParent = vi.fn(async () => undefined);
+    const repository = Object.assign(makeMessagesOnlyRepository(), { recordMessageParent });
+    const discoverSuspendedRuns = vi.fn(async () => ({
+      approvals: [],
+      error: { reason: 'request-failed' as const },
+      suspends: [],
+    }));
+    const adapter = createAssistantThreadHistoryAdapter({
+      discoverSuspendedRuns,
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+    const history = await adapter.load();
+    expect(history.messages[0]?.message.id).toBe('message-1');
+    const notice = history.messages.at(-1);
+    expect(notice?.message.content).toEqual([
+      { data: { reason: 'request-failed' }, name: 'suspended-run-discovery-error', type: 'data' },
+    ]);
+    expect(notice?.parentId).toBe('message-1');
+    expect(notice?.message.status).toEqual({ reason: 'stop', type: 'complete' });
+    await adapter.append({
+      message: {
+        attachments: [],
+        content: [{ text: 'Next prompt', type: 'text' }],
+        createdAt: new Date(),
+        id: 'next',
+        metadata: { custom: {} },
+        role: 'user',
+      },
+      parentId: history.headId ?? null,
+    });
+    expect(recordMessageParent).toHaveBeenCalledExactlyOnceWith({
+      messageId: 'next',
+      parentId: 'message-1',
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+  });
+
   it('appends a synthetic approval notice message per rediscovered suspended run', async () => {
     const repository = makeMessagesOnlyRepository();
     const discoverSuspendedRuns = vi.fn(async () => ({

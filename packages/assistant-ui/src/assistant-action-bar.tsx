@@ -1,4 +1,5 @@
-import { ActionBarPrimitive, useAui } from '@assistant-ui/react';
+import { ActionBarPrimitive, useAui, useAuiState } from '@assistant-ui/react';
+import { SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME } from '@brainstrike/assistant-contract';
 import { stripProviderCitationMarkers } from '@brainstrike/assistant-contract/citation-markers';
 import { TooltipIconButton, useCopyToClipboard } from '@brainstrike/ui';
 import { CheckIcon, CopyIcon, RefreshCwIcon } from 'lucide-react';
@@ -17,6 +18,17 @@ export const ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME = 'size-5';
 export const AssistantActionBar = () => {
   const aui = useAui();
   const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();
+  const isDiscoveryNotice = useAuiState((state) =>
+    state.message.parts.some(
+      (part) => part.type === 'data' && part.name === SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME
+    )
+  );
+  // Retrying a model response does not reload pending decisions and could
+  // repeat work. Hydration creates this notice as its own data-only message,
+  // with no model-message actions.
+  if (isDiscoveryNotice) {
+    return null;
+  }
 
   // Two reasons this is not ActionBarPrimitive.Copy, matching UserActionBar:
   // its built-in navigator.clipboard.writeText swallows write rejections

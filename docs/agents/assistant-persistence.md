@@ -3273,3 +3273,30 @@ and cannot retain an earlier card's answered state. Both still chain onto the
 durable history head through the existing transient-parent topology adapter.
 Ordinary root pause IDs are unchanged. The history repository regression covers
 successive leaves, repeated discovery and the preserved parent edge.
+
+
+### Decision discovery failures remain visible (BST-1720)
+
+A failed or timed-out suspended-decision request and a malformed response are
+explicit recovery states, not successful empty lists. Valid entries in a partly
+malformed response remain visible alongside the error. An absent optional
+`suspends` array retains the established additive protocol contract.
+
+Hydration keeps durable history and appends a transient `suspended-run-discovery-error`
+data notice. It is neither a native tool action nor a failed model response:
+regeneration/copy controls must not appear on it. Its transient parent alias
+chains the next real message to durable history; it does not add a persistence
+store or a native message row. A successful later hydration removes the notice.
+The current recovery action is to reopen the thread. A future persistent child
+runtime host must provide explicit history refresh rather than equating closing
+an inspection view with resetting its runtime.
+
+The request deadline starts after endpoint and auth resolution and covers the
+fetch and response body. A malformed notice payload renders an explicit invalid
+recovery status beside the saved conversation; it must not throw during render
+and replace the thread with an error boundary.
+
+The real assistant-ui activity renderer and topology adapter have paired tests;
+Electron coverage exercises a failed discovery and successful renderer reload
+with saved content retained and zero model requests. The discovery endpoint is
+controlled by that E2E fixture; this is not native process-restart evidence.
