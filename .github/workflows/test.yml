@@ -349,7 +349,7 @@ jobs:
       # lanes that genuinely consume built artifacts (packages/utils' own-dist
       # test, packages/db's nested-tsc test) declare exact `#build` edges in
       # their own turbo.json, and Turbo SELF-BUILDS exactly those. Desktop's
-      # native process-restart verifier additionally declares agent#build:
+      # native restart verifier additionally declares agent/assistant-data builds:
       # its child Node processes resolve public exports outside Vitest aliases.
       # The predecessor step's #1066/#1207 rationale
       # ("exports maps pointing at dist fail to resolve at test time") is

@@ -2491,10 +2491,11 @@ removing it. `topo` hashes the FULL default inputs (no test-file exclusions —
 vector; test-only over-invalidation is the cheaper failure mode). Explicit build edges survive in per-package
 `turbo.json` where a test genuinely consumes a built artifact:
 `@brainstrike/desktop#test:integration`/`#test:coverage` need
-`@brainstrike/agent#build` for the native delegated-decision restart verifier
-(BST-1720): child Node processes resolve public exports without Vitest aliases.
-That exact dependency builds the agent's DB/contract closure as well. The
-resolved graph is guarded by `turbo-global-configuration.test.mjs`; no inline
+`@brainstrike/agent#build` and `@brainstrike/assistant-data#build` for the native
+delegated-decision restart verifier (BST-1720): child Node processes resolve
+public exports without Vitest aliases.
+These exact dependencies build the agent's DB/contract closure and the startup
+reaper's public assistant-data export. The resolved graph is guarded by `turbo-global-configuration.test.mjs`; no inline
 build or repository-wide `^build` edge is introduced.
 `@brainstrike/logging#test` needs its own `build` (logger-dist-singleton test
 imports logging's `dist` by file URL); `@brainstrike/utils#test` needs its own

@@ -1001,9 +1001,10 @@ The paired `delegated-process-restart.integration.test.ts` is discovered by the
 existing desktop integration lane; no bespoke CI lane or production test route.
 Its separate Node processes resolve public package exports rather than Vitest
 source aliases. Desktop `test:integration` and `test:coverage` therefore declare
-an exact `@brainstrike/agent#build` dependency, which also builds the fixture's
-DB and contract dependencies. Direct Vitest invocation needs that build first;
-the CI Turbo invocation schedules it automatically from a clean checkout.
+exact `@brainstrike/agent#build` and `@brainstrike/assistant-data#build` dependencies
+for the agent fixtures and startup reaper, including their DB/contract closure.
+Direct Vitest invocation needs those builds first; the CI Turbo invocation
+schedules them automatically from a clean checkout.
 
 The native `beforeToolCall` hook captures the original parent model invocation
 through Mastra's public `MessageList` adapter, before delegation starts. The
