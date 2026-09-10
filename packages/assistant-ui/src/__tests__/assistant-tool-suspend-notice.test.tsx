@@ -77,6 +77,41 @@ describe('AssistantToolSuspendNotice', () => {
     threadMessagesMock.splice(0);
   });
 
+  it.each(['claimed', 'consumed', 'interrupted', 'unknown'])(
+    'preserves a recovered plan but prevents resubmitting a %s decision',
+    async (decisionState) => {
+      const user = userEvent.setup();
+      render(
+        <AssistantToolSuspendNotice
+          data={{
+            ...planRequest,
+            decisionState,
+            delegation: {
+              path: [
+                {
+                  childRuntimeRunId: 'child',
+                  parentRuntimeRunId: planRequest.runId,
+                  parentToolCallId: planRequest.toolCallId,
+                  personaId: 'worker',
+                },
+              ],
+              toolCallId: 'leaf',
+            },
+            stale: true,
+            suspendedAt: '2026-09-10T00:00:00Z',
+          }}
+        />
+      );
+      expect(screen.getByText('Refactor the parser.')).toBeInTheDocument();
+      const approve = screen.getByRole('button', { name: 'Approve' });
+      expect(approve).toBeDisabled();
+      expect(screen.getByRole('button', { name: /reject/i })).toBeDisabled();
+      expect(screen.getByTestId('delegated-decision-recovery-status')).toBeInTheDocument();
+      await user.click(approve);
+      expect(appendMessageMock).not.toHaveBeenCalled();
+    }
+  );
+
   it('renders the plan overview, steps, risks, and verification', () => {
     render(<AssistantToolSuspendNotice data={planRequest} />);
     expect(screen.getByTestId('assistant-submit-plan-notice')).toBeInTheDocument();

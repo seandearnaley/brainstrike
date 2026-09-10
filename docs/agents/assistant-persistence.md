@@ -3308,3 +3308,15 @@ The real assistant-ui activity renderer and topology adapter have paired tests;
 Electron coverage exercises a failed discovery and successful renderer reload
 with saved content retained and zero model requests. The discovery endpoint is
 controlled by that E2E fixture; this is not native process-restart evidence.
+
+
+### Durable delegated decision recovery display (BST-1720)
+
+Rediscovered pause data retains the host's optional durable `decisionState`
+through the existing transient notice hydration path. It creates no message
+content rows or durable parent edges. Reload refreshes status; it never resumes
+a workflow. The shared cards preserve tool/plan/question content and disable
+resubmission of claimed, consumed or interrupted decisions. Unknown present
+states fail wire validation. See assistant-subagents.md, “Durable delegated
+decision recovery display”, for the host authority and paired database/renderer
+proof. Missing snapshots still produce the visible discovery error.

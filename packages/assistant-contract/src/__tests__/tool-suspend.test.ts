@@ -213,6 +213,34 @@ describe('isRediscoveredToolSuspend', () => {
     toolName: 'brainstrike.askUser',
   };
 
+  it('rejects a present unknown or unscoped durable decision state', () => {
+    const request = {
+      runId: 'root',
+      stale: false,
+      suspendedAt: '2026-09-10T00:00:00Z',
+      toolCallId: 'parent-call',
+      toolName: 'brainstrike.askUser',
+    };
+    const delegation = {
+      path: [
+        {
+          childRuntimeRunId: 'child',
+          parentRuntimeRunId: 'root',
+          parentToolCallId: 'parent-call',
+          personaId: 'worker',
+        },
+      ],
+      toolCallId: 'leaf',
+    };
+    expect(
+      isRediscoveredToolSuspend({ ...request, decisionState: 'interrupted', delegation })
+    ).toBe(true);
+    expect(isRediscoveredToolSuspend({ ...request, decisionState: 'unknown', delegation })).toBe(
+      false
+    );
+    expect(isRediscoveredToolSuspend({ ...request, decisionState: 'claimed' })).toBe(false);
+  });
+
   it('accepts a fully-formed rediscovered suspend, with or without optional fields', () => {
     expect(isRediscoveredToolSuspend(base)).toBe(true);
     const { suspendPayload: _payload, ...withoutPayload } = base;

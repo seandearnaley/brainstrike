@@ -1041,3 +1041,39 @@ Persona read-only, ask-tool and interactive-tool restrictions remain until the
 remaining BST-1720 production entry, question/plan, interrupted-state UI and
 end-to-end acceptance is green. This foundation does not enable mutation tools
 or unrestricted recursive workers.
+
+
+### Durable delegated decision recovery display (BST-1720)
+
+The suspended-runs endpoint annotates each rediscovered native leaf with its
+exact durable admission state, scoped by owner, root, root transport call and
+leaf run/call. `claimed`, `consumed` and `interrupted` mean the same decision
+cannot be resubmitted; none asserts that its tool effect succeeded. A later
+leaf behind the same parent alias remains independently actionable. Discovery
+only reads admission records and never creates a pause from them.
+
+The existing approval, question and plan cards retain their original content
+and show the admission status with controls locked. Unknown present states
+fail wire validation and render an unavailable status if encountered directly
+in a card. Staleness without admission state remains advisory. Status refresh
+uses the existing thread reload; no polling or auto-resume is introduced.
+The server's durable admission check remains authoritative if a claim races
+this read. Missing/ambiguous native snapshots still use the visible discovery
+error path; this slice does not reconstruct missing snapshots.
+
+Paired proof: the delegated-decision-discovery endpoint tests, real PGlite
+cases in delegated-conversation-host.integration.test.ts, shared notice and
+contract tests, and assistant-approval-reload-linearity.desktop.test.ts.
+The Electron test exercises renderer reload and real history hydration with a
+scripted discovery response; the database test independently verifies admission
+state and ownership. Neither claims packaged process-restart UI parity.
+
+The decision-state SQL joins the complete deduplicated root-run/root-call/leaf-run/leaf-call
+tuples, so retained historical decisions for the same child are not fetched or
+validated. The lookup uses only returned pauses (including the existing
+newest-ten suspend cap). Ordinary pauses require no extra decision-database
+read. A failed query or invalid saved state remains a visible discovery error;
+it must never become an empty annotation map that re-enables a consumed leaf.
+Explicitly undefined/inherited decision-state fields are invalid, not absent.
+Interrupted claims cannot safely offer retry: follow-up/cancellation controls
+remain part of BST-1723, and never erase the original admission record.

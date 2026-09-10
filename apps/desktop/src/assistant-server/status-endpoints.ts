@@ -12,10 +12,15 @@ import {
   resolveRunPythonExecutionContext,
   type SuspendedRunsResponse,
 } from '@brainstrike/agent';
+import {
+  type DelegatedToolDecisionState,
+  getToolActionIdentityKey,
+} from '@brainstrike/assistant-contract';
 import { respondJson } from '@brainstrike/assistant-service/http';
 import { getDatabase } from '../db-main';
 import { getProviderAuthEngine } from '../provider-auth/provider-auth-runtime';
 import { createDesktopDelegatedSuspensionResolver } from './delegated-conversation-host';
+import { readDelegatedDecisionStates } from './delegated-decision-discovery';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { getDesktopMastraMemory } from './mastra-memory';
 import {
@@ -332,46 +337,6 @@ export async function handleSuspendedRunsRequest(
       }
     );
 
-    const riskByTool = buildNativeToolRiskMap();
-    const staleThresholdMs = resolveApprovalStaleMs();
-    const now = Date.now();
-    const approvals: RediscoveredToolApproval[] = discovery.approvals.map((approval) => {
-      // Discovery returns the ORIGINAL dotted tool name (the agent maps the
-      // stored sanitized id back — see listSuspendedMastraRuns), so this lookup
-      // hits for every known native tool.
-      const riskCategory = riskByTool[approval.toolName];
-      if (!riskCategory) {
-        // Honest degradation, surfaced loudly: without a risk category the
-        // rediscovered notice renders no reason line and no grant actions
-        // (never a fabricated category — no-silent-fallbacks).
-        logger.warn('Rediscovered approval has no resolvable risk category', {
-          code: 'assistant_suspended_approval_risk_unresolved',
-          runId: approval.runId,
-          toolName: approval.toolName,
-        });
-      }
-      // BST-1070: the live approval's executionContext is a transient stream
-      // field, so a rediscovered run_python approval RECOMPUTES it from the
-      // durable args — the same helper the live chunk uses, exactly where
-      // riskCategory is recomputed. Unparseable args yield no context, and the
-      // card falls to its fail-safe (no fact rows, grants suppressed).
-      const executionContext =
-        approval.toolName === RUN_PYTHON_TOOL_ID
-          ? resolveRunPythonExecutionContext(approval.args)
-          : undefined;
-      return {
-        ...(approval.delegation ? { delegation: approval.delegation } : {}),
-        runId: approval.runId,
-        stale: now - Date.parse(approval.suspendedAt) > staleThresholdMs,
-        suspendedAt: approval.suspendedAt,
-        toolCallId: approval.toolCallId,
-        toolName: approval.toolName,
-        ...(approval.args === undefined ? {} : { args: approval.args }),
-        ...(riskCategory ? { policyDecision: 'ask' as const, riskCategory } : {}),
-        ...(executionContext === undefined ? {} : { executionContext }),
-      };
-    });
-
     // BST-1084: rediscovered suspend() pauses ride the same response. An
     // UNREGISTERED tool's pause is flagged resumeSupported:false and NEVER
     // dropped. The flag is WIRE HONESTY, not a renderer input: the notice
@@ -399,7 +364,66 @@ export async function handleSuspendedRunsRequest(
         threadId,
       });
     }
+    const delegatedPauses = [...discovery.approvals, ...cappedSuspends].filter(
+      (pause) => pause.delegation !== undefined
+    );
+    // A failed durable-state read must stay visible: an empty map would make
+    // an already-admitted decision appear actionable again.
+    const decisionStates = delegatedPauses.length
+      ? await readDelegatedDecisionStates(
+          await getDatabase(),
+          { ownerResourceId: resourceId, rootThreadId: threadId },
+          delegatedPauses
+        )
+      : new Map<string, DelegatedToolDecisionState>();
+    const riskByTool = buildNativeToolRiskMap();
+    const staleThresholdMs = resolveApprovalStaleMs();
+    const now = Date.now();
+    const approvals: RediscoveredToolApproval[] = discovery.approvals.map((approval) => {
+      const decisionState = approval.delegation
+        ? decisionStates.get(getToolActionIdentityKey(approval))
+        : undefined;
+      // Discovery returns the ORIGINAL dotted tool name (the agent maps the
+      // stored sanitized id back — see listSuspendedMastraRuns), so this lookup
+      // hits for every known native tool.
+      const riskCategory = riskByTool[approval.toolName];
+      if (!riskCategory) {
+        // Honest degradation, surfaced loudly: without a risk category the
+        // rediscovered notice renders no reason line and no grant actions
+        // (never a fabricated category — no-silent-fallbacks).
+        logger.warn('Rediscovered approval has no resolvable risk category', {
+          code: 'assistant_suspended_approval_risk_unresolved',
+          runId: approval.runId,
+          toolName: approval.toolName,
+        });
+      }
+      // BST-1070: the live approval's executionContext is a transient stream
+      // field, so a rediscovered run_python approval RECOMPUTES it from the
+      // durable args — the same helper the live chunk uses, exactly where
+      // riskCategory is recomputed. Unparseable args yield no context, and the
+      // card falls to its fail-safe (no fact rows, grants suppressed).
+      const executionContext =
+        approval.toolName === RUN_PYTHON_TOOL_ID
+          ? resolveRunPythonExecutionContext(approval.args)
+          : undefined;
+      return {
+        ...(approval.delegation ? { delegation: approval.delegation } : {}),
+        ...(decisionState === undefined ? {} : { decisionState }),
+        runId: approval.runId,
+        stale: now - Date.parse(approval.suspendedAt) > staleThresholdMs,
+        suspendedAt: approval.suspendedAt,
+        toolCallId: approval.toolCallId,
+        toolName: approval.toolName,
+        ...(approval.args === undefined ? {} : { args: approval.args }),
+        ...(riskCategory ? { policyDecision: 'ask' as const, riskCategory } : {}),
+        ...(executionContext === undefined ? {} : { executionContext }),
+      };
+    });
+
     const suspends: RediscoveredToolSuspend[] = cappedSuspends.map((pause) => {
+      const decisionState = pause.delegation
+        ? decisionStates.get(getToolActionIdentityKey(pause))
+        : undefined;
       const resumable = hasRegisteredSuspendResumeUi(pause.toolName);
       if (!resumable) {
         logger.warn('Rediscovered suspend pause has no registered resume UI in this build', {
@@ -410,6 +434,7 @@ export async function handleSuspendedRunsRequest(
       }
       return {
         ...(pause.delegation ? { delegation: pause.delegation } : {}),
+        ...(decisionState === undefined ? {} : { decisionState }),
         runId: pause.runId,
         stale: now - Date.parse(pause.suspendedAt) > staleThresholdMs,
         suspendedAt: pause.suspendedAt,
