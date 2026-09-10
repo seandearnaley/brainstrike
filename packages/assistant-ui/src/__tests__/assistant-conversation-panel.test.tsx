@@ -10,10 +10,11 @@ import {
   TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { TooltipProvider } from '@brainstrike/ui';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
+import { resetFollowUpQueueStore, useFollowUpQueueStore } from '../follow-up-queue-store';
 import { ToolResultRendererProvider } from '../tool-result-renderer-context';
 import type { ToolResultRenderer } from '../use-tool-result-renderers';
 
@@ -47,6 +48,40 @@ const message = (text: string): ThreadMessageLike => ({
 });
 
 describe('shared conversation panel', () => {
+  afterEach(() => {
+    cleanup();
+    resetFollowUpQueueStore();
+  });
+
+  it.each([false, true])(
+    'does not dispatch a queued follow-up when inspecting a child (running=%s)',
+    async (running) => {
+      const onNew = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(async () => undefined);
+      useFollowUpQueueStore.getState().enqueue('Cedar', 'Queued child work');
+      const view = (isRunning: boolean) => (
+        <TooltipProvider>
+          <Conversation
+            id="Cedar"
+            messages={[message('Child result.')]}
+            onNew={onNew}
+            running={isRunning}
+          />
+        </TooltipProvider>
+      );
+      const { rerender, unmount } = render(view(running));
+      expect(onNew).not.toHaveBeenCalled();
+      expect(
+        screen.queryByRole('button', { name: 'Queue message to send after this run' })
+      ).not.toBeInTheDocument();
+      rerender(view(false));
+      expect(onNew).not.toHaveBeenCalled();
+      expect(useFollowUpQueueStore.getState().queuedByThread['Cedar']).toHaveLength(1);
+      unmount();
+      render(view(false));
+      expect(onNew).not.toHaveBeenCalled();
+      expect(useFollowUpQueueStore.getState().queuedByThread['Cedar']).toHaveLength(1);
+    }
+  );
   it('routes a child approval through only that conversation runtime', async () => {
     const user = userEvent.setup();
     const rootSend = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(async () => undefined);

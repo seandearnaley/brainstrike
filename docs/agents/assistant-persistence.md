@@ -714,6 +714,15 @@ adds a `QueueFollowUpButton` in the RUNNING branch (composer-input.tsx
 `aui.thread().append(...)` (the same programmatic-send seam the
 approval/suspend notices use).
 
+Existing-runtime inspection panes (`AssistantConversationPanel`, BST-1724)
+set `FollowUpQueueOwnershipContext` false. They neither dispatch/catch up the
+root session queue nor offer its Queue/Steer controls or chips. The runtime
+owner retains queued items unchanged; opening/reopening a view and observing
+a child finish must not start another execution. Root panels keep the default
+ownership and existing catch-up semantics. Paired regression:
+`assistant-conversation-panel.test.tsx` seeds a queue before idle/running mounts,
+then tests run-end and reopen without a send or dequeue.
+
 Settled semantics (v1 — revisit only with the steering stage):
 - **Run-end detection is the `state.thread.isRunning` true→false transition**,
   NOT the run-event data parts — it works identically for the web local

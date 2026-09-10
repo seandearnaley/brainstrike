@@ -533,11 +533,18 @@ reasoning, rich tool/result extension points, errors, action bar, composer and
 virtualized viewport. Do not introduce a second child message renderer.
 
 The panel does not create, start or cancel an execution. The host owns runtime
-creation, graph-authorized hydration and command routing. Only mount visible
+creation, graph-authorized hydration and command routing. The existing-runtime
+surface disables the root session queue dispatcher and its queue/steer controls
+through `FollowUpQueueOwnershipContext`; a queued item cannot start work merely
+because an inspection panel mounts or observes a run end. Child coordination
+controls require their own host capability in BST-1723. Only mount visible
 conversation panes. The runtime and all command callbacks must refer to the
 selected durable conversation; disabled capabilities must be explicit. Mounting
 this component alone does not implement child steering, tab navigation or
-independent restored reading positions. Those remain host integration work.
+independent restored reading positions. Changing `threadKey` remounts the
+panel subtree, resetting its draft, scroll and disclosure state. A switching
+host must restore that view state or retain the owning runtime/draft separately;
+those remain host integration work.
 
 Runtime, detail/metadata providers, plan-mode state and error boundaries are
 scoped inside each panel. Composer inputs use React `useId`, so simultaneous

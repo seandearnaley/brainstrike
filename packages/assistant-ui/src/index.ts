@@ -1,5 +1,8 @@
 export { TooltipIconButton, type TooltipIconButtonProps } from '@brainstrike/ui';
-export * from './assistant-conversation-panel';
+export {
+  AssistantConversationPanel,
+  type AssistantConversationPanelProps,
+} from './assistant-conversation-panel';
 export {
   type AssistantLinkCapabilities,
   type AssistantLinkOpenResult,

@@ -4,10 +4,13 @@ import type { ComponentProps, ReactElement } from 'react';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import { PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { type AssistantUiPanelProps, ChatThreadUI } from './assistant-ui-panel';
+import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
 import { MetadataProviders } from './openrouter-model-metadata-context';
 
 type ThreadSurfaceProps = ComponentProps<typeof ChatThreadUI>;
-export type AssistantConversationPanelProps = Partial<Omit<ThreadSurfaceProps, 'threadKey'>> &
+export type AssistantConversationPanelProps = Partial<
+  Omit<ThreadSurfaceProps, 'threadKey' | 'hasGroupedProviders' | 'onSteerActiveRun'>
+> &
   Pick<
     AssistantUiPanelProps,
     'openRouterModelMetadataLookup' | 'onProviderSettingsValidationChange'
@@ -30,6 +33,10 @@ export function AssistantConversationPanel({
   openRouterModelMetadataLookup,
   onProviderSettingsValidationChange,
   providerGroups = EMPTY,
+  fileMentions = EMPTY,
+  pickerModels = EMPTY,
+  slashCommands = EMPTY,
+  isComposerDisabled = false,
   ...props
 }: AssistantConversationPanelProps): ReactElement {
   return (
@@ -41,28 +48,31 @@ export function AssistantConversationPanel({
       <section
         aria-label={label}
         className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
-        data-testid="chat-panel"
+        data-testid="assistant-conversation-panel"
+        data-thread-key={threadKey}
       >
         <AssistantRuntimeProvider runtime={runtime}>
           <PlanModeExitProvider onExit={props.planMode?.onExit}>
-            <AssistantPanelErrorBoundary>
-              <ChatThreadUI
-                disabledReason={undefined}
-                fileMentions={EMPTY}
-                hasGroupedProviders={providerGroups.length > 0}
-                isComposerDisabled={false}
-                onFileMentionQueryChange={undefined}
-                onModelChange={undefined}
-                pickerModels={EMPTY}
-                providerGroups={providerGroups}
-                recentModels={undefined}
-                selectedModel={undefined}
-                selectedProvider={undefined}
-                slashCommands={EMPTY}
-                {...props}
-                threadKey={threadKey}
-              />
-            </AssistantPanelErrorBoundary>
+            <FollowUpQueueOwnershipContext value={false}>
+              <AssistantPanelErrorBoundary>
+                <ChatThreadUI
+                  disabledReason={undefined}
+                  fileMentions={fileMentions}
+                  hasGroupedProviders={providerGroups.length > 0}
+                  isComposerDisabled={isComposerDisabled}
+                  onFileMentionQueryChange={undefined}
+                  onModelChange={undefined}
+                  pickerModels={pickerModels}
+                  providerGroups={providerGroups}
+                  recentModels={undefined}
+                  selectedModel={undefined}
+                  selectedProvider={undefined}
+                  slashCommands={slashCommands}
+                  {...props}
+                  threadKey={threadKey}
+                />
+              </AssistantPanelErrorBoundary>
+            </FollowUpQueueOwnershipContext>
           </PlanModeExitProvider>
         </AssistantRuntimeProvider>
       </section>
