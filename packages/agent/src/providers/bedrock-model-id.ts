@@ -32,8 +32,34 @@
  * paragraph. Emitting a profile AWS does not publish fails harder — it can
  * only ever be a client-manufactured error. Pre-existing and NOT fixed with
  * it: `jp.anthropic.claude-sonnet-5` is the same models.dev phantom
- * (BST-1710), and this module emits no `global.` profile at all, so the
- * Global-only regions get the verbatim id (BST-1711).
+ * (BST-1710).
+ *
+ * GLOBAL PROFILE ROUTING (BST-1711). The current Claude cards mark the BASE
+ * model id In-Region ✗ in every region, so the bare `anthropic.claude-opus-5`
+ * is not invocable at `bedrock-runtime` anywhere — a geo or a global profile
+ * is mandatory, and AWS's own sample code on those cards calls
+ * `global.<id>`. This module previously emitted no `global.` prefix at all
+ * (it appeared only in CROSS_REGION_PREFIXES, for pass-through), so every
+ * region a card marks Geo ✗ / Global ✓ received an id Bedrock cannot answer.
+ *
+ * PRECEDENCE: geo first, global second, verbatim last. Data residency is the
+ * stronger guarantee, so a region that HAS a geo profile for the model keeps
+ * getting the geo one; `global.` is emitted only where the card marks the
+ * region Geo ✗ / Global ✓. That ordering also means this change can only ever
+ * REPLACE an uninvocable verbatim id — it never downgrades an existing geo
+ * route to worldwide routing.
+ *
+ * GOVCLOUD: `us-gov-west-1` / `us-gov-east-1` are marked Global ✗ on every
+ * card that lists them (Opus 5, Fable 5.1, Sonnet 4.5), so they appear in NO
+ * global set below and can never receive `global.`. They are additionally
+ * excluded from the `us.` group by prefixGroupForRegion, unchanged.
+ *
+ * The global table is per MODEL, not per region prefix: card region tables
+ * genuinely disagree with one another (Opus 4.5 has no AU geo at all, so
+ * Sydney is global-only for it while every other Claude routes `au.` there;
+ * Fable 5/5.1 have no EU geo, so all eight EU regions are global-only for
+ * them). Sourced from each card's Regional Availability table, retrieved
+ * 2026-09-10 — never from models.dev, per the card-outranks-mirror ruling.
  *
  * When no regional profile exists for a model+region the id is sent
  * VERBATIM and Bedrock itself reports the routing outcome — guessing a
@@ -44,9 +70,24 @@
  * factory case) guarantees a validated region, because a missing region is a
  * typed init failure — never a silent `us-east-1`.
  *
+ * KNOWN GAPS, deliberately NOT closed here (see the BST-1711 follow-up):
+ * - The GEO region map is still prefix-shaped, so regions the cards mark
+ *   Geo ✓ but this module does not map keep sending the verbatim id:
+ *   `ca-central-1`/`ca-west-1` (US geo), `eu-central-2` (EU geo),
+ *   `ap-northeast-3` (JP geo), `ap-southeast-6` (AU geo). Those are
+ *   UNDER-emissions, not wrong emissions, and fixing them means replacing
+ *   EU_PREFIX_REGIONS/AU_REGIONS with per-model geo tables.
+ * - `anthropic.claude-fable-5` is in EU_PROFILE_MODEL_IDS but its card
+ *   publishes `us.` and `global.` ONLY — a BST-1710-class models.dev phantom
+ *   found while building this table. Geo precedence therefore still emits
+ *   `eu.anthropic.claude-fable-5` in the EU regions, shadowing the global
+ *   entries recorded for it above. Same defect class as BST-1710, so it is
+ *   filed separately rather than smuggled into a routing PR.
+ *
  * Refresh procedure: re-run the models.dev extraction (prefixed keys grouped
- * by prefix), update the sets, update bedrock-model-id.spec.ts, and bump the
- * retrieval date above.
+ * by prefix), CHECK every id against its AWS model card (the card wins in both
+ * directions), re-transcribe the Regional Availability rows for the global
+ * table, update bedrock-model-id.spec.ts, and bump the retrieval dates above.
  */
 
 const CROSS_REGION_PREFIXES = ['global.', 'us.', 'eu.', 'jp.', 'apac.', 'au.'] as const;
@@ -130,6 +171,115 @@ const EU_PREFIX_REGIONS: ReadonlySet<string> = new Set([
 
 const AU_REGIONS: ReadonlySet<string> = new Set(['ap-southeast-2', 'ap-southeast-4']);
 
+/**
+ * Regions EVERY global-capable Claude card marks Geo ✗ / Global ✓ (cards
+ * retrieved 2026-09-10). Note `us-gov-*` is deliberately absent: the cards
+ * that list GovCloud mark it Global ✗.
+ */
+const GLOBAL_ONLY_CORE_REGIONS = [
+  'af-south-1',
+  'ap-east-2',
+  'ap-northeast-2',
+  'ap-south-1',
+  'ap-south-2',
+  'ap-southeast-1',
+  'ap-southeast-3',
+  'ap-southeast-5',
+  'ap-southeast-7',
+  'il-central-1',
+  'me-central-1',
+  'me-south-1',
+  'mx-central-1',
+  'sa-east-1',
+] as const;
+
+/** The eight EU commercial regions the cards enumerate. */
+const EU_COMMERCIAL_REGIONS = [
+  'eu-central-1',
+  'eu-central-2',
+  'eu-north-1',
+  'eu-south-1',
+  'eu-south-2',
+  'eu-west-1',
+  'eu-west-2',
+  'eu-west-3',
+] as const;
+
+/** The core Geo ✗ / Global ✓ set plus this model's card-specific additions. */
+function globalOnlyRegions(...additional: readonly string[]): ReadonlySet<string> {
+  return new Set<string>([...GLOBAL_ONLY_CORE_REGIONS, ...additional]);
+}
+
+/**
+ * Per-model regions where the card marks Geo ✗ / Global ✓ — i.e. where
+ * `global.<id>` is the only invocable route and the verbatim id is not.
+ * Transcribed from each model card's Regional Availability table (bedrock-
+ * runtime), retrieved 2026-09-10.
+ *
+ * A model ABSENT from this map never receives `global.`. The four such
+ * catalog ids all publish no Global inference ID at all: their cards read
+ * "N/A" (`anthropic.claude-opus-4-1-20250805-v1:0`) or "Not supported"
+ * (`deepseek.r1-v1:0`, `meta.llama4-maverick-17b-instruct-v1:0`,
+ * `meta.llama4-scout-17b-instruct-v1:0`), and each is a us-only model whose
+ * card lists three or four US rows with Global ✗ throughout.
+ */
+const GLOBAL_PROFILE_REGIONS_BY_MODEL: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  // No EU and no AU/JP geo on the Fable cards — only `us.` and `global.`.
+  [
+    'anthropic.claude-fable-5',
+    globalOnlyRegions(
+      ...EU_COMMERCIAL_REGIONS,
+      'ap-northeast-1',
+      'ap-northeast-3',
+      'ap-southeast-2',
+      'ap-southeast-4',
+      'ap-southeast-6'
+    ),
+  ],
+  [
+    'anthropic.claude-fable-5-1',
+    globalOnlyRegions(
+      ...EU_COMMERCIAL_REGIONS,
+      'ap-northeast-1',
+      'ap-northeast-3',
+      'ap-southeast-2',
+      'ap-southeast-4',
+      'ap-southeast-6'
+    ),
+  ],
+  // ca-west-1 is Geo ✗ on the Haiku 4.5 and Sonnet 4.5 cards (Geo ✓ elsewhere).
+  ['anthropic.claude-haiku-4-5-20251001-v1:0', globalOnlyRegions('ca-west-1')],
+  ['anthropic.claude-sonnet-4-5-20250929-v1:0', globalOnlyRegions('ca-west-1')],
+  // Opus 4.5 publishes `us.`/`eu.` only — no AU and no JP geo anywhere.
+  [
+    'anthropic.claude-opus-4-5-20251101-v1:0',
+    globalOnlyRegions(
+      'ca-west-1',
+      'ap-northeast-1',
+      'ap-northeast-3',
+      'ap-southeast-2',
+      'ap-southeast-4',
+      'ap-southeast-6'
+    ),
+  ],
+  // Opus 4.6 has AU (incl. NZ) but no JP geo.
+  ['anthropic.claude-opus-4-6-v1', globalOnlyRegions('ap-northeast-1', 'ap-northeast-3')],
+  // Opus 4.7/4.8 have JP geo (Tokyo + Osaka); only NZ falls through to global.
+  ['anthropic.claude-opus-4-7', globalOnlyRegions('ap-southeast-6')],
+  ['anthropic.claude-opus-4-8', globalOnlyRegions('ap-southeast-6')],
+  // Opus 5 and Sonnet 5 have no JP geo — Tokyo/Osaka are global-only.
+  [
+    'anthropic.claude-opus-5',
+    globalOnlyRegions('ap-northeast-1', 'ap-northeast-3', 'ap-southeast-6'),
+  ],
+  [
+    'anthropic.claude-sonnet-5',
+    globalOnlyRegions('ap-northeast-1', 'ap-northeast-3', 'ap-southeast-6'),
+  ],
+  // Sonnet 4.6's card is the widest: US+EU+AU(incl. NZ)+JP(incl. Osaka) geo.
+  ['anthropic.claude-sonnet-4-6', globalOnlyRegions()],
+]);
+
 type PrefixGroup = 'au' | 'eu' | 'jp' | 'us';
 
 const PROFILE_MODEL_IDS_BY_GROUP: Record<PrefixGroup, ReadonlySet<string>> = {
@@ -180,6 +330,14 @@ export function resolveBedrockModelId(modelId: string, region: string): string {
   const group = prefixGroupForRegion(region);
   if (group && PROFILE_MODEL_IDS_BY_GROUP[group].has(modelId)) {
     return `${group}.${modelId}`;
+  }
+  // Geo lost (or does not exist here): fall back to the GLOBAL profile, but
+  // only where the model's own card marks this region Geo ✗ / Global ✓. Geo is
+  // checked first because data residency is the stronger guarantee, so this
+  // can only ever replace an id Bedrock cannot invoke — never downgrade a
+  // working geo route. GovCloud is in no global set, so it never lands here.
+  if (GLOBAL_PROFILE_REGIONS_BY_MODEL.get(modelId)?.has(region)) {
+    return `global.${modelId}`;
   }
   return modelId;
 }

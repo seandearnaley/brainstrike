@@ -1745,15 +1745,45 @@ factory per request (see the auth-input EXACTLY-ONE rule above).
   so a renderer import cannot reach it. `provider-auth-input.ts` stays
   edge-free via the import-free identity module (see the auth-input section).
 - **Model ids are stored UNPREFIXED** (registry + DB catalog, migration
-  100). The cross-region inference-profile prefix (`us.`/`eu.`/`jp.`/`au.`;
-  `global.`/`apac.` pass through if already present) is applied per request
-  by `packages/agent/src/providers/bedrock-model-id.ts`. Since the PR #2522
-  review (finding 2/3) the tables are EXACT profile-id sets derived from
-  models.dev ground truth (dated in the module header) — a prefix is emitted
-  only when models.dev lists that regional profile; otherwise the id is sent
-  verbatim and Bedrock reports the outcome. Never double-prefixes; `us-gov*`
-  excluded; no `apac.` profiles exist today. Refresh procedure lives in the
-  module header.
+  100). The cross-region inference-profile prefix (`us.`/`eu.`/`jp.`/`au.`
+  geo, or `global.`; `apac.` passes through if already present) is applied per
+  request by `packages/agent/src/providers/bedrock-model-id.ts`. Since the
+  PR #2522 review (finding 2/3) the geo tables are EXACT profile-id sets
+  derived from models.dev ground truth (dated in the module header) — a geo
+  prefix is emitted only when that regional profile is listed; otherwise the id
+  is sent verbatim and Bedrock reports the outcome. Never double-prefixes;
+  `us-gov*` excluded from `us.`; no `apac.` profiles exist today. Refresh
+  procedure lives in the module header.
+- **`global.` ROUTING, and its precedence (BST-1711).** The current Claude
+  cards mark the BASE model id In-Region ✗ in EVERY region, so the bare
+  `anthropic.claude-opus-5` is not invocable at `bedrock-runtime` anywhere — a
+  geo or global profile is mandatory, and AWS's own card sample code calls
+  `global.<id>`. The module now emits `global.` from a per-MODEL table of the
+  regions each card marks **Geo ✗ / Global ✓**, transcribed from the cards'
+  Regional Availability tables (never models.dev).
+  - **Precedence is geo → global → verbatim.** Data residency is the stronger
+    guarantee, so a region that has a geo profile for that model keeps it.
+    Because global is only ever consulted after geo misses, and only for
+    regions the card marks Geo ✗, this can only REPLACE an uninvocable
+    verbatim id — it can never downgrade a working geo route.
+  - **GovCloud never receives `global.`** — `us-gov-west-1`/`us-gov-east-1`
+    are Global ✗ on every card that lists them (Opus 5, Fable 5.1, Sonnet
+    4.5), so they are in no global set. Pinned by a spec case.
+  - **A model absent from the table never gets `global.`**: the four catalog
+    ids whose cards publish no Global inference ID at all —
+    `anthropic.claude-opus-4-1-20250805-v1:0` ("N/A"), `deepseek.r1-v1:0`,
+    and both `meta.llama4-*` routes ("Not supported").
+  - The table is per model because the cards genuinely disagree: Opus 4.5 has
+    no AU geo (Sydney is global-only for it alone), Fable 5/5.1 have no EU geo
+    (all eight EU regions are global-only), and `ca-west-1` is Geo ✗ on the
+    Haiku 4.5 / Sonnet 4.5 cards but Geo ✓ on others.
+  - **Still open (follow-up):** the GEO map is still prefix-shaped, so regions
+    the cards mark Geo ✓ that it does not map keep sending the verbatim id —
+    `ca-central-1`/`ca-west-1`, `eu-central-2`, `ap-northeast-3`,
+    `ap-southeast-6`. Those are UNDER-emissions. Also
+    `anthropic.claude-fable-5` sits in the `eu.` set although its card
+    publishes `us.`/`global.` only — a BST-1710-class phantom found while
+    building the global table, filed rather than folded in.
 - **An AWS model card OUTRANKS models.dev (BST-1694, PR #3080 review).**
   models.dev is a third-party mirror and can list a regional profile AWS
   never published; emitting one is a client-MANUFACTURED failure, strictly
@@ -1762,9 +1792,10 @@ factory per request (see the auth-input EXACTLY-ONE rule above).
   the module header. Today's one override: `anthropic.claude-opus-5` is NOT
   in the `jp.` set — its card publishes `us.`/`eu.`/`au.`/`global.` only and
   marks ap-northeast-1 Global-only. Pre-existing, NOT fixed here: the same
-  divergence for `anthropic.claude-sonnet-5` (BST-1710), and the module has
-  no `global.` ROUTING at all, so Global-only regions get the verbatim id
-  (BST-1711).
+  divergence for `anthropic.claude-sonnet-5` (BST-1710). Since BST-1711 those
+  Global-only regions no longer fall through to the verbatim id — they take
+  the `global.` profile (see the routing bullet above), so Tokyo resolves to
+  `global.anthropic.claude-opus-5`.
 - **Exclusions:** no embeddings (`createEmbeddingProvider` throws), not a
   persistent-memory provider (`PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS`),
   and NOT in `HOSTED_WEB_ASSISTANT_PROVIDERS` (desktop-only until a web ticket
