@@ -308,6 +308,16 @@ describe('delegated conversation stream (real Mastra)', () => {
           chunk.type === 'reasoning-delta' ||
           chunk.type === 'tool-event'
       );
+      expect(content).toContainEqual(
+        expect.objectContaining({
+          event: expect.objectContaining({
+            durationMs: expect.any(Number),
+            kind: 'tool.completed',
+            metadata: expect.objectContaining({ toolCallId: 'shared-child-tool-id' }),
+          }),
+          type: 'run-event',
+        })
+      );
       expect(visible.map((chunk) => chunk.type)).toEqual([
         'text-delta',
         'reasoning-delta',

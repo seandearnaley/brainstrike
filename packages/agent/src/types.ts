@@ -592,7 +592,7 @@ export type ConversationStreamChunk =
 export interface StreamChunkDelegatedConversation {
   readonly chunk: ConversationStreamChunk;
   readonly identity: DelegatedRunIdentity;
-  readonly messageId?: string;
+  readonly messageId: string;
   readonly partId?: string;
   readonly type: 'delegated-conversation-chunk';
 }

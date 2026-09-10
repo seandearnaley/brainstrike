@@ -476,11 +476,12 @@ export class DataStreamMapper {
       chunk.identity.parentRuntimeRunId,
       chunk.identity.parentToolCallId,
       chunk.identity.childRuntimeRunId,
-      chunk.messageId,
     ]);
     let mapper = this.delegatedMappers.get(key);
     const frames: EncodedChunk[] = [];
     if (!mapper) {
+      // One invocation owns the same decoder across native message/step changes.
+      // Each envelope retains the observed native message id for durable routing.
       // A pinned child must not inherit a model-specific parent error explanation.
       mapper = new DataStreamMapper(chunk.messageId);
       this.delegatedMappers.set(key, mapper);

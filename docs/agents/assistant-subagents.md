@@ -678,6 +678,12 @@ without remapping or minting duplicate child events. Child frames obey the same
 parent text/input-stream deferral rules as other auxiliary data. No native
 transcript result or parent model projection is replaced by this transport.
 
+The decoder belongs to the native invocation, not to each observed native
+message id. A resumed turn may move from its persisted message id to a new
+native step id; the envelope preserves that observation while the same decoder
+continues through its single terminal. Such a change must not create a second
+unfinished decoder or discard an active tool part.
+
 Production-loop tests cover concurrent same-persona children with distinct
 native threads/runs/messages, including intentionally reused child tool IDs and
 text → reasoning → tool → text ordering. The desktop observer persists child

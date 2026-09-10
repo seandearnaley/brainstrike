@@ -23,6 +23,7 @@ import {
   type DelegatedRunIdentity,
 } from '../mastra/delegated-run-publication';
 import { createDelegatedStreamProjection } from '../mastra/delegated-stream-projection';
+import { makeDelegatedStreamTermination } from '../mastra/stream-termination';
 import { createDelegationConfig } from '../mastra/subagent-delegation';
 import { readMastraStreamPartString, readMastraStreamPartValue } from '../mastra/tool-event-mapper';
 import { createTurnAttemptLifecycleState } from '../mastra/turn-attempts';
@@ -573,40 +574,76 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         ['agent-child', 'child'],
         ['agent-leaf', 'leaf'],
       ]);
-      const projection = createDelegatedStreamProjection({
-        authorize: async (identity) => {
-          const messageId = nativeMessages.get(identity.childRuntimeRunId);
-          if (!messageId) {
-            throw new Error('Unknown resumed native invocation');
-          }
-          const rows = await database.query<{ thread_id: string }>(
-            'SELECT thread_id FROM mastra_messages WHERE id = $1',
-            [messageId]
-          );
-          const threadId = rows.rows[0]?.thread_id;
-          if (!threadId) {
-            throw new Error('Missing persisted native child message');
-          }
-          return { messageId, threadId };
-        },
-        createState: (_personaId, threadId) =>
-          createTurnAttemptLifecycleState({ memory: { threadId } }, undefined, undefined),
-        mapPart: async (part, state, toolNames) => {
-          const result = await processMastraStreamPart(
-            part,
-            toolNames,
-            state,
-            undefined,
-            new Map(),
-            personas
-          );
-          return {
-            ...result,
-            chunks: result.chunks.filter((chunk) => chunk.type !== 'delegated-conversation-chunk'),
-          };
-        },
-        personas,
-      });
+      const createProjection = () =>
+        createDelegatedStreamProjection({
+          authorize: async (identity) => {
+            const messageId = nativeMessages.get(identity.childRuntimeRunId);
+            if (!messageId) {
+              throw new Error('Unknown resumed native invocation');
+            }
+            const rows = await database.query<{ thread_id: string }>(
+              'SELECT thread_id FROM mastra_messages WHERE id = $1',
+              [messageId]
+            );
+            const threadId = rows.rows[0]?.thread_id;
+            if (!threadId) {
+              throw new Error('Missing persisted native child message');
+            }
+            return { messageId, threadId };
+          },
+          createState: (_personaId, threadId) =>
+            createTurnAttemptLifecycleState({ memory: { threadId } }, undefined, undefined),
+          mapPart: async (part, state, toolNames) => {
+            const result = await processMastraStreamPart(
+              part,
+              toolNames,
+              state,
+              undefined,
+              new Map(),
+              personas
+            );
+            return {
+              ...result,
+              chunks: result.chunks.map((chunk) => {
+                if (chunk.type === 'delegated-conversation-chunk') {
+                  throw new Error('Child projection cannot contain an already-scoped chunk.');
+                }
+                return chunk;
+              }),
+            };
+          },
+          personas,
+        });
+      const pausedProjection = createProjection();
+      const rootState = createTurnAttemptLifecycleState(undefined, undefined, undefined);
+      const rootToolNames = new Map<string, string>();
+      for (const chunk of chunks) {
+        await pausedProjection?.project(chunk, rootToolNames);
+        // Match streamAttemptChunks: project children first, then stop at the
+        // first parent pause instead of consuming any later native chunks.
+        const rootPart = await processMastraStreamPart(
+          chunk,
+          rootToolNames,
+          rootState,
+          undefined,
+          new Map(),
+          personas
+        );
+        if (rootPart.finished) {
+          break;
+        }
+      }
+      expect(
+        pausedProjection?.finalize((state) =>
+          makeDelegatedStreamTermination(state, false).map((chunk) => {
+            if (chunk.type === 'delegated-conversation-chunk') {
+              throw new Error('Child terminal cannot contain an already-scoped chunk.');
+            }
+            return chunk;
+          })
+        )
+      ).toEqual([]);
+      const projection = createProjection();
       const projected = [];
       for await (const chunk of resume.fullStream) {
         await authorizeResume(chunk);
