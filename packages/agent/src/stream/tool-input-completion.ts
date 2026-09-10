@@ -29,7 +29,9 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value, (_key: string, entry: unknown) =>
     entry && typeof entry === 'object' && !Array.isArray(entry)
       ? Object.fromEntries(
-          Object.entries(entry).sort(([left], [right]) => left.localeCompare(right))
+          Object.entries(entry).sort(([left], [right]) =>
+            left < right ? -1 : left > right ? 1 : 0
+          )
         )
       : entry
   );
@@ -38,19 +40,24 @@ function canonicalJson(value: unknown): string {
 /** Argument streams are append-only. Complete a compatible prefix or report a mismatch. */
 export function completeToolInputText(pending: string, args: unknown): string {
   const complete = JSON.stringify(args);
-  const prefix = compactJsonPrefix(pending);
-  if (complete.startsWith(prefix)) {
-    return complete.slice(prefix.length);
+  if (complete === undefined) {
+    throw new Error('Complete tool input must be JSON-serializable.');
   }
+  if (complete.startsWith(pending)) {
+    return complete.slice(pending.length);
+  }
+  const prefix = compactJsonPrefix(pending);
+  const suffix = complete.startsWith(prefix) ? complete.slice(prefix.length) : '';
   // Already complete JSON may use different whitespace, key order or escape spelling.
+  // Validate the actual appended text: whitespace can terminate a numeric token.
   let parsed: unknown;
   try {
-    parsed = JSON.parse(pending);
+    parsed = JSON.parse(pending + suffix);
   } catch {
     throw new Error('Complete tool input cannot extend the streamed JSON arguments.');
   }
   if (canonicalJson(parsed) !== canonicalJson(args)) {
     throw new Error('Complete tool input disagrees with the streamed JSON arguments.');
   }
-  return '';
+  return suffix;
 }

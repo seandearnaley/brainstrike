@@ -797,7 +797,9 @@ The catalog-pinned assistant-stream 0.3.41 decoder ignores `9.args` for an exist
 `b` immediately followed by `9` therefore displayed `{}` even though native
 storage retained the real input. The common completion helper emits complete
 input when no argument deltas have flowed, or the missing suffix of a compatible
-partial prefix, then closes the input. An incompatible authoritative input
-fails visibly; it is never concatenated as a second JSON object.
+partial prefix, then closes the input. Empty containers and native tool-error
+args take the same path. An incompatible authoritative input closes once and
+fails the session visibly with preceding text retained; it is never concatenated
+as a second JSON object or retried by terminal error handling.
 This also covers root calls, late complete input and approval notices without
 duplicating streamed JSON or changing native persistence.

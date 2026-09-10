@@ -1028,12 +1028,18 @@ export class DataStreamMapper {
     input: unknown = state.lastInput
   ): Generator<EncodedChunk> {
     const args = toArgsObject(input, state.pendingArgsText);
-    const missingText =
-      state.pendingArgsText.length === 0 || hasNonEmptyToolInput(input)
-        ? completeToolInputText(state.pendingArgsText, args)
-        : '';
+    let missingText = '';
+    let completionError: Error | undefined;
+    try {
+      if (state.pendingArgsText.length === 0 || (input !== undefined && input !== null)) {
+        missingText = completeToolInputText(state.pendingArgsText, args);
+      }
+    } catch (error) {
+      completionError = error instanceof Error ? error : new Error(String(error));
+    }
     state.argsEmitted = true;
     if (missingText.length > 0) {
+      state.pendingArgsText += missingText;
       yield {
         code: DataStreamCode.toolCallArgsTextDelta,
         value: { argsTextDelta: missingText, toolCallId: callId },
@@ -1043,6 +1049,11 @@ export class DataStreamMapper {
       code: DataStreamCode.toolCall,
       value: { args, toolCallId: callId, toolName: state.toolName },
     } satisfies EncodedChunk;
+    // Close the append-only input exactly once before failing the session.
+    // Otherwise handleError would attempt the same invalid completion again.
+    if (completionError) {
+      throw completionError;
+    }
   }
 
   private *handleToolProgress(callId: string, payload: unknown): Generator<EncodedChunk> {
@@ -1068,6 +1079,11 @@ export class DataStreamMapper {
       if (!state || state.argsEmitted) {
         logger.debug('Dropping tool args delta after args completion', { toolCallId: callId });
         return;
+      }
+      // Deltas supersede an earlier empty placeholder. A later terminal's
+      // explicit empty input is still authoritative and can complete `{`/`[`.
+      if (!hasNonEmptyToolInput(state.lastInput)) {
+        state.lastInput = undefined;
       }
       state.pendingArgsText += delta;
       yield {
