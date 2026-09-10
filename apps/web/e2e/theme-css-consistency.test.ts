@@ -80,7 +80,13 @@ test.describe('Theme CSS Consistency (E2E)', () => {
 
     expect(variables.bsBackground).toBeTruthy();
     expect(variables.background).toBeTruthy();
-    expect(variables.bodyBackground).not.toBe('rgba(0, 0, 0, 0)');
+    // Pin the whole utility -> token -> palette chain: the body's painted
+    // background must be the very colour `--background` resolves to.
+    const [bodyBackground, backgroundToken] = await Promise.all([
+      normalizeColor(page, variables.bodyBackground),
+      resolveTokenColor(page, '--background'),
+    ]);
+    expect(bodyBackground).toBe(backgroundToken);
 
     // Light mode should have high lightness
     const bsBackgroundColor = await resolveTokenColor(page, '--bs-background');
@@ -109,7 +115,13 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     expect(variables.isDarkMode).toBe(true);
     expect(variables.bsBackground).toBeTruthy();
     expect(variables.background).toBeTruthy();
-    expect(variables.bodyBackground).not.toBe('rgba(0, 0, 0, 0)');
+    // Pin the whole utility -> token -> palette chain: the body's painted
+    // background must be the very colour `--background` resolves to.
+    const [bodyBackground, backgroundToken] = await Promise.all([
+      normalizeColor(page, variables.bodyBackground),
+      resolveTokenColor(page, '--background'),
+    ]);
+    expect(bodyBackground).toBe(backgroundToken);
 
     // Dark mode should have low lightness
     const bsBackgroundColor = await resolveTokenColor(page, '--bs-background');

@@ -21,6 +21,21 @@ test('apps import the shared theme mapping exactly once and own no mapping of th
       /@custom-variant dark/u,
       `${file} must not redeclare the dark variant`
     );
+
+    // Tailwind resolves utilities against the @theme it has already seen. If a
+    // local @layer block is parsed before the shared mapping is imported, the
+    // build fails with `Cannot apply unknown utility class`, so the import must
+    // come first.
+    const importIndex = source.indexOf('@import "@brainstrike/ui/theme.css"');
+    const layerIndex = source.indexOf('@layer');
+    assert.notEqual(importIndex, -1, `${file} must import @brainstrike/ui/theme.css`);
+    if (layerIndex !== -1) {
+      assert.ok(
+        importIndex < layerIndex,
+        `${file} must import @brainstrike/ui/theme.css before its first @layer block, ` +
+          'otherwise Tailwind fails with `Cannot apply unknown utility class`'
+      );
+    }
   }
 });
 
@@ -44,6 +59,9 @@ test('no other package stylesheet declares @theme or the dark variant', () => {
 
 const IDIOM_SCAN_ROOTS = ['apps', 'packages'];
 const IDIOM_EXCLUDES = ['packages/config/__tests__/tailwind-config.test.ts'];
+// Extended-regex form so `hsla(var(` and `hsl( var(` are caught alongside the
+// canonical `hsl(var(`. `grepScan` runs grep with `-E`.
+const LEGACY_IDIOM_PATTERN = String.raw`hsla?\(\s*var\(`;
 const IDIOM_BUILD_DIRS = ['node_modules', 'dist', 'dist-electron', 'out', 'coverage', 'build'];
 
 function grepScan(pattern) {
@@ -51,7 +69,7 @@ function grepScan(pattern) {
     const output = execFileSync(
       'grep',
       [
-        '-rn',
+        '-rnE',
         '--include=*.ts',
         '--include=*.tsx',
         '--include=*.css',
@@ -77,8 +95,8 @@ test('the idiom scan actually reaches source files (positive control)', () => {
   // violation under a scanned root and require the same grep to find it.
   const planted = path.join(repoRoot, 'packages/ui/src/__idiom-guard-probe.css');
   try {
-    writeFileSync(planted, '.probe { color: hsl(var(--probe)); }\n');
-    const hits = grepScan('hsl(var(--');
+    writeFileSync(planted, '.probe { color: hsla( var(--probe) / 50%); }\n');
+    const hits = grepScan(LEGACY_IDIOM_PATTERN);
     assert.ok(
       hits.some((line) => line.includes('__idiom-guard-probe.css')),
       `the scan did not reach packages/ui/src; it is not proving anything:\n${hits.join('\n')}`
@@ -88,8 +106,8 @@ test('the idiom scan actually reaches source files (positive control)', () => {
   }
 });
 
-test('no source uses the legacy hsl(var(--x)) idiom', () => {
-  const hits = grepScan('hsl(var(--');
+test('no source uses the legacy hsl(var(--x)) idiom (including hsla and inner spacing)', () => {
+  const hits = grepScan(LEGACY_IDIOM_PATTERN);
   assert.deepEqual(hits, [], `legacy idiom found:\n${hits.join('\n')}`);
 });
 
