@@ -28,6 +28,7 @@ import {
 import type { ScopedLogger } from '@brainstrike/logging';
 import type { DelegationConfig } from '@mastra/core/agent';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
+import type { DelegatedTurnPersistence } from './delegated-turn-persistence';
 
 export const MAX_CONCURRENT_DELEGATIONS = 2;
 export const MAX_DELEGATIONS_PER_RUN = 8;
@@ -70,6 +71,7 @@ export function createDelegationOutcomeCapture(): DelegationOutcomeCapture {
 }
 
 export interface CreateDelegationConfigParams {
+  readonly abortSignal: AbortSignal;
   readonly conversationBinding?: DelegatedConversationBinding;
   /** Optional sink for delegations that returned no answer (see above). */
   readonly delegationOutcomes?: DelegationOutcomeCapture;
@@ -84,6 +86,7 @@ export interface CreateDelegationConfigParams {
   readonly onChildUsage?: (report: SubagentChildUsageReport) => void;
   /** Persona id → definition; the `primitiveId` Mastra passes is the persona id. */
   readonly personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
+  readonly turnPersistence?: DelegatedTurnPersistence | undefined;
 }
 
 function readTokenCount(value: unknown): number {
@@ -316,6 +319,7 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
 
       const maxSteps = clampMaxSteps(persona.maxSteps, context.params.maxSteps);
       params.conversationBinding?.prepare(context, { maxSteps, persona });
+      params.turnPersistence?.prepare(context, params.abortSignal);
       inFlight += 1;
       total += 1;
       return {

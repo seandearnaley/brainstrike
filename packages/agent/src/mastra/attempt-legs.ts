@@ -137,6 +137,7 @@ async function createInitialTurnAttempt(
         ? createDelegationUsageCapture(runtime.personasById, runtimeData)
         : undefined;
     const abortedTurnPersistence = createRuntimeAbortedTurnPersistence({
+      finalizeAbortedDelegatedTurns: runtime.delegatedTurnPersistence?.finalize,
       memory,
       memoryOption,
       runtimeData,
@@ -383,6 +384,7 @@ async function createToolApprovalTurnAttempt({
     const memoryOption = resolveMemoryOption(runtimeData, memory);
     const resumedApprovalToolCall = await readResumedApprovalToolCall(runtime, runtimeData, action);
     const abortedTurnPersistence = createRuntimeAbortedTurnPersistence({
+      finalizeAbortedDelegatedTurns: runtime.delegatedTurnPersistence?.finalize,
       memory,
       memoryOption,
       runtimeData,
@@ -623,6 +625,7 @@ async function createToolResumeTurnAttempt({
     const suspendedCall = await assertResumedCallIsSuspendPause(runtime, runtimeData, action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
     const abortedTurnPersistence = createRuntimeAbortedTurnPersistence({
+      finalizeAbortedDelegatedTurns: runtime.delegatedTurnPersistence?.finalize,
       memory,
       memoryOption,
       runtimeData,

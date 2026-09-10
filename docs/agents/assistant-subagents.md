@@ -717,6 +717,67 @@ that missing scope. Both child and grandchild finish once with valid identities.
 This proves the mapping seam, not the later production approval UI/routing ticket.
 
 This layer does not close BST-1719. Nested pause/resume production proofs,
-cancelled native transcript durability, oversized artifact reload recovery and
+oversized artifact reload recovery and
 complete receiver routing remain acceptance work. Child UI and controls remain
 BST-1720/1723/1724/1725; read-only/no-nesting restrictions stay in force.
+
+### Cancelled child transcript durability (BST-1719)
+
+Native delegation uses `lastMessages: false`. On core 1.64 this also suppresses
+the automatic MessageHistory output processor; the delegation's normal save
+occurs after consuming the child stream. Root Stop can return before that save.
+The desktop regression first lost all child assistant content, then exposed a
+late native save overwriting an early cancellation snapshot.
+
+The child processor captures the public `MessageList`, memory scope and current
+native `messageId` at `processInputStep`. The existing root abort finalizer joins
+these child turns. Each captures its unsaved native messages on the owning
+attempt's abort signal, awaits Mastra's public `afterToolCall` hook around the
+native delegation tool, then uses the same
+abort snapshot policy and awaited `Memory.saveMessages` as the root. It retains
+partial text, removes unfinished tool calls and appends the abort marker without
+inventing a child message id. Normal completion/pause does not write an abort
+snapshot. Per-invocation completion is correlated by native parent run/tool call
+and the existing isolated RequestContext identity, never persona name. The
+per-attempt tool hook uses the same owning signal and observed native tool-call
+id. It runs after success, execution errors and suspension, including failures
+before the child input processor attaches. `onDelegationComplete` alone is not
+a sufficient join: core 1.64 skips it on suspension and when resolving child
+instructions outside its execution try/catch. Real native tests pin both paths.
+The hook releases the abort listener and removes normally settled invocations;
+abort finalization releases the remaining entries even when a save fails.
+A later attempt can reuse a settled native identity, while an overlapping
+invocation with the same native identity fails explicitly.
+
+This capability is constructed only when the runtime has an explicit root
+memory scope and a memory instance. Supplying only the library memory instance
+still permits ordinary delegation. The root tool hook is installed only for
+legs with active delegation; a memory-backed run without personas does not gain
+child persistence hooks. Missing native child identities remain errors once the
+scoped capability is active.
+
+A production-loop regression stalls the memory-backed child model, allows the
+real watchdog to fire, and requires the child's actual provider signal to be
+aborted before a successful parent continuation. The test does not resolve the
+child stream or the completion promise itself. The common timeout callback and
+attempt-consumer finalizer both abort the owning attempt before the child joins.
+
+All three attempt legs require the owning abort signal at stream-option and
+delegation configuration boundaries. Child saves are joined before replacing a
+watchdog attempt and before runtime disposal; a successfully recovered parent
+still uses its normal root transcript policy. Child output processors combine
+with native channel/memory processors in core 1.64; configuring this processor
+does not replace the memory defaults.
+
+The real desktop test covers Stop during a tool with and without partial text,
+equivalent history on the still-open and reconstructed engines, exact lifecycle
+event retention and absence of the unfinished tool call. It does not claim a
+packaged process restart or cancellation during snapshot-resumed tool execution;
+those remain in the nested resume and assembled E2E acceptance.
+
+The delayed-consumer case waits for the real native late-result save before
+allowing terminal consumption. It failed when snapshot capture and normal-finish
+classification relied on the child's propagated signal: that signal can lag the
+owner's cancellation. The owner signal supplied by `buildStreamOptions` governs
+both decisions; the child may not turn an already-cancelled owner turn back into
+a normal finish. No sleeps, retries or timeout changes establish this ordering.

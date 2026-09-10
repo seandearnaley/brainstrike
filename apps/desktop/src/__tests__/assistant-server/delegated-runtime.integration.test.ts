@@ -71,6 +71,7 @@ const persona: AssistantPersonaDefinition = {
 
 describe('desktop durable delegation production loop', () => {
   afterEach(async () => {
+    vi.restoreAllMocks();
     await holder.database?.close();
     holder.database = undefined;
     holder.model = undefined;
@@ -91,6 +92,147 @@ describe('desktop durable delegation production loop', () => {
       VALUES ('host-leg', 'owner', 'root', 'openai', 'test', 'desktop', 'running',
         NOW(), NOW(), NOW(), 'user-turn');`);
   });
+
+  it.each([false, true])(
+    'retains the cancelled child transcript and paired terminal events after engine reconstruction (partial text: %s)',
+    async (partialText) => {
+      const abort = new AbortController();
+      holder.model = scriptedAgentModel((options) => {
+        if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
+          return toolCallParts('agent-explore', 'cancelled-delegation', {
+            prompt: 'find the flag',
+          });
+        }
+        return [
+          ...(partialText
+            ? textParts('Partial child evidence.').slice(0, -1)
+            : [{ type: 'stream-start' as const, warnings: [] }]),
+          ...toolCallParts('brainstrike_grepSearch', 'waiting-tool', { pattern: 'flag' }).slice(1),
+        ];
+      }).model;
+      const memory = await getDesktopMastraMemory(settings, 'host-leg');
+      if (!memory.memory) {
+        throw new Error('Native memory is unavailable');
+      }
+      const nativeSave = Promise.withResolvers<void>();
+      const saveMessages = memory.memory.saveMessages.bind(memory.memory);
+      vi.spyOn(memory.memory, 'saveMessages').mockImplementation(async (options) => {
+        const result = await saveMessages(options);
+        if (
+          options.messages.some(
+            (message) =>
+              message.threadId !== 'root' &&
+              message.content.parts.some(
+                (part) =>
+                  part.type === 'tool-invocation' &&
+                  part.toolInvocation.toolCallId === 'waiting-tool' &&
+                  part.toolInvocation.state === 'result'
+              )
+          )
+        ) {
+          nativeSave.resolve();
+        }
+        return result;
+      });
+      const stream = await streamMastraAgent(
+        [{ id: 'user-turn', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+        {
+          ...memory,
+          personas: [persona],
+          runtime: {
+            apiKey: 'test-key',
+            memory: { memorySettings: settings, resourceId: 'owner', threadId: 'root' },
+            model: 'test',
+            provider: 'openai',
+            signal: abort.signal,
+          },
+          tools: {
+            'brainstrike.grepSearch': {
+              description: 'Read flags',
+              execute: () =>
+                new Promise<{ matches: string[] }>((resolve) => {
+                  if (abort.signal.aborted) {
+                    resolve({ matches: [] });
+                    return;
+                  }
+                  abort.signal.addEventListener('abort', () => resolve({ matches: [] }), {
+                    once: true,
+                  });
+                }),
+              id: 'brainstrike.grepSearch',
+              inputSchema: z.object({ pattern: z.string() }),
+            },
+          },
+        }
+      );
+      const liveEventIds: string[] = [];
+      let liveText = '';
+      for await (const chunk of observeDesktopAssistantRunEvents(
+        stream,
+        'host-leg',
+        [],
+        async () => database
+      )) {
+        if (chunk.type !== 'delegated-conversation-chunk') {
+          continue;
+        }
+        if (chunk.chunk.type === 'text-delta') {
+          liveText += chunk.chunk.value;
+        }
+        if (chunk.chunk.type === 'run-event') {
+          liveEventIds.push(chunk.chunk.event.id);
+        }
+        if (chunk.chunk.type === 'tool-event' && chunk.chunk.status === 'start') {
+          abort.abort();
+          // Hold the consumer until the real native writer has saved its late result.
+          // The abort snapshot must already be frozen independently of finalization.
+          await nativeSave.promise;
+        }
+      }
+      expect(abort.signal.aborted).toBe(true);
+      expect(liveText).toBe(partialText ? 'Partial child evidence.' : '');
+      const child = (
+        await database.query<{ thread_id: string; resource_id: string }>(
+          "SELECT thread_id, resource_id FROM brainstrike_delegated_conversations WHERE parent_thread_id = 'root'"
+        )
+      ).rows[0];
+      if (!child) {
+        throw new Error('Missing cancelled native child');
+      }
+      const reloaded = await createEnginePglite({ loadDataDir: await database.dumpDataDir() });
+      try {
+        const load = (db: PGlite) =>
+          createAssistantThreadHistoryAdapter({
+            repository: createPgliteAssistantThreadRepository(db as unknown as DbHandle),
+            resourceId: child.resource_id,
+            threadId: child.thread_id,
+          }).load();
+        const history = await load(reloaded);
+        expect(await load(database)).toEqual(history);
+        const content = history.messages.flatMap(({ message }) =>
+          message.role === 'assistant' ? message.content : []
+        );
+        if (partialText) {
+          expect(content).toContainEqual(expect.objectContaining({ text: liveText, type: 'text' }));
+        }
+        expect(content.filter((part) => part.type === 'tool-call')).toEqual([]);
+        const events = content
+          .flatMap((part) =>
+            part.type === 'data' && part.name === 'brainstrike.run-event' ? [part.data] : []
+          )
+          .map((event) =>
+            z.object({ id: z.string(), kind: z.string(), status: z.string() }).parse(event)
+          );
+        expect(events.map((event) => event.id)).toEqual(liveEventIds);
+        expect(events.filter((event) => event.kind === 'run.cancelled')).toHaveLength(1);
+        expect(events.filter((event) => event.kind === 'tool.failed')).toMatchObject([
+          { status: 'cancelled' },
+        ]);
+      } finally {
+        await reloaded.close();
+      }
+    }
+  );
 
   it('binds a fast native child before metering it through a slow consumer, and survives engine reconstruction', async () => {
     let parentReceivedChildResult: (() => void) | undefined;

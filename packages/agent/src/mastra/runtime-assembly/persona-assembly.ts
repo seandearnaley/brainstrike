@@ -11,6 +11,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import type { Agent, ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
+import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import type { DelegationPersonaSummary } from '../default-instructions';
@@ -63,6 +64,7 @@ export function resolvePersonaRuntimeParts(params: {
   resolvePinnedModel: (persona: AssistantPersonaDefinition) => MastraModelConfig;
   toolNameMap: Map<string, string>;
   toolOutputObserver?: ModelOutputProjectionObserver;
+  turnPersistenceProcessor?: (InputProcessor & OutputProcessor) | undefined;
 }): PersonaRuntimeParts {
   if (params.planModeActive || !shouldEnablePersonas(params.provider, params.personas)) {
     return EMPTY_PERSONA_RUNTIME_PARTS;
@@ -78,6 +80,7 @@ export function resolvePersonaRuntimeParts(params: {
     resolvedToolResultBudget: params.resolvedToolResultBudget,
     resolvePinnedModel: params.resolvePinnedModel,
     toolNameMap: params.toolNameMap,
+    turnPersistenceProcessor: params.turnPersistenceProcessor,
     ...(params.toolOutputObserver ? { toolOutputObserver: params.toolOutputObserver } : {}),
   });
   return {

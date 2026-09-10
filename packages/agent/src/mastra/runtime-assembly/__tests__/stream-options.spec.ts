@@ -194,14 +194,46 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
     expect(withoutMemory).not.toHaveProperty('memory');
   });
 
+  it.each(['initial', 'approval', 'resume'] as const)(
+    'omits child tool hooks on the %s leg without active delegation',
+    (leg) => {
+      const hooks = vi.fn(() => ({}));
+      const runtime = makeRuntime({
+        delegatedTurnPersistence: {
+          finalize: async () => undefined,
+          hooks,
+          prepare: () => undefined,
+          processor: {
+            id: 'child-persistence',
+            processInputStep: ({ messageList }) => messageList,
+            processOutputResult: ({ messageList }) => messageList,
+          },
+        },
+      });
+      const options = buildStreamOptions({
+        abortSignal: new AbortController().signal,
+        delegationOutcomes: undefined,
+        delegationUsage: undefined,
+        leg,
+        memoryOption: { resource: 'owner', thread: 'root' },
+        requireToolApproval: undefined,
+        runtime,
+        runtimeData: undefined,
+      });
+      expect(options).not.toHaveProperty('hooks');
+      expect(hooks).not.toHaveBeenCalled();
+    }
+  );
+
   it('delegation: builds the SAME createDelegationConfig fragment the factories build today, only when delegationUsage is present', () => {
     const createDelegationConfigSpy = vi.spyOn(subagentDelegation, 'createDelegationConfig');
     const runtime = makeRuntime({ personasById: new Map([['p1', {} as never]]) });
     const delegationOutcomes = subagentDelegation.createDelegationOutcomeCapture();
     const onChildUsage = vi.fn();
+    const abortSignal = new AbortController().signal;
 
     const actual = buildStreamOptions({
-      abortSignal: new AbortController().signal,
+      abortSignal,
       delegationOutcomes,
       delegationUsage: { onChildUsage } as never,
       leg: 'initial',
@@ -213,10 +245,12 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
 
     expect(createDelegationConfigSpy).toHaveBeenCalledTimes(1);
     expect(createDelegationConfigSpy).toHaveBeenCalledWith({
+      abortSignal,
       delegationOutcomes,
       logger: expect.anything(),
       onChildUsage,
       personasById: runtime.personasById,
+      turnPersistence: runtime.delegatedTurnPersistence,
     });
     expect(actual.delegation).toBeDefined();
   });
