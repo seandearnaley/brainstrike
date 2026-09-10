@@ -1,5 +1,6 @@
 import {
   type AssistantRunEvent,
+  type DelegatedOriginalToolCall,
   sanitizeAssistantRunEventMetadata,
 } from '@brainstrike/assistant-contract';
 import type { DelegatedRunIdentity } from '@brainstrike/assistant-contract/delegated-conversation-stream';
@@ -53,6 +54,7 @@ export interface DelegatedInvocationKey {
 
 export interface CreateDelegatedInvocation extends DelegatedInvocationKey {
   readonly hostRunId: string;
+  readonly originalToolCall?: DelegatedOriginalToolCall;
   readonly parentThreadId: string;
   readonly personaId: string;
   readonly threadId: string;
@@ -241,7 +243,13 @@ function readInvocation(value: unknown): DelegatedInvocation {
     throw new DelegatedConversationIdentityError();
   }
   const row = value as Record<string, unknown>;
+  const rawToolCall = row['original_tool_call'];
+  const originalToolCall =
+    rawToolCall === null || rawToolCall === undefined
+      ? undefined
+      : readOriginalToolCall(rawToolCall);
   return {
+    ...(originalToolCall ? { originalToolCall } : {}),
     childRuntimeRunId: nullableString(row['child_runtime_run_id']),
     hostRunId: requireString(row['host_run_id']),
     ownerResourceId: requireString(row['owner_resource_id']),
@@ -253,6 +261,14 @@ function readInvocation(value: unknown): DelegatedInvocation {
     threadId: requireString(row['thread_id']),
     turnMessageId: requireString(row['turn_message_id']),
   };
+}
+
+function readOriginalToolCall(value: unknown): DelegatedOriginalToolCall {
+  const parsed = requireConfiguration(value);
+  if (Object.keys(parsed).length !== 2 || !Object.hasOwn(parsed, 'args')) {
+    throw new DelegatedConversationIdentityError('invocation-input-invalid');
+  }
+  return { args: parsed['args'], toolName: requireString(parsed['toolName']) };
 }
 
 const TABLE = 'brainstrike_delegated_conversations';
@@ -401,9 +417,9 @@ export function createDelegatedConversationRepository(
         `${AUTHORIZED_GRAPH}, inserted AS (
          INSERT INTO brainstrike_delegated_invocations
            (owner_resource_id, root_thread_id, thread_id, host_run_id, turn_message_id,
-            parent_runtime_run_id, parent_tool_call_id, persona_id)
+            parent_runtime_run_id, parent_tool_call_id, persona_id, original_tool_call)
          SELECT child.owner_resource_id, child.root_thread_id, child.thread_id, host.id,
-           host.turn_message_id, $3, $4, $8
+           host.turn_message_id, $3, $4, $8, $9::jsonb
          FROM owned_nodes child
          JOIN brainstrike_assistant_thread_runs host ON host.id = $7
            AND host.resource_id = $1 AND host.thread_id = $2
@@ -416,6 +432,7 @@ export function createDelegatedConversationRepository(
            AND brainstrike_delegated_invocations.host_run_id = EXCLUDED.host_run_id
            AND brainstrike_delegated_invocations.turn_message_id = EXCLUDED.turn_message_id
            AND brainstrike_delegated_invocations.persona_id = EXCLUDED.persona_id
+           AND brainstrike_delegated_invocations.original_tool_call IS NOT DISTINCT FROM EXCLUDED.original_tool_call
          RETURNING *)
          SELECT inserted.*, child.parent_thread_id FROM inserted
          JOIN owned_nodes child ON child.thread_id = inserted.thread_id`,
@@ -425,6 +442,9 @@ export function createDelegatedConversationRepository(
           requireString(invocation.parentThreadId),
           requireString(invocation.hostRunId),
           requireString(invocation.personaId),
+          invocation.originalToolCall
+            ? JSON.stringify(readOriginalToolCall(invocation.originalToolCall))
+            : null,
         ]
       );
       if (result.rows.length !== 1) {

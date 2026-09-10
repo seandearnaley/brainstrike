@@ -867,6 +867,7 @@ export class DataStreamMapper {
     yield* this.completeArgsStream(callId);
 
     const data: AssistantToolApprovalRequest = {
+      ...(chunk.delegation ? { delegation: chunk.delegation } : {}),
       runId: chunk.runId,
       toolCallId: callId,
       toolName: chunk.toolName,
@@ -937,6 +938,7 @@ export class DataStreamMapper {
     yield* this.completeArgsStream(callId);
 
     const data: AssistantToolSuspendRequest = {
+      ...(chunk.delegation ? { delegation: chunk.delegation } : {}),
       runId: chunk.runId,
       toolCallId: callId,
       toolName: chunk.toolName,

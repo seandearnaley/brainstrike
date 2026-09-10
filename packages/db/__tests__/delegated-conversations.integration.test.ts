@@ -260,15 +260,24 @@ describe('durable delegated conversation graph (BST-1718)', () => {
     }
     await database.exec(migration128DelegatedInvocationUsage.down);
     await database.exec(
-      'DROP TABLE brainstrike_delegated_invocations; DROP TABLE brainstrike_delegated_conversations'
+      'DROP TABLE brainstrike_delegated_tool_decisions; DROP TABLE brainstrike_delegated_invocations; DROP TABLE brainstrike_delegated_conversations'
     );
     await database.query(
-      "DELETE FROM __drizzle_migrations WHERE hash IN ('custom-126-delegated-conversations', 'custom-127-delegated-invocations', 'custom-128-delegated-invocation-usage')"
+      "DELETE FROM __drizzle_migrations WHERE hash IN ('custom-126-delegated-conversations', 'custom-127-delegated-invocations', 'custom-128-delegated-invocation-usage', 'custom-131-delegated-tool-decisions')"
     );
     const nativeBefore = await database.query('SELECT * FROM mastra_threads ORDER BY id');
     const first = await runMigrations(database);
     expect(first.success).toBe(true);
-    expect(first.appliedMigrations).toHaveLength(3);
+    // The ledger and physical schema must agree after replay, including the
+    // decision sidecar and the invocation column added by migration 131.
+    expect(
+      (await database.query('SELECT * FROM brainstrike_delegated_tool_decisions')).rows
+    ).toEqual([]);
+    expect(
+      (await database.query('SELECT original_tool_call FROM brainstrike_delegated_invocations'))
+        .rows
+    ).toEqual([]);
+    expect(first.appliedMigrations).toHaveLength(4);
     const repository = createDelegatedConversationRepository(database);
     expect(await repository.get(scope, 'child')).toBeNull();
     expect((await database.query('SELECT * FROM mastra_threads ORDER BY id')).rows).toEqual(

@@ -1,3 +1,8 @@
+import {
+  ASSISTANT_TOOL_ACTION_ID_MAX_CHARS,
+  type DelegatedToolActionIdentity,
+  hasValidDelegatedToolActionTarget,
+} from './delegated-tool-actions.js';
 import type { ToolRiskCategory } from './tool-risk.js';
 
 export const TOOL_APPROVAL_DATA_NAME = 'brainstrike.tool-approval';
@@ -9,7 +14,7 @@ export const TOOL_APPROVAL_RUN_CONFIG_KEY = 'brainstrikeToolApproval';
  * validate without importing the agent package back into this browser-safe
  * contract.
  */
-export const ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS = 512;
+export const ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS = ASSISTANT_TOOL_ACTION_ID_MAX_CHARS;
 
 /**
  * Approval actions carry a display-only tool identity. Bound it to the same
@@ -134,6 +139,7 @@ export function isCodeExecutionApprovalContext(
 
 export interface AssistantToolApprovalRequest {
   args?: unknown;
+  delegation?: DelegatedToolActionIdentity;
   /**
    * Present only for code-execution tools (today: `brainstrike.runPython`);
    * absent everywhere else. See {@link CodeExecutionApprovalContext}.
@@ -186,7 +192,8 @@ export function isRediscoveredToolApproval(value: unknown): value is Rediscovere
     typeof value['toolName'] === 'string' &&
     value['toolName'].trim().length > 0 &&
     typeof value['suspendedAt'] === 'string' &&
-    typeof value['stale'] === 'boolean'
+    typeof value['stale'] === 'boolean' &&
+    hasValidDelegatedToolActionTarget(value)
   );
 }
 
@@ -247,6 +254,7 @@ export type AssistantToolApprovalDecision = 'approve' | 'decline';
 
 export interface AssistantToolApprovalAction {
   action: AssistantToolApprovalDecision;
+  delegation?: DelegatedToolActionIdentity;
   runId: string;
   toolCallId: string;
   toolName?: string;
@@ -257,6 +265,7 @@ export type ToolApprovalRunConfigActionReadResult =
   | { readonly invalid: true };
 
 const TOOL_APPROVAL_ACTION_OWN_KEYS = new Set<PropertyKey>([
+  'delegation',
   'action',
   'runId',
   'toolCallId',
@@ -277,6 +286,7 @@ export function isAssistantToolApprovalAction(
   return (
     isRecord(value) &&
     Reflect.ownKeys(value).every((key) => TOOL_APPROVAL_ACTION_OWN_KEYS.has(key)) &&
+    hasValidDelegatedToolActionTarget(value) &&
     Object.hasOwn(value, 'action') &&
     Object.hasOwn(value, 'runId') &&
     Object.hasOwn(value, 'toolCallId') &&

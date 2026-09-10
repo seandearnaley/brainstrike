@@ -66,7 +66,11 @@ export type MockMcpToolsets = Record<
 
 export const agentInstances: MockMastraAgentInstance[] = [];
 export const mcpInstances: unknown[] = [];
-export const mastraInstances: Array<{ config: unknown; shutdownCalls: number }> = [];
+export const mastraInstances: Array<{
+  config: unknown;
+  shutdownCalls: number;
+  shutdown: () => Promise<void>;
+}> = [];
 
 let mcpToolsets: MockMcpToolsets = {};
 let mcpDiscoveryFailures: Record<string, string> = {};

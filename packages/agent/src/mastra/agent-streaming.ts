@@ -868,6 +868,8 @@ export interface ResumedToolCallStart {
 }
 
 export interface ResumedApprovalToolCall extends ResumedToolCallStart {
+  /** Actual approved tool, which may be inside the displayed delegation call. */
+  readonly approvedToolName: string;
   /**
    * The suspended step's OTHER pending calls (2026-08-24 field failure).
    * Mastra resume legs never replay the step's `tool-call` parts, and the
@@ -1048,6 +1050,7 @@ export function createAttemptDelegatedProjection({
   lifecycleState: ToolLifecycleState;
   sanitizedNameMap: Map<string, string> | undefined;
 }): {
+  decorate(chunk: StreamChunk): StreamChunk;
   project(part: unknown, toolNames: Map<string, string>): Promise<StreamChunk[]>;
   settle(): StreamChunk[];
 } {
@@ -1095,6 +1098,10 @@ export function createAttemptDelegatedProjection({
     ) ?? [];
 
   return {
+    decorate: (chunk) =>
+      chunk.type === 'delegated-conversation-chunk'
+        ? chunk
+        : (delegatedProjection?.decorate(chunk) ?? chunk),
     project: async (part, toolNames) => (await delegatedProjection?.project(part, toolNames)) ?? [],
     settle,
   };
@@ -1204,7 +1211,7 @@ export async function* streamAttemptChunks({
         yield* delegatedProjection.settle();
       }
       for (const chunk of chunks) {
-        yield chunk;
+        yield delegatedProjection.decorate(chunk);
       }
       if (finished) {
         abortedTurnPersistence?.markNormalFinish();
@@ -1364,7 +1371,7 @@ export async function streamMastraToolApprovalAction(
         runtimeResolution.runtime,
         action
       );
-      preserveExecuteBackedWebSearch = suspendedToolCall.displayToolName === WEB_SEARCH_TOOL_ID;
+      preserveExecuteBackedWebSearch = suspendedToolCall.approvedToolName === WEB_SEARCH_TOOL_ID;
     } finally {
       await discoveryRuntime.dispose();
     }

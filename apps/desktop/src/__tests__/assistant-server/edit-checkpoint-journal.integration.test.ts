@@ -258,6 +258,7 @@ describe('listRunRangeCheckpoints', () => {
     await db.query(
       'ALTER TABLE brainstrike_assistant_run_usage DROP CONSTRAINT brainstrike_assistant_run_usage_delegation_fk'
     );
+    await db.query('DROP TABLE brainstrike_delegated_tool_decisions');
     await db.query('DROP TABLE brainstrike_delegated_invocations');
     await db.query('DROP TABLE brainstrike_assistant_run_events');
     await db.query(`DROP TABLE ${RUNS_TABLE}`);

@@ -21,6 +21,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
 import { streamMastraAgent } from '../mastra/agent-streaming';
+import {
+  createStreamIteratorFromRuntime,
+  createToolApprovalIteratorFromRuntime,
+  createToolResumeIteratorFromRuntime,
+} from '../mastra/attempt-legs';
+import { createDelegatedConversationBinding } from '../mastra/delegated-conversation-binding';
 import { MastraAgentError } from '../mastra/mastra-agent-error';
 import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
 import { RunTokenDiagnostics } from '../mastra/token-measurement';
@@ -42,6 +48,7 @@ import {
   setStreamFailure,
   setStreamPartDelayMs,
   setStreamPartFailure,
+  setSuspendedRuns,
 } from './fixtures/mastra-stream-harness';
 
 vi.mock(
@@ -1903,6 +1910,139 @@ describe('mastra streaming integration', () => {
 
     expect(mastraInstances).toHaveLength(1);
     expect(mastraInstances[0]?.shutdownCalls).toBe(1);
+  });
+
+  it.each([false, true])(
+    'preserves a typed construction failure when cleanup fails=%s',
+    async (cleanupFails) => {
+      const original = new MastraAgentError(
+        'mastra_agent_missing_api_key',
+        'Provider key rejected',
+        { context: { provider: 'openai' } }
+      );
+      const cleanupFailure = new Error('decision settlement failed');
+      const finishToolActions = vi.fn(async () => {
+        if (cleanupFails) {
+          throw cleanupFailure;
+        }
+      });
+      const runtime = await createMastraAgentRuntime({
+        conversationBinding: {
+          ...createDelegatedConversationBinding(async () => undefined),
+          finishToolActions,
+        },
+        runtime: { apiKey: 'key', provider: 'openai' },
+      });
+      vi.spyOn(runtime.agent, 'stream').mockRejectedValue(original);
+      const operation = createStreamIteratorFromRuntime({
+        messages: [{ id: 'user', parts: [{ text: 'go', type: 'text' }], role: 'user' }],
+        runtime,
+      });
+      if (cleanupFails) {
+        await expect(operation).rejects.toMatchObject({
+          cause: { errors: [original, cleanupFailure], name: 'AggregateError' },
+          code: original.code,
+          context: original.context,
+          message: expect.stringContaining('Runtime cleanup did not complete'),
+        });
+      } else {
+        await expect(operation).rejects.toBe(original);
+      }
+      expect(finishToolActions).toHaveBeenCalledOnce();
+    }
+  );
+
+  it.each(['initial', 'approve', 'decline', 'resume'] as const)(
+    'preserves construction and all settlement errors on the %s leg',
+    async (leg) => {
+      const constructionFailure = new Error('native construction failed');
+      const shutdownFailure = new Error('shutdown failed');
+      const settlementFailure = new Error('decision settlement failed');
+      const finishToolActions = vi.fn().mockRejectedValue(settlementFailure);
+      const runtime = await createMastraAgentRuntime({
+        conversationBinding: {
+          ...createDelegatedConversationBinding(async () => undefined),
+          finishToolActions,
+        },
+        runtime: { apiKey: 'key', provider: 'openai' },
+        storage: { id: 'storage-with-workflows' } as never,
+      });
+      const mastra = mastraInstances[0];
+      if (!mastra) {
+        throw new Error('Expected the runtime Mastra instance');
+      }
+      vi.spyOn(mastra, 'shutdown').mockRejectedValue(shutdownFailure);
+      setSuspendedRuns([
+        {
+          runId: 'run',
+          status: 'suspended',
+          suspendedAt: new Date(),
+          toolCalls: [
+            { args: {}, requiresApproval: leg !== 'resume', toolCallId: 'call', toolName: 'read' },
+          ],
+        },
+      ]);
+      vi.spyOn(runtime.agent, 'stream').mockRejectedValue(constructionFailure);
+      vi.spyOn(runtime.agent, 'approveToolCall').mockRejectedValue(constructionFailure);
+      vi.spyOn(runtime.agent, 'declineToolCall').mockRejectedValue(constructionFailure);
+      vi.spyOn(runtime.agent, 'resumeStream').mockRejectedValue(constructionFailure);
+      const create = () => {
+        if (leg === 'initial') {
+          return createStreamIteratorFromRuntime({
+            messages: [{ id: 'user', parts: [{ text: 'go', type: 'text' }], role: 'user' }],
+            runtime,
+          });
+        }
+        if (leg === 'resume') {
+          return createToolResumeIteratorFromRuntime({
+            action: { resumeData: {}, runId: 'run', toolCallId: 'call' },
+            runtime,
+          });
+        }
+        return createToolApprovalIteratorFromRuntime({
+          action: { action: leg, runId: 'run', toolCallId: 'call' },
+          runtime,
+        });
+      };
+      await expect(create()).rejects.toMatchObject({
+        cause: {
+          errors: [
+            constructionFailure,
+            expect.objectContaining({
+              errors: [shutdownFailure, settlementFailure],
+              name: 'AggregateError',
+            }),
+          ],
+          name: 'AggregateError',
+        },
+      });
+      expect(finishToolActions).toHaveBeenCalledOnce();
+    }
+  );
+
+  it('preserves shutdown and delegated decision settlement failures together', async () => {
+    const shutdownFailure = new Error('shutdown failed');
+    const settlementFailure = new Error('decision settlement failed');
+    const finishToolActions = vi.fn().mockRejectedValue(settlementFailure);
+    const runtime = await createMastraAgentRuntime({
+      conversationBinding: {
+        ...createDelegatedConversationBinding(async () => undefined),
+        finishToolActions,
+      },
+      runtime: { apiKey: 'key', provider: 'openai' },
+      storage: { id: 'storage-with-workflows' } as never,
+    });
+    const mastra = mastraInstances[0];
+    if (!mastra) {
+      throw new Error('Expected the runtime Mastra instance');
+    }
+    vi.spyOn(mastra, 'shutdown').mockRejectedValue(shutdownFailure);
+
+    await expect(runtime.dispose()).rejects.toMatchObject({
+      errors: [shutdownFailure, settlementFailure],
+      name: 'AggregateError',
+    });
+    expect(finishToolActions).toHaveBeenCalledOnce();
   });
 
   it('passes strict thread/resource memory context to agent.stream', async () => {

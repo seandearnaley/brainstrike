@@ -23,6 +23,69 @@ const part = {
 };
 
 describe('delegated stream terminal ownership', () => {
+  it('binds child and parent approval cards to the same exact leaf across reused aliases', async () => {
+    const child = { ...identity, personaId: 'child' };
+    const leaf = {
+      childRuntimeRunId: 'leaf-run',
+      parentRuntimeRunId: 'child-run',
+      parentToolCallId: 'leaf-call',
+      personaId: 'leaf',
+    };
+    const forward = (edge: typeof identity, output: unknown) => ({
+      payload: { output, toolCallId: edge.parentToolCallId, toolName: `agent-${edge.personaId}` },
+      runId: edge.parentRuntimeRunId,
+      type: 'tool-output',
+    });
+    const approval = (runId: string, toolCallId: string) => ({
+      args: {},
+      runId,
+      toolCallId,
+      toolName: 'read',
+      type: 'tool-approval-required' as const,
+    });
+    const projection = createDelegatedStreamProjection({
+      authorize: async () => ({ messageId: 'saved-native-message', threadId: 'owned-thread' }),
+      createState: () => ({}),
+      mapPart: async (value) => {
+        const chunk = value as ReturnType<typeof approval>;
+        return { chunks: chunk.type === 'tool-approval-required' ? [chunk] : [], finished: false };
+      },
+      personas: new Map([
+        ['agent-child', 'child'],
+        ['agent-leaf', 'leaf'],
+      ]),
+    });
+    if (!projection) {
+      throw new Error('Missing projection');
+    }
+    const first = await projection.project(
+      forward(child, forward(leaf, approval('leaf-run', 'read-1'))),
+      new Map()
+    );
+    expect(first[0]?.chunk).toMatchObject({
+      delegation: { path: [child, leaf], toolCallId: 'read-1' },
+    });
+    const parentNotice = projection.decorate(approval('parent-run', 'call'));
+    expect(parentNotice).toMatchObject({
+      delegation: { path: [child, leaf], toolCallId: 'read-1' },
+    });
+    const childNotice = await projection.project(
+      forward(child, approval('child-run', 'leaf-call')),
+      new Map()
+    );
+    expect(childNotice[0]?.chunk).toMatchObject({
+      delegation: { path: [child, leaf], toolCallId: 'read-1' },
+    });
+    await projection.project(
+      forward(child, forward(leaf, approval('leaf-run', 'read-2'))),
+      new Map()
+    );
+    expect(projection.decorate(approval('parent-run', 'call'))).toMatchObject({
+      delegation: { toolCallId: 'read-2' },
+    });
+    expect(parentNotice).toMatchObject({ delegation: { toolCallId: 'read-1' } });
+  });
+
   it('uses the authorized persisted message identity when a resume wrapper has none', async () => {
     const projection = createDelegatedStreamProjection({
       authorize: async () => ({ messageId: 'persisted-message', threadId: 'child-thread' }),

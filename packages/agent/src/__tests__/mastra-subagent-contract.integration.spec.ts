@@ -36,6 +36,7 @@ import {
   toolCallParts,
   toolThenAnswer,
 } from '../test-fixtures/scripted-agent-model';
+import { assertStaleDelegatedDecision } from './fixtures/delegated-decision-contract';
 
 async function collect(stream: AsyncIterable<ChunkType>): Promise<ChunkType[]> {
   const chunks: ChunkType[] = [];
@@ -125,6 +126,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     suspend = false,
     abortController,
     rootModel,
+    leafModelOverride,
     childInputProcessor,
     childOutputProcessor,
     failChildInstructions = false,
@@ -136,6 +138,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     suspend?: boolean;
     abortController?: AbortController;
     rootModel?: ReturnType<typeof scriptedAgentModel>;
+    leafModelOverride?: ReturnType<typeof scriptedAgentModel>;
     childInputProcessor?: InputProcessor;
     childOutputProcessor?: OutputProcessor;
     failChildInstructions?: boolean;
@@ -154,7 +157,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       abortController?.abort();
       return Promise.resolve({ value: 'leaf result' });
     });
-    const leafModel = toolThenAnswer('read', 'read-1', {});
+    const leafModel = leafModelOverride ?? toolThenAnswer('read', 'read-1', {});
     const childScopes: unknown[] = [];
     const leaf = new Agent({
       description: 'Read evidence',
@@ -213,6 +216,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     hosts.add(host);
     return { child, childModel, childScopes, effect, host, leaf, leafModel, parent, parentModel };
   }
+
+  it('rejects a stale leaf decision when the parent delegation call is reused', async () => {
+    await assertStaleDelegatedDecision(tree);
+  });
 
   it('fails closed when a context filter throws before the child sees parent context', async () => {
     const { parent, childModel, effect } = tree({

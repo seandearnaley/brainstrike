@@ -3262,3 +3262,14 @@ terminal without an error flag, matching live `tool-output-denied`; a missing
 Both live and hydrated paths use `createDeclinedToolCallResult` from the
 browser-safe approval contract. Existing pending/result/error rows retain their
 original behavior.
+
+### Hydrated delegated pause identity (BST-1720)
+
+Synthetic rediscovered approvals and questions preserve their exact delegated
+leaf path in the normal data part. Their transient message IDs use the native
+leaf run/call rather than the reused root delegation alias. Repeated discovery
+of the same leaf is stable; a subsequent leaf pause produces a different ID
+and cannot retain an earlier card's answered state. Both still chain onto the
+durable history head through the existing transient-parent topology adapter.
+Ordinary root pause IDs are unchanged. The history repository regression covers
+successive leaves, repeated discovery and the preserved parent edge.

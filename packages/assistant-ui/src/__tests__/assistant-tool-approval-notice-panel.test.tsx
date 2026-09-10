@@ -149,6 +149,60 @@ describe('AssistantToolApprovalNotice', () => {
     ).toBeInTheDocument();
   });
 
+  it.each(['parent', 'child'])(
+    'routes %s cards to the root while keeping sequential leaf decisions distinct',
+    async (surface) => {
+      const user = userEvent.setup();
+      const path = [
+        {
+          childRuntimeRunId: 'child-run',
+          parentRuntimeRunId: 'root-run',
+          parentToolCallId: 'delegate-1',
+          personaId: 'explore',
+        },
+      ];
+      const first = {
+        ...baseApproval,
+        delegation: { path, toolCallId: 'read-1' },
+        runId: surface === 'parent' ? 'root-run' : 'child-run',
+        toolCallId: surface === 'parent' ? 'delegate-1' : 'read-1',
+      };
+      const view = render(<AssistantToolApprovalNotice data={first} />);
+      await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+      expect(appendMessageMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: {
+                action: 'approve',
+                delegation: first.delegation,
+                runId: 'root-run',
+                toolCallId: 'delegate-1',
+                toolName: baseApproval.toolName,
+              },
+            },
+          },
+        })
+      );
+      const second = { ...first, delegation: { path, toolCallId: 'read-2' } };
+      view.rerender(<AssistantToolApprovalNotice data={second} />);
+      expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
+      await user.click(screen.getByRole('button', { name: /decline workspace\.writefile/i }));
+      expect(appendMessageMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: expect.objectContaining({
+                action: 'decline',
+                delegation: second.delegation,
+              }),
+            },
+          },
+        })
+      );
+    }
+  );
+
   it('appends approval actions with runConfig for the assistant runtime', async () => {
     const user = userEvent.setup();
     render(<AssistantToolApprovalNotice data={baseApproval} />);

@@ -32,8 +32,12 @@ import {
   type ResumedToolCallStart,
   streamAttemptChunks,
 } from './agent-streaming';
+import {
+  assertDelegatedToolActionPending,
+  claimDelegatedToolAction,
+} from './delegated-tool-actions';
 import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
-import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
+import { createMastraAgentError, isMastraAgentError, MastraAgentError } from './mastra-agent-error';
 import { makeMcpDiscoverySkipChunks } from './mcp-discovery-diagnostics';
 import type { PermissionAskToolMetadata } from './permission-tool-gate';
 import { computePromptBreakdown } from './prompt-breakdown';
@@ -274,10 +278,16 @@ function resolveResumeApprovalGate(
 }
 
 export async function readResumedApprovalToolCall(
-  runtime: MastraAgentRuntime,
+  runtime: Pick<MastraAgentRuntime, 'agent' | 'conversationBinding' | 'toolNameMap'>,
   runtimeData: RuntimeData | undefined,
   action: AssistantToolApprovalAction
 ): Promise<ResumedApprovalToolCall> {
+  const delegated = await assertDelegatedToolActionPending({
+    action,
+    agent: runtime.agent,
+    binding: runtime.conversationBinding,
+    requiresApproval: true,
+  });
   const memoryContext = runtimeData?.memory;
   const { runs } = await runtime.agent.listSuspendedRuns(
     memoryContext
@@ -294,6 +304,16 @@ export async function readResumedApprovalToolCall(
       detail: 'Suspended approval snapshot is missing the requested tool call or its arguments.',
     });
   }
+  if (delegated && !delegated.originalToolCall) {
+    throw createMastraAgentError('mastra_agent_stream_failure', {
+      detail:
+        'The original delegation input is unavailable; this approval cannot be resumed safely.',
+    });
+  }
+  const displayedCall = delegated?.originalToolCall ?? {
+    args: toolCall.args,
+    toolName: toolCall.toolName,
+  };
 
   const siblings: ResumedToolCallStart[] = [];
   for (const candidate of run?.toolCalls ?? []) {
@@ -320,13 +340,18 @@ export async function readResumedApprovalToolCall(
   }
 
   return {
-    args: toolCall.args,
-    displayToolName: resolveDiscoveredApprovalToolName(
-      toolCall.toolName,
+    approvedToolName: resolveDiscoveredApprovalToolName(
+      delegated?.toolName ?? toolCall.toolName,
       runtime.toolNameMap,
       action.runId
     ),
-    registeredToolName: toolCall.toolName,
+    args: displayedCall.args,
+    displayToolName: resolveDiscoveredApprovalToolName(
+      displayedCall.toolName,
+      runtime.toolNameMap,
+      action.runId
+    ),
+    registeredToolName: displayedCall.toolName,
     siblings,
     toolCallId: action.toolCallId,
   };
@@ -417,6 +442,10 @@ async function createToolApprovalTurnAttempt({
       toolCallId: action.toolCallId,
     });
 
+    await claimDelegatedToolAction(action, runtime.conversationBinding, {
+      agent: runtime.agent,
+      requiresApproval: true,
+    });
     const streamResult =
       action.action === 'approve'
         ? await runtime.agent.approveToolCall(approvalOptions as AgentToolApprovalOptions)
@@ -489,6 +518,20 @@ async function handleStreamFailure(err: unknown, runtime: MastraAgentRuntime): P
     logger.warn('dispose after stream failure failed', {
       code: 'mastra_agent_runtime_dispose_failed',
       error: disposeError instanceof Error ? disposeError.message : String(disposeError),
+    });
+    const cause = new AggregateError(
+      [err, disposeError],
+      'Assistant stream construction and runtime cleanup failed.'
+    );
+    if (isMastraAgentError(err)) {
+      throw new MastraAgentError(err.code, `${err.message} Runtime cleanup did not complete.`, {
+        cause,
+        ...(err.context ? { context: err.context } : {}),
+      });
+    }
+    throw createMastraAgentError('mastra_agent_stream_failure', {
+      cause,
+      detail: 'Assistant stream construction failed and runtime cleanup did not complete.',
     });
   }
   if (isMastraAgentError(err)) {
@@ -563,7 +606,14 @@ async function assertResumedCallIsSuspendPause(
         'The requested tool call is suspended for APPROVAL; answer it through the approval transport, not the suspend-resume transport.',
     });
   }
-  if (!toolCall.toolName) {
+  const delegated = await assertDelegatedToolActionPending({
+    action,
+    agent: runtime.agent,
+    binding: runtime.conversationBinding,
+    requiresApproval: false,
+  });
+  const toolName = delegated?.toolName ?? toolCall.toolName;
+  if (!toolName) {
     // The rider decision below keys on the tool's ask registration; a
     // snapshot with no tool name cannot be classified — refuse rather than
     // guessing (a wrong guess either denies a valid resume or widens a
@@ -573,7 +623,7 @@ async function assertResumedCallIsSuspendPause(
       detail: 'Suspended tool snapshot has no tool name for the requested tool call.',
     });
   }
-  return { toolName: toolCall.toolName };
+  return { toolName };
 }
 
 /**
@@ -697,6 +747,10 @@ async function createToolResumeTurnAttempt({
     });
 
     // resumeData is validated by Mastra against the suspended tool's resumeSchema.
+    await claimDelegatedToolAction(action, runtime.conversationBinding, {
+      agent: runtime.agent,
+      requiresApproval: false,
+    });
     const streamResult = await runtime.agent.resumeStream(
       resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
       resumeOptions as AgentResumeStreamOptions

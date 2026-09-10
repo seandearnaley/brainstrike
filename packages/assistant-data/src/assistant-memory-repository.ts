@@ -5,6 +5,7 @@ import {
   type AssistantEditCheckpointCaptureStatus,
   type AssistantEditCheckpointOp,
   type AssistantEditCheckpointRecord,
+  getToolActionIdentityKey,
   isGuardedToolError,
 } from '@brainstrike/assistant-contract';
 import {
@@ -2682,7 +2683,10 @@ function appendSuspendedPauseMessages(
   let parentId: string | null = result.headId ?? null;
   let headId: string | null = result.headId ?? null;
   for (const source of sources) {
-    const id = `${source.idPrefix}:${source.runId}:${source.toolCallId}`;
+    const identity = source.data.delegation
+      ? getToolActionIdentityKey(source.data)
+      : `${source.runId}:${source.toolCallId}`;
+    const id = `${source.idPrefix}:${identity}`;
     messages.push({
       message: {
         content: [{ data: source.data, name: source.dataName, type: 'data' }],

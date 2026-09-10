@@ -19,9 +19,12 @@
  * building blocks are invoked with the right arguments, rather than folded
  * into the whole-object comparison.
  */
+import type { MastraMemory } from '@mastra/core/memory';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeData } from '../../../types';
 import type { MastraAgentRuntime } from '../../agent-runtime';
+import { createDelegatedConversationBinding } from '../../delegated-conversation-binding';
+import { createDelegatedTurnPersistence } from '../../delegated-turn-persistence';
 import * as subagentDelegation from '../../subagent-delegation';
 import {
   buildAssistantStreamMessageIdOption,
@@ -222,6 +225,52 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
       });
       expect(options).not.toHaveProperty('hooks');
       expect(hooks).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['initial', 'approval', 'resume'] as const)(
+    'preserves the real input-capture and persistence hooks on the %s leg',
+    async (leg) => {
+      const binding = createDelegatedConversationBinding(async () => undefined);
+      const memory = {
+        getThreadById: async () => ({ id: 'child' }),
+        saveMessages: async () => ({ messages: [] }),
+      } as unknown as MastraMemory;
+      const persistence = createDelegatedTurnPersistence(memory, {
+        resourceId: 'owner',
+        threadId: 'root',
+      });
+      if (!(persistence && binding.hooks?.beforeToolCall)) {
+        throw new Error('Expected both delegated hook owners');
+      }
+      const abortSignal = new AbortController().signal;
+      const persistenceHooks = persistence.hooks(abortSignal);
+      // These producers own disjoint lifecycle hooks. Adding a colliding hook
+      // must fail this contract before a spread can silently replace capture.
+      expect(Object.keys(binding.hooks)).toEqual(['beforeToolCall']);
+      expect(Object.keys(persistenceHooks)).toEqual(['afterToolCall']);
+      const capture = vi.spyOn(binding.hooks, 'beforeToolCall');
+      const persist = vi.spyOn(persistenceHooks, 'afterToolCall');
+      vi.spyOn(persistence, 'hooks').mockReturnValue(persistenceHooks);
+      const options = buildStreamOptions({
+        abortSignal,
+        delegationOutcomes: undefined,
+        delegationUsage: { onChildUsage: vi.fn() } as never,
+        leg,
+        memoryOption: { resource: 'owner', thread: 'root' },
+        requireToolApproval: undefined,
+        runtime: makeRuntime({
+          conversationBinding: binding,
+          delegatedTurnPersistence: persistence,
+        }),
+        runtimeData: undefined,
+      });
+      expect(persistence.hooks).toHaveBeenCalledExactlyOnceWith(abortSignal);
+      const call = { context: { toolCallId: 'read-1' }, input: {}, toolName: 'read' };
+      await options.hooks?.beforeToolCall?.(call);
+      await options.hooks?.afterToolCall?.({ ...call, output: {} });
+      expect(capture).toHaveBeenCalledExactlyOnceWith(call);
+      expect(persist).toHaveBeenCalledExactlyOnceWith({ ...call, output: {} });
     }
   );
 

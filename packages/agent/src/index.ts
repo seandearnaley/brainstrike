@@ -205,8 +205,10 @@ export {
   createDelegatedConversationBinding,
   type DelegatedConversationBinding,
   type DelegatedConversationIdentity,
+  type DelegatedToolActionScope,
 } from './mastra/delegated-conversation-binding';
 export type { DelegatedRunIdentity } from './mastra/delegated-run-publication';
+export type { DelegatedSuspensionResolver } from './mastra/delegated-suspension-discovery';
 export {
   clipGrepProjectionLine,
   formatGrepContentHeader,
