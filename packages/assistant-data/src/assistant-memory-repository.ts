@@ -2290,6 +2290,7 @@ function buildHistoryUnits(
       return;
     }
     units.push({ kind: 'assistant-group', parts: openGroup.parts, rows: openGroup.rows });
+    seenToolCallsById.clear();
     openGroup = null;
   };
 

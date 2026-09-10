@@ -815,3 +815,9 @@ unfinished calls keep their failure journal without fabricated tool parts.
 Legacy timeline placement is unchanged. This is full content/event ordering for
 the tested normal turn, not a claim about every resume leg or the still-pending
 child receiver.
+
+Hydration deduplicates tool calls within one assistant group, preserving progressive
+snapshots without removing a same-id tool in a later turn or regenerated sibling.
+The native message assignment precedes tool anchoring; a trailing tool releases
+its lifecycle queue through the normal final flush. The paired hydration regression
+covers reused native tool ids across turns and their separate inline results.

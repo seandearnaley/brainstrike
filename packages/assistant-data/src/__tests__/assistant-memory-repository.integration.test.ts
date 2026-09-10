@@ -1655,6 +1655,7 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
       ],
       runEvents: events,
     });
+    expect(history.messages).toHaveLength(1);
     expect(
       history.messages[0]?.message.content.map((part) => {
         if (part.type === 'data') {
@@ -1676,6 +1677,75 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
       'second-call-tool.completed',
       'text',
     ]);
+  });
+
+  it('routes reused tool ids by native message and flushes a final tool event tail', async () => {
+    const timestamp = '2026-09-10T10:21:02.105Z';
+    const createdAt = Date.parse(timestamp);
+    const nativeMessageIds = ['native-first', 'native-second'];
+    const history = await loadHistory({
+      messages: nativeMessageIds.flatMap((id, index) => [
+        {
+          content: { content: id, format: 2, parts: [{ text: id, type: 'text' }] },
+          createdAt: new Date(createdAt + index * 2),
+          id: `user-${id}`,
+          role: 'user',
+        },
+        {
+          content: {
+            format: 2,
+            parts: [
+              { createdAt, text: id, type: 'text' },
+              {
+                ...makeToolInvocationPart({
+                  result: { message: id },
+                  toolCallId: 'reused-call',
+                  toolName: 'grep_search',
+                }),
+                createdAt,
+              },
+            ],
+          },
+          createdAt: new Date(createdAt + index * 2 + 1),
+          id,
+          role: 'assistant',
+        },
+      ]),
+      runEvents: nativeMessageIds.flatMap((nativeMessageId) =>
+        (['tool.started', 'tool.completed'] as const).map(
+          (kind, sequence): AssistantRunEvent => ({
+            id: `${nativeMessageId}-${kind}`,
+            kind,
+            label: kind,
+            metadata: { nativeMessageId, toolCallId: 'reused-call' },
+            runId: 'shared-host-run',
+            sequence,
+            status: kind === 'tool.started' ? 'running' : 'completed',
+            timestamp,
+          })
+        )
+      ),
+    });
+    expect(history.messages).toHaveLength(4);
+    const assistants = history.messages.filter((item) => item.message.role === 'assistant');
+    expect(assistants).toHaveLength(2);
+    for (const [index, item] of assistants.entries()) {
+      const nativeMessageId = nativeMessageIds[index];
+      expect(item.message.id).toBe(nativeMessageId);
+      expect(item.message.content).toContainEqual(
+        expect.objectContaining({ result: { message: nativeMessageId }, toolCallId: 'reused-call' })
+      );
+      expect(
+        item.message.content.map((part) =>
+          part.type === 'data' ? (part.data as AssistantRunEvent).id : part.type
+        )
+      ).toEqual([
+        'text',
+        'tool-call',
+        `${nativeMessageId}-tool.started`,
+        `${nativeMessageId}-tool.completed`,
+      ]);
+    }
   });
 
   it('retains scoped tool lifecycle when cancellation removes the unfinished tool part', async () => {
@@ -1715,6 +1785,7 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
         part.type === 'data' ? (part.data as AssistantRunEvent).id : part.type
       )
     ).toEqual(['text', 'cancelled-child-tool.started', 'cancelled-child-tool.failed']);
+    expect(history.messages).toHaveLength(1);
   });
 
   it('interleaves run events with timestamped content parts in live order', async () => {

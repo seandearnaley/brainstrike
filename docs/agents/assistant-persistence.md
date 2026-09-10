@@ -2916,15 +2916,23 @@ tool-call id anchor the event **after** its persisted tool part, matching the
 shared live encoder. Millisecond timestamps cannot establish this boundary:
 text, reasoning and a tool start can share the same time, and timestamp weaving
 alone moved the event ahead of all three. The shared hydrator preserves content
-and journal order while waiting for that specific tool boundary. Legacy events
-keep their existing time-based placement. A cancelled call whose unfinished
+and journal order while waiting for that specific tool boundary: the anchor
+blocks the event queue, so later journal entries cannot overtake it. Exact native
+row-to-group assignment happens before tool anchoring, including when different
+turns reuse a tool-call id. A final tool part releases its queued events through
+the existing trailing flush. Tool-call deduplication is scoped to one assistant
+group: snapshot rows of that turn still merge, while later turns and regenerated
+siblings retain their own same-id tool parts. Legacy events keep their existing
+time-based placement. A cancelled call whose unfinished
 tool part was removed still retains its journal events; hydration never invents
 that missing tool part or drops its failure history.
 
-`delegated-stream-parity.integration.test.ts` now compares the full ordered
-content and lifecycle data from the real native desktop stream with the current
-and reconstructed memory engine. The deterministic hydration tests cover tied
-timestamps, two distinct tool boundaries and a removed cancelled tool part.
+`delegated-stream-parity.integration.test.ts` compares text, reasoning, tool
+name/id/input/result and every lifecycle data payload in order from the real
+native desktop stream with the current and reconstructed memory engine. The deterministic hydration tests cover tied
+timestamps, two distinct tool boundaries, native grouping with reused tool ids,
+a final tool event tail and a removed cancelled tool part. Decoder-private
+fields and ephemeral tool runtime fields are outside that parity assertion.
 This proves the tested normal turn; changed native ids across resume and full
 receiver/replay remain separate BST-1719 acceptance.
 

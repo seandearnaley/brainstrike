@@ -3907,3 +3907,9 @@ event journal. The real desktop parity fixture compares every lifecycle data
 part, in order, alongside text/reasoning/input/result before and after native
 memory reconstruction. Cancelled missing tool parts retain their paired event
 history. Full resumed-message and receiver/replay parity remains BST-1719 work.
+
+Hydration deduplicates tool calls within one assistant group, preserving progressive
+snapshots without removing a same-id tool in a later turn or regenerated sibling.
+The native message assignment precedes tool anchoring; a trailing tool releases
+its lifecycle queue through the normal final flush. The paired hydration regression
+covers reused native tool ids across turns and their separate inline results.
