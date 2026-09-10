@@ -4068,3 +4068,13 @@ returns leaf payloads with canonical root transport coordinates. See
 `assistant-subagents.md` for admission lifetime, keyless discovery and the
 remaining interaction acceptance gates. The native resume parity fixture,
 `delegated-decision-contract.ts` and desktop host tests pair with this contract.
+
+
+### Durable delegated decision recovery display (BST-1720)
+
+The suspended-runs endpoint adds exact durable leaf admission state to native
+rediscovery. Shared approval/question/plan cards lock claimed, consumed or
+interrupted decisions without claiming their effects succeeded. Root/leaf
+admission remains authoritative for races. The full state, ownership and
+verification contract lives in assistant-subagents.md, “Durable delegated
+decision recovery display”; staleness alone remains advisory.

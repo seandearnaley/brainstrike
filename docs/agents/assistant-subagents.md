@@ -1031,3 +1031,29 @@ Persona read-only, ask-tool and interactive-tool restrictions remain until the
 remaining BST-1720 production entry, question/plan, interrupted-state UI and
 end-to-end acceptance is green. This foundation does not enable mutation tools
 or unrestricted recursive workers.
+
+
+### Durable delegated decision recovery display (BST-1720)
+
+The suspended-runs endpoint annotates each rediscovered native leaf with its
+exact durable admission state, scoped by owner, root, root transport call and
+leaf run/call. `claimed`, `consumed` and `interrupted` mean the same decision
+cannot be resubmitted; none asserts that its tool effect succeeded. A later
+leaf behind the same parent alias remains independently actionable. Discovery
+only reads admission records and never creates a pause from them.
+
+The existing approval, question and plan cards retain their original content
+and show the admission status with controls locked. Unknown present states
+fail wire validation and render an unavailable status if encountered directly
+in a card. Staleness without admission state remains advisory. Status refresh
+uses the existing thread reload; no polling or auto-resume is introduced.
+The server's durable admission check remains authoritative if a claim races
+this read. Missing/ambiguous native snapshots still use the visible discovery
+error path; this slice does not reconstruct missing snapshots.
+
+Paired proof: the delegated-decision-discovery endpoint tests, real PGlite
+cases in delegated-conversation-host.integration.test.ts, shared notice and
+contract tests, and assistant-approval-reload-linearity.desktop.test.ts.
+The Electron test exercises renderer reload and real history hydration with a
+scripted discovery response; the database test independently verifies admission
+state and ownership. Neither claims packaged process-restart UI parity.

@@ -12,6 +12,7 @@ import type { DbHandle } from '@brainstrike/db/react';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
+import { readDelegatedDecisionStates } from '../../assistant-server/delegated-decision-discovery';
 import { desktopAssistantServerLogger as logger } from '../../assistant-server/logger';
 import {
   observeDesktopAssistantRunEvents,
@@ -104,6 +105,57 @@ describe('desktop delegated conversation authority', () => {
     status: 'running',
     timestamp: '2026-09-10T01:00:00.000Z',
   } as const;
+
+  it.each(['claimed', 'consumed', 'interrupted'] as const)(
+    'rediscovers %s admission for its exact native leaf without crossing owner/root/call scope',
+    async (state) => {
+      const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+      await host.persist(identity);
+      await host.bindRun(run);
+      const action = {
+        delegation: { path: [run], toolCallId: 'read-1' },
+        runId: run.parentRuntimeRunId,
+        toolCallId: run.parentToolCallId,
+      };
+      await host.claimToolAction(action);
+      if (state === 'consumed') {
+        await host.finishToolActions();
+      }
+      if (state === 'interrupted') {
+        await database.query(
+          "UPDATE brainstrike_assistant_thread_runs SET started_at = '2020-01-01' WHERE id = 'initial-leg'"
+        );
+        await reapOrphanedThreadRuns(database, new Date());
+      }
+      const key = JSON.stringify([run.childRuntimeRunId, 'read-1']);
+      expect(await readDelegatedDecisionStates(database, scope, [action])).toEqual(
+        new Map([[key, state]])
+      );
+      expect(
+        await readDelegatedDecisionStates(
+          database,
+          { ...scope, ownerResourceId: 'another-owner' },
+          [action]
+        )
+      ).toEqual(new Map());
+      expect(
+        await readDelegatedDecisionStates(database, { ...scope, rootThreadId: 'other' }, [action])
+      ).toEqual(new Map());
+      expect(
+        await readDelegatedDecisionStates(database, scope, [
+          { ...action, delegation: { ...action.delegation, toolCallId: 'next-leaf' } },
+        ])
+      ).toEqual(new Map());
+      expect(
+        await readDelegatedDecisionStates(database, scope, [
+          { ...action, toolCallId: 'other-parent-call' },
+        ])
+      ).toEqual(new Map());
+      expect(
+        (await database.query('SELECT state FROM brainstrike_delegated_tool_decisions')).rows
+      ).toEqual([{ state }]);
+    }
+  );
 
   it('claims a leaf decision once and serializes sibling resumes across recreated hosts', async () => {
     const first = createDesktopDelegatedConversationHost(database, 'initial-leg');

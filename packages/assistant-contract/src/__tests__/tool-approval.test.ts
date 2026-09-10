@@ -133,6 +133,32 @@ describe('isRediscoveredToolApproval', () => {
     toolName: 'workspace.writeFile',
   };
 
+  it('validates durable delegated decision state without treating unknown states as pending', () => {
+    const delegation = {
+      path: [
+        {
+          childRuntimeRunId: 'child',
+          parentRuntimeRunId: base.runId,
+          parentToolCallId: base.toolCallId,
+          personaId: 'worker',
+        },
+      ],
+      toolCallId: 'leaf',
+    };
+    for (const decisionState of ['claimed', 'consumed', 'interrupted']) {
+      expect(isRediscoveredToolApproval({ ...base, decisionState, delegation })).toBe(true);
+      expect(isRediscoveredToolApproval({ ...base, decisionState })).toBe(false);
+    }
+    expect(isRediscoveredToolApproval({ ...base, decisionState: 'unknown', delegation })).toBe(
+      false
+    );
+    expect(
+      isRediscoveredToolApproval(
+        Object.assign(Object.create({ decisionState: 'claimed' }), { ...base, delegation })
+      )
+    ).toBe(false);
+  });
+
   it('accepts a fully-formed rediscovered approval', () => {
     expect(isRediscoveredToolApproval(base)).toBe(true);
     expect(

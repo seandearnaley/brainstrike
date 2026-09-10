@@ -301,7 +301,8 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
     }
   }
   const lockedByRun = runOutcome === 'pending' || runOutcome === 'completed';
-  const locked = submitted || lockedByRun;
+  const locked =
+    submitted || lockedByRun || readRediscoveredPauseDisplay(request)?.decisionState !== undefined;
 
   const submit = useCallback(
     (resumeData: unknown, summary: string): void => {

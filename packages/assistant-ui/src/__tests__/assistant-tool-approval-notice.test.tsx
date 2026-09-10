@@ -407,3 +407,40 @@ describe('AssistantToolApprovalNotice skill script preview', () => {
     expect(screen.getByTestId('approval-preview-parse-error')).toBeInTheDocument();
   });
 });
+
+describe('durable delegated approval recovery', () => {
+  it.each(['claimed', 'consumed', 'interrupted', 'unknown'])(
+    'keeps the original tool preview but blocks a %s decision',
+    (decisionState) => {
+      renderNotice({
+        ...baseRequest,
+        args: { command: 'pnpm build' },
+        decisionState,
+        delegation: {
+          path: [
+            {
+              childRuntimeRunId: 'child',
+              parentRuntimeRunId: baseRequest.runId,
+              parentToolCallId: baseRequest.toolCallId,
+              personaId: 'worker',
+            },
+          ],
+          toolCallId: 'leaf',
+        },
+        stale: true,
+        suspendedAt: '2026-09-10T00:00:00Z',
+        toolName: 'brainstrike.executeCommand',
+      });
+      expect(screen.getByTestId('approval-command-code')).toHaveTextContent('pnpm build');
+      expect(
+        screen.getByRole('button', { name: 'Approve brainstrike.executeCommand' })
+      ).toBeDisabled();
+      expect(
+        screen.getByRole('button', { name: 'Decline brainstrike.executeCommand' })
+      ).toBeDisabled();
+      expect(screen.getByText('Tool decision')).toBeInTheDocument();
+      expect(screen.getByTestId('delegated-decision-recovery-status')).toBeInTheDocument();
+      expect(screen.queryByText(/re-running it may be safer/i)).not.toBeInTheDocument();
+    }
+  );
+});

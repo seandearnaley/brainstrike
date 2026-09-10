@@ -33,7 +33,10 @@ import {
 } from '@brainstrike/ui';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, ShieldCheck, Timer, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
-import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
+import {
+  DELEGATED_DECISION_STATUS_LABELS,
+  readRediscoveredPauseDisplay,
+} from './rediscovered-pause-display';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 import { formatRunDuration } from './run-python-result-model';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
@@ -1131,6 +1134,7 @@ function ToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
     () => fromApprovalRunOutcomeKey(approvalRunOutcomeKey),
     [approvalRunOutcomeKey]
   );
+  const decisionLocked = rediscovered?.decisionState !== undefined;
   const actionLockedByRun =
     approvalRunOutcome.state === 'pending' || approvalRunOutcome.state === 'completed';
   const detailEntries = useMemo(() => {
@@ -1146,7 +1150,7 @@ function ToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
   }, [approval]);
   const submitApprovalAction = useCallback(
     (action: AssistantToolApprovalDecision): void => {
-      if (!(approval && submittedAction === null && !actionLockedByRun)) {
+      if (!(approval && submittedAction === null && !actionLockedByRun && !decisionLocked)) {
         return;
       }
 
@@ -1191,7 +1195,7 @@ function ToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
         });
       }
     },
-    [actionLockedByRun, approval, aui, submittedAction]
+    [actionLockedByRun, approval, aui, decisionLocked, submittedAction]
   );
 
   useEffect(() => {
@@ -1206,8 +1210,11 @@ function ToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
   }
 
   const displayedAction = submittedAction ?? (actionLockedByRun ? approvalRunOutcome.action : null);
-  const approvalStatus = resolveApprovalStatusLabel(displayedAction, actionLockedByRun);
-  const actionButtonsDisabled = submittedAction !== null || actionLockedByRun;
+  const approvalStatus =
+    rediscovered?.decisionState === undefined
+      ? resolveApprovalStatusLabel(displayedAction, actionLockedByRun)
+      : DELEGATED_DECISION_STATUS_LABELS[rediscovered.decisionState];
+  const actionButtonsDisabled = decisionLocked || submittedAction !== null || actionLockedByRun;
 
   return (
     <div
@@ -1221,7 +1228,9 @@ function ToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
         <div className="min-w-0">
           <p className="font-medium text-sm">
             <span className="inline-flex min-w-0 items-center gap-1.5">
-              <span className="truncate">Tool approval required</span>
+              <span className="truncate">
+                {decisionLocked ? 'Tool decision' : 'Tool approval required'}
+              </span>
             </span>
             <span className="ml-2 rounded-full border border-amber-500/40 bg-amber-100/70 px-2 py-0.5 text-[10px] text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
               {approvalStatus}

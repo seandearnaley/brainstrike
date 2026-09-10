@@ -1,6 +1,8 @@
 import {
   ASSISTANT_TOOL_ACTION_ID_MAX_CHARS,
   type DelegatedToolActionIdentity,
+  type DelegatedToolDecisionState,
+  hasValidDelegatedDecisionState,
   hasValidDelegatedToolActionTarget,
 } from './delegated-tool-actions.js';
 import type { ToolRiskCategory } from './tool-risk.js';
@@ -172,6 +174,8 @@ export interface AssistantToolApprovalRequest {
  * staleness flag (see D5: surface, never auto-decline).
  */
 export interface RediscoveredToolApproval extends AssistantToolApprovalRequest {
+  /** Present when the host has already admitted this exact delegated leaf decision. */
+  readonly decisionState?: DelegatedToolDecisionState;
   /** True when older than BRAINSTRIKE_APPROVAL_STALE_MS (advisory only). */
   readonly stale: boolean;
   /** ISO-8601 instant the run suspended (AgentRun.suspendedAt). */
@@ -193,6 +197,7 @@ export function isRediscoveredToolApproval(value: unknown): value is Rediscovere
     value['toolName'].trim().length > 0 &&
     typeof value['suspendedAt'] === 'string' &&
     typeof value['stale'] === 'boolean' &&
+    hasValidDelegatedDecisionState(value) &&
     hasValidDelegatedToolActionTarget(value)
   );
 }

@@ -1,5 +1,7 @@
 import {
   type DelegatedToolActionIdentity,
+  type DelegatedToolDecisionState,
+  hasValidDelegatedDecisionState,
   hasValidDelegatedToolActionTarget,
 } from './delegated-tool-actions.js';
 /**
@@ -128,6 +130,8 @@ export interface AssistantToolSuspendRequest {
  * plan/question renders its real content, not a placeholder.
  */
 export interface RediscoveredToolSuspend extends AssistantToolSuspendRequest {
+  /** Present when the host has already admitted this exact delegated leaf decision. */
+  readonly decisionState?: DelegatedToolDecisionState;
   /**
    * ADVISORY resumability flag. The desktop endpoint only ever writes the
    * literal `false` (no registered resume UI in this build), mirroring the
@@ -162,6 +166,7 @@ export function isRediscoveredToolSuspend(value: unknown): value is Rediscovered
     isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS) &&
     typeof value['suspendedAt'] === 'string' &&
     typeof value['stale'] === 'boolean' &&
+    hasValidDelegatedDecisionState(value) &&
     hasValidDelegatedToolActionTarget(value)
   );
 }

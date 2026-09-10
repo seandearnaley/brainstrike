@@ -12,10 +12,12 @@ import {
   resolveRunPythonExecutionContext,
   type SuspendedRunsResponse,
 } from '@brainstrike/agent';
+import { getToolActionIdentityKey } from '@brainstrike/assistant-contract';
 import { respondJson } from '@brainstrike/assistant-service/http';
 import { getDatabase } from '../db-main';
 import { getProviderAuthEngine } from '../provider-auth/provider-auth-runtime';
 import { createDesktopDelegatedSuspensionResolver } from './delegated-conversation-host';
+import { readDelegatedDecisionStates } from './delegated-decision-discovery';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { getDesktopMastraMemory } from './mastra-memory';
 import {
@@ -332,10 +334,16 @@ export async function handleSuspendedRunsRequest(
       }
     );
 
+    const decisionStates = await readDelegatedDecisionStates(
+      await getDatabase(),
+      { ownerResourceId: resourceId, rootThreadId: threadId },
+      [...discovery.approvals, ...discovery.suspends]
+    );
     const riskByTool = buildNativeToolRiskMap();
     const staleThresholdMs = resolveApprovalStaleMs();
     const now = Date.now();
     const approvals: RediscoveredToolApproval[] = discovery.approvals.map((approval) => {
+      const decisionState = decisionStates.get(getToolActionIdentityKey(approval));
       // Discovery returns the ORIGINAL dotted tool name (the agent maps the
       // stored sanitized id back — see listSuspendedMastraRuns), so this lookup
       // hits for every known native tool.
@@ -361,6 +369,7 @@ export async function handleSuspendedRunsRequest(
           : undefined;
       return {
         ...(approval.delegation ? { delegation: approval.delegation } : {}),
+        ...(decisionState === undefined ? {} : { decisionState }),
         runId: approval.runId,
         stale: now - Date.parse(approval.suspendedAt) > staleThresholdMs,
         suspendedAt: approval.suspendedAt,
@@ -400,6 +409,7 @@ export async function handleSuspendedRunsRequest(
       });
     }
     const suspends: RediscoveredToolSuspend[] = cappedSuspends.map((pause) => {
+      const decisionState = decisionStates.get(getToolActionIdentityKey(pause));
       const resumable = hasRegisteredSuspendResumeUi(pause.toolName);
       if (!resumable) {
         logger.warn('Rediscovered suspend pause has no registered resume UI in this build', {
@@ -410,6 +420,7 @@ export async function handleSuspendedRunsRequest(
       }
       return {
         ...(pause.delegation ? { delegation: pause.delegation } : {}),
+        ...(decisionState === undefined ? {} : { decisionState }),
         runId: pause.runId,
         stale: now - Date.parse(pause.suspendedAt) > staleThresholdMs,
         suspendedAt: pause.suspendedAt,
