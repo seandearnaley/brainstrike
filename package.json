@@ -50,6 +50,7 @@
   "main": "index.js",
   "packageManager": "pnpm@11.15.0+sha512.266f8957a30d2be6e9468e5e66bcdedd35a794175f71b067ba8504d686cce1d0c0f429b33c323c3c569ad4891e667574a49ff71d1b89a22cc66f13c65818c578",
   "scripts": {
+    "audit:openrouter-pricing": "node scripts/openrouter-pricing-audit.mjs",
     "bench:chunking": "pnpm -w build --filter @brainstrike/db && node scripts/chunking-benchmark.mjs",
     "boundaries": "node scripts/turbo-boundaries.mjs",
     "build": "node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run build --summarize --log-order=grouped",

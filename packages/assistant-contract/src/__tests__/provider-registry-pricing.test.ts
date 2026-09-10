@@ -170,9 +170,54 @@ describe('model pricing metadata', () => {
     const spark = models.find((model) => model.id === 'meta/muse-spark-1.1');
     const kimi = models.find((model) => model.id === 'moonshotai/kimi-k3');
     expect(sonnet?.pricing).toEqual({ inputPerMTok: 2, outputPerMTok: 10 });
-    expect(glm?.pricing).toEqual({ inputPerMTok: 0.9282, outputPerMTok: 2.9172 });
+    // BST-1705: GLM-5.2 was re-priced from 0.9282 / 2.9172 on 2026-09-10.
+    expect(glm?.pricing).toEqual({ inputPerMTok: 0.28, outputPerMTok: 0.88 });
     expect(spark?.pricing).toEqual({ inputPerMTok: 1.25, outputPerMTok: 4.25 });
     expect(kimi?.pricing).toEqual({ inputPerMTok: 3, outputPerMTok: 15 });
+  });
+
+  /**
+   * BST-1705 corrected 21 of the 58 `openrouter` rows. Three of them were not
+   * merely stale — they were read from the WRONG NUMBER in an otherwise
+   * correct payload, and each of those mistakes is repeatable by the next
+   * author who reads the Models API without checking what they are looking at.
+   * These pins make the specific wrong numbers fail a test instead of shipping.
+   *
+   * The mechanised version of this rule is
+   * `pnpm run audit:openrouter-pricing` (scripts/openrouter-pricing-audit.mjs);
+   * it is not a required check because the fact lives upstream and moves
+   * weekly. These four pins are the part that CAN live in the required lane.
+   */
+  it('holds base rates, not surge bands or :batch routes, on the BST-1705 rows', () => {
+    const models = listProviderLlmModels('openrouter');
+    const rate = (id: string) => models.find((model) => model.id === id)?.pricing;
+    // Time-of-day surge: 0.132 / 0.528 is this route's 00:00-16:00 UTC band.
+    expect(rate('tencent/hy3')).toEqual({ inputPerMTok: 0.0825, outputPerMTok: 0.33 });
+    // `:batch` variant routes: 0.375 / 1.875 and 0.075 / 0.25 belong to
+    // google/gemini-3.7-flash:batch and z-ai/glm-5.3-flash:batch, which are
+    // separate routes we do not ship.
+    expect(rate('google/gemini-3.7-flash')).toEqual({ inputPerMTok: 0.75, outputPerMTok: 3.75 });
+    expect(rate('z-ai/glm-5.3-flash')).toEqual({ inputPerMTok: 0.15, outputPerMTok: 0.5 });
+    // A Google DIRECT list price (1.5 / 7.5) copied into a gateway row.
+    expect(rate('google/gemini-3.6-flash')).toEqual({ inputPerMTok: 0.75, outputPerMTok: 3.75 });
+  });
+
+  /**
+   * BST-1705 re-priced the `openrouter` GPT-5.x rows from the live Models API
+   * and left the direct `openai` block alone (one ticket, one route's source).
+   * The direct rows are therefore KNOWN STALE — five of them still carry the
+   * old 1.25 / 10 GPT-5 rate — so these two blocks now disagree. That
+   * disagreement is a to-do on the `openai` rows, NOT a defect in these ones:
+   * a sweep that "reconciles" them by copying the direct block back over these
+   * values would re-introduce the exact 4x understatement this ticket fixed.
+   */
+  it('prices the OpenRouter GPT-5.x rows from the gateway, not from the stale direct block', () => {
+    const models = listProviderLlmModels('openrouter');
+    const rate = (id: string) => models.find((model) => model.id === id)?.pricing;
+    expect(rate('openai/gpt-5.5')).toEqual({ inputPerMTok: 5, outputPerMTok: 30 });
+    expect(rate('openai/gpt-5.4')).toEqual({ inputPerMTok: 2.5, outputPerMTok: 15 });
+    expect(rate('openai/gpt-5.6-terra')).toEqual({ inputPerMTok: 2, outputPerMTok: 12 });
+    expect(rate('openai/gpt-5.6-luna')).toEqual({ inputPerMTok: 0.2, outputPerMTok: 1.2 });
   });
 
   /**
