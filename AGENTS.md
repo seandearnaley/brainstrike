@@ -24,7 +24,7 @@ disagree with a historical document.
 | Prompt workbench, AGENTS/CLAUDE workspace instructions, user-defined slash commands, Agent Skills / `SKILL.md`, edit-checkpoint undo, read-before-write staleness guards, workspace root identity | `docs/agents/workspace-context.md` |
 | Explorer Search panel, markdown viewer, Tapestry per-file ranges | `docs/agents/explorer-search-tapestry.md` |
 | Changeset/git diff engine, git inventory + worktree trust, the `changes` IPC domain, the Changes surface, or the git panel's Changes/History tabs | `docs/agents/changeset-diff.md` |
-| Tree views (shared TreeTable), right-click / context action system, z-index of any dialog/popover/menu/tooltip | `docs/agents/ui-conventions.md` |
+| Tree views (shared TreeTable), right-click / context action system, z-index of any dialog/popover/menu/tooltip, theming tokens / palettes / `data-theme` | `docs/agents/ui-conventions.md` |
 | PR review/remediation, stacked delivery, CI reruns, GitHub workflows, React Doctor, knip | `docs/agents/ci-quality.md` |
 | Logging, factory reset, adding any new persistence | `docs/agents/platform-contracts.md` |
 | Creating, reading, updating, or triaging product/engineering tickets; linking PRs to tickets | `docs/agents/issue-tracker.md` |

@@ -396,6 +396,47 @@ When modifying TreeTable strategy or pagination behavior:
 
 ---
 
+## THEMING TOKENS AND PALETTES
+
+- `--bs-*` in `packages/ui/src/themes/*.css` is the single source of truth and
+  holds COMPLETE colour values (`hsl(...)`, `oklch(...)`). The shadcn-named
+  bridge (`--background: var(--bs-background)`) lives once in
+  `packages/ui/src/globals.css`; `packages/ui/src/theme.css` is the only
+  Tailwind mapping (`@theme inline`), imported once per app. Apps own no
+  `@theme` / `@custom-variant` (`scripts/__tests__/theme-css-contract.test.mjs`).
+- Consume tokens as `var(--x)`; alpha as `color-mix(in oklab, var(--x) N%, transparent)`.
+  The legacy `hsl(var(--x))` idiom is guarded out; `hsl(oklch(...))` is invalid.
+- Palette (`data-theme` on `<html>`) and mode (`light`/`dark` class) are
+  orthogonal. `ThemeProvider` exposes `{ mode, setMode, theme, setTheme }`;
+  keys `app-theme` (mode) and `app-theme-palette` (theme). Unknown persisted
+  values reset to defaults WITH a logged warning, never silently.
+- Generated themes (`ember`, `tide`, `orchid`) come from
+  `scripts/import-shadcn-theme.mjs <preset-code> <id>`; values are never
+  hand-edited (`import-shadcn-theme.test.mjs` proves regenerate is a no-op).
+  Selectors are `:root[data-theme="<id>"]` / `...dark` (0,2,0 / 0,3,0) so import
+  order is irrelevant; the high-contrast block uses `:root[data-theme]` and
+  sits after the imports so accessibility wins. Do not "fix" import placement.
+- Token ownership: preset-provided colours, radius, chart and sidebar sets, plus
+  derived `panel-divider`/`panel-surface` and a `destructive-foreground`
+  fallback come from the theme file; `success`/`warning`/`info` and the
+  `--bs-font-*` hooks are baseline-only and inherit. A future font theme
+  overrides the font hooks; loading font files per theme is a separate design.
+- Focus rings stay neutral in every theme (`focus-ring-theme.test.ts`,
+  `theme-registry.test.ts` chroma ≤ 0.04).
+- Production CSS minification canonicalizes colour literals INSIDE custom
+  properties (`hsl(30 25% 99%)` ships as `#fdfcfc`), so tests must never
+  string-compare authored token text. Web e2e resolves tokens through
+  `apps/web/e2e/utils/theme-colors.ts` (canvas `fillStyle` normalization) and
+  compares normalized values; pick a token that actually differs between the
+  cases under test (both the high-contrast and orchid light backgrounds are
+  white — the high-contrast e2e uses `--bs-primary`).
+- Biome's `useSortedClasses` splits a Tailwind arbitrary value containing
+  literal spaces (`bg-[…color-mix(in oklab, …)]`); write such values with
+  underscores (`in_oklab,_var(--x)_45%,_transparent`), which Tailwind v4 turns
+  back into spaces.
+
+---
+
 ## TERMINAL SURFACES
 
 The desktop Terminal page owns two capability-gated surfaces: the user's normal

@@ -49,7 +49,7 @@ Token groups and who owns them:
 
 | group | tokens | owner |
 | --- | --- | --- |
-| preset-provided | background, foreground, card, popover, primary, secondary, muted, accent, destructive (+foregrounds), border, input, ring, chart-1..5, sidebar set, radius | every theme file |
+| preset-provided | background, foreground, card, popover, primary, secondary, muted, accent, destructive (foreground derived: presets omit it, generator emits oklch(0.985 0 0)), border, input, ring, chart-1..5, sidebar set, radius | every theme file |
 | derived | panel-divider, panel-surface | every theme file, via relative colour syntax (see generator) |
 | semantic status | success, warning, info (+foregrounds) | `brainstrike.css` baseline only; themes inherit through the cascade |
 | font hooks | font-sans, font-heading, font-mono | `brainstrike.css` baseline only, set to Geist; a future font theme overrides |
