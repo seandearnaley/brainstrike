@@ -109,11 +109,28 @@ export async function claimDelegatedToolAction(
   if (!action.delegation) {
     return;
   }
-  if (!(binding?.claimToolAction && binding.finishToolActions)) {
+  if (
+    !(binding?.claimToolAction && binding.finishToolActions && binding.releaseUnexecutedToolAction)
+  ) {
     throw new Error('Delegated tool decisions require durable host admission and settlement.');
   }
   await binding.claimToolAction(action);
   // The earlier read can race another completed resume before admission.
   // The durable root claim now excludes competing host resume legs.
-  await assertDelegatedToolActionPending({ action, binding, ...native });
+  try {
+    await assertDelegatedToolActionPending({ action, binding, ...native });
+  } catch (error) {
+    // No native resume call has occurred at this boundary. A failed read must
+    // not permanently consume a still-pending decision. Later failures and
+    // cancellation remain consumed because their effect is not knowable here.
+    try {
+      await binding.releaseUnexecutedToolAction(action);
+    } catch (releaseError) {
+      throw new AggregateError(
+        [error, releaseError],
+        'Delegated decision validation and release failed.'
+      );
+    }
+    throw error;
+  }
 }

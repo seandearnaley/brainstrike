@@ -240,6 +240,7 @@ async function createDesktopMastraMemoryFromCacheState({
         bindRun: host.bindRun,
         claimToolAction: host.claimToolAction,
         finishToolActions: host.finishToolActions,
+        releaseUnexecutedToolAction: host.releaseUnexecutedToolAction,
         resolveToolAction: host.resolveToolAction,
       },
     };

@@ -1275,7 +1275,13 @@ lookups; the native resource remains separate from root ownership authority.
 `brainstrike_delegated_tool_decisions` records host admission of an exact
 root-owned native leaf run/call. Its permanent leaf uniqueness rejects repeat
 answers; a partial unique root index excludes concurrent claimed resume legs.
-The owning runtime alone settles its claims to consumed. Startup reaping marks
+The owning runtime alone settles its claims to consumed. The sole exception is
+failure of the native snapshot recheck before any native resume invocation:
+the owning binding deletes only its matching unexecuted claim, allowing a
+fresh validation attempt. Other hosts cannot roll it back, and a consumed or
+interrupted decision cannot be reopened. Cancellation or failure after native
+invocation retains the decision because the effect may already have occurred.
+Startup reaping marks
 claims from terminal abandoned hosts interrupted, retaining their identity and
 releasing root admission. Neither state asserts whether a side effect occurred.
 Native Mastra snapshots remain execution authority, and an interrupted record

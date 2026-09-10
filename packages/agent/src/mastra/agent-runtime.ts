@@ -699,12 +699,26 @@ export async function createMastraAgentRuntime(
     delegatedTurnPersistence,
     delegationToolPersonas,
     dispose: async () => {
-      try {
-        invalidateMcpAppAdmission?.();
-        await mastra?.shutdown();
-        await mcpClient?.disconnect();
-      } finally {
-        await options.conversationBinding?.finishToolActions?.();
+      const failures: unknown[] = [];
+      // Preserve cleanup order, but a failure cannot skip another owner or
+      // replace an earlier error. Decision settlement remains fail-closed.
+      for (const cleanup of [
+        () => invalidateMcpAppAdmission?.(),
+        () => mastra?.shutdown(),
+        () => mcpClient?.disconnect(),
+        () => options.conversationBinding?.finishToolActions?.(),
+      ]) {
+        try {
+          await cleanup();
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      if (failures.length === 1) {
+        throw failures[0];
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(failures, 'Assistant runtime disposal failed.');
       }
     },
     instructionBreakdown,

@@ -46,6 +46,10 @@ export interface DelegatedConversationBinding {
   readonly hooks?: ToolHooks;
   readonly inputProcessor: InputProcessor;
   prepare(context: DelegationStartContext, configuration: unknown): void;
+  /** Roll back this owner's claim only when native resume has not been invoked. */
+  readonly releaseUnexecutedToolAction?: NonNullable<
+    DelegatedConversationBinding['claimToolAction']
+  >;
   /** Read-only authorization of a decision path against the original host-owned graph. */
   readonly resolveToolAction?: (action: {
     readonly delegation?: DelegatedToolActionIdentity;

@@ -153,6 +153,45 @@ describe('desktop delegated conversation authority', () => {
     ).toEqual([{ state: 'consumed' }, { state: 'consumed' }]);
   });
 
+  it('releases only its own unexecuted leaf claim and never a consumed decision', async () => {
+    const owner = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const other = createDesktopDelegatedConversationHost(database, 'resume-leg');
+    await owner.persist(identity);
+    await owner.bindRun(run);
+    const action = {
+      delegation: { path: [run], toolCallId: 'read-1' },
+      runId: run.parentRuntimeRunId,
+      toolCallId: run.parentToolCallId,
+    };
+    await owner.claimToolAction(action);
+    await expect(
+      createDesktopDelegatedConversationHost(database, 'initial-leg').releaseUnexecutedToolAction(
+        action
+      )
+    ).rejects.toMatchObject({ reason: 'tool-action-claim-lost' });
+    await expect(other.releaseUnexecutedToolAction(action)).rejects.toMatchObject({
+      reason: 'tool-action-claim-lost',
+    });
+    await expect(
+      owner.releaseUnexecutedToolAction({
+        ...action,
+        delegation: { ...action.delegation, toolCallId: 'different-leaf' },
+      })
+    ).rejects.toMatchObject({ reason: 'tool-action-claim-lost' });
+    await expect(other.claimToolAction(action)).rejects.toThrow();
+    await owner.releaseUnexecutedToolAction(action);
+    await owner.finishToolActions();
+    await other.claimToolAction(action);
+    await other.finishToolActions();
+    await expect(other.releaseUnexecutedToolAction(action)).rejects.toMatchObject({
+      reason: 'tool-action-claim-lost',
+    });
+    await expect(owner.claimToolAction(action)).rejects.toThrow();
+    expect(
+      (await database.query('SELECT state FROM brainstrike_delegated_tool_decisions')).rows
+    ).toEqual([{ state: 'consumed' }]);
+  });
+
   it('retains an interrupted decision after startup reaping without replaying its unknown effect', async () => {
     const original = createDesktopDelegatedConversationHost(database, 'initial-leg');
     await original.persist(identity);
@@ -180,6 +219,9 @@ describe('desktop delegated conversation authority', () => {
     await expect(replacement.claimToolAction(action)).rejects.toThrow();
     // No stale in-memory owner can overwrite the interrupted disposition.
     await expect(original.finishToolActions()).rejects.toMatchObject({
+      reason: 'tool-action-claim-lost',
+    });
+    await expect(original.releaseUnexecutedToolAction(action)).rejects.toMatchObject({
       reason: 'tool-action-claim-lost',
     });
   });

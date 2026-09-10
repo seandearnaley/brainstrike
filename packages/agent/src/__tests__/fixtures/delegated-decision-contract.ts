@@ -100,6 +100,7 @@ export async function assertStaleDelegatedDecision(
           await collect(resumed.fullStream);
         },
         finishToolActions: async () => undefined,
+        releaseUnexecutedToolAction: async () => undefined,
       },
       { agent: parent, requiresApproval: true }
     )

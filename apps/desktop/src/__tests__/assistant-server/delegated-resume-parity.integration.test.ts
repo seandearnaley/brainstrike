@@ -392,6 +392,18 @@ describe('native approval resume child transcript parity', () => {
         })
       ).resolves.toMatchObject({ args: { query: 'needle' }, toolCallId: 'read-1' });
       const nativeTarget = { agent: resumed.parent, requiresApproval: true };
+      const pendingRead = vi.spyOn(resumed.parent, 'listAgents');
+      pendingRead.mockRejectedValueOnce(
+        new Error('Snapshot read interrupted before native resume')
+      );
+      await expect(claimDelegatedToolAction(action, resumed.binding, nativeTarget)).rejects.toThrow(
+        'Snapshot read interrupted before native resume'
+      );
+      pendingRead.mockRestore();
+      expect(resumed.effect).not.toHaveBeenCalled();
+      expect(
+        (await database.query('SELECT state FROM brainstrike_delegated_tool_decisions')).rows
+      ).toEqual([]);
       await claimDelegatedToolAction(action, resumed.binding, nativeTarget);
       await expect(
         claimDelegatedToolAction(action, resumed.binding, nativeTarget)

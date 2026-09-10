@@ -932,7 +932,13 @@ initial read and admission. Migration 131 retains a unique leaf decision record
 and permits only one claimed decision per root. Runtime disposal settles only
 its own claims; another recreated host cannot release them. Startup reaping
 marks abandoned claims interrupted and retains their identity, without replay.
-The record describes admission, not whether a tool effect succeeded.
+The record describes admission, not whether a tool effect succeeded. If the
+post-admission snapshot recheck fails before native resume is invoked, the host
+rolls back only that binding's matching unexecuted claim and propagates the
+failure. Subsequent native failures or cancellation do not release the leaf:
+the effect may already have occurred. Disposal attempts all cleanup owners in
+order and preserves multiple failures in an `AggregateError`; it never logs
+and swallows a failed decision settlement.
 
 The native `beforeToolCall` hook captures the original parent model invocation
 through Mastra's public `MessageList` adapter, before delegation starts. The
@@ -941,7 +947,8 @@ stores that input on the immutable invocation. The hook's `input` already has
 Mastra-injected scope defaults, so it is not substituted for the model's input.
 `onDelegationStart.messages` does not include the current call in core 1.64.
 Approval resume displays the original parent call while preserving the leaf
-tool as the approved operation. Missing original input is a visible refusal,
+tool as the approved operation. Missing original input refuses both approval
+and decline visibly,
 never a fabricated delegation call or leaf arguments under a parent ID.
 
 Keyless rediscovery walks the same authorized graph and uses inert Agents with

@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
 import { streamMastraAgent } from '../mastra/agent-streaming';
+import { createDelegatedConversationBinding } from '../mastra/delegated-conversation-binding';
 import { MastraAgentError } from '../mastra/mastra-agent-error';
 import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
 import { RunTokenDiagnostics } from '../mastra/token-measurement';
@@ -1903,6 +1904,31 @@ describe('mastra streaming integration', () => {
 
     expect(mastraInstances).toHaveLength(1);
     expect(mastraInstances[0]?.shutdownCalls).toBe(1);
+  });
+
+  it('preserves shutdown and delegated decision settlement failures together', async () => {
+    const shutdownFailure = new Error('shutdown failed');
+    const settlementFailure = new Error('decision settlement failed');
+    const finishToolActions = vi.fn().mockRejectedValue(settlementFailure);
+    const runtime = await createMastraAgentRuntime({
+      conversationBinding: {
+        ...createDelegatedConversationBinding(async () => undefined),
+        finishToolActions,
+      },
+      runtime: { apiKey: 'key', provider: 'openai' },
+      storage: { id: 'storage-with-workflows' } as never,
+    });
+    const mastra = mastraInstances[0];
+    if (!mastra) {
+      throw new Error('Expected the runtime Mastra instance');
+    }
+    vi.spyOn(mastra, 'shutdown').mockRejectedValue(shutdownFailure);
+
+    await expect(runtime.dispose()).rejects.toMatchObject({
+      errors: [shutdownFailure, settlementFailure],
+      name: 'AggregateError',
+    });
+    expect(finishToolActions).toHaveBeenCalledOnce();
   });
 
   it('passes strict thread/resource memory context to agent.stream', async () => {

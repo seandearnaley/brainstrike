@@ -88,6 +88,9 @@ export function createDesktopDelegatedConversationHost(
   resolveToolAction: NonNullable<DelegatedConversationBinding['resolveToolAction']>;
   claimToolAction: NonNullable<DelegatedConversationBinding['claimToolAction']>;
   finishToolActions(): Promise<void>;
+  releaseUnexecutedToolAction: NonNullable<
+    DelegatedConversationBinding['releaseUnexecutedToolAction']
+  >;
   persist(identity: DelegatedConversationIdentity): Promise<void>;
   persistEvent(
     identity: DelegatedRunIdentity,
@@ -116,6 +119,8 @@ export function createDesktopDelegatedConversationHost(
     }
     return parsed.data;
   };
+  // One immutable host leg belongs to one root. The partial unique root
+  // index therefore permits at most one active claim in this binding.
   const claims = new Set<string>();
   const host: ReturnType<typeof createDesktopDelegatedConversationHost> = {
     async bindRun(identity) {
@@ -255,6 +260,38 @@ export function createDesktopDelegatedConversationHost(
           id: randomUUID(),
         }
       );
+    },
+    async releaseUnexecutedToolAction(action) {
+      const leaf = action.delegation?.path.at(-1);
+      if (!(leaf && action.delegation && hasValidDelegatedToolActionTarget(action))) {
+        throw new DelegatedConversationIdentityError('tool-action-path-invalid');
+      }
+      const claimedId = claims.values().next().value;
+      if (!claimedId) {
+        throw new DelegatedConversationIdentityError('tool-action-claim-lost');
+      }
+      // Only this binding's in-memory claim can be rolled back. A recreated
+      // host, a different leaf, and a consumed/interrupted decision cannot.
+      const result = await database.query(
+        `DELETE FROM brainstrike_delegated_tool_decisions
+         WHERE id = $1 AND host_run_id = $2 AND state = 'claimed'
+           AND child_runtime_run_id = $3 AND tool_call_id = $4
+           AND parent_runtime_run_id = $5 AND parent_tool_call_id = $6
+         RETURNING id`,
+        [
+          claimedId,
+          hostRunId,
+          leaf.childRuntimeRunId,
+          action.delegation.toolCallId,
+          action.runId,
+          action.toolCallId,
+        ]
+      );
+      const released = z.object({ id: identityString }).safeParse(result.rows[0]);
+      if (result.rows.length !== 1 || !released.success) {
+        throw new DelegatedConversationIdentityError('tool-action-claim-lost');
+      }
+      claims.delete(released.data.id);
     },
     async resolveToolAction(action) {
       const scope = await readScope();
