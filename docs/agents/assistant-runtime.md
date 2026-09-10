@@ -1031,7 +1031,8 @@ runtime is reusable, since `dispose()` only shuts down mastra + the MCP client.
   that original error unchanged. Disposal attempts every cleanup owner and
   propagates one failure directly or multiple failures together. Delegated
   decision settlement follows the same runtime-wide contract (see
-  `assistant-subagents.md`). Paired real-runtime construction tests cover all
+  `assistant-subagents.md`). Paired construction tests in `mastra-streaming.spec.ts` use the production
+  Brainstrike runtime assembly with mocked Mastra constructors. They cover all
   four entry points, typed errors, and single or multiple cleanup failures.
 - Paired tests: `mastra-stall-recovery.integration.spec.ts` (recovery, budget
   exhaustion, opt-out, user-cancel, continuation prompt contents, orphan drain

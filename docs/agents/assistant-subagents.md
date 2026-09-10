@@ -983,6 +983,23 @@ cleanup to the caller while preserving an original typed error's code and
 context. This is the runtime-wide construction error contract in
 `assistant-runtime.md`, not a delegation-only exception.
 
+The native process-restart verifier runs three separate Node processes against
+one on-disk PGlite database, using the real Mastra parent/child/grandchild agents,
+Brainstrike memory store, delegation binding, host admission and startup reaper.
+Only the model transport is scripted. A suspended grandchild can be approved
+once or declined without executing its effect after the originating process
+has exited. A third process rejects the same durable decision even without
+consulting an already-consumed native snapshot. If the second process exits
+after admission without invoking or settling the tool, startup retains the
+claim as interrupted and refuses replay. The fixture records distinct process
+IDs and a durable effect count, not just reconstructed JavaScript objects.
+
+This is native Node/Mastra restart proof, separate from Electron renderer reload
+and packaged desktop UI coverage. It does not enable write-capable personas or
+claim question/plan, sibling, cancellation, or interactive recovery UI parity.
+The paired `delegated-process-restart.integration.test.ts` is discovered by the
+existing desktop integration lane; no bespoke CI lane or production test route.
+
 The native `beforeToolCall` hook captures the original parent model invocation
 through Mastra's public `MessageList` adapter, before delegation starts. The
 short-lived capture uses native execution thread/call identity, and the host
