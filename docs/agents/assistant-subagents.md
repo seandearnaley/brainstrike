@@ -468,6 +468,45 @@ start hook validates and clamps typed scalar limits; it does not log or await
 after acquiring its counters. Completion releases its slot before reporting
 usage or diagnostics.
 
+### Early identity seam (BST-1718, native proof only)
+
+Core 1.64.0 exposes the actual child scope through the public
+`parseMemoryRequestContext` helper from `@mastra/core/memory` during the child's
+input processor. The native suite verifies two concurrent calls to the same
+persona, with and without explicitly configured child Memory. The processor
+awaits a real database query before recording each scope, and every forwarded
+child event, including the initial `start`, observes its own recorded identity.
+The scope agrees with `onDelegationComplete`'s actual child thread/resource;
+the nested stream's run id agrees with the child output processor's run id.
+
+Use a host-owned invocation marker set in `onDelegationStart`'s copied
+RequestContext to join the child input scope to the parent's tool-call id.
+Neither persona name, completion order nor parsing generated ids establishes
+this relationship. The child's native resource can differ from the root's
+resource, so it is not the user's ownership authority.
+
+An output processor alone is too late for this contract: the first native
+`start` bypasses it (the original ordering assertion failed on exactly this
+event). `onChunk` also runs after enqueue in the installed implementation.
+Bind the thread scope during input preparation and await the host's durable
+invocation/run binding at its stream-publication boundary. The paired failure
+case proves that an input binding error is visible and prevents child model
+and tool execution.
+
+This establishes an initial-call API seam, not durable graph storage or access
+control. A durable-snapshot resume may skip input preparation; production
+resume authorization must use a persisted mapping and check the exact root,
+invocation, child thread and run before publication. Migration, resource
+ownership, reconstructed-host identity hydration and usage reconciliation remain
+BST-1718 acceptance work. See the current [processor lifecycle reference](https://mastra.ai/reference/processors/processor-interface).
+
+The first storage layer adds the host-only delegated conversation graph in
+`@brainstrike/db`, with exact native scope checks across the full ancestor chain,
+immutable child configuration/workspace binding, and explicit legacy absence.
+It is not yet called by production delegation. Invocation/run identity, complete
+native branch cleanup, host publication/resume and usage reconciliation remain
+required before enabling it. See `assistant-persistence.md` and `database.md`.
+
 ## Child conversation interaction contract (BST-1717)
 
 The planned first-class child UI is specified in

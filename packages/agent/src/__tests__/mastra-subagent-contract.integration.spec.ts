@@ -7,6 +7,8 @@ import {
   type DelegationStartContext,
 } from '@mastra/core/agent';
 import { Mastra } from '@mastra/core/mastra';
+import { parseMemoryRequestContext } from '@mastra/core/memory';
+import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import { RequestContext } from '@mastra/core/request-context';
 import type { ChunkType } from '@mastra/core/stream';
 import { createTool } from '@mastra/core/tools';
@@ -83,6 +85,8 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     suspend = false,
     abortController,
     rootModel,
+    childInputProcessor,
+    childOutputProcessor,
   }: {
     requireApproval?: boolean;
     delegation?: DelegationConfig;
@@ -91,6 +95,8 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     suspend?: boolean;
     abortController?: AbortController;
     rootModel?: ReturnType<typeof scriptedAgentModel>;
+    childInputProcessor?: InputProcessor;
+    childOutputProcessor?: OutputProcessor;
   } = {}): {
     child: Agent;
     childModel: ReturnType<typeof scriptedAgentModel>;
@@ -134,6 +140,8 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     const childModel = toolThenAnswer('agent-leaf', 'leaf-1', { prompt: 'Read the evidence' });
     const child = new Agent({
       agents: { leaf },
+      ...(childInputProcessor ? { inputProcessors: [childInputProcessor] } : {}),
+      ...(childOutputProcessor ? { outputProcessors: [childOutputProcessor] } : {}),
       description: 'Delegate research',
       id: 'child',
       instructions: ({ requestContext }) => {
@@ -175,6 +183,114 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     expect(childModel.prompts).toHaveLength(0);
     expect(effect).not.toHaveBeenCalled();
     expect(JSON.stringify(chunks)).toContain('context policy failed');
+  });
+
+  it.each([true, false])(
+    'exposes per-invocation identity before child publication (explicit memory=%s)',
+    async (childMemory) => {
+      const scopes = new Map<string, { threadId: string; resourceId: string }>();
+      const processedRuns = new Map<string, Set<string>>();
+      const publishedRuns = new Map<string, string>();
+      const completions = vi.fn<(context: DelegationCompleteContext) => void>();
+      const invocationKey = 'brainstrike-test-invocation';
+      const processor: InputProcessor & OutputProcessor = {
+        id: 'child-identity-proof',
+        processInput: async ({ messages, requestContext }) => {
+          const scope = parseMemoryRequestContext(requestContext);
+          const invocation = requestContext?.get(invocationKey);
+          if (!(scope?.thread?.id && scope.resourceId && typeof invocation === 'string')) {
+            throw new Error('Child memory or invocation identity is missing');
+          }
+          // The native input boundary awaits asynchronous work before the start
+          // event. This query proves ordering, not durable graph persistence.
+          await database.query('SELECT 1');
+          scopes.set(invocation, { resourceId: scope.resourceId, threadId: scope.thread.id });
+          return messages;
+        },
+        processOutputStream: async ({ part, requestContext }) => {
+          const invocation = requestContext?.get(invocationKey);
+          if (typeof invocation !== 'string') {
+            throw new Error('Child invocation identity is missing');
+          }
+          const runs = processedRuns.get(invocation) ?? new Set<string>();
+          runs.add(part.runId);
+          processedRuns.set(invocation, runs);
+          return part;
+        },
+      };
+      const rootModel = scriptedAgentModel((options) =>
+        hasToolResult(options, 'agent-child')
+          ? textParts('both complete')
+          : [
+              ...toolCallParts('agent-child', 'first', { prompt: 'First task' }).slice(0, 2),
+              ...toolCallParts('agent-child', 'second', { prompt: 'Second task' }).slice(1),
+            ]
+      );
+      const { parent, effect } = tree({
+        childInputProcessor: processor,
+        childMemory,
+        childOutputProcessor: processor,
+        delegation: {
+          hookErrorStrategy: 'throw',
+          onDelegationComplete: completions,
+          onDelegationStart: ({ requestContext, toolCallId }) => {
+            requestContext.set(invocationKey, toolCallId);
+          },
+        },
+        rootModel,
+      });
+      const output = await parent.stream('Run both tasks', {
+        memory: { resource: 'owner', thread: 'root' },
+      });
+      for await (const chunk of output.fullStream) {
+        if (chunk.type !== 'tool-output') {
+          continue;
+        }
+        const invocation = chunk.payload.toolCallId;
+        const nested = z
+          .object({ runId: z.string().min(1), type: z.string() })
+          .parse(chunk.payload.output);
+        // Includes the very first native `start`, which bypasses output
+        // processors. Correlate by the parent's call id, never persona/FIFO.
+        expect(scopes.has(invocation), `${invocation}: ${nested.type}`).toBe(true);
+        if (nested.type === 'start') {
+          publishedRuns.set(invocation, nested.runId);
+        }
+      }
+      expect(effect).toHaveBeenCalledTimes(2);
+      expect(completions).toHaveBeenCalledTimes(2);
+      expect(scopes.size).toBe(2);
+      expect(new Set(publishedRuns.values()).size).toBe(2);
+      expect(new Set([...scopes.values()].map((scope) => scope.threadId)).size).toBe(2);
+      for (const [completion] of completions.mock.calls) {
+        expect(scopes.get(completion.toolCallId)).toEqual({
+          resourceId: completion.result.subAgentResourceId,
+          threadId: completion.result.subAgentThreadId,
+        });
+        expect(processedRuns.get(completion.toolCallId)).toEqual(
+          new Set([publishedRuns.get(completion.toolCallId)])
+        );
+      }
+    }
+  );
+
+  it('surfaces failed input identity binding before child model or tool execution', async () => {
+    const { parent, childModel, effect } = tree({
+      childInputProcessor: {
+        id: 'failed-child-identity',
+        processInput: async () => {
+          await database.query('SELECT 1');
+          throw new Error('Delegated identity persistence failed');
+        },
+      },
+    });
+    const output = await parent.stream('Find evidence', {
+      memory: { resource: 'owner', thread: 'root' },
+    });
+    const chunks = await collect(output.fullStream);
+    expect(childModel.prompts).toHaveLength(0);
+    expect(effect).not.toHaveBeenCalled();
+    expect(JSON.stringify(chunks)).toContain('Delegated identity persistence failed');
   });
 
   it('executes root, child and grandchild with distinct durable threads and raw nested results', async () => {

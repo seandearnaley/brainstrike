@@ -19,6 +19,16 @@ export {
 // Base class
 export { BaseFileRecordRepository } from './base-repository.js';
 export {
+  type CreateDelegatedChild,
+  createDelegatedConversationRepository,
+  type DelegatedConversationColor,
+  type DelegatedConversationDatabase,
+  DelegatedConversationIdentityError,
+  type DelegatedConversationNode,
+  type DelegatedConversationRepository,
+  type DelegatedConversationScope,
+} from './delegated-conversation-repository.js';
+export {
   DIAGNOSTIC_EVENTS_PURGE_LIMIT,
   DIAGNOSTIC_RETENTION_MAX_AGE_MS,
   DIAGNOSTIC_RETENTION_MAX_ROWS,
