@@ -6,7 +6,7 @@ import {
 import '@testing-library/jest-dom/vitest';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, fireEvent, getConfig, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, onTestFinished, test } from 'vitest';
 import { commands, userEvent } from 'vitest/browser';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
 import '@brainstrike/ui/globals.css';
@@ -40,6 +40,40 @@ afterEach(async () => {
   await commands.emulateReducedMotion({ enabled: null });
 });
 
+// Keep geometry changes rather than every frame. A failure must preserve the
+// resize/scroll sequence that led to its gap, not only the final screenshot.
+function recordOpeningGeometry(viewport: HTMLElement): { read: () => string; stop: () => void } {
+  const changes: { elapsedMs: number; geometry: string }[] = [];
+  const started = performance.now();
+  let previous = '';
+  let frame = 0;
+  const sample = (): void => {
+    const geometry = JSON.stringify({
+      clientHeight: viewport.clientHeight,
+      rows: Array.from(viewport.querySelectorAll<HTMLElement>('.bs-virtual-message'), (row) => ({
+        height: row.getBoundingClientRect().height,
+        index: row.dataset['index'],
+        loading: row.querySelector('.animate-pulse') !== null,
+        transform: row.style.transform,
+      })),
+      scrollHeight: viewport.scrollHeight,
+      scrollTop: viewport.scrollTop,
+    });
+    if (geometry !== previous) {
+      changes.push({ elapsedMs: Math.round(performance.now() - started), geometry });
+      if (changes.length > 64) {
+        changes.shift();
+      }
+      previous = geometry;
+    }
+    frame = requestAnimationFrame(sample);
+  };
+  sample();
+  const stop = (): void => cancelAnimationFrame(frame);
+  onTestFinished(stop);
+  return { read: () => JSON.stringify(changes), stop };
+}
+
 test.each(
   [390, 900].flatMap((width) =>
     [false, true].flatMap((dark) =>
@@ -55,6 +89,7 @@ test.each(
     const panel = screen.getByRole('region', { name: 'Cedar' });
     const child = within(panel);
     const viewport = child.getByTestId('assistant-ui-viewport');
+    const openingGeometry = recordOpeningGeometry(viewport);
     await waitFor(() => expect(viewport).toHaveAttribute('data-thread-render-tier', 'virtual'));
     expect(getComputedStyle(viewport).scrollBehavior).toBe('auto');
     await waitFor(() => expect(child.getByText(/Evidence 599:/)).toBeVisible());
@@ -73,11 +108,19 @@ test.each(
     expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
     await act(async () => input.focus());
     expect(input).toHaveFocus();
-    await waitFor(() =>
-      expect(
-        Math.abs(viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight)
-      ).toBeLessThanOrEqual(2)
+    await waitFor(
+      () =>
+        expect(
+          Math.abs(viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight)
+        ).toBeLessThanOrEqual(2),
+      {
+        onTimeout: (error) =>
+          new Error(`${error.message}\nOpening scroll geometry: ${openingGeometry.read()}`, {
+            cause: error,
+          }),
+      }
     );
+    openingGeometry.stop();
     // Native scrollToIndex seals its initial instant landing on the next
     // animation frame. Let that frame complete before simulating a new scroll.
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));

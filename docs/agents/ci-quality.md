@@ -42,6 +42,17 @@ These rules apply without an installed external skill. The external
 `pr-scope-guard` may automate the audit, but is not the only place the delivery
 budget is defined. Contract: `scripts/__tests__/engineering-skills-contract.test.mjs`.
 
+### Browser failure traces
+
+The shared browser project writes Playwright traces through
+`browser.trace: { mode, tracesDir }`. Vitest does not route these files through
+`test.outputDir`: using that field silently leaves traces next to test sources,
+outside the Browser job's uploaded `test-results/` directories. Keep local
+tracing off by default and CI at `retain-on-failure`; a deliberate failing
+browser fixture must produce a readable trace ZIP beneath the configured
+artifact directory. Failure screenshots have their separate Vitest attachment
+path. Paired contract: `packages/config/__tests__/vitest-browser.test.ts`.
+
 ### Workload boundaries
 
 The September 4 audit found desktop's serial test + integration phases on the

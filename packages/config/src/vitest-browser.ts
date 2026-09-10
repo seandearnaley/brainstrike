@@ -366,12 +366,10 @@ export function createBrowserProject(config: BrowserProjectConfig) {
         screenshotFailures: true,
         // Playwright trace configuration
         // Generates .zip trace files viewable with `npx playwright show-trace <file>`
-        trace,
+        trace: trace === 'off' ? ('off' as const) : { mode: trace, tracesDir: traceOutputDir },
       },
       include: [testPattern],
       name: 'browser',
-      // Output directory for traces and screenshots
-      outputDir: traceOutputDir,
       // TEST_TIMEOUT_MULTIPLIER's only route into the browser page (BST-1299).
       // `process` does not exist there, so the caller resolves the budget in
       // Node and it travels over `provide`; the setup file below `inject`s it
