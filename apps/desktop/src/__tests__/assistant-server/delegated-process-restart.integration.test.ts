@@ -13,9 +13,10 @@ const resultSchema = z.object({
   effects: z.number().int(),
   pid: z.number().int(),
   rejected: z.boolean(),
+  toolResults: z.array(z.object({ output: z.unknown(), toolName: z.string() })),
 });
 
-it.for(['approve', 'decline', 'interrupt'] as const)(
+it.for(['approve', 'decline', 'interrupt', 'answer', 'plan-approve', 'plan-reject'] as const)(
   'retains native grandchild decisions across fresh processes (%s)',
   async (decision, { signal }) => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-delegated-restart-'));
@@ -32,15 +33,34 @@ it.for(['approve', 'decline', 'interrupt'] as const)(
       const initial = await run('initial');
       expect(initial.effects).toBe(0);
       expect(initial.decisions).toEqual([]);
+      expect(initial.toolResults).toEqual([]);
       const resumed = await run('resume');
       expect(resumed.pid).not.toBe(initial.pid);
       expect(resumed.effects).toBe(decision === 'approve' ? 1 : 0);
       expect(resumed.decisions).toEqual([
         { state: decision === 'interrupt' ? 'claimed' : 'consumed' },
       ]);
+      if (decision === 'answer' || decision.startsWith('plan-')) {
+        expect(resumed.toolResults).toEqual([
+          {
+            output: {
+              type: 'json',
+              value:
+                decision === 'answer'
+                  ? { answer: 'App, Docs' }
+                  : {
+                      feedback: 'Keep the original scope.',
+                      status: decision === 'plan-approve' ? 'approved' : 'rejected',
+                    },
+            },
+            toolName: decision === 'answer' ? 'brainstrike_askUser' : 'brainstrike_submitPlan',
+          },
+        ]);
+      }
       const recovered = await run('recover');
       expect(new Set([initial.pid, resumed.pid, recovered.pid]).size).toBe(3);
       expect(recovered.rejected).toBe(true);
+      expect(recovered.toolResults).toEqual([]);
       expect(recovered.effects).toBe(decision === 'approve' ? 1 : 0);
       expect(recovered.decisions).toEqual([
         { state: decision === 'interrupt' ? 'interrupted' : 'consumed' },
