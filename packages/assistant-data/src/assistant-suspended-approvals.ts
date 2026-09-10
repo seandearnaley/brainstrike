@@ -1,3 +1,4 @@
+import type { SuspendedRunDiscoveryError } from '@brainstrike/assistant-contract';
 import {
   isRediscoveredToolApproval,
   type RediscoveredToolApproval,
@@ -12,25 +13,24 @@ import { resolveAssistantAuthHeaders } from './assistant-auth-headers';
 const logger = createLogger('SuspendedRuns');
 
 /**
- * Hard ceiling on the discovery round-trip. The endpoint is a local loopback GET,
- * so a few seconds is generous; the cap exists so a wedged/mid-stream assistant
- * server can never hang thread hydration indefinitely (the run stays resumable
- * once the user re-sends, so a timeout degrades to zero cards, never a failure).
+ * Deadline for the discovery fetch and response body. Resolving the local
+ * endpoint and auth headers is owned by their bridge calls; this signal does
+ * not cancel those promises. Request failure remains visible beside history.
  */
 const DISCOVERY_TIMEOUT_MS = 3000;
 
 export interface SuspendedRunDiscoveryResult {
   readonly approvals: readonly RediscoveredToolApproval[];
+  readonly error?: SuspendedRunDiscoveryError;
   /** Non-approval suspend() pauses (BST-1084) — plan/question cards. */
   readonly suspends: readonly RediscoveredToolSuspend[];
 }
 
 /**
  * Rediscover pending tool approvals AND suspend() pauses for a thread from the
- * desktop assistant server (`GET /assistant/suspended-runs`). Best-effort UI
- * enhancement: the run is still resumable once the user re-sends, so a
- * transport failure returns empty arrays — but the failure is LOGGED, never
- * swallowed as a silent success.
+ * desktop assistant server (`GET /assistant/suspended-runs`). A transport or
+ * validation failure is explicit so hydration can retain the conversation and
+ * show that pending decisions could not be completely recovered.
  */
 export type SuspendedRunDiscovery = (
   threadId: string,
@@ -50,14 +50,16 @@ function parseSuspendedRuns(payload: unknown): SuspendedRunDiscoveryResult {
     logger.warn('Suspended-runs response is missing an approvals array', {
       payloadType: typeof payload,
     });
-    return EMPTY_DISCOVERY;
+    return { ...EMPTY_DISCOVERY, error: { reason: 'invalid-response' } };
   }
+  let malformed = false;
   const approvals: RediscoveredToolApproval[] = [];
   for (const entry of payload['approvals']) {
     if (isRediscoveredToolApproval(entry)) {
       approvals.push(entry);
       continue;
     }
+    malformed = true;
     logger.warn('Dropping a malformed suspended approval entry from discovery response');
   }
   // `suspends` is ADDITIVE (BST-1084): ABSENT from an older server is simply
@@ -66,6 +68,7 @@ function parseSuspendedRuns(payload: unknown): SuspendedRunDiscoveryResult {
   const suspends: RediscoveredToolSuspend[] = [];
   const rawSuspends = payload['suspends'];
   if (rawSuspends !== undefined && !Array.isArray(rawSuspends)) {
+    malformed = true;
     logger.warn('Suspended-runs response has a non-array suspends field', {
       suspendsType: typeof rawSuspends,
     });
@@ -75,10 +78,15 @@ function parseSuspendedRuns(payload: unknown): SuspendedRunDiscoveryResult {
         suspends.push(entry);
         continue;
       }
+      malformed = true;
       logger.warn('Dropping a malformed suspended pause entry from discovery response');
     }
   }
-  return { approvals, suspends };
+  return {
+    approvals,
+    ...(malformed ? { error: { reason: 'invalid-response' as const } } : {}),
+    suspends,
+  };
 }
 
 export function createSuspendedRunDiscovery(
@@ -91,6 +99,7 @@ export function createSuspendedRunDiscovery(
     if (!(threadId && resourceId)) {
       return EMPTY_DISCOVERY;
     }
+    const signal = AbortSignal.timeout(timeoutMs);
     try {
       const base = trimTrailingSlash(await resolveBaseUrl());
       const url = `${base}/assistant/suspended-runs?threadId=${encodeURIComponent(
@@ -98,18 +107,26 @@ export function createSuspendedRunDiscovery(
       )}&resourceId=${encodeURIComponent(resourceId)}`;
       const response = await fetchImpl(url, {
         headers: { accept: 'application/json', ...(await resolveAuthHeaders()) },
-        signal: AbortSignal.timeout(timeoutMs),
+        signal,
       });
       if (!response.ok) {
         logger.warn('Suspended-runs discovery request failed', { status: response.status });
-        return EMPTY_DISCOVERY;
+        return { ...EMPTY_DISCOVERY, error: { reason: 'request-failed' } };
       }
       return parseSuspendedRuns(await response.json());
     } catch (error) {
-      // Best-effort enhancement: a transport failure/timeout yields zero cards and
-      // a single warning — never an error state for the thread (still resumable).
+      // Keep operational details in logs; callers receive a bounded UI reason.
       logger.warn('Suspended-runs discovery failed', { error });
-      return EMPTY_DISCOVERY;
+      return {
+        ...EMPTY_DISCOVERY,
+        error: {
+          reason: signal.aborted
+            ? 'timed-out'
+            : error instanceof SyntaxError
+              ? 'invalid-response'
+              : 'request-failed',
+        },
+      };
     }
   };
 }

@@ -50,6 +50,7 @@ export * from './secret-read-error.js';
 export * from './shell-git-correlation.js';
 export * from './shell-output.js';
 export * from './skills.js';
+export * from './suspended-run-discovery.js';
 export * from './thread-history-adapter.js';
 export * from './tool-approval.js';
 export * from './tool-discovery.js';

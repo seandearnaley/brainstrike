@@ -7,6 +7,8 @@ import {
   type AssistantEditCheckpointRecord,
   getToolActionIdentityKey,
   isGuardedToolError,
+  SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME,
+  type SuspendedRunDiscoveryError,
 } from '@brainstrike/assistant-contract';
 import {
   isApprovalActionMessage,
@@ -2621,7 +2623,11 @@ function toHistoryRepository(
  * treat them as transient parents (BST-1243) — keep the prefix list and the
  * id construction in `appendSuspendedPauseMessages` in lockstep.
  */
-const SUSPENDED_PAUSE_MESSAGE_ID_PREFIXES = ['suspended-approval', 'suspended-pause'] as const;
+const SUSPENDED_PAUSE_MESSAGE_ID_PREFIXES = [
+  'suspended-approval',
+  'suspended-pause',
+  SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME,
+] as const;
 type SuspendedPauseMessageIdPrefix = (typeof SUSPENDED_PAUSE_MESSAGE_ID_PREFIXES)[number];
 
 function isSuspendedPauseMessageId(messageId: string): boolean {
@@ -2711,6 +2717,44 @@ function appendSuspendedPauseMessages(
     headId = id;
   }
   return { headId, messages };
+}
+
+/** A transient data notice preserves history without inventing a failed model run. */
+function appendSuspendedDiscoveryError(
+  result: AssistantHistoryLoadResult,
+  error: SuspendedRunDiscoveryError | undefined,
+  threadId: string
+): AssistantHistoryLoadResult {
+  if (!error) {
+    return result;
+  }
+  const id = `${SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME}:${threadId}`;
+  return {
+    headId: id,
+    messages: [
+      ...result.messages,
+      {
+        message: {
+          content: [{ data: error, name: SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME, type: 'data' }],
+          createdAt: new Date(),
+          id,
+          metadata: {
+            custom: {},
+            steps: [],
+            // biome-ignore lint/style/useNamingConvention: assistant-ui metadata keys.
+            unstable_annotations: [],
+            // biome-ignore lint/style/useNamingConvention: assistant-ui metadata keys.
+            unstable_data: [],
+            // biome-ignore lint/style/useNamingConvention: assistant-ui metadata keys.
+            unstable_state: null,
+          },
+          role: 'assistant',
+          status: { reason: 'stop', type: 'complete' },
+        },
+        parentId: result.headId ?? null,
+      },
+    ],
+  };
 }
 
 export function createPgliteAssistantThreadRepository(
@@ -3701,10 +3745,9 @@ export function createAssistantThreadHistoryAdapter({
       durableTailId = item.message.id;
     },
     async load() {
-      // Discovery is a bounded, best-effort HTTP round-trip (see
-      // assistant-suspended-approvals.ts) and the rare case, so it runs
-      // CONCURRENTLY with the history queries instead of gating them: thread
-      // render waits at most max(history, discovery-timeout), never their sum.
+      // Discovery and history run concurrently. The discovery fetch has a
+      // deadline and explicit recovery errors (assistant-suspended-approvals.ts);
+      // endpoint/auth resolution retains its bridge-owned lifecycle.
       const [messages, runEvents, discovery] = await Promise.all([
         repository.listMessages(threadId, resourceId, {
           limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
@@ -3730,7 +3773,11 @@ export function createAssistantThreadHistoryAdapter({
         hydratedParentById.set(hydrated.message.id, hydrated.parentId);
       }
       durableTailId = base.headId ?? null;
-      const result = appendSuspendedPauseMessages(base, discovery.approvals, discovery.suspends);
+      const result = appendSuspendedDiscoveryError(
+        appendSuspendedPauseMessages(base, discovery.approvals, discovery.suspends),
+        'error' in discovery ? discovery.error : undefined,
+        threadId
+      );
       // Synthetic pause notices chain onto the durable head (and each other);
       // alias them in order so an approve from a rediscovered notice resolves
       // through to the durable graph.
