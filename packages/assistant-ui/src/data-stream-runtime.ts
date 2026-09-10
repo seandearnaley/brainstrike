@@ -43,6 +43,10 @@ import {
   remapAssistantReplayHistoryItem,
   useAssistantRunReattachment,
 } from './assistant-run-reattachment';
+import {
+  createDelegatedConversationTap,
+  type DelegatedConversationUpdate,
+} from './delegated-conversation-receiver';
 import { insulateAssistantStreamPipeline } from './stream-insulation';
 
 export { excludeApprovalActionMessages, isApprovalActionMessage };
@@ -124,6 +128,8 @@ export type BrainstrikeDataStreamRuntimeOptions = {
    * and refreshes its thread-total readout; it must never write usage rows.
    */
   onChildRunUsage?: (data: unknown) => void;
+  /** Full ephemeral child snapshots, keyed by native invocation across replay. */
+  onDelegatedConversation?: ((update: DelegatedConversationUpdate) => void) | undefined;
   /**
    * Called with each `run.step.finished` run event's billed step usage while
    * the run streams (BST-953 live tick). Steps ACCUMULATE — the consumer sums
@@ -1230,19 +1236,30 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       await this.options.onResponse?.(response);
     }
 
+    const onDelegatedConversation = this.options.onDelegatedConversation;
+    const delegatedReceiver = onDelegatedConversation
+      ? createDelegatedConversationTap(onDelegatedConversation, abortSignal)
+      : undefined;
     const stream = insulateAssistantStreamPipeline({
       abortSignal,
       body: response.body,
-      buildPipeline: (source) =>
-        buildDecodedTapPipeline(source, this.abortGatedTapOptions(abortSignal), () => {
-          terminalFinishFlushed = true;
-        })
+      buildPipeline: (source) => {
+        const decoded = buildDecodedTapPipeline(
+          source,
+          this.abortGatedTapOptions(abortSignal),
+          () => {
+            terminalFinishFlushed = true;
+          }
+        );
+        const conversations = delegatedReceiver ? decoded.pipeThrough(delegatedReceiver) : decoded;
+        return conversations
           .pipeThrough(
             unstable_toolResultStream(context.tools ?? {}, abortSignal, () => {
               throw new Error('Tool interrupt is not supported in data stream runtime');
             })
           )
-          .pipeThrough(new AssistantMessageAccumulator()),
+          .pipeThrough(new AssistantMessageAccumulator());
+      },
     });
 
     try {
@@ -1252,6 +1269,7 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       }
     } finally {
       await stream.cancel(abortSignal.reason).catch(() => undefined);
+      await delegatedReceiver?.settle();
     }
     throwIfRunAbortedBeforeTerminalCompletion(abortSignal, terminalFinishFlushed);
     this.options.onFinish?.(unstable_getMessage());
@@ -1404,6 +1422,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
   readonly onActivity: BrainstrikeDataStreamRuntimeOptions['onActivity'];
   readonly onCancel: BrainstrikeDataStreamRuntimeOptions['onCancel'];
   readonly onContextBreakdown: BrainstrikeDataStreamRuntimeOptions['onContextBreakdown'];
+  readonly onDelegatedConversation: BrainstrikeDataStreamRuntimeOptions['onDelegatedConversation'];
   readonly onError: BrainstrikeDataStreamRuntimeOptions['onError'];
   readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
   readonly onReplayError: BrainstrikeDataStreamRuntimeOptions['onReplayError'];
@@ -1423,6 +1442,9 @@ function createRuntimeRequestOptionsSnapshot(input: {
     ...(input.onContextBreakdown === undefined
       ? {}
       : { onContextBreakdown: input.onContextBreakdown }),
+    ...(input.onDelegatedConversation === undefined
+      ? {}
+      : { onDelegatedConversation: input.onDelegatedConversation }),
     ...(input.onError === undefined ? {} : { onError: input.onError }),
     ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
     ...(input.onReplayError === undefined ? {} : { onReplayError: input.onReplayError }),
@@ -1452,6 +1474,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onActivity,
     onCancel,
     onContextBreakdown,
+    onDelegatedConversation,
     onError,
     onFinish,
     onReplayError,
@@ -1472,6 +1495,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onActivity,
     onCancel,
     onContextBreakdown,
+    onDelegatedConversation,
     onError,
     onFinish,
     onReplayError,

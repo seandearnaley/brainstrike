@@ -827,3 +827,16 @@ the loaded journal has no start event. The tool boundary is only a lower bound
 for terminals: their timestamps still preserve text streamed while the tool was
 running. Paired hydration tests cover terminal-only journals and mixed legacy
 events without changing content order or fabricating missing parts.
+
+### Renderer receiver and native transcript ownership (BST-1719)
+
+The optional panel/runtime `onDelegatedConversation` callback receives full,
+ephemeral child snapshots through the ordinary decoder and accumulator, keyed
+by native invocation across observed message changes. Full replay replaces
+snapshots; native memory remains the sole transcript writer. Missing terminals
+and unseeded/mismatched replay openings fail visibly. Child error isolation,
+recursive descendants, cancellation and upstream-fault settlement are covered
+at the public runtime adapter; the desktop native fixture now tests that adapter
+against the reconstructed persisted transcript. See the renderer receiver
+contract in `assistant-runtime.md` for lifecycle and remaining acceptance scope.
+Child tabs/rendering and durable graph association remain BST-1724 work.
