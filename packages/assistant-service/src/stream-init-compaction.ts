@@ -102,7 +102,12 @@ const COMPACTION_FAILURE_RUN_EVENT_KIND = 'compaction.failed' as const;
  * `warnedBaselineExceedsTargetThreadIds` in
  * apps/desktop/src/assistant-server/conversation-compaction.ts: a restart
  * re-arms it, and the set is bounded by real thread cardinality times distinct
- * failure reasons, not by request volume.
+ * failure reasons, not by request volume — EXCEPT where the reason embeds a
+ * per-message id (`Compaction candidate <id> has no valid creation time.`,
+ * `Assistant message <id> has conflicting branch topology.`), which neither
+ * deduplicates nor stays bounded and grows one entry per failing turn. See
+ * KNOWN LIMIT OF THE KEYING in docs/agents/assistant-persistence.md; do not
+ * re-derive the unqualified bound from this comment.
  */
 const reportedCompactionFailures = new Set<string>();
 

@@ -2232,7 +2232,11 @@ row cannot be emitted without arming the latch nor the latch armed without
 emitting the row. The accepted cost: two turns that fail identically before
 either prelude is consumed both mint a row, which is honest — both turns really
 were sent uncompacted — and is the only direction that cannot suppress a row
-nobody ever saw. Pinned by `stream-init-compaction.test.ts` ("does NOT latch a
+nobody ever saw. Delivery is NOT proof of persistence or of rendering: a wrapper
+further out could still drop the chunk, and the latch would arm anyway. It
+closes by far the widest part of that window, and what remains costs one
+thread's repeated row rather than a permanent process-wide silence — do not read
+"delivered" here as "durable". Pinned by `stream-init-compaction.test.ts` ("does NOT latch a
 breadcrumb the stream never delivered", "leaves the latch UNcommitted for a
 stream that is never consumed"), and the once-per-(thread, reason) test now has
 to deliver the first row before the second turn is deduplicated against it.

@@ -109,11 +109,11 @@ describe('boundRunEventReason', () => {
   });
 
   it.each([
-    ['postgres://bruce:hunter2@db.internal:5432/brainstrike', 'hunter2'],
-    ['postgresql://bruce:hunter2@db.internal/brainstrike', 'hunter2'],
-    ['redis://default:hunter2@cache.internal:6379', 'hunter2'],
-    ['mongodb+srv://bruce:hunter2@cluster.example.net', 'hunter2'],
-  ])('redacts non-HTTP userinfo in %s', (uri, secret) => {
+    ['postgres://bruce:hunter2@db.internal:5432/brainstrike', 'hunter2', 'db.internal'],
+    ['postgresql://bruce:hunter2@db.internal/brainstrike', 'hunter2', 'brainstrike'],
+    ['redis://default:hunter2@cache.internal:6379', 'hunter2', 'cache.internal'],
+    ['mongodb+srv://bruce:hunter2@cluster.example.net', 'hunter2', 'cluster.example.net'],
+  ])('redacts non-HTTP userinfo in %s', (uri, secret, survives) => {
     // BST-1737 widened this helper's input from MCP transport errors (always
     // HTTP) to memory-store and DB failures, which quote driver URIs. A
     // scheme-restricted pattern would let those through into durable metadata
@@ -121,6 +121,9 @@ describe('boundRunEventReason', () => {
     const reason = boundRunEventReason(new Error(`compaction store read failed: ${uri}`));
     expect(reason).not.toContain(secret);
     expect(reason).toContain('[redacted]');
+    // The host has to SURVIVE: without this the same assertions would pass on a
+    // pattern that over-matched and swallowed the whole message.
+    expect(reason).toContain(survives);
   });
 
   it('redacts a credential carried in a non-HTTP query string', () => {
@@ -135,6 +138,19 @@ describe('boundRunEventReason', () => {
     expect(boundRunEventReason(new Error('Unknown compaction input budget for ollama/x.'))).toBe(
       'Unknown compaction input budget for ollama/x.'
     );
+  });
+
+  it.each([
+    'Unknown compaction input budget for openrouter/moonshotai/kimi-k3.',
+    'compaction summary write failed at C:\\Users\\bruce\\brainstrike\\store.db',
+    'compaction candidate m-1 has no valid creation time: 2026-09-10T18:46:26Z',
+    'compaction store read failed in node:internal/streams/readable',
+  ])('leaves scheme-SHAPED prose without :// intact: %s', (message) => {
+    // The widened scheme class must still require `://`. Colons, slash runs and
+    // Windows paths are ordinary content in these messages, and the four
+    // redaction cases above would pass just as happily against a pattern that
+    // ate them — this is the half of the property they cannot pin.
+    expect(boundRunEventReason(new Error(message))).toBe(message);
   });
 
   it('bounds by CODE POINT so a surrogate pair is never split', () => {
