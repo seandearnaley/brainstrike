@@ -1881,6 +1881,24 @@ the provider prompt — while leaving every raw message physically unchanged in
   behavior. A baseline already at/above the 70% target warns and no-ops the
   agentic path for that turn to avoid repeated pruning toward an unreachable
   target; deterministic provider-overflow recovery remains available.
+  BST-1707 made the denominator claim above TRUE in code:
+  `resolveCompactionInputBudget` (apps/desktop/src/assistant-server/conversation-compaction.ts)
+  now RETURNS `runtimeData.agentLoop.inputTokenLimit` whenever the run carries
+  one, instead of re-deriving a second budget from the catalog's hard
+  `maxOutputTokens`. The two disagreed wherever the request path reserves less
+  output than the model's maximum — OpenRouter caps its reservation at
+  `OPENROUTER_CODING_MAX_OUTPUT_TOKENS` (32,000), so 49 of 57 OpenRouter rows
+  compacted against a budget SMALLER than the run's (`meta/muse-spark-1.3`:
+  52,429 vs the run's 964,147), and `moonshotai/kimi-k3`
+  (contextWindow === maxOutputTokens) made the derivation THROW — swallowed by
+  `runConversationCompactionBeforeStream`, so that recommended coding model
+  silently got no pre-request compaction at all. Never re-derive a second
+  budget here: one derivation, three consumers. The catalog derivation stays
+  ONLY as the fallback for runs that carry no `agentLoop`; a PRESENT but
+  unusable `inputTokenLimit` throws rather than quietly resolving to a
+  different number (the desktop assistant HTTP path does not sanitize
+  `agentLoop`). Paired test:
+  `apps/desktop/src/__tests__/assistant-server/conversation-compaction-input-budget.test.ts`.
 - **Persistence — no new enum, a metadata marker (matches the
   `approval-action-message.ts` precedent):** the summary is an ordinary
   `role: 'assistant'` Mastra message whose `metadata.custom` carries a
