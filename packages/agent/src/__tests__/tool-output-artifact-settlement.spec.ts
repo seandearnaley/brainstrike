@@ -9,6 +9,7 @@ import {
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import type { ToolsInput } from '@mastra/core/agent';
+import { RequestContext } from '@mastra/core/request-context';
 import { describe, expect, it, vi } from 'vitest';
 import { resolveEligibleArtifactReaderName } from '../mastra/runtime-assembly/tool-pipeline';
 import {
@@ -86,6 +87,43 @@ function settlementStore(
 }
 
 describe('tool output artifact settlement', () => {
+  it('requires native child execution scope and never accepts it from tool input', async () => {
+    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) =>
+      reference(input.content.length)
+    );
+    const tools = applyToolOutputArtifactSettlement(
+      { fixture: executableTool(async () => 'x'.repeat(12_500)) },
+      {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
+        requireExecutionThreadId: true,
+        store: settlementStore(store),
+        toolNameMap: new Map(),
+      }
+    );
+    const execute = (tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> })
+      .execute;
+    await expect(
+      execute(
+        { executionThreadId: 'forged', threadId: 'forged' },
+        { agent: { toolCallId: 'call' } }
+      )
+    ).rejects.toMatchObject({ reason: 'missing_execution_thread_id' });
+    expect(store).not.toHaveBeenCalled();
+    await execute(
+      { executionThreadId: 'forged' },
+      { agent: { threadId: 'native-child', toolCallId: 'call' } }
+    );
+    expect(store).toHaveBeenCalledWith(
+      expect.objectContaining({ executionThreadId: 'native-child', toolCallId: 'call' })
+    );
+    const requestContext = new RequestContext();
+    requestContext.set('MastraMemory', { resourceId: 'owner', thread: { id: 'native-sdk-child' } });
+    await execute({}, { requestContext, toolCallId: 'sdk-call' });
+    expect(store).toHaveBeenLastCalledWith(
+      expect.objectContaining({ executionThreadId: 'native-sdk-child', toolCallId: 'sdk-call' })
+    );
+  });
+
   it.each([0, 2])('rejects %i eligible readers before writing any artifact', async (count) => {
     const readerIds = Array.from({ length: count }, (_, index) => `reader-${index}`);
     const readers = Object.fromEntries(

@@ -2647,7 +2647,15 @@ Paired tests: `migration-054-assistant-thread-groups.test.ts` and
 ## TOOL OUTPUT ARTIFACT PERSISTENCE
 
 Migration 068 and `ToolOutputArtifactRepository` own complete oversized tool
-results independently of Mastra message rows:
+outputs; migration 129 adds native execution-thread identity to deduplication
+within the same root resource/thread/run. Existing artifacts backfill their root
+thread without changing references, bytes or expiry. A child cursor is readable
+through the root-owned reader capability, never by supplying execution identity
+as read authority. Exact same-execution replay remains byte-immutable. Native
+sibling tests cover reused tool-call IDs, complete model paging, reconstructed
+engine reads and hydrated child envelopes.
+
+The table stores results independently of Mastra message rows:
 
 - `brainstrike_assistant_tool_output_artifacts.content` is `BYTEA`, populated
   from exact UTF-8 bytes through hex text + PostgreSQL `decode`; this preserves
@@ -2655,7 +2663,7 @@ results independently of Mastra message rows:
   IPC.
 - The public id is an opaque uuidv7 token. Every read also requires the active
   `resource_id` and `thread_id`; a wrong scope is indistinguishable from a
-  missing artifact. `run_id` and `tool_call_id` retain execution provenance,
+  missing artifact. `run_id`, `execution_thread_id` and `tool_call_id` retain execution provenance,
   with one stored result per scoped tool call.
 - Range reads are byte-addressed and capped by the shared 8000-byte page
   maximum. The repository returns bytes; the future reader/resolver owns
@@ -2665,7 +2673,7 @@ results independently of Mastra message rows:
 - Storage, reads, and purge failures use a typed visible error. Settlement must
   finish the complete write before publishing an artifact envelope; it must
   never substitute a reference after a failed write.
-- Exact replay of `(resource, thread, run, tool call)` returns the existing
+- Exact replay of `(resource, thread, run, execution thread, tool call)` returns the existing
   reference only when format and complete bytes match. A different replay
   returns no row and surfaces as a typed storage conflict; settlement never
   overwrites prior evidence.

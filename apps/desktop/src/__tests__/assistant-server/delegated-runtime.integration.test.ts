@@ -11,15 +11,24 @@ import {
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import {
+  decodeToolOutputArtifactContent,
+  isToolOutputArtifactEnvelope,
+  isToolOutputArtifactPage,
+} from '@brainstrike/assistant-contract/tool-output-artifact';
+import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
 } from '@brainstrike/assistant-data';
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { buildToolOutputArtifactCapabilities } from '@brainstrike/assistant-service/stream-init';
+import { BrainstrikeDataStreamRuntimeAdapter } from '@brainstrike/assistant-ui/data-stream-runtime';
+import { migrate, ToolOutputArtifactRepository, wasmLoader } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { DbHandle } from '@brainstrike/db/react';
 import type { PGlite } from '@electric-sql/pglite';
+import type { AssistantMessage } from 'assistant-stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { createArtifactReaderModelProjection } from '../../assistant-server/artifact-reader-model-projection';
 import { getDesktopMastraMemory } from '../../assistant-server/mastra-memory';
 import {
   observeDesktopAssistantRunEvents,
@@ -51,7 +60,12 @@ vi.mock('@brainstrike/agent/providers/provider-factory', async (original) => ({
     return holder.model;
   },
 }));
-const { streamMastraAgent } = await import('@brainstrike/agent');
+const {
+  streamMastraAgent,
+  createStatelessAssistantDataStreamResponse,
+  readToolOutputArtifact,
+  NATIVE_TOOL_INPUT_SCHEMAS,
+} = await import('@brainstrike/agent');
 
 const settings = {
   ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
@@ -72,6 +86,7 @@ const persona: AssistantPersonaDefinition = {
 describe('desktop durable delegation production loop', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     await holder.database?.close();
     holder.database = undefined;
     holder.model = undefined;
@@ -91,6 +106,251 @@ describe('desktop durable delegation production loop', () => {
        started_at, created_at, updated_at, turn_message_id)
       VALUES ('host-leg', 'owner', 'root', 'openai', 'test', 'desktop', 'running',
         NOW(), NOW(), NOW(), 'user-turn');`);
+  });
+
+  it('retains distinct oversized output from siblings that reuse a native tool call id', async () => {
+    let childIndex = 0;
+    const recovered: string[] = [];
+    const modelPage = z.object({
+      type: z.literal('json'),
+      value: z.object({
+        complete: z.literal(true).optional(),
+        content: z.string(),
+        contentEncoding: z.literal('json-string').optional(),
+        next: z.object({ input: z.object({ cursor: z.string() }), tool: z.string() }).optional(),
+      }),
+    });
+    holder.model = scriptedAgentModel((options) => {
+      const isParent = options.tools?.some((tool) => tool.name === 'agent-explore');
+      if (isParent && hasToolResult(options, 'agent-explore')) {
+        return textParts('Parent summary.');
+      }
+      const results = options.prompt.flatMap((message) =>
+        message.role === 'tool' ? message.content : []
+      );
+      const last = results.at(-1);
+      if (!isParent && last) {
+        const page = modelPage.parse(last.output).value;
+        if (page.next) {
+          return toolCallParts(page.next.tool, `read-${results.length}`, page.next.input);
+        }
+        expect(page.complete).toBe(true);
+        recovered.push(
+          results
+            .map((result) => {
+              const value = modelPage.parse(result.output).value;
+              return decodeToolOutputArtifactContent(value.content, value.contentEncoding);
+            })
+            .join('')
+        );
+        return textParts('Child recovered complete evidence.');
+      }
+      if (isParent) {
+        return [
+          ...toolCallParts('agent-explore', 'first-delegation', { prompt: 'First task' }).slice(
+            0,
+            2
+          ),
+          ...toolCallParts('agent-explore', 'second-delegation', { prompt: 'Second task' }).slice(
+            1
+          ),
+        ];
+      }
+      childIndex += 1;
+      return toolCallParts('brainstrike_grepSearch', 'reused-child-call', {
+        pattern: `child-${childIndex}`,
+      });
+    }).model;
+    const runtime = {
+      apiKey: 'test-key',
+      memory: { memorySettings: settings, resourceId: 'owner', threadId: 'root' },
+      model: 'test',
+      provider: 'openai',
+    };
+    const artifacts = buildToolOutputArtifactCapabilities(
+      runtime,
+      'host-leg',
+      async () => database,
+      {
+        capabilities: {
+          artifacts: { createRepository: () => new ToolOutputArtifactRepository(database) },
+        },
+      }
+    );
+    const memory = await getDesktopMastraMemory(settings, 'host-leg');
+    const executed: string[] = [];
+    const stream = await streamMastraAgent(
+      [{ id: 'user-turn', parts: [{ text: 'Run both tasks.', type: 'text' }], role: 'user' }],
+      {
+        ...memory,
+        personas: [
+          {
+            ...persona,
+            allowedToolIds: [...persona.allowedToolIds, 'brainstrike.readToolOutputArtifact'],
+          },
+        ],
+        runtime,
+        toolOutputArtifactStore: artifacts.toolOutputArtifactStore,
+        tools: {
+          'brainstrike.grepSearch': {
+            description: 'Read evidence',
+            execute: async (input: { pattern: string }) => {
+              executed.push(input.pattern);
+              return { matches: [input.pattern.repeat(2000)] };
+            },
+            id: 'brainstrike.grepSearch',
+            inputSchema: z.object({ pattern: z.string() }),
+          },
+          'brainstrike.readToolOutputArtifact': {
+            description: 'Read artifact',
+            execute: async (input: unknown) => {
+              if (!artifacts.toolOutputArtifactReader) {
+                throw new Error('Missing artifact reader');
+              }
+              const parsed =
+                NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.readToolOutputArtifact'].parse(input);
+              return readToolOutputArtifact(
+                { ...parsed, mode: 'cursor' },
+                { reader: artifacts.toolOutputArtifactReader }
+              );
+            },
+            id: 'brainstrike.readToolOutputArtifact',
+            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.readToolOutputArtifact'],
+            toModelOutput: createArtifactReaderModelProjection(() => 12_000),
+          },
+        },
+      }
+    );
+    const response = createStatelessAssistantDataStreamResponse(
+      observeDesktopAssistantRunEvents(stream, 'host-leg', [], async () => database),
+      { messageId: 'parent-message' }
+    );
+    const decoded = new Map<string, AssistantMessage>();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response)
+    );
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test',
+      onDelegatedConversation: (update) => {
+        decoded.set(update.messageId, update.message);
+      },
+    });
+    let parent: AssistantMessage | undefined;
+    for await (const message of adapter.resume(
+      {
+        abortSignal: new AbortController().signal,
+        context: { callSettings: {}, config: {}, tools: {} },
+        messages: [],
+        runConfig: {},
+        unstable_getMessage: () => ({
+          content: [],
+          createdAt: new Date(0),
+          id: 'parent-message',
+          metadata: {
+            custom: {},
+            steps: [],
+            unstable_annotations: [],
+            unstable_data: [],
+            unstable_state: null,
+          },
+          role: 'assistant',
+          status: { type: 'running' },
+        }),
+      } as Parameters<BrainstrikeDataStreamRuntimeAdapter['resume']>[0],
+      {
+        eventId: 'host-leg:-1',
+        resumeApi: 'http://assistant.test/resume',
+      }
+    )) {
+      parent = message as AssistantMessage;
+    }
+    expect(
+      parent?.parts
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join('')
+    ).toBe('Parent summary.');
+    expect(decoded.size).toBe(2);
+    expect(executed.sort()).toEqual(['child-1', 'child-2']);
+    const stored = await database.query<{ id: string }>(
+      'SELECT id FROM brainstrike_assistant_tool_output_artifacts ORDER BY id'
+    );
+    expect(stored.rows).toHaveLength(2);
+    expect(recovered.sort()).toEqual(
+      ['child-1', 'child-2'].map((label) => JSON.stringify({ matches: [label.repeat(2000)] }))
+    );
+    const scopes = await database.query<{
+      thread_id: string;
+      resource_id: string;
+      artifact_id: string;
+    }>(`
+      SELECT child.thread_id, child.resource_id, artifact.id AS artifact_id
+      FROM brainstrike_delegated_conversations child
+      JOIN brainstrike_assistant_tool_output_artifacts artifact
+        ON artifact.execution_thread_id = child.thread_id
+      WHERE artifact.thread_id = 'root' AND artifact.resource_id = 'owner'
+        AND artifact.run_id = 'host-leg' AND artifact.tool_call_id = 'reused-child-call'`);
+    expect(scopes.rows).toHaveLength(2);
+    const reloaded = await createEnginePglite({ loadDataDir: await database.dumpDataDir() });
+    try {
+      const reader = buildToolOutputArtifactCapabilities(runtime, undefined, async () => reloaded, {
+        capabilities: {
+          artifacts: { createRepository: () => new ToolOutputArtifactRepository(reloaded) },
+        },
+      }).toolOutputArtifactReader;
+      if (!reader) {
+        throw new Error('Missing reconstructed artifact reader');
+      }
+      for (const child of scopes.rows) {
+        const load = (db: PGlite) =>
+          createAssistantThreadHistoryAdapter({
+            repository: createPgliteAssistantThreadRepository(db as unknown as DbHandle),
+            resourceId: child.resource_id,
+            threadId: child.thread_id,
+          }).load();
+        const history = await load(reloaded);
+        expect(history).toEqual(await load(database));
+        const results = history.messages
+          .flatMap(({ message }) => (message.role === 'assistant' ? message.content : []))
+          .filter((part) => part.type === 'tool-call' && part.toolCallId === 'reused-child-call');
+        expect(results).toHaveLength(1);
+        const result = results[0];
+        if (result?.type !== 'tool-call' || !isToolOutputArtifactEnvelope(result.result)) {
+          throw new Error('Missing hydrated artifact envelope');
+        }
+        expect(result.result.artifactRef.id).toBe(child.artifact_id);
+        const liveResults = [...decoded.values()]
+          .flatMap((message) => message.parts)
+          .filter(
+            (part) =>
+              part.type === 'tool-call' &&
+              isToolOutputArtifactEnvelope(part.result) &&
+              part.result.artifactRef.id === child.artifact_id
+          );
+        expect(liveResults).toHaveLength(1);
+        expect(liveResults[0]).toMatchObject({
+          result: result.result,
+          toolCallId: 'reused-child-call',
+        });
+        const bytes = [
+          decodeToolOutputArtifactContent(result.result.preview, result.result.contentEncoding),
+        ];
+        let cursor: string | undefined = result.result.nextCursor;
+        while (cursor) {
+          const page: Awaited<ReturnType<typeof readToolOutputArtifact>> =
+            await readToolOutputArtifact({ cursor, mode: 'cursor' }, { reader });
+          if (!isToolOutputArtifactPage(page)) {
+            throw new Error('Expected continuation page');
+          }
+          bytes.push(decodeToolOutputArtifactContent(page.content, page.contentEncoding));
+          cursor = page.nextCursor;
+        }
+        expect(recovered).toContain(bytes.join(''));
+      }
+    } finally {
+      await reloaded.close();
+    }
   });
 
   it.each([false, true])(

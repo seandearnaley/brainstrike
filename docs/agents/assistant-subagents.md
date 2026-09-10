@@ -806,6 +806,18 @@ duplicating streamed JSON or changing native persistence.
 
 ### Child lifecycle ordering on reload (BST-1719)
 
+Oversized child outputs pass through the parent's central artifact-settlement
+policy after child permission selection and before projection at the child's own
+model budget. Migration 129 distinguishes native execution threads within the
+root-owned artifact scope, so sibling calls may reuse tool-call IDs without
+colliding. The native fixture executes both siblings, consumes their actual
+model-visible continuation actions to reconstruct all bytes, then reconstructs
+the database engine and recovers the same content from hydrated child envelopes.
+The public child-stream decoder receives those same artifact envelopes, while
+the parent response remains a compact summary.
+This preserves root-scoped reader authority and the existing reset/expiry path.
+Missing native child identity or a permission-eligible reader is a visible error.
+
 The normal native desktop parity fixture also compares lifecycle data in its
 exact live position, including the tool-start event after its tool part. A
 scoped start uses its existing native message/tool-call identity as that

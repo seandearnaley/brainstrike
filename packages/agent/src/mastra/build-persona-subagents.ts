@@ -83,6 +83,10 @@ export interface BuildPersonaSubAgentsParams {
    * every tool result for the WRONG model's context window.
    */
   readonly resolvePinnedModel?: (persona: AssistantPersonaDefinition) => MastraModelConfig;
+  readonly settleChildToolOutputs?: (
+    tools: ToolsInput,
+    budget: ScaledToolResultBudget
+  ) => ToolsInput;
   /** sanitizedId → originalName (the parent's map). */
   readonly toolNameMap: ReadonlyMap<string, string>;
   /** Forwarded to `applyToolModelOutputProjections` for every child (BST-1196
@@ -372,8 +376,11 @@ export function buildPersonaSubAgents(
       continue;
     }
     const childNameMap = new Map(candidateNameMap);
+    const settledChildTools = params.settleChildToolOutputs
+      ? params.settleChildToolOutputs(childTools as ToolsInput, childToolResultBudget)
+      : (childTools as ToolsInput);
     const projectedChildTools = applyToolModelOutputProjections(
-      childTools as ToolsInput,
+      settledChildTools,
       childNameMap,
       params.toolOutputObserver,
       childToolResultBudget

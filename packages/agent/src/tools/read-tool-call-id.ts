@@ -1,3 +1,6 @@
+import { parseMemoryRequestContext } from '@mastra/core/memory';
+import { RequestContext } from '@mastra/core/request-context';
+
 /**
  * Read the tool-call id Mastra passes alongside a tool's input.
  *
@@ -17,7 +20,21 @@ export function readToolCallId(args: readonly unknown[]): string | undefined {
 
 /** Native thread IDs are globally unique; never substitute persona or root identity. */
 export function readToolExecutionThreadId(args: readonly unknown[]): string | undefined {
-  return readExecutionIdentity(args, 'threadId');
+  const explicit = readExecutionIdentity(args, 'threadId');
+  if (explicit) {
+    return explicit;
+  }
+  const context = args[1];
+  if (!(context && typeof context === 'object' && 'requestContext' in context)) {
+    return;
+  }
+  // Native ToolsInput functions receive the AI SDK execution context; Mastra
+  // carries memory scope there through RequestContext, not context.agent.
+  if (!(context.requestContext instanceof RequestContext)) {
+    return;
+  }
+  const threadId = parseMemoryRequestContext(context.requestContext)?.thread?.id;
+  return threadId?.trim() ? threadId : undefined;
 }
 
 function readExecutionIdentity(

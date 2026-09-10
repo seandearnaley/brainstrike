@@ -54,6 +54,7 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
  */
 export function resolvePersonaRuntimeParts(params: {
   conversationBinding?: DelegatedConversationBinding | undefined;
+  settleChildToolOutputs?: (tools: ToolsInput, budget: ScaledToolResultBudget) => ToolsInput;
   guardedTools: ToolsInput;
   languageModel: MastraModelConfig;
   permissionSnapshot: PermissionToolGateSnapshot | undefined;
@@ -71,6 +72,9 @@ export function resolvePersonaRuntimeParts(params: {
   }
   const personaBuild = buildPersonaSubAgents({
     ...(params.conversationBinding ? { conversationBinding: params.conversationBinding } : {}),
+    ...(params.settleChildToolOutputs
+      ? { settleChildToolOutputs: params.settleChildToolOutputs }
+      : {}),
     guardedTools: params.guardedTools,
     languageModel: params.languageModel,
     logger,

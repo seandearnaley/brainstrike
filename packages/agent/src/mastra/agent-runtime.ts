@@ -516,6 +516,7 @@ export async function createMastraAgentRuntime(
     mcpDiscoverySkips,
     resilienceConfig,
     sanitizedLocalToolIds,
+    settleChildToolOutputs,
     toolExecutionDurations,
     toolNameMap,
   } = await composeRuntimeToolMap({
@@ -616,6 +617,7 @@ export async function createMastraAgentRuntime(
       parentProvider: normalizedProvider,
       runtime: sanitizedRuntime,
     }),
+    settleChildToolOutputs,
     toolNameMap,
     // Persona agents get the same raw/model split. Their independent policy
     // gate clones full tool descriptors, so `toModelOutput` survives intact.
