@@ -1299,3 +1299,16 @@ invocation publication must match it exactly. Legacy null remains unknown;
 approval resume cannot substitute the forwarded leaf input. The decision table
 is in the reset registry and all explicit clear paths. Migration replay, real
 host admission, immutable input and reset coverage tests protect these rules.
+
+
+## Shared assistant history readers
+
+`repositories/assistant-history-repository.ts` owns the ordinary message/event
+queries and row conversion used by renderer hydration and delegated pre-resume
+baselines. It requires a migrated handle and performs no DDL. Keep rewind
+exclusion inside the latest-message window, durable parent edges and event
+ordering unchanged. The renderer repository still probes schema readiness.
+The desktop host imports these readers through the Node-compatible DB entry;
+never import the browser-facing assistant-data barrel into Electron main.
+Paired behavior is covered by assistant-memory-repository integration tests,
+native delegated history tests and main-process-bundle-external-requires.

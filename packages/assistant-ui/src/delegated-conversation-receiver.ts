@@ -1,7 +1,9 @@
 import {
   DELEGATED_CONVERSATION_DATA_NAME,
+  type DelegatedConversationBaseline,
   type DelegatedConversationStreamData,
   type DelegatedRunIdentity,
+  delegatedConversationBaselineSchema,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import {
@@ -15,6 +17,7 @@ import { deferMessageFinishUntilFlush } from './defer-message-finish';
 const logger = createLogger('DelegatedConversationReceiver');
 
 export interface DelegatedConversationUpdate {
+  readonly baseline?: DelegatedConversationBaseline;
   readonly identity: DelegatedRunIdentity;
   readonly message: AssistantMessage;
   /** Latest observed native row, independent of the invocation's decoder lifetime. */
@@ -63,6 +66,8 @@ class ChildReceiver {
   private terminalObserved = false;
   private messageId: string;
   private readonly encoder = new TextEncoder();
+  private baseline?: DelegatedConversationBaseline;
+  private receivedFrames = false;
   private readonly nested: DelegatedConversationTap;
 
   constructor(
@@ -99,7 +104,12 @@ class ChildReceiver {
                       },
                     }
                   : message;
-              onUpdate({ identity: this.identity, message: snapshot, messageId: this.messageId });
+              onUpdate({
+                ...(this.baseline ? { baseline: this.baseline } : {}),
+                identity: this.identity,
+                message: snapshot,
+                messageId: this.messageId,
+              });
             } catch (error) {
               this.captureFailure(error);
             }
@@ -118,6 +128,13 @@ class ChildReceiver {
     if (envelope.identity.personaId !== this.identity.personaId) {
       throw new Error('Delegated conversation changed persona within one invocation.');
     }
+    if (envelope.baseline !== undefined) {
+      if (this.receivedFrames) {
+        throw new Error('Delegated history baseline changed within one stream leg.');
+      }
+      this.baseline = delegatedConversationBaselineSchema.parse(envelope.baseline);
+    }
+    this.receivedFrames = true;
     this.messageId = envelope.messageId;
     this.terminalObserved = envelope.frames.some((frame) => frame.code === 'd');
     for (const frame of envelope.frames) {

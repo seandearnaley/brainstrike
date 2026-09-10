@@ -239,7 +239,10 @@ describe('native approval resume child transcript parity', () => {
       observeDesktopAssistantRunEvents(mapped(), hostRunId, [], async () => database),
       { messageId: 'parent-message' }
     );
-    const children = new Map<string, { messageId: string; message: AssistantMessage }>();
+    const children = new Map<
+      string,
+      { messageId: string; message: AssistantMessage; baseline: unknown }
+    >();
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => {
@@ -253,6 +256,7 @@ describe('native approval resume child transcript parity', () => {
       api: 'http://assistant.test',
       onDelegatedConversation: (update) => {
         children.set(update.identity.childRuntimeRunId, {
+          baseline: 'baseline' in update ? update.baseline : undefined,
           message: update.message,
           messageId: update.messageId,
         });
@@ -305,6 +309,17 @@ describe('native approval resume child transcript parity', () => {
       expect(notice, 'Native approval notice must be emitted').toBeDefined();
       const approval = z.object({ payload: z.object({ toolCallId: z.string() }) }).parse(notice);
       expect(before.children.size).toBe(2);
+      for (const child of before.children.values()) {
+        const initialBaseline = z
+          .object({ messages: z.array(z.object({ role: z.string() })) })
+          .parse(child.baseline);
+        expect(initialBaseline.messages.some((message) => message.role === 'user')).toBe(true);
+        expect(
+          initialBaseline.messages.every(
+            (message) => message.role === 'user' || message.role === 'system'
+          )
+        ).toBe(true);
+      }
       await initial.host.shutdown();
       expect(hosts.delete(initial.host)).toBe(true);
       const replacement = await createEnginePglite({ loadDataDir: await database.dumpDataDir() });
@@ -426,7 +441,7 @@ describe('native approval resume child transcript parity', () => {
       ).toHaveLength(1);
       const reloaded = await createEnginePglite({ loadDataDir: await database.dumpDataDir() });
       try {
-        for (const [runId, { messageId, message: live }] of after.children) {
+        for (const [runId, { messageId, message: live, baseline }] of after.children) {
           const row = (
             await database.query<{ thread_id: string; resourceId: string }>(
               'SELECT thread_id, "resourceId" FROM mastra_messages WHERE id = $1',
@@ -436,6 +451,23 @@ describe('native approval resume child transcript parity', () => {
           if (!row) {
             throw new Error('Missing native assistant row');
           }
+          // A fresh renderer must combine replay with the history that existed
+          // before this leg, not with rows already updated by that same replay.
+          const previous = z
+            .object({
+              hostRunId: z.literal('resumed'),
+              messages: z.array(z.object({ content: z.unknown(), id: z.string() })),
+              runEvents: z.array(z.object({ kind: z.string(), timestamp: z.string() })),
+              threadId: z.literal(row.thread_id),
+            })
+            .parse(baseline);
+          expect(previous.runEvents.length).toBeGreaterThan(0);
+          expect(
+            previous.runEvents.every((event) => Number.isFinite(Date.parse(event.timestamp)))
+          ).toBe(true);
+          expect(JSON.stringify(previous.messages)).not.toContain('APPROVED-EVIDENCE');
+          const prior = before.children.get(runId);
+          expect(previous.messages.some((message) => message.id === prior?.messageId)).toBe(true);
           const loadHistory = (db: PGlite) =>
             createAssistantThreadHistoryAdapter({
               repository: createPgliteAssistantThreadRepository(db as unknown as DbHandle),
@@ -471,6 +503,9 @@ describe('native approval resume child transcript parity', () => {
           if (read?.type === 'tool-call') {
             const args = z.object({ query: z.string() }).parse(read.args);
             expect(args).toEqual({ query: 'needle' });
+            if (approved) {
+              expect(read.result).toEqual({ value: 'APPROVED-EVIDENCE' });
+            }
             const storedRead = hydrated.find(
               (part) => part.type === 'tool-call' && part.toolCallId === read.toolCallId
             );

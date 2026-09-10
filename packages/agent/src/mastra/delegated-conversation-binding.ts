@@ -1,4 +1,5 @@
 import type {
+  DelegatedConversationBaseline,
   DelegatedOriginalToolCall,
   DelegatedToolActionIdentity,
 } from '@brainstrike/assistant-contract';
@@ -32,9 +33,11 @@ export interface DelegatedToolActionScope {
 
 export interface DelegatedConversationBinding {
   /** Host capability required for durable invocation publication/resume authorization. */
-  readonly bindRun?: (
-    identity: DelegatedRunIdentity
-  ) => Promise<{ readonly threadId: string; readonly messageId?: string }>;
+  readonly bindRun?: (identity: DelegatedRunIdentity) => Promise<{
+    readonly threadId: string;
+    readonly messageId?: string;
+    readonly baseline?: DelegatedConversationBaseline;
+  }>;
   /** Atomic admission after native snapshot validation, held through runtime disposal. */
   readonly claimToolAction?: (action: {
     readonly delegation?: DelegatedToolActionIdentity;
@@ -46,6 +49,8 @@ export interface DelegatedConversationBinding {
   readonly hooks?: ToolHooks;
   readonly inputProcessor: InputProcessor;
   prepare(context: DelegationStartContext, configuration: unknown): void;
+  /** Freeze child history after admission and before invoking native resume. */
+  readonly prepareToolAction?: NonNullable<DelegatedConversationBinding['claimToolAction']>;
   /** Roll back this owner's claim only when native resume has not been invoked. */
   readonly releaseUnexecutedToolAction?: NonNullable<
     DelegatedConversationBinding['claimToolAction']

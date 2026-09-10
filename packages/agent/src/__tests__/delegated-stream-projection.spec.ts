@@ -23,6 +23,26 @@ const part = {
 };
 
 describe('delegated stream terminal ownership', () => {
+  it('emits the history baseline once even when the first renderable chunk is abnormal termination', async () => {
+    const baseline = { hostRunId: 'host', messages: [], runEvents: [], threadId: 'child' };
+    const projection = createDelegatedStreamProjection({
+      authorize: async () => ({ baseline, threadId: 'child' }),
+      createState: () => ({}),
+      mapPart: async () => ({ chunks: [], finished: false }),
+      personas: new Map([['agent-explore', 'explore']]),
+    });
+    if (!projection) {
+      throw new Error('Missing projection');
+    }
+    expect(await projection.project(part, new Map())).toEqual([]);
+    const terminal = projection.finalize(() => [{ type: 'text-delta', value: 'Interrupted' }]);
+    expect(terminal).toHaveLength(1);
+    expect(terminal[0]).toMatchObject({ baseline });
+    expect(
+      projection.finalize(() => [{ type: 'text-delta', value: 'Duplicate terminal' }])
+    ).toEqual([]);
+  });
+
   it('binds child and parent approval cards to the same exact leaf across reused aliases', async () => {
     const child = { ...identity, personaId: 'child' };
     const leaf = {

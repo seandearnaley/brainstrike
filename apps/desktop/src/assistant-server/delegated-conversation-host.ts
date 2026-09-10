@@ -6,6 +6,7 @@ import type {
   DelegatedSuspensionResolver,
   DelegatedToolActionScope,
 } from '@brainstrike/agent';
+import type { DelegatedConversationBaseline } from '@brainstrike/assistant-contract';
 import { hasValidDelegatedToolActionTarget } from '@brainstrike/assistant-contract';
 import {
   type AssistantRunEvent,
@@ -16,11 +17,14 @@ import {
   isAssistantDelegatedUsageIdentity,
 } from '@brainstrike/assistant-contract/run-usage';
 import {
+  ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
   createDelegatedConversationRepository,
   type DelegatedConversationColor,
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
   type DelegatedInvocation,
+  readAssistantHistoryMessages,
+  readAssistantHistoryRunEvents,
 } from '@brainstrike/db';
 import { z } from 'zod';
 
@@ -46,6 +50,22 @@ function assertActionInvocation(
   ) {
     throw new DelegatedConversationIdentityError('tool-action-ancestry-mismatch');
   }
+}
+
+function toolActionKey(
+  action: Parameters<NonNullable<DelegatedConversationBinding['claimToolAction']>>[0]
+): string {
+  return JSON.stringify([
+    action.runId,
+    action.toolCallId,
+    action.delegation?.toolCallId,
+    action.delegation?.path.map((edge) => [
+      edge.parentRuntimeRunId,
+      edge.parentToolCallId,
+      edge.childRuntimeRunId,
+      edge.personaId,
+    ]),
+  ]);
 }
 
 const DISPLAY_IDENTITIES = [
@@ -82,10 +102,13 @@ export function createDesktopDelegatedConversationHost(
   database: DelegatedConversationDatabase,
   hostRunId: string
 ): {
-  bindRun(
-    identity: DelegatedRunIdentity
-  ): Promise<{ readonly threadId: string; readonly messageId?: string }>;
+  bindRun(identity: DelegatedRunIdentity): Promise<{
+    readonly threadId: string;
+    readonly messageId?: string;
+    readonly baseline?: DelegatedConversationBaseline;
+  }>;
   resolveToolAction: NonNullable<DelegatedConversationBinding['resolveToolAction']>;
+  prepareToolAction: NonNullable<DelegatedConversationBinding['prepareToolAction']>;
   claimToolAction: NonNullable<DelegatedConversationBinding['claimToolAction']>;
   finishToolActions(): Promise<void>;
   releaseUnexecutedToolAction: NonNullable<
@@ -122,6 +145,38 @@ export function createDesktopDelegatedConversationHost(
   // One immutable host leg belongs to one root. The partial unique root
   // index therefore permits at most one active claim in this binding.
   const claims = new Set<string>();
+  let claimedActionKey: string | undefined;
+  const baselines = new Map<string, DelegatedConversationBaseline>();
+  const initialBaselines = new Map<string, Promise<DelegatedConversationBaseline>>();
+  const captureHistory = async (
+    threadId: string,
+    resourceId: string,
+    initial: boolean
+  ): Promise<DelegatedConversationBaseline> => {
+    const [messages, runEvents] = await Promise.all([
+      readAssistantHistoryMessages(database, threadId, resourceId, {
+        limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+      }),
+      readAssistantHistoryRunEvents(database, threadId, resourceId, {
+        limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+      }),
+    ]);
+    const history: DelegatedConversationBaseline['messages'] = [];
+    for (const message of messages) {
+      if (initial && (message.role === 'assistant' || message.role === 'tool')) {
+        continue;
+      }
+      history.push({ ...message, createdAt: message.createdAt.toISOString() });
+    }
+    return structuredClone({
+      hostRunId,
+      // Mastra generates a fresh child thread per delegation invocation. Native
+      // input rows are history; this invocation's output belongs to its decoder.
+      messages: history,
+      runEvents: initial ? [] : [...runEvents],
+      threadId,
+    });
+  };
   const host: ReturnType<typeof createDesktopDelegatedConversationHost> = {
     async bindRun(identity) {
       const scope = await readScope();
@@ -131,8 +186,24 @@ export function createDesktopDelegatedConversationHost(
         identity.childRuntimeRunId,
         hostRunId
       );
+      if (!baselines.has(invocation.threadId) && invocation.hostRunId === hostRunId) {
+        let pending = initialBaselines.get(invocation.threadId);
+        if (!pending) {
+          pending = (async () => {
+            const node = await repository.get(scope, invocation.threadId);
+            if (!node) {
+              throw new DelegatedConversationIdentityError('missing-history-owner');
+            }
+            return captureHistory(node.threadId, node.resourceId, true);
+          })();
+          initialBaselines.set(invocation.threadId, pending);
+        }
+        baselines.set(invocation.threadId, await pending);
+      }
+      const baseline = baselines.get(invocation.threadId);
       return {
         threadId: invocation.threadId,
+        ...(baseline ? { baseline } : {}),
         ...(invocation.messageId ? { messageId: invocation.messageId } : {}),
       };
     },
@@ -175,6 +246,7 @@ export function createDesktopDelegatedConversationHost(
         throw new DelegatedConversationIdentityError('tool-action-already-consumed-or-root-busy');
       }
       claims.add(id);
+      claimedActionKey = toolActionKey(action);
     },
     async finishToolActions() {
       for (const id of claims) {
@@ -187,6 +259,7 @@ export function createDesktopDelegatedConversationHost(
           throw new DelegatedConversationIdentityError('tool-action-claim-lost');
         }
         claims.delete(id);
+        claimedActionKey = undefined;
       }
     },
     async persist(identity) {
@@ -261,6 +334,21 @@ export function createDesktopDelegatedConversationHost(
         }
       );
     },
+    async prepareToolAction(action) {
+      if (claims.size !== 1 || claimedActionKey !== toolActionKey(action)) {
+        throw new DelegatedConversationIdentityError('history-requires-admission');
+      }
+      // Publish the boundary only when every ancestor read succeeds. A failed
+      // preparation must not leave a mixture of old and newly captured history.
+      const captured = await Promise.all(
+        (await host.resolveToolAction(action)).map((scope) =>
+          captureHistory(scope.threadId, scope.resourceId, false)
+        )
+      );
+      for (const baseline of captured) {
+        baselines.set(baseline.threadId, baseline);
+      }
+    },
     async releaseUnexecutedToolAction(action) {
       const leaf = action.delegation?.path.at(-1);
       if (!(leaf && action.delegation && hasValidDelegatedToolActionTarget(action))) {
@@ -292,6 +380,9 @@ export function createDesktopDelegatedConversationHost(
         throw new DelegatedConversationIdentityError('tool-action-claim-lost');
       }
       claims.delete(released.data.id);
+      claimedActionKey = undefined;
+      baselines.clear();
+      initialBaselines.clear();
     },
     async resolveToolAction(action) {
       const scope = await readScope();

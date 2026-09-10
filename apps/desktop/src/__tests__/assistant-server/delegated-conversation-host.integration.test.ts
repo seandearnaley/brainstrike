@@ -255,6 +255,50 @@ describe('desktop delegated conversation authority', () => {
     ).toEqual([{ state: 'consumed' }, { state: 'consumed' }]);
   });
 
+  it('shares one initial baseline across concurrent binds of the same invocation', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    const [first, second] = await Promise.all([host.bindRun(run), host.bindRun(run)]);
+    expect(first.baseline).toBeDefined();
+    expect(second.baseline).toBe(first.baseline);
+  });
+
+  it('prepares history only for the admitted leaf and recaptures after an unexecuted release', async () => {
+    const original = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await original.persist(identity);
+    await original.bindRun(run);
+    const host = createDesktopDelegatedConversationHost(database, 'resume-leg');
+    const action = {
+      delegation: { path: [run], toolCallId: 'read-1' },
+      runId: run.parentRuntimeRunId,
+      toolCallId: run.parentToolCallId,
+    };
+    await expect(host.prepareToolAction(action)).rejects.toMatchObject({
+      reason: 'history-requires-admission',
+    });
+    await host.claimToolAction(action);
+    await expect(
+      host.prepareToolAction({
+        ...action,
+        delegation: { ...action.delegation, toolCallId: 'different-leaf' },
+      })
+    ).rejects.toThrow();
+    await host.prepareToolAction(action);
+    expect((await host.bindRun(run)).baseline?.messages).toEqual([]);
+    await host.releaseUnexecutedToolAction(action);
+    await database.query(
+      `INSERT INTO mastra_messages (id, thread_id, "resourceId", role, type, content, "createdAt")
+       VALUES ('before-new-admission', 'child', 'native-child-owner', 'assistant', 'v2', $1, NOW())`,
+      [JSON.stringify({ format: 2, parts: [{ text: 'Latest saved history', type: 'text' }] })]
+    );
+    await host.claimToolAction(action);
+    await host.prepareToolAction(action);
+    expect((await host.bindRun(run)).baseline?.messages).toMatchObject([
+      { id: 'before-new-admission' },
+    ]);
+    await host.finishToolActions();
+  });
+
   it('releases only its own unexecuted leaf claim and never a consumed decision', async () => {
     const owner = createDesktopDelegatedConversationHost(database, 'initial-leg');
     const other = createDesktopDelegatedConversationHost(database, 'resume-leg');
@@ -364,7 +408,10 @@ describe('desktop delegated conversation authority', () => {
   it('recovers only the bound invocation native message identity before resume publication', async () => {
     const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
     await host.persist(identity);
-    expect(await host.bindRun(run)).toEqual({ threadId: 'child' });
+    expect(await host.bindRun(run)).toEqual({
+      baseline: { hostRunId: 'initial-leg', messages: [], runEvents: [], threadId: 'child' },
+      threadId: 'child',
+    });
     await host.persistEvent(run, 'observed-before-pause', childStarted, 0);
     expect(
       await createDesktopDelegatedConversationHost(database, 'resume-leg').bindRun(run)

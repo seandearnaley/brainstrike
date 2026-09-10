@@ -5,7 +5,10 @@ import type {
 } from '@ai-sdk/provider';
 import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
-import type { DelegatedRunIdentity } from '@brainstrike/assistant-contract/delegated-conversation-stream';
+import type {
+  DelegatedConversationBaseline,
+  DelegatedRunIdentity,
+} from '@brainstrike/assistant-contract/delegated-conversation-stream';
 import type { HookTrustRequest } from '@brainstrike/assistant-contract/hook-trust-request';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
@@ -590,6 +593,7 @@ export type ConversationStreamChunk =
   | StreamChunkMessageFinish;
 
 export interface StreamChunkDelegatedConversation {
+  readonly baseline?: DelegatedConversationBaseline;
   readonly chunk: ConversationStreamChunk;
   readonly identity: DelegatedRunIdentity;
   readonly messageId: string;
