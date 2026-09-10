@@ -437,6 +437,26 @@ Tips for MCP integration:
     remains responsive.
     
 
+### Host-owned delegated conversation binding (BST-1718)
+
+`MastraAgentRuntimeOptions.conversationBinding` accepts
+`createDelegatedConversationBinding(persist)`. This requires parent/child thread
+memory scope and a structured-cloneable configuration snapshot; the host validates
+a finite JSON object before storage. The native delegation hook records
+observed parent identity in a WeakMap keyed by the actual child RequestContext;
+the child input processor awaits the host callback with its actual native
+thread/resource and an immutable persona/step-cap snapshot. Missing parent
+binding or rejected persistence prevents child model/tool execution. The callback
+must validate root ownership and persist through the host database; it never
+belongs in RuntimeData or serialized RequestContext entries.
+
+This optional port is not yet activated by desktop. Snapshot resume skips the
+child input processor. The optional `conversationBinding.bindRun` callback is
+awaited at the first child event of each attempt/resume leg; its host implementation
+must authorize the persisted invocation before desktop activation. Existing read-only/no-nesting
+restrictions remain. The native and production-stream integration suites cover
+this seam; see docs/agents/assistant-subagents.md for the full contract.
+
 ### Memory and conversation management
 
 The package exports `InMemoryMemoryStore`, which stores conversations keyed by  

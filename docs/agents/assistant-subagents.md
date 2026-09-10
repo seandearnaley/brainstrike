@@ -479,8 +479,9 @@ child event, including the initial `start`, observes its own recorded identity.
 The scope agrees with `onDelegationComplete`'s actual child thread/resource;
 the nested stream's run id agrees with the child output processor's run id.
 
-Use a host-owned invocation marker set in `onDelegationStart`'s copied
-RequestContext to join the child input scope to the parent's tool-call id.
+Use `createDelegatedConversationBinding` to join the child input scope to the
+parent's tool-call id. It keys a host-owned WeakMap by the child RequestContext
+object supplied to `onDelegationStart`; no product entries are added to that map.
 Neither persona name, completion order nor parsing generated ids establishes
 this relationship. The child's native resource can differ from the root's
 resource, so it is not the user's ownership authority.
@@ -525,3 +526,69 @@ the parent without rewriting a completed delegation result. Every inherited
 control must have a working child-scoped command and persistence path before it
 appears enabled. The linked parity matrix names the existing owners and delivery
 responsibilities; BST-1728 verifies actual runtime parity.
+
+### Durable binding before publication and resume preparation (BST-1718)
+
+The native contract fixture now awaits a real delegated graph write in the child
+input processor and reloads that binding through a new repository before every
+forwarded child event, including `start`. Public `Memory.getThreadById` confirms
+that the native thread already exists at this seam, with both explicit and
+inherited child memory. This proves the storage prerequisite, not production
+host wiring or invocation/run attribution.
+
+The recreated-agent grandchild approval and decline cases also prove that the
+child input processor is not invoked on snapshot resume. A production resume
+must authorize persisted ancestry and invocation identity at the host boundary
+before forwarding any resumed child event; rerunning the input processor cannot
+be assumed. See the current [processor interface timing](https://mastra.ai/reference/processors/processor-interface).
+
+### Host binding adapter (BST-1718, host activation pending)
+
+The direct `MastraAgentRuntimeOptions.conversationBinding` capability is threaded
+through persona construction and the native delegation policy. The policy first
+checks persona availability and budgets, then snapshots its configuration and
+clamped maxSteps. Each child input processor awaits the capability's persistence
+callback before model/tool execution. Missing parent registration or a rejected
+write fails the child visibly. The callback receives observed native parent run,
+thread/resource, parent tool-call, persona and actual child thread/resource ids;
+it does not receive a fabricated child run id before native streaming exposes it.
+
+The adapter stores ephemeral correlation in a WeakMap, not RequestContext entries
+or RuntimeData. Its configuration snapshot is cloned before child execution.
+The real production stream fixture proves callback-before-tool ordering and zero
+child tool executions on persistence rejection. Removing the persona processor
+wiring makes both regression cases fail. Existing read-only/no-recursion gating
+is preserved. This adapter does not activate desktop graph writes on its own:
+the host caller, durable invocation store, resume validation, usage reconciliation
+and native branch cleanup are still required before BST-1718 is complete.
+
+### Native run publication boundary (BST-1718, host activation pending)
+
+A host may additionally supply `conversationBinding.bindRun`. The shared
+`streamAttemptChunks` path awaits it before mapping the first native child
+`tool-output` event in each attempt, including approval and suspension resume
+legs. It receives the observed native parent run/tool call, child run and persona;
+the host must resolve and authorize the durable invocation before returning.
+The guard caches only successful bindings for that attempt and rejects a changed
+child run under the same parent call. A recreated resume therefore authorizes
+again, even though Mastra skips child `processInput` and may omit a new start.
+No database lookup is performed for every text/reasoning delta.
+
+This does not yet activate the desktop adapter or change child transcript/UI
+routing. The parent delegation-tool start can still render before native child
+progress exists. A rejected publication binding propagates through the existing
+stream error/abort path; cooperative abort is not proof that every asynchronous
+native memory write has settled. The failure-path publication test uses Mastra's
+public InMemoryStore; database durability remains separately proven with real
+PGlite. Do not close a live host database merely because iteration rejected.
+Paired production-stream tests cover awaited binding, single binding per attempt
+and visible rejection without child progress; real recreated native approval
+and decline tests prove the guard sees the same persisted native run identity.
+
+Review clarification: the publication host must compare observed `personaId` with
+`getInvocation(...).personaId` before calling `bindInvocationRun`; the latter
+binds only the native run key. Missing/changed native identities remain fatal to
+publication, rather than being skipped and potentially forwarded as authorized.
+A real native child-tool failure retains its native chunk identity and is covered
+by the production-stream guard test. With no `bindRun` capability, the guard is
+absent and the stream loop adds no authorization promise/microtask per chunk.

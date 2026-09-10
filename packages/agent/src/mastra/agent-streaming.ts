@@ -71,6 +71,7 @@ import {
   validateToolApprovalAction,
   validateToolResumeAction,
 } from './attempt-legs';
+import { createDelegatedRunPublicationGuard } from './delegated-run-publication';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import {
   asMastraStreamPart,
@@ -1080,7 +1081,14 @@ export async function* streamAttemptChunks({
         reasoningPartKind: readMastraReasoningPartKind,
       }
     );
+    const authorizeDelegatedRun = createDelegatedRunPublicationGuard(
+      runtime.conversationBinding?.bindRun,
+      runtime.delegationToolPersonas
+    );
     for await (const part of source) {
+      if (authorizeDelegatedRun) {
+        await authorizeDelegatedRun(part);
+      }
       const { chunks, finished } = await processMastraStreamPart(
         part,
         toolNames,

@@ -57,6 +57,7 @@ const PRESENT_RELATIONS = [
   'brainstrike_assistant_thread_placements',
   // Per-thread workspace snapshots (migration 095, BST-1268).
   'brainstrike_assistant_thread_workspaces',
+  'brainstrike_delegated_invocations',
   'brainstrike_delegated_conversations',
   'prompt_items',
   'brainstrike_assistant_tool_output_artifacts',

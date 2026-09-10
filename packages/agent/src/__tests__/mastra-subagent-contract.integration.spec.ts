@@ -1,4 +1,6 @@
+import { createDelegatedConversationRepository, runDrizzleMigrations } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
+import { createLogger } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 import {
   Agent,
@@ -14,6 +16,11 @@ import type { ChunkType } from '@mastra/core/stream';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { createDelegatedConversationBinding } from '../mastra/delegated-conversation-binding';
+import {
+  createDelegatedRunPublicationGuard,
+  type DelegatedRunIdentity,
+} from '../mastra/delegated-run-publication';
 import { createDelegationConfig } from '../mastra/subagent-delegation';
 import { createPgliteMastraMemory, type PgliteDatabase } from '../pglite-mastra-memory';
 import {
@@ -188,33 +195,57 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
   it.each([true, false])(
     'exposes per-invocation identity before child publication (explicit memory=%s)',
     async (childMemory) => {
+      await runDrizzleMigrations(database);
+      const graph = createDelegatedConversationRepository(database);
+      const rootScope = { ownerResourceId: 'owner', rootThreadId: 'root' };
       const scopes = new Map<string, { threadId: string; resourceId: string }>();
+      const parentRuns = new Map<string, string>();
       const processedRuns = new Map<string, Set<string>>();
       const publishedRuns = new Map<string, string>();
       const completions = vi.fn<(context: DelegationCompleteContext) => void>();
-      const invocationKey = 'brainstrike-test-invocation';
-      const processor: InputProcessor & OutputProcessor = {
-        id: 'child-identity-proof',
-        processInput: async ({ messages, requestContext }) => {
-          const scope = parseMemoryRequestContext(requestContext);
-          const invocation = requestContext?.get(invocationKey);
-          if (!(scope?.thread?.id && scope.resourceId && typeof invocation === 'string')) {
-            throw new Error('Child memory or invocation identity is missing');
-          }
-          // The native input boundary awaits asynchronous work before the start
-          // event. This query proves ordering, not durable graph persistence.
-          await database.query('SELECT 1');
-          scopes.set(invocation, { resourceId: scope.resourceId, threadId: scope.thread.id });
-          return messages;
-        },
+      const binding = createDelegatedConversationBinding(async (identity) => {
+        const nativeThread = await backing.memory.getThreadById({
+          threadId: identity.childThreadId,
+        });
+        expect(nativeThread?.resourceId).toBe(identity.childResourceId);
+        await graph.registerRoot(rootScope);
+        await graph.createChild(rootScope, {
+          color: 'blue',
+          configuration: identity.configuration,
+          displayName: identity.parentToolCallId,
+          parentThreadId: identity.parentThreadId,
+          resourceId: identity.childResourceId,
+          threadId: identity.childThreadId,
+        });
+        await database.query(`INSERT INTO brainstrike_assistant_thread_runs
+          (id, resource_id, thread_id, provider, model, runtime_kind, status,
+            started_at, created_at, updated_at, turn_message_id)
+          VALUES ('host-leg', 'owner', 'root', 'openai', 'scripted', 'desktop', 'running',
+            NOW(), NOW(), NOW(), 'user-turn') ON CONFLICT (id) DO NOTHING`);
+        await graph.createInvocation(rootScope, {
+          hostRunId: 'host-leg',
+          parentRuntimeRunId: identity.parentRuntimeRunId,
+          parentThreadId: identity.parentThreadId,
+          parentToolCallId: identity.parentToolCallId,
+          personaId: identity.personaId,
+          threadId: identity.childThreadId,
+        });
+        parentRuns.set(identity.parentToolCallId, identity.parentRuntimeRunId);
+        scopes.set(identity.parentToolCallId, {
+          resourceId: identity.childResourceId,
+          threadId: identity.childThreadId,
+        });
+      });
+      const processor: OutputProcessor = {
+        id: 'child-run-proof',
         processOutputStream: async ({ part, requestContext }) => {
-          const invocation = requestContext?.get(invocationKey);
-          if (typeof invocation !== 'string') {
-            throw new Error('Child invocation identity is missing');
+          const scope = parseMemoryRequestContext(requestContext);
+          if (!scope?.thread?.id) {
+            throw new Error('Child scope is missing');
           }
-          const runs = processedRuns.get(invocation) ?? new Set<string>();
+          const runs = processedRuns.get(scope.thread.id) ?? new Set<string>();
           runs.add(part.runId);
-          processedRuns.set(invocation, runs);
+          processedRuns.set(scope.thread.id, runs);
           return part;
         },
       };
@@ -226,22 +257,38 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
               ...toolCallParts('agent-child', 'second', { prompt: 'Second task' }).slice(1),
             ]
       );
+      const delegationPolicy = createDelegationConfig({
+        conversationBinding: binding,
+        logger: createLogger('SubagentBindingTest'),
+        personasById: new Map([
+          [
+            'child',
+            {
+              allowedToolIds: [],
+              description: 'Read',
+              id: 'child',
+              instructions: 'Read',
+              label: 'Child',
+              maxSteps: 16,
+            },
+          ],
+        ]),
+      });
       const { parent, effect } = tree({
-        childInputProcessor: processor,
+        childInputProcessor: binding.inputProcessor,
         childMemory,
         childOutputProcessor: processor,
         delegation: {
           hookErrorStrategy: 'throw',
           onDelegationComplete: completions,
-          onDelegationStart: ({ requestContext, toolCallId }) => {
-            requestContext.set(invocationKey, toolCallId);
-          },
+          onDelegationStart: (context) => delegationPolicy.onDelegationStart?.(context),
         },
         rootModel,
       });
       const output = await parent.stream('Run both tasks', {
         memory: { resource: 'owner', thread: 'root' },
       });
+      const reloadedGraph = createDelegatedConversationRepository(database);
       for await (const chunk of output.fullStream) {
         if (chunk.type !== 'tool-output') {
           continue;
@@ -253,9 +300,30 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         // Includes the very first native `start`, which bypasses output
         // processors. Correlate by the parent's call id, never persona/FIFO.
         expect(scopes.has(invocation), `${invocation}: ${nested.type}`).toBe(true);
+        const boundScope = scopes.get(invocation);
+        if (!boundScope) {
+          throw new Error('Published child has no bound scope');
+        }
+        const persisted = await reloadedGraph.get(rootScope, boundScope.threadId);
+        expect(persisted).toMatchObject({
+          displayName: invocation,
+          resourceId: boundScope.resourceId,
+        });
+        const parentRuntimeRunId = parentRuns.get(invocation);
+        if (!parentRuntimeRunId) {
+          throw new Error('Missing observed parent run');
+        }
+        const key = { parentRuntimeRunId, parentToolCallId: invocation };
         if (nested.type === 'start') {
+          await graph.bindInvocationRun(rootScope, key, nested.runId);
           publishedRuns.set(invocation, nested.runId);
         }
+        expect(await reloadedGraph.getInvocation(rootScope, key)).toMatchObject({
+          childRuntimeRunId: nested.runId,
+          hostRunId: 'host-leg',
+          threadId: boundScope.threadId,
+          turnMessageId: 'user-turn',
+        });
       }
       expect(effect).toHaveBeenCalledTimes(2);
       expect(completions).toHaveBeenCalledTimes(2);
@@ -267,21 +335,41 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
           resourceId: completion.result.subAgentResourceId,
           threadId: completion.result.subAgentThreadId,
         });
-        expect(processedRuns.get(completion.toolCallId)).toEqual(
+        if (!completion.result.subAgentThreadId) {
+          throw new Error('Completed child has no native thread');
+        }
+        expect(processedRuns.get(completion.result.subAgentThreadId)).toEqual(
           new Set([publishedRuns.get(completion.toolCallId)])
         );
       }
     }
   );
 
+  it('rejects a child whose parent was not registered by the trusted delegation hook', async () => {
+    const persist = vi.fn(async () => undefined);
+    const binding = createDelegatedConversationBinding(persist);
+    const { parent, childModel, effect } = tree({ childInputProcessor: binding.inputProcessor });
+    const output = await parent.stream('Find evidence', {
+      memory: { resource: 'owner', thread: 'root' },
+    });
+    const chunks = await collect(output.fullStream);
+    expect(JSON.stringify(chunks)).toContain('no trusted parent binding');
+    expect(persist).not.toHaveBeenCalled();
+    expect(childModel.prompts).toHaveLength(0);
+    expect(effect).not.toHaveBeenCalled();
+  });
+
   it('surfaces failed input identity binding before child model or tool execution', async () => {
+    const binding = createDelegatedConversationBinding(async () => {
+      await database.query('SELECT 1');
+      throw new Error('Delegated identity persistence failed');
+    });
     const { parent, childModel, effect } = tree({
-      childInputProcessor: {
-        id: 'failed-child-identity',
-        processInput: async () => {
-          await database.query('SELECT 1');
-          throw new Error('Delegated identity persistence failed');
-        },
+      childInputProcessor: binding.inputProcessor,
+      delegation: {
+        hookErrorStrategy: 'throw',
+        onDelegationStart: (context) =>
+          binding.prepare(context, { personaId: context.primitiveId }),
       },
     });
     const output = await parent.stream('Find evidence', {
@@ -331,8 +419,18 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         expect.objectContaining({ toolCallId: 'leaf-1', toolName: 'agent-leaf' }),
       ])
     );
-    expect(parentResult.result.usage?.totalTokens).toBeGreaterThan(0);
-    expect(childResult.result.usage?.totalTokens).toBeGreaterThan(0);
+    // Each scripted agent makes two provider calls at one input/output token each.
+    // Native child usage excludes its descendants, so the tree sums each run once.
+    expect(parentResult.result.usage).toMatchObject({
+      inputTokens: 2,
+      outputTokens: 2,
+      totalTokens: 4,
+    });
+    expect(childResult.result.usage).toMatchObject({
+      inputTokens: 2,
+      outputTokens: 2,
+      totalTokens: 4,
+    });
     const rows = await database.query<{ thread_id: string }>(
       'SELECT DISTINCT thread_id FROM mastra_messages'
     );
@@ -376,11 +474,29 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
   it.each([true, false])(
     'routes grandchild approval through recreated agents and storage (approved=%s)',
     async (approved) => {
-      const { parent, effect, host } = tree({ requireApproval: true });
+      const initialInput = vi.fn(
+        ({ messages }: Parameters<NonNullable<InputProcessor['processInput']>>[0]) => messages
+      );
+      const { parent, effect, host } = tree({
+        childInputProcessor: { id: 'resume-input-proof', processInput: initialInput },
+        requireApproval: true,
+      });
       const output = await parent.stream('Read evidence', {
         memory: { resource: 'owner', thread: 'approval-root' },
       });
-      const chunks = await collect(output.fullStream);
+      const initialBindings: DelegatedRunIdentity[] = [];
+      const authorizeInitial = createDelegatedRunPublicationGuard(
+        async (identity) => {
+          initialBindings.push(identity);
+        },
+        new Map([['agent-child', 'child']])
+      );
+      const chunks: ChunkType[] = [];
+      for await (const chunk of output.fullStream) {
+        await authorizeInitial(chunk);
+        chunks.push(chunk);
+      }
+      expect(initialBindings).toHaveLength(1);
       const approval = chunks.find((chunk) => chunk.type === 'tool-call-approval');
       expect(approval).toBeDefined();
       expect(effect).not.toHaveBeenCalled();
@@ -392,7 +508,14 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         database: memoryDatabase(),
         memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
       });
-      const recreated = tree({ requireApproval: true });
+      expect(initialInput).toHaveBeenCalledTimes(1);
+      const resumeInput = vi.fn(
+        ({ messages }: Parameters<NonNullable<InputProcessor['processInput']>>[0]) => messages
+      );
+      const recreated = tree({
+        childInputProcessor: { id: 'resume-input-proof', processInput: resumeInput },
+        requireApproval: true,
+      });
       const resume = approved
         ? await recreated.parent.approveToolCall({
             runId: output.runId,
@@ -402,9 +525,20 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
             runId: output.runId,
             toolCallId: approval.payload.toolCallId,
           });
-      await collect(resume.fullStream);
+      const resumedBindings: DelegatedRunIdentity[] = [];
+      const authorizeResume = createDelegatedRunPublicationGuard(
+        async (identity) => {
+          resumedBindings.push(identity);
+        },
+        new Map([['agent-child', 'child']])
+      );
+      for await (const chunk of resume.fullStream) {
+        await authorizeResume(chunk);
+      }
+      expect(resumedBindings).toEqual(initialBindings);
       expect(effect).not.toHaveBeenCalled();
       expect(recreated.effect).toHaveBeenCalledTimes(approved ? 1 : 0);
+      expect(resumeInput).not.toHaveBeenCalled();
       expect(await resume.text).toBe('child-1 answered');
     }
   );

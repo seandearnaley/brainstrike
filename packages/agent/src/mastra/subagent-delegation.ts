@@ -23,6 +23,7 @@ import type { AssistantRunEventMetadata } from '@brainstrike/assistant-contract'
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { ScopedLogger } from '@brainstrike/logging';
 import type { DelegationConfig } from '@mastra/core/agent';
+import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 
 export const MAX_CONCURRENT_DELEGATIONS = 2;
 export const MAX_DELEGATIONS_PER_RUN = 8;
@@ -64,6 +65,7 @@ export function createDelegationOutcomeCapture(): DelegationOutcomeCapture {
 }
 
 export interface CreateDelegationConfigParams {
+  readonly conversationBinding?: DelegatedConversationBinding;
   /** Optional sink for delegations that returned no answer (see above). */
   readonly delegationOutcomes?: DelegationOutcomeCapture;
   readonly logger: ScopedLogger;
@@ -292,10 +294,12 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         };
       }
 
+      const maxSteps = clampMaxSteps(persona.maxSteps, context.params.maxSteps);
+      params.conversationBinding?.prepare(context, { maxSteps, persona });
       inFlight += 1;
       total += 1;
       return {
-        modifiedMaxSteps: clampMaxSteps(persona.maxSteps, context.params.maxSteps),
+        modifiedMaxSteps: maxSteps,
         proceed: true,
       };
     },

@@ -2851,6 +2851,6 @@ existing children and their descendants retain that binding after the root's
 workspace changes. See `database.md` for migration/reset/deletion semantics.
 
 This storage foundation does not change production runtime behavior or usage
-writers. BST-1718 still needs invocation/run records, lifecycle and exact usage
-reconciliation, authenticated host wiring, resume hydration, and complete native
-branch deletion. Full child message persistence/rendering remains BST-1719.
+writers. Migration 127 now provides invocation/run binding records (see database.md).
+BST-1718 still needs lifecycle and exact usage reconciliation, authenticated
+host wiring, resume hydration, and complete native branch deletion. Full child message persistence/rendering remains BST-1719.

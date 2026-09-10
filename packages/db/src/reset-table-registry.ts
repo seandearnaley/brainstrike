@@ -51,6 +51,7 @@ export type MastraResetTable =
  */
 const BRAINSTRIKE_RESET_TABLES = [
   // Delegation ancestry is user data. Its self-FKs cascade the graph.
+  'brainstrike_delegated_invocations',
   'brainstrike_delegated_conversations',
   // Durable conversation-compaction ranges (migration 088, BST-1200). Exact
   // message-id sets cannot outlive the conversation rows they summarize.

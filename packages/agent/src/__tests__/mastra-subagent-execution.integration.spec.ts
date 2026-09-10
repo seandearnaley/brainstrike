@@ -15,11 +15,18 @@ import type {
 } from '@ai-sdk/provider';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
-import { PGlite } from '@electric-sql/pglite';
+import { createEnginePglite } from '@brainstrike/db/pglite-factory';
+import type { PGlite } from '@electric-sql/pglite';
+import { InMemoryStore } from '@mastra/core/storage';
 import { createTool } from '@mastra/core/tools';
+import { Memory } from '@mastra/memory';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { CHILD_WRAP_UP_FEEDBACK } from '../mastra/build-persona-subagents';
+import {
+  createDelegatedConversationBinding,
+  type DelegatedConversationIdentity,
+} from '../mastra/delegated-conversation-binding';
 import type { PgliteDatabase } from '../pglite-mastra-memory';
 import type { StreamChunk } from '../types';
 
@@ -719,19 +726,169 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
       }
     }
   }, 10_000);
+  it.each([
+    { rejected: false, toolFailure: false },
+    { rejected: true, toolFailure: false },
+    { rejected: false, toolFailure: true },
+  ])(
+    'awaits native child run authorization before publishing progress (%j)',
+    async ({ rejected, toolFailure }) => {
+      modelHolder.current = createSupervisorModel('authorized-child-tool');
+      // This tests publication/abort, not database durability; use Mastra's public test store.
+      const memory = new Memory({
+        options: { generateTitle: false },
+        storage: new InMemoryStore(),
+      });
+      const identities: DelegatedConversationIdentity[] = [];
+      const bindRun = vi.fn(
+        async (identity: {
+          parentRuntimeRunId: string;
+          parentToolCallId: string;
+          childRuntimeRunId: string;
+        }) => {
+          expect(identities[0]).toMatchObject({
+            parentRuntimeRunId: identity.parentRuntimeRunId,
+            parentToolCallId: identity.parentToolCallId,
+          });
+          expect(identity.childRuntimeRunId).toBeTruthy();
+          expect(identity.childRuntimeRunId).not.toBe(identity.parentRuntimeRunId);
+          if (rejected) {
+            throw new Error('Native child run is unauthorized');
+          }
+          const child = identities[0];
+          if (!child) {
+            throw new Error('Missing child binding');
+          }
+          expect(await memory.getThreadById({ threadId: child.childThreadId })).toMatchObject({
+            resourceId: child.childResourceId,
+          });
+        }
+      );
+      const conversationBinding = {
+        ...createDelegatedConversationBinding(async (identity) => {
+          identities.push(identity);
+        }),
+        bindRun,
+      };
+      const execute = vi.fn(async () => {
+        if (toolFailure) {
+          throw new Error('Native child tool failed');
+        }
+        return { matches: ['match'] };
+      });
+      const iterator = await streamMastraAgent(
+        [{ id: 'binding-user', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+        {
+          conversationBinding,
+          memory,
+          personas: [testPersona],
+          runtime: {
+            apiKey: 'test-key',
+            memory: {
+              memorySettings: OM_DISABLED_MEMORY_SETTINGS,
+              resourceId: 'owner',
+              threadId: 'root',
+            },
+            provider: 'openai',
+          },
+          tools: { 'brainstrike.grepSearch': makeChildTool(execute) },
+        }
+      );
+      const progress: string[] = [];
+      const consume = async (): Promise<void> => {
+        for await (const chunk of iterator) {
+          if (chunk.type === 'run-event' && chunk.event.kind.startsWith('subagent.tool.')) {
+            expect(bindRun).toHaveBeenCalledOnce();
+            progress.push(chunk.event.kind);
+          }
+        }
+      };
+      if (rejected) {
+        await expect(consume()).rejects.toThrow('Native child run is unauthorized');
+        expect(progress).toEqual([]);
+      } else {
+        await consume();
+        expect(progress).toContain('subagent.tool.started');
+        if (toolFailure) {
+          await expect(execute.mock.results[0]?.value).rejects.toThrow('Native child tool failed');
+        }
+      }
+      expect(bindRun).toHaveBeenCalledOnce();
+    }
+  );
 });
 
 describe('mastra subagent delegation persistence (real PGlite memory)', () => {
   let database: PGlite;
 
-  beforeEach(() => {
-    database = new PGlite();
+  beforeEach(async () => {
+    database = await createEnginePglite();
     modelHolder.current = undefined;
   });
 
   afterEach(async () => {
     await database.close();
   });
+
+  it.each([false, true])(
+    'awaits the host binding before child execution (persistence failure=%s)',
+    async (fail) => {
+      const parentThreadId = 'binding-root';
+      const resourceId = 'binding-owner';
+      const bindings: DelegatedConversationIdentity[] = [];
+      modelHolder.current = createSupervisorModel('binding-child-tool');
+      const { memory } = await createPgliteMastraMemory({
+        database: database as unknown as PgliteDatabase,
+        memorySettings: OM_DISABLED_MEMORY_SETTINGS,
+      });
+      const conversationBinding = createDelegatedConversationBinding(async (identity) => {
+        const thread = await memory.getThreadById({ threadId: identity.childThreadId });
+        expect(thread?.resourceId).toBe(identity.childResourceId);
+        if (fail) {
+          throw new Error('Host binding write failed');
+        }
+        bindings.push(identity);
+      });
+      const execute = vi.fn(async () => {
+        expect(bindings).toHaveLength(1);
+        return { matches: ['bound'] };
+      });
+      const iterator = await streamMastraAgent(
+        [{ id: 'binding-user', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+        {
+          conversationBinding,
+          memory,
+          personas: [testPersona],
+          runtime: {
+            apiKey: 'test-key',
+            memory: {
+              memorySettings: OM_DISABLED_MEMORY_SETTINGS,
+              resourceId,
+              threadId: parentThreadId,
+            },
+            provider: 'openai',
+          },
+          tools: { 'brainstrike.grepSearch': makeChildTool(execute) },
+        }
+      );
+      const { runEvents } = await collect(iterator);
+      expect(execute).toHaveBeenCalledTimes(fail ? 0 : 1);
+      if (fail) {
+        expect(bindings).toHaveLength(0);
+        expect(runEvents.some((event) => event.kind === 'subagent.failed')).toBe(true);
+        return;
+      }
+      expect(bindings).toHaveLength(1);
+      expect(bindings[0]).toMatchObject({
+        configuration: { maxSteps: testPersona.maxSteps, persona: testPersona },
+        parentResourceId: resourceId,
+        parentRuntimeRunId: expect.any(String),
+        parentThreadId,
+        parentToolCallId: expect.any(String),
+        personaId: testPersona.id,
+      });
+    }
+  );
 
   it('persists the delegation as a tool-invocation part with inline subAgentToolResults; child rows live under a suffixed thread', async () => {
     const childCallId = 'child-call-persist';

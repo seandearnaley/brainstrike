@@ -206,6 +206,11 @@ Today exactly two product imports exist:
   thread-title model resolution and generation. That context remains
   Mastra-only: Brainstrike does not add product or `RuntimeData` fields to it.
 
+The delegated conversation binding adapter uses the child RequestContext only
+as a WeakMap key for ephemeral native-call correlation. It adds no entries and
+copies no RuntimeData; the host persistence callback travels as a direct runtime
+option. Snapshot-resume authorization must read durable host state instead.
+
 Zero of `RuntimeData`'s 43 contract fields
 (`packages/assistant-contract/src/runtime-data.ts:216-342`) travel through either
 context.
@@ -871,3 +876,10 @@ reference twice and OpenAI 400s. That re-key is still present verbatim in the
 `createdAt = new Date(existing.createdAt.getTime() + 1)` sites), and the
 processor operates on the PROMPT, so it also protects threads whose twin rows
 were persisted by older builds. `openai-duplicate-item-compat.ts` stays.
+
+BST-1718 publication boundary: `conversationBinding.bindRun` is a direct,
+process-local host callback. `streamAttemptChunks` awaits its native identity
+binding before mapping a child event, with a fresh authorization cache for each
+attempt/resume leg. It never serializes host authority into RequestContext or
+RuntimeData and never treats skipped resume input processing as authorization.
+Desktop activation and its durable host callback remain pending.

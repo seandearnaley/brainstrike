@@ -202,6 +202,12 @@ export {
   projectCompactionMessagesForSummarizer,
 } from './mastra/conversation-compaction';
 export {
+  createDelegatedConversationBinding,
+  type DelegatedConversationBinding,
+  type DelegatedConversationIdentity,
+} from './mastra/delegated-conversation-binding';
+export type { DelegatedRunIdentity } from './mastra/delegated-run-publication';
+export {
   clipGrepProjectionLine,
   formatGrepContentHeader,
   formatGrepContentRow,

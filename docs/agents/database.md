@@ -341,6 +341,42 @@ loaded in a new engine, and production-ledger upgrade/replay. Invocation/run
 identity, lifecycle, usage and host publication are subsequent BST-1718 layers;
 the graph repository is not yet called by production delegation.
 
+### Native invocation identity (BST-1718, host activation pending)
+
+Migration 127 adds `brainstrike_delegated_invocations`. Its immutable key is
+root thread + observed native parent run + parent tool call. A conversation may
+have multiple invocations; persona identity is never a substitute for either.
+`createInvocation` requires an already authorized child graph node and a real
+root host run row belonging to the same owner/root. It snapshots that row's
+nonblank `turn_message_id`. The host leg id and native parent run id are separate:
+Mastra mints its own run ids, and approval/suspension creates new host legs.
+
+`bindInvocationRun` records the observed native child run once; exact duplicate
+delivery is idempotent and a different child run is rejected. A follow-up gets a
+new invocation key and child run while retaining its conversation. Reads and
+run binding revalidate the whole native ancestry and the original host row's
+owner/root/turn. Resume must read the existing invocation, rather than create it
+with the resume leg id. No placeholder native run id is invented before the
+first child stream chunk.
+
+Current root host-run writers set `turn_message_id` only on insert; terminal
+updates change status/error/timestamps. There is no age/count pruning of host
+run rows today. The invocation FK cascades on explicit host-run deletion; a
+future retention policy must retain these rows while descendants can resume,
+or atomically delete the complete branch. It must not silently orphan resumable
+identity. Reset helpers issue `DELETE`, not `TRUNCATE`, including the desktop
+and both direct-PGlite paths. Multiple pending follow-ups rely on the UNIQUE
+constraint's default NULLS DISTINCT semantics; a native child run cannot equal
+its native parent run.
+
+The repository has no lifecycle or usage writer yet. This is a persistence API,
+not desktop activation. `delegated-invocations.integration.test.ts` verifies
+ownership changes, duplicates, follow-ups, reconstruction in a new PGlite engine,
+production-ledger upgrade/replay, and native-thread deletion cascades. All reset
+paths clear the new table before its graph parent. The real Mastra contract test
+binds each of two concurrent child invocations before inspecting its first
+native event and verifies the separate host/root-turn/native identities.
+
 ## ASSISTANT THREAD GROUP PRESENTATION
 
 Thread group structure and presentation are local-first Brainstrike state in
@@ -1178,3 +1214,9 @@ the branch; restoring the exact native scope restores visibility. This storage
 layer does not promise permanent revocation or garbage collection. The host must
 source child write identities from observed native delegation, never caller ids;
 thread creation timestamps are not proof of ownership or delegation.
+
+Before production host activation, note that createChild revalidates current root
+workspace metadata even on duplicate delivery. Malformed current metadata rejects
+a duplicate write; get still returns the original authorized binding. The host
+must distinguish reading an existing invocation from creating a new one and must
+not use duplicate createChild as a substitute for resume authorization.

@@ -347,6 +347,9 @@ export function buildStreamOptions(
     ...(delegationUsage
       ? {
           delegation: createDelegationConfig({
+            ...(runtime.conversationBinding
+              ? { conversationBinding: runtime.conversationBinding }
+              : {}),
             ...(delegationOutcomes ? { delegationOutcomes } : {}),
             logger,
             onChildUsage: delegationUsage.onChildUsage,
