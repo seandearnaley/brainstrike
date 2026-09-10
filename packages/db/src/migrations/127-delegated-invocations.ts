@@ -15,9 +15,11 @@ export const migration127DelegatedInvocations: Migration = {
       parent_runtime_run_id text NOT NULL CHECK (length(btrim(parent_runtime_run_id)) > 0),
       parent_tool_call_id text NOT NULL CHECK (length(btrim(parent_tool_call_id)) > 0),
       persona_id text NOT NULL CHECK (length(btrim(persona_id)) > 0),
-      child_runtime_run_id text CHECK (length(btrim(child_runtime_run_id)) > 0),
+      child_runtime_run_id text CHECK (length(btrim(child_runtime_run_id)) > 0
+        AND child_runtime_run_id <> parent_runtime_run_id),
       created_at timestamptz NOT NULL DEFAULT NOW(),
       PRIMARY KEY (root_thread_id, parent_runtime_run_id, parent_tool_call_id),
+      -- NULLS DISTINCT deliberately permits multiple not-yet-started follow-ups.
       UNIQUE (root_thread_id, thread_id, child_runtime_run_id),
       FOREIGN KEY (thread_id, root_thread_id, owner_resource_id)
         REFERENCES brainstrike_delegated_conversations(thread_id, root_thread_id, owner_resource_id)

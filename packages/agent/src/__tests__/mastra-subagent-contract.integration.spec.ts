@@ -288,6 +288,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       const output = await parent.stream('Run both tasks', {
         memory: { resource: 'owner', thread: 'root' },
       });
+      const reloadedGraph = createDelegatedConversationRepository(database);
       for await (const chunk of output.fullStream) {
         if (chunk.type !== 'tool-output') {
           continue;
@@ -303,10 +304,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         if (!boundScope) {
           throw new Error('Published child has no bound scope');
         }
-        const persisted = await createDelegatedConversationRepository(database).get(
-          rootScope,
-          boundScope.threadId
-        );
+        const persisted = await reloadedGraph.get(rootScope, boundScope.threadId);
         expect(persisted).toMatchObject({
           displayName: invocation,
           resourceId: boundScope.resourceId,
@@ -320,9 +318,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
           await graph.bindInvocationRun(rootScope, key, nested.runId);
           publishedRuns.set(invocation, nested.runId);
         }
-        expect(
-          await createDelegatedConversationRepository(database).getInvocation(rootScope, key)
-        ).toMatchObject({
+        expect(await reloadedGraph.getInvocation(rootScope, key)).toMatchObject({
           childRuntimeRunId: nested.runId,
           hostRunId: 'host-leg',
           threadId: boundScope.threadId,

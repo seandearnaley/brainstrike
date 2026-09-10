@@ -17,12 +17,23 @@ function requireIdentity(value: string | undefined): string {
 
 /** Each attempt/resume leg must authorize its first child event from durable host state. */
 export function createDelegatedRunPublicationGuard(
+  bindRun: NonNullable<DelegatedConversationBinding['bindRun']>,
+  personas: ReadonlyMap<string, string>
+): (part: unknown) => Promise<void>;
+export function createDelegatedRunPublicationGuard(
   bindRun: DelegatedConversationBinding['bindRun'],
   personas: ReadonlyMap<string, string>
-): (part: unknown) => Promise<void> {
+): ((part: unknown) => Promise<void>) | undefined;
+export function createDelegatedRunPublicationGuard(
+  bindRun: DelegatedConversationBinding['bindRun'],
+  personas: ReadonlyMap<string, string>
+): ((part: unknown) => Promise<void>) | undefined {
+  if (!bindRun) {
+    return;
+  }
   const authorized = new Map<string, string>();
   return async (part) => {
-    if (!bindRun || readMastraStreamPartString(part, 'type') !== 'tool-output') {
+    if (readMastraStreamPartString(part, 'type') !== 'tool-output') {
       return;
     }
     const toolName = readMastraStreamPartString(part, 'toolName');

@@ -440,7 +440,9 @@ Tips for MCP integration:
 ### Host-owned delegated conversation binding (BST-1718)
 
 `MastraAgentRuntimeOptions.conversationBinding` accepts
-`createDelegatedConversationBinding(persist)`. The native delegation hook records
+`createDelegatedConversationBinding(persist)`. This requires parent/child thread
+memory scope and a structured-cloneable configuration snapshot; the host validates
+a finite JSON object before storage. The native delegation hook records
 observed parent identity in a WeakMap keyed by the actual child RequestContext;
 the child input processor awaits the host callback with its actual native
 thread/resource and an immutable persona/step-cap snapshot. Missing parent

@@ -359,6 +359,16 @@ owner/root/turn. Resume must read the existing invocation, rather than create it
 with the resume leg id. No placeholder native run id is invented before the
 first child stream chunk.
 
+Current root host-run writers set `turn_message_id` only on insert; terminal
+updates change status/error/timestamps. There is no age/count pruning of host
+run rows today. The invocation FK cascades on explicit host-run deletion; a
+future retention policy must retain these rows while descendants can resume,
+or atomically delete the complete branch. It must not silently orphan resumable
+identity. Reset helpers issue `DELETE`, not `TRUNCATE`, including the desktop
+and both direct-PGlite paths. Multiple pending follow-ups rely on the UNIQUE
+constraint's default NULLS DISTINCT semantics; a native child run cannot equal
+its native parent run.
+
 The repository has no lifecycle or usage writer yet. This is a persistence API,
 not desktop activation. `delegated-invocations.integration.test.ts` verifies
 ownership changes, duplicates, follow-ups, reconstruction in a new PGlite engine,

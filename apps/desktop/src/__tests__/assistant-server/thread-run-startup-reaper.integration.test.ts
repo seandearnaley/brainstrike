@@ -168,11 +168,13 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
   it('lets an unmigrated database raise 42P01 as itself instead of reporting a benign sweep', async () => {
     const rootPath = await makeTempDir();
     const { db } = await createRewindFixture({ 'root-1': rootPath }, 'reaper-no-table');
-    // Both relations, in dependency order. Migration 118 creates them
+    // Remove dependent relations first. Migration 118 creates the timeline
     // together and `run_events` carries a foreign key to the run header, so
     // the only database that lacks the header lacks the timeline too — a bare
     // `DROP TABLE` on the parent alone is refused, and `CASCADE` would hide
     // which relations this case actually means to remove.
+    // Migration 127 adds invocation identity as another dependent of the header.
+    await db.exec('DROP TABLE brainstrike_delegated_invocations');
     await db.exec('DROP TABLE brainstrike_assistant_run_events');
     await db.exec('DROP TABLE brainstrike_assistant_thread_runs');
 

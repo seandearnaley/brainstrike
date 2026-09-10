@@ -7,6 +7,7 @@ import type { DelegatedRunIdentity } from './delegated-run-publication';
 export interface DelegatedConversationIdentity {
   readonly childResourceId: string;
   readonly childThreadId: string;
+  /** Structured-cloneable snapshot; the host validates a finite JSON object before storage. */
   readonly configuration: unknown;
   readonly parentResourceId: string;
   readonly parentRuntimeRunId: string;
@@ -33,6 +34,7 @@ function requireIdentity(value: string | undefined): string {
 
 /**
  * Correlate concurrent native calls without copying RuntimeData into RequestContext.
+ * Requires parent and child memory scope. Configuration must be structured-cloneable.
  * This weak map lives only for the runtime. Durable snapshot resume skips processInput:
  * the host must authorize persisted identity before forwarding resumed events.
  */

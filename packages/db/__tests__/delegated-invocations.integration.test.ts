@@ -93,6 +93,17 @@ describe('durable delegated invocation identity (BST-1718)', () => {
     expect(await repository.getInvocation(scope, invocation)).toBeNull();
   });
 
+  it('rejects using the parent native run as its child run', async () => {
+    const repository = createDelegatedConversationRepository(database);
+    await repository.createInvocation(scope, invocation);
+    await expect(
+      repository.bindInvocationRun(scope, invocation, invocation.parentRuntimeRunId)
+    ).rejects.toThrow();
+    expect(await repository.getInvocation(scope, invocation)).toMatchObject({
+      childRuntimeRunId: null,
+    });
+  });
+
   it('does not rebind an existing invocation to another persona', async () => {
     const repository = createDelegatedConversationRepository(database);
     await repository.createInvocation(scope, invocation);

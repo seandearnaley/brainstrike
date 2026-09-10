@@ -584,3 +584,11 @@ PGlite. Do not close a live host database merely because iteration rejected.
 Paired production-stream tests cover awaited binding, single binding per attempt
 and visible rejection without child progress; real recreated native approval
 and decline tests prove the guard sees the same persisted native run identity.
+
+Review clarification: the publication host must compare observed `personaId` with
+`getInvocation(...).personaId` before calling `bindInvocationRun`; the latter
+binds only the native run key. Missing/changed native identities remain fatal to
+publication, rather than being skipped and potentially forwarded as authorized.
+A real native child-tool failure retains its native chunk identity and is covered
+by the production-stream guard test. With no `bindRun` capability, the guard is
+absent and the stream loop adds no authorization promise/microtask per chunk.

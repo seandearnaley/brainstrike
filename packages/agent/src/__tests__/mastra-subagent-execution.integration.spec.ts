@@ -726,9 +726,13 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
       }
     }
   }, 10_000);
-  it.each([false, true])(
-    'awaits native child run authorization before publishing progress (rejected=%s)',
-    async (rejected) => {
+  it.each([
+    { rejected: false, toolFailure: false },
+    { rejected: true, toolFailure: false },
+    { rejected: false, toolFailure: true },
+  ])(
+    'awaits native child run authorization before publishing progress (%j)',
+    async ({ rejected, toolFailure }) => {
       modelHolder.current = createSupervisorModel('authorized-child-tool');
       // This tests publication/abort, not database durability; use Mastra's public test store.
       const memory = new Memory({
@@ -766,6 +770,12 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
         }),
         bindRun,
       };
+      const execute = vi.fn(async () => {
+        if (toolFailure) {
+          throw new Error('Native child tool failed');
+        }
+        return { matches: ['match'] };
+      });
       const iterator = await streamMastraAgent(
         [{ id: 'binding-user', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
         {
@@ -781,7 +791,7 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
             },
             provider: 'openai',
           },
-          tools: { 'brainstrike.grepSearch': makeChildTool(async () => ({ matches: ['match'] })) },
+          tools: { 'brainstrike.grepSearch': makeChildTool(execute) },
         }
       );
       const progress: string[] = [];
@@ -799,6 +809,9 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
       } else {
         await consume();
         expect(progress).toContain('subagent.tool.started');
+        if (toolFailure) {
+          await expect(execute.mock.results[0]?.value).rejects.toThrow('Native child tool failed');
+        }
       }
       expect(bindRun).toHaveBeenCalledOnce();
     }

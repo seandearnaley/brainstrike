@@ -1086,7 +1086,9 @@ export async function* streamAttemptChunks({
       runtime.delegationToolPersonas
     );
     for await (const part of source) {
-      await authorizeDelegatedRun(part);
+      if (authorizeDelegatedRun) {
+        await authorizeDelegatedRun(part);
+      }
       const { chunks, finished } = await processMastraStreamPart(
         part,
         toolNames,
