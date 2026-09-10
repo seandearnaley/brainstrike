@@ -1,0 +1,95 @@
+/*
+ * Theme "orchid" — GENERATED from shadcn preset b4aRK71bRz. Do not hand-edit values.
+ * Regenerate: node scripts/import-shadcn-theme.mjs b4aRK71bRz orchid
+ * Preview:    https://ui.shadcn.com/create?preset=b4aRK71bRz
+ *
+ * Decoded preset:
+ *   baseColor   mauve
+ *   chartColor  red
+ *   font        ibm-plex-sans
+ *   fontHeading merriweather
+ *   iconLibrary hugeicons
+ *   menuAccent  subtle
+ *   menuColor   inverted-translucent
+ *   radius      default
+ *   style       maia
+ *   theme       pink
+ *
+ * Only the colour palette and radius are adopted. Style, fonts and icons are
+ * project-wide choices and are not part of a theme. Semantic status tokens
+ * (success/warning/info) and the font hooks inherit from themes/brainstrike.css.
+ */
+:root[data-theme="orchid"] {
+  --bs-background: oklch(1 0 0);
+  --bs-radius: 0.625rem;
+  --bs-foreground: oklch(0.145 0.008 326);
+  --bs-card: oklch(1 0 0);
+  --bs-card-foreground: oklch(0.145 0.008 326);
+  --bs-popover: oklch(1 0 0);
+  --bs-popover-foreground: oklch(0.145 0.008 326);
+  --bs-primary: oklch(0.525 0.223 3.958);
+  --bs-primary-foreground: oklch(0.971 0.014 343.198);
+  --bs-secondary: oklch(0.967 0.001 286.375);
+  --bs-secondary-foreground: oklch(0.21 0.006 285.885);
+  --bs-muted: oklch(0.96 0.003 325.6);
+  --bs-muted-foreground: oklch(0.542 0.034 322.5);
+  --bs-accent: oklch(0.96 0.003 325.6);
+  --bs-accent-foreground: oklch(0.212 0.019 322.12);
+  --bs-destructive: oklch(0.577 0.245 27.325);
+  --bs-border: oklch(0.922 0.005 325.62);
+  --bs-input: oklch(0.922 0.005 325.62);
+  --bs-ring: oklch(0.711 0.019 323.02);
+  --bs-chart-1: oklch(0.808 0.114 19.571);
+  --bs-chart-2: oklch(0.637 0.237 25.331);
+  --bs-chart-3: oklch(0.577 0.245 27.325);
+  --bs-chart-4: oklch(0.505 0.213 27.518);
+  --bs-chart-5: oklch(0.444 0.177 26.899);
+  --bs-sidebar: oklch(0.985 0 0);
+  --bs-sidebar-foreground: oklch(0.145 0.008 326);
+  --bs-sidebar-primary: oklch(0.592 0.249 0.584);
+  --bs-sidebar-primary-foreground: oklch(0.971 0.014 343.198);
+  --bs-sidebar-accent: oklch(0.96 0.003 325.6);
+  --bs-sidebar-accent-foreground: oklch(0.212 0.019 322.12);
+  --bs-sidebar-border: oklch(0.922 0.005 325.62);
+  --bs-sidebar-ring: oklch(0.711 0.019 323.02);
+  --bs-destructive-foreground: oklch(0.985 0 0);
+  --bs-panel-divider: oklch(from var(--bs-border) calc(l - 0.06) c h);
+  --bs-panel-surface: linear-gradient(to bottom, var(--bs-background), var(--bs-muted));
+}
+
+:root[data-theme="orchid"].dark {
+  --bs-background: oklch(0.145 0.008 326);
+  --bs-foreground: oklch(0.985 0 0);
+  --bs-card: oklch(0.212 0.019 322.12);
+  --bs-card-foreground: oklch(0.985 0 0);
+  --bs-popover: oklch(0.212 0.019 322.12);
+  --bs-popover-foreground: oklch(0.985 0 0);
+  --bs-primary: oklch(0.459 0.187 3.815);
+  --bs-primary-foreground: oklch(0.971 0.014 343.198);
+  --bs-secondary: oklch(0.274 0.006 286.033);
+  --bs-secondary-foreground: oklch(0.985 0 0);
+  --bs-muted: oklch(0.263 0.024 320.12);
+  --bs-muted-foreground: oklch(0.711 0.019 323.02);
+  --bs-accent: oklch(0.263 0.024 320.12);
+  --bs-accent-foreground: oklch(0.985 0 0);
+  --bs-destructive: oklch(0.704 0.191 22.216);
+  --bs-border: oklch(1 0 0 / 10%);
+  --bs-input: oklch(1 0 0 / 15%);
+  --bs-ring: oklch(0.542 0.034 322.5);
+  --bs-chart-1: oklch(0.808 0.114 19.571);
+  --bs-chart-2: oklch(0.637 0.237 25.331);
+  --bs-chart-3: oklch(0.577 0.245 27.325);
+  --bs-chart-4: oklch(0.505 0.213 27.518);
+  --bs-chart-5: oklch(0.444 0.177 26.899);
+  --bs-sidebar: oklch(0.212 0.019 322.12);
+  --bs-sidebar-foreground: oklch(0.985 0 0);
+  --bs-sidebar-primary: oklch(0.656 0.241 354.308);
+  --bs-sidebar-primary-foreground: oklch(0.971 0.014 343.198);
+  --bs-sidebar-accent: oklch(0.263 0.024 320.12);
+  --bs-sidebar-accent-foreground: oklch(0.985 0 0);
+  --bs-sidebar-border: oklch(1 0 0 / 10%);
+  --bs-sidebar-ring: oklch(0.542 0.034 322.5);
+  --bs-destructive-foreground: oklch(0.985 0 0);
+  --bs-panel-divider: oklch(from var(--bs-border) calc(l + 0.06) c h);
+  --bs-panel-surface: linear-gradient(to bottom, var(--bs-background), var(--bs-muted));
+}

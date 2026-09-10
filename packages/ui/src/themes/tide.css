@@ -1,0 +1,95 @@
+/*
+ * Theme "tide" — GENERATED from shadcn preset bNRM0gzE1. Do not hand-edit values.
+ * Regenerate: node scripts/import-shadcn-theme.mjs bNRM0gzE1 tide
+ * Preview:    https://ui.shadcn.com/create?preset=bNRM0gzE1
+ *
+ * Decoded preset:
+ *   baseColor   mist
+ *   chartColor  lime
+ *   font        noto-sans
+ *   fontHeading inter
+ *   iconLibrary remixicon
+ *   menuAccent  bold
+ *   menuColor   inverted
+ *   radius      small
+ *   style       luma
+ *   theme       cyan
+ *
+ * Only the colour palette and radius are adopted. Style, fonts and icons are
+ * project-wide choices and are not part of a theme. Semantic status tokens
+ * (success/warning/info) and the font hooks inherit from themes/brainstrike.css.
+ */
+:root[data-theme="tide"] {
+  --bs-background: oklch(1 0 0);
+  --bs-radius: 0.45rem;
+  --bs-foreground: oklch(0.148 0.004 228.8);
+  --bs-card: oklch(1 0 0);
+  --bs-card-foreground: oklch(0.148 0.004 228.8);
+  --bs-popover: oklch(1 0 0);
+  --bs-popover-foreground: oklch(0.148 0.004 228.8);
+  --bs-primary: oklch(0.52 0.105 223.128);
+  --bs-primary-foreground: oklch(0.984 0.019 200.873);
+  --bs-secondary: oklch(0.967 0.001 286.375);
+  --bs-secondary-foreground: oklch(0.21 0.006 285.885);
+  --bs-muted: oklch(0.963 0.002 197.1);
+  --bs-muted-foreground: oklch(0.56 0.021 213.5);
+  --bs-accent: oklch(0.52 0.105 223.128);
+  --bs-accent-foreground: oklch(0.984 0.019 200.873);
+  --bs-destructive: oklch(0.577 0.245 27.325);
+  --bs-border: oklch(0.925 0.005 214.3);
+  --bs-input: oklch(0.925 0.005 214.3);
+  --bs-ring: oklch(0.723 0.014 214.4);
+  --bs-chart-1: oklch(0.897 0.196 126.665);
+  --bs-chart-2: oklch(0.768 0.233 130.85);
+  --bs-chart-3: oklch(0.648 0.2 131.684);
+  --bs-chart-4: oklch(0.532 0.157 131.589);
+  --bs-chart-5: oklch(0.453 0.124 130.933);
+  --bs-sidebar: oklch(0.987 0.002 197.1);
+  --bs-sidebar-foreground: oklch(0.148 0.004 228.8);
+  --bs-sidebar-primary: oklch(0.609 0.126 221.723);
+  --bs-sidebar-primary-foreground: oklch(0.984 0.019 200.873);
+  --bs-sidebar-accent: oklch(0.963 0.002 197.1);
+  --bs-sidebar-accent-foreground: oklch(0.218 0.008 223.9);
+  --bs-sidebar-border: oklch(0.925 0.005 214.3);
+  --bs-sidebar-ring: oklch(0.723 0.014 214.4);
+  --bs-destructive-foreground: oklch(0.985 0 0);
+  --bs-panel-divider: oklch(from var(--bs-border) calc(l - 0.06) c h);
+  --bs-panel-surface: linear-gradient(to bottom, var(--bs-background), var(--bs-muted));
+}
+
+:root[data-theme="tide"].dark {
+  --bs-background: oklch(0.148 0.004 228.8);
+  --bs-foreground: oklch(0.987 0.002 197.1);
+  --bs-card: oklch(0.218 0.008 223.9);
+  --bs-card-foreground: oklch(0.987 0.002 197.1);
+  --bs-popover: oklch(0.218 0.008 223.9);
+  --bs-popover-foreground: oklch(0.987 0.002 197.1);
+  --bs-primary: oklch(0.45 0.085 224.283);
+  --bs-primary-foreground: oklch(0.984 0.019 200.873);
+  --bs-secondary: oklch(0.274 0.006 286.033);
+  --bs-secondary-foreground: oklch(0.985 0 0);
+  --bs-muted: oklch(0.275 0.011 216.9);
+  --bs-muted-foreground: oklch(0.723 0.014 214.4);
+  --bs-accent: oklch(0.45 0.085 224.283);
+  --bs-accent-foreground: oklch(0.984 0.019 200.873);
+  --bs-destructive: oklch(0.704 0.191 22.216);
+  --bs-border: oklch(1 0 0 / 10%);
+  --bs-input: oklch(1 0 0 / 15%);
+  --bs-ring: oklch(0.56 0.021 213.5);
+  --bs-chart-1: oklch(0.897 0.196 126.665);
+  --bs-chart-2: oklch(0.768 0.233 130.85);
+  --bs-chart-3: oklch(0.648 0.2 131.684);
+  --bs-chart-4: oklch(0.532 0.157 131.589);
+  --bs-chart-5: oklch(0.453 0.124 130.933);
+  --bs-sidebar: oklch(0.218 0.008 223.9);
+  --bs-sidebar-foreground: oklch(0.987 0.002 197.1);
+  --bs-sidebar-primary: oklch(0.715 0.143 215.221);
+  --bs-sidebar-primary-foreground: oklch(0.302 0.056 229.695);
+  --bs-sidebar-accent: oklch(0.275 0.011 216.9);
+  --bs-sidebar-accent-foreground: oklch(0.987 0.002 197.1);
+  --bs-sidebar-border: oklch(1 0 0 / 10%);
+  --bs-sidebar-ring: oklch(0.56 0.021 213.5);
+  --bs-destructive-foreground: oklch(0.985 0 0);
+  --bs-panel-divider: oklch(from var(--bs-border) calc(l + 0.06) c h);
+  --bs-panel-surface: linear-gradient(to bottom, var(--bs-background), var(--bs-muted));
+}
