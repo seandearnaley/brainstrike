@@ -1754,17 +1754,31 @@ factory per request (see the auth-input EXACTLY-ONE rule above).
   verbatim and Bedrock reports the outcome. Never double-prefixes; `us-gov*`
   excluded; no `apac.` profiles exist today. Refresh procedure lives in the
   module header.
-- **An AWS model card OUTRANKS models.dev (BST-1694, PR #3080 review).**
-  models.dev is a third-party mirror and can list a regional profile AWS
-  never published; emitting one is a client-MANUFACTURED failure, strictly
-  worse than the verbatim id Bedrock can answer for. Where a card enumerates
-  a model's profiles, the card wins and the divergence is recorded inline in
-  the module header. Today's one override: `anthropic.claude-opus-5` is NOT
-  in the `jp.` set — its card publishes `us.`/`eu.`/`au.`/`global.` only and
-  marks ap-northeast-1 Global-only. Pre-existing, NOT fixed here: the same
-  divergence for `anthropic.claude-sonnet-5` (BST-1710), and the module has
-  no `global.` ROUTING at all, so Global-only regions get the verbatim id
-  (BST-1711).
+- **An AWS model card OUTRANKS models.dev (BST-1694, PR #3080 review;
+  `jp.` set audited to completion in BST-1710).** models.dev is a third-party
+  mirror: it can list a regional profile AWS never published, and it can
+  equally MISS one AWS does publish. Emitting a profile AWS does not publish is
+  a client-MANUFACTURED failure, strictly worse than the verbatim id Bedrock
+  can answer for. Where a card enumerates a model's profiles the card wins, and
+  the divergence is recorded inline in the module header.
+  - **Phantoms removed:** `anthropic.claude-opus-5` (BST-1694) and
+    `anthropic.claude-sonnet-5` (BST-1710) are NOT in the `jp.` set. Each
+    card publishes `us.`/`eu.`/`au.`/`global.` only, carries no "Geo: JP"
+    section, and marks ap-northeast-1 In-Region ✗ / Geo ✗ / Global ✓.
+  - **The audit cuts both ways:** BST-1710 also found
+    `anthropic.claude-opus-4-7` MISSING from the `au.` set although its card
+    publishes `au.anthropic.claude-opus-4-7` and marks ap-southeast-2/-4
+    Geo ✓ — so ap-southeast-2/-4 were emitting an id Bedrock cannot invoke.
+    It was ADDED. Under-emission and over-emission are the same defect.
+  - **Card-verified as published, kept in `jp.`:** `anthropic.claude-opus-4-7`,
+    `anthropic.claude-opus-4-8`, `anthropic.claude-sonnet-4-5-20250929-v1:0`,
+    `anthropic.claude-sonnet-4-6`,
+    `anthropic.claude-haiku-4-5-20251001-v1:0` (retrieved 2026-09-10). Ids
+    whose cards were not read keep their models.dev membership; none of them
+    is in the `jp.` set, so none can be a `jp.` phantom.
+  - **Still open:** the module emits no `global.` ROUTING at all, so every
+    region a card marks Geo ✗ / Global ✓ still gets the verbatim id
+    (BST-1711).
 - **Exclusions:** no embeddings (`createEmbeddingProvider` throws), not a
   persistent-memory provider (`PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS`),
   and NOT in `HOSTED_WEB_ASSISTANT_PROVIDERS` (desktop-only until a web ticket

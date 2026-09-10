@@ -128,10 +128,19 @@ describe('resolveBedrockModelId', () => {
   });
 
   describe('au regions (ap-southeast-2/4)', () => {
+    /**
+     * `anthropic.claude-opus-4-7` was MISSING from the au. set until BST-1710's
+     * card audit: its card publishes `au.anthropic.claude-opus-4-7` and marks
+     * ap-southeast-2/-4 Geo ✓, while marking the bare id In-Region ✗ in every
+     * region — so Sydney and Melbourne were being handed an id Bedrock cannot
+     * invoke. The audit cuts BOTH ways: drop the profiles AWS does not publish,
+     * emit the ones it does.
+     */
     it('prefixes the claude models that HAVE au. profiles', () => {
       for (const id of [
         'anthropic.claude-sonnet-5',
         'anthropic.claude-sonnet-4-6',
+        'anthropic.claude-opus-4-7',
         'anthropic.claude-opus-4-8',
         'anthropic.claude-haiku-4-5-20251001-v1:0',
       ]) {
@@ -154,11 +163,18 @@ describe('resolveBedrockModelId', () => {
   });
 
   describe('jp region (ap-northeast-1)', () => {
-    it('prefixes the claude models that HAVE jp. profiles', () => {
+    /**
+     * BST-1710: every id below was checked against its OWN AWS model card
+     * (retrieved 2026-09-10). Each card's Programmatic Access row lists a
+     * `jp.<id>` Geo inference ID and carries a "Geo: JP" section sourced from
+     * ap-northeast-1, so these are AWS-PUBLISHED profiles — not mirror guesses.
+     */
+    it('prefixes the claude models whose CARD publishes a jp. profile', () => {
       for (const id of [
-        'anthropic.claude-sonnet-5',
-        'anthropic.claude-sonnet-4-6',
+        'anthropic.claude-opus-4-7',
         'anthropic.claude-opus-4-8',
+        'anthropic.claude-sonnet-4-5-20250929-v1:0',
+        'anthropic.claude-sonnet-4-6',
         'anthropic.claude-haiku-4-5-20251001-v1:0',
       ]) {
         expect(resolveBedrockModelId(id, 'ap-northeast-1')).toBe(`jp.${id}`);
@@ -186,6 +202,34 @@ describe('resolveBedrockModelId', () => {
     it('leaves opus-5 unprefixed in jp — AWS publishes no jp. profile for it', () => {
       expect(resolveBedrockModelId('anthropic.claude-opus-5', 'ap-northeast-1')).toBe(
         'anthropic.claude-opus-5'
+      );
+    });
+
+    /**
+     * BST-1710: the SAME models.dev phantom as opus-5, one model later. The
+     * Claude Sonnet 5 card
+     * (docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5.html,
+     * retrieved 2026-09-10) gives Geo inference IDs `us.anthropic.claude-sonnet-5`,
+     * `eu.anthropic.claude-sonnet-5`, `au.anthropic.claude-sonnet-5` and Global
+     * `global.anthropic.claude-sonnet-5` — no `jp.` anywhere, no "Geo: JP"
+     * section, and its regional table marks ap-northeast-1 In-Region ✗ / Geo ✗ /
+     * Global ✓. The card outranks models.dev, so Tokyo sends the id verbatim.
+     */
+    it('leaves sonnet-5 unprefixed in jp — AWS publishes no jp. profile for it', () => {
+      expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'ap-northeast-1')).toBe(
+        'anthropic.claude-sonnet-5'
+      );
+    });
+
+    it('still emits the us./eu./au. profiles the sonnet-5 card DOES publish', () => {
+      expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'us-east-1')).toBe(
+        'us.anthropic.claude-sonnet-5'
+      );
+      expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'eu-west-1')).toBe(
+        'eu.anthropic.claude-sonnet-5'
+      );
+      expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'ap-southeast-2')).toBe(
+        'au.anthropic.claude-sonnet-5'
       );
     });
 
