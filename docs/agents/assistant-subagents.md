@@ -1058,7 +1058,9 @@ The Electron test exercises renderer reload and real history hydration with a
 scripted discovery response; the database test independently verifies admission
 state and ownership. Neither claims packaged process-restart UI parity.
 
-The decision-state lookup uses only returned pauses (including the existing
+The decision-state SQL joins the complete deduplicated root-run/root-call/leaf-run/leaf-call
+tuples, so retained historical decisions for the same child are not fetched or
+validated. The lookup uses only returned pauses (including the existing
 newest-ten suspend cap). Ordinary pauses require no extra decision-database
 read. A failed query or invalid saved state remains a visible discovery error;
 it must never become an empty annotation map that re-enables a consumed leaf.

@@ -70,8 +70,17 @@ describe('delegated decision rediscovery HTTP contract', () => {
       });
       expect(response.status).toBe(200);
       expect(mockDesktopDatabase.query).toHaveBeenCalledExactlyOnceWith(
-        expect.stringContaining('WHERE owner_resource_id = $1 AND root_thread_id = $2'),
-        ['workspace-a', 'thread-1', JSON.stringify(['child-run'])]
+        expect.stringContaining(
+          'WHERE decision.owner_resource_id = $1 AND decision.root_thread_id = $2'
+        ),
+        [
+          'workspace-a',
+          'thread-1',
+          JSON.stringify([
+            ['root-run', 'root-call', 'child-run', 'leaf-call'],
+            ['root-run', 'root-call', 'child-run', 'next-leaf'],
+          ]),
+        ]
       );
       const body: unknown = JSON.parse(response.body);
       expect(body).toMatchObject({
@@ -120,7 +129,14 @@ it('reads decision state only for the newest returned suspends', async () => {
     [
       'workspace-a',
       'thread-1',
-      JSON.stringify(Array.from({ length: 10 }, (_, index) => `child-${index + 2}`)),
+      JSON.stringify(
+        Array.from({ length: 10 }, (_, index) => [
+          `root-${index + 2}`,
+          `call-${index + 2}`,
+          `child-${index + 2}`,
+          'leaf-call',
+        ])
+      ),
     ]
   );
 });

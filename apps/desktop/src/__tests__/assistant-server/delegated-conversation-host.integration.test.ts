@@ -182,6 +182,31 @@ describe('desktop delegated conversation authority', () => {
     }
   );
 
+  it('loads only the requested leaf admission, not retained history for the same child run', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    await host.bindRun(run);
+    const action = {
+      delegation: { path: [run], toolCallId: 'current' },
+      runId: run.parentRuntimeRunId,
+      toolCallId: run.parentToolCallId,
+    };
+    for (const toolCallId of ['historical', 'current']) {
+      await host.claimToolAction({ ...action, delegation: { ...action.delegation, toolCallId } });
+      await host.finishToolActions();
+    }
+    const query = vi.fn(async (sql: string, parameters?: readonly unknown[]) =>
+      database.query(sql, parameters ? [...parameters] : undefined)
+    );
+    expect(await readDelegatedDecisionStates({ query }, scope, [action, action])).toEqual(
+      new Map([[JSON.stringify([run.childRuntimeRunId, 'current']), 'consumed']])
+    );
+    expect(query).toHaveBeenCalledTimes(1);
+    const result = await query.mock.results[0]?.value;
+    expect(result?.rows).toHaveLength(1);
+    expect(result?.rows).toMatchObject([{ leafToolCallId: 'current' }]);
+  });
+
   it('claims a leaf decision once and serializes sibling resumes across recreated hosts', async () => {
     const first = createDesktopDelegatedConversationHost(database, 'initial-leg');
     const second = createDesktopDelegatedConversationHost(database, 'resume-leg');

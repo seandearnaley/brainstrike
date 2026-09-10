@@ -27,40 +27,47 @@ export async function readDelegatedDecisionStates(
   scope: { readonly ownerResourceId: string; readonly rootThreadId: string },
   requests: readonly DiscoveredDecision[]
 ): Promise<ReadonlyMap<string, DelegatedToolDecisionState>> {
-  const requested = new Map<string, string>();
-  const childRunIds = new Set<string>();
+  const requested = new Map<
+    string,
+    { key: string; tuple: readonly [string, string, string, string] }
+  >();
   for (const request of requests) {
     const leaf = request.delegation?.path.at(-1);
     if (!(leaf && request.delegation)) {
       continue;
     }
-    requested.set(
-      JSON.stringify([
-        request.runId,
-        request.toolCallId,
-        leaf.childRuntimeRunId,
-        request.delegation.toolCallId,
-      ]),
-      getToolActionIdentityKey(request)
-    );
-    childRunIds.add(leaf.childRuntimeRunId);
+    const tuple = [
+      request.runId,
+      request.toolCallId,
+      leaf.childRuntimeRunId,
+      request.delegation.toolCallId,
+    ] as const;
+    requested.set(JSON.stringify(tuple), { key: getToolActionIdentityKey(request), tuple });
   }
   const states = new Map<string, DelegatedToolDecisionState>();
   if (requested.size === 0) {
     return states;
   }
   const result = await database.query(
-    `SELECT parent_runtime_run_id AS "runId", parent_tool_call_id AS "toolCallId",
-       child_runtime_run_id AS "childRuntimeRunId", tool_call_id AS "leafToolCallId", state
-     FROM brainstrike_delegated_tool_decisions
-     WHERE owner_resource_id = $1 AND root_thread_id = $2
-       AND child_runtime_run_id IN (SELECT jsonb_array_elements_text($3::jsonb))`,
-    [scope.ownerResourceId, scope.rootThreadId, JSON.stringify([...childRunIds])]
+    `SELECT decision.parent_runtime_run_id AS "runId", decision.parent_tool_call_id AS "toolCallId",
+       decision.child_runtime_run_id AS "childRuntimeRunId", decision.tool_call_id AS "leafToolCallId", decision.state
+     FROM brainstrike_delegated_tool_decisions AS decision
+     JOIN jsonb_array_elements($3::jsonb) AS requested(target)
+       ON decision.parent_runtime_run_id = requested.target->>0
+       AND decision.parent_tool_call_id = requested.target->>1
+       AND decision.child_runtime_run_id = requested.target->>2
+       AND decision.tool_call_id = requested.target->>3
+     WHERE decision.owner_resource_id = $1 AND decision.root_thread_id = $2`,
+    [
+      scope.ownerResourceId,
+      scope.rootThreadId,
+      JSON.stringify([...requested.values()].map(({ tuple }) => tuple)),
+    ]
   );
   for (const row of z.array(decisionRow).parse(result.rows)) {
     const key = requested.get(
       JSON.stringify([row.runId, row.toolCallId, row.childRuntimeRunId, row.leafToolCallId])
-    );
+    )?.key;
     if (key !== undefined) {
       states.set(key, row.state);
     }
