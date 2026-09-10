@@ -71,7 +71,7 @@ export function createDelegationOutcomeCapture(): DelegationOutcomeCapture {
 }
 
 export interface CreateDelegationConfigParams {
-  abortSignal?: AbortSignal | undefined;
+  abortSignal: AbortSignal;
   readonly conversationBinding?: DelegatedConversationBinding;
   /** Optional sink for delegations that returned no answer (see above). */
   readonly delegationOutcomes?: DelegationOutcomeCapture;
@@ -248,7 +248,6 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
     // continuing could lose policy enforcement, accounting or failure evidence.
     hookErrorStrategy: 'throw',
     onDelegationComplete: async (context) => {
-      params.turnPersistence?.complete(context);
       inFlight = Math.max(0, inFlight - 1);
       params.logger.info('Subagent delegation completed', {
         code: 'subagent_delegation_completed',

@@ -171,7 +171,13 @@ export function createAbortedTurnPersistence({
     try {
       snapshot = {
         messageId: resolvedAssistantMessageId,
-        messages: structuredClone(messageList.drainUnsavedMessages()),
+        // Match memory-store.ts's JSON content boundary, including toJSON values.
+        // This is the persisted representation, not a fallback to mutable live data.
+        messages: messageList.drainUnsavedMessages().map((message) => ({
+          ...message,
+          content: JSON.parse(JSON.stringify(message.content)) as MastraMessageContentV2,
+          createdAt: new Date(message.createdAt),
+        })),
         ok: true,
       };
     } catch (error) {
@@ -197,7 +203,7 @@ export function createAbortedTurnPersistence({
     }
     captureSnapshot();
     const captured = snapshot;
-    persistenceTask ??= (async () => {
+    persistenceTask = (async () => {
       const errors: unknown[] = [];
       try {
         await beforePersist?.();

@@ -23,6 +23,7 @@ import {
   type DelegatedRunIdentity,
 } from '../mastra/delegated-run-publication';
 import { createDelegatedStreamProjection } from '../mastra/delegated-stream-projection';
+import { createDelegatedTurnPersistence } from '../mastra/delegated-turn-persistence';
 import { makeDelegatedStreamTermination } from '../mastra/stream-termination';
 import { createDelegationConfig } from '../mastra/subagent-delegation';
 import { readMastraStreamPartString, readMastraStreamPartValue } from '../mastra/tool-event-mapper';
@@ -126,6 +127,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     rootModel,
     childInputProcessor,
     childOutputProcessor,
+    failChildInstructions = false,
   }: {
     requireApproval?: boolean;
     delegation?: DelegationConfig;
@@ -136,6 +138,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     rootModel?: ReturnType<typeof scriptedAgentModel>;
     childInputProcessor?: InputProcessor;
     childOutputProcessor?: OutputProcessor;
+    failChildInstructions?: boolean;
   } = {}): {
     child: Agent;
     childModel: ReturnType<typeof scriptedAgentModel>;
@@ -184,6 +187,9 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       description: 'Delegate research',
       id: 'child',
       instructions: ({ requestContext }) => {
+        if (failChildInstructions) {
+          throw new Error('Child instructions failed before execution');
+        }
         childScopes.push(requestContext.get('scope'));
         return 'Delegate to leaf.';
       },
@@ -290,6 +296,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
             ]
       );
       const delegationPolicy = createDelegationConfig({
+        abortSignal: new AbortController().signal,
         conversationBinding: binding,
         logger: createLogger('SubagentBindingTest'),
         personasById: new Map([
@@ -688,6 +695,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
 
   it('does not silently turn a failed Brainstrike completion hook into successful delegation', async () => {
     const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
       logger: {
         debug: vi.fn(),
         error: vi.fn(),
@@ -766,6 +774,81 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       'SELECT DISTINCT thread_id FROM mastra_messages'
     );
     expect(rows.rows).toHaveLength(2);
+  });
+
+  it.each(['instructions', 'input'] as const)(
+    'joins native %s failures without waiting for a missing completion hook',
+    async (failureStage) => {
+      const owner = new AbortController();
+      const persistence = createDelegatedTurnPersistence(backing.memory);
+      if (!persistence) {
+        throw new Error('Fixture requires memory');
+      }
+      const completion = vi.fn<(context: DelegationCompleteContext) => void>();
+      const { parent, childModel, effect } = tree({
+        childInputProcessor: {
+          id: 'reject-child-input',
+          processInputStep() {
+            throw new Error('Child input rejected');
+          },
+        },
+        delegation: {
+          onDelegationComplete: completion,
+          onDelegationStart: (context) => persistence.prepare(context, owner.signal),
+        },
+        failChildInstructions: failureStage === 'instructions',
+        rootModel: toolThenAnswer('agent-child', 'child-1', {
+          instructions: 'Read carefully',
+          prompt: 'Find evidence',
+        }),
+      });
+      const output = await parent.stream('Read', {
+        abortSignal: owner.signal,
+        hooks: persistence.hooks(owner.signal),
+        memory: { resource: 'owner', thread: 'root' },
+      });
+      const chunks = await collect(output.fullStream);
+      expect(JSON.stringify(chunks)).toContain(
+        failureStage === 'instructions'
+          ? 'Child instructions failed before execution'
+          : 'Child input rejected'
+      );
+      expect(childModel.prompts).toHaveLength(0);
+      expect(effect).not.toHaveBeenCalled();
+      // Instructions are resolved outside native delegation's try/catch.
+      expect(completion).toHaveBeenCalledTimes(failureStage === 'instructions' ? 0 : 1);
+      owner.abort();
+      await persistence.finalize();
+    }
+  );
+
+  it('settles cancelled child persistence after native suspension skips delegation completion', async () => {
+    const owner = new AbortController();
+    const persistence = createDelegatedTurnPersistence(backing.memory);
+    if (!persistence) {
+      throw new Error('Fixture requires child persistence');
+    }
+    const completion = vi.fn<(context: DelegationCompleteContext) => void>();
+    const { parent, effect } = tree({
+      childInputProcessor: persistence.processor,
+      childOutputProcessor: persistence.processor,
+      delegation: {
+        onDelegationComplete: completion,
+        onDelegationStart: (context) => persistence.prepare(context, owner.signal),
+      },
+      suspend: true,
+    });
+    const output = await parent.stream('Read', {
+      abortSignal: owner.signal,
+      hooks: persistence.hooks(owner.signal),
+      memory: { resource: 'owner', thread: 'root' },
+    });
+    const chunks = await collect(output.fullStream);
+    expect(chunks.some((chunk) => chunk.type === 'tool-call-suspended')).toBe(true);
+    expect(completion).not.toHaveBeenCalled();
+    expect(effect).not.toHaveBeenCalled();
+    owner.abort();
+    await persistence.finalize();
   });
 
   it('resumes a grandchild question through the root snapshot', async () => {

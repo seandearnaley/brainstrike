@@ -68,25 +68,41 @@ function completeContext(overrides: Record<string, unknown> = {}) {
 
 describe('createDelegationConfig', () => {
   it('proceeds for a known persona and clamps a model-supplied maxSteps to the cap', () => {
-    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
     const result = config.onDelegationStart?.(startContext({ params: { maxSteps: 50 } }));
     expect(result).toEqual({ modifiedMaxSteps: 8, proceed: true });
   });
 
   it('defaults modifiedMaxSteps to the persona cap when the model requests none', () => {
-    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
     const result = config.onDelegationStart?.(startContext());
     expect(result).toEqual({ modifiedMaxSteps: 8, proceed: true });
   });
 
   it('rejects a delegation to an unknown persona (no silent fallback)', () => {
-    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
     const result = config.onDelegationStart?.(startContext({ primitiveId: 'ghost' }));
     expect(result).toMatchObject({ proceed: false });
   });
 
   it('rejects the 3rd concurrent start while 2 are in flight', () => {
-    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
     expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
     expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
     expect(MAX_CONCURRENT_DELEGATIONS).toBe(2);
@@ -94,7 +110,11 @@ describe('createDelegationConfig', () => {
   });
 
   it('a completed delegation frees a concurrency slot', () => {
-    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
     config.onDelegationStart?.(startContext());
     config.onDelegationStart?.(startContext());
     config.onDelegationComplete?.(completeContext());
@@ -102,7 +122,11 @@ describe('createDelegationConfig', () => {
   });
 
   it('a rejected start does NOT consume a slot', () => {
-    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
     // Unknown persona rejected — must not increment inFlight.
     config.onDelegationStart?.(startContext({ primitiveId: 'ghost' }));
     expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
@@ -113,7 +137,11 @@ describe('createDelegationConfig', () => {
   });
 
   it('enforces the per-run total cap across completed delegations', () => {
-    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
     for (let index = 0; index < MAX_DELEGATIONS_PER_RUN; index += 1) {
       expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
       config.onDelegationComplete?.(completeContext());
@@ -131,7 +159,11 @@ describe('createDelegationConfig: a child that returned no answer', () => {
   // this exact case as what the seam exists for.
 
   it('replaces an empty result with an explicit reason naming the tool-call count', async () => {
-    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
     config.onDelegationStart?.(startContext());
     const result = await config.onDelegationComplete?.(
       completeContext({
@@ -156,7 +188,11 @@ describe('createDelegationConfig: a child that returned no answer', () => {
   });
 
   it('distinguishes a child that did nothing at all from one that ran out of steps', async () => {
-    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
     config.onDelegationStart?.(startContext());
     const result = await config.onDelegationComplete?.(
       completeContext({ result: { subAgentToolResults: [], text: '   ' } })
@@ -166,7 +202,11 @@ describe('createDelegationConfig: a child that returned no answer', () => {
   });
 
   it('leaves a real answer untouched', async () => {
-    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
     config.onDelegationStart?.(startContext());
     const result = await config.onDelegationComplete?.(
       completeContext({
@@ -180,6 +220,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
   it('records the under-delivering delegation so the timeline can show it', async () => {
     const outcomes = createDelegationOutcomeCapture();
     const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
       delegationOutcomes: outcomes,
       logger: silentLogger,
       personasById,
@@ -203,6 +244,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
     // wrong diagnosis of a provider error.
     const outcomes = createDelegationOutcomeCapture();
     const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
       delegationOutcomes: outcomes,
       logger: silentLogger,
       personasById,
@@ -224,7 +266,11 @@ describe('createDelegationConfig: a child that returned no answer', () => {
   it('survives a delegation result whose text is not a string', async () => {
     // The exported type says `string`, but the path most likely to carry an
     // unexpected shape is the one that just went wrong.
-    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
     config.onDelegationStart?.(startContext());
     const result = await config.onDelegationComplete?.(
       completeContext({ result: { subAgentToolResults: [], text: undefined } })
@@ -238,7 +284,11 @@ describe('createDelegationConfig: a child that returned no answer', () => {
     // with no `subAgentToolResults` — so this must read as a reportable unknown,
     // never as "the child did nothing", which would steer the supervisor to redo
     // work that may already be done.
-    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
     config.onDelegationStart?.(startContext());
     const result = await config.onDelegationComplete?.(completeContext({ result: { text: '' } }));
 
@@ -249,7 +299,11 @@ describe('createDelegationConfig: a child that returned no answer', () => {
   });
 
   it('still frees the concurrency slot for an empty delegation', () => {
-    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
     config.onDelegationStart?.(startContext());
     config.onDelegationStart?.(startContext());
     config.onDelegationComplete?.(completeContext({ result: { text: '' } }));

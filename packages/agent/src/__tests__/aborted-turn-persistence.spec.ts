@@ -62,6 +62,68 @@ describe('aborted turn persistence', () => {
     });
   });
 
+  it('freezes the JSON storage representation of non-cloneable tool output', async () => {
+    const result = { answer: 'Visible evidence', diagnostic: () => 'process-local callback' };
+    const snapshot = message({
+      content: {
+        format: 2,
+        parts: [
+          {
+            toolInvocation: {
+              args: {},
+              result,
+              state: 'result',
+              toolCallId: 'done',
+              toolName: 'read',
+            },
+            type: 'tool-invocation',
+          },
+        ],
+      },
+      id: 'native-json-message',
+      role: 'assistant',
+    });
+    const saveMessages = vi.fn(async () => ({ messages: [] }));
+    const persistence = createAbortedTurnPersistence({
+      assistantMessageId: snapshot.id,
+      memory: {
+        getThreadById: async () => ({ id: snapshot.threadId }),
+        saveMessages,
+      } as unknown as MastraMemory,
+      runtimeData: { memory: { resourceId: 'resource-abort-test', threadId: 'thread-abort-test' } },
+      shouldPersist: () => true,
+    });
+    await persistence.attachMessageList({
+      drainUnsavedMessages: () => [snapshot],
+    } as unknown as MessageList);
+    persistence.captureSnapshot();
+    result.answer = 'Late mutation';
+    await persistence.finalize();
+    expect(saveMessages).toHaveBeenCalledWith({
+      messages: [
+        expect.objectContaining({
+          content: {
+            format: 2,
+            parts: [
+              {
+                toolInvocation: {
+                  args: {},
+                  result: { answer: 'Visible evidence' },
+                  state: 'result',
+                  toolCallId: 'done',
+                  toolName: 'read',
+                },
+                type: 'tool-invocation',
+              },
+              { text: '[Assistant turn aborted before completion.]', type: 'text' },
+            ],
+          },
+          id: snapshot.id,
+        }),
+      ],
+    });
+  });
+
   it('still saves the root snapshot when a related child save fails, and reports the failure', async () => {
     const failure = new Error('Child storage rejected the snapshot');
     const saveMessages = vi.fn(async () => ({ messages: [] }));

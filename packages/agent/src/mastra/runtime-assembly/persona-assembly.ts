@@ -53,7 +53,6 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
  * map here would bake the wrong budget into every pinned persona's tools.
  */
 export function resolvePersonaRuntimeParts(params: {
-  turnPersistenceProcessor?: (InputProcessor & OutputProcessor) | undefined;
   conversationBinding?: DelegatedConversationBinding | undefined;
   guardedTools: ToolsInput;
   languageModel: MastraModelConfig;
@@ -65,12 +64,12 @@ export function resolvePersonaRuntimeParts(params: {
   resolvePinnedModel: (persona: AssistantPersonaDefinition) => MastraModelConfig;
   toolNameMap: Map<string, string>;
   toolOutputObserver?: ModelOutputProjectionObserver;
+  turnPersistenceProcessor?: (InputProcessor & OutputProcessor) | undefined;
 }): PersonaRuntimeParts {
   if (params.planModeActive || !shouldEnablePersonas(params.provider, params.personas)) {
     return EMPTY_PERSONA_RUNTIME_PARTS;
   }
   const personaBuild = buildPersonaSubAgents({
-    turnPersistenceProcessor: params.turnPersistenceProcessor,
     ...(params.conversationBinding ? { conversationBinding: params.conversationBinding } : {}),
     guardedTools: params.guardedTools,
     languageModel: params.languageModel,
@@ -81,6 +80,7 @@ export function resolvePersonaRuntimeParts(params: {
     resolvedToolResultBudget: params.resolvedToolResultBudget,
     resolvePinnedModel: params.resolvePinnedModel,
     toolNameMap: params.toolNameMap,
+    turnPersistenceProcessor: params.turnPersistenceProcessor,
     ...(params.toolOutputObserver ? { toolOutputObserver: params.toolOutputObserver } : {}),
   });
   return {

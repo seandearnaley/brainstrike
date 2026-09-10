@@ -1,15 +1,16 @@
-import type { DelegationCompleteContext, DelegationStartContext } from '@mastra/core/agent';
+import type { DelegationStartContext } from '@mastra/core/agent';
 import { type MastraMemory, parseMemoryRequestContext } from '@mastra/core/memory';
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
+import type { ToolHooks } from '@mastra/core/tools';
 import {
   type AbortedTurnPersistence,
   createAbortedTurnPersistence,
 } from './aborted-turn-persistence';
 
 export interface DelegatedTurnPersistence {
-  complete: (context: DelegationCompleteContext) => void;
   finalize: () => Promise<void>;
-  prepare: (context: DelegationStartContext, signal: AbortSignal | undefined) => void;
+  hooks: (signal: AbortSignal) => ToolHooks;
+  prepare: (context: DelegationStartContext, signal: AbortSignal) => void;
   readonly processor: InputProcessor & OutputProcessor;
 }
 
@@ -19,9 +20,10 @@ interface NativeTurn {
   completion: Promise<void>;
   persistence?: AbortedTurnPersistence;
   signal: AbortSignal;
+  toolCallId: string;
 }
 
-/** Native completion joins the delegation writer before the captured Stop snapshot is saved. */
+/** The native tool after-hook joins success, error and suspension before saving a Stop snapshot. */
 export function createDelegatedTurnPersistence(
   memory: MastraMemory | undefined
 ): DelegatedTurnPersistence | undefined {
@@ -33,24 +35,21 @@ export function createDelegatedTurnPersistence(
   const key = (context: { runId: string; toolCallId: string }) =>
     JSON.stringify([context.runId, context.toolCallId]);
   return {
-    complete(context) {
-      const turn = turns.get(key(context));
-      if (!turn) {
-        throw new Error('Delegated persistence has no prepared native invocation.');
-      }
-      turn.cleanupAbort?.();
-      turn.complete();
-    },
     async finalize() {
       const settled = await Promise.allSettled(
-        Array.from(turns.values(), async (turn) => {
-          if (!turn.persistence) {
-            // An abort during input preparation may precede processInputStep.
+        Array.from(turns, async ([identity, turn]) => {
+          try {
+            if (!turn.persistence) {
+              // An abort during input preparation may precede processInputStep.
+              await turn.completion;
+            }
+            await turn.persistence?.finalize();
+            // A normally finished child may still have its native save in flight.
             await turn.completion;
+          } finally {
+            turn.cleanupAbort?.();
+            turns.delete(identity);
           }
-          await turn.persistence?.finalize();
-          // A normally finished child may still have its native save in flight.
-          await turn.completion;
         })
       );
       const errors = settled.flatMap((result) =>
@@ -63,16 +62,44 @@ export function createDelegatedTurnPersistence(
         );
       }
     },
+    hooks(signal) {
+      return {
+        afterToolCall({ context }) {
+          if (
+            !(
+              context &&
+              typeof context === 'object' &&
+              'toolCallId' in context &&
+              typeof context.toolCallId === 'string'
+            )
+          ) {
+            throw new Error('Delegated persistence requires the native tool execution identity.');
+          }
+          for (const [identity, turn] of turns) {
+            if (turn.signal !== signal || turn.toolCallId !== context.toolCallId) {
+              continue;
+            }
+            turn.cleanupAbort?.();
+            turn.complete();
+            if (!signal.aborted) {
+              turns.delete(identity);
+            }
+          }
+        },
+      };
+    },
     prepare(context, signal) {
-      if (!signal) {
-        throw new Error('Delegated persistence requires its owning attempt abort signal.');
-      }
       const identity = key(context);
       if (turns.has(identity)) {
         throw new Error('Delegated persistence already owns this native invocation.');
       }
       const { promise, resolve } = Promise.withResolvers<void>();
-      const turn: NativeTurn = { complete: resolve, completion: promise, signal };
+      const turn: NativeTurn = {
+        complete: resolve,
+        completion: promise,
+        signal,
+        toolCallId: context.toolCallId,
+      };
       const capture = () => turn.persistence?.captureSnapshot();
       signal.addEventListener('abort', capture, { once: true });
       turn.cleanupAbort = () => signal.removeEventListener('abort', capture);

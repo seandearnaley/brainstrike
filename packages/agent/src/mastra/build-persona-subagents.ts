@@ -296,6 +296,8 @@ function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
   }
   return {
     ...(inputProcessors.length > 0 ? { inputProcessors } : {}),
+    // Core 1.64 combines configured, channel and memory output processors.
+    // This additive processor does not replace memory's own defaults.
     ...(params.turnPersistenceProcessor
       ? { outputProcessors: [params.turnPersistenceProcessor] }
       : {}),

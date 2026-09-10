@@ -732,13 +732,29 @@ late native save overwriting an early cancellation snapshot.
 The child processor captures the public `MessageList`, memory scope and current
 native `messageId` at `processInputStep`. The existing root abort finalizer joins
 these child turns. Each captures its unsaved native messages on the owning
-attempt's abort signal, awaits
-`onDelegationComplete` (after the native delegation writer), then uses the same
+attempt's abort signal, awaits Mastra's public `afterToolCall` hook around the
+native delegation tool, then uses the same
 abort snapshot policy and awaited `Memory.saveMessages` as the root. It retains
 partial text, removes unfinished tool calls and appends the abort marker without
 inventing a child message id. Normal completion/pause does not write an abort
 snapshot. Per-invocation completion is correlated by native parent run/tool call
-and the existing isolated RequestContext identity, never persona name.
+and the existing isolated RequestContext identity, never persona name. The
+per-attempt tool hook uses the same owning signal and observed native tool-call
+id. It runs after success, execution errors and suspension, including failures
+before the child input processor attaches. `onDelegationComplete` alone is not
+a sufficient join: core 1.64 skips it on suspension and when resolving child
+instructions outside its execution try/catch. Real native tests pin both paths.
+The hook releases the abort listener and removes normally settled invocations;
+abort finalization releases the remaining entries even when a save fails.
+A later attempt can reuse a settled native identity, while an overlapping
+invocation with the same native identity fails explicitly.
+
+All three attempt legs require the owning abort signal at stream-option and
+delegation configuration boundaries. Child saves are joined before replacing a
+watchdog attempt and before runtime disposal; a successfully recovered parent
+still uses its normal root transcript policy. Child output processors combine
+with native channel/memory processors in core 1.64; configuring this processor
+does not replace the memory defaults.
 
 The real desktop test covers Stop during a tool with and without partial text,
 equivalent history on the still-open and reconstructed engines, exact lifecycle

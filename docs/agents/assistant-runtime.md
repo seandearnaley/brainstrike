@@ -152,9 +152,10 @@ below are LIVE.
    teardown never performs a second normal write.
 
    Delegated children (BST-1719) capture their native MessageList on the abort
-   signal, independent of consumer speed. Their native delegation completion
-   hook joins the normal child writer before the same abort snapshot is saved;
-   root disposal awaits all child finalizers. Native `lastMessages: false`
+   signal, independent of consumer speed. Mastra's public `afterToolCall` hook
+   joins the native child writer before the same abort snapshot is saved.
+   `runTurnAttempts` awaits child finalizers before replacing a stalled attempt
+   and before runtime disposal, even when the parent later finishes normally. Native `lastMessages: false`
    disables the child's automatic MessageHistory output processor, so the
    root-only join is insufficient. No incomplete child tool call is restored
    by a late native save. See `assistant-subagents.md` for the real desktop

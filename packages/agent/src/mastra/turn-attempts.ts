@@ -139,7 +139,7 @@ export function createRuntimeAbortedTurnPersistence({
 }
 
 async function finalizeAbortedTurn(
-  abortedTurnPersistence: AbortedTurnPersistence | undefined
+  abortedTurnPersistence: Pick<AbortedTurnPersistence, 'finalize'> | undefined
 ): Promise<void> {
   try {
     await abortedTurnPersistence?.finalize();
@@ -460,6 +460,9 @@ export async function* runTurnAttempts(params: {
       // attempt, so this is the last chance to flush either.
       yield* makeCancelledDelegationRunEventChunks(current.lifecycleState);
       yield* makePendingToolOutputRunEventChunks(current.lifecycleState);
+      // A recovered root keeps its normal transcript policy, but its cancelled
+      // children must finish saving before a new attempt or runtime disposal.
+      await finalizeAbortedTurn(runtime.delegatedTurnPersistence);
       continuationMessages = produced;
       carriedLifecycleState = current.lifecycleState;
       lastStalledAttempt = current;
@@ -471,6 +474,7 @@ export async function* runTurnAttempts(params: {
         await finalizeAbortedTurn(activeAttempt?.abortedTurnPersistence);
       }
     } finally {
+      await finalizeAbortedTurn(runtime.delegatedTurnPersistence);
       await runtime.dispose();
     }
   }

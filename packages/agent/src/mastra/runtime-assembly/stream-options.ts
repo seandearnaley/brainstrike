@@ -25,6 +25,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import type { AgentMemoryOption, DelegationConfig } from '@mastra/core/agent';
 import { SkillsProcessor } from '@mastra/core/processors';
+import type { ToolHooks } from '@mastra/core/tools';
 import { getDefaultModel } from '../../providers/provider-factory';
 import type { RuntimeData } from '../../types';
 import type { MastraAgentRuntime, MastraAgentRuntimeOptions } from '../agent-runtime';
@@ -57,6 +58,7 @@ export interface BrainstrikeAgentStreamOptions {
   delegation?: DelegationConfig;
   // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
   experimental_generateMessageId?: () => string;
+  hooks?: ToolHooks;
   inputProcessors?: unknown[];
   maxSteps?: number;
   memory?: AgentMemoryOption;
@@ -336,6 +338,9 @@ export function buildStreamOptions(
   return {
     ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
     abortSignal,
+    ...(runtime.delegatedTurnPersistence
+      ? { hooks: runtime.delegatedTurnPersistence.hooks(abortSignal) }
+      : {}),
     ...(runId === undefined ? {} : { runId }),
     ...(toolCallId === undefined ? {} : { toolCallId }),
     ...buildAssistantStreamMessageIdOption(runtimeData),
@@ -348,7 +353,6 @@ export function buildStreamOptions(
       ? {
           delegation: createDelegationConfig({
             abortSignal,
-            turnPersistence: runtime.delegatedTurnPersistence,
             ...(runtime.conversationBinding
               ? { conversationBinding: runtime.conversationBinding }
               : {}),
@@ -356,6 +360,7 @@ export function buildStreamOptions(
             logger,
             onChildUsage: delegationUsage.onChildUsage,
             personasById: runtime.personasById,
+            turnPersistence: runtime.delegatedTurnPersistence,
           }),
         }
       : {}),
