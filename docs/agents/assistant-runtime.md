@@ -2149,10 +2149,19 @@ viewport, not by thread length.
   `useScrollendEvent`. Its timer-based reset reports the offset cached by the
   previous scroll event; a reset delivered between row-resize compensations
   can overwrite the newer position and drop the end pin. Native `scrollend`
-  reads the current offset. The browser regression delivers a held reset
+  reads the current offset. The vendor still uses its timer on engines without
+  native `scrollend`; this guarantee applies to supporting engines, including
+  the shipped Electron and tested Chromium. The browser regression delivers a held reset
   between two real row reflows, and removing the stale delivery is the negative
   control. Keep this on the virtualizer's public API; do not add another scroll
   writer or a longer reset delay.
+- **Virtual layout ownership.** React Virtual's documented `directDomUpdates`
+  owns both container size (`containerRef`) and row transforms; React must not
+  also write their height or main-axis positions. A React sizing commit can
+  otherwise follow the last scroll notification, leaving the jump button
+  reading the previous geometry with no further event to correct it. Keep the
+  ref composed with the list-offset measurement and set this mode for the
+  virtualizer's lifetime, including while it is disabled on the static tier.
 - **Clamped compensation belongs to the vendor.** React Virtual 3.14.11 /
   Virtual Core 3.17.9 recover a measurement adjustment clamped before React
   commits the grown sizer. Keep that patch floor; do not add a second scroll

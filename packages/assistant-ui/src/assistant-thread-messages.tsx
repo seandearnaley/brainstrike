@@ -318,6 +318,7 @@ export const ThreadMessagesRegion = ({
     // keep the visual position, and appends follow only while already pinned.
     anchorTo: 'end',
     count: tier === 'virtual' ? messageCount : 0,
+    directDomUpdates: true,
     enabled: tier === 'virtual',
     estimateSize: () => THREAD_MESSAGE_ESTIMATED_HEIGHT_PX,
     followOnAppend: 'instant',
@@ -342,7 +343,13 @@ export const ThreadMessagesRegion = ({
   // long-standing shape: these move on every scroll frame while the instance
   // itself never changes identity.
   const virtualItems = virtualizer.getVirtualItems();
-  const totalSize = virtualizer.getTotalSize();
+  const setVirtualList = useCallback(
+    (element: HTMLDivElement | null): void => {
+      listRef.current = element;
+      virtualizer.containerRef(element);
+    },
+    [virtualizer]
+  );
 
   /**
    * Tier-2 equivalent of the persistence contract's opening position.
@@ -450,19 +457,16 @@ export const ThreadMessagesRegion = ({
              */
             <div
               className="bs-virtual-thread"
-              ref={listRef}
-              style={{ height: totalSize, position: 'relative' }}
+              ref={setVirtualList}
+              style={{ position: 'relative' }}
             >
               {virtualItems.map((item) => (
                 <div
                   className="bs-virtual-message"
                   data-index={item.index}
-                  // The trailing gap below the newest message lives INSIDE this
-                  // row's measured box (see overrides.css), never as virtualizer
-                  // padding: padding outside the measured rows only reaches the
-                  // DOM on the next React commit, so a scroll correction fired
-                  // during streaming growth is clamped by exactly that much and
-                  // the thread rests a few pixels above the true bottom.
+                  // Spacing stays inside the measured row (see overrides.css).
+                  // The vendor owns the container size and row transform as one
+                  // update; React must not also write those layout properties.
                   data-last-message={item.index === messageCount - 1 ? '' : undefined}
                   key={item.key}
                   ref={virtualizer.measureElement}
@@ -470,7 +474,6 @@ export const ThreadMessagesRegion = ({
                     left: 0,
                     position: 'absolute',
                     top: 0,
-                    transform: `translateY(${item.start - scrollMargin}px)`,
                     width: '100%',
                   }}
                 >

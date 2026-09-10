@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { PlaywrightProviderOptions } from '@vitest/browser-playwright';
 import { playwright } from '@vitest/browser-playwright';
+import type { BrowserConfigOptions } from 'vitest/node';
 
 export interface BrowserTestConfig {
   /** Headless mode (default: true) */
@@ -367,7 +368,7 @@ export function createBrowserProject(config: BrowserProjectConfig) {
         // Playwright trace configuration
         // Generates .zip trace files viewable with `npx playwright show-trace <file>`
         trace: trace === 'off' ? ('off' as const) : { mode: trace, tracesDir: traceOutputDir },
-      },
+      } satisfies BrowserConfigOptions,
       include: [testPattern],
       name: 'browser',
       // TEST_TIMEOUT_MULTIPLIER's only route into the browser page (BST-1299).

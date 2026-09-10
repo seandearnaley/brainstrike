@@ -540,6 +540,9 @@ describe('thread renderer performance evidence (BST-897)', () => {
 });
 
 test('keeps the end pin when a pending scroll reset lands between row resize deliveries', async () => {
+  render(<ThreadHarness messages={makeMessages(600)} />);
+  const viewport = await waitForOverflowingViewport();
+  await waitForPinnedToEnd(viewport);
   const schedule = globalThis.setTimeout.bind(globalThis);
   let pendingReset: (() => void) | undefined;
   const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((handler, delay, ...args) => {
@@ -549,11 +552,13 @@ test('keeps the end pin when a pending scroll reset lands between row resize del
     }
     return schedule(handler, delay, ...args);
   });
-  onTestFinished(() => timer.mockRestore());
-  render(<ThreadHarness messages={makeMessages(600)} />);
-  const viewport = await waitForOverflowingViewport();
-  await waitForPinnedToEnd(viewport);
-  fireEvent.scroll(viewport);
+  // Hold only the reset scheduled synchronously by this one scroll event;
+  // unrelated mount and post-scroll timers keep their original behavior.
+  try {
+    fireEvent.scroll(viewport);
+  } finally {
+    timer.mockRestore();
+  }
   const rows = Array.from(viewport.querySelectorAll<HTMLElement>('[data-testid="thread-message"]'));
   const last = rows.at(-1);
   if (!last) {
@@ -568,9 +573,12 @@ test('keeps the end pin when a pending scroll reset lands between row resize del
     armed = false;
     delivered = true;
     pendingReset?.();
+    // The native path has no timer: scrollend reads the live offset instead.
     viewport.dispatchEvent(new Event('scrollend'));
     // A second layout change can arrive before the browser emits the scroll
-    // event for the virtualizer's first compensation write.
+    // event for the virtualizer's first compensation write. Creating this
+    // observer after the virtualizer orders the two deliveries; Chromium can
+    // report the second reflow as an undelivered ResizeObserver notification.
     for (const row of rows) {
       row.style.height = `${MESSAGE_HEIGHT_PX + 42}px`;
     }
