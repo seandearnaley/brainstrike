@@ -3213,26 +3213,26 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
   it('deletes thread-owned rows in one atomic statement including observational memory', async () => {
     const db = createMockDb();
+    db.query.mockResolvedValue({ rows: [{ allAuthorized: true }] });
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
 
     await repository.deleteThread('thread-1');
 
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM mastra_threads'), [
       'thread-1',
-      'thread:thread-1',
     ]);
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining('DELETE FROM mastra_observational_memory'),
-      ['thread-1', 'thread:thread-1']
+      ['thread-1']
     );
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM mastra_messages'), [
       'thread-1',
-      'thread:thread-1',
     ]);
   });
 
   it('deletes thread-owned rows when the database handle only exposes query and exec', async () => {
     const db = createMockDb();
+    db.query.mockResolvedValue({ rows: [{ allAuthorized: true }] });
     const { exec, query } = db;
     const repository = createPgliteAssistantThreadRepository({
       exec,
@@ -3243,7 +3243,6 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
     expect(query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM mastra_threads'), [
       'thread-1',
-      'thread:thread-1',
     ]);
   });
 

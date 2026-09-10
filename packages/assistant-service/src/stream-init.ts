@@ -6,6 +6,7 @@ import type {
   AssistantTaskItem,
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
+  DelegatedConversationBinding,
   McpConfig,
   ProviderAuthInput,
   RuntimeAssistantMemorySettings,
@@ -474,7 +475,9 @@ export interface AgentStreamToolDependencies<K extends AgentStreamCapabilityKind
 }
 
 /** What `memory.create` yields: the Mastra memory/storage pair for the run. */
-export type AgentStreamMemoryResult = PgliteMastraMemoryResult;
+export type AgentStreamMemoryResult = PgliteMastraMemoryResult & {
+  readonly conversationBinding?: DelegatedConversationBinding;
+};
 
 /**
  * Host-composed capabilities (BST-972 B4a/B4b): every host-module VALUE edge
@@ -631,7 +634,8 @@ export interface AgentStreamCapabilities<
       stream: AsyncIterable<StreamChunk>,
       runId: string,
       observerTarget: { readonly model: string; readonly provider: string } | undefined,
-      getDatabase: AgentStreamDatabaseProvider<K['database']>
+      getDatabase: AgentStreamDatabaseProvider<K['database']>,
+      requiresDelegationIdentity?: boolean
     ) => AsyncIterable<StreamChunk>;
     readonly persistToolCallTelemetry: (
       stream: AsyncIterable<StreamChunk>,
@@ -1009,7 +1013,8 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
                 ),
                 runId,
                 resolveDesktopObserverUsageTarget(runtime.memory?.memorySettings),
-                getDatabase
+                getDatabase,
+                Boolean(memoryResult?.conversationBinding)
               ),
               runId,
               getDatabase

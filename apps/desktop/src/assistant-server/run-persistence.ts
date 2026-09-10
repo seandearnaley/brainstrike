@@ -1,12 +1,9 @@
 /**
  * Run persistence for the desktop assistant server (BST-975 slice 2).
  *
- * Provenance contract (docs/agents/assistant-persistence.md, settled
- * 2026-07-24 — do not relitigate): brainstrike_assistant_thread_runs and
- * brainstrike_assistant_run_events are created ONLY by the renderer's
- * bootstrap. The writers here never CREATE TABLE, and the `if (runId)` gates
- * live at the CALL sites — repository.createThreadRun is the sole runId
- * producer and awaits the bootstrap before returning an id.
+ * Production migrations own schema creation. These writers only use the
+ * server-owned run id created by the repository and never execute DDL.
+ * The if(runId) gates remain at call sites, after createThreadRun completes.
  */
 import {
   type AssistantRunEvent,
@@ -15,7 +12,9 @@ import {
   sanitizeAssistantRunEventMetadata,
   type ToolCallTelemetrySample,
 } from '@brainstrike/agent';
+import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { AssistantRunErrorRepository } from '@brainstrike/db';
+import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
 import type { HookRunVerdict } from './hooks/run-verdict';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { runCriticalDatabaseOperation } from './run-critical-database';
@@ -150,6 +149,33 @@ export async function* observeDesktopAssistantRunEvents(
   }
 }
 
+/** Use the existing foreground scheduler and diagnosed saturated-host recovery.
+ * Accounting remains fail-closed after exhausted recovery, with a coded diagnostic. */
+async function persistBoundDelegatedUsage(
+  value: AssistantChildRunUsage,
+  runId: string,
+  getDatabase: RunPersistenceDatabaseProvider
+): Promise<void> {
+  try {
+    await runCriticalDatabaseOperation({
+      label: 'assistant-delegated-usage-write',
+      operation: async () => {
+        const database = await getDatabase();
+        await createDesktopDelegatedConversationHost(database, runId).persistUsage(value);
+      },
+      retry: 'idempotent',
+      runId,
+    });
+  } catch (error: unknown) {
+    logger.error('Failed to persist bound delegated usage', {
+      code: 'assistant_delegated_usage_write_failed',
+      error,
+      runId,
+    });
+    throw error;
+  }
+}
+
 /**
  * Persist `child-run-usage` chunks (BST-953) as durable run_kind-tagged rows in
  * `brainstrike_assistant_run_usage`, forwarding every chunk unchanged (the
@@ -177,15 +203,10 @@ export async function* persistDesktopChildRunUsage(
   stream: AsyncIterable<StreamChunk>,
   runId: string,
   observerTarget: { readonly model: string; readonly provider: string } | undefined,
-  getDatabase: RunPersistenceDatabaseProvider
+  getDatabase: RunPersistenceDatabaseProvider,
+  requiresDelegationIdentity = false
 ): AsyncIterable<StreamChunk> {
-  const persist = async (value: {
-    readonly inputTokens: number;
-    readonly model?: string;
-    readonly outputTokens: number;
-    readonly provider?: string;
-    readonly source: string;
-  }): Promise<void> => {
+  const persist = async (value: AssistantChildRunUsage): Promise<void> => {
     const isOmRow = value.source === 'om-observation' || value.source === 'om-reflection';
     const model = value.model ?? (isOmRow ? observerTarget?.model : undefined);
     const provider = value.provider ?? (isOmRow ? observerTarget?.provider : undefined);
@@ -247,7 +268,16 @@ export async function* persistDesktopChildRunUsage(
       // aggregate the moment the transient part arrives, so a chunk that
       // outran its INSERT would make that refresh reliably read the pre-write
       // state (review fix). The forwarding delay is one local PGlite insert.
-      await persist(chunk.value);
+      const value = chunk.value;
+      if (value.source === 'subagent' && (requiresDelegationIdentity || value.delegation)) {
+        if (value.provider !== 'local') {
+          // Reconcile within the existing writer; authorization/write failure
+          // must not publish a successful refresh or use a legacy insertion.
+          await persistBoundDelegatedUsage(value, runId, getDatabase);
+        }
+      } else {
+        await persist(value);
+      }
     }
     yield chunk;
   }

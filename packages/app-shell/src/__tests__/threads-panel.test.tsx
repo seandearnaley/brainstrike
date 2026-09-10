@@ -503,7 +503,7 @@ beforeEach(() => {
           placementRows.splice(index, 1);
         }
       }
-      return { rows: [{ allFound: true }] };
+      return { rows: [{ allAuthorized: true, allFound: true }] };
     }
     if (sql.includes('updated_threads AS')) {
       const threadIds = (params ?? []).slice(0, -1).map(String);
@@ -536,6 +536,7 @@ beforeEach(() => {
       if (index >= 0) {
         threadRows.splice(index, 1);
       }
+      return { rows: [{ allAuthorized: true }] };
     }
     if (sql.includes('SET metadata')) {
       const threadId = String(params?.[0]);
@@ -1601,7 +1602,7 @@ describe('ThreadsPanel', () => {
     });
     expect(mockDb.query).toHaveBeenCalledWith(
       expect.stringContaining('DELETE FROM mastra_threads'),
-      ['thread-b', 'thread:thread-b']
+      ['thread-b']
     );
     expect(screen.queryByText('Second thread')).not.toBeInTheDocument();
     expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();

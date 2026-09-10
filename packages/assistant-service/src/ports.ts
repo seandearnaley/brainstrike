@@ -26,8 +26,10 @@ import type { AgentStreamResult } from './types.js';
 type LocalLlmGenerateArgs = Parameters<LocalLlmHostClient['generate']>;
 type LocalLlmWarmupArgs = Parameters<LocalLlmHostClient['warmup']>;
 
+/** Process-local options independent of serialized RuntimeData, including host capabilities. */
 type SerializableIndependentStreamRuntimeOptions = Pick<
   MastraAgentRuntimeOptions,
+  | 'conversationBinding'
   | 'memory'
   | 'storage'
   | 'toolOutputArtifactInlineMaxSerializedCharsByToolName'

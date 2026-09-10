@@ -126,6 +126,7 @@ import { migration124GoogleCatalogModels } from './124-google-catalog-models.js'
 import { migration125BedrockAnthropicClaudeOpus5 } from './125-bedrock-anthropic-claude-opus-5.js';
 import { migration126DelegatedConversations } from './126-delegated-conversations.js';
 import { migration127DelegatedInvocations } from './127-delegated-invocations.js';
+import { migration128DelegatedInvocationUsage } from './128-delegated-invocation-usage.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -258,6 +259,7 @@ export const migrations: Migration[] = [
   migration125BedrockAnthropicClaudeOpus5,
   migration126DelegatedConversations,
   migration127DelegatedInvocations,
+  migration128DelegatedInvocationUsage,
 ];
 
 // Export base migrations (without chunks table) for test environments

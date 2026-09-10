@@ -882,4 +882,8 @@ process-local host callback. `streamAttemptChunks` awaits its native identity
 binding before mapping a child event, with a fresh authorization cache for each
 attempt/resume leg. It never serializes host authority into RequestContext or
 RuntimeData and never treats skipped resume input processing as authorization.
-Desktop activation and its durable host callback remain pending.
+Desktop run-scoped memory activates this port through a server-derived
+owner/root/turn scope. Resume authorizes the original invocation against the
+current host leg, rather than recreating it. The existing usage writer resolves
+native completion ids to that same invocation; its stream queue waits for the
+matching parent terminal so completion cannot outrun publication authorization.

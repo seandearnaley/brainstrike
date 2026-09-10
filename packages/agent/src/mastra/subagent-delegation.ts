@@ -21,6 +21,10 @@
 
 import type { AssistantRunEventMetadata } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import {
+  type AssistantDelegatedUsageIdentity,
+  isAssistantDelegatedUsageIdentity,
+} from '@brainstrike/assistant-contract/run-usage';
 import type { ScopedLogger } from '@brainstrike/logging';
 import type { DelegationConfig } from '@mastra/core/agent';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
@@ -30,6 +34,7 @@ export const MAX_DELEGATIONS_PER_RUN = 8;
 
 /** The child run's aggregate provider-reported usage (BST-953). */
 export interface SubagentChildUsageReport {
+  readonly delegation?: AssistantDelegatedUsageIdentity;
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly personaId: string;
@@ -250,7 +255,22 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
       });
       const usage = readDelegationUsage(context.result.usage);
       if (usage && params.onChildUsage) {
-        params.onChildUsage({ ...usage, personaId: context.primitiveId });
+        const delegation = params.conversationBinding
+          ? {
+              parentRuntimeRunId: context.runId,
+              parentToolCallId: context.toolCallId,
+              resourceId: context.result.subAgentResourceId,
+              threadId: context.result.subAgentThreadId,
+            }
+          : undefined;
+        if (delegation && !isAssistantDelegatedUsageIdentity(delegation)) {
+          throw new Error('Delegated usage requires observed native completion identity.');
+        }
+        params.onChildUsage({
+          ...usage,
+          ...(delegation ? { delegation } : {}),
+          personaId: context.primitiveId,
+        });
       }
       // Usage is reported BEFORE the empty-answer branch returns: a child that
       // burned minutes of an expensive model and then failed to answer is

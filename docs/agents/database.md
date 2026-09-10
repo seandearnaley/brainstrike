@@ -321,11 +321,16 @@ it exposes no reparent operation and conflicting duplicate delivery fails.
 Unlike the older FK-less presentation sidecars, this graph references
 `mastra_threads`: migration 117 already guarantees that table exists before 126,
 as it already does for the run tables in migration 118. Native thread deletion
-cascades its graph node and descendant graph nodes. This does **not** cascade
-upward into descendant native transcripts; the production branch-deletion
-command must explicitly remove those transcripts and their ordinary sidecars
-before this storage API is activated in the host. Do not report graph deletion
-as complete conversation deletion.
+cascades its graph node and descendant graph nodes. That FK alone does **not**
+delete descendant native transcripts. The single/bulk assistant commands and
+native memory-store override now expand the requested branch through the shared
+`DELEGATED_THREAD_DELETE_CTES` selection, then delete every native transcript and
+ordinary sidecar and emit one mind-op per actual deleted native thread. The
+selection verifies the live root, every ancestor and every descendant resource;
+an ownership mismatch rejects the entire command without partial deletion.
+Bulk unknown-id validation still gates all changes, including overlapping
+requested branches. A standalone Mastra store legitimately has no graph table
+and retains its existing single-thread behavior after its table probe.
 
 All three table-enumerating clear/reset paths explicitly clear the graph; it is
 in the shared reset registry. Root anchors contain no copied presentation or
@@ -337,11 +342,11 @@ Configuration must survive a JSON round trip without coercion or omitted data.
 The real-PGlite suite `delegated-conversations.integration.test.ts` covers
 concurrent duplicate delivery, same-persona siblings, ownership, nested scope
 changes, workspace changes, graph deletion, legacy absence, a dumped database
-loaded in a new engine, and production-ledger upgrade/replay. Invocation/run
-identity, lifecycle, usage and host publication are subsequent BST-1718 layers;
-the graph repository is not yet called by production delegation.
+loaded in a new engine, and production-ledger upgrade/replay. The desktop host
+uses this graph together with invocation identity, lifecycle correlation and
+usage attribution below.
 
-### Native invocation identity (BST-1718, host activation pending)
+### Native invocation identity (BST-1718)
 
 Migration 127 adds `brainstrike_delegated_invocations`. Its immutable key is
 root thread + observed native parent run + parent tool call. A conversation may
@@ -351,12 +356,17 @@ root host run row belonging to the same owner/root. It snapshots that row's
 nonblank `turn_message_id`. The host leg id and native parent run id are separate:
 Mastra mints its own run ids, and approval/suspension creates new host legs.
 
-`bindInvocationRun` records the observed native child run once; exact duplicate
+`bindInvocationRun` atomically checks the observed persona against the stored
+invocation before recording the native child run. This applies to both the
+initial bind and duplicate/resume authorization; a mismatch never changes the
+record. The method records the observed native child run once; exact duplicate
 delivery is idempotent and a different child run is rejected. A follow-up gets a
 new invocation key and child run while retaining its conversation. Reads and
 run binding revalidate the whole native ancestry and the original host row's
-owner/root/turn. Resume must read the existing invocation, rather than create it
-with the resume leg id. No placeholder native run id is invented before the
+owner/root/turn. Desktop passes its current host leg into the same SQL mutation,
+which rechecks the current owner/root/turn atomically; a stale preliminary scope
+read cannot authorize a changed resume leg. Resume must read the existing
+invocation, rather than create it with the resume leg id. No placeholder native run id is invented before the
 first child stream chunk.
 
 Current root host-run writers set `turn_message_id` only on insert; terminal
@@ -369,8 +379,22 @@ and both direct-PGlite paths. Multiple pending follow-ups rely on the UNIQUE
 constraint's default NULLS DISTINCT semantics; a native child run cannot equal
 its native parent run.
 
-The repository has no lifecycle or usage writer yet. This is a persistence API,
-not desktop activation. `delegated-invocations.integration.test.ts` verifies
+Desktop run-scoped memory activates this repository through server-owned host
+capabilities. Migration 128 adds nullable parent-run/tool-call columns to the
+existing root-attributed usage table, with an invocation FK and unique index.
+Legacy rows remain NULL; the host never guesses historical child identity.
+`recordInvocationUsage` requires authorized native ancestry, a bound child run,
+matching child thread/resource/persona and matching original/current host turns.
+It reconciles cumulative provider totals with monotonic maxima on one row;
+model/provider changes reject instead of rewriting attribution. The existing
+desktop stream writer is still the only child-usage producer, and awaits this
+write before refreshing the renderer. Deleting an invocation sets only the two
+delegation keys to NULL, retaining the root's already-spent tokens and cost.
+Numeric usage history already survives root conversation deletion (the existing
+thread-delete sidecar list excludes it); this migration preserves that behavior.
+Factory reset clears the existing usage table. The column-specific SET NULL
+uses the engine's documented [PostgreSQL 18 referential action](https://www.postgresql.org/docs/18/ddl-constraints.html#DDL-CONSTRAINTS-FK).
+`delegated-invocations.integration.test.ts` verifies
 ownership changes, duplicates, follow-ups, reconstruction in a new PGlite engine,
 production-ledger upgrade/replay, and native-thread deletion cascades. All reset
 paths clear the new table before its graph parent. The real Mastra contract test

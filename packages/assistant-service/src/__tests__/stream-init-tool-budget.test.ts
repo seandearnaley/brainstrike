@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { initializeAgentStream, resolveToolBuildBudget } from '../stream-init';
 
 interface CapturedMemoryOptions {
+  conversationBinding?: unknown;
   toolOutputArtifactInlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
 }
 
@@ -89,9 +90,14 @@ describe('webExtract artifact settlement budget', () => {
   it('threads the resolved floor budget as the effective inline threshold', async () => {
     streamCapture.memoryOptions = undefined;
     const passthroughStream = <T>(stream: T): T => stream;
+    const conversationBinding = { bindRun: vi.fn(), inputProcessor: {}, prepare: vi.fn() };
     const capabilities = {
       artifacts: {
         createRepository: () => ({ readRange: vi.fn(), store: vi.fn() }),
+      },
+      compaction: {
+        createContextOverflowRecovery: vi.fn(),
+        runPreRequest: vi.fn(async () => ({ kind: 'noop' })),
       },
       contextInjectors: {
         activatedSkills: vi.fn(async (messages) => messages),
@@ -110,7 +116,7 @@ describe('webExtract artifact settlement budget', () => {
         })),
       },
       memory: {
-        create: vi.fn(),
+        create: vi.fn(async () => ({ conversationBinding, memory: {}, storage: {} })),
         matchCredentialMissingError: vi.fn(),
       },
       personas: {
@@ -163,8 +169,9 @@ describe('webExtract artifact settlement budget', () => {
       toolResumeAction: undefined,
     } as never);
 
-    expect(result.ok).toBe(true);
+    expect(result).toMatchObject({ ok: true });
     const capturedMemoryOptions = requireCapturedMemoryOptions(streamCapture.memoryOptions);
+    expect(capturedMemoryOptions.conversationBinding).toBe(conversationBinding);
     expect(
       capturedMemoryOptions.toolOutputArtifactInlineMaxSerializedCharsByToolName?.get(
         NATIVE_TOOL_ID.webExtract

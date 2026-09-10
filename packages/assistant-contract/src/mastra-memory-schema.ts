@@ -318,3 +318,51 @@ export const THREAD_DELETE_SIDECAR_TABLES = [
   // main-process filesystem and are pruned by SnapshotService GC, not by SQL.
   { table: 'brainstrike_workspace_snapshots', threadColumn: 'thread_id' },
 ] as const;
+
+/**
+ * Shared branch selection for all three deletion paths. Callers provide a
+ * `requested(id)` CTE and use WITH RECURSIVE. Validate the entire native ancestry
+ * and every descendant before any DELETE; one revoked scope empties the target
+ * set so callers can reject atomically. Legacy threads without graph rows keep
+ * their ordinary single-thread deletion semantics.
+ */
+export const DELEGATED_THREAD_DELETE_CTES = `
+  delegation_roots AS (
+    SELECT graph.* FROM brainstrike_delegated_conversations graph
+    JOIN mastra_threads native ON native.id = graph.thread_id
+      AND native."resourceId" = graph.owner_resource_id
+      AND native."resourceId" = graph.resource_id
+    WHERE graph.parent_thread_id IS NULL AND graph.thread_id = graph.root_thread_id
+      AND graph.root_thread_id IN (
+        SELECT root_thread_id FROM brainstrike_delegated_conversations
+        WHERE thread_id IN (SELECT id FROM requested)
+      )
+  ),
+  authorized_delegations AS (
+    SELECT * FROM delegation_roots
+    UNION
+    SELECT child.* FROM brainstrike_delegated_conversations child
+    JOIN authorized_delegations parent ON child.parent_thread_id = parent.thread_id
+      AND child.root_thread_id = parent.root_thread_id
+      AND child.owner_resource_id = parent.owner_resource_id
+    JOIN mastra_threads native ON native.id = child.thread_id
+      AND native."resourceId" = child.resource_id
+  ),
+  deletion_candidates(id) AS (
+    SELECT id FROM requested
+    UNION
+    SELECT child.thread_id FROM brainstrike_delegated_conversations child
+    JOIN deletion_candidates parent ON child.parent_thread_id = parent.id
+  ),
+  deletion_scope_validation AS (
+    SELECT NOT EXISTS (
+      SELECT 1 FROM brainstrike_delegated_conversations graph
+      JOIN deletion_candidates candidate ON candidate.id = graph.thread_id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM authorized_delegations authorized WHERE authorized.thread_id = graph.thread_id
+      )
+    ) AS all_authorized
+  ),
+  deletion_threads AS (
+    SELECT id FROM deletion_candidates WHERE (SELECT all_authorized FROM deletion_scope_validation)
+  )`;

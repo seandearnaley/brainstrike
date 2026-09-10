@@ -174,6 +174,9 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     // `DROP TABLE` on the parent alone is refused, and `CASCADE` would hide
     // which relations this case actually means to remove.
     // Migration 127 adds invocation identity as another dependent of the header.
+    await db.exec(
+      'ALTER TABLE brainstrike_assistant_run_usage DROP CONSTRAINT brainstrike_assistant_run_usage_delegation_fk'
+    );
     await db.exec('DROP TABLE brainstrike_delegated_invocations');
     await db.exec('DROP TABLE brainstrike_assistant_run_events');
     await db.exec('DROP TABLE brainstrike_assistant_thread_runs');

@@ -853,7 +853,17 @@ Runtime invariants:
   - subagent: `onDelegationComplete`'s aggregate usage
     (`createDelegationConfig.onChildUsage` → per-leg `DelegationUsageCapture`
     queue drained by the stream generator). Provider-exact; model/provider =
-    persona pin ?? parent run.
+    persona pin ?? parent run. Bound desktop runs include native parent-run,
+    tool-call and child-thread/resource identity. The existing writer reconciles
+    one row per invocation against the original host leg (migration 128), so
+    duplicate delivery and cumulative snapshot resume do not double-count.
+    Bound authorization or write failures propagate before the UI refresh;
+    they never fall through to the legacy unattributed insert. Historical rows
+    retain NULL invocation keys. Deleting a child also NULLs only those keys,
+    preserving already-spent root totals. Numeric usage is retained on root
+    deletion as before; it is excluded from the existing transcript sidecar
+    deletion list and cleared by factory reset. See assistant-subagents.md for stream ordering
+    and the exact limits of the cumulative-usage proof.
   - OM cycles: `data-om-observation-end` / `data-om-buffering-end` chunks
     (`tokensObserved`/`observationTokens` and `tokensBuffered`/`bufferedTokens`)
     mapped in `mapObservationalMemoryCycleEnd`. These are Mastra's LOCAL tokenx
@@ -1438,6 +1448,13 @@ emission — that is engine territory):
   `prompt_item` ops the same way. The standalone Mastra store probes the
   app-owned sidecars with `to_regclass` (a bare store legitimately lacks
   them and has no seam to feed); on a migrated database every probe passes.
+- **Delegated branches:** all three paths use `DELEGATED_THREAD_DELETE_CTES`
+  to include descendant native threads and their sidecars. It validates the
+  complete live ancestry and descendants before selecting any deletion target;
+  a changed owner/resource rejects the whole command. Parent/sibling threads
+  outside a selected subtree survive. Overlapping bulk requests emit each
+  tombstone once. The desktop `delegated-thread-deletion.integration.test.ts`
+  exercises all three real-PGlite paths, including rejected deletions.
 - **Reset:** registered in the reset registry — the op-log is cleared with
   the mind it describes on all three clear paths.
 

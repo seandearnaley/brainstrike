@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import {
   type AssistantRunEvent,
   CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  createDelegatedConversationBinding,
   createEmbeddingProvider,
   createLanguageModelProvider,
   createLocalHostEmbeddingModel,
@@ -30,11 +31,12 @@ import {
 import type { DesktopMemoryFeature } from '@brainstrike/assistant-service/types';
 import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
 import { resolveProviderApiKey } from './provider-credentials';
 import { createRunCriticalDatabase } from './run-critical-database';
 
 export type DesktopMastraMemoryResult =
-  import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult;
+  import('@brainstrike/assistant-service/stream-init').AgentStreamMemoryResult;
 type DesktopMastraMemoryPromise = Promise<DesktopMastraMemoryResult>;
 
 const DESKTOP_MEMORY_CACHE_LIMIT = 16;
@@ -221,7 +223,7 @@ async function createDesktopMastraMemoryFromCacheState({
     const database = createRunCriticalDatabase(await getDatabase(), { eventSink, runId });
     // Run-scoped memory instances intentionally bypass the shared cache so the
     // per-run event sink cannot leak observability events across concurrent runs.
-    return createPgliteMastraMemory({
+    const memory = await createPgliteMastraMemory({
       database,
       ...(embedder ? { embedder } : {}),
       ...(eventSink ? { eventSink } : {}),
@@ -230,6 +232,14 @@ async function createDesktopMastraMemoryFromCacheState({
       ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
       runId,
     });
+    const host = createDesktopDelegatedConversationHost(database, runId);
+    return {
+      ...memory,
+      conversationBinding: {
+        ...createDelegatedConversationBinding(host.persist),
+        bindRun: host.bindRun,
+      },
+    };
   }
   const cacheKey = buildDesktopMastraMemoryCacheKey({
     memoryOptions,

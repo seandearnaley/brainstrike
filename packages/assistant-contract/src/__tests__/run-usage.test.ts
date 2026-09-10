@@ -44,6 +44,33 @@ describe('run-usage contract', () => {
     ).toBe(true);
   });
 
+  it('retains complete native delegation identity and rejects partial or misclassified identity', () => {
+    const delegation = {
+      parentRuntimeRunId: 'parent',
+      parentToolCallId: 'call',
+      resourceId: 'resource',
+      threadId: 'child',
+    };
+    const usage = {
+      delegation,
+      estimated: false,
+      inputTokens: 2,
+      outputTokens: 3,
+      personaId: 'explore',
+      source: 'subagent',
+    };
+    expect(isAssistantChildRunUsage(usage)).toBe(true);
+    for (const key of Object.keys(delegation)) {
+      expect(
+        isAssistantChildRunUsage({ ...usage, delegation: { ...delegation, [key]: undefined } })
+      ).toBe(false);
+      expect(
+        isAssistantChildRunUsage({ ...usage, delegation: { ...delegation, [key]: ' ' } })
+      ).toBe(false);
+    }
+    expect(isAssistantChildRunUsage({ ...usage, source: 'om-observation' })).toBe(false);
+  });
+
   it('rejects chat as a child source and malformed payloads (never coerced)', () => {
     expect(
       isAssistantChildRunUsage({
