@@ -307,6 +307,40 @@ Use this fail-closed procedure:
 
 ---
 
+## Delegated conversation graph (BST-1718 storage layer)
+
+Migration 126 owns `brainstrike_delegated_conversations`; its `ledgerKey` is
+registered in the numbered manifest and consumed by the production Drizzle
+runner. The graph records an immutable root anchor and child nodes keyed by
+actual native thread id. Root owner, immediate parent, native resource,
+configuration, display identity and workspace snapshot are separate columns.
+The composite parent foreign key forbids linking a node across root/owner
+boundaries. The repository creates children only beneath existing ancestors;
+it exposes no reparent operation and conflicting duplicate delivery fails.
+
+Unlike the older FK-less presentation sidecars, this graph references
+`mastra_threads`: migration 117 now guarantees that table exists before 126,
+as it already does for the run tables in migration 118. Native thread deletion
+cascades its graph node and descendant graph nodes. This does **not** cascade
+upward into descendant native transcripts; the production branch-deletion
+command must explicitly remove those transcripts and their ordinary sidecars
+before this storage API is activated in the host. Do not report graph deletion
+as complete conversation deletion.
+
+All three table-enumerating clear/reset paths explicitly clear the graph; it is
+in the shared reset registry. Root anchors contain no copied presentation or
+workspace state. A new direct child snapshots the root's current canonical
+`operatingRootId`; nested children inherit their immediate parent's snapshot.
+Re-delivery preserves the existing node, including its original workspace.
+Configuration must survive a JSON round trip without coercion or omitted data.
+
+The real-PGlite suite `delegated-conversations.integration.test.ts` covers
+concurrent duplicate delivery, same-persona siblings, ownership, nested scope
+changes, workspace changes, graph deletion, legacy absence, a dumped database
+loaded in a new engine, and production-ledger upgrade/replay. Invocation/run
+identity, lifecycle, usage and host publication are subsequent BST-1718 layers;
+the graph repository is not yet called by production delegation.
+
 ## ASSISTANT THREAD GROUP PRESENTATION
 
 Thread group structure and presentation are local-first Brainstrike state in

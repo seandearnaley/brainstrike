@@ -500,6 +500,13 @@ invocation, child thread and run before publication. Migration, resource
 ownership, reconstructed-host identity hydration and usage reconciliation remain
 BST-1718 acceptance work. See the current [processor lifecycle reference](https://mastra.ai/reference/processors/processor-interface).
 
+The first storage layer adds the host-only delegated conversation graph in
+`@brainstrike/db`, with exact native scope checks across the full ancestor chain,
+immutable child configuration/workspace binding, and explicit legacy absence.
+It is not yet called by production delegation. Invocation/run identity, complete
+native branch cleanup, host publication/resume and usage reconciliation remain
+required before enabling it. See `assistant-persistence.md` and `database.md`.
+
 ## Child conversation interaction contract (BST-1717)
 
 The planned first-class child UI is specified in

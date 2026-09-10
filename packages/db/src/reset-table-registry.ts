@@ -45,11 +45,13 @@ export type MastraResetTable =
 
 /**
  * Brainstrike-owned assistant persistence created by numbered migrations, not
- * the Drizzle schema. None of these has an FK that would cascade it — each one
- * must be cleared explicitly by every table-enumerating reset path (FACTORY
+ * the Drizzle schema. These include FK-less ledgers and relational graphs;
+ * each is cleared explicitly by every table-enumerating reset path (FACTORY
  * RESET CONTRACT, docs/agents/platform-contracts.md).
  */
 const BRAINSTRIKE_RESET_TABLES = [
+  // Delegation ancestry is user data. Its self-FKs cascade the graph.
+  'brainstrike_delegated_conversations',
   // Durable conversation-compaction ranges (migration 088, BST-1200). Exact
   // message-id sets cannot outlive the conversation rows they summarize.
   'brainstrike_assistant_compaction_ranges',
