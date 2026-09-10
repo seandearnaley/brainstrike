@@ -338,7 +338,7 @@ export function buildStreamOptions(
   return {
     ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
     abortSignal,
-    ...(runtime.delegatedTurnPersistence
+    ...(delegationUsage && runtime.delegatedTurnPersistence
       ? { hooks: runtime.delegatedTurnPersistence.hooks(abortSignal) }
       : {}),
     ...(runId === undefined ? {} : { runId }),

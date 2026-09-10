@@ -749,6 +749,19 @@ abort finalization releases the remaining entries even when a save fails.
 A later attempt can reuse a settled native identity, while an overlapping
 invocation with the same native identity fails explicitly.
 
+This capability is constructed only when the runtime has an explicit root
+memory scope and a memory instance. Supplying only the library memory instance
+still permits ordinary delegation. The root tool hook is installed only for
+legs with active delegation; a memory-backed run without personas does not gain
+child persistence hooks. Missing native child identities remain errors once the
+scoped capability is active.
+
+A production-loop regression stalls the memory-backed child model, allows the
+real watchdog to fire, and requires the child's actual provider signal to be
+aborted before a successful parent continuation. The test does not resolve the
+child stream or the completion promise itself. The common timeout callback and
+attempt-consumer finalizer both abort the owning attempt before the child joins.
+
 All three attempt legs require the owning abort signal at stream-option and
 delegation configuration boundaries. Child saves are joined before replacing a
 watchdog attempt and before runtime disposal; a successfully recovered parent

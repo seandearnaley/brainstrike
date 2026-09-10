@@ -585,7 +585,7 @@ export async function createMastraAgentRuntime(
 
   // Subagent personas (D10): built BEFORE the instructions so guidance only
   // names personas that actually registered a delegation tool this run.
-  const delegatedTurnPersistence = createDelegatedTurnPersistence(memory);
+  const delegatedTurnPersistence = createDelegatedTurnPersistence(memory, sanitizedRuntime.memory);
   const {
     delegationToolPersonas,
     hasSubAgents,

@@ -31,7 +31,10 @@ function fixture(readOnly = false) {
     getThreadById: async () => ({ id: 'child' }),
     saveMessages,
   } as unknown as MastraMemory;
-  const persistence = createDelegatedTurnPersistence(memory);
+  const persistence = createDelegatedTurnPersistence(memory, {
+    resourceId: 'owner',
+    threadId: 'root',
+  });
   if (!persistence) {
     throw new Error('Fixture requires memory');
   }
@@ -66,7 +69,7 @@ function fixture(readOnly = false) {
 
 describe('native delegated turn persistence ownership', () => {
   it('omits the capability without memory', () => {
-    expect(createDelegatedTurnPersistence(undefined)).toBeUndefined();
+    expect(createDelegatedTurnPersistence(undefined, undefined)).toBeUndefined();
   });
 
   it('joins errors before input processing and releases the abort listener', async () => {

@@ -780,7 +780,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     'joins native %s failures without waiting for a missing completion hook',
     async (failureStage) => {
       const owner = new AbortController();
-      const persistence = createDelegatedTurnPersistence(backing.memory);
+      const persistence = createDelegatedTurnPersistence(backing.memory, {
+        resourceId: 'owner',
+        threadId: 'root',
+      });
       if (!persistence) {
         throw new Error('Fixture requires memory');
       }
@@ -824,7 +827,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
 
   it('settles cancelled child persistence after native suspension skips delegation completion', async () => {
     const owner = new AbortController();
-    const persistence = createDelegatedTurnPersistence(backing.memory);
+    const persistence = createDelegatedTurnPersistence(backing.memory, {
+      resourceId: 'owner',
+      threadId: 'root',
+    });
     if (!persistence) {
       throw new Error('Fixture requires child persistence');
     }

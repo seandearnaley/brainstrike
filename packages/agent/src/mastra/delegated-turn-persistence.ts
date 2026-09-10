@@ -2,6 +2,7 @@ import type { DelegationStartContext } from '@mastra/core/agent';
 import { type MastraMemory, parseMemoryRequestContext } from '@mastra/core/memory';
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import type { ToolHooks } from '@mastra/core/tools';
+import type { RuntimeData } from '../types';
 import {
   type AbortedTurnPersistence,
   createAbortedTurnPersistence,
@@ -25,9 +26,10 @@ interface NativeTurn {
 
 /** The native tool after-hook joins success, error and suspension before saving a Stop snapshot. */
 export function createDelegatedTurnPersistence(
-  memory: MastraMemory | undefined
+  memory: MastraMemory | undefined,
+  rootMemoryScope: RuntimeData['memory']
 ): DelegatedTurnPersistence | undefined {
-  if (!memory) {
+  if (!(memory && rootMemoryScope)) {
     return;
   }
   const turns = new Map<string, NativeTurn>();

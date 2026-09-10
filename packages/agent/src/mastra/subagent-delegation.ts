@@ -71,7 +71,7 @@ export function createDelegationOutcomeCapture(): DelegationOutcomeCapture {
 }
 
 export interface CreateDelegationConfigParams {
-  abortSignal: AbortSignal;
+  readonly abortSignal: AbortSignal;
   readonly conversationBinding?: DelegatedConversationBinding;
   /** Optional sink for delegations that returned no answer (see above). */
   readonly delegationOutcomes?: DelegationOutcomeCapture;
@@ -86,7 +86,7 @@ export interface CreateDelegationConfigParams {
   readonly onChildUsage?: (report: SubagentChildUsageReport) => void;
   /** Persona id → definition; the `primitiveId` Mastra passes is the persona id. */
   readonly personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
-  turnPersistence?: DelegatedTurnPersistence | undefined;
+  readonly turnPersistence?: DelegatedTurnPersistence | undefined;
 }
 
 function readTokenCount(value: unknown): number {
