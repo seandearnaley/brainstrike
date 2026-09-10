@@ -71,7 +71,7 @@ import {
   validateToolApprovalAction,
   validateToolResumeAction,
 } from './attempt-legs';
-import { createDelegatedRunPublicationGuard } from './delegated-run-publication';
+import { createDelegatedStreamProjection } from './delegated-stream-projection';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import {
   asMastraStreamPart,
@@ -111,6 +111,7 @@ import {
 import {
   EmptyModelResponseError,
   isStreamWatchdogError,
+  makeDelegatedStreamTermination,
   makeProviderErrorTermination,
   makeTripwireTermination,
 } from './stream-termination';
@@ -133,7 +134,7 @@ import {
   resolveDelegationPersona,
   type ToolLifecycleState,
 } from './tool-lifecycle-processors';
-import type { StreamAbortContext } from './turn-attempts';
+import { createTurnAttemptLifecycleState, type StreamAbortContext } from './turn-attempts';
 
 const logger = createLogger('MastraAgent');
 
@@ -1032,6 +1033,68 @@ function readMastraReasoningPartKind(part: unknown): 'content' | 'marker' | unde
   return MASTRA_REASONING_PART_KINDS[type as keyof typeof MASTRA_REASONING_PART_KINDS];
 }
 
+function createAttemptDelegatedProjection({
+  runtime,
+  runtimeData,
+  lifecycleState,
+  sanitizedNameMap,
+}: {
+  runtime: MastraAgentRuntime;
+  runtimeData: RuntimeData | undefined;
+  lifecycleState: ToolLifecycleState;
+  sanitizedNameMap: Map<string, string> | undefined;
+}): {
+  project(part: unknown, toolNames: Map<string, string>): Promise<StreamChunk[]>;
+  settle(): StreamChunk[];
+} {
+  const delegatedProjection = createDelegatedStreamProjection({
+    authorize: runtime.conversationBinding?.bindRun,
+    createState: (personaId) => {
+      const provider =
+        runtime.personasById.get(personaId)?.model?.provider ?? runtimeData?.provider;
+      return createTurnAttemptLifecycleState(
+        provider ? { provider } : undefined,
+        undefined,
+        lifecycleState.toolExecutionDurations
+      );
+    },
+    mapPart: async (childPart, state, childToolNames) => {
+      const result = await processMastraStreamPart(
+        childPart,
+        childToolNames,
+        state,
+        sanitizedNameMap,
+        runtime.askTools,
+        runtime.delegationToolPersonas
+      );
+      return {
+        chunks: result.chunks.map((chunk) => {
+          if (chunk.type === 'delegated-conversation-chunk') {
+            throw new Error('Child projection cannot contain an already-scoped chunk.');
+          }
+          return chunk;
+        }),
+        finished: result.finished,
+      };
+    },
+    personas: runtime.delegationToolPersonas,
+  });
+  const settle = () =>
+    delegatedProjection?.finalize((state) =>
+      makeDelegatedStreamTermination(state, Boolean(runtimeData?.signal?.aborted)).map((chunk) => {
+        if (chunk.type === 'delegated-conversation-chunk') {
+          throw new Error('A child terminal cannot contain an already-scoped chunk.');
+        }
+        return chunk;
+      })
+    ) ?? [];
+
+  return {
+    project: async (part, toolNames) => (await delegatedProjection?.project(part, toolNames)) ?? [],
+    settle,
+  };
+}
+
 export async function* streamAttemptChunks({
   abortedTurnPersistence,
   delegationUsage,
@@ -1050,6 +1113,13 @@ export async function* streamAttemptChunks({
   const calibrationState = { emitted: false };
   const toolCallTelemetryState = { emitted: false };
   const toolNames = new Map<string, string>();
+
+  const delegatedProjection = createAttemptDelegatedProjection({
+    lifecycleState,
+    runtime,
+    runtimeData,
+    sanitizedNameMap,
+  });
 
   try {
     // Run-start prompt breakdown (transient, display-only). Emitted BEFORE the
@@ -1081,14 +1151,8 @@ export async function* streamAttemptChunks({
         reasoningPartKind: readMastraReasoningPartKind,
       }
     );
-    const authorizeDelegatedRun = createDelegatedRunPublicationGuard(
-      runtime.conversationBinding?.bindRun,
-      runtime.delegationToolPersonas
-    );
     for await (const part of source) {
-      if (authorizeDelegatedRun) {
-        await authorizeDelegatedRun(part);
-      }
+      yield* await delegatedProjection.project(part, toolNames);
       const { chunks, finished } = await processMastraStreamPart(
         part,
         toolNames,
@@ -1123,6 +1187,9 @@ export async function* streamAttemptChunks({
         promptBreakdown
       );
       yield* drainToolCallTelemetryChunks(finished, runtime, toolCallTelemetryState);
+      if (finished) {
+        yield* delegatedProjection.settle();
+      }
       for (const chunk of chunks) {
         yield chunk;
       }
@@ -1133,6 +1200,7 @@ export async function* streamAttemptChunks({
       }
     }
     yield* drainDelegationUsageChunks(delegationUsage);
+    yield* delegatedProjection.settle();
     // Aborted mid-run: settle any orphaned delegations (a cancelled parent must
     // never leave a forever-"running" subagent.started). Otherwise finalize a
     // missing-finish stream with pending tool output + a synthetic finish.
@@ -1153,6 +1221,7 @@ export async function* streamAttemptChunks({
       yield chunk;
     }
   } catch (error) {
+    yield* delegatedProjection.settle();
     // Best-effort telemetry must not be lost on an ordinary stream/projector
     // failure after earlier tool calls already completed — drain whatever was
     // accumulated before propagating the failure (review fix). Since BST-1409

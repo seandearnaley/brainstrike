@@ -34,7 +34,12 @@ import {
   type ResolvedTripwire,
   truncateStreamDetail,
 } from './mastra-chunk-decoding';
-import { makeErrorFinishChunk, makeRunFailedChunk } from './stream-run-event-chunks';
+import {
+  makeErrorFinishChunk,
+  makeRunEventChunk,
+  makeRunFailedChunk,
+  makeSyntheticFinishChunk,
+} from './stream-run-event-chunks';
 import {
   makeCancelledDelegationRunEventChunks,
   makePendingToolOutputRunEventChunks,
@@ -43,6 +48,24 @@ import {
 } from './tool-lifecycle-processors';
 
 const logger = createLogger('MastraAgent');
+
+/** A parent ending must settle every still-open child before its own finish. */
+export function makeDelegatedStreamTermination(
+  state: ToolLifecycleState,
+  cancelled: boolean
+): StreamChunk[] {
+  return [
+    ...makeCancelledDelegationRunEventChunks(state),
+    ...makePendingToolOutputRunEventChunks(state),
+    cancelled
+      ? makeRunEventChunk('run.cancelled', 'cancelled', 'Child run cancelled')
+      : makeRunFailedChunk(
+          'Child stream interrupted',
+          'The parent stream ended before the child reported a terminal result.'
+        ),
+    cancelled ? makeSyntheticFinishChunk() : makeErrorFinishChunk(),
+  ];
+}
 
 /**
  * Terminate a run gracefully after a provider/model error part.

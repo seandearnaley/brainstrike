@@ -2307,6 +2307,24 @@ function buildHistoryUnits(
   return units;
 }
 
+function assignNativeMessageRunEvent(
+  event: AssistantRunEvent,
+  groups: ReadonlyMap<string, AssistantHistoryRowGroup>,
+  assignments: Map<AssistantHistoryUnit, AssistantRunEventDataPart[]>
+): boolean {
+  const nativeMessageId = event.metadata?.['nativeMessageId'];
+  if (typeof nativeMessageId !== 'string') {
+    return false;
+  }
+  // Multiple host resume legs can belong to one native assistant message.
+  // An id outside the loaded window must never land on an unrelated turn.
+  const group = groups.get(nativeMessageId);
+  if (group) {
+    assignments.set(group, [...(assignments.get(group) ?? []), ...toRunEventDataParts([event])]);
+  }
+  return true;
+}
+
 /**
  * Assign each persisted run back to its own assistant group. A run's earliest
  * events occur before its first assistant row is saved, while the next run's
@@ -2327,7 +2345,13 @@ function assignRunEventsToGroups(
   }
 
   const eventsByRunId = new Map<string, AssistantRunEvent[]>();
+  const groupsByNativeMessageId = new Map(
+    assistantGroups.flatMap((group) => group.rows.map((row) => [row.id, group] as const))
+  );
   for (const event of runEvents) {
+    if (assignNativeMessageRunEvent(event, groupsByNativeMessageId, assignments)) {
+      continue;
+    }
     const runId = event.runId;
     if (!runId) {
       continue;
@@ -2370,7 +2394,10 @@ function assignRunEventsToGroups(
     if (!candidate) {
       continue;
     }
-    assignments.set(candidate, toRunEventDataParts(run.events));
+    assignments.set(candidate, [
+      ...(assignments.get(candidate) ?? []),
+      ...toRunEventDataParts(run.events),
+    ]);
     unassignedGroups.delete(candidate);
   }
   return assignments;

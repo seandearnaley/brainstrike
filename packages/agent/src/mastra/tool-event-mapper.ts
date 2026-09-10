@@ -154,17 +154,24 @@ export function mapMastraToolEvent(
   }
 }
 
+/** Root and delegated results share display transforms and guarded-error classification. */
+function readToolResult(candidate: ToolEventPart): { result: unknown; isError: boolean } {
+  const rawResult =
+    readMastraStreamPartValue(candidate, 'result') ??
+    readMastraStreamPartValue(candidate, 'output');
+  const result = readDisplayToolPayload(candidate, 'output-available', rawResult);
+  return {
+    isError: readMastraStreamPartValue(candidate, 'isError') === true || isGuardedToolError(result),
+    result,
+  };
+}
+
 function mapToolResultEvent(
   candidate: ToolEventPart,
   displayName: string,
   callId: string | undefined
 ): StreamChunk {
-  const rawResult =
-    readMastraStreamPartValue(candidate, 'result') ??
-    readMastraStreamPartValue(candidate, 'output');
-  const result = readDisplayToolPayload(candidate, 'output-available', rawResult);
-  const errorResult =
-    readMastraStreamPartValue(candidate, 'isError') === true || isGuardedToolError(result);
+  const { result, isError: errorResult } = readToolResult(candidate);
   return {
     name: displayName,
     payload: {
@@ -334,7 +341,10 @@ export function readNestedToolOutputChunk(part: unknown): NestedToolOutputChunkI
   const toolCallId = readMastraStreamPartString(output, 'toolCallId');
   const toolName = readMastraStreamPartString(output, 'toolName');
   return {
-    isError: readMastraStreamPartValue(output, 'isError') === true,
+    isError:
+      type === 'tool-result' && isToolEventPart(output)
+        ? readToolResult(output).isError
+        : readMastraStreamPartValue(output, 'isError') === true,
     type,
     ...(toolCallId ? { toolCallId } : {}),
     ...(toolName ? { toolName } : {}),

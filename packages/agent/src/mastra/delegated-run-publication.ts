@@ -1,12 +1,8 @@
+import type { DelegatedRunIdentity } from '@brainstrike/assistant-contract/delegated-conversation-stream';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 
-export interface DelegatedRunIdentity {
-  readonly childRuntimeRunId: string;
-  readonly parentRuntimeRunId: string;
-  readonly parentToolCallId: string;
-  readonly personaId: string;
-}
+export type { DelegatedRunIdentity } from '@brainstrike/assistant-contract/delegated-conversation-stream';
 
 function requireIdentity(value: string | undefined): string {
   if (!value?.trim()) {

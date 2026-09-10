@@ -10,8 +10,13 @@ import {
 } from '@brainstrike/agent/test-fixtures/scripted-agent-model';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import {
+  createAssistantThreadHistoryAdapter,
+  createPgliteAssistantThreadRepository,
+} from '@brainstrike/assistant-data';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
+import type { DbHandle } from '@brainstrike/db/react';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -136,6 +141,7 @@ describe('desktop durable delegation production loop', () => {
     );
     let paused = false;
     let usageCount = 0;
+    const childEventIds: string[] = [];
     for await (const chunk of persistDesktopChildRunUsage(
       observeDesktopAssistantRunEvents(stream, 'host-leg', [], async () => database),
       'host-leg',
@@ -161,6 +167,9 @@ describe('desktop durable delegation production loop', () => {
       }
       if (chunk.type === 'run-event') {
         expect(chunk.event.kind).not.toBe('run.failed');
+      }
+      if (chunk.type === 'delegated-conversation-chunk' && chunk.chunk.type === 'run-event') {
+        childEventIds.push(chunk.chunk.event.id);
       }
     }
     expect(execute).toHaveBeenCalledTimes(1);
@@ -198,6 +207,46 @@ describe('desktop durable delegation production loop', () => {
     const reloaded = await createEnginePglite({ loadDataDir: await database.dumpDataDir() });
     try {
       expect((await reloaded.query(read)).rows).toEqual(rows);
+      const child = (
+        await database.query<{ thread_id: string; resource_id: string }>(
+          "SELECT thread_id, resource_id FROM brainstrike_delegated_conversations WHERE parent_thread_id = 'root'"
+        )
+      ).rows[0];
+      expect(child).toBeDefined();
+      if (!child) {
+        throw new Error('Missing native child');
+      }
+      expect(childEventIds.length).toBeGreaterThan(2);
+      const load = async (db: PGlite) =>
+        createAssistantThreadHistoryAdapter({
+          repository: createPgliteAssistantThreadRepository(db as unknown as DbHandle),
+          resourceId: child.resource_id,
+          threadId: child.thread_id,
+        }).load();
+      const before = await load(database);
+      expect(await load(reloaded)).toEqual(before);
+      const assistant = before.messages.filter(({ message }) => message.role === 'assistant');
+      expect(assistant).toHaveLength(1);
+      const content = assistant.flatMap(({ message }) =>
+        message.role === 'assistant' ? message.content : []
+      );
+      expect(content).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ text: 'Child: FLAG-42', type: 'text' }),
+          expect.objectContaining({
+            result: { matches: ['FLAG-42'] },
+            toolCallId: 'child-call',
+            type: 'tool-call',
+          }),
+        ])
+      );
+      const hydratedIds = content
+        .flatMap((part) =>
+          part.type === 'data' && part.name === 'brainstrike.run-event' ? [part.data] : []
+        )
+        .map((event) => z.object({ id: z.string() }).parse(event).id);
+      expect(hydratedIds).toEqual(childEventIds);
+      expect(JSON.stringify(before)).not.toContain('Parent: FLAG-42');
     } finally {
       await reloaded.close();
     }

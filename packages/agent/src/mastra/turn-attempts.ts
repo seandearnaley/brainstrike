@@ -224,7 +224,7 @@ export function resolveMemoryOption(
  *   accumulators from the attempt being replaced.
  */
 export function createTurnAttemptLifecycleState(
-  runtimeData: RuntimeData | undefined,
+  runtimeData: Pick<RuntimeData, 'provider' | 'steering'> | undefined,
   delegationOutcomes: DelegationOutcomeCapture | undefined,
   toolExecutionDurations: ToolExecutionDurations | undefined,
   carried?: ToolLifecycleState

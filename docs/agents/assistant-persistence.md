@@ -2871,3 +2871,28 @@ This storage foundation does not change production runtime behavior or usage
 writers. Migration 127 now provides invocation/run binding records (see database.md).
 BST-1718 still needs lifecycle and exact usage reconciliation, authenticated
 host wiring, resume hydration, and complete native branch deletion. Full child message persistence/rendering remains BST-1719.
+
+
+### Scoped child stream hydration (BST-1719 delivery layer)
+
+Native Mastra memory remains the sole child transcript writer. The desktop run
+event observer routes scoped child lifecycle events through the delegated
+repository's atomic authorization/header/event mutation into the existing
+thread-run/run-event tables. A native invocation plus current root host leg
+gets its own opaque child host-run id; the root turn id is not a child user
+message id, so the nullable child header field stays unset. Usage remains in
+the existing root-attributed writer and is not duplicated for these headers.
+
+Events retain observed native message identity in sanitized metadata. The
+shared history adapter assigns these events by row id before applying the
+legacy run-window heuristic, permitting several resume legs in one assistant
+group. An observed message outside the loaded window is never assigned to a
+different turn. The normal session buffer replays encoded scoped frames without
+remapping; the normal assistant-stream decoder consumes child frames.
+
+Paired proofs: desktop `delegated-runtime.integration.test.ts` (real native
+transcript, shared hydration and engine reconstruction),
+`delegated-conversation-host.integration.test.ts` (host ownership, pins,
+idempotency and resumed event grouping), and agent `data-stream-session.spec.ts`
+(decoder and byte-identical replay). These do not claim packaged UI parity or
+cancelled child transcript durability; those scenarios remain tracked.

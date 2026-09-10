@@ -1244,3 +1244,17 @@ workspace metadata even on duplicate delivery. Malformed current metadata reject
 a duplicate write; get still returns the original authorized binding. The host
 must distinguish reading an existing invocation from creating a new one and must
 not use duplicate createChild as a substitute for resume authorization.
+
+
+### Delegated child run/event headers (BST-1719)
+
+The delegated repository reuses migration 118's ordinary run/event tables;
+there is no second transcript journal or new schema. `recordInvocationEvent`
+atomically revalidates the complete graph, bound native run/persona and original
+and current host turns. It creates a child header from the authorized native
+resource/thread and stored persona model selection, then writes the event in
+the same SQL statement. An invalid pin or conflicting event identity rejects.
+The child's root-owned invocation remains the access authority; a native child
+resource id alone confers no user ownership. Existing branch deletion/reset
+already removes these ordinary sidecars. Model settings/options and the child
+user message id remain NULL when they have not been observed.

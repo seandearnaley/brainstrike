@@ -94,6 +94,86 @@ function parseLines(lines: string[]): Encoded[] {
 }
 
 describe('AssistantDataStreamSession', () => {
+  it('routes child frames through the normal mapper without ending or contaminating the parent', async () => {
+    const identity = {
+      childRuntimeRunId: 'child-run',
+      parentRuntimeRunId: 'parent-run',
+      parentToolCallId: 'delegation',
+      personaId: 'explore',
+    };
+    const scoped = (
+      chunk: Exclude<StreamChunk, { type: 'delegated-conversation-chunk' }>
+    ): StreamChunk => ({
+      chunk,
+      identity,
+      messageId: 'native-child-message',
+      type: 'delegated-conversation-chunk',
+    });
+    const session = new AssistantDataStreamSession(
+      createAsyncStream([
+        { type: 'text-delta', value: 'Parent before.' },
+        scoped({ type: 'text-delta', value: 'Child content.' }),
+        scoped({
+          finishReason: 'stop',
+          path: [],
+          type: 'message-finish',
+          usage: { completionTokens: 3, promptTokens: 2 },
+        }),
+        { type: 'text-delta', value: 'Parent after.' },
+        {
+          finishReason: 'stop',
+          path: [],
+          type: 'message-finish',
+          usage: { completionTokens: 7, promptTokens: 5 },
+        },
+      ]),
+      () => {},
+      { cleanupDelayMs: 0, messageId: 'parent-message' }
+    );
+    const lines = await readResponse(session.createResponse());
+    const events = parseLines(lines);
+    expect(
+      events
+        .filter((event) => event.code === '0')
+        .map((event) => event.value)
+        .join('')
+    ).toBe('Parent before.Parent after.');
+    expect(events.filter((event) => event.code === 'd')).toHaveLength(1);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        code: 'aui-data',
+        value: expect.objectContaining({
+          data: expect.objectContaining({
+            frames: expect.arrayContaining([{ code: '0', value: 'Child content.' }]),
+            identity,
+            messageId: 'native-child-message',
+          }),
+          name: 'brainstrike.delegated-conversation',
+        }),
+      })
+    );
+    const childFrames = events.flatMap((event) => {
+      if (event.code !== 'aui-data') {
+        return [];
+      }
+      const value = event.value as { name: string; data: { frames: Encoded[] } };
+      return value.name === 'brainstrike.delegated-conversation' ? value.data.frames : [];
+    });
+    const child = await accumulateResponse(
+      new Response(
+        childFrames.map((frame) => `${frame.code}:${JSON.stringify(frame.value)}\n`).join('')
+      )
+    );
+    expect(child.parts).toContainEqual(
+      expect.objectContaining({ text: 'Child content.', type: 'text' })
+    );
+    expect(child.status).toEqual({ reason: 'stop', type: 'complete' });
+    // The existing session replays identical encoded child frames, not a new projection.
+    expect(
+      await readResponse(session.createResponse({ resumeFromEventId: `${session.id}:0` }))
+    ).toEqual(lines.slice(1));
+  });
+
   it('removes a canceled subscription without closing an already-canceled controller', () => {
     const controller = {
       close: vi.fn(() => {

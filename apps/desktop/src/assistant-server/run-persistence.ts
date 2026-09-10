@@ -58,6 +58,7 @@ export async function* observeDesktopAssistantRunEvents(
   getDatabase: RunPersistenceDatabaseProvider
 ): AsyncIterable<StreamChunk> {
   let sequence = 0;
+  const childSequences = new Map<string, number>();
   let persistenceErrorCount = 0;
   let persistenceError: unknown;
   let persistenceQueue: Promise<void> = Promise.resolve();
@@ -110,6 +111,18 @@ export async function* observeDesktopAssistantRunEvents(
     yield* drainQueuedEvents();
     for await (const chunk of stream) {
       yield* drainQueuedEvents();
+      if (chunk.type === 'delegated-conversation-chunk' && chunk.chunk.type === 'run-event') {
+        const key = JSON.stringify([
+          chunk.identity.parentRuntimeRunId,
+          chunk.identity.parentToolCallId,
+          chunk.identity.childRuntimeRunId,
+        ]);
+        const childSequence = childSequences.get(key) ?? 0;
+        const event = await persistDelegatedRunEvent(chunk, runId, childSequence, getDatabase);
+        childSequences.set(key, childSequence + 1);
+        yield { ...chunk, chunk: { event, type: 'run-event' } };
+        continue;
+      }
       if (chunk.type !== 'run-event') {
         yield chunk;
         continue;
@@ -147,6 +160,31 @@ export async function* observeDesktopAssistantRunEvents(
   if (sourceError) {
     throw sourceError;
   }
+}
+
+async function persistDelegatedRunEvent(
+  chunk: Extract<StreamChunk, { type: 'delegated-conversation-chunk' }>,
+  runId: string,
+  sequence: number,
+  getDatabase: RunPersistenceDatabaseProvider
+): Promise<AssistantRunEvent> {
+  if (chunk.chunk.type !== 'run-event' || !chunk.messageId) {
+    throw new Error('Delegated run event requires native message identity.');
+  }
+  const { event } = chunk.chunk;
+  const messageId = chunk.messageId;
+  return await runCriticalDatabaseOperation({
+    label: 'assistant-delegated-run-event-write',
+    operation: async () =>
+      createDesktopDelegatedConversationHost(await getDatabase(), runId).persistEvent(
+        chunk.identity,
+        messageId,
+        event,
+        sequence
+      ),
+    retry: 'idempotent',
+    runId,
+  });
 }
 
 /** Use the existing foreground scheduler and diagnosed saturated-host recovery.
@@ -611,8 +649,10 @@ export async function recordDesktopAssistantHookRunOutcome(
  * through this same writer and therefore inherits the documented `if (runId)`
  * gate and the "missing parent row ⇒ 0 rows, silent no-op" behavior (the INSERT
  * is an `INSERT ... SELECT ... FROM brainstrike_assistant_thread_runs WHERE id
- * = $runId`, so an unknown/absent runId writes nothing). Do not add a second
- * INSERT for run events.
+ * = $runId`, so an unknown/absent runId writes nothing). Scoped child events
+ * instead use the delegated repository's atomic authorization/header/event
+ * mutation from this same stream observer; never publish them through an
+ * unauthenticated native child resource id.
  */
 export async function recordDesktopAssistantRunEvent(
   runId: string,
