@@ -599,23 +599,35 @@ test('updates the jump affordance when scrolling crosses the end threshold withi
   render(<ThreadHarness messages={makeMessages(600)} />);
   const viewport = screen.getByTestId('assistant-ui-viewport');
   const button = screen.getByTestId('assistant-scroll-to-bottom');
+  const openingEnded = vi.fn();
+  viewport.addEventListener('scrollend', openingEnded, { once: true });
+  onTestFinished(() => viewport.removeEventListener('scrollend', openingEnded));
+  // Wait for the opening scroll's actual native completion before testing a
+  // new gesture. A momentary bottom position can precede row measurement.
+  await waitFor(() => expect(openingEnded).toHaveBeenCalled());
   await waitForPinnedToEnd(viewport);
+  expect(viewport).toHaveAttribute('data-thread-render-tier', 'virtual');
 
   act(() => {
-    viewport.scrollTop =
-      viewport.scrollHeight - viewport.clientHeight - THREAD_END_THRESHOLD_PX - 1;
+    viewport.scrollTo({
+      behavior: 'instant',
+      top: viewport.scrollHeight - viewport.clientHeight - THREAD_END_THRESHOLD_PX - 1,
+    });
     fireEvent.scroll(viewport);
   });
+  expect(distanceFromBottom(viewport)).toBe(THREAD_END_THRESHOLD_PX + 1);
   expect(button).toBeEnabled();
   const mountedRows = Array.from(viewport.querySelectorAll('[data-index]'), (row) =>
     row.getAttribute('data-index')
   );
 
+  expect(mountedRows.length).toBeGreaterThan(0);
+
   // Two consecutive scroll notifications in one animation frame have the same
   // isScrolling value and visible range. Crossing the affordance threshold must
   // still publish new state; no scrollend or incidental React render is needed.
   act(() => {
-    viewport.scrollTop += 2;
+    viewport.scrollTo({ behavior: 'instant', top: viewport.scrollTop + 2 });
     fireEvent.scroll(viewport);
   });
   expect(
@@ -640,5 +652,14 @@ test('reattaches vendor layout after a virtual to static to virtual round trip',
   expect(
     document.querySelector('.bs-virtual-thread')?.getBoundingClientRect().height
   ).toBeGreaterThan(viewport.clientHeight);
-  expect(screen.getByTestId('assistant-scroll-to-bottom')).toBeDisabled();
+  const button = screen.getByTestId('assistant-scroll-to-bottom');
+  expect(button).toBeDisabled();
+  act(() => {
+    viewport.scrollTo({
+      behavior: 'instant',
+      top: viewport.scrollTop - THREAD_END_THRESHOLD_PX - 1,
+    });
+    fireEvent.scroll(viewport);
+  });
+  expect(button).toBeEnabled();
 });

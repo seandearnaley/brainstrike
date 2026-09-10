@@ -2157,7 +2157,7 @@ viewport, not by thread length.
   writer or a longer reset delay.
 - **Virtual layout ownership.** React Virtual's documented `directDomUpdates`
   owns both container size (`containerRef`) and per-item row transforms. React
-  sets only the static absolute-position base (`top: 0`), not the container
+  sets only the static absolute-position base (`position`/`top`/`left`/`width`), not the container
   height or variable row offsets. Keep the ref composed with list-offset
   measurement and keep the mode constant across static/virtual tier switches.
 - **End affordance subscription.** Virtual Core and React Virtual deliberately
