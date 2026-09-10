@@ -1815,6 +1815,20 @@ level), so an unrelated label creates a run whose job is skipped; since
 workflow-level concurrency is evaluated before job-level `if:`, that no-op run
 would otherwise cancel an in-flight 11-14 min Coverage run.
 
+### Assistant stop/retry verifier (BST-1728)
+
+`apps/web/e2e/assistant-panel-interactions.test.ts` selects the browser-local
+model explicitly and supplies its actual `window.llmHost` generation/progress/
+cancel seam. An HTTP assistant mock does not intercept this runtime. The test
+controls each pending generation, streams partial content, clicks Stop and
+requires cancellation of the exact request ID. Regenerate uses the current
+accessible name (`Regenerate response`) and must start a distinct generation
+with the original prompt; a completed regeneration must never appear in the
+cancelled-request set. A long response is stopped the same way. No provider key,
+model download, conditional action, sleep, retry or availability skip is needed.
+A negative control disconnecting the adapter's `llmHost.cancel` call must fail
+at the cancellation assertion; passing UI visibility alone is insufficient.
+
 ### `pnpm check` is a mirror of test.yml, not a second CI definition (BST-1009)
 
 `scripts/check.mjs` is the local gate. It has ZERO workflow references and is
