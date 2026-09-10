@@ -111,7 +111,18 @@ function compactionFailureChunk(input: {
   // metadata and a rendered row: compaction failures quote provider/model and
   // can carry transport or DB detail.
   const reason = boundRunEventReason(input.error);
-  const key = `${input.threadId ?? ''}\u0000${reason}`;
+  // LENGTH-FRAMED, not delimited: unambiguous for any thread id and reason
+  // without depending on some character being impossible in either. It was a
+  // NUL separator until the Claude review of #3119 quoted this very line — the
+  // reviewer reproduced that separator as a real NUL character, and
+  // `execFileSync` refuses an argv string containing one, so the trusted
+  // reporter could not publish its disposition and the review gate went red at
+  // two heads with the review itself complete. A key that only ever lives in a
+  // `Set` has no business carrying a byte the rest of the toolchain cannot
+  // transport, and this comment names that byte rather than spelling its escape
+  // for exactly the same reason.
+  const threadId = input.threadId ?? '';
+  const key = `${threadId.length}:${threadId}${reason}`;
   if (reportedCompactionFailures.has(key)) {
     return;
   }

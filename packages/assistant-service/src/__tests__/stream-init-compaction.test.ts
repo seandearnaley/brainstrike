@@ -203,6 +203,33 @@ describe('runConversationCompactionBeforeStream', () => {
     expect(serialized).not.toContain('sk-live');
   });
 
+  it('keeps a thread/reason boundary that bare concatenation would collapse', async () => {
+    // The latch key is length-framed rather than delimited by an "impossible"
+    // character — the previous NUL separator was unpublishable downstream (see
+    // the comment on the key). Length framing has to actually hold the
+    // boundary: `<base>ab` + `c` and `<base>a` + `bc` concatenate to the same
+    // string, and collapsing them would let one thread's row silence another's.
+    const base = freshThreadId();
+    const wide = makeInput({
+      runtime: { memory: { threadId: `${base}ab` } } as unknown as RuntimeData,
+    });
+    (
+      wide.input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>
+    ).mockRejectedValue(new Error('c'));
+    const narrow = makeInput({
+      runtime: { memory: { threadId: `${base}a` } } as unknown as RuntimeData,
+    });
+    (
+      narrow.input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>
+    ).mockRejectedValue(new Error('bc'));
+
+    const first = await runConversationCompactionBeforeStream(wide.input as never);
+    expect(await deliverPrelude(first)).toHaveLength(1);
+    const second = await runConversationCompactionBeforeStream(narrow.input as never);
+
+    expect(runEventOf(second.failure)).toMatchObject({ metadata: { reason: 'bc' } });
+  });
+
   it('does NOT latch a breadcrumb the stream never delivered (Codex review of #3119)', async () => {
     // The latch used to be armed while the outcome was merely being
     // CONSTRUCTED — before `initializeAgentStream` awaits

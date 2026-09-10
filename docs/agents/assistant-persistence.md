@@ -2169,6 +2169,23 @@ in-memory `Set` with no persistence and no eviction, mirroring
 restart re-arms it, and it is bounded by thread cardinality times distinct
 reasons, not by request volume.
 
+THE KEY IS LENGTH-FRAMED, NOT DELIMITED. `<threadId.length>:<threadId><reason>`
+is unambiguous for any pair without needing a character that cannot occur in
+either. It was a NUL separator until #3119's own Claude review quoted that line
+and reproduced the separator as a real NUL character in its review text:
+`scripts/claude-review.mjs` publishes the disposition with
+`execFileSync('gh', […, '--body', body])`, Node refuses an argv string
+containing a NUL, and the review gate went red at two different heads
+(`a53612d266`, `9b66bfd7fb`) with the review itself complete and validated —
+"Publication failed: The argument 'args[6]' must be a string without null
+bytes." `lint:no-raw-nul-bytes` does not catch this: the source held the ESCAPE,
+which is legal, and the raw byte only appeared two systems downstream. A key
+that never leaves an in-memory `Set` must not carry a byte the rest of the
+toolchain cannot transport, and the comment on it names the byte rather than
+spelling the escape for the same reason. The framing is pinned by a test whose
+thread ids and reasons concatenate identically ("keeps a thread/reason boundary
+that bare concatenation would collapse").
+
 THE LATCH ARMS ON DELIVERY, NEVER ON MINT (Codex review of #3119). Minting
 happens while the outcome is still being CONSTRUCTED — `initializeAgentStream`
 then awaits `resolveInitialAgentStream` and only afterwards wraps the prelude.
