@@ -558,9 +558,9 @@ snapshots/running state/drafts, child-only send/stop/approval routing, chronolog
 reasoning disclosure, host result ownership and zero-part errors. Its browser
 suite exercises the complete component with 600 messages, bounded mounting,
 390/900px hosts, both theme classes, keyboard jump-to-latest and real Chromium
-reduced-motion emulation. That component lane omits Tailwind compilation, so it
-is geometry/behavior evidence; fully styled application inspection remains an
-app-shell/E2E responsibility.
+reduced-motion emulation. This suite compiles Tailwind using the shared theme
+and package source directives, and asserts the actual grid layout is present.
+Application navigation and native child binding remain app-shell/E2E work.
 
 ### Durable binding before publication and resume preparation (BST-1718)
 

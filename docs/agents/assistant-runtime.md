@@ -2139,6 +2139,16 @@ viewport, not by thread length.
   `scrollTop` in every state — item re-measurement fires while the reader is
   scrolled up too — so native anchoring would double-adjust there as well. Two
   independent selectors setting the same value; they never disagree.
+- **Measurement corrections are immediate.** The virtual tier overrides the
+  static viewport's `scroll-behavior: smooth` with `auto`; explicit user jumps
+  still use the virtualizer's smooth option unless reduced motion is enabled.
+  Inherited CSS animation can make native correction read-backs look like user
+  movement and lose the pin. The shared-renderer browser suite covers this with
+  compiled Tailwind styles and Linux Chromium.
+- **Clamped compensation belongs to the vendor.** React Virtual 3.14.11 /
+  Virtual Core 3.17.9 recover a measurement adjustment clamped before React
+  commits the grown sizer. Keep that patch floor; do not add a second scroll
+  writer or weaken the true-bottom assertion. See [upstream #1260](https://github.com/TanStack/virtual/pull/1260).
 - **Opening position.** `scrollToBottomOnInitialize` / `scrollToBottomOnRunStart`
   stay `false` in both tiers. Tier 2's equivalent is explicit: entering the
   virtual tier anchors to the newest message with `behavior: 'instant'` (never

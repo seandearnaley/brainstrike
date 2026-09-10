@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
+import tailwindcss from '@tailwindcss/vite';
 import { mergeConfig } from 'vite';
 import { defineConfig } from 'vitest/config';
 import type { BrowserCommand } from 'vitest/node';
@@ -47,6 +48,7 @@ export default defineConfig({
   optimizeDeps: {
     include: ['@testing-library/jest-dom/vitest'],
   },
+  plugins: [tailwindcss()],
   resolve: {
     alias: workspaceAliases,
   },

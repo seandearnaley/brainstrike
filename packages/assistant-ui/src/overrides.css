@@ -1210,6 +1210,9 @@
  */
 .aui-thread-viewport[data-thread-render-tier="virtual"] {
   overflow-anchor: none;
+  /* Native measurement corrections must be immediate. User jumps explicitly
+     request smooth motion through the virtualizer and honor reduced motion. */
+  scroll-behavior: auto;
 }
 
 /* The virtualizer's sizing container: rows are absolutely positioned inside it

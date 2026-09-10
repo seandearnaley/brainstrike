@@ -11,6 +11,7 @@ import { commands, userEvent } from 'vitest/browser';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
+import './assistant-conversation-panel.browser.css';
 
 const onNew = (_message: AppendMessage): Promise<void> => {
   throw new Error('Viewing a child cannot invoke a model');
@@ -29,9 +30,6 @@ function Child({ width, dark }: { width: number; dark: boolean }) {
   return (
     <TooltipProvider>
       <div className={dark ? 'dark' : undefined} style={{ height: 620, width }}>
-        {/* The component browser lane does not compile Tailwind utilities.
-            Match the panel's h-full host constraint, as the application does. */}
-        <style>{'.assistant-ui-panel { height: 100%; }'}</style>
         <AssistantConversationPanel label="Cedar" runtime={runtime} threadKey="child" />
       </div>
     </TooltipProvider>
@@ -58,7 +56,13 @@ test.each(
     const child = within(panel);
     const viewport = child.getByTestId('assistant-ui-viewport');
     await waitFor(() => expect(viewport).toHaveAttribute('data-thread-render-tier', 'virtual'));
+    expect(getComputedStyle(viewport).scrollBehavior).toBe('auto');
     await waitFor(() => expect(child.getByText(/Evidence 599:/)).toBeVisible());
+    const lastMessage = child.getByText(/Evidence 599:/).closest('.aui-assistant-message-root');
+    if (!lastMessage) {
+      throw new Error('Expected the shared assistant message root');
+    }
+    expect(getComputedStyle(lastMessage).display).toBe('grid');
     expect(panel.querySelectorAll('.bs-virtual-message').length).toBeLessThan(40);
     const bounds = panel.getBoundingClientRect();
     const input = child.getByRole('textbox', { name: 'Message input' });
