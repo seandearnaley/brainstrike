@@ -1209,6 +1209,9 @@ export async function* streamAttemptChunks({
       yield* drainToolCallTelemetryChunks(finished, runtime, toolCallTelemetryState);
       if (finished) {
         yield* delegatedProjection.settle();
+        // Settlement may await child publication. Flush any warnings recorded
+        // during that wait before downstream stops pulling at the finish.
+        yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
       }
       for (const chunk of chunks) {
         yield delegatedProjection.decorate(chunk);
@@ -1244,6 +1247,10 @@ export async function* streamAttemptChunks({
       yield chunk;
     }
   } catch (error) {
+    // The provider can report stream-start warnings and then fail before
+    // Mastra yields any mapped part. Preserve those facts before propagating
+    // the original stream failure, including cancellation/watchdog paths.
+    yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
     yield* delegatedProjection.settle();
     // Best-effort telemetry must not be lost on an ordinary stream/projector
     // failure after earlier tool calls already completed — drain whatever was

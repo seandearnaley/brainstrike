@@ -16,6 +16,7 @@ import type {
   LanguageModelV4CallOptions,
   LanguageModelV4StreamPart,
 } from '@ai-sdk/provider';
+import { Agent } from '@mastra/core/agent';
 import { createTool } from '@mastra/core/tools';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -40,6 +41,7 @@ vi.mock('../providers/provider-factory', async (importActual) => {
 });
 
 const { streamMastraAgent } = await import('../mastra/agent-streaming');
+const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
 /**
  * The v4 finish-reason shape: `{unified, raw}`, not a bare string. Spelled the
@@ -118,6 +120,74 @@ async function collectRunEvents(warnings: readonly unknown[]): Promise<{
 }
 
 describe('provider warnings on the turn (real Mastra loop)', () => {
+  it.each(['inherited', 'pinned', 'descriptor-parent'] as const)(
+    'captures %s persona model warnings in the parent run sink',
+    async (mode) => {
+      modelHolder.current = modelWarning([{ feature: 'temperature', type: 'unsupported' }]);
+      const runtime = await createMastraAgentRuntime({
+        ...(mode === 'descriptor-parent'
+          ? {
+              modelOverride: {
+                apiKey: 'fixture',
+                id: 'ollama/fixture',
+                url: 'http://127.0.0.1:11434/v1',
+              },
+            }
+          : {}),
+        personas: [
+          {
+            allowedToolIds: ['brainstrike.grepSearch'],
+            description: 'Explore the workspace',
+            id: 'explore',
+            instructions: 'Answer the question.',
+            label: 'Explorer',
+            maxSteps: 4,
+            ...(mode === 'inherited'
+              ? {}
+              : { model: { modelId: 'gpt-5.6-terra', provider: 'openai' } }),
+          },
+        ],
+        runtime: {
+          apiKey: 'test-key',
+          personaProviderApiKeys: { openai: 'test-key' },
+          provider: mode === 'descriptor-parent' ? 'ollama' : 'openai',
+        },
+        tools: {
+          'brainstrike.grepSearch': createTool({
+            description: 'Search the workspace.',
+            execute: async () => ({ matches: [] }),
+            id: TOOL_ID,
+            inputSchema: z.object({ pattern: z.string() }),
+          }),
+        },
+      });
+      try {
+        const child = (await runtime.agent.listAgents())['explore'];
+        expect(child).toBeInstanceOf(Agent);
+        if (!(child instanceof Agent)) {
+          throw new Error('Expected the production persona agent.');
+        }
+        const response = await child.stream('Find the answer.');
+        for await (const _part of response.fullStream) {
+          // Consume the real native agent stream so the model observer runs.
+        }
+        expect(await response.text).toBe('ANSWER');
+        expect(runtime.providerCallWarnings?.drain()).toEqual([
+          { subject: 'temperature', type: 'unsupported' },
+        ]);
+        if (mode === 'descriptor-parent') {
+          return;
+        }
+        const parent = await runtime.agent.stream('Answer without delegating.');
+        for await (const _part of parent.fullStream) {
+          // The same warning on the parent must share the per-run dedupe set.
+        }
+        expect(runtime.providerCallWarnings?.drain()).toEqual([]);
+      } finally {
+        await runtime.dispose();
+      }
+    }
+  );
   it('surfaces a dropped sampling param as a visible row on an otherwise healthy turn', async () => {
     const { events, text } = await collectRunEvents([
       {

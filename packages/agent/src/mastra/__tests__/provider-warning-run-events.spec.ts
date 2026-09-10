@@ -7,7 +7,10 @@
  * the provider had nothing to say, and a row for EVERY warning type rather
  * than only `unsupported`.
  */
-import { ASSISTANT_RUN_EVENT_KINDS } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_RUN_EVENT_KINDS,
+  MAX_RUN_EVENT_REASON_CHARS,
+} from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import { createProviderCallWarningSink } from '../../providers/provider-call-warnings';
 import type { StreamChunk } from '../../types';
@@ -104,6 +107,24 @@ describe('provider warning run events', () => {
       makeProviderCallWarningChunks([{ detail: 'x'.repeat(5000), type: 'other' }])
     );
     expect(row?.detail?.length).toBeLessThanOrEqual(MAX_PROVIDER_CALL_WARNING_DETAIL_CHARS);
+  });
+
+  it('bounds no-detail warning prose and all provider-controlled metadata values', () => {
+    const [withoutDetail, withFeature] = rows(
+      makeProviderCallWarningChunks([
+        { type: 't'.repeat(5000) },
+        { subject: 'f'.repeat(5000), type: 't'.repeat(5000) },
+      ])
+    );
+    expect(withoutDetail?.detail?.length).toBeLessThanOrEqual(
+      MAX_PROVIDER_CALL_WARNING_DETAIL_CHARS
+    );
+    for (const row of [withoutDetail, withFeature]) {
+      for (const value of Object.values(row?.metadata ?? {})) {
+        expect(typeof value).toBe('string');
+        expect(Array.from(String(value))).toHaveLength(MAX_RUN_EVENT_REASON_CHARS);
+      }
+    }
   });
 
   it('mints one row per distinct warning and gives every row its own id', () => {

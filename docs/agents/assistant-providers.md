@@ -2290,7 +2290,10 @@ that can never fire. The observer instead sits UNDER Mastra, at the model:
 `wrapModelWithCallWarningCapture`
 (`packages/agent/src/providers/provider-call-warnings.ts`) proxies
 `doStream`/`doGenerate` and records what the adapter reports, then
-`createMastraAgentRuntime` hands the wrapped model to the Agent. It is an
+`createMastraAgentRuntime` hands the wrapped model to the supervisor and
+inherited personas. Pinned persona instances are wrapped at creation against
+the SAME per-run sink (BST-1745), so child and parent warnings share the
+deduplication and capacity bound. It is an
 OBSERVER: call arguments and stream chunks pass through untouched, which is what
 keeps the "never sent on a default request" ruling above intact. Do not turn it
 into a transform — `prompt-transform-proxy.ts` is the seam for that.
@@ -2298,11 +2301,18 @@ into a transform — `prompt-transform-proxy.ts` is the seam for that.
 **Coverage boundary, stated.** `createProvider` returns a model INSTANCE for
 every hosted provider plus the built-in local runtime, and a Mastra model
 DESCRIPTOR (`{id, url, apiKey}`) for `ollama` and `lmstudio`. Mastra builds those
-two models itself, so there is no Brainstrike-owned seam to wrap and those runs
-carry no sink (`MastraAgentRuntime.providerCallWarnings` is `undefined`). It is
+two models itself, so there is no Brainstrike-owned seam to wrap those models.
+Every assembled run still owns a sink: a descriptor parent can delegate to a
+hosted pinned persona whose warnings must be observed. The descriptor itself is
 narrowed explicitly rather than wrapped into a proxy that could never observe
-anything. No signal is being discarded there today: their OpenAI-compatible
-route forwards sampling params rather than dropping them.
+anything. Descriptor-model warning capture remains tracked in BST-1740.
+
+The sink bounds every provider-controlled field with the shared
+`boundRunEventReason` redaction/200-code-point contract before retaining it for
+deduplication; string-shaped warnings preserve their explanation. A warning
+recorded before exceptional stream termination is drained before the original
+error propagates, even if Mastra never yielded a mapped part. Terminal
+settlement also drains before the finish closes downstream consumption.
 
 The rows themselves — kind `provider.request.warned`, `status: 'failed'`,
 always-visible, one row per DISTINCT warning per run — are specified in

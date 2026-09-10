@@ -206,13 +206,9 @@ export interface MastraAgentRuntime {
    * (BST-1701). Filled UNDER Mastra by the model observer, drained into
    * always-visible run-event rows by `streamAttemptChunks`.
    *
-   * `undefined` when the provider is configured by DESCRIPTOR rather than by
-   * model instance (ollama, lmstudio): Mastra builds those models itself, so
-   * there is no Brainstrike-owned seam to observe. Their OpenAI-compatible
-   * route forwards sampling params rather than dropping them, so no signal is
-   * being discarded there today - see docs/agents/assistant-providers.md.
-   * Required-with-`undefined` (like `toolHistoryFilter`) so an assembled
-   * runtime always states which of the two it is.
+   * Shared by the supervisor and every persona model instance. Descriptor
+   * models still have no observer, but their hosted persona pins can report
+   * into this same run sink. Optional for externally assembled runtimes.
    */
   providerCallWarnings: ProviderCallWarningSink | undefined;
   resilienceConfig: AssistantResilienceConfig;
@@ -246,27 +242,23 @@ const logger = createLogger('MastraAgent');
  * `createProvider` returns EITHER a model instance (every hosted provider plus
  * the built-in local runtime) or a Mastra model DESCRIPTOR (ollama, lmstudio),
  * and only an instance carries the `doStream`/`doGenerate` seam the observer
- * reads. A descriptor is handed back untouched with NO sink: Mastra
+ * reads. A descriptor is handed back untouched: Mastra
  * materializes that model itself, so the boundary is structural. It is
  * narrowed explicitly instead of being wrapped into a proxy that could never
  * observe anything, so the gap stays documented rather than silent.
  */
-function observeProviderCallWarnings(languageModel: MastraModelConfig): {
-  model: MastraModelConfig;
-  sink: ProviderCallWarningSink | undefined;
-} {
+function observeProviderCallWarnings(
+  languageModel: MastraModelConfig,
+  sink: ProviderCallWarningSink
+): MastraModelConfig {
   const isInstance =
     typeof languageModel === 'object' &&
     languageModel !== null &&
     typeof (languageModel as { doStream?: unknown }).doStream === 'function';
   if (!isInstance) {
-    return { model: languageModel, sink: undefined };
+    return languageModel;
   }
-  const sink = createProviderCallWarningSink();
-  return {
-    model: wrapModelWithCallWarningCapture(languageModel as object, sink) as MastraModelConfig,
-    sink,
-  };
+  return wrapModelWithCallWarningCapture(languageModel as object, sink) as MastraModelConfig;
 }
 
 function instantiateLanguageModel(
@@ -558,11 +550,11 @@ export async function createMastraAgentRuntime(
   //
   // A DESCRIPTOR-configured provider (ollama, lmstudio) returns a plain
   // `{id, url, apiKey}` config that Mastra materializes itself, so there is no
-  // instance to wrap and this run carries no sink at all. Explicitly narrowed
+  // instance to wrap. The run still owns a sink for hosted persona pins. Explicitly narrowed
   // rather than duck-typed into a no-op wrapper: the absence is a documented
   // boundary, not a silent one.
-  const { model: observedLanguageModel, sink: providerCallWarnings } =
-    observeProviderCallWarnings(languageModel);
+  const providerCallWarnings = createProviderCallWarningSink();
+  const observedLanguageModel = observeProviderCallWarnings(languageModel, providerCallWarnings);
   // Resolve once per run. Static catalog models use their declared context
   // window; runtime-discovered Ollama/LM Studio ids share the conservative
   // 32,768-token declaration from @brainstrike/assistant-contract.
@@ -664,7 +656,7 @@ export async function createMastraAgentRuntime(
     // pinned model's own resolved budget when one is pinned and the parent's
     // `resolvedToolResultBudget` otherwise (see build-persona-subagents.ts).
     guardedTools,
-    languageModel,
+    languageModel: observedLanguageModel,
     permissionSnapshot,
     personas,
     planModeActive,
@@ -674,7 +666,11 @@ export async function createMastraAgentRuntime(
       // The parent's FULL auth input (not just its key string), so a
       // same-provider pin reuses custom_fetch/aws auth intact (BST-1352).
       auth: runtimeResolution.authInput,
-      instantiate: instantiateLanguageModel,
+      instantiate: (provider, auth, pinnedModelName, runtime) =>
+        observeProviderCallWarnings(
+          instantiateLanguageModel(provider, auth, pinnedModelName, runtime),
+          providerCallWarnings
+        ),
       parentProvider: normalizedProvider,
       runtime: sanitizedRuntime,
     }),

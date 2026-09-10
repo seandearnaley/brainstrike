@@ -12,6 +12,7 @@
  * and `stream-run-event-chunks.ts` is the leaf every other streaming concern
  * depends on, so it cannot import a provider module.
  */
+import { boundRunEventReason } from '@brainstrike/assistant-contract';
 import type {
   ProviderCallWarning,
   ProviderCallWarningSink,
@@ -55,7 +56,10 @@ function detailFor(warning: ProviderCallWarning): string {
     (part): part is string => part !== undefined
   );
   if (parts.length === 0) {
-    return `The provider reported a "${warning.type}" warning about this request without any detail.`;
+    return truncateStreamDetail(
+      `The provider reported a "${warning.type}" warning about this request without any detail.`,
+      MAX_PROVIDER_CALL_WARNING_DETAIL_CHARS
+    );
   }
   return truncateStreamDetail(parts.join(': '), MAX_PROVIDER_CALL_WARNING_DETAIL_CHARS);
 }
@@ -67,8 +71,8 @@ function detailFor(warning: ProviderCallWarning): string {
  */
 function metadataFor(warning: ProviderCallWarning): AssistantRunEventMetadata {
   return {
-    ...(warning.subject === undefined ? {} : { feature: warning.subject }),
-    warningType: warning.type,
+    ...(warning.subject === undefined ? {} : { feature: boundRunEventReason(warning.subject) }),
+    warningType: boundRunEventReason(warning.type),
   };
 }
 

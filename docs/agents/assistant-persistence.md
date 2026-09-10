@@ -1263,9 +1263,13 @@ any kind — this row is the only evidence the setting was dropped, and a row
 hidden at default detail would leave the silent degradation exactly as it was
 found.
 
-One row per DISTINCT warning: the same rejection recurs on every step of a
+One row per DISTINCT bounded warning: the same rejection recurs on every step of a
 multi-step turn (it is a property of the request), and the sink dedupes it to
-one fact, one row. The capture-side contract — including why the warnings are
+one fact, one row across supervisor and persona calls. Provider-controlled
+fields are bounded/redacted before the sink retains them, and metadata and
+no-detail prose are bounded at presentation too. Exceptional termination drains
+captured warnings before propagating the original failure (BST-1745).
+The capture-side contract — including why the warnings are
 read at the MODEL rather than off a Mastra chunk — is in
 `docs/agents/assistant-providers.md`.
 

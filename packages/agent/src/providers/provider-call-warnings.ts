@@ -34,6 +34,7 @@
  * text fields are read by FIELD NAME (`feature`/`setting`,
  * `details`/`message`), which is what keeps an unknown type readable.
  */
+import { boundRunEventReason } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('MastraAgent');
@@ -84,7 +85,7 @@ function readString(source: Record<string, unknown>, keys: readonly string[]): s
   for (const key of keys) {
     const value = source[key];
     if (typeof value === 'string' && value.length > 0) {
-      return value;
+      return boundRunEventReason(value);
     }
   }
   return;
@@ -99,6 +100,9 @@ function readString(source: Record<string, unknown>, keys: readonly string[]): s
  * reuses one of those names, and never special-cases a feature.
  */
 export function readProviderCallWarning(value: unknown): ProviderCallWarning {
+  if (typeof value === 'string' && value.length > 0) {
+    return { detail: boundRunEventReason(value), type: UNRECOGNIZED_PROVIDER_WARNING_TYPE };
+  }
   if (!isRecord(value)) {
     return { type: UNRECOGNIZED_PROVIDER_WARNING_TYPE };
   }
@@ -108,7 +112,10 @@ export function readProviderCallWarning(value: unknown): ProviderCallWarning {
   return {
     ...(detail === undefined ? {} : { detail }),
     ...(subject === undefined ? {} : { subject }),
-    type: typeof type === 'string' && type.length > 0 ? type : UNRECOGNIZED_PROVIDER_WARNING_TYPE,
+    type:
+      typeof type === 'string' && type.length > 0
+        ? boundRunEventReason(type)
+        : UNRECOGNIZED_PROVIDER_WARNING_TYPE,
   };
 }
 
