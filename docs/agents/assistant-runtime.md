@@ -2145,6 +2145,14 @@ viewport, not by thread length.
   Inherited CSS animation can make native correction read-backs look like user
   movement and lose the pin. The shared-renderer browser suite covers this with
   compiled Tailwind styles and Linux Chromium.
+- **Native scroll completion.** Tier 2 enables the virtualizer's
+  `useScrollendEvent`. Its timer-based reset reports the offset cached by the
+  previous scroll event; a reset delivered between row-resize compensations
+  can overwrite the newer position and drop the end pin. Native `scrollend`
+  reads the current offset. The browser regression delivers a held reset
+  between two real row reflows, and removing the stale delivery is the negative
+  control. Keep this on the virtualizer's public API; do not add another scroll
+  writer or a longer reset delay.
 - **Clamped compensation belongs to the vendor.** React Virtual 3.14.11 /
   Virtual Core 3.17.9 recover a measurement adjustment clamped before React
   commits the grown sizer. Keep that patch floor; do not add a second scroll

@@ -9,7 +9,7 @@ import {
 import '@testing-library/jest-dom/vitest';
 import { act, fireEvent, getConfig, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, onTestFinished, test, vi } from 'vitest';
 import {
   THREAD_END_THRESHOLD_PX,
   THREAD_VIRTUALIZATION_THRESHOLD,
@@ -537,4 +537,51 @@ describe('thread renderer performance evidence (BST-897)', () => {
     expect(virtualRows).toBeLessThan(100);
     expect(staticRows).toBe(1000);
   });
+});
+
+test('keeps the end pin when a pending scroll reset lands between row resize deliveries', async () => {
+  const schedule = globalThis.setTimeout.bind(globalThis);
+  let pendingReset: (() => void) | undefined;
+  const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((handler, delay, ...args) => {
+    if (delay === 150 && typeof handler === 'function') {
+      pendingReset = () => handler(...args);
+      return schedule(() => undefined, delay);
+    }
+    return schedule(handler, delay, ...args);
+  });
+  onTestFinished(() => timer.mockRestore());
+  render(<ThreadHarness messages={makeMessages(600)} />);
+  const viewport = await waitForOverflowingViewport();
+  await waitForPinnedToEnd(viewport);
+  fireEvent.scroll(viewport);
+  const rows = Array.from(viewport.querySelectorAll<HTMLElement>('[data-testid="thread-message"]'));
+  const last = rows.at(-1);
+  if (!last) {
+    throw new Error('Expected the newest message');
+  }
+  let armed = false;
+  let delivered = false;
+  const observer = new ResizeObserver(() => {
+    if (!armed) {
+      return;
+    }
+    armed = false;
+    delivered = true;
+    pendingReset?.();
+    viewport.dispatchEvent(new Event('scrollend'));
+    // A second layout change can arrive before the browser emits the scroll
+    // event for the virtualizer's first compensation write.
+    for (const row of rows) {
+      row.style.height = `${MESSAGE_HEIGHT_PX + 42}px`;
+    }
+  });
+  observer.observe(last);
+  onTestFinished(() => observer.disconnect());
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  armed = true;
+  for (const row of rows) {
+    row.style.height = `${MESSAGE_HEIGHT_PX + 21}px`;
+  }
+  await waitFor(() => expect(delivered).toBe(true));
+  await waitFor(() => expect(distanceFromBottom(viewport)).toBeLessThanOrEqual(2));
 });

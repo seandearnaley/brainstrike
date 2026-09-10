@@ -331,6 +331,10 @@ export const ThreadMessagesRegion = ({
     overscan: THREAD_VIRTUAL_OVERSCAN,
     scrollEndThreshold: THREAD_END_THRESHOLD_PX,
     scrollMargin,
+    // A delayed scroll-reset timer replays its last event's offset, which can
+    // precede synchronous row-resize compensation. Native scrollend reads the
+    // current offset and preserves the pin while lazy message rows hydrate.
+    useScrollendEvent: true,
   });
   /* eslint-enable react-hooks/incompatible-library */
 
