@@ -1,12 +1,17 @@
-// BST-1705. The catalog's OpenRouter prices had drifted on 21 of 58 rows, and
-// two of those were not "stale" at all — they were read correctly from the API
-// and still wrong:
+// BST-1705. The catalog's OpenRouter prices had drifted on 21 of its 58 rows,
+// and THREE of those were not "stale" at all — they were read from a real
+// payload, at the wrong number in it:
 //
 //   * `tencent/hy3` was recorded at 0.132 / 0.528, the rate its
 //     `pricing.overrides` charge between 00:00 and 16:00 UTC. Its base is
 //     0.0825 / 0.33. The author read `pricing.prompt` inside a peak window.
 //   * `google/gemini-3.7-flash` and `z-ai/glm-5.3-flash` were recorded at
 //     their `:batch` twin's rate — a different route entirely.
+//
+// (`provider-registry-pricing.test.ts` pins FOUR rows: those three plus
+// `google/gemini-3.6-flash`, whose held 1.5 / 7.5 was exactly 2x the live base
+// and matched no band, tier or variant route — a wrong number whose source was
+// never identified, so it is pinned rather than classified.)
 //
 // The data these rows describe lives upstream and changes weekly, so it cannot
 // be pinned here. The METHOD for reading it can be, and that is what failed.
@@ -21,7 +26,10 @@ import {
   auditOpenRouterPricing,
   classifyHeldRate,
   deriveOpenRouterBaseRate,
+  readFlagValue,
+  readModelsEnvelope,
   splitOverrides,
+  summarizeFindings,
 } from '../openrouter-pricing-audit.mjs';
 
 const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
@@ -219,6 +227,97 @@ test('malformed rates fail closed rather than defaulting', () => {
   );
 });
 
+test('an empty-string rate is rejected, not read as free', () => {
+  // `Number('')` and `Number('  ')` are both 0, which passes a
+  // `Number.isFinite() && >= 0` guard and records a paid route as free.
+  assert.throws(
+    () => deriveOpenRouterBaseRate({ completion: '0.00001', prompt: '' }),
+    /pricing\.prompt is an empty string/
+  );
+  assert.throws(
+    () => deriveOpenRouterBaseRate({ completion: '   ', prompt: '0.000002' }),
+    /pricing\.completion is an empty string/
+  );
+});
+
+test('an override with no recognised discriminator fails closed', () => {
+  // The fail-open this replaces: an entry that is not a `min_prompt_tokens`
+  // tier used to be assumed to be a clock band, and `bandMinutes` defaults
+  // every absent UTC field — so this entry became a band covering the WHOLE
+  // WEEK and won the cheapest-band reduce. The payload below returned
+  // 0.01 / 0.1 as `tencent/hy3`'s base rate instead of 0.0825 / 0.33.
+  const promoShape = {
+    completion: '0.00000033',
+    overrides: [
+      ...HY3_BANDS,
+      { completion: '0.0000001', promo_code: 'LAUNCH50', prompt: '0.00000001' },
+    ],
+    prompt: '0.0000000825',
+  };
+  assert.throws(() => splitOverrides(promoShape), /declares no recognised discriminator/);
+  assert.throws(() => deriveOpenRouterBaseRate(promoShape), /promo_code/);
+});
+
+test('an override mixing a long-context tier with a clock band fails closed', () => {
+  assert.throws(
+    () =>
+      deriveOpenRouterBaseRate({
+        completion: '0.00000033',
+        overrides: [
+          {
+            completion: '0.000000528',
+            min_prompt_tokens: 272_000,
+            prompt: '0.000000132',
+            utc_end: 1600,
+            utc_start: 0,
+          },
+        ],
+        prompt: '0.0000000825',
+      }),
+    /mixes min_prompt_tokens with a time-band key/
+  );
+});
+
+/** The same two hy3 windows, surging on OUTPUT only. */
+const OUTPUT_ONLY_SURGE = {
+  completion: '0.00000033',
+  overrides: [
+    { completion: '0.000000528', prompt: '0.0000000825', utc_end: 1600, utc_start: 0 },
+    { completion: '0.00000033', prompt: '0.0000000825', utc_end: 0, utc_start: 1600 },
+  ],
+  prompt: '0.0000000825',
+};
+
+test('a surge on output alone is neither reported as flat nor decided by band order', () => {
+  const base = deriveOpenRouterBaseRate(OUTPUT_ONLY_SURGE);
+  assertRate(base.inputPerMTok, 0.0825, 'input');
+  assertRate(base.outputPerMTok, 0.33, 'output');
+  // Input ties across both bands, so an input-only multiplier reports 1 and an
+  // input-only comparison picks whichever band the payload happens to list
+  // first. Neither may decide the answer.
+  assertRate(base.surgeMultiplier, 1.6, 'surge multiplier');
+  assert.deepEqual(
+    deriveOpenRouterBaseRate({
+      ...OUTPUT_ONLY_SURGE,
+      overrides: [...OUTPUT_ONLY_SURGE.overrides].reverse(),
+    }),
+    base
+  );
+});
+
+test('a free band beside a paid one reports an infinite multiplier, never 1', () => {
+  const base = deriveOpenRouterBaseRate({
+    completion: '0',
+    overrides: [
+      { completion: '0.000000528', prompt: '0.000000132', utc_end: 1600, utc_start: 0 },
+      { completion: '0', prompt: '0', utc_end: 0, utc_start: 1600 },
+    ],
+    prompt: '0',
+  });
+  assertRate(base.inputPerMTok, 0, 'input');
+  assert.equal(base.surgeMultiplier, Number.POSITIVE_INFINITY);
+});
+
 test('a held rate is classified by which wrong number it equals', () => {
   const hy3 = { id: 'tencent/hy3', pricing: HY3_OFF_PEAK };
   assert.equal(
@@ -364,4 +463,95 @@ test('the audit refuses a catalog with no openrouter provider', () => {
     () => auditOpenRouterPricing({ catalog: [{ id: 'openai', models: [] }], liveModels: [] }),
     /no "openrouter" provider/
   );
+});
+
+test('one unreadable live payload is a finding, not the end of the run', () => {
+  // A shape change on ONE upstream route used to throw straight out of the
+  // loop, so the author got a stack trace instead of a 58-row catalog diff.
+  // The row still never passes, and the CLI still exits 1.
+  const { audited, findings } = auditOpenRouterPricing({
+    catalog: catalogWith([
+      { id: 'vendor/unreadable', pricing: { inputPerMTok: 1, outputPerMTok: 2 }, type: 'llm' },
+      { id: 'tencent/hy3', pricing: { inputPerMTok: 0.0825, outputPerMTok: 0.33 }, type: 'llm' },
+      { id: 'openai/gpt-5.5', pricing: { inputPerMTok: 9, outputPerMTok: 9 }, type: 'llm' },
+    ]),
+    liveModels: [
+      ...LIVE_FIXTURE,
+      {
+        id: 'vendor/unreadable',
+        // Only the peak window is declared, so no base rate is derivable.
+        pricing: { completion: '0.000000528', overrides: [HY3_BANDS[0]], prompt: '0.000000132' },
+      },
+    ],
+  });
+  assert.equal(audited, 2);
+  assert.deepEqual(
+    findings.map((finding) => [finding.kind, finding.modelId]),
+    [
+      ['shape-unrecognised', 'vendor/unreadable'],
+      ['price-drift', 'openai/gpt-5.5'],
+    ]
+  );
+  assert.match(findings[0].reason, /base rate is not derivable/);
+});
+
+test('a catalog row whose pricing carries no numbers is unpriced, not drifted', () => {
+  // `held undefined / outputPerMTok undefined` compares NaN against the live
+  // rate, fails every check, and used to render as a price MOVEMENT.
+  const { audited, findings } = auditOpenRouterPricing({
+    catalog: catalogWith([
+      { id: 'openai/gpt-5.5', pricing: {}, type: 'llm' },
+      { id: 'tencent/hy3', pricing: { inputPerMTok: '0.0825', outputPerMTok: 0.33 }, type: 'llm' },
+    ]),
+    liveModels: LIVE_FIXTURE,
+  });
+  assert.equal(audited, 0);
+  assert.deepEqual(
+    findings.map((finding) => [finding.kind, finding.modelId]),
+    [
+      ['unpriced-row', 'openai/gpt-5.5'],
+      ['unpriced-row', 'tencent/hy3'],
+    ]
+  );
+});
+
+test('the failure summary counts drift apart from rows that could not be audited', () => {
+  // The exact shape of the `rows the gateway no longer publishes` case above,
+  // which the old line reported as "2 of 0 routes disagree".
+  assert.equal(
+    summarizeFindings({
+      audited: 0,
+      findings: [{ kind: 'route-missing' }, { kind: 'unpriced-row' }],
+    }),
+    'openrouter pricing audit: 0 of 0 audited routes disagree with the live base rate; 2 row(s) could not be audited.'
+  );
+  assert.equal(
+    summarizeFindings({ audited: 12, findings: [{ kind: 'price-drift' }] }),
+    'openrouter pricing audit: 1 of 12 audited routes disagree with the live base rate.'
+  );
+});
+
+test('a flag value keeps its own `=` and is never silently empty', () => {
+  assert.equal(
+    readFlagValue(['--fixture=/tmp/a=b/models.json'], '--fixture'),
+    '/tmp/a=b/models.json'
+  );
+  assert.equal(readFlagValue(['--tolerance=0.01'], '--tolerance'), '0.01');
+  assert.equal(readFlagValue([], '--fixture'), undefined);
+  // `Number('')` is 0, so an empty --tolerance used to pass the non-negative
+  // guard as an exact-match run rather than being rejected.
+  assert.throws(
+    () => readFlagValue(['--tolerance='], '--tolerance'),
+    /--tolerance requires a value/
+  );
+});
+
+test('a response that is not the Models API envelope fails by name', () => {
+  assert.deepEqual(readModelsEnvelope({ data: [] }, 'source'), []);
+  for (const payload of [{}, null, { data: {} }, []]) {
+    assert.throws(
+      () => readModelsEnvelope(payload, 'source'),
+      /source did not return the expected/
+    );
+  }
 });

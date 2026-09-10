@@ -177,16 +177,23 @@ describe('model pricing metadata', () => {
   });
 
   /**
-   * BST-1705 corrected 21 of the 58 `openrouter` rows. Three of them were not
+   * BST-1705 corrected 21 of the 58 `openrouter` rows. THREE of them were not
    * merely stale — they were read from the WRONG NUMBER in an otherwise
    * correct payload, and each of those mistakes is repeatable by the next
    * author who reads the Models API without checking what they are looking at.
-   * These pins make the specific wrong numbers fail a test instead of shipping.
+   * `scripts/openrouter-pricing-audit.mjs` can NAME all three (`surge-band`,
+   * `variant-route:<id>`), and its own header carries the same three.
+   *
+   * FOUR rows are pinned here: those three, plus `google/gemini-3.6-flash`,
+   * whose held 1.5 / 7.5 was exactly 2x the live base and matched no band, no
+   * tier and no variant route — a wrong number the audit classifies only as
+   * `moved-upstream`. Three named mistakes, four pinned rows; the counts are
+   * not in conflict.
    *
    * The mechanised version of this rule is
    * `pnpm run audit:openrouter-pricing` (scripts/openrouter-pricing-audit.mjs);
    * it is not a required check because the fact lives upstream and moves
-   * weekly. These four pins are the part that CAN live in the required lane.
+   * weekly. These pins are the part that CAN live in the required lane.
    */
   it('holds base rates, not surge bands or :batch routes, on the BST-1705 rows', () => {
     const models = listProviderLlmModels('openrouter');
@@ -198,7 +205,9 @@ describe('model pricing metadata', () => {
     // separate routes we do not ship.
     expect(rate('google/gemini-3.7-flash')).toEqual({ inputPerMTok: 0.75, outputPerMTok: 3.75 });
     expect(rate('z-ai/glm-5.3-flash')).toEqual({ inputPerMTok: 0.15, outputPerMTok: 0.5 });
-    // A Google DIRECT list price (1.5 / 7.5) copied into a gateway row.
+    // Exactly 2x the gateway's base rate, from an unidentified source: neither
+    // the `:batch` twin (0.375 / 1.875) nor the direct `google` row, which
+    // holds the same 0.75 / 3.75 this row now does.
     expect(rate('google/gemini-3.6-flash')).toEqual({ inputPerMTok: 0.75, outputPerMTok: 3.75 });
   });
 

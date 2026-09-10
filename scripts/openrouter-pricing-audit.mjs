@@ -17,6 +17,12 @@
 //      never on the clock, and this one-rate-pair catalog schema does not
 //      carry them, so they must not displace the base rate either.
 //
+// Those two are the ONLY override shapes this audit recognises. Live read
+// 2026-09-10: of the 65 routes carrying `pricing.overrides`, 63 are
+// `min_prompt_tokens` tiers, 2 are clock bands, and 0 are anything else. A
+// third shape must be READ and taught to this script, never guessed at — see
+// `splitOverrides`.
+//
 // A third trap lives one route over: `<id>:batch`, `<id>:free` and `<id>:nitro`
 // are SEPARATE routes with their own prices. `google/gemini-3.7-flash` and
 // `z-ai/glm-5.3-flash` both shipped carrying their `:batch` twin's rate.
@@ -44,6 +50,9 @@ const CATALOG_PATH = 'packages/assistant-contract/src/provider-catalog.json';
 const MODELS_API_URL = 'https://openrouter.ai/api/v1/models';
 const PROVIDER_ID = 'openrouter';
 const PER_TOKEN_TO_PER_MTOK = 1_000_000;
+// A hung connection must not hang the command with no output. The whole
+// payload is ~700 KB, so this is generous even on a slow link.
+const FETCH_TIMEOUT_MS = 30_000;
 // Prices are exact decimals upstream; this absorbs binary float representation
 // only (0.00000008708 * 1e6 is not exactly 0.08708), never real drift.
 const REPRESENTATION_EPSILON = 1e-9;
@@ -58,12 +67,20 @@ const UTC_DAYS = Object.freeze([
   'sunday',
 ]);
 const WEEK_MINUTES = UTC_DAYS.length * MINUTES_PER_DAY;
+/** What makes an override entry a clock band. Any ONE of these is enough. */
+const TIME_BAND_KEYS = Object.freeze(['utc_days', 'utc_start', 'utc_end']);
+const CONTEXT_TIER_KEY = 'min_prompt_tokens';
 
 class PricingShapeError extends Error {}
 
 function parseRate(value, label) {
   if (typeof value !== 'string' && typeof value !== 'number') {
     throw new PricingShapeError(`${label} is missing`);
+  }
+  // `Number('')` and `Number('   ')` are 0, which sails through the guard
+  // below and records a paid route as free. Reject before coercing.
+  if (typeof value === 'string' && value.trim() === '') {
+    throw new PricingShapeError(`${label} is an empty string, not a rate`);
   }
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) {
@@ -127,6 +144,18 @@ function bandMinutes(band, label) {
   return covered;
 }
 
+/**
+ * Sort `pricing.overrides` into the two shapes this audit understands, by
+ * POSITIVE EVIDENCE for each.
+ *
+ * Classifying by elimination ("not a `min_prompt_tokens` tier, so it must be a
+ * clock band") is fail-open, and expensively so: `bandMinutes` defaults every
+ * absent UTC field, so an unrecognised entry becomes a band covering the whole
+ * week and is then eligible to win the cheapest-band reduce in
+ * `deriveOpenRouterBaseRate` — an override shape nobody has ever read could
+ * silently BECOME the recorded base rate. An unknown or mixed discriminator is
+ * therefore a payload for a human to read, not one to guess at.
+ */
 export function splitOverrides(pricing) {
   const overrides = pricing?.overrides ?? [];
   if (!Array.isArray(overrides)) {
@@ -134,28 +163,66 @@ export function splitOverrides(pricing) {
   }
   const timeBands = [];
   const contextTiers = [];
-  for (const override of overrides) {
+  for (const [index, override] of overrides.entries()) {
     if (override === null || typeof override !== 'object') {
       throw new PricingShapeError('pricing.overrides contains a non-object entry');
     }
-    if ('min_prompt_tokens' in override) {
+    const keys = Object.keys(override).join(', ');
+    const isContextTier = CONTEXT_TIER_KEY in override;
+    const isTimeBand = TIME_BAND_KEYS.some((key) => key in override);
+    if (isContextTier && isTimeBand) {
+      throw new PricingShapeError(
+        `pricing.overrides[${index}] mixes ${CONTEXT_TIER_KEY} with a time-band key (${keys}); a size-conditional band on a clock is a shape this audit has never read`
+      );
+    }
+    if (isContextTier) {
       contextTiers.push(override);
       continue;
     }
-    timeBands.push(override);
+    if (isTimeBand) {
+      timeBands.push(override);
+      continue;
+    }
+    throw new PricingShapeError(
+      `pricing.overrides[${index}] declares no recognised discriminator — expected ${CONTEXT_TIER_KEY} or one of ${TIME_BAND_KEYS.join('/')}, got (${keys})`
+    );
   }
   return { contextTiers, timeBands };
 }
 
 /**
- * Derive a route's BASE $/MTok rate pair — the rate an ordinary prompt pays
- * outside every surge band — from an OpenRouter `pricing` object.
+ * A surge multiplier that never quietly reports "no surge": a free band beside
+ * a paid one has no finite ratio, so say so rather than returning 1, which
+ * reads as "this route does not surge".
+ */
+function surgeRatio(dearest, cheapest) {
+  if (dearest === cheapest) {
+    return 1;
+  }
+  return cheapest === 0 ? Number.POSITIVE_INFINITY : dearest / cheapest;
+}
+
+/**
+ * Derive a route's BASE $/MTok rate pair from an OpenRouter `pricing` object.
  *
  * The answer must not depend on the wall clock at which the payload was
- * fetched, which is the whole defence against recording a surge rate. When
- * surge bands exist the derivation therefore ignores the top-level rate (that
- * is the moving one) and reads the cheapest band, after proving the bands
- * describe the entire week and that the top-level rate is one of them.
+ * fetched, which is the whole defence against recording a surge rate. With no
+ * clock bands the base IS the top-level rate. With clock bands the top-level
+ * rate is the MOVING one and is ignored; the base is THE CHEAPEST BAND, taken
+ * after proving the bands describe the entire week and that the top-level rate
+ * is one of them.
+ *
+ * Cheapest band — NOT "the rate outside every band", and NOT the band covering
+ * most of the week:
+ *   - There is no outside. A payload whose bands leave any of the week
+ *     uncovered is rejected outright a few lines below, because the base would
+ *     then be visible only to a reader who fetched during the gap.
+ *   - `tencent/hy3` surges for 16 of every 24 hours, so the band covering most
+ *     of the week IS the surge band; a "modal band" rule reproduces the bug.
+ * The known limit: a PROMOTIONAL band priced below the standing rate would be
+ * read as the base. Nothing live does that (2026-09-10), and the payload
+ * carries no field that distinguishes a discount window from a surge window,
+ * so the rule stays and its limit is recorded rather than guessed around.
  *
  * Fails closed. An unrecognised shape THROWS rather than falling back to the
  * top-level rate, because a silent fallback here re-creates exactly the bug
@@ -202,17 +269,27 @@ export function deriveOpenRouterBaseRate(pricing) {
     );
   }
 
-  const base = parsedBands.reduce((cheapest, band) =>
-    band.inputPerMTok < cheapest.inputPerMTok ? band : cheapest
-  );
-  const peak = parsedBands.reduce((dearest, band) =>
-    band.inputPerMTok > dearest.inputPerMTok ? band : dearest
-  );
+  // Ordered on BOTH rates, so bands that tie on input do not resolve by
+  // upstream array order: the answer may no more depend on how the payload is
+  // written than on when it was fetched.
+  const base = parsedBands.reduce((cheapest, band) => {
+    if (band.inputPerMTok !== cheapest.inputPerMTok) {
+      return band.inputPerMTok < cheapest.inputPerMTok ? band : cheapest;
+    }
+    return band.outputPerMTok < cheapest.outputPerMTok ? band : cheapest;
+  });
+  // Taken per dimension, so a band that surges OUTPUT only still reports a
+  // multiplier above 1 instead of looking flat.
+  const dearestInput = Math.max(...parsedBands.map((band) => band.inputPerMTok));
+  const dearestOutput = Math.max(...parsedBands.map((band) => band.outputPerMTok));
   return {
     basis: 'off-peak-band',
     inputPerMTok: base.inputPerMTok,
     outputPerMTok: base.outputPerMTok,
-    surgeMultiplier: base.inputPerMTok === 0 ? 1 : peak.inputPerMTok / base.inputPerMTok,
+    surgeMultiplier: Math.max(
+      surgeRatio(dearestInput, base.inputPerMTok),
+      surgeRatio(dearestOutput, base.outputPerMTok)
+    ),
   };
 }
 
@@ -249,8 +326,47 @@ export function classifyHeldRate({ held, live, variants = [] }) {
 }
 
 /**
+ * The catalog row's own rate pair, or `null` when the row does not carry two
+ * usable numbers. Comparing `undefined` against a live rate yields NaN, which
+ * fails every comparison, so a malformed row would otherwise render as
+ * `held undefined / undefined — moved-upstream`: a broken row reported as a
+ * price movement.
+ */
+function readHeldRate(pricing) {
+  const usable = (rate) => typeof rate === 'number' && Number.isFinite(rate) && rate >= 0;
+  const { inputPerMTok, outputPerMTok } = pricing;
+  if (!(usable(inputPerMTok) && usable(outputPerMTok))) {
+    return null;
+  }
+  return { inputPerMTok, outputPerMTok };
+}
+
+/**
+ * The drift itself is already established when this runs; only the LABEL is at
+ * risk (a long-context tier or a variant route whose shape the derivation
+ * cannot read). Report the drift with an explicit unclassified label rather
+ * than losing the finding to an exception.
+ */
+function classifyDefensively(input) {
+  try {
+    return classifyHeldRate(input);
+  } catch (error) {
+    if (!(error instanceof PricingShapeError)) {
+      throw error;
+    }
+    return `unclassified (${error.message})`;
+  }
+}
+
+/**
  * Compare every `openrouter` catalog row against the live routes.
  * `tolerance` is a fraction of the base rate (0 means exact).
+ *
+ * A row whose live payload this audit cannot read becomes a
+ * `shape-unrecognised` FINDING rather than an exception out of the loop. That
+ * does not soften the fail-closed rule — the row is never treated as passing
+ * and the command still exits 1 — it refuses to let one upstream shape change
+ * turn a 58-row catalog diff into a single stack trace about one row.
  */
 export function auditOpenRouterPricing({ catalog, liveModels, tolerance = 0 }) {
   const provider = catalog.find((entry) => entry.id === PROVIDER_ID);
@@ -265,7 +381,8 @@ export function auditOpenRouterPricing({ catalog, liveModels, tolerance = 0 }) {
     if (model.type !== undefined && model.type !== 'llm') {
       continue;
     }
-    if (model.pricing === undefined) {
+    const held = model.pricing === undefined ? null : readHeldRate(model.pricing);
+    if (held === null) {
       findings.push({ kind: 'unpriced-row', modelId: model.id });
       continue;
     }
@@ -274,12 +391,19 @@ export function auditOpenRouterPricing({ catalog, liveModels, tolerance = 0 }) {
       findings.push({ kind: 'route-missing', modelId: model.id });
       continue;
     }
+
+    let base;
+    try {
+      base = deriveOpenRouterBaseRate(live.pricing);
+    } catch (error) {
+      if (!(error instanceof PricingShapeError)) {
+        throw error;
+      }
+      findings.push({ kind: 'shape-unrecognised', modelId: model.id, reason: error.message });
+      continue;
+    }
+
     audited += 1;
-    const base = deriveOpenRouterBaseRate(live.pricing);
-    const held = {
-      inputPerMTok: model.pricing.inputPerMTok,
-      outputPerMTok: model.pricing.outputPerMTok,
-    };
     if (
       withinTolerance(held.inputPerMTok, base.inputPerMTok, tolerance) &&
       withinTolerance(held.outputPerMTok, base.outputPerMTok, tolerance)
@@ -288,7 +412,7 @@ export function auditOpenRouterPricing({ catalog, liveModels, tolerance = 0 }) {
     }
     findings.push({
       base,
-      classification: classifyHeldRate({
+      classification: classifyDefensively({
         held,
         live,
         variants: liveModels.filter((candidate) => candidate.id.startsWith(`${model.id}:`)),
@@ -307,7 +431,10 @@ function formatFinding(finding) {
     return `  ${finding.modelId}: not published by the live Models API`;
   }
   if (finding.kind === 'unpriced-row') {
-    return `  ${finding.modelId}: catalog row declares no pricing`;
+    return `  ${finding.modelId}: catalog row declares no usable inputPerMTok / outputPerMTok pair`;
+  }
+  if (finding.kind === 'shape-unrecognised') {
+    return `  ${finding.modelId}: live pricing shape not understood — ${finding.reason}`;
   }
   const { base, held } = finding;
   return [
@@ -317,30 +444,65 @@ function formatFinding(finding) {
   ].join(' ');
 }
 
+/**
+ * `findings` mixes rows that WERE compared and disagreed with rows that could
+ * not be compared at all, while `audited` counts only the former. Reporting
+ * `findings.length` "of `audited`" prints ratios like "2 of 0".
+ */
+export function summarizeFindings({ audited, findings }) {
+  const drifted = findings.filter((finding) => finding.kind === 'price-drift').length;
+  const notAudited = findings.length - drifted;
+  const tail = notAudited === 0 ? '' : `; ${notAudited} row(s) could not be audited`;
+  return `openrouter pricing audit: ${drifted} of ${audited} audited routes disagree with the live base rate${tail}.`;
+}
+
+/** `--flag=value`, keeping any `=` inside the value and never accepting an empty one. */
+export function readFlagValue(args, flag) {
+  const prefix = `${flag}=`;
+  const arg = args.find((candidate) => candidate.startsWith(prefix));
+  if (arg === undefined) {
+    return;
+  }
+  const value = arg.slice(prefix.length);
+  if (value === '') {
+    throw new Error(`${flag} requires a value`);
+  }
+  return value;
+}
+
+/** The Models API envelope, so a changed response shape fails by name. */
+export function readModelsEnvelope(payload, source) {
+  const data = payload === null || typeof payload !== 'object' ? undefined : payload.data;
+  if (!Array.isArray(data)) {
+    throw new Error(
+      `${source} did not return the expected { "data": [ ... ] } Models API envelope`
+    );
+  }
+  return data;
+}
+
 async function loadLiveModels(fixturePath) {
   if (fixturePath !== undefined) {
-    return JSON.parse(await readFile(fixturePath, 'utf8')).data;
+    return readModelsEnvelope(JSON.parse(await readFile(fixturePath, 'utf8')), fixturePath);
   }
-  const response = await fetch(MODELS_API_URL);
+  const response = await fetch(MODELS_API_URL, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!response.ok) {
     throw new Error(`${MODELS_API_URL} responded ${response.status} ${response.statusText}`);
   }
-  return (await response.json()).data;
+  return readModelsEnvelope(await response.json(), MODELS_API_URL);
 }
 
 async function main() {
   const args = process.argv.slice(2);
-  const fixtureArg = args.find((arg) => arg.startsWith('--fixture='));
-  const toleranceArg = args.find((arg) => arg.startsWith('--tolerance='));
-  const tolerance = toleranceArg === undefined ? 0 : Number(toleranceArg.split('=')[1]);
+  const fixturePath = readFlagValue(args, '--fixture');
+  const toleranceValue = readFlagValue(args, '--tolerance');
+  const tolerance = toleranceValue === undefined ? 0 : Number(toleranceValue);
   if (!Number.isFinite(tolerance) || tolerance < 0) {
-    throw new Error(
-      `--tolerance must be a non-negative fraction, received ${String(toleranceArg)}`
-    );
+    throw new Error(`--tolerance must be a non-negative fraction, received ${toleranceValue}`);
   }
 
   const catalog = JSON.parse(await readFile(path.join(REPO_ROOT, CATALOG_PATH), 'utf8'));
-  const liveModels = await loadLiveModels(fixtureArg?.split('=')[1]);
+  const liveModels = await loadLiveModels(fixturePath);
   const { audited, findings } = auditOpenRouterPricing({ catalog, liveModels, tolerance });
 
   if (findings.length === 0) {
@@ -350,11 +512,11 @@ async function main() {
     return;
   }
   process.stderr.write(
-    `openrouter pricing audit: ${findings.length} of ${audited} routes disagree with the live Models API.\n${findings
+    `${summarizeFindings({ audited, findings })}\n${findings
       .map(formatFinding)
       .join(
         '\n'
-      )}\n\nRecord the BASE rate (outside every surge band) from the STANDARD route.\nSee the openrouter provider _note in packages/assistant-contract/src/provider-catalog.json.\n`
+      )}\n\nRecord the BASE rate (the cheapest time band) from the STANDARD route.\nSee the openrouter provider _note in packages/assistant-contract/src/provider-catalog.json.\n`
   );
   process.exitCode = 1;
 }
