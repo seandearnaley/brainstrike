@@ -70,6 +70,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * emits a `tool-call` part for that id, so without the exemption it would be
  * suppressed as "already carded" at every detail level.
  *
+ * `compaction.failed` (BST-1737) is included on the SAME grounds as
+ * `mcp.tools.unavailable`, and its case is just as clean: the pre-request
+ * compaction pass threw, so the turn went to the provider over budget and
+ * NOTHING cards that — the user's only other symptom is a later provider
+ * context-overflow error naming an unrelated cause, or quietly degraded output.
+ * Membership is load-bearing for the same reason as below; without it the kind
+ * would sit in the contract reporting nothing to the user it exists for. It
+ * carries no `toolCallId` and is not `tool.*`, so it needs no card-suppression
+ * exemption.
+ *
  * `mcp.tools.unavailable` (BST-1602) is included for the same reason and is the
  * cleanest case in this list: an MCP server contributed ZERO tools to the run,
  * so NOTHING cards it — the tool never entered the map, which is why
@@ -96,6 +106,7 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     return false;
   }
   return (
+    event.kind === 'compaction.failed' ||
     event.kind === 'mcp.tools.unavailable' ||
     event.kind === 'provider.request.warned' ||
     event.kind === 'run.failed' ||

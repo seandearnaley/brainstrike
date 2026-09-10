@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { ASSISTANT_RUN_EVENT_KINDS } from '../run-events.js';
+import {
+  ASSISTANT_RUN_EVENT_KINDS,
+  boundRunEventReason,
+  MAX_RUN_EVENT_REASON_CHARS,
+} from '../run-events.js';
 
 describe('ASSISTANT_RUN_EVENT_KINDS', () => {
   it('declares every kind exactly once', () => {
@@ -56,6 +60,22 @@ describe('ASSISTANT_RUN_EVENT_KINDS', () => {
     expect(worktreeKinds.some((kind) => kind.endsWith('.started'))).toBe(false);
   });
 
+  it('declares the swallowed-compaction breadcrumb kind (BST-1737)', () => {
+    expect(ASSISTANT_RUN_EVENT_KINDS).toContain('compaction.failed');
+  });
+
+  it('declares NO `.started` or success counterpart for the compaction breadcrumb', () => {
+    // A standalone breadcrumb for a pass that ALREADY finished (by throwing):
+    // nothing is in flight, so it declares no terminal and must never be paired
+    // against one. A `compaction.started` spelling would additionally make the
+    // suffix pairing derive `compaction.failed` as its terminal and leave the
+    // row spinning on every turn compaction succeeds.
+    const compactionKinds = ASSISTANT_RUN_EVENT_KINDS.filter((kind) =>
+      kind.startsWith('compaction.')
+    );
+    expect(compactionKinds).toEqual(['compaction.failed']);
+  });
+
   it('declares the MCP discovery skip kind (BST-1602)', () => {
     expect(ASSISTANT_RUN_EVENT_KINDS).toContain('mcp.tools.unavailable');
   });
@@ -79,5 +99,76 @@ describe('ASSISTANT_RUN_EVENT_KINDS', () => {
     const providerKinds = ASSISTANT_RUN_EVENT_KINDS.filter((kind) => kind.startsWith('provider.'));
     expect(providerKinds).toEqual(['provider.request.warned']);
     expect(providerKinds.some((kind) => kind.endsWith('.started'))).toBe(false);
+  });
+});
+
+describe('boundRunEventReason', () => {
+  // Promoted here from packages/agent's `boundMcpDiscoveryReason` by BST-1737
+  // so compaction failures and MCP discovery skips share ONE redaction
+  // implementation. packages/agent's mcp-discovery-run-events.spec.ts still
+  // exercises the same function through that alias.
+  it('redacts an api key carried in a URL query string', () => {
+    const reason = boundRunEventReason(
+      new Error('fetch failed: 401 for https://example.test/mcp?api_key=sk-live-secret')
+    );
+    expect(reason).not.toContain('sk-live-secret');
+    expect(reason).toContain('[redacted]');
+  });
+
+  it('redacts credentials carried in URL userinfo', () => {
+    const reason = boundRunEventReason(new Error('connect https://alice:hunter2@host/mcp'));
+    expect(reason).not.toContain('hunter2');
+    expect(reason).toContain('[redacted]');
+  });
+
+  it.each([
+    ['postgres://bruce:hunter2@db.internal:5432/brainstrike', 'hunter2', 'db.internal'],
+    ['postgresql://bruce:hunter2@db.internal/brainstrike', 'hunter2', 'brainstrike'],
+    ['redis://default:hunter2@cache.internal:6379', 'hunter2', 'cache.internal'],
+    ['mongodb+srv://bruce:hunter2@cluster.example.net', 'hunter2', 'cluster.example.net'],
+  ])('redacts non-HTTP userinfo in %s', (uri, secret, survives) => {
+    // BST-1737 widened this helper's input from MCP transport errors (always
+    // HTTP) to memory-store and DB failures, which quote driver URIs. A
+    // scheme-restricted pattern would let those through into durable metadata
+    // and an always-visible row.
+    const reason = boundRunEventReason(new Error(`compaction store read failed: ${uri}`));
+    expect(reason).not.toContain(secret);
+    expect(reason).toContain('[redacted]');
+    // The host has to SURVIVE: without this the same assertions would pass on a
+    // pattern that over-matched and swallowed the whole message.
+    expect(reason).toContain(survives);
+  });
+
+  it('redacts a credential carried in a non-HTTP query string', () => {
+    const reason = boundRunEventReason(
+      new Error('connect failed postgres://db.internal/brainstrike?sslpassword=hunter2')
+    );
+    expect(reason).not.toContain('hunter2');
+    expect(reason).toContain('[redacted]');
+  });
+
+  it('leaves an ordinary compaction failure message intact', () => {
+    expect(boundRunEventReason(new Error('Unknown compaction input budget for ollama/x.'))).toBe(
+      'Unknown compaction input budget for ollama/x.'
+    );
+  });
+
+  it.each([
+    'Unknown compaction input budget for openrouter/moonshotai/kimi-k3.',
+    'compaction summary write failed at C:\\Users\\bruce\\brainstrike\\store.db',
+    'compaction candidate m-1 has no valid creation time: 2026-09-10T18:46:26Z',
+    'compaction store read failed in node:internal/streams/readable',
+  ])('leaves scheme-SHAPED prose without :// intact: %s', (message) => {
+    // The widened scheme class must still require `://`. Colons, slash runs and
+    // Windows paths are ordinary content in these messages, and the four
+    // redaction cases above would pass just as happily against a pattern that
+    // ate them — this is the half of the property they cannot pin.
+    expect(boundRunEventReason(new Error(message))).toBe(message);
+  });
+
+  it('bounds by CODE POINT so a surrogate pair is never split', () => {
+    const reason = boundRunEventReason(new Error('\u{1F600}'.repeat(300)));
+    expect(Array.from(reason)).toHaveLength(MAX_RUN_EVENT_REASON_CHARS);
+    expect(reason.endsWith('\u2026')).toBe(true);
   });
 });

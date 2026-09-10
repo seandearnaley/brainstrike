@@ -55,6 +55,7 @@ describe('groupAssistantActivityPart', () => {
   it.each([
     'run.failed',
     'run.cancelled',
+    'compaction.failed',
     'mcp.tools.unavailable',
     'provider.request.warned',
     'tool.approval.requested',

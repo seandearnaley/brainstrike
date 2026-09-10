@@ -228,6 +228,15 @@ describe('isAlwaysVisibleRunEvent', () => {
     expect(isAlwaysVisibleRunEvent(event('tool.approval.requested', 'running'))).toBe(true);
   });
 
+  it('forces a swallowed compaction failure to stay visible (BST-1737)', () => {
+    // The pre-request compaction pass threw, so the turn went to the provider
+    // over budget. Nothing cards that: the user's only other symptom is a later
+    // provider context-overflow error naming an unrelated cause. Without this
+    // membership the row is hidden at default detail and the kind reports
+    // nothing to the user it exists for.
+    expect(isAlwaysVisibleRunEvent(event('compaction.failed', 'failed'))).toBe(true);
+  });
+
   it('forces a skipped MCP server to stay visible (BST-1602)', () => {
     // The cleanest case in this list: the tool never entered the run's map, so
     // NOTHING cards it. The "Tool execution failed." card the user does see

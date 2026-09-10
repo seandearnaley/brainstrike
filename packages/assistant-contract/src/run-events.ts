@@ -1,6 +1,32 @@
 export const ASSISTANT_RUN_EVENT_DATA_NAME = 'brainstrike.run-event';
 
 export const ASSISTANT_RUN_EVENT_KINDS = [
+  // The pre-request conversation-compaction pass THREW, so this turn reached
+  // the provider uncompacted and over budget (BST-1737). The turn still
+  // answers — keeping it alive is correct — but before this kind the only
+  // evidence was a `warn` log, and the user's next visible symptom was a
+  // provider context-overflow error naming an unrelated cause. That silence is
+  // what let BST-1707's live defect (a recommended coding model whose budget
+  // derivation threw on EVERY turn) survive from `2966627ff` until someone read
+  // the arithmetic.
+  //
+  // Modelled on `mcp.tools.unavailable` below, and filed for the same class of
+  // problem: a configured capability that silently did not run while the turn
+  // still answered. Standalone breadcrumb — no `.started` counterpart and no
+  // terminal, so it can never leave a row spinning — status `'failed'` rather
+  // than the `worktree.*` `'info'`, which records operations that SUCCEEDED.
+  //
+  // Deliberately NOT `run.failed`: the run is healthy and completes, and
+  // `data-stream-mapper` derives `thread_runs.error` from `run.failed`, so that
+  // spelling would persist a degraded turn as a failed one. Deliberately ONE
+  // kind rather than a `compaction.budget.failed` / `compaction.schema.failed`
+  // taxonomy: the discriminating fact is already written at each throw site and
+  // travels in `detail` / `metadata.reason`, whereas a hand-maintained
+  // classifier would bucket the NEXT unanticipated throw into "other" and
+  // re-create this ticket. It is in `isAlwaysVisibleRunEvent` for the
+  // load-bearing reason spelled out on `mcp.tools.unavailable`, and carries no
+  // `toolCallId`, so it needs no exemption from the card-suppression rule.
+  'compaction.failed',
   'hook.blocked',
   'hook.notice',
   'memory.configured',
@@ -202,6 +228,57 @@ export interface AssistantRunEvent {
 }
 
 export type AssistantRunEventSink = (event: AssistantRunEvent) => Promise<void> | void;
+
+/** Total length of a bounded reason, INCLUDING the ellipsis it may end with. */
+export const MAX_RUN_EVENT_REASON_CHARS = 200;
+
+const REDACTED = '[redacted]';
+/**
+ * ANY URI scheme, not just http(s). The scheme class was defensible while the
+ * only caller was MCP discovery, whose transports are HTTP; BST-1737 routes
+ * compaction failures through here, and those reach `memoryStore` reads/writes,
+ * `runRecencyPruneScan`, and `recordCompactionRange` — a driver error quoting
+ * `postgres://user:pass@host/db` would otherwise pass BOTH patterns untouched
+ * into durable metadata and an always-visible row.
+ */
+const SCHEME = '[a-z][a-z0-9+.-]*:\\/\\/';
+/** `postgres://user:pass@host` — credentials in the URI's userinfo section. */
+const URL_USERINFO = new RegExp(`(${SCHEME})[^/\\s@]+@`, 'gi');
+/** `https://host/mcp?api_key=…` — credentials in a URI query string. */
+const URL_QUERY = new RegExp(`(${SCHEME}[^\\s?]+)\\?\\S*`, 'gi');
+
+/**
+ * Prepare a failure message for DURABLE run-event metadata and for an
+ * always-visible timeline `detail`.
+ *
+ * Introduced for BST-1602's MCP discovery skips (as `boundMcpDiscoveryReason`)
+ * and promoted here by BST-1737, which needs the identical treatment for
+ * compaction failures: this is a SECURITY control, and a second copy of these
+ * regexes is a second thing to forget to fix.
+ *
+ * Two separate jobs, and the ordering matters:
+ *
+ * 1. REDACT. `sanitizeAssistantRunEventMetadata` redacts by KEY, not by value,
+ *    so nothing downstream inspects this string. These reasons used to reach at
+ *    most a `debug`/`warn` log line; they are now persisted and rendered, so a
+ *    transport error like `fetch failed: 401 for https://host/mcp?api_key=…`
+ *    would be a real disclosure. Truncation does NOT prevent that — such a
+ *    message is comfortably under the bound (PR #2938 review) — so URL userinfo
+ *    and query strings are stripped first.
+ * 2. BOUND. Only then cap the length, to keep the row small.
+ *
+ * Sliced by CODE POINT, not UTF-16 code unit: `slice` can split a surrogate
+ * pair and put a lone surrogate into durable JSON.
+ */
+export function boundRunEventReason(value: unknown): string {
+  const raw = value instanceof Error ? value.message : String(value);
+  const redacted = raw.replace(URL_USERINFO, `$1${REDACTED}@`).replace(URL_QUERY, `$1?${REDACTED}`);
+  const points = Array.from(redacted);
+  if (points.length <= MAX_RUN_EVENT_REASON_CHARS) {
+    return redacted;
+  }
+  return `${points.slice(0, MAX_RUN_EVENT_REASON_CHARS - 1).join('')}…`;
+}
 
 export function emitAssistantRunEventSafely(input: {
   readonly event: {
