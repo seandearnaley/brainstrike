@@ -44,7 +44,7 @@ import type { PreRequestCompactionCapabilityResult } from './stream-init-compact
 import {
   runConversationCompactionBeforeStream,
   trustedCompactionOverlayFields,
-  withCompactionUsageChunk,
+  withCompactionPreludeChunks,
 } from './stream-init-compaction.js';
 import { buildInitialStreamMemoryOptions } from './stream-runtime-options.js';
 import type { AgentStreamFailure, AgentStreamResult, DesktopMemoryFeature } from './types.js';
@@ -1060,7 +1060,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       toolApprovalAction,
       toolResumeAction,
     });
-    const stream = withCompactionUsageChunk(initialStream, preRequestCompaction);
+    const stream = withCompactionPreludeChunks(initialStream, preRequestCompaction);
     logger.info('Assistant stream initialized');
     // Stop (notify-only in v1): fire the terminal Stop hook best-effort when the
     // stream ends (clean/error/abort). Its run events ride the queued sink the

@@ -126,6 +126,16 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     ['tool.approval.requested', ['tool.completed', 'tool.failed', 'tool.resume.unsupported']],
   ] as const;
   const NEVER_RUNNING = [
+    // BST-1737's swallowed-compaction breadcrumb. Emitted `status: 'failed'`
+    // (`compactionFailureChunk` in
+    // packages/assistant-service/src/stream-init-compaction.ts), never
+    // `'running'`: the pass has already finished — by throwing — when the row is
+    // minted, so there is no span to close out. A standalone breadcrumb that
+    // stays VISIBLE rather than paired; pinned by 'forces a swallowed
+    // compaction failure to stay visible (BST-1737)' in
+    // assistant-run-timeline.test.tsx and by the emitter's own status
+    // assertion in stream-init-compaction.test.ts.
+    'compaction.failed',
     'hook.blocked',
     'hook.notice',
     'memory.configured',

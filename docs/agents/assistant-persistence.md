@@ -2072,8 +2072,113 @@ summarizer-side context-overflow code reuses the already-computed
 candidate/protected set and commits a deterministic summary-shaped message.
 Abort, rate limit, authentication, network, and other unclassified failures
 leave history intact and return a no-op so a later turn can retry naturally.
-Failures of the whole best-effort pre-request compaction facility are logged
-visibly and do not prevent construction of the user's real turn.
+Failures of the whole best-effort pre-request compaction facility do not prevent
+construction of the user's real turn — and, since BST-1737, are no longer
+invisible when they happen. See the next section.
+
+### SWALLOWED-COMPACTION BREADCRUMB KIND (BST-1737)
+
+`compaction.failed` is an additive `ASSISTANT_RUN_EVENT_KINDS` member recording
+that `runConversationCompactionBeforeStream`
+(packages/assistant-service/src/stream-init-compaction.ts) caught a throw from
+the pre-request pass, so THIS turn reached the provider uncompacted and over
+budget. The catch itself is correct and stays: a compaction failure must never
+kill the user's turn. What it must not do is degrade in silence — that is the
+`AGENTS.md` no-silent-degradation rule, and the silence is what let BST-1707's
+live defect (`moonshotai/kimi-k3`'s budget derivation throwing on EVERY turn of
+a recommended coding model) survive from `2966627ff` until someone read the
+arithmetic.
+
+WHAT CAN STILL REACH THAT CATCH, verified against `runPreRequestCompaction`
+after BST-1707 landed (apps/desktop/src/assistant-server/conversation-compaction.ts):
+
+- All three `resolveCompactionInputBudget` throws — missing run provider/model;
+  a present-but-unusable `agentLoop.inputTokenLimit` (BST-1707's new throw,
+  reachable because the desktop assistant HTTP path does not sanitize
+  `agentLoop`; only the IPC tool path's `sanitizeAgentLoop` does); and
+  `Unknown compaction input budget for <provider>/<model>.` for a run carrying
+  no `agentLoop` whose model is not in the catalog (dynamic ollama/lmstudio,
+  raw clients).
+- The two trusted-lookup guards: `Conversation compaction requires the trusted
+  compaction overlay lookup.` (via `loadMessages`, so on the unprojected AND
+  projected loads) and `... the trusted tool projection lookup.` (via
+  `loadProjectedState`).
+- A `memoryStore.listMessages` rejection inside `loadMessages`, and a
+  `runRecencyPruneScan` DB failure.
+- Everything on the DETERMINISTIC COMMIT path, which runs outside the agentic
+  try/catch on the baseline-dominates branch and again inside the agentic catch
+  as the fallback: `Compaction candidate <id> has no valid creation time.`,
+  `memoryStore.saveMessages`, `Assistant message <id> has conflicting branch
+  topology.`, and `recordCompactionRange` DB errors.
+
+Two entries in BST-1737's own enumeration do NOT survive that reading and are
+recorded here so they are not re-added:
+
+- `AgenticCompactionSummarySchemaError` does not reach this catch.
+  `isNonRetryableSummarizerFailure` returns true for it, so the pass handles it
+  internally and routes to the deterministic fallback; it only reaches the outer
+  catch indirectly, if that fallback's commit then throws.
+- Prompt-baseline lookup failures do not reach it either. The inner
+  `resolvePromptBaselineTokens` wrapper catches them, logs
+  `conversation_compaction_baseline_corrupt` /
+  `conversation_compaction_baseline_lookup_failed`, and returns zero.
+  `usageForSummary`'s "requires the run provider and model" throw is likewise
+  unreachable from here: `resolveCompactionInputBudget` already demanded both
+  before any summarizer ran.
+
+SURFACE AND SHAPE. Modelled on `mcp.tools.unavailable` (see that section above),
+which was filed for the same class of problem. Status is always `'failed'`,
+never `'running'` — the pass has already finished, by throwing, when the row is
+minted — so it declares no terminal and can never leave a row spinning. Filed
+under `NEVER_RUNNING` in `assistant-run-event-pairing-contract.test.ts`; that
+guard can force a kind to be CLASSIFIED but cannot check the classification
+against the emitter, so `stream-init-compaction.test.ts` asserts the emitted
+status directly. Deliberately NOT `run.failed`: the turn is healthy and
+completes, and `data-stream-mapper` derives `thread_runs.error` from
+`run.failed`, so that spelling would persist a degraded turn as a failed one.
+
+It is in `isAlwaysVisibleRunEvent`, and that membership is LOAD-BEARING for the
+reason spelled out on `mcp.tools.unavailable`: run-event rows are hidden unless
+background activity / Developer detail is on, so a kind added to the contract
+alone would still report nothing to the user it exists for. Nothing else cards
+this fact — the user's only other symptom is a later provider context-overflow
+error naming an unrelated cause, or quietly degraded output.
+
+ONE KIND, REASON IN THE ROW. There is no `compaction.budget.failed` /
+`compaction.schema.failed` taxonomy. The discriminating fact is already written
+at each throw site and travels in `detail` and `metadata.reason`; a
+hand-maintained classifier would have to be extended for every new throw and
+would bucket the next unanticipated one into "other" — re-creating exactly the
+defect this kind exists to end. The reason is redacted and length-bounded by
+`boundRunEventReason` (`@brainstrike/assistant-contract/run-events`) before it
+becomes durable metadata or a rendered row; that helper is BST-1602's
+`boundMcpDiscoveryReason`, promoted so the two callers share ONE copy of the
+credential-stripping regexes. The row does NOT carry the resolved budget: the
+failure class where a budget would be most informative is precisely the one
+where no budget was ever resolved.
+
+ONCE PER (THREAD, REASON), not per turn. Most of what reaches this catch is
+sticky — an unknown model, a malformed `agentLoop`, a missing overlay lookup —
+and fails identically on every turn, so an unlatched row would grow one
+identical always-visible entry per turn forever, push real content out of the
+timeline, and train the user to ignore it. The latch keys on the reason and
+never on the thread alone, so it can never hide a DIFFERENT failure; the `warn`
+log is NOT latched, so per-turn operator evidence is never lost. The latch is an
+in-memory `Set` with no persistence and no eviction, mirroring
+`warnedBaselineExceedsTargetThreadIds` in `conversation-compaction.ts`: a
+restart re-arms it, and it is bounded by thread cardinality times distinct
+reasons, not by request volume.
+
+A CANCELLED TURN MINTS NOTHING. When `input.signal.aborted`, the warn still
+fires but no row is minted and the latch is untouched: `run.cancelled` already
+reports a cancelled turn, and a "compaction unavailable" row would be a false
+alarm on every cancellation landing mid-pass.
+
+EMISSION PATH. The breadcrumb rides the SAME stream prelude the compaction
+summary's `child-run-usage` chunk already rides
+(`withCompactionPreludeChunks`, failure chunk first), so it reaches the
+`observe()` wrapper — and therefore run-event persistence and the timeline —
+through the ordinary run-event chunk path, with no second seam to keep in sync.
 
 ### Context-overflow recovery scope
 

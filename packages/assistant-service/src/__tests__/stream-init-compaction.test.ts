@@ -2,10 +2,27 @@ import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent'
 import type { ScopedLogger } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  type PreRequestCompactionOutcome,
   runConversationCompactionBeforeStream,
   trustedCompactionOverlayFields,
-  withCompactionUsageChunk,
+  withCompactionPreludeChunks,
 } from '../stream-init-compaction.js';
+
+/**
+ * BST-1737's breadcrumb is latched to once per (thread, reason) in a
+ * module-level set, exactly like the `warnedBaselineExceedsTargetThreadIds`
+ * precedent it mirrors. Tests that must see a FRESH latch therefore mint a
+ * fresh thread id; the de-duplication test deliberately reuses one.
+ */
+let nextThreadId = 0;
+function freshThreadId(): string {
+  nextThreadId += 1;
+  return `thread-${nextThreadId}`;
+}
+
+function runEventOf(chunk: StreamChunk | undefined) {
+  return (chunk as { event?: Record<string, unknown> } | undefined)?.event;
+}
 
 function makeLogger() {
   const warn = vi.fn();
@@ -23,7 +40,7 @@ async function* streamOf(chunks: StreamChunk[]): AsyncIterable<StreamChunk> {
 
 describe('runConversationCompactionBeforeStream', () => {
   function makeInput(overrides: Record<string, unknown> = {}) {
-    const runtime = {} as unknown as RuntimeData;
+    const runtime = { memory: { threadId: freshThreadId() } } as unknown as RuntimeData;
     const createContextOverflowRecovery = vi.fn(() => ({ armed: true }));
     const runPreRequest = vi.fn(async () => ({ kind: 'noop' as const }));
     const logger = makeLogger();
@@ -49,7 +66,7 @@ describe('runConversationCompactionBeforeStream', () => {
 
   it('is a no-op without a memory result and never arms overflow recovery', async () => {
     const { input, createContextOverflowRecovery } = makeInput({ memoryResult: undefined });
-    await expect(runConversationCompactionBeforeStream(input as never)).resolves.toBeUndefined();
+    await expect(runConversationCompactionBeforeStream(input as never)).resolves.toEqual({});
     expect(createContextOverflowRecovery).not.toHaveBeenCalled();
   });
 
@@ -62,7 +79,7 @@ describe('runConversationCompactionBeforeStream', () => {
       memoryStore: { id: 'store-1' },
       runtimeData: runtime,
     });
-    expect(result).toEqual({ kind: 'noop' });
+    expect(result).toEqual({ result: { kind: 'noop' } });
     expect(runPreRequest).toHaveBeenCalledWith(
       expect.objectContaining({ memoryStore: { id: 'store-1' }, runId: 'run-1' })
     );
@@ -82,18 +99,31 @@ describe('runConversationCompactionBeforeStream', () => {
     });
 
     await expect(runConversationCompactionBeforeStream(input as never)).resolves.toEqual({
-      kind: 'deterministic',
-      usage,
+      result: { kind: 'deterministic', usage },
     });
   });
-  it('logs and continues the user turn when the pre-request pass fails', async () => {
-    const failure = new Error('compactor exploded');
+
+  it('mints NO breadcrumb when the pre-request pass succeeds (BST-1737)', () => {
+    // The counterweight to the failure tests below: an always-visible row on a
+    // healthy turn is noise, and noise is how a real signal gets ignored.
+    return (async () => {
+      const { input } = makeInput();
+      const outcome = await runConversationCompactionBeforeStream(input as never);
+      expect(outcome.failure).toBeUndefined();
+    })();
+  });
+  it('logs, keeps the turn alive, AND mints a visible breadcrumb when the pass fails', async () => {
+    const failure = new Error('Unknown compaction input budget for ollama/mystery.');
     const { input, logger } = makeInput();
     (input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>).mockRejectedValue(
       failure
     );
 
-    await expect(runConversationCompactionBeforeStream(input as never)).resolves.toBeUndefined();
+    // TURN SURVIVES: the call RESOLVES rather than rethrowing. Degrading
+    // gracefully is correct — degrading invisibly is what BST-1737 fixes.
+    const outcome = await runConversationCompactionBeforeStream(input as never);
+    expect(outcome.result).toBeUndefined();
+
     expect(logger.warn).toHaveBeenCalledWith(
       'Pre-request conversation compaction failed; continuing the user turn.',
       expect.objectContaining({
@@ -101,14 +131,127 @@ describe('runConversationCompactionBeforeStream', () => {
         error: failure,
       })
     );
+
+    const event = runEventOf(outcome.failure);
+    expect(event).toMatchObject({
+      detail:
+        'This turn was sent without pre-request compaction — Unknown compaction input budget for ollama/mystery.',
+      kind: 'compaction.failed',
+      label: 'Conversation compaction unavailable',
+      metadata: { reason: 'Unknown compaction input budget for ollama/mystery.' },
+      // NEVER 'running': the pass has already finished (by throwing), so there
+      // is no span to close and the row can never spin. Pinned here because the
+      // assistant-ui pairing contract can only force the kind to be CLASSIFIED,
+      // not check the classification against this emitter.
+      status: 'failed',
+    });
+  });
+
+  it.each([
+    [
+      'a missing trusted overlay lookup',
+      'Conversation compaction requires the trusted compaction overlay lookup.',
+    ],
+    [
+      'a malformed agentLoop.inputTokenLimit (BST-1707)',
+      'Conversation compaction received an invalid agentLoop.inputTokenLimit (0) for openrouter/x.',
+    ],
+    ['a range/parent write failure', 'Assistant message m-1 has conflicting branch topology.'],
+  ])('reports %s rather than swallowing it', async (_name, message) => {
+    const { input } = makeInput();
+    (input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error(message)
+    );
+
+    const outcome = await runConversationCompactionBeforeStream(input as never);
+    expect(runEventOf(outcome.failure)).toMatchObject({
+      kind: 'compaction.failed',
+      metadata: { reason: message },
+    });
+  });
+
+  it('redacts credentials out of the durable, rendered reason', async () => {
+    const { input } = makeInput();
+    (input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('compaction store read failed for https://user:hunter2@db.test/x?token=sk-live')
+    );
+
+    const outcome = await runConversationCompactionBeforeStream(input as never);
+    const event = runEventOf(outcome.failure);
+    expect(event).toBeDefined();
+    const serialized = JSON.stringify(event);
+    expect(serialized).toContain('[redacted]');
+    expect(serialized).not.toContain('hunter2');
+    expect(serialized).not.toContain('sk-live');
+  });
+
+  it('reports each thread+reason ONCE, and still reports a NEW reason on that thread', async () => {
+    // A sticky cause (unknown model, missing overlay lookup, malformed
+    // agentLoop) fails identically on every turn. Unlatched, a thread in that
+    // state grows one identical always-visible row per turn forever, which
+    // pushes real content out of the timeline and trains the user to ignore it.
+    // Keyed on the REASON, never the thread alone, so the latch can never hide
+    // a DIFFERENT failure — that would recreate this ticket inside its own fix.
+    const runtime = { memory: { threadId: freshThreadId() } } as unknown as RuntimeData;
+    const first = makeInput({ runtime });
+    (
+      first.input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>
+    ).mockRejectedValue(new Error('budget derivation exploded'));
+    const second = makeInput({ runtime });
+    (
+      second.input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>
+    ).mockRejectedValue(new Error('budget derivation exploded'));
+    const other = makeInput({ runtime });
+    (
+      other.input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>
+    ).mockRejectedValue(new Error('summary schema validation failed'));
+
+    const one = await runConversationCompactionBeforeStream(first.input as never);
+    const two = await runConversationCompactionBeforeStream(second.input as never);
+    const three = await runConversationCompactionBeforeStream(other.input as never);
+
+    expect(one.failure).toBeDefined();
+    expect(two.failure).toBeUndefined();
+    expect(runEventOf(three.failure)).toMatchObject({
+      metadata: { reason: 'summary schema validation failed' },
+    });
+
+    // The `warn` is NOT latched: per-turn operator evidence never disappears.
+    expect(second.logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('mints no breadcrumb when the turn was cancelled mid-pass', async () => {
+    // `run.cancelled` already reports a cancelled turn. A "compaction
+    // unavailable" row here would be a false alarm on every cancellation that
+    // lands inside the pass.
+    const controller = new AbortController();
+    const { input, logger } = makeInput({ signal: controller.signal });
+    (input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>).mockImplementation(
+      () => {
+        controller.abort();
+        return Promise.reject(new Error('The operation was aborted.'));
+      }
+    );
+
+    const outcome = await runConversationCompactionBeforeStream(input as never);
+    expect(outcome.failure).toBeUndefined();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
   });
 });
 
-describe('withCompactionUsageChunk', () => {
-  it('returns the source untouched when there is no usage to report', async () => {
+describe('withCompactionPreludeChunks', () => {
+  async function collect(source: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
+    const observed: StreamChunk[] = [];
+    for await (const chunk of source) {
+      observed.push(chunk);
+    }
+    return observed;
+  }
+
+  it('returns the source untouched when there is nothing to prepend', () => {
     const source = streamOf([]);
-    expect(withCompactionUsageChunk(source, undefined)).toBe(source);
-    expect(withCompactionUsageChunk(source, {})).toBe(source);
+    expect(withCompactionPreludeChunks(source, {})).toBe(source);
+    expect(withCompactionPreludeChunks(source, { result: { kind: 'noop' } })).toBe(source);
   });
 
   it('prepends exactly one child-run-usage chunk ahead of the real stream', async () => {
@@ -120,14 +263,30 @@ describe('withCompactionUsageChunk', () => {
       source: 'om-observation' as const,
     };
 
-    const combined = withCompactionUsageChunk(streamOf(tail), { usage });
-    const observed: StreamChunk[] = [];
-    for await (const chunk of combined) {
-      observed.push(chunk);
-    }
+    const observed = await collect(
+      withCompactionPreludeChunks(streamOf(tail), { result: { kind: 'agentic', usage } })
+    );
 
     expect(observed).toHaveLength(2);
     expect(observed[0]).toEqual({ type: 'child-run-usage', value: usage });
+    expect(observed[1]).toEqual(tail[0]);
+  });
+
+  it('carries the failure breadcrumb onto the FRONT of the turn the user reads (BST-1737)', async () => {
+    // The breadcrumb rides the SAME prelude the usage chunk already rides, so
+    // it reaches `observe()` (and therefore run-event persistence and the
+    // timeline) through the ordinary run-event chunk path — no second seam.
+    const tail: StreamChunk[] = [{ type: 'text-delta', value: 'hi' } as unknown as StreamChunk];
+    const failure = {
+      event: { id: 'e', kind: 'compaction.failed', label: 'x', status: 'failed', timestamp: 't' },
+      type: 'run-event',
+    } as unknown as StreamChunk;
+    const outcome: PreRequestCompactionOutcome = { failure };
+
+    const observed = await collect(withCompactionPreludeChunks(streamOf(tail), outcome));
+
+    expect(observed).toHaveLength(2);
+    expect(observed[0]).toBe(failure);
     expect(observed[1]).toEqual(tail[0]);
   });
 });

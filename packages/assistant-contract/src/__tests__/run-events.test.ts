@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { ASSISTANT_RUN_EVENT_KINDS } from '../run-events.js';
+import {
+  ASSISTANT_RUN_EVENT_KINDS,
+  boundRunEventReason,
+  MAX_RUN_EVENT_REASON_CHARS,
+} from '../run-events.js';
 
 describe('ASSISTANT_RUN_EVENT_KINDS', () => {
   it('declares every kind exactly once', () => {
@@ -56,6 +60,22 @@ describe('ASSISTANT_RUN_EVENT_KINDS', () => {
     expect(worktreeKinds.some((kind) => kind.endsWith('.started'))).toBe(false);
   });
 
+  it('declares the swallowed-compaction breadcrumb kind (BST-1737)', () => {
+    expect(ASSISTANT_RUN_EVENT_KINDS).toContain('compaction.failed');
+  });
+
+  it('declares NO `.started` or success counterpart for the compaction breadcrumb', () => {
+    // A standalone breadcrumb for a pass that ALREADY finished (by throwing):
+    // nothing is in flight, so it declares no terminal and must never be paired
+    // against one. A `compaction.started` spelling would additionally make the
+    // suffix pairing derive `compaction.failed` as its terminal and leave the
+    // row spinning on every turn compaction succeeds.
+    const compactionKinds = ASSISTANT_RUN_EVENT_KINDS.filter((kind) =>
+      kind.startsWith('compaction.')
+    );
+    expect(compactionKinds).toEqual(['compaction.failed']);
+  });
+
   it('declares the MCP discovery skip kind (BST-1602)', () => {
     expect(ASSISTANT_RUN_EVENT_KINDS).toContain('mcp.tools.unavailable');
   });
@@ -66,5 +86,37 @@ describe('ASSISTANT_RUN_EVENT_KINDS', () => {
     const mcpKinds = ASSISTANT_RUN_EVENT_KINDS.filter((kind) => kind.startsWith('mcp.'));
     expect(mcpKinds).toEqual(['mcp.tools.unavailable']);
     expect(mcpKinds.some((kind) => kind.endsWith('.started'))).toBe(false);
+  });
+});
+
+describe('boundRunEventReason', () => {
+  // Promoted here from packages/agent's `boundMcpDiscoveryReason` by BST-1737
+  // so compaction failures and MCP discovery skips share ONE redaction
+  // implementation. packages/agent's mcp-discovery-run-events.spec.ts still
+  // exercises the same function through that alias.
+  it('redacts an api key carried in a URL query string', () => {
+    const reason = boundRunEventReason(
+      new Error('fetch failed: 401 for https://example.test/mcp?api_key=sk-live-secret')
+    );
+    expect(reason).not.toContain('sk-live-secret');
+    expect(reason).toContain('[redacted]');
+  });
+
+  it('redacts credentials carried in URL userinfo', () => {
+    const reason = boundRunEventReason(new Error('connect https://alice:hunter2@host/mcp'));
+    expect(reason).not.toContain('hunter2');
+    expect(reason).toContain('[redacted]');
+  });
+
+  it('leaves an ordinary compaction failure message intact', () => {
+    expect(boundRunEventReason(new Error('Unknown compaction input budget for ollama/x.'))).toBe(
+      'Unknown compaction input budget for ollama/x.'
+    );
+  });
+
+  it('bounds by CODE POINT so a surrogate pair is never split', () => {
+    const reason = boundRunEventReason(new Error('\u{1F600}'.repeat(300)));
+    expect(Array.from(reason)).toHaveLength(MAX_RUN_EVENT_REASON_CHARS);
+    expect(reason.endsWith('\u2026')).toBe(true);
   });
 });
