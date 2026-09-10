@@ -849,3 +849,7 @@ terminal. Cleanup preserves the primary transport/envelope/abort failure and log
 secondary settlement failures once. Consumer presence selects receiver installation
 at run start; an installed receiver reads the latest committed callback on each
 update, including callback replacement during an active run.
+
+The receiver also retains its first observed failure if decoding or descendant
+settlement subsequently fails; the competing observer/decoder regression pins
+this through the public runtime adapter.

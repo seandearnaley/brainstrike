@@ -542,3 +542,31 @@ it('rejects a truncated child error without its required finish frame', async ()
     )
   ).rejects.toThrow('delegated conversation terminal');
 });
+
+it('preserves the first child observer failure when its decoder also fails', async () => {
+  const primary = new Error('observer-primary');
+  serve([
+    frame('f', { messageId: 'root' }),
+    child('a', [
+      { code: 'f', value: { messageId: 'native-a' } },
+      { code: '0', value: 'Partial.' },
+      { code: 'x', value: 'invalid-frame' },
+      finish,
+    ]),
+    frame(finish.code, finish.value),
+  ]);
+  const observer = vi.fn(() => {
+    throw primary;
+  });
+  const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+    api: 'http://assistant.test',
+    onDelegatedConversation: observer,
+  });
+  const run = async () => {
+    for await (const _message of adapter.run(options())) {
+      /* drain */
+    }
+  };
+  await expect(run()).rejects.toBe(primary);
+  expect(observer).toHaveBeenCalled();
+});

@@ -101,15 +101,13 @@ class ChildReceiver {
                   : message;
               onUpdate({ identity: this.identity, message: snapshot, messageId: this.messageId });
             } catch (error) {
-              this.failure = error;
-              this.hasFailure = true;
+              this.captureFailure(error);
             }
           },
         })
       )
       .catch((error: unknown) => {
-        this.failure = error;
-        this.hasFailure = true;
+        this.captureFailure(error);
       });
   }
 
@@ -126,9 +124,14 @@ class ChildReceiver {
       if (this.abortSignal.aborted) {
         break;
       }
-      await this.writer.write(
-        this.encoder.encode(`${frame.code}:${JSON.stringify(frame.value)}\n`)
-      );
+      try {
+        await this.writer.write(
+          this.encoder.encode(`${frame.code}:${JSON.stringify(frame.value)}\n`)
+        );
+      } catch (error) {
+        this.captureFailure(error);
+        this.throwIfFailed();
+      }
     }
     if (this.terminalObserved) {
       await this.close();
@@ -146,13 +149,24 @@ class ChildReceiver {
       try {
         await this.writer.close();
       } catch (error) {
-        this.failure = error;
-        this.hasFailure = true;
+        this.captureFailure(error);
       }
     }
     await this.drained;
-    await this.nested.settle();
+    try {
+      await this.nested.settle();
+    } catch (error) {
+      this.captureFailure(error);
+    }
     this.throwIfFailed();
+  }
+
+  private captureFailure(error: unknown): void {
+    if (this.hasFailure) {
+      return;
+    }
+    this.failure = error;
+    this.hasFailure = true;
   }
 
   private throwIfFailed(): void {

@@ -31,17 +31,23 @@ function EffectSender({ sendVersion }: { sendVersion: number }) {
 }
 
 function RuntimeHarness({
+  onActivity,
+  onFinish,
   onResponse,
   onDelegatedConversation,
   sendVersion = 0,
 }: {
+  onActivity?: () => void;
+  onFinish?: () => void;
   onResponse: (response: Response) => void;
   onDelegatedConversation?: (update: DelegatedConversationUpdate) => void;
   sendVersion?: number;
 }) {
   const runtime = useBrainstrikeDataStreamRuntime({
     api: 'http://assistant.test/api/assistant',
+    ...(onActivity ? { onActivity } : {}),
     onDelegatedConversation,
+    ...(onFinish ? { onFinish } : {}),
     onResponse,
   });
   return (
@@ -53,6 +59,53 @@ function RuntimeHarness({
 }
 
 afterEach(() => vi.unstubAllGlobals());
+
+it('does not install a child receiver when a callback appears after the run started', async () => {
+  let source: ReadableStreamDefaultController<Uint8Array> | undefined;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      source = controller;
+      controller.enqueue(new TextEncoder().encode('f:{"messageId":"root"}\n0:"Started."\n'));
+    },
+  });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(body))
+  );
+  const onActivity = vi.fn();
+  const onFinish = vi.fn();
+  const onResponse = vi.fn();
+  const childCallback = vi.fn();
+  const props = { onActivity, onFinish, onResponse };
+  const { rerender } = render(<RuntimeHarness {...props} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(onActivity).toHaveBeenCalled());
+  rerender(<RuntimeHarness {...props} onDelegatedConversation={childCallback} />);
+  const finish = { finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } };
+  const envelope = {
+    data: {
+      frames: [
+        { code: 'f', value: { messageId: 'native-child' } },
+        { code: '0', value: 'Child answer.' },
+        { code: 'd', value: finish },
+      ],
+      identity: {
+        childRuntimeRunId: 'child',
+        parentRuntimeRunId: 'parent',
+        parentToolCallId: 'call',
+        personaId: 'explorer',
+      },
+      messageId: 'native-child',
+    },
+    name: 'brainstrike.delegated-conversation',
+  };
+  source?.enqueue(
+    new TextEncoder().encode(`aui-data:${JSON.stringify(envelope)}\nd:${JSON.stringify(finish)}\n`)
+  );
+  source?.close();
+  await waitFor(() => expect(onFinish).toHaveBeenCalledOnce());
+  expect(childCallback).not.toHaveBeenCalled();
+});
 
 describe('useBrainstrikeDataStreamRuntime', () => {
   it('uses the latest committed callback without recreating the runtime', async () => {
