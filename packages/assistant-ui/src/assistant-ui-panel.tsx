@@ -30,6 +30,7 @@ import {
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract';
 import { type ReactNode, use, useEffect, useMemo, useState } from 'react';
+import type { AssistantStreamCallbacks } from './assistant-stream-callbacks';
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import type { ModelPickerModel, ModelPickerProvider } from '@brainstrike/ui';
@@ -254,7 +255,9 @@ import type {
   AssistantProviderSettingsUpdate,
 } from '@brainstrike/types';
 
-export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
+export interface AssistantUiPanelProps
+  extends ComposerDraftCommandBridgeProps,
+    AssistantStreamCallbacks {
   /**
    * Composer image-attachment availability, resolved by the app-shell
    * wrapper. Absent renders no attachment affordance and registers no
@@ -315,21 +318,7 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
    */
   localChatTransport?: 'data-stream' | 'local-runtime';
   omSegment?: OmMeterState | undefined;
-  /**
-   * Called with the RAW payload of each `brainstrike.child-run-usage` data
-   * part (subagent / OM cycle usage, durably persisted server-side — BST-953).
-   * Hosted/data-stream transport only, same seam shape as onContextBreakdown.
-   */
-  onChildRunUsage?: (data: unknown) => void;
-  /**
-   * Called with the RAW payload of each run-start `brainstrike.context-breakdown`
-   * data part (transient prompt breakdown). Hosted/data-stream transport only —
-   * the in-renderer local runtime has no breakdown channel (capability-absent),
-   * so the callback is simply never wired there. The app parses the payload
-   * with the contract guard (malformed → { invalid: true }) and records it in
-   * the context usage store; same seam shape as onUsage.
-   */
-  onContextBreakdown?: (data: unknown) => void;
+
   /**
    * Clear the persisted plan-mode preference. Called when the user APPROVES a
    * submitted plan so the resume request exits plan mode and the rebuilt server
@@ -452,7 +441,7 @@ const EMPTY_SLASH_COMMANDS: readonly SlashCommand[] = [];
 const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
 
 // Shared props for inner chat components
-interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
+interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStreamCallbacks {
   /** Composer image-attachment availability (attach button, paste, previews). */
   attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
   completePreparedRequest?:
@@ -471,10 +460,6 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   omSegment?: OmMeterState | undefined;
-  /** Data-stream transport only (BST-953); same capability gating as onContextBreakdown. */
-  onChildRunUsage?: ((data: unknown) => void) | undefined;
-  /** Data-stream transport only; never passed to the local runtime path. */
-  onContextBreakdown?: ((data: unknown) => void) | undefined;
   onFileMentionQueryChange: ((query: string) => void) | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
@@ -678,6 +663,7 @@ const DataStreamRuntimeChat = ({
   onModelChange,
   onContextBreakdown,
   onChildRunUsage,
+  onDelegatedConversation,
   onStepUsage,
   onRunEditActivity,
   onRunFailed,
@@ -807,6 +793,7 @@ const DataStreamRuntimeChat = ({
     replayRetryToken: serverRunSession.replayRetryToken,
     ...(onContextBreakdown ? { onContextBreakdown } : {}),
     ...(onChildRunUsage ? { onChildRunUsage } : {}),
+    onDelegatedConversation,
     ...(onStepUsage ? { onStepUsage } : {}),
     ...(onUsage ? { onUsage } : {}),
   });
@@ -1163,6 +1150,7 @@ export const AssistantUiPanel = ({
   onToolApprovalRequired,
   onContextBreakdown,
   onChildRunUsage,
+  onDelegatedConversation,
   onStepUsage,
   onUsage,
   attachmentsAvailability,
@@ -1300,6 +1288,7 @@ export const AssistantUiPanel = ({
             workspaceBar={workspaceBar}
             {...(onContextBreakdown ? { onContextBreakdown } : {})}
             onChildRunUsage={onChildRunUsage}
+            onDelegatedConversation={onDelegatedConversation}
             onSteerActiveRun={onSteerActiveRun}
             onStepUsage={onStepUsage}
             {...(onUsage ? { onUsage } : {})}

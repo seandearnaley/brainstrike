@@ -43,6 +43,11 @@ import {
   remapAssistantReplayHistoryItem,
   useAssistantRunReattachment,
 } from './assistant-run-reattachment';
+import { deferMessageFinishUntilFlush } from './defer-message-finish';
+import {
+  createDelegatedConversationTap,
+  type DelegatedConversationUpdate,
+} from './delegated-conversation-receiver';
 import { insulateAssistantStreamPipeline } from './stream-insulation';
 
 export { excludeApprovalActionMessages, isApprovalActionMessage };
@@ -124,6 +129,8 @@ export type BrainstrikeDataStreamRuntimeOptions = {
    * and refreshes its thread-total readout; it must never write usage rows.
    */
   onChildRunUsage?: (data: unknown) => void;
+  /** Full ephemeral child snapshots, keyed by native invocation across replay. */
+  onDelegatedConversation?: ((update: DelegatedConversationUpdate) => void) | undefined;
   /**
    * Called with each `run.step.finished` run event's billed step usage while
    * the run streams (BST-953 live tick). Steps ACCUMULATE — the consumer sums
@@ -1065,40 +1072,6 @@ function throwIfRunAbortedBeforeTerminalCompletion(
 }
 
 /**
- * assistant-stream's decoder emits `message-finish` before it flushes the
- * active implicit text/reasoning part. The accumulator therefore exposes a
- * completed message while inner part streams are still draining. If the user
- * immediately sends the next turn, assistant-ui aborts that visually complete
- * run and a late append can target an already-closed text controller.
- *
- * Buffer the one terminal message marker until decoder EOF so every part-finish
- * reaches the accumulator before the UI observes completion.
- */
-function deferMessageFinishUntilFlush(
-  onTerminalFinishFlushed?: () => void
-): TransformStream<AssistantStreamChunk, AssistantStreamChunk> {
-  let pendingFinish: AssistantStreamChunk | undefined;
-  return new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
-    flush(controller) {
-      if (pendingFinish) {
-        controller.enqueue(pendingFinish);
-        onTerminalFinishFlushed?.();
-      }
-    },
-    transform(chunk, controller) {
-      if (chunk.type === 'message-finish') {
-        if (pendingFinish) {
-          throw new Error('Assistant data stream emitted more than one message-finish chunk.');
-        }
-        pendingFinish = chunk;
-        return;
-      }
-      controller.enqueue(chunk);
-    },
-  });
-}
-
-/**
  * Decode the response body and insert the optional pass-through taps (provider
  * usage, run-start context breakdown). Each tap is only piped when its consumer
  * is wired — the common no-consumer path keeps the original decoder →
@@ -1230,28 +1203,52 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       await this.options.onResponse?.(response);
     }
 
+    const markTerminalFlushed = (): void => {
+      terminalFinishFlushed = true;
+    };
+    const delegatedReceiver = this.options.onDelegatedConversation
+      ? createDelegatedConversationTap(
+          (update) => this.options.onDelegatedConversation?.(update),
+          abortSignal,
+          markTerminalFlushed
+        )
+      : undefined;
     const stream = insulateAssistantStreamPipeline({
       abortSignal,
       body: response.body,
-      buildPipeline: (source) =>
-        buildDecodedTapPipeline(source, this.abortGatedTapOptions(abortSignal), () => {
-          terminalFinishFlushed = true;
-        })
+      buildPipeline: (source) => {
+        const decoded = buildDecodedTapPipeline(
+          source,
+          this.abortGatedTapOptions(abortSignal),
+          delegatedReceiver ? undefined : markTerminalFlushed
+        );
+        const conversations = delegatedReceiver ? decoded.pipeThrough(delegatedReceiver) : decoded;
+        return conversations
           .pipeThrough(
             unstable_toolResultStream(context.tools ?? {}, abortSignal, () => {
               throw new Error('Tool interrupt is not supported in data stream runtime');
             })
           )
-          .pipeThrough(new AssistantMessageAccumulator()),
+          .pipeThrough(new AssistantMessageAccumulator());
+      },
     });
 
+    let failed = false;
     try {
       for await (const accumulatedMessage of asAsyncIterableStream(stream)) {
         this.notifyActivity();
         yield accumulatedMessage;
       }
+    } catch (error) {
+      failed = true;
+      throw error;
     } finally {
       await stream.cancel(abortSignal.reason).catch(() => undefined);
+      if (failed || (abortSignal.aborted && !terminalFinishFlushed)) {
+        await delegatedReceiver?.settleAfterFailure();
+      } else {
+        await delegatedReceiver?.settle();
+      }
     }
     throwIfRunAbortedBeforeTerminalCompletion(abortSignal, terminalFinishFlushed);
     this.options.onFinish?.(unstable_getMessage());
@@ -1404,6 +1401,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
   readonly onActivity: BrainstrikeDataStreamRuntimeOptions['onActivity'];
   readonly onCancel: BrainstrikeDataStreamRuntimeOptions['onCancel'];
   readonly onContextBreakdown: BrainstrikeDataStreamRuntimeOptions['onContextBreakdown'];
+  readonly onDelegatedConversation: BrainstrikeDataStreamRuntimeOptions['onDelegatedConversation'];
   readonly onError: BrainstrikeDataStreamRuntimeOptions['onError'];
   readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
   readonly onReplayError: BrainstrikeDataStreamRuntimeOptions['onReplayError'];
@@ -1423,6 +1421,9 @@ function createRuntimeRequestOptionsSnapshot(input: {
     ...(input.onContextBreakdown === undefined
       ? {}
       : { onContextBreakdown: input.onContextBreakdown }),
+    ...(input.onDelegatedConversation === undefined
+      ? {}
+      : { onDelegatedConversation: input.onDelegatedConversation }),
     ...(input.onError === undefined ? {} : { onError: input.onError }),
     ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
     ...(input.onReplayError === undefined ? {} : { onReplayError: input.onReplayError }),
@@ -1452,6 +1453,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onActivity,
     onCancel,
     onContextBreakdown,
+    onDelegatedConversation,
     onError,
     onFinish,
     onReplayError,
@@ -1472,6 +1474,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onActivity,
     onCancel,
     onContextBreakdown,
+    onDelegatedConversation,
     onError,
     onFinish,
     onReplayError,

@@ -60,6 +60,10 @@
       "types": "./dist/context-usage-store.d.ts",
       "import": "./dist/context-usage-store.js"
     },
+    "./data-stream-runtime": {
+      "types": "./dist/data-stream-runtime.d.ts",
+      "import": "./dist/data-stream-runtime.js"
+    },
     "./follow-up-queue-store": {
       "types": "./dist/follow-up-queue-store.d.ts",
       "import": "./dist/follow-up-queue-store.js"

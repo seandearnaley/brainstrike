@@ -43,6 +43,8 @@ describe('interrupted child tool presentation', () => {
         ...mapper.initialChunks(),
         ...[...started.chunks, ...terminal].flatMap((chunk) => [...mapper.handleChunk(chunk)]),
       ];
+      // Failures and cancellations retain the producer's required wire terminal.
+      expect(frames.filter((frame) => frame.code === 'd')).toHaveLength(1);
       const response = new Response(
         frames.map((frame) => `${frame.code}:${JSON.stringify(frame.value)}\n`).join('')
       );

@@ -8,22 +8,18 @@ import {
   textParts,
   toolCallParts,
 } from '@brainstrike/agent/test-fixtures/scripted-agent-model';
-import type { DelegatedConversationStreamData } from '@brainstrike/assistant-contract/delegated-conversation-stream';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
 } from '@brainstrike/assistant-data';
+import { BrainstrikeDataStreamRuntimeAdapter } from '@brainstrike/assistant-ui/data-stream-runtime';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { DbHandle } from '@brainstrike/db/react';
 import type { PGlite } from '@electric-sql/pglite';
-import {
-  type AssistantMessage,
-  AssistantMessageAccumulator,
-  DataStreamDecoder,
-} from 'assistant-stream';
+import type { AssistantMessage } from 'assistant-stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { getDesktopMastraMemory } from '../../assistant-server/mastra-memory';
@@ -76,6 +72,7 @@ const persona: AssistantPersonaDefinition = {
 
 describe('desktop child transport and native row parity', () => {
   afterEach(async () => {
+    vi.unstubAllGlobals();
     await holder.database?.close();
     holder.database = undefined;
     holder.model = undefined;
@@ -141,33 +138,61 @@ describe('desktop child transport and native row parity', () => {
       observeDesktopAssistantRunEvents(stream, 'host-leg', [], async () => database),
       { messageId: 'parent-message' }
     );
-    const lines = (await response.text()).trim().split('\n');
-    const envelopes: DelegatedConversationStreamData[] = [];
-    for (const line of lines) {
-      if (!line.startsWith('aui-data:')) {
-        continue;
-      }
-      const part = JSON.parse(line.slice('aui-data:'.length)) as {
-        name: string;
-        data: DelegatedConversationStreamData;
-      };
-      if (part.name === 'brainstrike.delegated-conversation') {
-        envelopes.push(part.data);
-      }
-    }
-    const frames = envelopes.flatMap((envelope) => envelope.frames);
-    const childResponse = new Response(
-      frames.map((frame) => `${frame.code}:${JSON.stringify(frame.value)}\n`).join('')
-    );
-    if (!childResponse.body) {
-      throw new Error('Missing child response');
-    }
+    const observedIds = new Set<string>();
     let decoded: AssistantMessage | undefined;
-    for await (const message of childResponse.body
-      .pipeThrough(new DataStreamDecoder())
-      .pipeThrough(new AssistantMessageAccumulator())) {
-      decoded = message;
+    let parent: AssistantMessage | undefined;
+    // Exercise the public renderer replay adapter against the real host stream.
+    // Only HTTP delivery is injected; no child frames are extracted or remapped.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response)
+    );
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test',
+      onDelegatedConversation: (update) => {
+        observedIds.add(update.messageId);
+        decoded = update.message;
+      },
+    });
+    for await (const message of adapter.resume(
+      {
+        abortSignal: new AbortController().signal,
+        context: { callSettings: {}, config: {}, tools: {} },
+        messages: [],
+        runConfig: {},
+        unstable_getMessage: () => ({
+          content: [],
+          createdAt: new Date(0),
+          id: 'parent-message',
+          metadata: {
+            custom: {},
+            steps: [],
+            unstable_annotations: [],
+            unstable_data: [],
+            unstable_state: null,
+          },
+          role: 'assistant',
+          status: { type: 'running' },
+        }),
+      } as Parameters<BrainstrikeDataStreamRuntimeAdapter['resume']>[0],
+      {
+        eventId: 'host-leg:-1',
+        resumeApi: 'http://assistant.test/resume',
+      }
+    )) {
+      parent = message as AssistantMessage;
     }
+    expect(
+      parent?.parts
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join('')
+    ).toBe('Parent summary.');
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith(
+      'http://assistant.test/resume',
+      expect.objectContaining({ method: 'GET' })
+    );
     expect(decoded).toBeDefined();
     const children = (
       await database.query<{ thread_id: string; resource_id: string }>(
@@ -185,14 +210,13 @@ describe('desktop child transport and native row parity', () => {
         [child.thread_id]
       )
     ).rows;
-    const observedIds = [...new Set(envelopes.map((envelope) => envelope.messageId))];
     expect(decoded?.parts.find((part) => part.type === 'tool-call')).toMatchObject({
       args: { pattern: 'flag' },
       toolCallId: 'child-call',
     });
     expect(nativeRows).toHaveLength(1);
-    expect(observedIds).toHaveLength(1);
-    expect(nativeRows[0]?.id).toBe(observedIds[0]);
+    expect(observedIds.size).toBe(1);
+    expect(nativeRows[0]?.id).toBe([...observedIds][0]);
     const reconstructed = await createEnginePglite({ loadDataDir: await database.dumpDataDir() });
     try {
       const load = (db: PGlite) =>

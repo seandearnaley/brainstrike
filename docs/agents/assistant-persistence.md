@@ -2971,3 +2971,29 @@ against the actual saved row and compares text/reasoning/tool input/result
 content and order before/after engine reconstruction. There is no duplicate
 content writer or new durable store. Full event placement, changed native ids
 on resume and receiver reattachment remain separate BST-1719 acceptance work.
+
+### Renderer receiver and native transcript ownership (BST-1719)
+
+The optional panel/runtime `onDelegatedConversation` callback receives full,
+ephemeral child snapshots through the ordinary decoder and accumulator, keyed
+by native invocation across observed message changes. Full replay replaces
+snapshots; native memory remains the sole transcript writer. Missing terminals
+and unseeded/mismatched replay openings fail visibly. Child error isolation,
+recursive descendants, cancellation and upstream-fault settlement are covered
+at the public runtime adapter; the desktop native fixture now tests that adapter
+against the reconstructed persisted transcript. See the renderer receiver
+contract in `assistant-runtime.md` for lifecycle and remaining acceptance scope.
+Child tabs/rendering and durable graph association remain BST-1724 work.
+
+Receiver completion uses the same `deferMessageFinishUntilFlush` transform as the
+parent. Both final part streams and descendant receivers settle before a complete
+snapshot is published. Producer failures/cancellations still emit their required
+`d` finish frame; an error frame alone is a truncated stream, not a valid child
+terminal. Cleanup preserves the primary transport/envelope/abort failure and logs
+secondary settlement failures once. Consumer presence selects receiver installation
+at run start; an installed receiver reads the latest committed callback on each
+update, including callback replacement during an active run.
+
+The receiver also retains its first observed failure if decoding or descendant
+settlement subsequently fails; the competing observer/decoder regression pins
+this through the public runtime adapter.
