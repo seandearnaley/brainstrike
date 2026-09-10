@@ -22,7 +22,7 @@ import {
 import type { GitInventory, WorktreeDescriptor } from '@brainstrike/types';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import type { UseGitInventoryResult } from '../changes/use-git-inventory';
 import type { GitRepository, GitStatus, GitWorktreeSummary } from '../git-panel/git-bridge';
@@ -176,20 +176,11 @@ async function closeWorkbenchMenu(): Promise<void> {
   await waitFor(() => expect(trigger).toHaveFocus());
 }
 
+// Vitest's stack ordering runs this file hook before RTL/shared cleanup.
+// The final nested suite below observes focus restoration through this hook.
 afterEach(closeWorkbenchMenu);
 
 describe('GitWorkbenchHeader worktree dropdown', () => {
-  it('restores menu trigger focus before fixture teardown', async () => {
-    setInventoryResult({ inventory: makeInventory([makeWorktreeDescriptor()]) });
-    renderHeader(makeRepository());
-    const trigger = screen.getByRole('button', { name: /Current worktree/ });
-    await openWorktreeMenu();
-    expect(trigger).not.toHaveFocus();
-    await closeWorkbenchMenu();
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
-  });
-
   beforeEach(() => {
     setInventoryResult({});
     usePanelLayoutStore.setState({ activeTab: 'git' });
@@ -629,5 +620,32 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
       'aria-disabled',
       'true'
     );
+  });
+});
+
+describe('workbench menu fixture lifetime', () => {
+  let restoredFocus = false;
+
+  afterAll(() => {
+    // This runs after the actual afterEach chain, not a direct helper call.
+    // Removing/reordering the close hook must fail even when RTL removed DOM.
+    expect(restoredFocus).toBe(true);
+  });
+
+  it('finishes focus restoration when a test leaves its menu open', async () => {
+    setInventoryResult({ inventory: makeInventory([makeWorktreeDescriptor()]) });
+    renderHeader(makeRepository());
+    const trigger = screen.getByRole('button', { name: /Current worktree/ });
+    await openWorktreeMenu();
+    expect(trigger).not.toHaveFocus();
+    trigger.addEventListener(
+      'focus',
+      () => {
+        restoredFocus = true;
+      },
+      { once: true }
+    );
+    // Leave the real Radix menu open. Only the registered teardown may close it.
+    expect(screen.getByRole('menu')).toBeVisible();
   });
 });

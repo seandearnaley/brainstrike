@@ -72,8 +72,10 @@ menu with Escape and awaits focus on that menu's labelled trigger in its local
 `afterEach`. Radix FocusScope schedules its `onCloseAutoFocus` dispatch on a
 zero-delay task; leaving the last menu open lets that callback outlive the DOM
 realm and produce an unhandled Event-brand error even when all assertions pass
-(observed twice in Unit heavy, PRs #3105 and #3107). The regression checks menu
-removal and actual trigger focus before teardown. Keep this ownership local to
+(observed twice in Unit heavy, PRs #3105 and #3107). The lifecycle regression
+deliberately leaves a menu open and observes its trigger focus event from the
+real `afterEach` chain, asserting completion in `afterAll`. It fails when the
+close hook is removed or runs after RTL cleanup. Keep this ownership local to
 the fixture: do not suppress unhandled exceptions, replace Event constructors,
 add global sleeps, or discard pending timers to make the suite pass.
 
