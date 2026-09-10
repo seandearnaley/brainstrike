@@ -859,7 +859,10 @@ Runtime invariants:
     duplicate delivery and cumulative snapshot resume do not double-count.
     Bound authorization or write failures propagate before the UI refresh;
     they never fall through to the legacy unattributed insert. Historical rows
-    retain NULL invocation keys. See assistant-subagents.md for stream ordering
+    retain NULL invocation keys. Deleting a child also NULLs only those keys,
+    preserving already-spent root totals. Numeric usage is retained on root
+    deletion as before; it is excluded from the existing transcript sidecar
+    deletion list and cleared by factory reset. See assistant-subagents.md for stream ordering
     and the exact limits of the cumulative-usage proof.
   - OM cycles: `data-om-observation-end` / `data-om-buffering-end` chunks
     (`tokensObserved`/`observationTokens` and `tokensBuffered`/`bufferedTokens`)

@@ -5,8 +5,9 @@ import type {
 } from '@brainstrike/agent';
 import { createDelegatedConversationRepository, migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
+import { desktopAssistantServerLogger as logger } from '../../assistant-server/logger';
 import { persistDesktopChildRunUsage } from '../../assistant-server/run-persistence';
 
 describe('desktop delegated conversation authority', () => {
@@ -124,6 +125,34 @@ describe('desktop delegated conversation authority', () => {
     );
   });
 
+  it('logs and propagates a storage failure without publishing a usage refresh', async () => {
+    const error = new Error('Database unavailable');
+    const diagnostic = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield { type: 'child-run-usage', value: usage };
+    }
+    const iterator = persistDesktopChildRunUsage(
+      source(),
+      'initial-leg',
+      undefined,
+      () => Promise.reject(error),
+      true
+    )[Symbol.asyncIterator]();
+    try {
+      await expect(iterator.next()).rejects.toBe(error);
+      expect(diagnostic).toHaveBeenCalledWith(
+        'Failed to persist bound delegated usage',
+        expect.objectContaining({
+          code: 'assistant_delegated_usage_write_failed',
+          error,
+          runId: 'initial-leg',
+        })
+      );
+    } finally {
+      diagnostic.mockRestore();
+    }
+  });
+
   it('persists native child identity and a stable display before binding its run', async () => {
     const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
     await host.persist(identity);
@@ -170,6 +199,29 @@ describe('desktop delegated conversation authority', () => {
       ).toMatchObject({ childRuntimeRunId: null });
     }
   );
+
+  it('rechecks the current host turn atomically when it changes after scope lookup', async () => {
+    const initial = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await initial.persist(identity);
+    const raced = createDesktopDelegatedConversationHost(
+      {
+        query: async (sql, params) => {
+          const result = await database.query(sql, params);
+          if (sql.includes('WHERE runs.id = $1')) {
+            await database.exec(
+              "UPDATE brainstrike_assistant_thread_runs SET turn_message_id = 'changed' WHERE id = 'resume-leg'"
+            );
+          }
+          return result;
+        },
+      },
+      'resume-leg'
+    );
+    await expect(raced.bindRun(run)).rejects.toThrow();
+    expect(
+      await createDelegatedConversationRepository(database).getInvocation(scope, run)
+    ).toMatchObject({ childRuntimeRunId: null });
+  });
 
   it('rejects a forged parent native resource before registering its child', async () => {
     await expect(

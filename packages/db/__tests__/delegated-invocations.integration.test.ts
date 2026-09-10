@@ -222,9 +222,19 @@ describe('durable delegated invocation identity (BST-1718)', () => {
       })
     ).rejects.toThrow();
     await database.query(`DELETE FROM mastra_threads WHERE id = 'child'`);
-    expect((await database.query('SELECT id FROM brainstrike_assistant_run_usage')).rows).toEqual(
-      []
-    );
+    expect(
+      (
+        await database.query(`SELECT input_tokens, output_tokens, delegation_parent_run_id, delegation_tool_call_id
+      FROM brainstrike_assistant_run_usage`)
+      ).rows
+    ).toEqual([
+      {
+        delegation_parent_run_id: null,
+        delegation_tool_call_id: null,
+        input_tokens: 20,
+        output_tokens: 8,
+      },
+    ]);
   });
 
   it('does not write usage without an authorized, published native invocation', async () => {

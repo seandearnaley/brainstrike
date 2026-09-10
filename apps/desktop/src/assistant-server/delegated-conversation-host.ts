@@ -72,25 +72,21 @@ export function createDesktopDelegatedConversationHost(
     );
     const parsed = hostScopeSchema.safeParse(result.rows[0]);
     if (result.rows.length !== 1 || !parsed.success) {
-      throw new DelegatedConversationIdentityError();
+      throw new DelegatedConversationIdentityError('host-scope-invalid');
     }
     return parsed.data;
   };
   return {
     async bindRun(identity) {
       const scope = await readScope();
-      const invocation = await repository.getInvocation(scope, identity);
-      if (!invocation || invocation.turnMessageId !== scope.turnMessageId) {
-        throw new DelegatedConversationIdentityError();
-      }
-      await repository.bindInvocationRun(scope, identity, identity.childRuntimeRunId);
+      await repository.bindInvocationRun(scope, identity, identity.childRuntimeRunId, hostRunId);
     },
     async persist(identity) {
       const scope = await readScope();
       await repository.registerRoot(scope);
       const parent = await repository.get(scope, identity.parentThreadId);
       if (!parent || parent.resourceId !== identity.parentResourceId) {
-        throw new DelegatedConversationIdentityError();
+        throw new DelegatedConversationIdentityError('parent-scope-mismatch');
       }
       await repository.createChild(scope, {
         ...createDisplayIdentity(identity.childThreadId),
@@ -114,7 +110,7 @@ export function createDesktopDelegatedConversationHost(
         !isAssistantDelegatedUsageIdentity(usage.delegation) ||
         !usage.personaId?.trim()
       ) {
-        throw new DelegatedConversationIdentityError();
+        throw new DelegatedConversationIdentityError('usage-identity-missing');
       }
       const scope = await readScope();
       await repository.recordInvocationUsage(

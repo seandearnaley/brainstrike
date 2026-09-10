@@ -13,7 +13,7 @@ Executable evidence is
 `packages/agent/src/__tests__/mastra-subagent-contract.integration.spec.ts`,
 alongside the existing production-mapper proof in
 `mastra-subagent-execution.integration.spec.ts`. The new suite scripts only the
-model transport through `fixtures/scripted-agent-model.ts`; Agent, tools,
+model transport through `test-fixtures/scripted-agent-model.ts`; Agent, tools,
 delegation hooks, streams, memory and workflow snapshots are real. It uses the
 canonical full-extension PGlite factory. Run it in the uncached integration
 lane, not a new verifier registry.
@@ -610,11 +610,18 @@ this is not intermediate provider billing coverage while a child is paused.
 
 The completion hook can run ahead of a slow stream consumer. Bound reports stay
 queued until the matching parent result/error or finish, after native child
-publication has authorized its run. Final draining still requires the durable
-binding at the writer; missing/changed identity or a failed write propagates
-before the transient usage refresh. Unbound callers retain their existing
+publication has authorized its run. Empty queues return before decoding a part.
+Final draining still requires the durable binding at the writer; missing/changed identity or a failed write propagates
+before the transient usage refresh. The writer uses the existing run-critical
+foreground scheduler and its narrowly diagnosed saturated-host recovery. An
+exhausted write fails visibly with a coded log; it never silently drops billing.
+Identity errors carry a reason identifying the failed boundary without guessing
+which SQL ownership predicate failed. Unbound callers retain their existing
 usage contract. Local unbilled calls do not create billing rows.
 
+The scripted model fixture is exported through the existing agent test-fixture
+subpath convention (`@brainstrike/agent/test-fixtures/scripted-agent-model`), so
+cross-package tests never import private source paths.
 `delegated-runtime.integration.test.ts` drives desktop memory, the real Mastra
 loop and the existing usage writer with only model transport/DB handle injection
 scripted. It forces a fast child ahead of the consumer and reconstructs a PGlite
@@ -635,3 +642,12 @@ no automatic invocation retention sweep. Host-run retention must preserve
 resumable invocations or explicitly remove the complete branch. Dedicated child
 transcript statuses, approval presentation and lifecycle controls remain in
 BST-1719/1720/1723 as specified by their contracts.
+
+Deleting a delegated conversation detaches its usage row's delegation keys while
+retaining the surviving root's spent tokens and cost. Numeric usage history was
+already excluded from native thread-delete sidecars and also survives root
+conversation deletion; factory reset remains its explicit cleanup path. Resource
+re-keying is not a supported mutation of this immutable graph: an owner/scope
+mismatch must remain denied. A future ownership migration must update native
+and graph identity atomically with its own recovery proof, never bypass this
+authorization check to delete a partially re-keyed branch.

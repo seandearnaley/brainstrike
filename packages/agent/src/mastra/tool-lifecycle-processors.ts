@@ -697,6 +697,9 @@ export function createDelegationUsageCapture(
   const pending: Extract<StreamChunk, { type: 'child-run-usage' }>[] = [];
   return {
     drain: (part) => {
+      if (pending.length === 0) {
+        return [];
+      }
       if (part === undefined) {
         return pending.splice(0);
       }

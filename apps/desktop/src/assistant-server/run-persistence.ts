@@ -3,6 +3,7 @@
  *
  * Production migrations own schema creation. These writers only use the
  * server-owned run id created by the repository and never execute DDL.
+ * The if(runId) gates remain at call sites, after createThreadRun completes.
  */
 import {
   type AssistantRunEvent,
@@ -148,6 +149,33 @@ export async function* observeDesktopAssistantRunEvents(
   }
 }
 
+/** Use the existing foreground scheduler and diagnosed saturated-host recovery.
+ * Accounting remains fail-closed after exhausted recovery, with a coded diagnostic. */
+async function persistBoundDelegatedUsage(
+  value: AssistantChildRunUsage,
+  runId: string,
+  getDatabase: RunPersistenceDatabaseProvider
+): Promise<void> {
+  try {
+    await runCriticalDatabaseOperation({
+      label: 'assistant-delegated-usage-write',
+      operation: async () => {
+        const database = await getDatabase();
+        await createDesktopDelegatedConversationHost(database, runId).persistUsage(value);
+      },
+      retry: 'idempotent',
+      runId,
+    });
+  } catch (error: unknown) {
+    logger.error('Failed to persist bound delegated usage', {
+      code: 'assistant_delegated_usage_write_failed',
+      error,
+      runId,
+    });
+    throw error;
+  }
+}
+
 /**
  * Persist `child-run-usage` chunks (BST-953) as durable run_kind-tagged rows in
  * `brainstrike_assistant_run_usage`, forwarding every chunk unchanged (the
@@ -245,8 +273,7 @@ export async function* persistDesktopChildRunUsage(
         if (value.provider !== 'local') {
           // Reconcile within the existing writer; authorization/write failure
           // must not publish a successful refresh or use a legacy insertion.
-          const database = await getDatabase();
-          await createDesktopDelegatedConversationHost(database, runId).persistUsage(value);
+          await persistBoundDelegatedUsage(value, runId, getDatabase);
         }
       } else {
         await persist(value);

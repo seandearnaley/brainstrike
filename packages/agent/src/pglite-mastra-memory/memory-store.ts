@@ -343,7 +343,9 @@ export class PgliteMemoryStore extends MemoryStorage {
         );
         const row = scope.rows[0];
         if (row?.allAuthorized !== true || !Array.isArray(row.threadIds)) {
-          throw new Error('Delegated branch deletion requires unchanged native ownership.');
+          throw new Error('Delegated branch deletion requires unchanged native ownership.', {
+            cause: { operation: 'delete-delegated-branch', requestedThreadIds: [threadId] },
+          });
         }
         threadIds = row.threadIds;
       }

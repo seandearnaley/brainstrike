@@ -2991,7 +2991,9 @@ export function createPgliteAssistantThreadRepository(
         [threadId]
       );
       if (result.rows[0]?.allAuthorized !== true) {
-        throw new Error('Delegated branch deletion requires unchanged native ownership.');
+        throw new Error('Delegated branch deletion requires unchanged native ownership.', {
+          cause: { operation: 'delete-delegated-branch', requestedThreadIds: [threadId] },
+        });
       }
     },
     async deleteThreads(threadIds: readonly string[]): Promise<void> {
@@ -3055,7 +3057,9 @@ export function createPgliteAssistantThreadRepository(
       );
       assertAllBulkThreadsFound(result.rows[0]);
       if (result.rows[0]?.['allAuthorized'] !== true) {
-        throw new Error('Delegated branch deletion requires unchanged native ownership.');
+        throw new Error('Delegated branch deletion requires unchanged native ownership.', {
+          cause: { operation: 'delete-delegated-branch', requestedThreadIds: [...threadIds] },
+        });
       }
     },
     async getCrossRootUsage(resourceId: string): Promise<readonly CrossRootUsageRow[]> {

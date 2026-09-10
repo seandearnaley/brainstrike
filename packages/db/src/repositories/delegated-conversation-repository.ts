@@ -72,7 +72,8 @@ export interface DelegatedConversationRepository {
   bindInvocationRun(
     scope: DelegatedConversationScope,
     key: DelegatedInvocationKey & { readonly personaId: string },
-    childRuntimeRunId: string
+    childRuntimeRunId: string,
+    currentHostRunId?: string
   ): Promise<DelegatedInvocation>;
 
   /** Register the root first; write inputs must be observed by the trusted host. */
@@ -105,11 +106,13 @@ export interface DelegatedConversationRepository {
 }
 
 export class DelegatedConversationIdentityError extends Error {
-  constructor() {
+  readonly reason: string;
+  constructor(reason = 'identity-conflict') {
     super(
       'Delegated conversation identity is missing, unauthorized or conflicts with its persisted binding.'
     );
     this.name = 'DelegatedConversationIdentityError';
+    this.reason = reason;
   }
 }
 
@@ -122,7 +125,7 @@ function requireString(value: unknown): string {
 
 function requireTokenCount(value: number): number {
   if (!Number.isSafeInteger(value) || value < 0) {
-    throw new DelegatedConversationIdentityError();
+    throw new DelegatedConversationIdentityError('invalid-token-count');
   }
   return value;
 }
@@ -287,14 +290,19 @@ export function createDelegatedConversationRepository(
     async bindInvocationRun(
       scope: DelegatedConversationScope,
       key: DelegatedInvocationKey & { readonly personaId: string },
-      childRuntimeRunId: string
+      childRuntimeRunId: string,
+      currentHostRunId?: string
     ): Promise<DelegatedInvocation> {
       const result = await database.query(
         `${AUTHORIZED_GRAPH} UPDATE brainstrike_delegated_invocations invocation
          SET child_runtime_run_id = $5
-         FROM owned_nodes child, brainstrike_assistant_thread_runs host
+         FROM owned_nodes child, brainstrike_assistant_thread_runs host,
+           brainstrike_assistant_thread_runs current_leg
          WHERE host.id = invocation.host_run_id AND host.thread_id = $2
            AND host.resource_id = $1 AND host.turn_message_id = invocation.turn_message_id
+           AND current_leg.id = COALESCE($7::text, invocation.host_run_id)
+           AND current_leg.resource_id = $1 AND current_leg.thread_id = $2
+           AND current_leg.turn_message_id = invocation.turn_message_id
            AND invocation.root_thread_id = $2 AND invocation.owner_resource_id = $1
            AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4
            AND invocation.persona_id = $6
@@ -305,10 +313,11 @@ export function createDelegatedConversationRepository(
           ...invocationParameters(scope, key),
           requireString(childRuntimeRunId),
           requireString(key.personaId),
+          currentHostRunId === undefined ? null : requireString(currentHostRunId),
         ]
       );
       if (result.rows.length !== 1) {
-        throw new DelegatedConversationIdentityError();
+        throw new DelegatedConversationIdentityError('invocation-binding-conflict');
       }
       return readInvocation(result.rows[0]);
     },
@@ -391,7 +400,7 @@ export function createDelegatedConversationRepository(
         ]
       );
       if (result.rows.length !== 1) {
-        throw new DelegatedConversationIdentityError();
+        throw new DelegatedConversationIdentityError('invocation-binding-conflict');
       }
       return readInvocation(result.rows[0]);
     },
@@ -478,7 +487,7 @@ export function createDelegatedConversationRepository(
         ]
       );
       if (result.rows.length !== 1) {
-        throw new DelegatedConversationIdentityError();
+        throw new DelegatedConversationIdentityError('usage-binding-conflict');
       }
     },
     async registerRoot(scope: DelegatedConversationScope): Promise<DelegatedConversationNode> {

@@ -105,6 +105,40 @@ describe.each(['single', 'bulk', 'native'] as const)('delegated branch deletion 
     }
   );
 
+  it('retains spent usage when deleting a child or its root conversation', async () => {
+    await database.exec(`INSERT INTO brainstrike_assistant_thread_runs
+      (id, resource_id, thread_id, provider, model, runtime_kind, status, started_at, created_at, updated_at, turn_message_id)
+      VALUES ('host', 'owner-root', 'root', 'openai', 'test', 'desktop', 'completed', NOW(), NOW(), NOW(), 'turn');
+      INSERT INTO brainstrike_delegated_invocations
+      (owner_resource_id, root_thread_id, thread_id, host_run_id, turn_message_id, parent_runtime_run_id, parent_tool_call_id, persona_id)
+      VALUES ('owner-root', 'root', 'child', 'host', 'turn', 'parent-run', 'call', 'explore');
+      INSERT INTO brainstrike_assistant_run_usage
+      (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, run_kind, delegation_parent_run_id, delegation_tool_call_id)
+      VALUES ('usage', 'root', 'host', 'owner-root', 'test', 'openai', 10, 5, 'subagent', 'parent-run', 'call');`);
+    await deleteBranch('child');
+    expect(
+      (
+        await database.query(`SELECT input_tokens, output_tokens, delegation_parent_run_id, delegation_tool_call_id
+      FROM brainstrike_assistant_run_usage`)
+      ).rows
+    ).toEqual([
+      {
+        delegation_parent_run_id: null,
+        delegation_tool_call_id: null,
+        input_tokens: 10,
+        output_tokens: 5,
+      },
+    ]);
+    await deleteBranch('root');
+    // Numeric usage history already survives root deletion; it is not a transcript sidecar.
+    expect((await database.query('SELECT id FROM brainstrike_assistant_run_usage')).rows).toEqual([
+      { id: 'usage' },
+    ]);
+    expect((await database.query("SELECT id FROM mastra_threads WHERE id = 'root'")).rows).toEqual(
+      []
+    );
+  });
+
   it('rejects the whole deletion if a descendant native scope changed', async () => {
     await database.query(
       `UPDATE mastra_threads SET "resourceId" = 'changed' WHERE id = 'grandchild'`

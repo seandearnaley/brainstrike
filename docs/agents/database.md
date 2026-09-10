@@ -363,8 +363,10 @@ record. The method records the observed native child run once; exact duplicate
 delivery is idempotent and a different child run is rejected. A follow-up gets a
 new invocation key and child run while retaining its conversation. Reads and
 run binding revalidate the whole native ancestry and the original host row's
-owner/root/turn. Resume must read the existing invocation, rather than create it
-with the resume leg id. No placeholder native run id is invented before the
+owner/root/turn. Desktop passes its current host leg into the same SQL mutation,
+which rechecks the current owner/root/turn atomically; a stale preliminary scope
+read cannot authorize a changed resume leg. Resume must read the existing
+invocation, rather than create it with the resume leg id. No placeholder native run id is invented before the
 first child stream chunk.
 
 Current root host-run writers set `turn_message_id` only on insert; terminal
@@ -386,8 +388,13 @@ matching child thread/resource/persona and matching original/current host turns.
 It reconciles cumulative provider totals with monotonic maxima on one row;
 model/provider changes reject instead of rewriting attribution. The existing
 desktop stream writer is still the only child-usage producer, and awaits this
-write before refreshing the renderer. Deleting an invocation cascades its bound
-usage row; factory reset already clears the existing usage table. `delegated-invocations.integration.test.ts` verifies
+write before refreshing the renderer. Deleting an invocation sets only the two
+delegation keys to NULL, retaining the root's already-spent tokens and cost.
+Numeric usage history already survives root conversation deletion (the existing
+thread-delete sidecar list excludes it); this migration preserves that behavior.
+Factory reset clears the existing usage table. The column-specific SET NULL
+uses the engine's documented [PostgreSQL 18 referential action](https://www.postgresql.org/docs/18/ddl-constraints.html#DDL-CONSTRAINTS-FK).
+`delegated-invocations.integration.test.ts` verifies
 ownership changes, duplicates, follow-ups, reconstruction in a new PGlite engine,
 production-ledger upgrade/replay, and native-thread deletion cascades. All reset
 paths clear the new table before its graph parent. The real Mastra contract test

@@ -1,19 +1,20 @@
 // @vitest-environment node
 /** Script only model transport and DB handle injection; use the real desktop memory,
  * Mastra stream mapper, durable host authority, and existing usage writer. */
-import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
-import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
-import { migrate, wasmLoader } from '@brainstrike/db';
-import { createEnginePglite } from '@brainstrike/db/pglite-factory';
-import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
+
 import {
   hasToolResult,
   scriptedAgentModel,
   textParts,
   toolCallParts,
-} from '../../../../../packages/agent/src/__tests__/fixtures/scripted-agent-model';
+} from '@brainstrike/agent/test-fixtures/scripted-agent-model';
+import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
+import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { migrate, wasmLoader } from '@brainstrike/db';
+import { createEnginePglite } from '@brainstrike/db/pglite-factory';
+import type { PGlite } from '@electric-sql/pglite';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { getDesktopMastraMemory } from '../../assistant-server/mastra-memory';
 import {
   observeDesktopAssistantRunEvents,
@@ -32,13 +33,12 @@ vi.mock('../../db-main', () => ({
     return holder.database;
   },
 }));
+// Restore the real runtime: the desktop global setup installs inert agent mocks.
 vi.mock('@brainstrike/agent', async (original) => ({
   ...(await original<typeof import('@brainstrike/agent')>()),
 }));
 vi.mock('@brainstrike/agent/providers/provider-factory', async (original) => ({
-  ...(await original<
-    typeof import('../../../../../packages/agent/src/providers/provider-factory')
-  >()),
+  ...(await original<{ createProvider: typeof import('@brainstrike/agent')['createProvider'] }>()),
   createProvider: () => {
     if (!holder.model) {
       throw new Error('Model not initialized');
@@ -71,8 +71,10 @@ describe('desktop durable delegation production loop', () => {
     holder.model = undefined;
   });
 
-  it('binds a fast native child before metering it through a slow consumer, and survives engine reconstruction', async () => {
-    const database = await wasmLoader.createPGlite('memory://delegated-runtime');
+  let database: PGlite;
+  // The suite's existing database hook timeout owns full migration setup.
+  beforeEach(async () => {
+    database = await wasmLoader.createPGlite('memory://delegated-runtime');
     holder.database = database;
     await migrate(database);
     await database.exec(`INSERT INTO mastra_threads
@@ -83,6 +85,9 @@ describe('desktop durable delegation production loop', () => {
        started_at, created_at, updated_at, turn_message_id)
       VALUES ('host-leg', 'owner', 'root', 'openai', 'test', 'desktop', 'running',
         NOW(), NOW(), NOW(), 'user-turn');`);
+  });
+
+  it('binds a fast native child before metering it through a slow consumer, and survives engine reconstruction', async () => {
     let parentReceivedChildResult: (() => void) | undefined;
     const parentContinuation = new Promise<void>((resolve) => {
       parentReceivedChildResult = resolve;

@@ -29,7 +29,8 @@ export const migration128DelegatedInvocationUsage: Migration = {
       ADD CONSTRAINT brainstrike_assistant_run_usage_delegation_fk
         FOREIGN KEY (thread_id, delegation_parent_run_id, delegation_tool_call_id)
         REFERENCES brainstrike_delegated_invocations
-          (root_thread_id, parent_runtime_run_id, parent_tool_call_id) ON DELETE CASCADE;
+          (root_thread_id, parent_runtime_run_id, parent_tool_call_id)
+        ON DELETE SET NULL (delegation_parent_run_id, delegation_tool_call_id);
     -- NULLS DISTINCT preserves historical and non-delegation usage rows.
     CREATE UNIQUE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_delegation_idx
       ON brainstrike_assistant_run_usage (thread_id, delegation_parent_run_id, delegation_tool_call_id);

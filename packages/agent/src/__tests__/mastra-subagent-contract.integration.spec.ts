@@ -29,7 +29,7 @@ import {
   textParts,
   toolCallParts,
   toolThenAnswer,
-} from './fixtures/scripted-agent-model';
+} from '../test-fixtures/scripted-agent-model';
 
 async function collect(stream: AsyncIterable<ChunkType>): Promise<ChunkType[]> {
   const chunks: ChunkType[] = [];

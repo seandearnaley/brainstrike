@@ -79,9 +79,10 @@ export function isAssistantDelegatedUsageIdentity(
 ): value is AssistantDelegatedUsageIdentity {
   return (
     isRecord(value) &&
-    ['parentRuntimeRunId', 'parentToolCallId', 'resourceId', 'threadId'].every(
-      (key) => typeof value[key] === 'string' && value[key].trim().length > 0
-    )
+    ['parentRuntimeRunId', 'parentToolCallId', 'resourceId', 'threadId'].every((key) => {
+      const raw = value[key];
+      return typeof raw === 'string' && raw.trim().length > 0;
+    })
   );
 }
 
