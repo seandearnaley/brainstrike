@@ -1170,3 +1170,148 @@ The native parity assertion pairs the pre-effect marker exclusion with the
 approved leaf result, so the exclusion cannot pass after the fixture marker
 disappears. Terminal projection tests use a nonempty second producer to prove
 that abnormal termination is published only once.
+
+### Host-owned child view binding
+
+The shared child view combines the baseline with its live leg through the
+public assistant-ui external-store runtime and converter. The vendor content
+concatenator updates a repeated tool-call id in place and preserves identical
+text on either side of a resume. It replaces only the active history head;
+saved branch nodes retain their parent edges. Native row ids do not determine
+the lifetime of this live leg.
+
+The app-shell child store publishes complete snapshots, scoped to an exact
+native invocation and authoritative child thread. Current-leg replay replaces
+the prior snapshot; callbacks from a superseded leg cannot overwrite an admitted
+continuation. View unsubscription does not clear the host's output. The shared
+panel subscribes to that store, so closing/reopening a view neither invokes a
+model nor loses output produced while the view was closed.
+
+A child decision is accepted only if its validated native ancestry includes
+that view's invocation. A current host snapshot supplies its validated live identity;
+a restored view resolves identity against the durable invocation graph. Both
+paths still require native host authorization. Its action metadata and run configuration go through
+the owning root runtime, without the child's message parent/source ids. The
+root owns its own append topology and the native host still authenticates the
+full decision path. Ordinary follow-up prompts are not decision messages;
+steering and cancellation remain explicit coordination capabilities.
+`AssistantUiPanel.onRuntimeReady` registers the actual owning runtime and its
+returned cleanup runs when that runtime is disposed. Opening a child view must
+never construct another inference runtime.
+
+The workspace owns the ephemeral root registry, keyed by owner resource and
+root thread together. Snapshot reads are pure: committed external-store
+subscriptions acquire a lease for each mounted owner or child view. Releasing
+the final lease evicts the root and clears its converted transcripts; saved,
+unvisited tabs recover through native history when mounted. A stale cleanup
+cannot evict a replacement. Registration captures the actual thread handle and
+its runtime identity, and decision append rejects a handle that has retargeted.
+ The actual panel wrapper publishes delegated snapshots
+and registers its actual runtime into that root; standalone panels without a
+workspace do not advertise child navigation. Runtime cleanup is identity-aware:
+disposing an old runtime cannot unregister a replacement. An unavailable owner
+rejects a decision before append, while previously captured child output stays
+available for inspection. The wrapper behavioral test removes the production
+stream callback as a negative control and must lose the observed child output.
+
+Child workspace tab addresses encode owner, root and child identifiers and use
+the existing workspace selection store's singleton/open/close/hydrate behavior.
+An address is not authority: the durable graph still authorizes history reads.
+Ordinary app ids remain untouched; malformed reserved child addresses must
+surface as errors rather than silently disappear during restoration.
+
+The shared child panel accepts ordinary persisted history for a view reopened
+without a live host envelope. Its caller must authorize the child against the
+durable graph before supplying that history. A live host snapshot replaces the
+saved projection with its own baseline and continuation; opening either view
+never invokes `onNew`. The panel's regression test uses the real ordinary-history
+converter and proves both no execution on opening and the saved-to-live handoff.
+The subagent card's optional Open conversation action is separate from its
+collapse toggle. Navigation binds the exact parent tool-call id to its host
+baseline thread id; contradictory addresses surface as card-local alerts, with
+no navigation action, rather than throwing from the streaming selector. The action is absent
+until the workspace supplies a navigation capability.
+
+`DelegatedWorkspaceTabsProvider` registers saved child tab addresses before the
+ordinary workspace provider reconciles selection. It resolves native graph
+ownership and persisted callsign/color before mounting a transcript. Unselected
+restored tabs load metadata only; the existing WorkspaceBody controls transcript
+mounting and closing. Invalid reserved addresses remain visible error tabs.
+Both the main wrapper and child panel provide the same navigation action. The
+workspace integration test opens the real shared child panel, closes it, and
+reopens output published by the owning host while it was closed; removing the
+navigation context is its negative control. Restored decision routing and
+sidebar ancestry are not implemented by this registry boundary.
+
+The shared transcript data-renderer registrations live together in
+`assistant-data-renderer-registration.tsx`; the panel still mounts that component
+for both root and child views. This keeps the panel within its existing source
+budget without weakening the guard or changing approval, suspension, timeline,
+or hidden metadata rendering. Workspace metadata is retained only for open tabs:
+closing and reopening forces graph authorization before prior metadata/history
+can be exposed. Child loading views subscribe to their owning host so a live
+snapshot can become visible while an ordinary history read is still pending.
+Metadata reads skip already authorized entries for the current database; app
+arrays retain their identity until their inputs change. A malformed invocation
+binding takes precedence over a simultaneous discovery request failure.
+The root-layout test pins the owning provider around the actual assistant slot.
+The reload integration test uses the native history reader and its ordinary
+hydration window as the arriving live baseline and retains earlier transcript
+text after the handoff. The Electron smoke test also asserts root edit/reload
+controls are present before checking their absence from the read-only child.
+
+Panel runtime composition keeps endpoint resolution/cancellation in
+`use-assistant-endpoint-api.ts` and stable attachment/history adapter construction
+in `use-assistant-thread-runtime-adapters.ts`. Attachment identity is keyed on
+capability presence, so disabling a model's vision support does not discard
+already staged attachments. Optional callback props that explicitly accept
+undefined pass directly; plan-mode configuration is assembled before transport
+selection. These boundaries preserve the existing runtime/transport tests and
+remove the reviewed panel/runtime complexity findings without rule suppression.
+
+A child reopened after renderer restart has no live snapshot identity. Its
+explicit persisted-decision resolver binds the selected child's thread id to a
+native invocation in the decision path and validates owner, root, parent run,
+parent call, child run and persona. Same-persona siblings are never interchangeable.
+The owning runtime must exist before lookup and remain the same after it; a
+runtime disposed during lookup cannot receive the decision. The final native
+host admission remains authoritative.
+
+Child pause rediscovery queries the owning root's thread/resource, then projects
+only paths whose durable invocation belongs to the selected child. Root-only
+and sibling pauses are omitted from that child's view. Missing/conflicting path
+bindings surface an explicit discovery error; known transcript content and valid
+recovered decisions remain visible. Capability gating reuses the same durable
+assistant backend capability as root history. Native restart and full rendered
+control parity still require the end-to-end delivery checks.
+
+The workspace's component exports and hooks are separate modules so Fast Refresh
+preserves component state: root registry access is in
+`use-delegated-conversation-root.ts`; its `useDelegatedPanelBinding` hook supplies
+stable capability-shaped callbacks without conditional registration logic in the
+main wrapper. Metadata loading is in
+`use-delegated-workspace-apps.tsx`; child view and navigation components have their
+own files. Metadata cache removal responds directly to the existing selection
+store's close/hydrate notification, not a synchronous setState during an effect.
+The ordinary root history adapter has its own hook, and the actual wrapper
+stream-binding regression has its own discovered test file. Shrink-only wrapper
+budgets must ratchet downward after extraction; ESLint warning baselines must
+not increase to accommodate these boundaries.
+
+`delegated-child-reload.integration.test.tsx` exercises the actual ChildView and
+shared controls against a migrated PGlite database with native-format history,
+a persisted graph/invocation, and a registered owning-root append boundary. It
+verifies root-scoped discovery, actual approval/question clicks, native target
+preservation, and omission of child topology. It also proves live output can
+arrive during recovery and that recovery failure leaves saved history visible.
+The discovery HTTP response and final root append are test boundaries; native
+Mastra execution/restart remains covered separately by the desktop fresh-process
+harness. Do not describe these as one full browser-to-native end-to-end test.
+Approval and suspension binding lookups run concurrently as independent reads.
+
+The shared assistant action bar reads the public runtime `capabilities.reload`
+before rendering regeneration. A child without an `onReload` adapter must not
+advertise this action; enabling the composer or a generic `onNew` decision
+dispatcher does not authorize regeneration. Copy remains available. The shared
+panel tests exercise both supported and unsupported runtimes, and the Electron
+workspace restoration verifier checks the actual child control surface.

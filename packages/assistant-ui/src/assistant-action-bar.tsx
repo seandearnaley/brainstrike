@@ -17,6 +17,7 @@ export const ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME = 'size-5';
  */
 export const AssistantActionBar = () => {
   const aui = useAui();
+  const canReload = useAuiState((state) => state.thread.capabilities.reload);
   const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();
   const isDiscoveryNotice = useAuiState((state) =>
     state.message.parts.some(
@@ -75,15 +76,17 @@ export const AssistantActionBar = () => {
       <span aria-live="polite" className="sr-only" role="status">
         {isFailed ? 'Copy failed' : null}
       </span>
-      <ActionBarPrimitive.Reload asChild>
-        <TooltipIconButton
-          aria-label="Regenerate response"
-          className={ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME}
-          tooltip="Retry"
-        >
-          <RefreshCwIcon className="size-3.5" />
-        </TooltipIconButton>
-      </ActionBarPrimitive.Reload>
+      {canReload ? (
+        <ActionBarPrimitive.Reload asChild>
+          <TooltipIconButton
+            aria-label="Regenerate response"
+            className={ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME}
+            tooltip="Retry"
+          >
+            <RefreshCwIcon className="size-3.5" />
+          </TooltipIconButton>
+        </ActionBarPrimitive.Reload>
+      ) : null}
     </ActionBarPrimitive.Root>
   );
 };

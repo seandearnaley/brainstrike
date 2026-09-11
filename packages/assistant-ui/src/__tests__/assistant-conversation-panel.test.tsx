@@ -23,12 +23,16 @@ function Conversation({
   messages,
   onNew,
   onCancel,
+  onReload,
+  onEdit,
   running = false,
 }: {
   id: string;
   messages: readonly ThreadMessageLike[];
   onNew: ExternalStoreAdapter<ThreadMessageLike>['onNew'];
   onCancel?: () => Promise<void>;
+  onReload?: ExternalStoreAdapter<ThreadMessageLike>['onReload'];
+  onEdit?: ExternalStoreAdapter<ThreadMessageLike>['onEdit'];
   running?: boolean;
 }) {
   const runtime = useExternalStoreRuntime({
@@ -37,6 +41,8 @@ function Conversation({
     messages,
     onNew,
     ...(onCancel ? { onCancel } : {}),
+    ...(onReload ? { onReload } : {}),
+    ...(onEdit ? { onEdit } : {}),
   });
   return <AssistantConversationPanel label={id} runtime={runtime} threadKey={id} />;
 }
@@ -52,6 +58,55 @@ describe('shared conversation panel', () => {
     cleanup();
     resetFollowUpQueueStore();
   });
+
+  it.each([false, true])('advertises editing only when the runtime supports it (%s)', (canEdit) => {
+    const onNew = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(async () => undefined);
+    const onEdit = vi.fn<NonNullable<ExternalStoreAdapter<ThreadMessageLike>['onEdit']>>(
+      async () => undefined
+    );
+    render(
+      <TooltipProvider>
+        <Conversation
+          id="Cedar"
+          messages={[{ content: 'Inspect this folder', id: 'user', role: 'user' }]}
+          onNew={onNew}
+          {...(canEdit ? { onEdit } : {})}
+        />
+      </TooltipProvider>
+    );
+    expect(screen.queryAllByRole('button', { name: 'Edit message' })).toHaveLength(canEdit ? 1 : 0);
+    expect(onNew).not.toHaveBeenCalled();
+    expect(onEdit).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    'advertises regeneration only when the runtime supports it (%s)',
+    async (canReload) => {
+      const onNew = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(async () => undefined);
+      const onReload = vi.fn<NonNullable<ExternalStoreAdapter<ThreadMessageLike>['onReload']>>(
+        async () => undefined
+      );
+      render(
+        <TooltipProvider>
+          <Conversation
+            id="Cedar"
+            messages={[message('Child result.')]}
+            onNew={onNew}
+            {...(canReload ? { onReload } : {})}
+          />
+        </TooltipProvider>
+      );
+      if (!canReload) {
+        expect(
+          screen.queryByRole('button', { name: 'Regenerate response' })
+        ).not.toBeInTheDocument();
+        return;
+      }
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Regenerate response' }));
+      expect(onReload).toHaveBeenCalledTimes(1);
+      expect(onNew).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([false, true])(
     'does not dispatch a queued follow-up when inspecting a child (running=%s)',

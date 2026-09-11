@@ -1,4 +1,7 @@
-import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
+import type {
+  AssistantUiThreadHistoryAdapter,
+  DelegatedConversationBaseline,
+} from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
   ASSISTANT_EDIT_CHECKPOINT_OPS,
@@ -2478,6 +2481,20 @@ function orderHistoryGraphForImport(
     visit(item);
   }
   return orderedMessages;
+}
+
+/** Replay the host's pre-effect rows through the ordinary history mapper. */
+export function restoreDelegatedConversationHistory(
+  baseline: DelegatedConversationBaseline
+): Awaited<ReturnType<AssistantUiThreadHistoryAdapter['load']>> {
+  return toHistoryRepository(
+    baseline.messages.map(({ parentId, ...message }) => ({
+      ...message,
+      createdAt: normalizeDate(message.createdAt),
+      ...(parentId === undefined ? {} : { parentId }),
+    })),
+    baseline.runEvents
+  );
 }
 
 function toHistoryRepository(

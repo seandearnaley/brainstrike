@@ -108,6 +108,7 @@ export const USER_ACTION_BAR_CLASSNAME =
 // exported from its own module for the same reason.
 export const UserActionBar = () => {
   const aui = useAui();
+  const canEdit = useAuiState((state) => state.thread.capabilities.edit);
   const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();
 
   // Routed through the shared clipboard service (useCopyToClipboard), NOT
@@ -156,11 +157,13 @@ export const UserActionBar = () => {
       <span aria-live="polite" className="sr-only" role="status">
         {isFailed ? 'Copy failed' : null}
       </span>
-      <ActionBarPrimitive.Edit asChild>
-        <TooltipIconButton aria-label="Edit message" tooltip="Edit">
-          <PencilIcon className="size-4" />
-        </TooltipIconButton>
-      </ActionBarPrimitive.Edit>
+      {canEdit ? (
+        <ActionBarPrimitive.Edit asChild>
+          <TooltipIconButton aria-label="Edit message" tooltip="Edit">
+            <PencilIcon className="size-4" />
+          </TooltipIconButton>
+        </ActionBarPrimitive.Edit>
+      ) : null}
     </ActionBarPrimitive.Root>
   );
 };

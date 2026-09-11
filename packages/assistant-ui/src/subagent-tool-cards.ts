@@ -4,7 +4,12 @@ import {
   delegationToolNameForPersona,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '@brainstrike/assistant-contract/personas';
-import { createElement, useMemo } from 'react';
+import { createElement, use, useMemo } from 'react';
+import {
+  readSubagentConversationAddress,
+  type SubagentConversationAddress,
+  SubagentConversationNavigationContext,
+} from './subagent-conversation-navigation';
 import { SubagentExecutionCard } from './subagent-execution-card';
 import {
   readSubagentDelegationOutcomeFromMessages,
@@ -27,6 +32,14 @@ import {
  * never re-render, freezing the live count on an early snapshot (D2).
  */
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
+  const openConversation = use(SubagentConversationNavigationContext);
+  const addressJson = useAuiState((state) =>
+    JSON.stringify(readSubagentConversationAddress(state.message.parts, props.toolCallId))
+  );
+  const address = useMemo(
+    () => JSON.parse(addressJson) as SubagentConversationAddress,
+    [addressJson]
+  );
   // THREAD-wide, not message-scoped (2026-08-24 field failure): hydration can
   // weave this delegation's `subagent.tool.*` events into a SIBLING message of
   // an approval-resume turn, so a message-scoped read showed "0 tool calls"
@@ -48,6 +61,10 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
     // `exactOptionalPropertyTypes` an optional prop may be absent but never
     // explicitly `undefined`.
     ...(props.isError === undefined ? {} : { isError: props.isError }),
+    ...(openConversation && address.kind === 'available'
+      ? { onOpenConversation: () => openConversation(address.threadId) }
+      : {}),
+    ...(address.kind === 'invalid' ? { navigationError: address.error } : {}),
     liveRows,
     ...(outcome ? { outcome } : {}),
     result: props.result,

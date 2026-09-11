@@ -36,6 +36,7 @@ interface MockAuiState {
     role?: string;
   };
   thread: {
+    capabilities: { edit: boolean; reload: boolean };
     messages: Array<{ id: string }>;
   };
 }
@@ -48,7 +49,7 @@ const completedReasoningPart = {
 const createMockAuiState = (parts: unknown[]): MockAuiState => ({
   composer: { text: '' },
   message: { parts },
-  thread: { messages: [] },
+  thread: { capabilities: { edit: true, reload: true }, messages: [] },
 });
 
 let mockAuiState = createMockAuiState([completedReasoningPart]);
@@ -450,6 +451,16 @@ describe('AssistantUiPanel model picker', () => {
     cleanup();
     vi.clearAllMocks();
     vi.useRealTimers();
+  });
+
+  it('registers its owning runtime and releases the registration when the panel closes', () => {
+    const release = vi.fn();
+    const onRuntimeReady = vi.fn(() => release);
+    const { unmount } = render(<AssistantUiPanel {...baseProps} onRuntimeReady={onRuntimeReady} />);
+    expect(onRuntimeReady).toHaveBeenCalledWith({ runtime: 'test-runtime' });
+    expect(release).not.toHaveBeenCalled();
+    unmount();
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('uses the Brainstrike data-stream runtime for hosted providers', () => {

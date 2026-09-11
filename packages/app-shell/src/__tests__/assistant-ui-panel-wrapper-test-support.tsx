@@ -6,6 +6,7 @@ import {
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
+import type { AssistantUiPanelProps } from '@brainstrike/assistant-ui';
 import type {
   LocalRuntimeAvailabilityState,
   LocalRuntimeModelCatalogState,
@@ -21,6 +22,10 @@ import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-sou
 import { __resetConfiguredAssistantProvidersForTests } from '../hooks/use-configured-assistant-providers';
 
 export const NATIVE_TOOL_COUNT = WEB_NATIVE_TOOL_IDS.length;
+export const delegatedPanelCallbacks: {
+  onDelegatedConversation: AssistantUiPanelProps['onDelegatedConversation'];
+  onRuntimeReady: AssistantUiPanelProps['onRuntimeReady'];
+} = { onDelegatedConversation: undefined, onRuntimeReady: undefined };
 
 const { hasDesktopLlmHostMock } = vi.hoisted(() => ({
   hasDesktopLlmHostMock: vi.fn((): boolean => false),
@@ -738,8 +743,10 @@ vi.mock('../use-assistant-slash-commands', () => ({
 }));
 
 // Mock the AssistantUiPanel component
-vi.mock('@brainstrike/assistant-ui', () => ({
+vi.mock('@brainstrike/assistant-ui', async () => ({
   AssistantUiPanel: ({
+    onDelegatedConversation,
+    onRuntimeReady,
     composerDraftCommand,
     providerGroups = [],
     selectedProvider,
@@ -766,6 +773,8 @@ vi.mock('@brainstrike/assistant-ui', () => ({
     attachmentsAvailability,
     historyGeneration,
   }: {
+    onDelegatedConversation?: AssistantUiPanelProps['onDelegatedConversation'];
+    onRuntimeReady?: AssistantUiPanelProps['onRuntimeReady'];
     composerDraftCommand?: { id: string; mode: 'append' | 'replace'; text: string };
     providerGroups?: Array<{
       runtime: string;
@@ -817,6 +826,8 @@ vi.mock('@brainstrike/assistant-ui', () => ({
     onComposerTextChange?: (text: string) => void;
     attachmentsAvailability?: { state: 'enabled' } | { reason: string; state: 'disabled' };
   }) => {
+    delegatedPanelCallbacks.onDelegatedConversation = onDelegatedConversation;
+    delegatedPanelCallbacks.onRuntimeReady = onRuntimeReady;
     const providers = providerGroups?.flatMap((group) => group.providers) ?? [];
     const currentProvider = providers.find((p) => p.id === selectedProvider);
     const enabledModels = currentProvider?.models.filter((m) => m.enabled) ?? [];
@@ -1103,6 +1114,9 @@ vi.mock('@brainstrike/assistant-ui', () => ({
   // Same passthrough rationale as EditCheckpointProvider: the mocked panel
   // never renders a verdict control, so the verdict context is never read.
   RunVerdictProvider: ({ children }: { children: ReactNode }) => children,
+  SubagentConversationNavigationContext: (await import('react')).createContext<
+    ((threadId: string) => void) | null
+  >(null),
   // Same passthrough rationale as EditCheckpointProvider: the mocked panel
   // never renders an approval notice, so the grant context is never read.
   ToolApprovalGrantProvider: ({ children }: { children: ReactNode }) => children,

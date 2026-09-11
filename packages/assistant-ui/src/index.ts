@@ -99,6 +99,7 @@ export {
   useRunVerdictContext,
 } from './run-verdict-context';
 export type { SlashCommand } from './slash-commands';
+export { SubagentConversationNavigationContext } from './subagent-conversation-navigation';
 export {
   type ToolApprovalGrantHandlers,
   ToolApprovalGrantProvider,
@@ -109,6 +110,10 @@ export {
   ToolResultRendererProvider,
   type ToolResultRendererProviderProps,
 } from './tool-result-renderer-context';
+export {
+  type DelegatedConversationRuntimeOptions,
+  useDelegatedConversationRuntime,
+} from './use-delegated-conversation-runtime';
 export { useMcpTaskBridge } from './use-mcp-task-bridge';
 export {
   type ToolResultRenderer,

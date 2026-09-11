@@ -19,7 +19,6 @@ import {
   WorkspaceBody,
   WorkspaceOpenFileBridge,
   WorkspaceTabStrip,
-  WorkspaceTabsProvider,
 } from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
@@ -63,6 +62,7 @@ import { CommandPaletteHost } from './command-palette-host';
 import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
+import { DelegatedWorkspaceTabsProvider } from './delegated-workspace-apps';
 import { deleteRootDataFromDb } from './delete-root-data';
 import {
   type RendererDiagnosticSurface,
@@ -520,7 +520,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           context from a common ancestor. */}
       <FileTreeWrapper>
         <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
-          <WorkspaceTabsProvider apps={workspaceApps}>
+          <DelegatedWorkspaceTabsProvider apps={workspaceApps}>
             {/* Thread⇄workspace binding (BST-1268): snapshots the live stores
                 per thread and hydrates on switch. Inside FileTreeWrapper so it
                 reaches the file-explorer store; renders nothing. */}
@@ -566,7 +566,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
               }
               workspaceHeaderContent={<WorkspaceTabStrip />}
             />
-          </WorkspaceTabsProvider>
+          </DelegatedWorkspaceTabsProvider>
         </MarkdownPreviewCapabilitiesProvider>
       </FileTreeWrapper>
     </div>
