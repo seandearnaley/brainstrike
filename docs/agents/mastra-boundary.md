@@ -129,6 +129,19 @@ from a guarded host restart with a changed native process ID. Selective child
 controls, human follow-up and additional interrupted-work recovery acceptance
 remain BST-1723 work; this layer does not establish the whole ticket.
 
+The selective-cancellation native regression holds one executor's cleanup while
+a sibling remains active. Native `cancel()` must join that executor before
+acknowledging Stop, or reject visibly at the existing native grace deadline.
+The core patch owns the executor promise by task ID in both ESM and CJS;
+it does not shut down the shared manager to stop one task. Terminal cancellation
+retries join the same outstanding executor. A cancelled database status alone
+does not prove that workspace effects have stopped. This native contract is a
+prerequisite for the host-authorized child controls, not proof of their UI wiring.
+The selected join also owns the native workflow's deletion and pending-queue
+settlement. Cleanup failures propagate to that task's cancel call, including
+repeated calls after settlement, and remain reported by root shutdown. A completed
+executor or terminal task row does not release an unfinished workflow write.
+
 Use `stream(..., { untilIdle: true })` when that integration is ready. The
 installed `streamUntilIdle()` declaration is deprecated. Consuming the complete
 stream is necessary for continuation output; first-turn aggregate properties

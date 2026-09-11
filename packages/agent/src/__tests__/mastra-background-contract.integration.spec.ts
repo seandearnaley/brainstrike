@@ -175,6 +175,181 @@ describe('native background delegation (BST-1723)', () => {
     }
   });
 
+  it.each([false, true])(
+    'joins selected child cleanup or reports its deadline without aborting a sibling (%s)',
+    async (expireCleanup) => {
+      const host = new Mastra({
+        backgroundTasks: { enabled: true },
+        logger: false,
+        storage: backing.storage,
+      });
+      hosts.add(host);
+      const manager = host.backgroundTaskManager;
+      if (!manager) {
+        throw new Error('Missing native background manager');
+      }
+      await manager.init(host.pubsub);
+      const childStarted = Promise.withResolvers<void>();
+      const childAborted = Promise.withResolvers<void>();
+      const releaseChild = Promise.withResolvers<void>();
+      const siblingStarted = Promise.withResolvers<void>();
+      const releaseSibling = Promise.withResolvers<void>();
+      let siblingSignal: AbortSignal | undefined;
+      let childCleaned = false;
+      let cancellation: Promise<void> | undefined;
+      try {
+        const { task: child } = await manager.enqueue(
+          {
+            agentId: 'selective-owner',
+            args: {},
+            runId: 'selective-run',
+            toolCallId: 'selected-child',
+            toolName: 'inspect',
+          },
+          {
+            executor: {
+              execute: async (_args, options) => {
+                options?.abortSignal?.addEventListener(
+                  'abort',
+                  () => {
+                    if (expireCleanup) {
+                      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000);
+                    }
+                    childAborted.resolve();
+                  },
+                  { once: true }
+                );
+                childStarted.resolve();
+                await releaseChild.promise;
+                childCleaned = true;
+                return { cleaned: true };
+              },
+            },
+          }
+        );
+        const { task: sibling } = await manager.enqueue(
+          {
+            agentId: 'selective-owner',
+            args: {},
+            runId: 'selective-run',
+            toolCallId: 'sibling-child',
+            toolName: 'inspect',
+          },
+          {
+            executor: {
+              execute: async (_args, options) => {
+                siblingSignal = options?.abortSignal;
+                siblingStarted.resolve();
+                await releaseSibling.promise;
+                return { inspected: true };
+              },
+            },
+          }
+        );
+        await Promise.all([childStarted.promise, siblingStarted.promise]);
+        let acknowledged = false;
+        cancellation = manager.cancel(child.id).then(() => {
+          acknowledged = true;
+        });
+        const deadlineRejected = expireCleanup
+          ? expect(cancellation).rejects.toThrow(/cancellation cleanup exceeded the deadline/)
+          : undefined;
+        await childAborted.promise;
+        await nextEventLoopTurn();
+        expect(siblingSignal?.aborted).toBe(false);
+        expect((await manager.getTask(sibling.id))?.status).toBe('running');
+        expect(childCleaned).toBe(false);
+        expect(
+          acknowledged,
+          'Stop must not acknowledge while the selected executor owns work'
+        ).toBe(false);
+        if (expireCleanup) {
+          await deadlineRejected;
+          expect(childCleaned).toBe(false);
+        }
+        releaseChild.resolve();
+        if (!expireCleanup) {
+          await cancellation;
+          expect(childCleaned).toBe(true);
+        }
+        expect((await manager.getTask(child.id))?.status).toBe('cancelled');
+        expect(siblingSignal?.aborted).toBe(false);
+      } finally {
+        releaseChild.resolve();
+        releaseSibling.resolve();
+        await Promise.allSettled([cancellation]);
+        vi.restoreAllMocks();
+      }
+    }
+  );
+
+  it.each([false, true])(
+    'joins selected workflow deletion and reports cleanup errors (%s)',
+    async (failDeletion) => {
+      const host = new Mastra({
+        backgroundTasks: { enabled: true },
+        logger: false,
+        storage: backing.storage,
+      });
+      hosts.add(host);
+      const manager = host.backgroundTaskManager;
+      if (!manager) {
+        throw new Error('Missing native background manager');
+      }
+      await manager.init(host.pubsub);
+      const deleting = Promise.withResolvers<void>();
+      const releaseDeletion = Promise.withResolvers<void>();
+      const cleanupFailure = new Error('Controlled selected workflow deletion failure');
+      const remove = backing.workflows.deleteWorkflowRunById.bind(backing.workflows);
+      vi.spyOn(backing.workflows, 'deleteWorkflowRunById').mockImplementation(async (input) => {
+        deleting.resolve();
+        await releaseDeletion.promise;
+        if (failDeletion) {
+          throw cleanupFailure;
+        }
+        await remove(input);
+      });
+      let cancellation: Promise<void> | undefined;
+      try {
+        const { task } = await manager.enqueue(
+          {
+            agentId: 'cleanup-owner',
+            args: {},
+            runId: 'cleanup-run',
+            toolCallId: 'selected-cleanup',
+            toolName: 'inspect',
+          },
+          { executor: { execute: async () => ({ inspected: true }) } }
+        );
+        await deleting.promise;
+        let acknowledged = false;
+        cancellation = manager.cancel(task.id).then(() => {
+          acknowledged = true;
+        });
+        const outcome = cancellation.then(
+          () => undefined,
+          (error: unknown) => error
+        );
+        await nextEventLoopTurn();
+        expect(acknowledged, 'Stop must own the selected workflow deletion').toBe(false);
+        releaseDeletion.resolve();
+        if (failDeletion) {
+          expect(await outcome).toBe(cleanupFailure);
+          await expect(manager.cancel(task.id)).rejects.toThrow(cleanupFailure);
+        } else {
+          await cancellation;
+        }
+      } finally {
+        releaseDeletion.resolve();
+        await Promise.allSettled([cancellation]);
+        vi.restoreAllMocks();
+        if (failDeletion) {
+          await expect(shutdownHost(host)).rejects.toMatchObject({ errors: [cleanupFailure] });
+        }
+      }
+    }
+  );
+
   it('reports a held workflow cleanup at the existing shutdown deadline without hanging the owner', async () => {
     const host = new Mastra({
       backgroundTasks: { enabled: true },
