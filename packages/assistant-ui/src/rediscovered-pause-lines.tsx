@@ -23,6 +23,7 @@ export function RediscoveredPauseLines({ display }: { display: RediscoveredPause
   }
   if (display.decisionState !== undefined) {
     const explanation = {
+      cancelled: 'This turn was cancelled. This decision can no longer be submitted.',
       claimed: 'This decision is being processed. Reload to refresh its status.',
       consumed: 'This decision cannot be submitted again. Check the conversation for its outcome.',
       interrupted:

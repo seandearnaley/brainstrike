@@ -3329,3 +3329,27 @@ so rewind filtering, topology and hydration bounds cannot diverge. The stream
 baseline never writes or replaces native message rows. See
 `assistant-subagents.md`, "Child history boundary for a live stream leg", for
 the admission, replay and identical-text invariants and native proofs.
+
+### Workspace tabs and cancellation publication (BST-1720/BST-1725)
+
+The shared workspace coordinator publishes app open/close/selection immediately;
+viewport/editor changes retain the existing debounce. Reload must not discard a
+new delegated tab while an unrelated scroll timer is pending. Existing native
+workspace persistence owns this state; no child-specific persistence is added.
+Thread-run cancellation is monotonic in both renderer and server terminal
+writers, so a late completion cannot reopen a cancelled turn's child decisions.
+
+### Explicit cancellation publication
+
+Desktop cancellation first marks all authoritative same-owner/root/turn legs
+`cancelling`, which is nonterminal and blocks new delegated decision admission.
+It aborts registered legs. A live leg owns its normal turn-end capture and
+terminal write; waiting work has no remaining stream, so cancellation closes
+only a snapshot bracket whose first run belongs to those authoritative legs,
+including after process restart. Only then does waiting work become `cancelled`.
+The renderer does not preempt the server-owned cancellation with an optimistic
+terminal database write. Both completion writers preserve cancelling/cancelled
+authority against late completed/failed reports. Startup reaping retains a
+crashed cancellation as cancelled with the existing orphan diagnostic; it never
+restores admission or fabricates the lost turn-end capture. Reattachment treats
+cancelling as in-flight. The text status column needs no schema migration.

@@ -1,6 +1,6 @@
 // @vitest-environment node
-/** Real native siblings and desktop admission; model transport alone is scripted.
- * This starts below HTTP/attempt-leg construction and does not claim UI coverage. */
+/** Real native waiting decision plus the desktop cancellation HTTP endpoint.
+ * Native model transport alone is scripted; UI coverage is a separate Electron spec. */
 
 import { once } from 'node:events';
 import { createServer } from 'node:http';
@@ -25,19 +25,25 @@ import {
 } from '@brainstrike/agent/test-fixtures/scripted-agent-model';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
 import {
   registerSteerableRun,
   unregisterSteerableRun,
 } from '@brainstrike/assistant-service/steering';
 import { migrate } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
+import type { DbHandle } from '@brainstrike/db/react';
 import type { PGlite } from '@electric-sql/pglite';
 import { expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { handleCancelRequest } from '../../assistant-server/control-endpoints';
 import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
+import { readDelegatedDecisionStates } from '../../assistant-server/delegated-decision-discovery';
 import { getDesktopMastraMemory } from '../../assistant-server/mastra-memory';
-import { observeDesktopAssistantRunEvents } from '../../assistant-server/run-persistence';
+import {
+  observeDesktopAssistantRunEvents,
+  recordDesktopAssistantThreadRunStatus,
+} from '../../assistant-server/run-persistence';
 
 const holder = vi.hoisted(() => ({ database: undefined as PGlite | undefined }));
 vi.mock('../../db-main', () => ({
@@ -116,7 +122,7 @@ it('cancels a durably waiting child and rejects its stale decision through a fre
         hooks: binding.hooks,
         maxSteps: 4,
       },
-      id: 'parent',
+      id: 'brainstrike-assistant',
       instructions: 'Delegate to both children.',
       memory: backing.memory,
       model: scriptedAgentModel((options) => {
@@ -232,8 +238,14 @@ it('cancels a durably waiting child and rejects its stale decision through a fre
       ...binding,
       ...createDesktopDelegatedConversationHost(database, 'after-reload'),
     };
+    const completeCancelledTurn = vi.fn(async () => {
+      const pending = await database.query(
+        "SELECT status FROM brainstrike_assistant_thread_runs WHERE id = 'initial'"
+      );
+      expect(pending.rows).toEqual([{ status: 'cancelling' }]);
+    });
     const server = createServer((req, res) => {
-      void handleCancelRequest(req, res);
+      void handleCancelRequest(req, res, { completeCancelledTurn });
     });
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
@@ -251,6 +263,48 @@ it('cancels a durably waiting child and rejects its stale decision through a fre
       expect
         .soft({ payload, status: response.status })
         .toMatchObject({ payload: { accepted: true }, status: 200 });
+      await recordDesktopAssistantThreadRunStatus(
+        'initial',
+        'completed',
+        null,
+        async () => database
+      );
+      await createPgliteAssistantThreadRepository(database as DbHandle).completeThreadRun(
+        'initial',
+        { status: 'completed' }
+      );
+      const cancelled = await database.query(
+        "SELECT status FROM brainstrike_assistant_thread_runs WHERE id = 'initial'"
+      );
+      expect(cancelled.rows).toEqual([{ status: 'cancelled' }]);
+      expect(completeCancelledTurn).toHaveBeenCalledOnce();
+      expect(completeCancelledTurn).toHaveBeenCalledWith({
+        runId: 'initial',
+        threadId: 'root',
+        turnRunIds: expect.arrayContaining(['initial', 'after-reload']),
+      });
+      const resumedController = new AbortController();
+      registerSteerableRun('after-reload', resumedController);
+      const repeated = await fetch(`http://127.0.0.1:${address.port}/assistant/cancel`, {
+        body: JSON.stringify({ runId: 'initial' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      expect(repeated.status).toBe(200);
+      expect(resumedController.signal.aborted).toBe(true);
+      unregisterSteerableRun('after-reload');
+      // A new leg created AFTER cancellation must also be rejected; checking
+      // only the cancelled leg's status would miss this exact restart boundary.
+      await database.query(`INSERT INTO brainstrike_assistant_thread_runs
+        (id, resource_id, thread_id, provider, model, runtime_kind, status, started_at, created_at, updated_at, turn_message_id)
+        VALUES ('late-resume', 'owner', 'root', 'openai', 'test', 'desktop', 'running', NOW(), NOW(), NOW(), 'user-turn')`);
+      const lateBinding = {
+        ...binding,
+        ...createDesktopDelegatedConversationHost(database, 'late-resume'),
+      };
+      await expect(
+        claimDelegatedToolAction(action, lateBinding, { agent: parent, requiresApproval: true })
+      ).rejects.toThrow();
       // Use the production durable host admission and native freshness recheck,
       // not an assumption that a missing in-memory registration invalidates a snapshot.
       await expect
@@ -261,6 +315,12 @@ it('cancels a durably waiting child and rejects its stale decision through a fre
           })
         )
         .rejects.toThrow();
+      const states = await readDelegatedDecisionStates(
+        database,
+        { ownerResourceId: 'owner', rootThreadId: 'root' },
+        [action]
+      );
+      expect([...states.values()]).toEqual(['cancelled']);
       expect(effects).toEqual([]);
     } finally {
       server.close();

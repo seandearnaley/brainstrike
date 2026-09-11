@@ -106,21 +106,26 @@ describe('useAssistantServerRunSession stale-record reclaim', () => {
     expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
-  it('keeps the guard while the durable run is still running', async () => {
-    stubRunStatusFetch({ body: { runId: RECORD.runId, status: 'running' }, status: 200 });
-    const { result } = renderHook(() =>
-      useAssistantServerRunSession({
-        api: API,
-        prepareRequestData: () => Promise.resolve({}),
-        threadKey: THREAD_KEY,
-      })
-    );
+  it.each(['running', 'cancelling'])(
+    'keeps the guard while the durable run is %s',
+    async (status) => {
+      stubRunStatusFetch({ body: { runId: RECORD.runId, status }, status: 200 });
+      const { result } = renderHook(() =>
+        useAssistantServerRunSession({
+          api: API,
+          prepareRequestData: () => Promise.resolve({}),
+          threadKey: THREAD_KEY,
+        })
+      );
 
-    await act(async () => {
-      await expect(result.current.prepareRequest()).rejects.toThrow(/awaiting stream reattachment/);
-    });
-    expect(window.sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
-  });
+      await act(async () => {
+        await expect(result.current.prepareRequest()).rejects.toThrow(
+          /awaiting stream reattachment/
+        );
+      });
+      expect(window.sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
+    }
+  );
 
   it('keeps the guard when the status probe fails (fail-safe, never silent reclaim)', async () => {
     stubRunStatusFetch(new Error('connection refused'));

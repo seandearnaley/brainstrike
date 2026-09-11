@@ -381,7 +381,16 @@ export async function handleAssistantRequest(
   }
 
   if (route === 'cancel') {
-    await handleCancelRequest(req, res);
+    await handleCancelRequest(
+      req,
+      res,
+      options.snapshots
+        ? createTurnBoundaryController({
+            resolveDatabase: resolveEditCheckpointDatabase,
+            snapshots: options.snapshots,
+          })
+        : undefined
+    );
     return;
   }
 

@@ -4102,3 +4102,11 @@ views; do not install fake `onReload` or `onEdit` handlers to enable them.
 Supported root runtimes retain their existing actions. Copy remains available
 independently. `assistant-conversation-panel.test.tsx` covers both capability
 states using real public runtimes.
+
+Explicit root cancellation also covers durable waiting child decisions. The
+server records nonterminal cancellation intent before aborting execution or
+closing a waiting turn's exact checkpoint bracket. Both native admission and
+rediscovery consult that intent; an aborted initialization failure completes as
+cancelled, using the same precedence as an aborted stream. Cancellation never
+grants or consumes an unrelated child's decision. See assistant-persistence.md
+for terminal publication and restart recovery.

@@ -124,7 +124,7 @@ async function isStoredRunSessionStale(args: {
       });
       return false;
     }
-    return payload.status !== 'running';
+    return payload.status !== 'running' && payload.status !== 'cancelling';
   } catch (error: unknown) {
     assistantEndpointLogger.warn('Assistant run-status probe failed; keeping reattachment guard', {
       error,
@@ -235,7 +235,6 @@ export function useAssistantServerRunSession({
       void completeLatestPreparedRequest('cancelled');
       return;
     }
-    void completeLatestPreparedRequest('cancelled');
     void requestAssistantRunCancel({
       authHeaders,
       baseUrl: desktopAssistantBaseUrl,

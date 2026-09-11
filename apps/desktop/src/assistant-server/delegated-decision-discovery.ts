@@ -57,7 +57,24 @@ export async function readDelegatedDecisionStates(
        AND decision.parent_tool_call_id = requested.target->>1
        AND decision.child_runtime_run_id = requested.target->>2
        AND decision.tool_call_id = requested.target->>3
-     WHERE decision.owner_resource_id = $1 AND decision.root_thread_id = $2`,
+     WHERE decision.owner_resource_id = $1 AND decision.root_thread_id = $2
+     UNION ALL
+     SELECT requested.target->>0, requested.target->>1, requested.target->>2, requested.target->>3, 'cancelled'
+     FROM jsonb_array_elements($3::jsonb) AS requested(target)
+     JOIN brainstrike_delegated_invocations invocation
+       ON invocation.parent_runtime_run_id = requested.target->>0
+       AND invocation.parent_tool_call_id = requested.target->>1
+       AND invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
+     WHERE EXISTS (
+       SELECT 1 FROM brainstrike_assistant_thread_runs cancelled
+       WHERE cancelled.resource_id = $1 AND cancelled.thread_id = $2
+         AND cancelled.turn_message_id = invocation.turn_message_id AND cancelled.status IN ('cancelling', 'cancelled')
+     ) AND NOT EXISTS (
+       SELECT 1 FROM brainstrike_delegated_tool_decisions decision
+       WHERE decision.owner_resource_id = $1 AND decision.root_thread_id = $2
+         AND decision.parent_runtime_run_id = requested.target->>0 AND decision.parent_tool_call_id = requested.target->>1
+         AND decision.child_runtime_run_id = requested.target->>2 AND decision.tool_call_id = requested.target->>3
+     )`,
     [
       scope.ownerResourceId,
       scope.rootThreadId,

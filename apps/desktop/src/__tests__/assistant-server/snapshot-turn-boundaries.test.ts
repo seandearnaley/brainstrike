@@ -568,11 +568,7 @@ function cancelOwnedTurn(
     readonly turnRunIds: readonly string[];
   }
 ): Promise<void> {
-  return (
-    controller as typeof controller & {
-      completeCancelledTurn: (params: typeof input) => Promise<void>;
-    }
-  ).completeCancelledTurn(input);
+  return controller.completeCancelledTurn(input);
 }
 
 describe('turn-boundary triggers — authoritative cancellation ownership', () => {
