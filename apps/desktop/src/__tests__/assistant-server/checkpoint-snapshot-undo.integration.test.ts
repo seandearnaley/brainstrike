@@ -569,6 +569,42 @@ describe('undoCheckpointEntry', () => {
 });
 
 describe('undoCheckpointRun', () => {
+  it('restores the parent edits without erasing a child effect or independent user work', async () => {
+    await write('a.txt', 'Parent baseline');
+    await recordTurnStart();
+    await write('a.txt', 'Parent effect');
+    await recordEditCheckpoint(db, journalInput({ afterHash: await hashOf('Parent effect') }));
+    await write('child.txt', 'Completed child effect');
+    const child = await recordEditCheckpoint(
+      db,
+      journalInput({
+        afterHash: await hashOf('Completed child effect'),
+        beforeExisted: false,
+        captureStatus: 'created',
+        path: 'child.txt',
+        resourceId: 'child-resource',
+        runId: 'child-run',
+        threadId: 'child-thread',
+        toolCallId: 'child-write',
+      })
+    );
+    await write('user.txt', 'Independent user edit');
+    const restored = await undoCheckpointRun(db, { runId: RUN }, undoDeps());
+    expect(restored.outcomes).toHaveLength(1);
+    expect(restored.outcomes[0]?.ok).toBe(true);
+    expect(await readOrNull('a.txt')).toBe('Parent baseline');
+    expect(await readOrNull('child.txt')).toBe('Completed child effect');
+    expect(await readOrNull('user.txt')).toBe('Independent user edit');
+    expect(
+      (
+        await db.query(
+          'SELECT reverted_at FROM brainstrike_assistant_edit_checkpoints WHERE id = $1',
+          [child.id]
+        )
+      ).rows
+    ).toEqual([{ reverted_at: null }]);
+  });
+
   it('restores every touched path to turn-start exactly once, newest-first, and stamps every record', {
     timeout: HEAVY_TIMEOUT_MS,
   }, async () => {

@@ -8,6 +8,7 @@ import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import type { FileExplorerState } from '@brainstrike/types';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -28,6 +29,12 @@ vi.mock('@brainstrike/db/react', () => ({
 vi.mock('@brainstrike/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/db')>()),
   createDelegatedConversationRepository: () => ({ get: mocks.get }),
+}));
+vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/file-explorer-ui/shell')>()),
+  useFileExplorerStoreSelector: <T,>(
+    selector: (state: Pick<FileExplorerState, 'rootDescriptors'>) => T
+  ): T => selector({ rootDescriptors: {} }),
 }));
 const address = { ownerResourceId: 'owner', rootThreadId: 'root', threadId: 'child' };
 const node: DelegatedConversationNode = {
@@ -158,6 +165,9 @@ describe('delegated workspace app registration', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Open Cedar' }));
     expect(await screen.findByText('First live child transcript.')).toBeVisible();
+    expect(screen.getByTestId('child-workspace-mode')).toHaveTextContent(
+      'Shared workspace: tools select an open folder'
+    );
     await user.click(screen.getByRole('button', { name: 'Close Cedar' }));
     expect(screen.queryByText('First live child transcript.')).not.toBeInTheDocument();
     act(() => {

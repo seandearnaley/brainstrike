@@ -5,7 +5,7 @@ import {
   hasDurableAssistantUsageCapability,
   resolveAssistantAuthHeaders,
 } from '@brainstrike/assistant-data';
-import type { DelegatedConversationRuntimeOptions } from '@brainstrike/assistant-ui';
+import { type DelegatedConversationRuntimeOptions, EditCheckpointProvider } from '@brainstrike/assistant-ui';
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
@@ -17,6 +17,7 @@ import { DelegatedWorkspaceNavigation } from './delegated-workspace-navigation';
 import type { ChildNode } from './delegated-workspace-node';
 import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
+import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { resolveDelegatedWorkspaceDecision } from './resolve-delegated-workspace-identity';
 import { sendDelegatedWorkspaceInput } from './send-delegated-workspace-input';
 import { useThreadSearchStore } from './thread-search-store';
@@ -38,6 +39,11 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
   const roots = use(RootsContext);
   const repository = useMemo(() => createDelegatedConversationRepository(db), [db]);
   const root = useDelegatedConversationRoot(node.ownerResourceId, node.rootThreadId);
+  const historyRepository = useMemo(() => createPgliteAssistantThreadRepository(db), [db]);
+  const { checkpoints, refetch } = useEditCheckpoints(
+    typeof window !== 'undefined' && window.assistantCheckpoints ? historyRepository : null,
+    node.threadId
+  );
   const live = useSyncExternalStore(
     root?.store.subscribe ?? emptySubscribe,
     () => root?.store.getConversation(node.threadId),
@@ -67,6 +73,17 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       : null;
   const [loadedSearchRequest, setLoadedSearchRequest] = useState<number>();
   const [refresh, setRefresh] = useState(0);
+  useEffect(() => {
+    let terminalLeg: string | undefined;
+    return root?.store.subscribe(() => {
+      const update = root.store.getConversation(node.threadId)?.update;
+      const leg = update?.baseline?.hostRunId;
+      if (leg && update.message.status.type !== 'running' && leg !== terminalLeg) {
+        terminalLeg = leg;
+        void refetch();
+      }
+    });
+  }, [node.threadId, root, refetch]);
   const [saved, setSaved] = useState<
     | { readonly history: History; readonly hostRunId: string | undefined }
     | { readonly error: Error }
@@ -98,7 +115,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
             ),
           }
         : {}),
-      repository: createPgliteAssistantThreadRepository(db),
+      repository: historyRepository,
       resourceId: node.resourceId,
       signal: controller.signal,
       threadId: node.threadId,
@@ -128,7 +145,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       active = false;
       controller.abort();
     };
-  }, [db, node, repository, root, refresh, hasLive, searchTarget, loadedSearchRequest]);
+  }, [historyRepository, node, repository, root, refresh, hasLive, searchTarget, loadedSearchRequest]);
   if (!roots) {
     return <Failure error={new Error('The child workspace has no owning root registry.')} />;
   }
@@ -158,6 +175,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       ownerResourceId={node.ownerResourceId}
       rootThreadId={node.rootThreadId}
     >
+      <EditCheckpointProvider value={checkpoints}>
       <div className="flex h-full min-h-0 flex-col">
         <DelegatedConversationBreadcrumbs db={db} node={node} />
         <div className="min-h-0 flex-1">
@@ -227,6 +245,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
           />
         </div>
       </div>
+      </EditCheckpointProvider>
     </DelegatedWorkspaceNavigation>
   );
 }

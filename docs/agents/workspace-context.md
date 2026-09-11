@@ -609,7 +609,11 @@ server / thread_runs rows). Capability-gated, not `isElectron()`.
   `run*WorkspaceFile` functions (`assistant-tools.ts`), so the before-read →
   mutate → journal write is atomic against concurrent same-file edits.
   `toolCallId` comes from Mastra's 2nd `execute` arg; identity
-  (runId/threadId/resourceId) from `runtimeData.memory`. Capture is GATED on
+  (runId/threadId/resourceId) from `runtimeData.memory` for the root. Native
+  delegated calls use their execution thread and the authorized durable invocation
+  to resolve the child resource and current host-leg run; the tool factory's
+  parent closure never owns a child checkpoint. Read timestamps and paged-read
+  cursors use that same execution-thread scope. Capture is GATED on
   an active memory context and is NON-FATAL (debug on DB-absent, error on
   DB-throw) — the tool result contract is never changed.
 - **Storage = IDENTITY ONLY (the T4 demotion):** op, paths, before/after
@@ -1721,3 +1725,25 @@ section and its paired tests.
 ### Persona Settings host checks (BST-1727)
 
 The canonical [persona Settings host-check contract](assistant-subagents.md#persona-settings-host-checks-bst-1727) covers validated scan results, model/tool availability, and request-dependent scope.
+
+### Delegated workspace checkpoint ownership (BST-1726)
+
+The child input processor awaits its existing host admission, including a
+turn-start shadow snapshot before first execution. Child resume/recovery retains
+that baseline; recovery before execution finishes any roots whose capture was
+interrupted. A legacy child with an existing run but no baseline remains
+unrestorable; capture failure records the existing failed-capture sentinel. No
+new content journal or persistence store is introduced.
+
+The child header identifies the shared workspace and the per-path file-write
+serialization mode. No isolated worktree or automatic merge is implied.
+The shared child view provides the existing checkpoint context for its child
+thread and refreshes it on terminal host updates. Revert uses the ordinary
+conflict-checked IPC operation and survives reopening/reload. It restores only
+the selected journaled paths; independent user files remain untouched.
+
+Paired proofs: `assistant-tools-write-staleness.integration.test.ts` uses real
+sibling workspace tools and temporary Git repositories,
+`delegated-workspace-snapshot.integration.test.ts` covers baseline recovery and
+failed/legacy captures, and `delegated-worker-write.desktop.test.ts` opens the
+real child, restores its created file, and reloads without replaying the worker.

@@ -2,6 +2,7 @@ import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { SubagentConversationNavigationContext } from '@brainstrike/assistant-ui';
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
+import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { Breadcrumbs } from '@brainstrike/ui';
 import { use, useEffect, useState } from 'react';
 import {
@@ -25,6 +26,9 @@ export function DelegatedConversationBreadcrumbs({
   readonly node: ChildNode;
 }) {
   const navigate = use(SubagentConversationNavigationContext);
+  const workspace = useFileExplorerStoreSelector((state) =>
+    node.workspaceRootId ? state.rootDescriptors?.[node.workspaceRootId] : undefined
+  );
   const rootTitle = useAssistantThreadStore(
     (state) =>
       state.threadsByResourceId[node.ownerResourceId]?.find(
@@ -89,6 +93,14 @@ export function DelegatedConversationBreadcrumbs({
         </span>
         <h2 className="truncate font-medium text-sm">{node.displayName}</h2>
       </div>
+      <p className="text-muted-foreground text-xs" data-testid="child-workspace-mode">
+        {node.workspaceRootId
+          ? `Shared workspace: ${workspace?.displayName ?? node.workspaceRootId}`
+          : 'Shared workspace: tools select an open folder'}
+        <span className="block">
+          File edits are serialized per path. Changes stay in this workspace.
+        </span>
+      </p>
     </header>
   );
 }

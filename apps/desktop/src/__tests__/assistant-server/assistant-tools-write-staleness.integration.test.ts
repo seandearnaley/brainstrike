@@ -4,8 +4,10 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { type RuntimeData, resetFileReadState, withFileLock } from '@brainstrike/agent';
+import { migrate, wasmLoader } from '@brainstrike/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
 import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
 import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
@@ -167,6 +169,72 @@ describe('read-before-write staleness guard', () => {
       expect((await git(['status', '--porcelain'])).stdout.trim().split('\n')).toHaveLength(3);
       expect((await git(['rev-list', '--count', 'HEAD'])).stdout.trim()).toBe('1');
     } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('attributes a delegated native write to its durable child run instead of the parent', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const database = await wasmLoader.createPGlite('memory://child-checkpoint');
+    try {
+      await migrate(database);
+      await database.exec(`INSERT INTO mastra_threads
+        (id, "resourceId", title, "createdAt", "updatedAt") VALUES
+        ('guard-thread', 'guard-resource', 'Parent', NOW(), NOW()),
+        ('child-cedar', 'child-resource', 'Cedar', NOW(), NOW());
+        INSERT INTO brainstrike_assistant_thread_runs
+        (id, resource_id, thread_id, provider, model, runtime_kind, status,
+         started_at, created_at, updated_at, turn_message_id) VALUES
+        ('guard-run', 'guard-resource', 'guard-thread', 'openai', 'test', 'desktop', 'running',
+         NOW(), NOW(), NOW(), 'user-turn');`);
+      const host = createDesktopDelegatedConversationHost(database, 'guard-run');
+      await host.persist({
+        childResourceId: 'child-resource',
+        childThreadId: 'child-cedar',
+        configuration: { maxSteps: 16, persona: { id: 'worker' } },
+        parentResourceId: 'guard-resource',
+        parentRuntimeRunId: 'parent-native',
+        parentThreadId: 'guard-thread',
+        parentToolCallId: 'delegate-cedar',
+        personaId: 'worker',
+      });
+      const identity = {
+        childRuntimeRunId: 'cedar-native',
+        parentRuntimeRunId: 'parent-native',
+        parentToolCallId: 'delegate-cedar',
+        personaId: 'worker',
+      };
+      await host.bindRun(identity);
+      const event = await host.persistEvent(
+        identity,
+        'cedar-message',
+        {
+          id: 'cedar-start',
+          kind: 'run.started',
+          label: 'Cedar started',
+          status: 'running',
+          timestamp: new Date().toISOString(),
+        },
+        0
+      );
+      getDatabaseMock.mockResolvedValue(database);
+      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const execute = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
+      await execute(
+        { content: 'Cedar completed work\n', path: '/cedar.txt' },
+        {
+          agent: { threadId: 'child-cedar', toolCallId: 'cedar-write' },
+        }
+      );
+      expect(
+        (
+          await database.query(`SELECT thread_id, run_id, resource_id
+        FROM brainstrike_assistant_edit_checkpoints WHERE tool_call_id = 'cedar-write'`)
+        ).rows
+      ).toEqual([{ resource_id: 'child-resource', run_id: event.runId, thread_id: 'child-cedar' }]);
+    } finally {
+      getDatabaseMock.mockReset();
+      await database.close();
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
   });

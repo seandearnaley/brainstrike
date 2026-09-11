@@ -399,7 +399,7 @@ export async function handleAssistantRequest(
       options.snapshots
         ? createTurnBoundaryController({
             resolveDatabase: resolveEditCheckpointDatabase,
-            snapshots: options.snapshots,
+            snapshots: options.snapshots ?? undefined,
           })
         : undefined
     );
@@ -536,7 +536,7 @@ function resolveTurnBoundariesForRun(
   }
   return createTurnBoundaryController({
     resolveDatabase: resolveEditCheckpointDatabase,
-    snapshots: options.snapshots,
+    snapshots: options.snapshots ?? undefined,
   });
 }
 
@@ -733,7 +733,17 @@ async function handleAssistantPost(
         const result = await initializeAgentStream({
           apiKey: core.apiKey,
           authInput: core.authInput,
-          capabilities: desktopAgentStreamCapabilities,
+          capabilities: {
+            ...desktopAgentStreamCapabilities,
+            memory: {
+              ...desktopAgentStreamCapabilities.memory,
+              create: (settings, memoryRunId, sink, data, dependencies) =>
+                getDesktopMastraMemory(settings, memoryRunId, sink, data, {
+                  ...dependencies,
+                  snapshots: options.snapshots ?? undefined,
+                }),
+            },
+          },
           compactionOverlayLookup,
           getDatabase,
           logger,
