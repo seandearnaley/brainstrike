@@ -54,7 +54,7 @@ async function drain(stream: AsyncIterable<StreamChunk>): Promise<StreamChunk[]>
 
 // Runtime assembly and native approval are real; this in-memory host port is
 // deliberately not another proof of desktop persistence or process restart.
-it('worker discovers only eligible MCP tools and restores loaded tools on approval', async () => {
+it.each([true, false])('restores worker MCP tools (memory=%s)', async (withMemory) => {
   const action = 'approve';
   const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
   expect(worker, 'The production built-in worker must be available after BST-1720').toBeDefined();
@@ -200,7 +200,17 @@ it('worker discovers only eligible MCP tools and restores loaded tools on approv
           ...target,
           toolName: pending.toolName,
         },
-        options
+        {
+          ...options,
+          runtime: withMemory
+            ? options.runtime
+            : {
+                apiKey: options.runtime.apiKey,
+                hookRunner: options.runtime.hookRunner,
+                permissionPolicy: options.runtime.permissionPolicy,
+                provider: options.runtime.provider,
+              },
+        }
       )
     );
     expect(server.executions, JSON.stringify({ childCatalogs, resumed })).toEqual([

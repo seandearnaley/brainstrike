@@ -219,6 +219,7 @@ describe('worker tool admission', () => {
           perToolOverrides: { [reader]: permission },
         },
       });
+      expect(result.subAgents['worker']).toBeDefined();
       expect(result.artifactReaderDelegationTools).toEqual(
         permission === 'allow' ? ['agent-worker'] : []
       );

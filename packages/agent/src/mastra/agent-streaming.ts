@@ -1115,12 +1115,18 @@ async function completeNativeTerminal(
   part: unknown,
   complete: () => Promise<unknown>
 ): Promise<void> {
-  // A provider error is already represented by the terminal error chunks.
-  if (asMastraStreamPart(part).type === 'error') {
-    return;
+  // Only native terminal parts join snapshot storage. A synthetic steered
+  // step-finish must abort immediately, without consuming later native work;
+  // provider error parts already carry their mapped terminal outcome.
+  switch (asMastraStreamPart(part).type) {
+    case 'finish':
+    case 'tool-call-approval':
+    case 'tool-call-suspended':
+      await complete();
+      return;
+    default:
+      return;
   }
-  // Native pauses and finish parts precede final snapshot storage.
-  await complete();
 }
 
 export async function* streamAttemptChunks({

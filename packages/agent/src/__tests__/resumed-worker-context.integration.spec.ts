@@ -60,9 +60,13 @@ const worker: AssistantPersonaDefinition = {
   maxSteps: 4,
   mode: 'worker',
 };
-it.each(['approval', 'question'] as const)(
-  'retains original trusted context for a NEW worker after parent %s resume',
-  async (pause) => {
+it.each(
+  (['approval', 'question'] as const).flatMap((pause) =>
+    [true, false].map((withMemory) => ({ pause, withMemory }))
+  )
+)(
+  'retains original trusted context for a NEW worker after parent $pause resume (memory=$withMemory)',
+  async ({ pause, withMemory }) => {
     const marker = `ORIGINAL_HOST_SYSTEM_BEFORE_PARENT_${pause}`;
     const task = 'NEW_WORKER_TASK_AS_USER_DETAIL';
     const identities: DelegatedConversationIdentity[] = [];
@@ -201,15 +205,26 @@ it.each(['approval', 'question'] as const)(
     }
     const target = getToolActionTarget(pending);
     expect(target.delegation).toBeUndefined();
+    const resumedOptions = {
+      ...options,
+      runtime: withMemory
+        ? options.runtime
+        : {
+            apiKey: options.runtime.apiKey,
+            model: options.runtime.model,
+            permissionPolicy: options.runtime.permissionPolicy,
+            provider: options.runtime.provider,
+          },
+    };
     const resumed = await drain(
       pending.type === 'tool-approval-required'
         ? await streamMastraToolApprovalAction(
             { action: 'approve', ...target, toolName: pending.toolName },
-            options
+            resumedOptions
           )
         : await streamMastraToolResumeAction(
             { ...target, resumeData: { answer: 'Continue' }, toolName: pending.toolName },
-            options
+            resumedOptions
           )
     );
     expect(workerEffect).toHaveBeenCalledTimes(1);
@@ -222,5 +237,6 @@ it.each(['approval', 'question'] as const)(
     expect(system).not.toContain(task);
     expect(system).not.toContain('METADATA_IS_NOT_AUTHORITY');
     expect(JSON.stringify(prompt.filter((message) => message.role === 'user'))).toContain(task);
+    await memory.settled();
   }
 );

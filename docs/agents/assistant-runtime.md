@@ -18,7 +18,10 @@ Initial, approval-resume and suspended-tool-resume legs await Mastra's public
 parts can precede durable snapshot storage; an immediately submitted decision
 must find the snapshot, and runtime disposal must not race its writer. Provider
 error parts retain their already-mapped terminal error instead of rethrowing the
-same error through the completion accessor. The real PGlite verifier
+same error through the completion accessor. A synthetic steered step-finish skips
+this join and aborts without consuming later native work. A failed native
+snapshot write fails the stream instead of exposing an unresumable decision.
+The real PGlite verifier
 `resumed-worker-context.integration.spec.ts` immediately resumes both a parent
 approval and a parent question before opening a new worker, without timing waits.
 

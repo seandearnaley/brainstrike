@@ -37,6 +37,7 @@ import {
   mcpInstances,
   resetMastraStreamHarness,
   setMockStreamParts,
+  setStreamCompletion,
   setSuspendedRuns,
 } from './fixtures/mastra-stream-harness';
 
@@ -73,6 +74,39 @@ vi.mock(
 describe('mastra streaming: tool approval and suspend pauses', () => {
   beforeEach(() => {
     resetMastraStreamHarness();
+  });
+
+  it('fails before exposing a decision when native snapshot completion rejects', async () => {
+    const failure = new Error('Native snapshot write failed');
+    const completion = vi.fn(async () => {
+      throw failure;
+    });
+    setStreamCompletion(completion);
+    setMockStreamParts([
+      {
+        payload: {
+          args: { path: 'file.txt' },
+          toolCallId: 'unsaved-approval',
+          toolName: 'brainstrike.writeWorkspaceFile',
+        },
+        runId: 'unsaved-run',
+        type: 'tool-call-approval',
+      },
+    ]);
+    const stream = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'Write the file', type: 'text' }], role: 'user' }],
+      { requireToolApproval: true, runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+    const chunks: StreamChunk[] = [];
+    await expect(
+      (async () => {
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+      })()
+    ).rejects.toThrow('Native snapshot write failed');
+    expect(completion).toHaveBeenCalledTimes(1);
+    expect(chunks.some((chunk) => chunk.type === 'tool-approval-required')).toBe(false);
   });
 
   it('passes tool approval through as a pending non-error stream state', async () => {

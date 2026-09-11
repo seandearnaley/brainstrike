@@ -56,4 +56,20 @@ describe('trusted delegated system context', () => {
     ).toThrow('64 KiB');
     expect(messageList.getAllSystemMessages()).toEqual([]);
   });
+  it('rejects a legacy snapshot with an actionable missing-context error before adding system text', () => {
+    const messageList = new MessageList();
+    expect(() =>
+      createDelegatedSystemContextProcessor().processInput?.({
+        abort(reason): never {
+          throw new Error(reason);
+        },
+        messageList,
+        messages: [],
+        retryCount: 0,
+        state: {},
+        systemMessages: [],
+      })
+    ).toThrow('Start a new parent turn');
+    expect(messageList.getAllSystemMessages()).toEqual([]);
+  });
 });

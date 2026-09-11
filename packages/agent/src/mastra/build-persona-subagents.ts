@@ -23,7 +23,7 @@ import {
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
 import { Agent, type AgentExecutionOptions, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
-import { type MastraMemory, parseMemoryRequestContext } from '@mastra/core/memory';
+import type { MastraMemory } from '@mastra/core/memory';
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import {
   resolveToolResultBudgetForModel,
@@ -34,6 +34,7 @@ import type { DelegatedConversationBinding } from './delegated-conversation-bind
 import {
   createDelegatedSystemContextProcessor,
   type DelegatedSystemContextSource,
+  readDelegatedHistoryScope,
 } from './delegated-system-context';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
 import {
@@ -318,7 +319,7 @@ function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
   outputProcessors?: OutputProcessor[];
 } {
   const inputProcessors: InputProcessor[] = [];
-  if (params.getDelegatedSystemContext || params.rootMemoryContext) {
+  if (params.getDelegatedSystemContext || params.hasStorage) {
     inputProcessors.push(createDelegatedSystemContextProcessor(params.getDelegatedSystemContext));
   }
   if (params.conversationBinding) {
@@ -398,23 +399,23 @@ async function prepareWorkerToolSurface(
   const resumeMemory = params.resumeMemory;
   const discovery = await prepareHostedToolDiscovery({
     eligibleTools: tools,
-    ...(resumeMemory && params.rootMemoryContext
+    ...(resumeMemory
       ? {
           persistedDiscoveryMessages: async (requestContext) => {
-            const child = parseMemoryRequestContext(requestContext);
+            const child = readDelegatedHistoryScope(
+              requestContext,
+              params.rootMemoryContext?.threadId
+            );
             // Mastra's embedded runtime owns this scope; middleware-only reserved
             // keys are absent here. Its native child resource may differ from the
             // parent's. Never recall parent history during catalog introspection.
-            if (!child?.thread || child.thread.id === params.rootMemoryContext?.threadId) {
+            if (!child) {
               return [];
-            }
-            if (!child.resourceId) {
-              throw new Error('Worker discovery requires native child resource identity.');
             }
             const recalled = await resumeMemory.recall({
               perPage: false,
               resourceId: child.resourceId,
-              threadId: child.thread.id,
+              threadId: child.threadId,
             });
             return recalled.messages;
           },

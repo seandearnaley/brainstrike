@@ -1,10 +1,13 @@
+import { parseMemoryRequestContext } from '@mastra/core/memory';
 import type { InputProcessor, ProcessInputArgs } from '@mastra/core/processors';
+import type { RequestContext } from '@mastra/core/request-context';
 import { z } from 'zod';
 import type { AgentMessage } from '../types';
 
 export type DelegatedSystemContext = ProcessInputArgs['systemMessages'];
 export type DelegatedSystemContextSource = () => DelegatedSystemContext;
 const ROOT_CONTEXT_KEY = 'brainstrike.delegated-system-context.v1';
+const ROOT_THREAD_KEY = 'brainstrike.delegated-root-thread.v1';
 const contextSchema = z.array(z.object({ content: z.string(), role: z.literal('system') }));
 const CONTEXT_TAG = 'brainstrike-delegated-workspace';
 export const MAX_DELEGATED_CONTEXT_BYTES = 64 * 1024;
@@ -56,6 +59,10 @@ export function createRootDelegatedContextProcessor(
           throw new Error('Trusted delegated context requires native request context.');
         }
         requestContext.set(ROOT_CONTEXT_KEY, contextSchema.parse(getContext()));
+        const rootMemory = parseMemoryRequestContext(requestContext);
+        if (rootMemory?.thread) {
+          requestContext.set(ROOT_THREAD_KEY, rootMemory.thread.id);
+        }
       }
       return messageList;
     },
@@ -72,6 +79,11 @@ export function createDelegatedSystemContextProcessor(
     id: CONTEXT_TAG,
     processInput({ messageList, requestContext }) {
       const stored = requestContext?.get(ROOT_CONTEXT_KEY);
+      if (stored === undefined && !getContext) {
+        throw new Error(
+          'Trusted delegated context is missing from this snapshot. Start a new parent turn.'
+        );
+      }
       const context =
         stored === undefined && getContext ? getContext() : contextSchema.parse(stored);
       if (Buffer.byteLength(JSON.stringify(context), 'utf8') > MAX_DELEGATED_CONTEXT_BYTES) {
@@ -81,4 +93,24 @@ export function createDelegatedSystemContextProcessor(
       return messageList;
     },
   };
+}
+
+/** Native child history may restore without the caller repeating root memory.
+ * The root snapshot identity prevents child discovery from borrowing root history. */
+export function readDelegatedHistoryScope(
+  requestContext: RequestContext | undefined,
+  rootThreadId: string | undefined
+): { readonly resourceId: string; readonly threadId: string } | undefined {
+  const child = parseMemoryRequestContext(requestContext);
+  if (!child?.thread) {
+    return;
+  }
+  const root = rootThreadId ?? z.string().min(1).parse(requestContext?.get(ROOT_THREAD_KEY));
+  if (child.thread.id === root) {
+    return;
+  }
+  if (!child.resourceId) {
+    throw new Error('Worker discovery requires native child resource identity.');
+  }
+  return { resourceId: child.resourceId, threadId: child.thread.id };
 }

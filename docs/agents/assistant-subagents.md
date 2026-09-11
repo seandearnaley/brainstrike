@@ -67,7 +67,11 @@ snapshot data before inference. Both approval and question resume restore that
 original data, so newly started children inherit it too; callbacks, RuntimeData,
 tool results and execution capabilities are never serialized. Non-text metadata
 is excluded from system authority exactly as in the root message converter.
-Legacy snapshots without this context reject new children visibly.
+Legacy snapshots without this context reject new children visibly. Storage-backed
+resumes install the processor even when the caller omits the optional memory
+address. The native snapshot also retains the original root thread id, so child
+discovery can restore loaded tools while still excluding parent history. The original root system text occupies native snapshot storage even
+when no child starts; only actual child admission applies the child byte budget.
 
 Trusted context size is validated only when a child starts. Invalid or
 oversized trusted context rejects that delegation before child inference; native
