@@ -156,6 +156,32 @@ describe('useThreadWorkspaceCoordinator', () => {
     expect(harness.rows.get('thread-a')?.apps.openAppIds).not.toContain('child-b');
   });
 
+  it('rejects a child navigation while storage is unavailable without replaying it on boot', async () => {
+    const harness = createHarness();
+    harness.rows.set('thread-a', SNAPSHOT_B);
+    const { rerender } = renderHook(
+      ({ repository }: { repository: ThreadWorkspaceRepository | null }) =>
+        useThreadWorkspaceCoordinator({
+          activeThreadId: 'thread-a',
+          facade: harness.facade,
+          navigation: harness.navigation,
+          openThreadIds: ['thread-a'],
+          repository,
+          resourceId: 'brainstrike:workspace',
+          subscribe: harness.subscribe,
+        }),
+      { initialProps: { repository: null as ThreadWorkspaceRepository | null } }
+    );
+    const failed = vi.spyOn(harness.navigation, 'failed');
+    act(() => harness.navigation.open('brainstrike:workspace', 'thread-a', 'child-a'));
+    expect(failed).toHaveBeenCalledWith('brainstrike:workspace', 'thread-a', expect.any(Error));
+    expect(harness.navigation.hasPending('brainstrike:workspace', 'thread-a')).toBe(false);
+    rerender({ repository: harness.repository });
+    await waitFor(() => expect(harness.state.openAppIds).toEqual(['changes']));
+    act(() => harness.navigation.open('brainstrike:workspace', 'thread-a', 'child-a'));
+    expect(harness.state.openAppIds).toEqual(['changes', 'child-a']);
+  });
+
   it('allows an explicit navigation retry after incoming hydration fails', async () => {
     const harness = createHarness();
     const { rerender } = render(harness, 'thread-a');

@@ -350,6 +350,12 @@ describe('virtualized tier (BST-897)', () => {
       { timeout: SETTLE_TIMEOUT_MS }
     );
 
+    // A matching DOM offset can precede the virtualizer's opening rAF
+    // reconciliation. Establish a painted, pinned viewport before asking the
+    // reader to move; otherwise that unfinished index scroll owns the append.
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    await waitForPinnedToEnd(viewport);
+
     // Clamp a one-viewport move to the mounted end window. Jumping into
     // unmounted estimates makes row measurement corrections indistinguishable
     // from append movement, which is not the contract this test owns.

@@ -42,6 +42,21 @@ interface PendingHydrationSave {
   readonly threadId: string;
 }
 
+function rejectUnavailableChildNavigation(
+  repository: ThreadWorkspaceRepository | null,
+  navigation: ThreadWorkspaceNavigation | undefined,
+  resourceId: string,
+  activeThreadId: string | null
+): void {
+  if (!repository && activeThreadId && navigation?.hasPending(resourceId, activeThreadId)) {
+    navigation.failed(
+      resourceId,
+      activeThreadId,
+      new Error('Conversation storage is not ready. Open the child again after loading completes.')
+    );
+  }
+}
+
 function hasPendingWorkspaceHydration(
   bootThreadId: string | null,
   threadId: string,
@@ -427,6 +442,7 @@ export function useThreadWorkspaceCoordinator({
 
   // ---- Switch handling ----
   useEffect(() => {
+    rejectUnavailableChildNavigation(repository, navigation, resourceId, activeThreadId);
     const previous = previousThreadIdRef.current;
     const isDeferredBootHydration =
       previous === activeThreadId &&

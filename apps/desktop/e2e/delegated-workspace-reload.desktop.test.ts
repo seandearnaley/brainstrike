@@ -157,7 +157,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
       [otherId, root['resource']]
     );
     await query(
-      'INSERT INTO brainstrike_assistant_thread_workspaces (thread_id, resource_id, payload, updated_at) VALUES ($1, $2, $3::jsonb, NOW())',
+      "INSERT INTO brainstrike_assistant_thread_workspaces (thread_id, resource_id, payload, updated_at) VALUES ($1, $2, $3::jsonb, TIMESTAMPTZ '2000-01-01')",
       [
         otherId,
         root['resource'],
@@ -272,29 +272,34 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await sidebarCedar.getByRole('button', { exact: true, name: 'Cedar Child' }).click();
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
   await expect(rootDraft).toHaveValue('UNSENT_PARENT_DRAFT_1724');
-  const otherApps = await window.evaluate(async (rootId) => {
-    const api = (
-      globalThis as typeof globalThis & {
-        electronAPI?: {
-          db?: {
-            query?: (
-              sql: string,
-              params: readonly unknown[]
-            ) => Promise<{ rows: Array<{ payload: { apps: { openAppIds: string[] } } }> }>;
+  const readOtherWorkspace = () =>
+    window.evaluate(async (rootId) => {
+      const api = (
+        globalThis as typeof globalThis & {
+          electronAPI?: {
+            db?: {
+              query?: (
+                sql: string,
+                params: readonly unknown[]
+              ) => Promise<{
+                rows: Array<{ payload: { apps: { openAppIds: string[] } }; persisted: boolean }>;
+              }>;
+            };
           };
-        };
+        }
+      ).electronAPI;
+      if (!api?.db?.query) {
+        throw new Error('Native database bridge unavailable');
       }
-    ).electronAPI;
-    if (!api?.db?.query) {
-      throw new Error('Native database bridge unavailable');
-    }
-    const result = await api.db.query(
-      'SELECT payload FROM brainstrike_assistant_thread_workspaces WHERE thread_id = $1',
-      [`${rootId}-other-root`]
-    );
-    return result.rows[0]?.payload.apps.openAppIds;
-  }, memory.threadId);
-  expect(otherApps).toEqual([]);
+      const result = await api.db.query(
+        "SELECT payload, updated_at > TIMESTAMPTZ '2000-01-01' AS persisted FROM brainstrike_assistant_thread_workspaces WHERE thread_id = $1",
+        [`${rootId}-other-root`]
+      );
+      return result.rows[0];
+    }, memory.threadId);
+  // Observe the outgoing write, not the empty seed before it has persisted.
+  await expect.poll(async () => (await readOtherWorkspace())?.persisted).toBe(true);
+  expect((await readOtherWorkspace())?.payload.apps.openAppIds).toEqual([]);
   // The page-side mock observes the post-reload view; the network listener above
   // also covers the interval before the mock is reinstalled after navigation.
   expect(await readAssistantMockRequests(window)).toHaveLength(0);
