@@ -77,6 +77,10 @@ let mcpDiscoveryFailures: Record<string, string> = {};
 let mockMessageList: unknown;
 let streamFailure: { call: number; error: Error } | undefined;
 let streamPartDelayMs = 0;
+let completeStream: () => Promise<unknown> = async () => ({});
+export function setStreamCompletion(complete: () => Promise<unknown>): void {
+  completeStream = complete;
+}
 /** Error to surface AFTER N parts have streamed (mid-iteration, not at construction). */
 let streamPartFailure: { afterParts: number; error: Error } | undefined;
 let streamParts: unknown[] = [];
@@ -290,6 +294,7 @@ function defaultSuspendedRuns(): MockSuspendedRun[] {
 
 /** The whole per-test reset. Call from `beforeEach`. */
 export function resetMastraStreamHarness(): void {
+  setStreamCompletion(async () => ({}));
   agentInstances.length = 0;
   mastraInstances.length = 0;
   mcpInstances.length = 0;
@@ -354,8 +359,9 @@ function createMockMastraOutput(parts: readonly unknown[] = streamParts) {
   });
   return {
     fullStream: stream,
+    getFullOutput: () => completeStream(),
     ...(mockMessageList ? { messageList: mockMessageList } : {}),
-  } as { fullStream: ReadableStream<unknown> };
+  } as { fullStream: ReadableStream<unknown>; getFullOutput: () => Promise<unknown> };
 }
 
 interface RunEventChunk {

@@ -1,6 +1,7 @@
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { ScopedLogger } from '@brainstrike/logging';
-import type { DelegationStartContext } from '@mastra/core/agent';
+import { type DelegationStartContext, type MastraDBMessage, MessageList } from '@mastra/core/agent';
+import { RequestContext } from '@mastra/core/request-context';
 import { describe, expect, it } from 'vitest';
 import {
   createDelegationConfig,
@@ -41,6 +42,7 @@ function startContext(overrides: Partial<DelegationStartContext> = {}): Delegati
     primitiveId: 'explore',
     primitiveType: 'agent',
     prompt: 'find the flag',
+    requestContext: new RequestContext(),
     runId: 'run-1',
     toolCallId: 'call-1',
     ...overrides,
@@ -74,7 +76,12 @@ describe('createDelegationConfig', () => {
       personasById,
     });
     const result = config.onDelegationStart?.(startContext({ params: { maxSteps: 50 } }));
-    expect(result).toEqual({ modifiedMaxSteps: 8, proceed: true });
+    expect(result).toEqual({
+      modifiedInstructions: '',
+      modifiedMaxSteps: 8,
+      modifiedPrompt: 'find the flag',
+      proceed: true,
+    });
   });
 
   it('defaults modifiedMaxSteps to the persona cap when the model requests none', () => {
@@ -84,7 +91,12 @@ describe('createDelegationConfig', () => {
       personasById,
     });
     const result = config.onDelegationStart?.(startContext());
-    expect(result).toEqual({ modifiedMaxSteps: 8, proceed: true });
+    expect(result).toEqual({
+      modifiedInstructions: '',
+      modifiedMaxSteps: 8,
+      modifiedPrompt: 'find the flag',
+      proceed: true,
+    });
   });
 
   it('rejects a delegation to an unknown persona (no silent fallback)', () => {
@@ -351,5 +363,66 @@ describe('shouldEnablePersonas', () => {
 
   it('is true for a hosted provider with personas', () => {
     expect(shouldEnablePersonas('openai', [persona])).toBe(true);
+  });
+});
+
+describe('delegated instruction and context authority', () => {
+  const config = () =>
+    createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
+  it('keeps model-authored instructions in the user task instead of system authority', async () => {
+    const result = await config().onDelegationStart?.(
+      startContext({ params: { instructions: 'Untrusted delegated detail' } })
+    );
+    expect(result).toMatchObject({
+      modifiedInstructions: '',
+      modifiedPrompt: 'find the flag\n\nDelegated task details:\nUntrusted delegated detail',
+    });
+  });
+  it('bounds context while retaining original roles, provenance and chronology', async () => {
+    const list = new MessageList();
+    list.add(
+      [
+        ...Array.from({ length: 20 }, (_, index) => ({
+          content: `Document excerpt ${index}`,
+          role: 'user' as const,
+        })),
+        { content: '☃'.repeat(30_000), role: 'user' },
+      ],
+      'input'
+    );
+    const trusted: MastraDBMessage = {
+      content: {
+        format: 2,
+        metadata: { source: 'workspace-instructions' },
+        parts: [{ text: 'Trusted workspace convention', type: 'text' }],
+      },
+      createdAt: new Date(0),
+      id: 'trusted',
+      role: 'system',
+    };
+    const messages = [trusted, ...list.get.all.db()];
+    const before = JSON.stringify(messages);
+    const filtered = await config().messageFilter?.({ ...startContext(), messages });
+    expect(filtered).toEqual([messages[0], ...messages.slice(5, 21)]);
+    expect(filtered?.[0]?.role).toBe('system');
+    expect(filtered?.slice(1).every((message) => message.role === 'user')).toBe(true);
+    expect(JSON.stringify(messages)).toBe(before);
+    expect(Buffer.byteLength(JSON.stringify(filtered), 'utf8')).toBeLessThan(65_536);
+  });
+  it('fails closed instead of truncating oversized trusted instructions', async () => {
+    const trusted: MastraDBMessage = {
+      content: { format: 2, parts: [{ text: '☃'.repeat(30_000), type: 'text' }] },
+      createdAt: new Date(0),
+      id: 'trusted',
+      role: 'system',
+    };
+    const filter = config().messageFilter;
+    expect(() => filter?.({ ...startContext(), messages: [trusted] })).toThrow(
+      'Trusted delegated context exceeds'
+    );
   });
 });

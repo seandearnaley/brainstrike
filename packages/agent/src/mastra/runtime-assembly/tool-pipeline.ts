@@ -22,6 +22,7 @@ import {
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage, ToolsInput } from '@mastra/core/agent';
+import type { RequestContext } from '@mastra/core/request-context';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import {
   type AssistantResilienceConfig,
@@ -58,6 +59,7 @@ import { filterToolsForPlanMode, resolveSuspendToolsForRun } from '../plan-mode-
 import { ProjectionSafeToolCallFilter } from '../projection-safe-tool-call-filter';
 import type { ResolvedRuntimeConfiguration } from '../runtime-configuration';
 import { createRunTokenDiagnostics, type RunTokenDiagnostics } from '../token-measurement';
+import type { ModelOutputProjectionObserver } from '../tool-model-output';
 import { applyToolModelOutputProjections, wouldTruncateMcpModelOutput } from '../tool-model-output';
 import {
   applyToolOutputArtifactSettlement,
@@ -312,7 +314,10 @@ export async function prepareHostedToolDiscovery(params: {
   eligibleTools: ToolsInput;
   localToolIds: ReadonlySet<string>;
   modelName: string;
-  persistedDiscoveryMessages?: () => Promise<readonly MastraDBMessage[]>;
+  persistedDiscoveryMessages?: (
+    requestContext?: RequestContext
+  ) => Promise<readonly MastraDBMessage[]>;
+  toolOutputObserver?: ModelOutputProjectionObserver;
   provider: ResolvedRuntimeConfiguration['provider'];
   resolvedToolResultBudget: ScaledToolResultBudget;
   toolNameMap: ReadonlyMap<string, string>;
@@ -362,8 +367,10 @@ export async function prepareHostedToolDiscovery(params: {
     resolvedToolResultBudget: params.resolvedToolResultBudget,
     tools: initialTools,
   });
-  const recordModelOutput = (toolId: string, output: unknown): void =>
+  const recordModelOutput = (toolId: string, output: unknown): void => {
     tokenDiagnostics.recordModelOutput(toolId, output);
+    params.toolOutputObserver?.(toolId, output);
+  };
   const modelProjectedTools = applyToolModelOutputProjections(
     initialTools,
     params.toolNameMap,
@@ -452,8 +459,8 @@ export interface RuntimeToolMapResult {
   /** Post-settlement tool map — the discovery/projection phase's input. */
   artifactSettledTools: ToolsInput;
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
-  /** Pre-permission-gate map; persona subagents re-gate it independently. */
-  guardedTools: ToolsInput;
+  /** Post-lifecycle-hook, pre-permission map; children re-gate it independently. */
+  hookedTools: ToolsInput;
   /** Apps admission surface captured only after ordinary runtime admission. */
   mcpAppToolAdmission: McpAppToolAdmissionCapability;
   mcpClient: McpRuntimeClient | undefined;
@@ -620,7 +627,8 @@ export async function composeRuntimeToolMap(
   return {
     artifactSettledTools,
     askTools,
-    guardedTools,
+    // Children retain the same lifecycle hooks before their independent permission gate.
+    hookedTools,
     mcpAppToolAdmission,
     mcpClient,
     mcpDiscoverySkips,

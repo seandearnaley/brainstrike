@@ -335,8 +335,18 @@ export function buildStreamOptions(
     toolCallId,
   } = params;
 
+  const loop = buildToolLoopOptions(
+    runtimeData,
+    runtime.toolSearchProcessor,
+    runtime.toolHistoryFilter
+  );
   return {
-    ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
+    ...loop,
+    ...(runtime.rootDelegatedContextProcessor
+      ? {
+          inputProcessors: [runtime.rootDelegatedContextProcessor, ...(loop.inputProcessors ?? [])],
+        }
+      : {}),
     abortSignal,
     ...(delegationUsage && (runtime.delegatedTurnPersistence || runtime.conversationBinding?.hooks)
       ? {

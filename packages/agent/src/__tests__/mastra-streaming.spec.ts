@@ -45,6 +45,7 @@ import {
   setMockTitleGenerationHandler,
   setMockTitleGenerationResults,
   setMockTitleModel,
+  setStreamCompletion,
   setStreamFailure,
   setStreamPartDelayMs,
   setStreamPartFailure,
@@ -1222,6 +1223,8 @@ describe('mastra streaming integration', () => {
   });
 
   it('stops at the next step boundary when steering is requested and marks the run steered', async () => {
+    const laterNativeWork = vi.fn(async () => ({}));
+    setStreamCompletion(laterNativeWork);
     setMockStreamParts([
       { type: 'start' },
       { type: 'step-start' },
@@ -1267,6 +1270,7 @@ describe('mastra streaming integration', () => {
     }
 
     const texts = chunks.filter((chunk) => chunk.type === 'text-delta');
+    expect(laterNativeWork).not.toHaveBeenCalled();
     expect(texts.map((chunk) => (chunk as { value?: string }).value)).toEqual([
       'first step text',
       'second step text',

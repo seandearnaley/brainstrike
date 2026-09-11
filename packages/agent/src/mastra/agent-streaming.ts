@@ -72,6 +72,7 @@ import {
   validateToolResumeAction,
 } from './attempt-legs';
 import { createDelegatedStreamProjection } from './delegated-stream-projection';
+import { captureDelegatedSystemContext } from './delegated-system-context';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import {
   asMastraStreamPart,
@@ -836,6 +837,7 @@ export async function initializeMastraRuntime(
 
 interface StreamGeneratorParams {
   abortedTurnPersistence: AbortedTurnPersistence | undefined;
+  completeNativeStream: () => Promise<unknown>;
   /** Child-usage bridge for this leg's delegation config (personas enabled only). */
   delegationUsage?: DelegationUsageCapture;
   /**
@@ -1109,6 +1111,24 @@ export function createAttemptDelegatedProjection({
   };
 }
 
+async function completeNativeTerminal(
+  part: unknown,
+  complete: () => Promise<unknown>
+): Promise<void> {
+  // Only native terminal parts join snapshot storage. A synthetic steered
+  // step-finish must abort immediately, without consuming later native work;
+  // provider error parts already carry their mapped terminal outcome.
+  switch (asMastraStreamPart(part).type) {
+    case 'finish':
+    case 'tool-call-approval':
+    case 'tool-call-suspended':
+      await complete();
+      return;
+    default:
+      return;
+  }
+}
+
 export async function* streamAttemptChunks({
   abortedTurnPersistence,
   delegationUsage,
@@ -1122,6 +1142,7 @@ export async function* streamAttemptChunks({
   sanitizedNameMap,
   resumedApprovalToolCall,
   titleMessages,
+  completeNativeStream,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   let titleGenerationTask: Promise<void> | undefined;
   const calibrationState = { emitted: false };
@@ -1210,6 +1231,7 @@ export async function* streamAttemptChunks({
       );
       yield* drainToolCallTelemetryChunks(finished, runtime, toolCallTelemetryState);
       if (finished) {
+        await completeNativeTerminal(part, completeNativeStream);
         yield* delegatedProjection.settle();
         // Publishing child terminal chunks yields to the consumer. Flush warnings
         // recorded during publication before downstream stops at the finish.
@@ -1292,8 +1314,17 @@ export async function streamMastraAgent(
   assertNoUnsupportedDirectStreamOptions(options);
 
   const runtimeData = options.runtime;
+  const initialSystemMessages = structuredClone(
+    messages.filter((message) => message.role === 'system')
+  );
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
-  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(options, runtimeResolution);
+  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
+    {
+      ...options,
+      getDelegatedSystemContext: () => captureDelegatedSystemContext(initialSystemMessages),
+    },
+    runtimeResolution
+  );
 
   // Per-call approval for `'ask'` tools comes from the PER-TOOL `requireApproval`
   // flag the permission gate set (see permission-tool-gate.ts), NOT from the

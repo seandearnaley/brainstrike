@@ -1,10 +1,11 @@
-import { type McpHostPort, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import type { McpHostPort } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
+import type { InputProcessor } from '@mastra/core/processors';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
@@ -38,6 +39,10 @@ import {
   type DelegationPersonaSummary,
 } from './default-instructions';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
+import {
+  createRootDelegatedContextProcessor,
+  type DelegatedSystemContextSource,
+} from './delegated-system-context';
 import {
   createDelegatedTurnPersistence,
   type DelegatedTurnPersistence,
@@ -77,6 +82,8 @@ export interface MastraAgentRuntimeOptions {
   authInput?: ProviderAuthInput;
   /** Host-owned native identity persistence; never serialized through RuntimeData. */
   conversationBinding?: DelegatedConversationBinding | undefined;
+  /** @internal Initial host system context; native child snapshots own resumption. */
+  getDelegatedSystemContext?: DelegatedSystemContextSource;
   /**
    * Server-injected tool-lifecycle hook runner (desktop). Composed OUTSIDE the
    * guard and BEFORE the permission gate. Overrides `runtime.hookRunner` when
@@ -215,6 +222,7 @@ export interface MastraAgentRuntime {
   resilienceConfig: AssistantResilienceConfig;
   /** Per-run budget shared by fresh producers and runtime projection guards. */
   resolvedToolResultBudget: ScaledToolResultBudget;
+  rootDelegatedContextProcessor?: InputProcessor | undefined;
   /** Bounded, content-free token measurements for this concrete run/tool map. */
   tokenDiagnostics: RunTokenDiagnostics;
   /** Content-free discovery surface metadata for traces, tests, and diagnostics. */
@@ -571,7 +579,7 @@ export async function createMastraAgentRuntime(
   const {
     artifactSettledTools,
     askTools,
-    guardedTools,
+    hookedTools,
     mcpAppToolAdmission,
     mcpClient,
     mcpDiscoverySkips,
@@ -649,13 +657,15 @@ export async function createMastraAgentRuntime(
   // names personas that actually registered a delegation tool this run.
   const delegatedTurnPersistence = createDelegatedTurnPersistence(memory, sanitizedRuntime.memory);
   const {
+    artifactReaderDelegationTools,
     delegationToolPersonas,
     hasSubAgents,
     instructionPersonaSummaries,
     personasById,
     subAgents,
-  } = resolvePersonaRuntimeParts({
+  } = await resolvePersonaRuntimeParts({
     conversationBinding: options.conversationBinding,
+    getDelegatedSystemContext: options.getDelegatedSystemContext,
     // BST-1206 review (P2): a persona that pins its OWN model must project
     // its tools against THAT model's resolved budget, not the parent's — so
     // `guardedTools` here is deliberately the RAW (pre-model-output-projection)
@@ -663,9 +673,13 @@ export async function createMastraAgentRuntime(
     // `applyToolModelOutputProjections` themselves, per persona, choosing the
     // pinned model's own resolved budget when one is pinned and the parent's
     // `resolvedToolResultBudget` otherwise (see build-persona-subagents.ts).
-    guardedTools,
+    guardedTools: hookedTools,
     hasStorage: Boolean(storage),
+    hydrateToolDiscoveryFromMemory,
     languageModel: observedLanguageModel,
+    localToolIds: sanitizedLocalToolIds,
+    memory,
+    modelName,
     permissionSnapshot,
     personas,
     planModeActive,
@@ -684,6 +698,7 @@ export async function createMastraAgentRuntime(
       parentProvider: normalizedProvider,
       runtime: sanitizedRuntime,
     }),
+    rootMemoryContext: sanitizedRuntime.memory,
     settleChildToolOutputs,
     toolNameMap,
     // Persona agents get the same raw/model split. Their independent policy
@@ -699,12 +714,9 @@ export async function createMastraAgentRuntime(
     toolOutputObserver: (toolId, output) =>
       tokenDiagnostics.recordSubagentToolOutput(toolId, output),
     turnPersistenceProcessor: delegatedTurnPersistence?.processor,
+    workspaceSkills: sanitizedRuntime.workspaceSkills,
   });
-  registeredDelegationToolNames = Array.from(delegationToolPersonas, ([toolName, personaId]) =>
-    personasById.get(personaId)?.allowedToolIds.includes(NATIVE_TOOL_ID.readToolOutputArtifact)
-      ? toolName
-      : null
-  ).filter((toolName): toolName is string => toolName !== null);
+  registeredDelegationToolNames = [...artifactReaderDelegationTools];
 
   const composedInstructions = composeRuntimeInstructions({
     budgetNote,
@@ -760,6 +772,10 @@ export async function createMastraAgentRuntime(
 
   return {
     agent,
+    rootDelegatedContextProcessor: createRootDelegatedContextProcessor(
+      options.getDelegatedSystemContext,
+      hasSubAgents
+    ),
     ...assistantIdentityRuntime,
     askTools,
     conversationBinding: options.conversationBinding,

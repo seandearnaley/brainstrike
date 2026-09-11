@@ -11,6 +11,20 @@ boundary and composer input identity; callbacks and `threadKey` must name the
 same conversation. See `assistant-subagents.md` for the host integration limits
 and paired runtime/browser tests. Main runtime construction is unchanged.
 
+## Native suspension completion
+
+Initial, approval-resume and suspended-tool-resume legs await Mastra's public
+`getFullOutput()` before publishing their terminal pause/completion. Native pause
+parts can precede durable snapshot storage; an immediately submitted decision
+must find the snapshot, and runtime disposal must not race its writer. Provider
+error parts retain their already-mapped terminal error instead of rethrowing the
+same error through the completion accessor. A synthetic steered step-finish skips
+this join and aborts without consuming later native work. A failed native
+snapshot write fails the stream instead of exposing an unresumable decision.
+The real PGlite verifier
+`resumed-worker-context.integration.spec.ts` immediately resumes both a parent
+approval and a parent question before opening a new worker, without timing waits.
+
 ## ASSISTANT RESILIENCE (CRITICAL)
 
 The assistant tool→stream chain must never freeze the thread. The renderer safety

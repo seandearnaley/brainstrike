@@ -351,3 +351,57 @@ describe('buildUserPersona', () => {
     expect(MAX_USER_PERSONA_MAX_STEPS).toBeGreaterThanOrEqual(DEFAULT_USER_PERSONA_MAX_STEPS);
   });
 });
+
+describe('explicit worker personas', () => {
+  it('inherits eligible tools only after explicit worker opt-in', () => {
+    const result = buildUserPersona({
+      content: validFile('description: Implements deliverables\nmode: worker'),
+      fileName: 'implementer.md',
+    });
+    expect(result).toMatchObject({ ok: true, persona: { allowedToolIds: ['*'], mode: 'worker' } });
+  });
+  it('narrows a worker to declared native and exact MCP tool names', () => {
+    const result = buildUserPersona({
+      content: validFile(
+        'description: Implements deliverables\nmode: worker\ntools: writeWorkspaceFile, github_create_issue'
+      ),
+      fileName: 'implementer.md',
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      persona: {
+        allowedToolIds: ['brainstrike.writeWorkspaceFile', 'github_create_issue'],
+        mode: 'worker',
+      },
+    });
+  });
+  it.each(['administrator', 'WORKER', ''])(
+    'rejects invalid mode %s without widening legacy defaults',
+    (mode) => {
+      expect(
+        buildUserPersona({
+          content: validFile(`description: d\nmode: ${mode}`),
+          fileName: 'implementer.md',
+        })
+      ).toMatchObject({ ok: false });
+    }
+  );
+  it('does not allow a legacy persona to inherit mutable tools', () => {
+    expect(
+      buildUserPersona({
+        content: validFile('description: d\ntools: *'),
+        fileName: 'implementer.md',
+      })
+    ).toMatchObject({ ok: false });
+  });
+  it('rejects mixed wildcard narrowing and parent task-list tools', () => {
+    for (const tools of ['*, readWorkspaceFile', 'manageTaskList']) {
+      expect(
+        buildUserPersona({
+          content: validFile(`description: d\nmode: worker\ntools: ${tools}`),
+          fileName: 'implementer.md',
+        })
+      ).toMatchObject({ ok: false });
+    }
+  });
+});

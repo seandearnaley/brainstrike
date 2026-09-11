@@ -465,7 +465,14 @@ The `conversationBinding.bindRun` callback is awaited at the first child event o
 each attempt/resume leg and authorizes the original persisted invocation.
 Bound completion usage retains native parent-run/tool-call and child-thread/resource
 identity; the existing desktop writer reconciles cumulative reports after child
-publication. Existing read-only/no-nesting restrictions remain. The native and production-stream integration suites cover
+publication. The host-only `getDelegatedSystemContext` callback projects original system text.
+The root stores only that data in its native RequestContext snapshot; new children
+started after approval or question resume receive the same original context.
+Callbacks and RuntimeData are never serialized. Non-text metadata is not system
+authority. The child checks its context byte budget before inference; native child
+MessageList snapshots retain their initial context across approval.
+Explorer/Analyst remain read-only; workers require the complete
+durable decision host, and nesting remains disabled. The native and production-stream integration suites cover
 this seam; see docs/agents/assistant-subagents.md for the full contract.
 
 ### Memory and conversation management

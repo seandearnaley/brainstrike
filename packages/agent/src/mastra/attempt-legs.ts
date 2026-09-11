@@ -196,6 +196,7 @@ async function createInitialTurnAttempt(
       abortedTurnPersistence,
       chunks: streamAttemptChunks({
         abortedTurnPersistence,
+        completeNativeStream: () => streamResult.getFullOutput(),
         ...(delegationUsage ? { delegationUsage } : {}),
         lifecycleState,
         ...(memory ? { memory } : {}),
@@ -485,6 +486,7 @@ async function createToolApprovalTurnAttempt({
       abortedTurnPersistence,
       chunks: streamAttemptChunks({
         abortedTurnPersistence,
+        completeNativeStream: () => streamResult.getFullOutput(),
         ...(delegationUsage ? { delegationUsage } : {}),
         lifecycleState,
         promptBreakdown,
@@ -788,6 +790,7 @@ async function createToolResumeTurnAttempt({
       abortedTurnPersistence,
       chunks: streamAttemptChunks({
         abortedTurnPersistence,
+        completeNativeStream: () => streamResult.getFullOutput(),
         ...(delegationUsage ? { delegationUsage } : {}),
         lifecycleState,
         promptBreakdown,

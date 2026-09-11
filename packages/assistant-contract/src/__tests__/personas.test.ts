@@ -55,12 +55,16 @@ describe('assertReadOnlyPersona', () => {
 });
 
 describe('BUILT_IN_PERSONAS', () => {
-  it('exposes exactly the explore and analyze personas', () => {
-    expect(BUILT_IN_PERSONAS.map((persona) => persona.id)).toEqual(['explore', 'analyze']);
+  it('exposes read-only specialists and an explicit worker', () => {
+    expect(BUILT_IN_PERSONAS.map((persona) => persona.id)).toEqual([
+      'explore',
+      'analyze',
+      'worker',
+    ]);
   });
 
-  it('every built-in persona is read-only (construction-time enforced)', () => {
-    for (const persona of BUILT_IN_PERSONAS) {
+  it('existing specialists remain read-only (construction-time enforced)', () => {
+    for (const persona of BUILT_IN_PERSONAS.filter((entry) => entry.id !== 'worker')) {
       expect(() => assertReadOnlyPersona(persona)).not.toThrow();
     }
   });
@@ -188,7 +192,7 @@ describe('persona instructions demand provenance, not conclusions', () => {
     }
   });
 
-  it('forbids EVERY built-in from producing the final deliverable', () => {
+  it('keeps read-only specialists focused on findings', () => {
     // An explore child asked to survey the repo "for a developer-onboarding
     // document" returned a complete HTML page. It is a research step, not the
     // author: the supervisor discarded the page and the child had burned its
@@ -197,8 +201,8 @@ describe('persona instructions demand provenance, not conclusions', () => {
     // The Analyst is delegated research for reports and pages too, so guarding
     // only `explore` would leave the identical budget-waster one delegation
     // away.
-    for (const persona of BUILT_IN_PERSONAS) {
-      expect(persona.instructions.toLowerCase()).toContain('deliverable');
+    for (const persona of BUILT_IN_PERSONAS.filter((entry) => entry.mode !== 'worker')) {
+      expect(persona.instructions.toLowerCase()).toContain('do not produce the final deliverable');
     }
   });
 });

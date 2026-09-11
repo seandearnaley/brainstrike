@@ -11,11 +11,14 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import type { Agent, ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
+import type { MastraMemory } from '@mastra/core/memory';
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
+import type { RuntimeData } from '../../types';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import type { DelegationPersonaSummary } from '../default-instructions';
 import type { DelegatedConversationBinding } from '../delegated-conversation-binding';
+import type { DelegatedSystemContextSource } from '../delegated-system-context';
 import type { PermissionToolGateSnapshot } from '../permission-tool-gate';
 import { shouldEnablePersonas } from '../subagent-delegation';
 import type { ModelOutputProjectionObserver } from '../tool-model-output';
@@ -23,6 +26,7 @@ import type { ModelOutputProjectionObserver } from '../tool-model-output';
 const logger = createLogger('MastraAgent');
 
 export interface PersonaRuntimeParts {
+  artifactReaderDelegationTools: readonly string[];
   delegationToolPersonas: ReadonlyMap<string, string>;
   hasSubAgents: boolean;
   instructionPersonaSummaries: DelegationPersonaSummary[] | undefined;
@@ -31,6 +35,7 @@ export interface PersonaRuntimeParts {
 }
 
 const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
+  artifactReaderDelegationTools: [],
   delegationToolPersonas: new Map(),
   hasSubAgents: false,
   instructionPersonaSummaries: undefined,
@@ -52,10 +57,17 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
  * (BST-1206 review), not the parent's — reusing an already-projected parent
  * map here would bake the wrong budget into every pinned persona's tools.
  */
-export function resolvePersonaRuntimeParts(params: {
+export async function resolvePersonaRuntimeParts(params: {
   conversationBinding?: DelegatedConversationBinding | undefined;
   guardedTools: ToolsInput;
+  getDelegatedSystemContext?: DelegatedSystemContextSource | undefined;
   hasStorage?: boolean;
+  modelName: string;
+  memory?: MastraMemory | undefined;
+  hydrateToolDiscoveryFromMemory?: boolean | undefined;
+  rootMemoryContext?: RuntimeData['memory'];
+  localToolIds: ReadonlySet<string>;
+  workspaceSkills?: RuntimeData['workspaceSkills'];
   languageModel: MastraModelConfig;
   permissionSnapshot: PermissionToolGateSnapshot | undefined;
   personas: readonly AssistantPersonaDefinition[] | undefined;
@@ -67,16 +79,24 @@ export function resolvePersonaRuntimeParts(params: {
   toolNameMap: Map<string, string>;
   toolOutputObserver?: ModelOutputProjectionObserver;
   turnPersistenceProcessor?: (InputProcessor & OutputProcessor) | undefined;
-}): PersonaRuntimeParts {
+}): Promise<PersonaRuntimeParts> {
   if (params.planModeActive || !shouldEnablePersonas(params.provider, params.personas)) {
     return EMPTY_PERSONA_RUNTIME_PARTS;
   }
-  const personaBuild = buildPersonaSubAgents({
+  const personaBuild = await buildPersonaSubAgents({
     ...(params.conversationBinding ? { conversationBinding: params.conversationBinding } : {}),
     ...(params.settleChildToolOutputs
       ? { settleChildToolOutputs: params.settleChildToolOutputs }
       : {}),
     guardedTools: params.guardedTools,
+    ...(params.getDelegatedSystemContext
+      ? { getDelegatedSystemContext: params.getDelegatedSystemContext }
+      : {}),
+    localToolIds: params.localToolIds,
+    modelName: params.modelName,
+    resumeMemory: params.hydrateToolDiscoveryFromMemory ? params.memory : undefined,
+    rootMemoryContext: params.rootMemoryContext,
+    ...(params.workspaceSkills ? { workspaceSkills: params.workspaceSkills } : {}),
     hasStorage: Boolean(params.hasStorage),
     languageModel: params.languageModel,
     logger,
@@ -90,6 +110,7 @@ export function resolvePersonaRuntimeParts(params: {
     ...(params.toolOutputObserver ? { toolOutputObserver: params.toolOutputObserver } : {}),
   });
   return {
+    artifactReaderDelegationTools: personaBuild.artifactReaderDelegationTools,
     delegationToolPersonas: personaBuild.delegationToolPersonas,
     hasSubAgents: Object.keys(personaBuild.subAgents).length > 0,
     instructionPersonaSummaries: Array.from(personaBuild.personasById.values(), (persona) => ({

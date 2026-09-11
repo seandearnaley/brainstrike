@@ -15,9 +15,9 @@ Mastra runtime/stream regression is
 remain outside capture until BST-1740.
 
 The first-class subagent project extends this system in separate tickets.
-**The shipped read-only/no-nesting restrictions below remain in force.** The
-native capability proof is not permission to remove them before durable child
-identity, transcript routing, and nested approvals are implemented.
+**Explorer/Analyst remain read-only and children still cannot delegate.**
+BST-1720 landed durable child decisions; BST-1721 enables explicit workers only
+with that complete host capability. Recursion remains gated by BST-1722.
 
 Executable evidence is
 `packages/agent/src/__tests__/mastra-subagent-contract.integration.spec.ts`,
@@ -51,7 +51,72 @@ both pass. The missing-grandchild-memory and ephemeral-background-store cases
 remain explicit negative controls rather than being disguised as supported
 product capabilities.
 
-### Implementation decisions for the remaining tickets
+## Capable workers and context transfer (BST-1721)
+
+Workers require hosted catalog discovery; pins to the embedded `local` provider
+are visibly omitted before model resolution, preserving the root local runtime's
+no-skills boundary. Ollama and LM Studio use their existing hosted adapters.
+The worker input budget derives from its resolved context window with the shared
+output reservation and safety margin. Catalog names remain deferred rather than
+being enumerated in worker system instructions. Whole-result delegation hints
+use each registered child's actual permission-gated artifact-reader capability,
+including wildcard workers; a denied reader never produces a hint.
+
+The root stores only its host-projected system text in native RequestContext
+snapshot data before inference. Both approval and question resume restore that
+original data, so newly started children inherit it too; callbacks, RuntimeData,
+tool results and execution capabilities are never serialized. Non-text metadata
+is excluded from system authority exactly as in the root message converter.
+Legacy snapshots without this context reject new children visibly. Storage-backed
+resumes install the processor even when the caller omits the optional memory
+address. The native snapshot also retains the original root thread id, so child
+discovery can restore loaded tools while still excluding parent history. The original root system text occupies native snapshot storage even
+when no child starts; only actual child admission applies the child byte budget.
+
+Trusted context size is validated only when a child starts. Invalid or
+oversized trusted context rejects that delegation before child inference; native
+Mastra returns the tool error to the supervisor so it can respond. Disabled
+delegation does not validate unused child context. Permission `allow`/YOLO permits
+worker effects without a new prompt; `ask` requires the exact durable child decision.
+
+
+Workers reuse permission filtering, output-artifact settlement, model projections,
+canonical catalog search/loading, skill injection, provider history compatibility,
+token limiting and error processors. Each child discovery catalog contains only
+its post-permission native/MCP subset; search/load cannot widen that catalog.
+Approval resume recalls discovery results from the actual native child thread and
+resource via public `parseMemoryRequestContext`, then uses Mastra's context-store
+parser before the paused tool executes. Parent history is never borrowed. Skill
+metadata injection requires the corresponding permitted skill controls.
+Explorer/Analyst keep their curated tool surface and provenance/reporting role.
+Model/key pins retain existing fail-closed resolution. Local renderer inference
+and surface capability rules are unchanged; no HTTP/runtime owner is added.
+
+The initial `streamMastraAgent` entry captures host-supplied system messages,
+not the generated supervisor prompt. `delegated-system-context.ts` adds those
+text messages to the child's native MessageList under an owned tag before
+suspension. Native snapshots retain the original workspace context across a
+fresh approval runtime; resume does not reread changed AGENTS files. System
+context over 64 KiB fails closed. Model-authored `params.instructions` is cleared
+from the instruction override and appended to the delegated user task instead.
+`messageFilter` retains original message objects/roles/provenance in chronology,
+selecting at most 16 ordinary messages under a 64 KiB UTF-8 serialization budget;
+trusted system entries, if supplied by the framework, are retained or rejected
+when oversized. Pruning is logged. Hook failures propagate. Parent completion
+uses the compact native child result for Worker, Explorer and Analyst, matching
+Mastra 1.64's default. Raw nested tool results remain available to stream
+projection and durable child persistence; this only controls the parent model prompt.
+
+Paired evidence: persona/parser and child-factory specs; native
+`worker-delegation.integration.spec.ts` inspects initial and resumed model roles,
+exactly-once guarded hooks/effect, denial and parent result; native
+`worker-discovery.integration.spec.ts` uses a real HTTP MCP server to prove
+eligible-only loading and fresh-runtime approval execution; actual Electron
+`delegated-worker-write.desktop.test.ts` reloads the pending decision and checks
+a disposable file, parent continuation and history navigation without execution.
+These prove the worker layer, not recursion/background/worktree coordination.
+
+## Implementation decisions for the remaining tickets
 
 - Keep native `Agent` delegation and the existing Brainstrike host services.
   Do not migrate to `AgentController` for this project: its beta Session host
@@ -105,7 +170,7 @@ three-level discovery bound is not a universal runtime recursion guarantee.
 
 ## SUBAGENTS (PERSONA DELEGATION)
 
-The supervisor assistant can delegate to built-in, read-only child personas
+The supervisor assistant can delegate to read-only specialists and a capable Worker
 using **Mastra's native supervisor pattern**: child `Agent`s passed via the
 parent's `agents: {...}` config become `agent-<key>` delegation tools
 automatically. We do NOT build a bespoke `subagent` tool — we ride Mastra's
@@ -113,10 +178,12 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
 `subAgentToolResults`) and layer brainstrike's rules on top.
 
 - **Personas as data:** `packages/assistant-contract/src/personas.ts`
-  (`BUILT_IN_PERSONAS` = `explore`, `analyze`) plus USER-DEFINED personas (v2,
-  below). A persona names an explicit list of ORIGINAL read-only native tool
-  ids; `assertReadOnlyPersona` throws at module init if any resolves to a
-  non-`read` risk (unknown id ≠ read — no silent fallback). `id` is `string`
+  (`BUILT_IN_PERSONAS` = `explore`, `analyze`, `worker`) plus USER-DEFINED personas.
+  Absent `mode` preserves read-only behavior; `assertReadOnlyPersona` rejects
+  non-read/unknown native tools. Explicit `mode: worker` accepts original native
+  and MCP ids; a sole `*` inherits the eligible host catalog. Mixed wildcards
+  and parent-owned `manageTaskList` are rejected. `assertPersonaToolScope`
+  validates the declared mode before runtime permission filtering. `id` is `string`
   (`AssistantBuiltInPersonaId` narrows the built-ins); optional `source:
   'built-in' | 'user'` (absent = built-in).
 
@@ -157,13 +224,14 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   Analyst takes the same delegations.
 - **User-defined personas (v2):** markdown files with frontmatter
   (`description` required; optional `name`, `tools`, `model:
-  provider::modelId`, `maxSteps` ≤ 16; body = child instructions), scanned
+  provider::modelId`, `mode: read-only|worker`, `maxSteps` ≤ 16; body = child instructions), scanned
   FLAT (no recursion — the id becomes the `agent-<id>` tool name, and provider
   tool-name charsets forbid `:` namespacing) from (1) `<root>/.brainstrike/agents/`
   per mounted root, (2) `~/.brainstrike/agents/`, first-id-wins with warn-once;
   a built-in id collision is an INVALID file, not an override. Parse/validate:
   `packages/assistant-contract/src/user-personas.ts` (`buildUserPersona` —
-  fail-closed; omitted `tools` = `DEFAULT_USER_PERSONA_TOOL_IDS`, the curated
+  fail-closed; omitted mode retains legacy behavior and omitted `tools` =
+  `DEFAULT_USER_PERSONA_TOOL_IDS`, the curated
   read-only exploration set WITHOUT webSearch/askUser/submitPlan/manageTaskList;
   explicit askUser/submitPlan declarations are allowed only with the complete
   durable child-control capability at runtime; manageTaskList remains rejected
@@ -174,8 +242,9 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   (bounded: 64K chars/file, `MAX_USER_PERSONAS` 50; INVALID files become
   visible `entries` with their error, consumed by Settings → Subagents via the
   `assistantPersonas:list` IPC / `window.assistantPersonas` bridge —
-  capability-gated, absent on web). The read-only invariant applies to user
-  personas EXACTLY as to built-ins.
+  capability-gated, absent on web). Explicit worker mode defaults omitted tools
+  to `*`; known short native ids normalize through the native registry and
+  opaque MCP ids retain their exact spelling. Legacy personas stay read-only.
 
   **Scan invariants (BST-936) — do not regress these.** The full rules and
   rationale, shared with the lens loader, are in
@@ -235,7 +304,9 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   keyless set (agent package export, reused by the desktop key-resolution loop).
 - **Child factory:** `packages/agent/src/mastra/build-persona-subagents.ts`.
   Each child's tool map is a permission-gated SUBSET of the parent's ALREADY-
-  GUARDED tool map (so per-tool timeout + `GuardedToolError` inherit for free).
+  GUARDED and lifecycle-hooked tool map (timeouts, structured errors and
+  PreToolUse/PostToolUse inherit exactly once). Workers are omitted visibly
+  unless storage and every durable child-control method exist.
   Permission composition (D3): the candidate map passes through the SAME
   `filterToolsByPermissionWithMetadata` gate as the parent. Read-risk ask tools
   retain native per-tool approval only when storage and the complete durable

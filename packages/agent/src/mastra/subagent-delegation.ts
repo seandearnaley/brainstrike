@@ -28,6 +28,7 @@ import {
 import type { ScopedLogger } from '@brainstrike/logging';
 import type { DelegationConfig } from '@mastra/core/agent';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
+import { MAX_DELEGATED_CONTEXT_BYTES } from './delegated-system-context';
 import type { DelegatedTurnPersistence } from './delegated-turn-persistence';
 
 export const MAX_CONCURRENT_DELEGATIONS = 2;
@@ -247,6 +248,43 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
     // All delegation-hook failures propagate, including diagnostics: silently
     // continuing could lose policy enforcement, accounting or failure evidence.
     hookErrorStrategy: 'throw',
+    includeSubAgentToolResultsInModelContext: false,
+    messageFilter: ({ messages, primitiveId }) => {
+      const protectedMessages = messages.filter((message) => message.role === 'system');
+      let bytes = protectedMessages.reduce(
+        (sum, message) => sum + Buffer.byteLength(JSON.stringify(message), 'utf8') + 1,
+        2
+      );
+      if (bytes > MAX_DELEGATED_CONTEXT_BYTES) {
+        throw new Error('Trusted delegated context exceeds its 64 KiB budget.');
+      }
+      const selected = new Set(protectedMessages);
+      let ordinary = 0;
+      for (const message of messages.toReversed()) {
+        if (message.role === 'system') {
+          continue;
+        }
+        if (ordinary >= 16) {
+          break;
+        }
+        const size = Buffer.byteLength(JSON.stringify(message), 'utf8') + 1;
+        if (bytes + size > MAX_DELEGATED_CONTEXT_BYTES) {
+          continue;
+        }
+        selected.add(message);
+        bytes += size;
+        ordinary += 1;
+      }
+      if (selected.size !== messages.length) {
+        params.logger.info('Delegated context bounded before execution', {
+          code: 'subagent_context_pruned',
+          omittedMessages: messages.length - selected.size,
+          personaId: primitiveId,
+        });
+      }
+      // Return original role/provenance-bearing messages in chronology; never promote task data.
+      return messages.filter((message) => selected.has(message));
+    },
     onDelegationComplete: async (context) => {
       inFlight = Math.max(0, inFlight - 1);
       params.logger.info('Subagent delegation completed', {
@@ -323,7 +361,13 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
       inFlight += 1;
       total += 1;
       return {
+        // Mastra's instructions tool argument is model-authored task content. Keep it
+        // in the delegated USER prompt; the child retains host/persona system authority.
+        modifiedInstructions: '',
         modifiedMaxSteps: maxSteps,
+        modifiedPrompt: context.params.instructions
+          ? `${context.prompt}\n\nDelegated task details:\n${context.params.instructions}`
+          : context.prompt,
         proceed: true,
       };
     },
