@@ -31,8 +31,10 @@ export function createDelegatedWorkspaceDiscovery(
         return false;
       }
     };
-    const approvals = await Promise.all(result.approvals.map(belongs));
-    const suspends = await Promise.all(result.suspends.map(belongs));
+    const [approvals, suspends] = await Promise.all([
+      Promise.all(result.approvals.map(belongs)),
+      Promise.all(result.suspends.map(belongs)),
+    ]);
     const error =
       result.error ?? (invalidBinding ? { reason: 'invalid-response' as const } : undefined);
     return {

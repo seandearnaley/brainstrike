@@ -1278,3 +1278,14 @@ The ordinary root history adapter has its own hook, and the actual wrapper
 stream-binding regression has its own discovered test file. Shrink-only wrapper
 budgets must ratchet downward after extraction; ESLint warning baselines must
 not increase to accommodate these boundaries.
+
+`delegated-child-reload.integration.test.tsx` exercises the actual ChildView and
+shared controls against a migrated PGlite database with native-format history,
+a persisted graph/invocation, and a registered owning-root append boundary. It
+verifies root-scoped discovery, actual approval/question clicks, native target
+preservation, and omission of child topology. It also proves live output can
+arrive during recovery and that recovery failure leaves saved history visible.
+The discovery HTTP response and final root append are test boundaries; native
+Mastra execution/restart remains covered separately by the desktop fresh-process
+harness. Do not describe these as one full browser-to-native end-to-end test.
+Approval and suspension binding lookups run concurrently as independent reads.
