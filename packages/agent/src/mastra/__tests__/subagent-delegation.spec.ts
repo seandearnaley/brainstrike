@@ -246,11 +246,11 @@ describe('createDelegationConfig: a child that returned no answer', () => {
       completeContext({ result: { text: 'Found it.' }, toolCallId: 'call-answered' })
     );
 
-    expect(outcomes.returnedNoAnswer('call-empty')).toBe(true);
-    expect(outcomes.returnedNoAnswer('call-answered')).toBe(false);
+    expect(outcomes.returnedNoAnswer('call-empty', 'run-1')).toBe(true);
+    expect(outcomes.returnedNoAnswer('call-answered', 'run-1')).toBe(false);
   });
 
-  it('leaves a FAILED delegation alone instead of diagnosing a step cap', async () => {
+  it('reports FAILED delegation without diagnosing a step cap', async () => {
     // The hook fires for failures too, and a child that threw plausibly arrives
     // with empty text. Handing it the step-cap narrative would be a confident,
     // wrong diagnosis of a provider error.
@@ -271,8 +271,12 @@ describe('createDelegationConfig: a child that returned no answer', () => {
       })
     );
 
-    expect(result).toBeUndefined();
-    expect(outcomes.returnedNoAnswer('call-failed')).toBe(false);
+    expect(result).toMatchObject({
+      resultText: expect.stringContaining('failed before completing'),
+    });
+    expect(outcomes.failed('call-failed', 'run-1')).toBe(true);
+    expect(outcomes.failed('call-failed', 'another-parent')).toBe(false);
+    expect(outcomes.returnedNoAnswer('call-failed', 'run-1')).toBe(false);
   });
 
   it('survives a delegation result whose text is not a string', async () => {

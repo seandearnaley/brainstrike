@@ -24,10 +24,17 @@ test('worker Decline controls a reloaded disposable workspace write @smoke', asy
   await assertWorkerWrite(electron, testInfo, 'Decline');
 });
 
+test('recursive worker reloads its leaf approval and returns the result through three levels @smoke', async ({
+  electron,
+}, testInfo) => {
+  await assertWorkerWrite(electron, testInfo, 'Approve', 3);
+});
+
 async function assertWorkerWrite(
   electron: ElectronHarness,
   testInfo: TestInfo,
-  decision: 'Approve' | 'Decline'
+  decision: 'Approve' | 'Decline',
+  depth = 1
 ): Promise<void> {
   const failures: unknown[] = [];
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-worker-write-'));
@@ -44,7 +51,20 @@ async function assertWorkerWrite(
   const observed = { parentResult: false, writeResult: false };
   const provider = await startModelProviderShim(({ toolNames, messages }) => {
     const history = JSON.stringify(messages);
-    const isParent = toolNames.includes('agent-explore');
+    const task = JSON.stringify(
+      messages.filter(
+        (message) =>
+          message && typeof message === 'object' && 'role' in message && message.role === 'user'
+      )
+    );
+    const level = task.includes('WORKER_LEVEL_3')
+      ? 3
+      : task.includes('WORKER_LEVEL_2')
+        ? 2
+        : task.includes('WORKER_LEVEL_1')
+          ? 1
+          : 0;
+    const isParent = level === 0;
     if (isParent) {
       resolveAdvertisedTools(toolNames);
       observed.parentResult ||= history.includes(childResult);
@@ -53,7 +73,19 @@ async function assertWorkerWrite(
         toolCall: {
           arguments: {
             prompt:
-              'Create worker-output.txt with the requested disposable deliverable, then report the outcome.',
+              'WORKER_LEVEL_1: Create worker-output.txt with the requested disposable deliverable, delegating onward when instructed.',
+          },
+          name: 'agent-worker',
+        },
+      };
+    }
+    if (level < depth) {
+      expect(toolNames).toContain('agent-worker');
+      return {
+        finalText: childResult,
+        toolCall: {
+          arguments: {
+            prompt: `WORKER_LEVEL_${level + 1}: Create worker-output.txt with the requested disposable deliverable.`,
           },
           name: 'agent-worker',
         },
@@ -117,6 +149,14 @@ async function assertWorkerWrite(
         .getByRole('tablist', { name: 'Workspace tabs' })
         .getByRole('tab', { selected: true });
       await expect(selectedTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+      for (let level = 1; level < depth; level += 1) {
+        const currentName = (await selectedTab.innerText()).trim();
+        const current = window.getByRole('region', { exact: true, name: currentName });
+        await current.getByRole('button', { exact: true, name: 'Expand activity' }).click();
+        await current.getByRole('button', { name: /Open .* conversation/ }).click();
+        await expect(selectedTab).not.toHaveText(currentName);
+        await expect(selectedTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+      }
       const childName = (await selectedTab.innerText()).trim();
       const child = window.getByRole('region', { exact: true, name: childName });
       await expect(child.getByRole('button', { exact: true, name: approvalName })).toBeVisible();

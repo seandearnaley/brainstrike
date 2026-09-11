@@ -535,6 +535,38 @@ describe('desktop delegated conversation authority', () => {
     }
   );
 
+  it('preserves nested invocation metadata inside a child transcript instead of replacing it with the owning edge', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    await host.bindRun(run);
+    const event = await host.persistEvent(
+      run,
+      'native-child-message',
+      {
+        id: 'nested-start',
+        kind: 'subagent.started',
+        label: 'Nested worker',
+        metadata: {
+          parentRuntimeRunId: run.childRuntimeRunId,
+          parentToolCallId: 'grandchild-call',
+          personaId: 'worker',
+        },
+        status: 'running',
+        timestamp: new Date().toISOString(),
+      },
+      0
+    );
+    expect(event.metadata).toMatchObject({
+      parentRuntimeRunId: run.childRuntimeRunId,
+      parentToolCallId: 'grandchild-call',
+      personaId: 'worker',
+    });
+    const saved = await database.query(
+      "SELECT metadata FROM brainstrike_assistant_run_events WHERE id = 'nested-start'"
+    );
+    expect(saved.rows).toEqual([{ metadata: event.metadata }]);
+  });
+
   it('persists child lifecycle in ordinary child run/event records while keeping the root running', async () => {
     const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
     await host.persist(identity);

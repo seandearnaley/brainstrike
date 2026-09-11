@@ -6,7 +6,10 @@ import type {
   DelegatedSuspensionResolver,
   DelegatedToolActionScope,
 } from '@brainstrike/agent';
-import type { DelegatedConversationBaseline } from '@brainstrike/assistant-contract';
+import type {
+  DelegatedBudgetPort,
+  DelegatedConversationBaseline,
+} from '@brainstrike/assistant-contract';
 import { hasValidDelegatedToolActionTarget } from '@brainstrike/assistant-contract';
 import {
   type AssistantRunEvent,
@@ -27,6 +30,8 @@ import {
   readAssistantHistoryRunEvents,
 } from '@brainstrike/db';
 import { z } from 'zod';
+import { createDelegatedStepBudget } from './delegated-step-budget';
+import { reserveDelegatedInvocation } from './delegated-tree-admission';
 
 const identityString = z.string().refine((value) => value.trim().length > 0);
 const hostScopeSchema = z.object({
@@ -102,6 +107,7 @@ export function createDesktopDelegatedConversationHost(
   database: DelegatedConversationDatabase,
   hostRunId: string
 ): {
+  budget: DelegatedBudgetPort;
   bindRun(identity: DelegatedRunIdentity): Promise<{
     readonly threadId: string;
     readonly messageId?: string;
@@ -207,6 +213,7 @@ export function createDesktopDelegatedConversationHost(
         ...(invocation.messageId ? { messageId: invocation.messageId } : {}),
       };
     },
+    budget: createDelegatedStepBudget(database, hostRunId, readScope),
     async claimToolAction(action) {
       const scopes = await host.resolveToolAction(action);
       const leaf = scopes.at(-1);
@@ -268,27 +275,43 @@ export function createDesktopDelegatedConversationHost(
       }
     },
     async persist(identity) {
-      const scope = await readScope();
-      await repository.registerRoot(scope);
-      const parent = await repository.get(scope, identity.parentThreadId);
-      if (!parent || parent.resourceId !== identity.parentResourceId) {
-        throw new DelegatedConversationIdentityError('parent-scope-mismatch');
+      if (!database.transaction) {
+        throw new Error('Delegated admission requires the database transaction capability.');
       }
-      await repository.createChild(scope, {
-        ...createDisplayIdentity(identity.childThreadId),
-        configuration: identity.configuration,
-        parentThreadId: identity.parentThreadId,
-        resourceId: identity.childResourceId,
-        threadId: identity.childThreadId,
-      });
-      await repository.createInvocation(scope, {
-        hostRunId,
-        ...(identity.originalToolCall ? { originalToolCall: identity.originalToolCall } : {}),
-        parentRuntimeRunId: identity.parentRuntimeRunId,
-        parentThreadId: identity.parentThreadId,
-        parentToolCallId: identity.parentToolCallId,
-        personaId: identity.personaId,
-        threadId: identity.childThreadId,
+      const scope = await readScope();
+      await database.transaction(async (tx) => {
+        const admissionRepository = createDelegatedConversationRepository(tx);
+        await admissionRepository.registerRoot(scope);
+        const parent = await admissionRepository.get(scope, identity.parentThreadId);
+        if (!parent || parent.resourceId !== identity.parentResourceId) {
+          throw new DelegatedConversationIdentityError('parent-scope-mismatch');
+        }
+        const duplicate = await admissionRepository.getInvocation(scope, identity);
+        await reserveDelegatedInvocation(
+          tx,
+          scope,
+          hostRunId,
+          identity.parentThreadId,
+          duplicate !== null,
+          identity.childThreadId,
+          identity.configuration
+        );
+        await admissionRepository.createChild(scope, {
+          ...createDisplayIdentity(identity.childThreadId),
+          configuration: identity.configuration,
+          parentThreadId: identity.parentThreadId,
+          resourceId: identity.childResourceId,
+          threadId: identity.childThreadId,
+        });
+        await admissionRepository.createInvocation(scope, {
+          hostRunId,
+          ...(identity.originalToolCall ? { originalToolCall: identity.originalToolCall } : {}),
+          parentRuntimeRunId: identity.parentRuntimeRunId,
+          parentThreadId: identity.parentThreadId,
+          parentToolCallId: identity.parentToolCallId,
+          personaId: identity.personaId,
+          threadId: identity.childThreadId,
+        });
       });
     },
     async persistEvent(identity, messageId, event, sequence) {
@@ -310,7 +333,12 @@ export function createDesktopDelegatedConversationHost(
         metadata:
           sanitizeAssistantRunEventMetadata({
             ...event.metadata,
-            ...identity,
+            ...(event.kind.startsWith('subagent.')
+              ? {
+                  delegatedConversationIdentity: identity,
+                  parentRuntimeRunId: identity.childRuntimeRunId,
+                }
+              : identity),
             nativeMessageId: messageId,
           }) ?? {},
         runId: childRunId,

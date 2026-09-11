@@ -4,10 +4,13 @@ import {
   createSuspendedRunDiscovery,
   hasDurableAssistantUsageCapability,
 } from '@brainstrike/assistant-data';
-import type { DelegatedConversationRuntimeOptions } from '@brainstrike/assistant-ui';
+import {
+  type DelegatedConversationRuntimeOptions,
+  SubagentInvocationResolverContext,
+} from '@brainstrike/assistant-ui';
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
-import { use, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { use, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { DelegatedConversationPanel } from './delegated-conversation-panel';
 import { createDelegatedWorkspaceDiscovery } from './delegated-workspace-discovery';
 import { DelegatedWorkspaceNavigation } from './delegated-workspace-navigation';
@@ -36,6 +39,16 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
     root?.store.subscribe ?? emptySubscribe,
     () => root?.store.getConversation(node.threadId),
     () => root?.store.getConversation(node.threadId)
+  );
+  const resolveInvocation = useCallback(
+    async (identity: { parentRuntimeRunId: string; parentToolCallId: string }): Promise<string> => {
+      const invocation = await repository.getInvocation(node, identity);
+      if (!invocation || invocation.parentThreadId !== node.threadId) {
+        throw new Error('The delegated conversation is unavailable or belongs to another parent.');
+      }
+      return invocation.threadId;
+    },
+    [repository, node]
   );
   const [saved, setSaved] = useState<{ readonly history: History } | { readonly error: Error }>();
   useEffect(() => {
@@ -98,17 +111,19 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       ownerResourceId={node.ownerResourceId}
       rootThreadId={node.rootThreadId}
     >
-      <DelegatedConversationPanel
-        label={node.displayName}
-        onNew={(message) =>
-          root.sendDecision(node.threadId, message, () =>
-            resolveDelegatedWorkspaceDecision(repository, node, message)
-          )
-        }
-        {...(saved ? { persistedHistory: saved.history } : {})}
-        store={root.store}
-        threadId={node.threadId}
-      />
+      <SubagentInvocationResolverContext value={resolveInvocation}>
+        <DelegatedConversationPanel
+          label={node.displayName}
+          onNew={(message) =>
+            root.sendDecision(node.threadId, message, () =>
+              resolveDelegatedWorkspaceDecision(repository, node, message)
+            )
+          }
+          {...(saved ? { persistedHistory: saved.history } : {})}
+          store={root.store}
+          threadId={node.threadId}
+        />
+      </SubagentInvocationResolverContext>
     </DelegatedWorkspaceNavigation>
   );
 }

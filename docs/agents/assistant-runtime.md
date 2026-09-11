@@ -4134,3 +4134,14 @@ execution or copy approval authority into a sibling.
 Approving a delegated submitPlan preserves root plan mode even from a forwarded
 parent notice. Only a non-delegated plan can call the root mode-exit callback;
 the existing exact child resume envelope still carries the approval.
+
+### Recursive model/tool permit ownership
+
+Delegated model steps and ordinary guarded tools share the root host-leg FIFO
+queue. Native delegation waits do not consume a permit. Each child stream has
+its own budget processor. Its authoritative cancellation signal comes from the
+root stream options, because Mastra 1.64 omits processInputStep.abortSignal on
+some native unwind passes and skips user onFinish for aborted streams. Stop
+rejects queued admission and releases model capacity; the existing native
+completion join still drains descendants before terminal publication. Durable
+reservations remain conservative when abort prevents usage settlement.

@@ -1,7 +1,12 @@
 import type { McpHostPort } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
-import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
+import {
+  Agent,
+  type AgentExecutionOptions,
+  type MastraDBMessage,
+  type ToolsInput,
+} from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
@@ -167,6 +172,7 @@ export interface MastraAgentRuntime {
   /** Fail-loud completion check for the client-provided persisted assistant id. */
   assertAssistantMessageIdPersisted?: () => void;
   conversationBinding?: DelegatedConversationBinding | undefined;
+  delegatedExecutionOptions?: Pick<AgentExecutionOptions, 'delegation' | 'hooks' | 'abortSignal'>;
   delegatedTurnPersistence?: DelegatedTurnPersistence | undefined;
   /**
    * 'agent-<personaId>' → personaId for every registered delegation tool. Empty
@@ -655,6 +661,10 @@ export async function createMastraAgentRuntime(
 
   // Subagent personas (D10): built BEFORE the instructions so guidance only
   // names personas that actually registered a delegation tool this run.
+  const delegatedExecutionOptions: Pick<
+    AgentExecutionOptions,
+    'delegation' | 'hooks' | 'abortSignal'
+  > = {};
   const delegatedTurnPersistence = createDelegatedTurnPersistence(memory, sanitizedRuntime.memory);
   const {
     artifactReaderDelegationTools,
@@ -665,6 +675,7 @@ export async function createMastraAgentRuntime(
     subAgents,
   } = await resolvePersonaRuntimeParts({
     conversationBinding: options.conversationBinding,
+    delegatedExecutionOptions,
     getDelegatedSystemContext: options.getDelegatedSystemContext,
     // BST-1206 review (P2): a persona that pins its OWN model must project
     // its tools against THAT model's resolved budget, not the parent's — so
@@ -779,6 +790,7 @@ export async function createMastraAgentRuntime(
     ...assistantIdentityRuntime,
     askTools,
     conversationBinding: options.conversationBinding,
+    delegatedExecutionOptions,
     delegatedTurnPersistence,
     delegationToolPersonas,
     dispose: async () => {

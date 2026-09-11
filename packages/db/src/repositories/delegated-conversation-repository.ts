@@ -13,6 +13,7 @@ import type { DelegatedRunIdentity } from '@brainstrike/assistant-contract/deleg
 export interface DelegatedConversationDatabase {
   /** Only scalar SQL parameters and explicitly serialized configuration JSON. */
   query(sql: string, params?: (string | number | null)[]): Promise<{ rows: unknown[] }>;
+  transaction?<T>(callback: (tx: DelegatedConversationDatabase) => Promise<T>): Promise<T>;
 }
 
 type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonObject;

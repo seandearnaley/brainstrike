@@ -1,4 +1,7 @@
-import { DELEGATED_CONVERSATION_DATA_NAME } from '@brainstrike/assistant-contract';
+import {
+  DELEGATED_CONVERSATION_DATA_NAME,
+  readAssistantRunEventDataPart,
+} from '@brainstrike/assistant-contract';
 import { createContext } from 'react';
 
 export const SubagentConversationNavigationContext = createContext<
@@ -74,4 +77,35 @@ export function readSubagentConversationAddress(
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error), kind: 'invalid' };
   }
+}
+
+export interface SubagentInvocationAddress {
+  readonly parentRuntimeRunId: string;
+  readonly parentToolCallId: string;
+}
+/** Host lookup uses the persisted native invocation, including before completion. */
+export const SubagentInvocationResolverContext = createContext<
+  ((identity: SubagentInvocationAddress) => Promise<string>) | null
+>(null);
+
+export function readSubagentInvocationRun(
+  parts: readonly unknown[],
+  toolCallId: string
+): string | undefined {
+  let runId: string | undefined;
+  for (const part of parts) {
+    const event = readAssistantRunEventDataPart(part);
+    if (event?.metadata?.['parentToolCallId'] !== toolCallId) {
+      continue;
+    }
+    const candidate = event.metadata['parentRuntimeRunId'];
+    if (typeof candidate !== 'string' || !candidate.trim()) {
+      continue;
+    }
+    if (runId && candidate !== runId) {
+      throw new Error('Conflicting native invocation addresses.');
+    }
+    runId = candidate;
+  }
+  return runId;
 }

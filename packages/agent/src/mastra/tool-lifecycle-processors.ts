@@ -825,7 +825,22 @@ export function mapToolLifecyclePart(
   delegationToolPersonas: ReadonlyMap<string, string>
 ): ProcessStreamPartResult {
   const delegation = resolveDelegationPersona(part, toolNames, delegationToolPersonas);
-  const generic = mapGenericToolEvent(part, toolNames, lifecycleState, partType, sanitizedNameMap);
+  const failedResult = Boolean(
+    partType === 'tool-result' &&
+      delegation?.parentToolCallId &&
+      lifecycleState.delegationOutcomes?.failed(
+        delegation.parentToolCallId,
+        readMastraStreamPartString(part, 'runId')
+      )
+  );
+  const lifecycleType = failedResult ? 'tool-error' : partType;
+  const generic = mapGenericToolEvent(
+    failedResult ? { ...asMastraStreamPart(part), type: 'tool-error' } : part,
+    toolNames,
+    lifecycleState,
+    lifecycleType,
+    sanitizedNameMap
+  );
   if (!delegation) {
     return generic;
   }
@@ -846,10 +861,16 @@ export function mapToolLifecyclePart(
   const returnedNoAnswer = Boolean(
     partType === 'tool-result' &&
       delegation.parentToolCallId &&
-      lifecycleState.delegationOutcomes?.returnedNoAnswer(delegation.parentToolCallId)
+      lifecycleState.delegationOutcomes?.returnedNoAnswer(
+        delegation.parentToolCallId,
+        parentRuntimeRunId
+      )
   );
   return {
-    chunks: [...generic.chunks, makeSubagentLifecycleChunk(partType, metadata, returnedNoAnswer)],
+    chunks: [
+      ...generic.chunks,
+      makeSubagentLifecycleChunk(lifecycleType, metadata, returnedNoAnswer),
+    ],
     finished: false,
   };
 }

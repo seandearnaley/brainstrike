@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   readSubagentConversationAddress,
   readSubagentConversationThread,
+  readSubagentInvocationRun,
 } from '../subagent-conversation-navigation';
 
 const part = (call: string, child: string) => ({
@@ -49,4 +50,26 @@ it('retains the native completed delegation address after reload and rejects con
     readSubagentConversationAddress([part('a', 'willow')], 'a', { subAgentThreadId: 'cedar' })
   ).toEqual({ error: 'Conflicting child conversation addresses.', kind: 'invalid' });
   expect(readSubagentConversationAddress([], 'a', { subAgentThreadId: '' }).kind).toBe('invalid');
+});
+
+it('resolves the exact persisted native invocation across pending child history and rejects contradictory runs', () => {
+  const event = (run: string, call: string) => ({
+    data: {
+      id: `${run}:${call}`,
+      kind: 'subagent.started',
+      label: 'Started',
+      metadata: { parentRuntimeRunId: run, parentToolCallId: call },
+      status: 'running',
+      timestamp: '2026-09-11T08:00:00Z',
+    },
+    name: 'brainstrike.run-event',
+    type: 'data',
+  });
+  expect(readSubagentInvocationRun([event('native-parent', 'a'), event('sibling', 'b')], 'a')).toBe(
+    'native-parent'
+  );
+  expect(readSubagentInvocationRun([event('sibling', 'b')], 'a')).toBeUndefined();
+  expect(() =>
+    readSubagentInvocationRun([event('native-parent', 'a'), event('wrong-parent', 'a')], 'a')
+  ).toThrow('Conflicting');
 });

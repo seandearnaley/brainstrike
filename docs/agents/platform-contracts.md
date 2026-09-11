@@ -809,8 +809,8 @@ Every SQL path that enumerates tables clears all six: desktop `db:clearAll` in
 
 **The SET those three lists clear is owned by the reset-table registry**
 (`packages/db/src/reset-table-registry.ts`, BST-992): all three clear the same
-43-relation set (28 `brainstrike_*` — including delegated conversation ancestry
-and invocation identity,
+47-relation set (32 `brainstrike_*` — including delegated conversation ancestry,
+invocation identity, exact decisions and the three resource-budget tables,
 the principal-bound `brainstrike_mcp_tasks` handle store, its durable authority-epoch ledger, and the `brainstrike_mind_ops`
 op-log, whose tombstones must not outlive the mind they describe (BST-993),
 and the `brainstrike_assistant_run_treatments` experiment-treatment store
@@ -2244,3 +2244,13 @@ its sibling persisted stores.
 and the writer-disables-populates-health-store cases),
 `packages/settings-ui/src/settings/system/logging-settings-section.test.tsx`
 (retention card + sink-health banner describes).
+
+### Delegation resource accounting reset
+
+Migration 132's `brainstrike_delegation_budgets`,
+`brainstrike_delegation_child_budgets` and
+`brainstrike_delegation_step_reservations` belong to the application database.
+Both direct-transport reset paths and desktop IPC reset clear them, and the
+shared reset registry classifies all three. There is no separate persistent
+queue or filesystem accounting store. Native host shutdown drains active work
+before reset; unresolved output remains charged on ordinary restart.

@@ -1063,11 +1063,15 @@ export function createAttemptDelegatedProjection({
       const provider =
         runtime.personasById.get(personaId)?.model?.provider ?? runtimeData?.provider;
       // Children own their execution scope and must not consume parent steering.
-      return createTurnAttemptLifecycleState(
+      const childState = createTurnAttemptLifecycleState(
         { ...(provider ? { provider } : {}), memory: { threadId } },
         undefined,
         lifecycleState.toolExecutionDurations
       );
+      if (lifecycleState.delegationOutcomes) {
+        childState.delegationOutcomes = lifecycleState.delegationOutcomes;
+      }
+      return childState;
     },
     mapPart: async (childPart, state, childToolNames) => {
       const result = await processMastraStreamPart(

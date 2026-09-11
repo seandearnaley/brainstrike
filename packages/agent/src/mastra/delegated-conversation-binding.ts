@@ -1,4 +1,5 @@
 import type {
+  DelegatedBudgetPort,
   DelegatedConversationBaseline,
   DelegatedOriginalToolCall,
   DelegatedToolActionIdentity,
@@ -38,6 +39,7 @@ export interface DelegatedConversationBinding {
     readonly messageId?: string;
     readonly baseline?: DelegatedConversationBaseline;
   }>;
+  readonly budget?: DelegatedBudgetPort;
   /** Atomic admission after native snapshot validation, held through runtime disposal. */
   readonly claimToolAction?: (action: {
     readonly delegation?: DelegatedToolActionIdentity;
