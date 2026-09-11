@@ -9,6 +9,10 @@ import {
   TOOL_APPROVAL_DATA_NAME,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  TOOL_SUSPEND_DATA_NAME,
+  TOOL_SUSPEND_RUN_CONFIG_KEY,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { TooltipProvider } from '@brainstrike/ui';
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -26,6 +30,7 @@ function Conversation({
   onReload,
   onEdit,
   running = false,
+  onExitPlanMode,
 }: {
   id: string;
   messages: readonly ThreadMessageLike[];
@@ -34,6 +39,7 @@ function Conversation({
   onReload?: ExternalStoreAdapter<ThreadMessageLike>['onReload'];
   onEdit?: ExternalStoreAdapter<ThreadMessageLike>['onEdit'];
   running?: boolean;
+  onExitPlanMode?: () => void;
 }) {
   const runtime = useExternalStoreRuntime({
     convertMessage: (value) => value,
@@ -44,7 +50,16 @@ function Conversation({
     ...(onReload ? { onReload } : {}),
     ...(onEdit ? { onEdit } : {}),
   });
-  return <AssistantConversationPanel label={id} runtime={runtime} threadKey={id} />;
+  return (
+    <AssistantConversationPanel
+      label={id}
+      runtime={runtime}
+      threadKey={id}
+      {...(onExitPlanMode
+        ? { planMode: { enabled: true, onExit: onExitPlanMode, onToggle: () => undefined } }
+        : {})}
+    />
+  );
 }
 
 const message = (text: string): ThreadMessageLike => ({
@@ -137,6 +152,69 @@ describe('shared conversation panel', () => {
       expect(useFollowUpQueueStore.getState().queuedByThread['Cedar']).toHaveLength(1);
     }
   );
+  it('keeps root plan mode when its real runtime approves a forwarded child plan', async () => {
+    const onExitPlanMode = vi.fn();
+    const onNew = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(async () => undefined);
+    const delegation = {
+      path: [
+        {
+          childRuntimeRunId: 'child-run',
+          parentRuntimeRunId: 'root-run',
+          parentToolCallId: 'delegate-plan',
+          personaId: 'probe',
+        },
+      ],
+      toolCallId: 'leaf-plan',
+    };
+    render(
+      <TooltipProvider>
+        <Conversation
+          id="Root"
+          messages={[
+            {
+              content: [
+                {
+                  data: {
+                    delegation,
+                    runId: 'child-run',
+                    suspendPayload: {
+                      overview: 'Inspect the child result.',
+                      steps: [{ title: 'Report the result' }],
+                      title: 'Child plan',
+                    },
+                    toolCallId: 'leaf-plan',
+                    toolName: 'brainstrike.submitPlan',
+                  },
+                  name: TOOL_SUSPEND_DATA_NAME,
+                  type: 'data',
+                },
+              ],
+              id: 'forwarded-plan',
+              role: 'assistant',
+            },
+          ]}
+          onExitPlanMode={onExitPlanMode}
+          onNew={onNew}
+        />
+      </TooltipProvider>
+    );
+    await userEvent.setup().click(await screen.findByRole('button', { name: /^approve$/i }));
+    expect(onExitPlanMode).not.toHaveBeenCalled();
+    expect(onNew).toHaveBeenCalledTimes(1);
+    expect(onNew.mock.calls[0]?.[0]).toMatchObject({
+      runConfig: {
+        custom: {
+          [TOOL_SUSPEND_RUN_CONFIG_KEY]: {
+            delegation,
+            resumeData: { action: 'approved' },
+            runId: 'root-run',
+            toolCallId: 'delegate-plan',
+          },
+        },
+      },
+    });
+  });
+
   it('routes a child approval through only that conversation runtime', async () => {
     const user = userEvent.setup();
     const rootSend = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(async () => undefined);

@@ -226,21 +226,38 @@ describe('buildUserPersona', () => {
     }
   });
 
-  it('rejects suspending/interactive tools even though their risk is read', () => {
-    // askUser/submitPlan suspend the run (child maps bypass the parent's
-    // suspend-storage fail-safe) and manageTaskList is parent-scoped; a user
-    // persona must not be able to allowlist them.
-    for (const tool of ['askUser', 'submitPlan', 'manageTaskList', 'brainstrike.askUser']) {
+  it.each(['askUser', 'submitPlan', 'brainstrike.askUser', 'brainstrike.submitPlan'])(
+    'accepts explicitly declared child interaction tool %s',
+    (tool) => {
+      const result = buildUserPersona({
+        content: validFile(`description: d\ntools: readWorkspaceFile, ${tool}`),
+        fileName: 'p.md',
+      });
+      expect(result).toMatchObject({
+        ok: true,
+        persona: {
+          allowedToolIds: [
+            'brainstrike.readWorkspaceFile',
+            tool.startsWith('brainstrike.') ? tool : `brainstrike.${tool}`,
+          ],
+        },
+      });
+    }
+  );
+
+  it.each(['manageTaskList', 'brainstrike.manageTaskList'])(
+    'still rejects parent-scoped %s',
+    (tool) => {
       const result = buildUserPersona({
         content: validFile(`description: d\ntools: readWorkspaceFile, ${tool}`),
         fileName: 'p.md',
       });
       expect(result).toMatchObject({ ok: false });
       if (!result.ok) {
-        expect(result.error).toMatch(/not available to subagent personas/i);
+        expect(result.error).toMatch(/task-list state belongs to the parent/i);
       }
     }
-  });
+  );
 
   it('rejects a persona naming an unknown tool (unknown is not read)', () => {
     const result = buildUserPersona({

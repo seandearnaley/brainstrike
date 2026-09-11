@@ -34,6 +34,7 @@ import {
   type PermissionToolGateLogger,
   type PermissionToolGateSnapshot,
 } from './permission-tool-gate';
+import { resolveSuspendToolsForRun } from './plan-mode-tool-gate';
 import { createResponseBoundaryProcessor } from './response-boundary-processor';
 import {
   applyToolModelOutputProjections,
@@ -360,9 +361,15 @@ export function buildPersonaSubAgents(
       params.toolNameMap,
       params.logger
     );
+    const suspendGatedTools = resolveSuspendToolsForRun(
+      gateResult.tools,
+      canSuspend,
+      params.toolNameMap,
+      params.logger
+    );
     const childTools: Record<string, unknown> = {};
     const keptOriginalNames: string[] = [];
-    for (const [sanitizedId, tool] of Object.entries(gateResult.tools)) {
+    for (const [sanitizedId, tool] of Object.entries(suspendGatedTools)) {
       if (gateResult.askToolIds.has(sanitizedId) && !canSuspend) {
         params.logger.info('Persona approval requires durable host control; omitting tool', {
           code: 'subagent_ask_tool_omitted',
@@ -377,7 +384,7 @@ export function buildPersonaSubAgents(
     }
 
     if (keptOriginalNames.length === 0) {
-      params.logger.info('Persona has no available tools after gating; not registering', {
+      params.logger.warn('Persona has no available tools after gating; not registering', {
         code: 'subagent_persona_empty_toolset',
         personaId: persona.id,
       });

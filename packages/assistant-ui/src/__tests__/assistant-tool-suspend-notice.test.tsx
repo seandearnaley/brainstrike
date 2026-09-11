@@ -232,6 +232,35 @@ describe('AssistantToolSuspendNotice', () => {
     expect(onExit).toHaveBeenCalledTimes(1);
   });
 
+  it('approving a delegated plan preserves the root plan-mode authority', async () => {
+    const user = userEvent.setup();
+    const onExit = vi.fn();
+    const delegation = {
+      path: [
+        {
+          childRuntimeRunId: 'run-1',
+          parentRuntimeRunId: 'root-run',
+          parentToolCallId: 'delegate-plan',
+          personaId: 'decision-probe',
+        },
+      ],
+      toolCallId: 'call-1',
+    };
+    render(
+      <PlanModeExitProvider onExit={onExit}>
+        <AssistantToolSuspendNotice data={{ ...planRequest, delegation }} />
+      </PlanModeExitProvider>
+    );
+    await user.click(screen.getByRole('button', { name: /^approve$/i }));
+    expect(onExit).not.toHaveBeenCalled();
+    expect(lastResumeAction()).toMatchObject({
+      delegation,
+      resumeData: { action: 'approved' },
+      runId: 'root-run',
+      toolCallId: 'delegate-plan',
+    });
+  });
+
   it('Reject does NOT exit plan mode (stays on so the model can revise)', async () => {
     const user = userEvent.setup();
     const onExit = vi.fn();

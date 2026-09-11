@@ -172,6 +172,71 @@ describe('child view after renderer restart', () => {
     expect(append).not.toHaveBeenCalled();
   });
 
+  it('keeps rich persisted history visible while an interrupted exact decision stays non-actionable', async () => {
+    await database.query('UPDATE mastra_messages SET content = $1 WHERE id = $2', [
+      JSON.stringify({
+        format: 2,
+        parts: [
+          {
+            text: 'Persisted native child transcript.\n\n## Saved read result\n\n[Evidence file](https://example.com/evidence.txt)\n\n```ts\nconst marker = 1720;\n```',
+            type: 'text',
+          },
+        ],
+      }),
+      'saved-child',
+    ]);
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe('/assistant/suspended-runs');
+      expect(url.searchParams.get('threadId')).toBe(rootThreadId);
+      expect(url.searchParams.get('resourceId')).toBe('owner');
+      return Response.json({
+        approvals: [
+          {
+            args: { path: 'report.txt' },
+            decisionState: 'interrupted',
+            delegation: { path: [identity], toolCallId: 'leaf' },
+            runId: identity.parentRuntimeRunId,
+            stale: false,
+            suspendedAt: '2026-09-10T00:00:00.000Z',
+            toolCallId: identity.parentToolCallId,
+            toolName: 'workspace.writeFile',
+          },
+        ],
+        suspends: [],
+      });
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(
+      <TooltipProvider>
+        <DelegatedConversationRootsProvider>
+          <OwningRoot />
+          <ChildView db={database as DbHandle} node={node} />
+        </DelegatedConversationRootsProvider>
+      </TooltipProvider>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Saved read result' })).toBeVisible();
+    expect(screen.getByText('Persisted native child transcript.')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Evidence file' })).toHaveAttribute(
+      'href',
+      'https://example.com/evidence.txt'
+    );
+    expect(screen.getByTestId('delegated-decision-recovery-status')).toHaveTextContent(
+      'Decision interrupted. Processing stopped and the outcome is unknown.'
+    );
+    const approve = screen.getByRole('button', { name: 'Approve workspace.writeFile' });
+    const decline = screen.getByRole('button', { name: 'Decline workspace.writeFile' });
+    expect(approve).toBeDisabled();
+    expect(decline).toBeDisabled();
+    const user = userEvent.setup();
+    await user.click(approve);
+    await user.click(decline);
+    expect(append).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('heading', { name: 'Saved read result' })).toBeVisible();
+  });
+
   it.each(['approval', 'question'] as const)(
     'restores a native %s card and routes the click through the owning root',
     async (kind) => {

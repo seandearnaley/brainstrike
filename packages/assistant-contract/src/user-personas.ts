@@ -47,15 +47,13 @@ export const DEFAULT_USER_PERSONA_MAX_STEPS = 8;
  * Toolset applied when the frontmatter omits `tools:` — the curated read-only
  * exploration set. Deliberately EXCLUDES `webSearch` (external egress must be
  * an explicit author choice) and the read-risk-but-interactive tools
- * (`askUser`, `submitPlan`, `manageTaskList`), which make no sense inside a
- * delegated child.
+ * (`askUser`, `submitPlan`), which require explicit declaration and durable
+ * child control. `manageTaskList` belongs to the parent.
  *
  * `querySelf` is ALSO deliberately excluded, and this is not an oversight.
  * `assertReadOnlyPersona` would accept it (its risk category is `read`, earned
  * by a genuine sandbox), but a delegated child composing arbitrary SQL is a
- * materially wider surface than the curated exploration set, and children
- * cannot prompt for approval — every `'ask'` tool is stripped from a child's
- * map. Revisit once the tool has real supervisor-level usage; until then a
+ * materially wider surface than the curated exploration set. A
  * persona author must opt in explicitly via `tools:`. Pinned by
  * `user-personas.test.ts`.
  */
@@ -82,18 +80,9 @@ const PROVIDER_TOOL_NAME_MAX_CHARS = 64;
 export const MAX_USER_PERSONA_ID_LENGTH =
   PROVIDER_TOOL_NAME_MAX_CHARS - SUBAGENT_DELEGATION_TOOL_PREFIX.length;
 
-/**
- * Read-risk tools a user persona must NOT allowlist: `askUser`/`submitPlan`
- * SUSPEND the run (child tool maps are built from the parent's guarded map
- * BEFORE the suspend-storage fail-safe, so a no-storage run could expose a
- * child suspend tool nothing can resume — a wedge), and `manageTaskList` is
- * parent-scoped. The default toolset already excludes them; this blocks the
- * explicit-allowlist path too.
- */
+/** Task-list state belongs to the parent; interactive tools are capability-gated at runtime. */
 const USER_PERSONA_DISALLOWED_TOOL_IDS: ReadonlySet<string> = new Set([
-  NATIVE_TOOL_ID.askUser,
   NATIVE_TOOL_ID.manageTaskList,
-  NATIVE_TOOL_ID.submitPlan,
 ]);
 
 const MODEL_PIN_SEPARATOR = '::';
@@ -448,9 +437,7 @@ function resolvePersonaTools(
   const disallowed = allowedToolIds.find((toolId) => USER_PERSONA_DISALLOWED_TOOL_IDS.has(toolId));
   if (disallowed) {
     return {
-      error:
-        `tool '${disallowed}' is not available to subagent personas (suspending/interactive ` +
-        'tools cannot run inside a delegated child)',
+      error: `tool '${disallowed}' is not available to subagent personas: task-list state belongs to the parent`,
       ok: false,
     };
   }
