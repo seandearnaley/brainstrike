@@ -448,7 +448,11 @@ describe('desktop durable delegation production loop', () => {
         if (chunk.chunk.type === 'run-event') {
           liveEventIds.push(chunk.chunk.event.id);
         }
-        if (chunk.chunk.type === 'tool-event' && chunk.chunk.status === 'start') {
+        if (
+          chunk.chunk.type === 'tool-event' &&
+          chunk.chunk.status === 'start' &&
+          !abort.signal.aborted
+        ) {
           // The queue publishes the call before execution. This case exercises
           // cancellation of a running tool and its late native memory write.
           await toolStarted.promise;
@@ -493,6 +497,19 @@ describe('desktop durable delegation production loop', () => {
                 threadId: child.thread_id,
               },
             ],
+          });
+          const injected = await database.query<{ content: unknown }>(
+            'SELECT content FROM mastra_messages WHERE id = $1 AND thread_id = $2',
+            [chunk.messageId, child.thread_id]
+          );
+          expect(injected.rows).toHaveLength(1);
+          expect(injected.rows[0]?.content).toMatchObject({
+            parts: expect.arrayContaining([
+              expect.objectContaining({
+                text: 'Late native write must not replace the cancelled snapshot.',
+                type: 'text',
+              }),
+            ]),
           });
         }
       }

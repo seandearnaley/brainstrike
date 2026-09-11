@@ -3,6 +3,8 @@ import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import { build } from 'esbuild';
 import { beforeAll, expect, it } from 'vitest';
@@ -42,22 +44,21 @@ it.for(['approve', 'decline', 'interrupt', 'answer', 'plan-approve', 'plan-rejec
   async (decision, { signal }) => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-delegated-restart-'));
     const run = async (phase: string) => {
-      await execFileAsync(
+      const execution = execFileAsync(
         process.execPath,
-        [
-          '--input-type=module',
-          '--eval',
-          fixtureCode,
-          'delegated-process-restart',
-          directory,
-          phase,
-          decision,
-        ],
+        ['--input-type=module', '-', directory, phase, decision],
         {
           cwd: path.resolve(import.meta.dirname, '../../..'),
           signal,
         }
       );
+      const input = execution.child.stdin;
+      if (!input) {
+        throw new Error('Restart fixture requires a stdin pipe');
+      }
+      // Feed the compiled closure via stdin; argv[1] is '-' and the existing
+      // directory/phase/decision positions are unchanged, without an argv size cap.
+      await Promise.all([pipeline(Readable.from([fixtureCode]), input), execution]);
       return resultSchema.parse(
         JSON.parse(await readFile(path.join(directory, `${phase}.json`), 'utf8'))
       );

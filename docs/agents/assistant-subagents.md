@@ -907,12 +907,21 @@ event retention and absence of the unfinished tool call. It does not claim a
 packaged process restart or cancellation during snapshot-resumed tool execution;
 those remain in the nested resume and assembled E2E acceptance.
 
-The delayed-consumer case waits for the real native late-result save before
-allowing terminal consumption. It failed when snapshot capture and normal-finish
-classification relied on the child's propagated signal: that signal can lag the
-owner's cancellation. The owner signal supplied by `buildStreamOptions` governs
-both decisions; the child may not turn an already-cancelled owner turn back into
-a normal finish. No sleeps, retries or timeout changes establish this ordering.
+The delayed-consumer case waits for the tool to enter execution, then aborts the
+owner. The authoritative root signal now prevents the old automatic native late
+save. To retain the adversarial persistence proof, the test injects a late result
+through the real `Memory.saveMessages` API using the observed native message id,
+and reads that exact row back before resuming terminal consumption. The frozen
+snapshot must replace that row and retain the visible partial text and cancelled
+events after engine reconstruction. This is fault injection at the native writer
+boundary, not a claim that a cancelled native run normally produces a late save.
+
+Historically this case failed when snapshot capture and normal-finish
+classification relied on the child's propagated signal, which can lag the owner.
+The owner signal supplied by `buildStreamOptions` still governs both decisions;
+the child cannot turn an already-cancelled owner turn into a normal finish.
+`runTurnAttempts` joins child persistence in its generator finalizer after consumption;
+no sleeps, retries or timeout changes establish the verifier's ordering.
 
 ### Child tool input transport parity (BST-1719)
 
