@@ -957,3 +957,12 @@ cannot address that child as its own execution (native acceptance is blocked).
 Repeated signal IDs reach the child model once. Idle `sendMessage` wakes the same
 native child memory thread, but that native proof alone does not establish the
 Brainstrike host admission, budget, decision or human-composer integration.
+
+The native active-child input path uses `childAgent.sendSignal` with a canonical
+`createMessageSignal` persisted through native Memory first. `ifIdle: discard`
+prevents a raced completion from accidentally waking an unowned continuation.
+Root-agent delivery to a child is rejected by native agent ownership; the host
+registers the actual persona agent capability and supplies observed native scope.
+Signal echo metadata carries the exact observed invocation identity for projection;
+unknown/finished child owners fail visibly. Foreground/background native tests
+preserve exactly-once model consumption and parent terminal result delivery.

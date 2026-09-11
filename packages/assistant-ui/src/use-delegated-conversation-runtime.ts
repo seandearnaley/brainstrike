@@ -5,7 +5,12 @@ import {
   useExternalMessageConverter,
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
-import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
+import {
+  type AssistantUiThreadHistoryAdapter,
+  CHILD_INPUT_DELIVERY_METADATA_KEY,
+  CHILD_USER_MESSAGE_DATA_NAME,
+  childUserMessageSchema,
+} from '@brainstrike/assistant-contract';
 import { useMemo } from 'react';
 import type { DelegatedConversationUpdate } from './delegated-conversation-receiver';
 
@@ -16,6 +21,48 @@ export interface DelegatedConversationRuntimeOptions {
   readonly update?: DelegatedConversationUpdate;
 }
 const convertMessage = (message: ThreadMessageLike): ThreadMessageLike => message;
+
+function splitChildMessages(
+  message: DelegatedConversationUpdate['message'],
+  id: string
+): ThreadMessageLike[] {
+  const result: ThreadMessageLike[] = [];
+  let parts: typeof message.parts = [];
+  let segment = 0;
+  for (const part of message.parts) {
+    if (part.type !== 'data' || part.name !== CHILD_USER_MESSAGE_DATA_NAME) {
+      parts.push(part);
+      continue;
+    }
+    const input = childUserMessageSchema.parse(part.data);
+    if (parts.length > 0) {
+      result.push({
+        content: parts,
+        id: `${id}:${segment}`,
+        metadata: message.metadata,
+        role: 'assistant',
+        status: { reason: 'stop', type: 'complete' },
+      });
+    }
+    result.push({
+      content: [{ text: input.text, type: 'text' }],
+      createdAt: new Date(input.createdAt),
+      id: input.id,
+      metadata: { custom: { [CHILD_INPUT_DELIVERY_METADATA_KEY]: 'delivered' } },
+      role: 'user',
+    });
+    parts = [];
+    segment += 1;
+  }
+  result.push({
+    content: parts,
+    id: segment === 0 ? id : `${id}:${segment}`,
+    metadata: message.metadata,
+    role: 'assistant',
+    status: message.status,
+  });
+  return result;
+}
 
 /** Subscribe a view to host-owned output; this runtime never starts a model. */
 export function useDelegatedConversationRuntime({
@@ -38,15 +85,12 @@ export function useDelegatedConversationRuntime({
     if (!message) {
       return [];
     }
-    const current: ThreadMessageLike = {
-      content: message.parts,
-      id: `delegated-leg:${JSON.stringify([hostRunId, childRunId])}`,
-      metadata: message.metadata,
-      role: 'assistant',
-      status: message.status,
-    };
+    const current = splitChildMessages(
+      message,
+      `delegated-leg:${JSON.stringify([hostRunId, childRunId])}`
+    );
     if (!head) {
-      return [current];
+      return current;
     }
     // The vendor concatenator retains the first assistant's status. Only the
     // active baseline head shares this continuation; saved branches are untouched.
@@ -54,7 +98,7 @@ export function useDelegatedConversationRuntime({
       head.message.role === 'assistant'
         ? { ...head.message, status: message.status }
         : head.message,
-      current,
+      ...current,
     ];
   }, [head, message, hostRunId, childRunId]);
   const converted = useExternalMessageConverter({

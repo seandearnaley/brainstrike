@@ -37,6 +37,7 @@ export interface ModelProviderScript {
    * the tool-result server-side, no shim-authored content needed — then emits
    * `toolCall` once one tool-result for that turn comes back, then `finalText`.
    */
+  readonly beforeToolFinish?: Promise<void>;
   readonly deferredTool?: true;
   readonly finalText: string;
   /** Omit for a response-only turn, including native background wakeups. */
@@ -179,7 +180,11 @@ function toolCallMessage(call: ScriptedToolCall, toolCallId: string): Record<str
   };
 }
 
-function writeStreamingToolCall(response: ServerResponse, call: ScriptedToolCall): void {
+async function writeStreamingToolCall(
+  response: ServerResponse,
+  call: ScriptedToolCall,
+  beforeFinish?: Promise<void>
+): Promise<void> {
   const { created, id } = completionIdentity();
   const toolCallId = `call_e2e_${Date.now()}`;
   response.writeHead(200, {
@@ -215,6 +220,7 @@ function writeStreamingToolCall(response: ServerResponse, call: ScriptedToolCall
       object: 'chat.completion.chunk',
     })
   );
+  await beforeFinish;
   response.write(
     sseChunk({
       choices: [{ delta: {}, ['finish_reason']: 'tool_calls', index: 0 }],
@@ -334,7 +340,7 @@ export async function startModelProviderShim(
     }
 
     void readJsonBody(request)
-      .then(({ messages, stream, tools }) => {
+      .then(async ({ messages, stream, tools }) => {
         const toolResultCount = countToolResultMessages(messages);
         const selectedScript =
           typeof script === 'function'
@@ -365,7 +371,7 @@ export async function startModelProviderShim(
           writeStreamingFinalText(response, turn.finalText);
           return;
         }
-        writeStreamingToolCall(response, turn.call);
+        await writeStreamingToolCall(response, turn.call, selectedScript.beforeToolFinish);
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);

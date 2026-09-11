@@ -3,6 +3,7 @@ import {
   type DelegatedToolActionIdentity,
   isDelegatedToolActionIdentity,
 } from '@brainstrike/assistant-contract';
+import { z } from 'zod';
 import type { ConversationStreamChunk, StreamChunkDelegatedConversation } from '../types';
 import type { DelegatedRunIdentity } from './delegated-run-publication';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
@@ -44,6 +45,65 @@ function requireIdentity(value: string | undefined): string {
     throw new Error('Delegated stream requires observed native identity.');
   }
   return value;
+}
+
+function assertChildIdentity<State>(
+  child: ChildStreamState<State> | undefined,
+  identity: DelegatedRunIdentity
+): void {
+  if (
+    child &&
+    (child.identity.childRuntimeRunId !== identity.childRuntimeRunId ||
+      child.identity.personaId !== identity.personaId)
+  ) {
+    throw new Error('Delegated stream changed its native invocation identity.');
+  }
+}
+
+function projectHumanInput<State>(
+  part: unknown,
+  children: ReadonlyMap<string, ChildStreamState<State>>
+): StreamChunkDelegatedConversation[] {
+  const input = z
+    .object({
+      contents: z.string(),
+      createdAt: z.iso.datetime(),
+      id: z.string().min(1),
+      metadata: z.object({
+        brainstrikeDelegatedInput: z.object({
+          childRuntimeRunId: z.string(),
+          parentRuntimeRunId: z.string(),
+          parentToolCallId: z.string(),
+          personaId: z.string(),
+        }),
+      }),
+    })
+    .parse(readMastraStreamPartValue(part, 'data'));
+  const identity = input.metadata.brainstrikeDelegatedInput;
+  const child = children.get(
+    JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId])
+  );
+  if (
+    !child ||
+    child.finished ||
+    child.identity.childRuntimeRunId !== identity.childRuntimeRunId ||
+    child.identity.personaId !== identity.personaId
+  ) {
+    throw new Error('Human input has no matching active delegated stream owner.');
+  }
+  return [
+    {
+      chunk: {
+        createdAt: input.createdAt,
+        id: input.id,
+        text: input.contents,
+        type: 'child-user-message',
+      },
+      identity: child.identity,
+      messageId: child.messageId,
+      type: 'delegated-conversation-chunk',
+    },
+  ];
 }
 
 /** One projection per attempt: native invocation identity owns independent mapper state. */
@@ -142,6 +202,9 @@ export function createDelegatedStreamProjection<State>(
     toolNames: Map<string, string>,
     ancestors: readonly DelegatedRunIdentity[] = []
   ): Promise<StreamChunkDelegatedConversation[]> => {
+    if (readMastraStreamPartString(part, 'type') === 'data-user-message') {
+      return projectHumanInput(part, children);
+    }
     if (readMastraStreamPartString(part, 'type') !== 'tool-output') {
       return [];
     }
@@ -158,13 +221,7 @@ export function createDelegatedStreamProjection<State>(
     };
     const key = JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId]);
     let child = children.get(key);
-    if (
-      child &&
-      (child.identity.childRuntimeRunId !== identity.childRuntimeRunId ||
-        child.identity.personaId !== identity.personaId)
-    ) {
-      throw new Error('Delegated stream changed its native invocation identity.');
-    }
+    assertChildIdentity(child, identity);
     if (!child) {
       const binding = await authorize(identity);
       child = {

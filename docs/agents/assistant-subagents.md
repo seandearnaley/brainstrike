@@ -1574,3 +1574,11 @@ cleanup errors. Shared Stop eligibility reuses the approval/suspend notice's exa
 identity and resume outcome: separate successful decision messages retire historical
 pause controls, failed decisions remain actionable, and sibling decisions do not
 retire the selected child's pause.
+
+Active human follow-ups use the observed child identity and its existing persona
+agent signal owner. The shared child composer sends through the authenticated
+host, which rechecks owner, root, active host and cancellation admission. Native
+user signals are durable chronological child turns; they do not become parent
+input or launch a second runtime. See the active-input receipt and interruption
+contract in assistant-persistence.md. Production coverage spans native foreground
+and background delivery and the shared Electron child-composer path.

@@ -33,6 +33,7 @@ function Conversation({
   onEdit,
   running = false,
   onExitPlanMode,
+  onSendActiveInput,
 }: {
   id: string;
   messages: readonly ThreadMessageLike[];
@@ -42,6 +43,7 @@ function Conversation({
   onEdit?: ExternalStoreAdapter<ThreadMessageLike>['onEdit'];
   running?: boolean;
   onExitPlanMode?: () => void;
+  onSendActiveInput?: (input: { readonly id: string; readonly text: string }) => Promise<void>;
 }) {
   const runtime = useExternalStoreRuntime({
     convertMessage: (value) => value,
@@ -55,6 +57,7 @@ function Conversation({
   return (
     <AssistantConversationPanel
       label={id}
+      onSendActiveInput={onSendActiveInput}
       runtime={runtime}
       threadKey={id}
       {...(onExitPlanMode
@@ -75,6 +78,70 @@ describe('shared conversation panel', () => {
     cleanup();
     resetFollowUpQueueStore();
     useRewindComposerStore.getState().consume();
+  });
+
+  it.each(['pending', 'delivered'])(
+    'shows the persisted %s child input acknowledgement',
+    (state) => {
+      render(
+        <TooltipProvider>
+          <Conversation
+            id="Cedar"
+            messages={[
+              {
+                content: 'Inspect file',
+                id: 'human',
+                metadata: { custom: { brainstrikeChildInputDelivery: state } },
+                role: 'user',
+              },
+            ]}
+            onNew={async () => {}}
+          />
+        </TooltipProvider>
+      );
+      expect(
+        screen.getByText(
+          state === 'pending'
+            ? 'Delivery unconfirmed. This input will not be replayed automatically.'
+            : 'Accepted by child'
+        )
+      ).toHaveAttribute('role', 'status');
+    }
+  );
+
+  it('sends an active child draft once, retains failed input, and retries the same request id explicitly', async () => {
+    const onNew = vi.fn(async () => {});
+    const send = vi
+      .fn<(input: { readonly id: string; readonly text: string }) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('Delivery was interrupted'))
+      .mockResolvedValue(undefined);
+    render(
+      <TooltipProvider>
+        <Conversation
+          id="Cedar"
+          messages={[message('Reading')]}
+          onNew={onNew}
+          onSendActiveInput={send}
+          running
+        />
+      </TooltipProvider>
+    );
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'Check another file');
+    await user.click(screen.getByRole('button', { name: 'Send to child' }));
+    await expect(screen.findByText('Delivery was interrupted')).resolves.toHaveAttribute(
+      'role',
+      'alert'
+    );
+    expect(input).toHaveValue('Check another file');
+    await user.click(input);
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(input).toHaveValue(''));
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[0]?.[0]).toEqual(send.mock.calls[1]?.[0]);
+    expect(onNew).not.toHaveBeenCalled();
+    expect(useFollowUpQueueStore.getState().queuedByThread).toEqual({});
   });
 
   it('does not inherit the parent rewind capability', () => {

@@ -84,6 +84,7 @@ import { handleRunStatusRequest } from './assistant-server/run-status-endpoint';
 import { recordDesktopContinuationRunTreatment } from './assistant-server/run-treatment-persistence';
 import { respondToSecretReadError } from './assistant-server/secret-error-responses';
 import { injectSelfImprovementSignalContext } from './assistant-server/self-improvement-signal-context';
+import { handleDelegatedFollowupRequest } from './assistant-server/send-delegated-followup';
 import type { AssistantServerOptions } from './assistant-server/server-options';
 import {
   createShellCorrelation,
@@ -378,6 +379,11 @@ export async function handleAssistantRequest(
 
   if (route === 'steer') {
     await handleSteerRequest(req, res);
+    return;
+  }
+
+  if (route === 'child-input') {
+    await handleDelegatedFollowupRequest(req, res);
     return;
   }
 

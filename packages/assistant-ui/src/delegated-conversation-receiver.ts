@@ -56,6 +56,22 @@ function readEnvelope(value: unknown): DelegatedConversationStreamData {
   return value as unknown as DelegatedConversationStreamData;
 }
 
+function readDelegatedEnvelopeData(chunk: AssistantStreamChunk): unknown[] {
+  if (chunk.type === 'data') {
+    return chunk.data.flatMap((item) =>
+      isRecord(item) && item['name'] === DELEGATED_CONVERSATION_DATA_NAME ? [item['data']] : []
+    );
+  }
+  if (
+    chunk.type === 'part-start' &&
+    chunk.part.type === 'data' &&
+    chunk.part.name === DELEGATED_CONVERSATION_DATA_NAME
+  ) {
+    return [chunk.part.data];
+  }
+  return [];
+}
+
 /** Ephemeral decoder state only. Native memory remains the transcript writer. */
 class ChildReceiver {
   private readonly writer: WritableStreamDefaultWriter<Uint8Array>;
@@ -248,41 +264,40 @@ export function createDelegatedConversationTap(
         controller.enqueue(chunk);
         return;
       }
-      if (
-        chunk.type !== 'part-start' ||
-        chunk.part.type !== 'data' ||
-        chunk.part.name !== DELEGATED_CONVERSATION_DATA_NAME
-      ) {
+      const data = readDelegatedEnvelopeData(chunk);
+      if (data.length === 0) {
         controller.enqueue(chunk);
         return;
       }
       try {
-        const envelope = readEnvelope(chunk.part.data);
-        const { childRuntimeRunId, parentRuntimeRunId, parentToolCallId } = envelope.identity;
-        const key = JSON.stringify([parentRuntimeRunId, parentToolCallId, childRuntimeRunId]);
-        let child = children.get(key);
-        if (!child) {
-          const opening = envelope.frames[0];
-          if (
-            opening?.code !== 'f' ||
-            !isRecord(opening.value) ||
-            opening.value['messageId'] !== envelope.messageId
-          ) {
-            throw new Error('Delegated replay requires its matching native opening frame.');
+        for (const value of data) {
+          const envelope = readEnvelope(value);
+          const { childRuntimeRunId, parentRuntimeRunId, parentToolCallId } = envelope.identity;
+          const key = JSON.stringify([parentRuntimeRunId, parentToolCallId, childRuntimeRunId]);
+          let child = children.get(key);
+          if (!child) {
+            const opening = envelope.frames[0];
+            if (
+              opening?.code !== 'f' ||
+              !isRecord(opening.value) ||
+              opening.value['messageId'] !== envelope.messageId
+            ) {
+              throw new Error('Delegated replay requires its matching native opening frame.');
+            }
+            child = new ChildReceiver(
+              envelope.identity,
+              envelope.messageId,
+              (update) => {
+                if (!abortSignal.aborted) {
+                  onUpdate(update);
+                }
+              },
+              abortSignal
+            );
+            children.set(key, child);
           }
-          child = new ChildReceiver(
-            envelope.identity,
-            envelope.messageId,
-            (update) => {
-              if (!abortSignal.aborted) {
-                onUpdate(update);
-              }
-            },
-            abortSignal
-          );
-          children.set(key, child);
+          await child.receive(envelope);
         }
-        await child.receive(envelope);
       } catch (error) {
         await settleAfterFailure();
         throw error;

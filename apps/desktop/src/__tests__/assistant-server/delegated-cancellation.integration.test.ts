@@ -66,6 +66,39 @@ describe('desktop delegated cancellation', () => {
     status: 'running',
     timestamp: '2026-09-10T01:00:00.000Z',
   } as const;
+  it('authorizes human input only for the observed child in its owning live host', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const send = vi.fn(async () => {});
+    const input = { id: 'human-input', text: 'Inspect the second file' };
+    await host.persist(identity);
+    await expect(host.sendFollowup(scope, 'child', input, send)).rejects.toThrow();
+    await host.bindRun(run);
+    await expect(
+      host.sendFollowup({ ...scope, rootThreadId: 'other' }, 'child', input, send)
+    ).rejects.toThrow();
+    await expect(
+      host.sendFollowup({ ...scope, ownerResourceId: 'stranger' }, 'child', input, send)
+    ).rejects.toThrow();
+    await expect(host.sendFollowup(scope, 'sibling', input, send)).rejects.toThrow();
+    expect(send).not.toHaveBeenCalled();
+    await host.sendFollowup(scope, 'child', input, send);
+    expect(send).toHaveBeenCalledExactlyOnceWith(
+      {
+        identity: run,
+        personaId: 'explore',
+        resourceId: identity.childResourceId,
+        runId: run.childRuntimeRunId,
+        threadId: 'child',
+      },
+      input
+    );
+    await revokeDelegatedConversationAdmission(database, scope, 'child', false);
+    await expect(
+      host.sendFollowup(scope, 'child', { ...input, id: 'after-stop' }, send)
+    ).rejects.toThrow();
+    expect(send).toHaveBeenCalledOnce();
+  });
+
   it('joins registered owners in the selected root and propagates cleanup failure', async () => {
     const release = Promise.withResolvers<void>();
     const first = vi.fn(async () => {

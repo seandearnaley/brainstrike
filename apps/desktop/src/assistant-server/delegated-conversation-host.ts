@@ -2,6 +2,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import type {
   DelegatedConversationBinding,
   DelegatedConversationIdentity,
+  DelegatedFollowupControl,
+  DelegatedFollowupInput,
+  DelegatedFollowupTarget,
   DelegatedRunIdentity,
   DelegatedSuspensionResolver,
   DelegatedToolActionScope,
@@ -25,13 +28,18 @@ import {
   type DelegatedConversationColor,
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
+  type DelegatedConversationScope,
   type DelegatedInvocation,
   readAssistantHistoryMessages,
   readAssistantHistoryRunEvents,
 } from '@brainstrike/db';
 import { z } from 'zod';
+import { assertDelegatedConversationAdmission } from './delegated-cancellation-admission';
 import { createDelegatedStepBudget } from './delegated-step-budget';
-import { reserveDelegatedInvocation } from './delegated-tree-admission';
+import {
+  assertDelegationRootRunning,
+  reserveDelegatedInvocation,
+} from './delegated-tree-admission';
 
 const identityString = z.string().refine((value) => value.trim().length > 0);
 const hostScopeSchema = z.object({
@@ -108,6 +116,12 @@ export function createDesktopDelegatedConversationHost(
   hostRunId: string
 ): {
   budget: DelegatedBudgetPort;
+  sendFollowup(
+    scope: DelegatedConversationScope,
+    threadId: string,
+    input: DelegatedFollowupInput,
+    control: DelegatedFollowupControl
+  ): Promise<void>;
   bindRun(identity: DelegatedRunIdentity): Promise<{
     readonly threadId: string;
     readonly messageId?: string;
@@ -152,6 +166,7 @@ export function createDesktopDelegatedConversationHost(
   // index therefore permits at most one active claim in this binding.
   const claims = new Set<string>();
   let claimedActionKey: string | undefined;
+  const followupTargets = new Map<string, DelegatedFollowupTarget>();
   const baselines = new Map<string, DelegatedConversationBaseline>();
   const initialBaselines = new Map<string, Promise<DelegatedConversationBaseline>>();
   const captureHistory = async (
@@ -207,6 +222,17 @@ export function createDesktopDelegatedConversationHost(
         baselines.set(invocation.threadId, await pending);
       }
       const baseline = baselines.get(invocation.threadId);
+      const node = await repository.get(scope, invocation.threadId);
+      if (!node?.parentThreadId) {
+        throw new DelegatedConversationIdentityError('missing-followup-owner');
+      }
+      followupTargets.set(node.threadId, {
+        identity,
+        personaId: identity.personaId,
+        resourceId: node.resourceId,
+        runId: identity.childRuntimeRunId,
+        threadId: node.threadId,
+      });
       return {
         threadId: invocation.threadId,
         ...(baseline ? { baseline } : {}),
@@ -460,6 +486,23 @@ export function createDesktopDelegatedConversationHost(
         parentThreadId = child.threadId;
       }
       return result;
+    },
+    async sendFollowup(requestedScope, threadId, input, control) {
+      const scope = await readScope();
+      if (
+        requestedScope.ownerResourceId !== scope.ownerResourceId ||
+        requestedScope.rootThreadId !== scope.rootThreadId
+      ) {
+        throw new DelegatedConversationIdentityError('followup-root-owner-mismatch');
+      }
+      await assertDelegationRootRunning(database, scope, hostRunId);
+      const target = followupTargets.get(threadId);
+      const node = await repository.get(scope, threadId);
+      if (!(target && node?.parentThreadId) || node.resourceId !== target.resourceId) {
+        throw new DelegatedConversationIdentityError('followup-child-owner-unavailable');
+      }
+      await assertDelegatedConversationAdmission(database, scope, [threadId]);
+      await control(target, input);
     },
   };
   return host;

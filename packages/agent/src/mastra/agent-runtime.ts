@@ -49,6 +49,7 @@ import type {
   DelegatedCancellationControl,
   DelegatedConversationBinding,
 } from './delegated-conversation-binding';
+import { createDelegatedFollowupControl } from './delegated-followup';
 import {
   createRootDelegatedContextProcessor,
   type DelegatedSystemContextSource,
@@ -854,6 +855,7 @@ export async function createMastraAgentRuntime(
     Boolean(backgroundAgentOptions.backgroundTasks)
   );
   let unregisterCancellation: (() => void) | undefined;
+  let unregisterFollowup: (() => void) | undefined;
   let invalidateMcpAppAdmission: (() => void) | undefined;
   const dispose = async () => {
     const failures: unknown[] = [];
@@ -863,6 +865,7 @@ export async function createMastraAgentRuntime(
       () => invalidateMcpAppAdmission?.(),
       () => mastra?.shutdown(),
       () => unregisterCancellation?.(),
+      () => unregisterFollowup?.(),
       () => mcpClient?.disconnect(),
       () => options.conversationBinding?.finishToolActions?.(),
     ]) {
@@ -903,6 +906,9 @@ export async function createMastraAgentRuntime(
   };
   await initializeRuntimeLifetime(() => {
     unregisterCancellation = options.conversationBinding?.registerCancellation?.(cancelInvocations);
+    unregisterFollowup = options.conversationBinding?.registerFollowup?.(
+      createDelegatedFollowupControl(subAgents)
+    );
     invalidateMcpAppAdmission = registerAppCapableAdmission(mcpAppAdmission, mcpAppToolAdmission);
   }, dispose);
 

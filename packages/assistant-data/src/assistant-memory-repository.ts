@@ -8,6 +8,8 @@ import {
   type AssistantEditCheckpointCaptureStatus,
   type AssistantEditCheckpointOp,
   type AssistantEditCheckpointRecord,
+  CHILD_INPUT_DELIVERY_METADATA_KEY,
+  childInputDeliveryStateSchema,
   getToolActionIdentityKey,
   isGuardedToolError,
   SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME,
@@ -2178,6 +2180,23 @@ function toUserHistoryAttachments(
   return attachments;
 }
 
+function readChildInputReceipt(message: AssistantHistoryMessage): Record<string, unknown> {
+  if (!(isNativeUserSignal(message) && isRecord(message.content))) {
+    return {};
+  }
+  const metadata = message.content['metadata'];
+  if (!isRecord(metadata) || metadata['brainstrikeFollowup'] === undefined) {
+    return {};
+  }
+  const receipt = metadata['brainstrikeFollowup'];
+  if (!isRecord(receipt)) {
+    throw new Error('Child input has an invalid delivery receipt.');
+  }
+  return {
+    [CHILD_INPUT_DELIVERY_METADATA_KEY]: childInputDeliveryStateSchema.parse(receipt['state']),
+  };
+}
+
 function appendUserHistoryMessage(args: {
   message: AssistantHistoryMessage;
   parentId: string | null;
@@ -2200,7 +2219,7 @@ function appendUserHistoryMessage(args: {
       content,
       createdAt: args.message.createdAt,
       id: args.message.id,
-      metadata: { custom: {} },
+      metadata: { custom: readChildInputReceipt(args.message) },
       role: 'user',
     },
     parentId: args.parentId,

@@ -18,6 +18,7 @@ import type { ChildNode } from './delegated-workspace-node';
 import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { resolveDelegatedWorkspaceDecision } from './resolve-delegated-workspace-identity';
+import { sendDelegatedWorkspaceInput } from './send-delegated-workspace-input';
 import { RootsContext, useDelegatedConversationRoot } from './use-delegated-conversation-root';
 export function Failure({ error }: { readonly error: Error }) {
   return (
@@ -124,6 +125,17 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
         <div className="min-h-0 flex-1">
           <DelegatedConversationPanel
             label={node.displayName}
+            {...(hasDurableAssistantUsageCapability() && live?.update.baseline?.hostRunId
+              ? {
+                  onSendActiveInput: (input: { readonly id: string; readonly text: string }) => {
+                    const hostRunId = live.update.baseline?.hostRunId;
+                    if (!hostRunId) {
+                      throw new Error('Child input has no active host owner.');
+                    }
+                    return sendDelegatedWorkspaceInput(node, hostRunId, input);
+                  },
+                }
+              : {})}
             {...(hasDurableAssistantUsageCapability()
               ? {
                   onCancel: async () => {

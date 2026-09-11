@@ -169,3 +169,142 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     }
   }
 });
+
+test('sends human input to the active child and reloads its rich conversation @smoke', async ({
+  electron,
+}, testInfo) => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-child-input-'));
+  await writeFile(path.join(workspace, 'evidence.txt'), 'FOLLOWUP_FILE_EVIDENCE');
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let childCalls = 0;
+  let receivedInput = false;
+  const provider = await startModelProviderShim(({ messages, toolNames }) => {
+    if (toolNames.length === 0) {
+      return { finalText: 'Child input task' };
+    }
+    const history = JSON.stringify(messages);
+    const userMessages = JSON.stringify(
+      messages.filter(
+        (message) =>
+          message && typeof message === 'object' && 'role' in message && message.role === 'user'
+      )
+    );
+    if (!userMessages.includes('CHILD_ACTIVE_INPUT_TASK')) {
+      if (history.includes('CHILD_FOLLOWUP_RECEIVED')) {
+        return { finalText: 'PARENT_FOLLOWUP_OUTCOME' };
+      }
+      if (history.includes('Background task started.')) {
+        return { finalText: 'Parent continues while the child reads.' };
+      }
+      return {
+        finalText: 'Parent continues while the child reads.',
+        toolCall: {
+          arguments: {
+            _background: { enabled: true },
+            prompt: 'CHILD_ACTIVE_INPUT_TASK: read evidence.txt and report its marker.',
+          },
+          name: 'agent-explore',
+        },
+      };
+    }
+    childCalls += 1;
+    if (childCalls === 1) {
+      entered.resolve();
+    }
+    if (history.includes('HUMAN_FOLLOWUP_1723')) {
+      receivedInput = true;
+      return { finalText: 'CHILD_FOLLOWUP_RECEIVED' };
+    }
+    return {
+      ...(childCalls === 1 ? { beforeToolFinish: release.promise } : {}),
+      finalText: 'CHILD_MISSED_INPUT',
+      toolCall: { arguments: { path: 'evidence.txt' }, name: 'brainstrike_readWorkspaceFile' },
+    };
+  });
+  const environment = {
+    BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace,
+    BRAINSTRIKE_OPENROUTER_API_KEY: 'isolated-child-input-key',
+    OPENROUTER_BASE_URL: provider.baseUrl,
+  };
+  const previous = Object.fromEntries(
+    Object.keys(environment).map((key) => [key, process.env[key]])
+  );
+  Object.assign(process.env, environment);
+  try {
+    const window = await electron.ensureWindow();
+    await ensureMockWorkspaceOpen(window);
+    await configureAssistantProvider(window, {
+      compositeModelKey: 'openrouter::openai/gpt-5.4',
+      provider: 'openrouter',
+    });
+    await new HomePage(window).openSettings();
+    await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+    await window
+      .getByRole('combobox', { exact: true, name: 'Read permission' })
+      .selectOption('allow');
+    await ensureAssistantShellVisible(window);
+    const root = window.getByTestId('chat-panel');
+    await root
+      .getByRole('textbox', { name: 'Message input' })
+      .fill('ROOT_ACTIVE_INPUT_TASK: delegate to Explorer to read evidence.txt.');
+    await root.getByRole('button', { exact: true, name: 'Send' }).click();
+    await expect.poll(() => childCalls).toBeGreaterThan(0);
+    await entered.promise;
+    await expect(
+      root.getByText('Parent continues while the child reads.', { exact: true })
+    ).toBeVisible();
+    await root.getByRole('button', { exact: true, name: 'Expand activity' }).first().click();
+    await root.getByRole('button', { name: /Open .* conversation/ }).click();
+    const childTab = window
+      .getByRole('tablist', { name: 'Workspace tabs' })
+      .getByRole('tab', { selected: true });
+    await expect(childTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+    const childName = (await childTab.innerText()).trim();
+    const child = window.getByRole('region', { exact: true, name: childName });
+    const input = child.getByRole('textbox', { name: 'Message input' });
+    await expect(input).toBeEnabled();
+    await input.fill('HUMAN_FOLLOWUP_1723');
+    await child.getByRole('button', { exact: true, name: 'Send to child' }).click();
+    await expect(input).toHaveValue('');
+    release.resolve();
+    await expect(child.getByText('HUMAN_FOLLOWUP_1723', { exact: true })).toBeVisible();
+    await expect(child.getByText('CHILD_FOLLOWUP_RECEIVED', { exact: true })).toBeVisible();
+    await expect(root.getByText('PARENT_FOLLOWUP_OUTCOME', { exact: true })).toBeVisible();
+    expect(receivedInput).toBe(true);
+    expect(childCalls).toBe(2);
+    const completedRequests = provider.requestCount();
+    await window.reload();
+    await ensureAssistantShellVisible(window);
+    await expect(child.getByText('HUMAN_FOLLOWUP_1723', { exact: true })).toBeVisible();
+    await expect(child.getByText('CHILD_FOLLOWUP_RECEIVED', { exact: true })).toBeVisible();
+    expect(provider.requestCount()).toBe(completedRequests);
+    await window.screenshot({
+      animations: 'disabled',
+      path: testInfo.outputPath('child-followup-reloaded.png'),
+    });
+  } finally {
+    release.resolve();
+    try {
+      const process = (await electron.ensureContext()).app.process();
+      const exited =
+        process.exitCode === null && process.signalCode === null
+          ? once(process, 'exit', { signal: AbortSignal.timeout(5000) })
+          : Promise.resolve();
+      await Promise.all([exited, electron.dispose()]);
+      expect(process.exitCode).toBe(0);
+      expect(process.signalCode).toBeNull();
+    } finally {
+      await provider.close();
+      for (const key of Object.keys(environment)) {
+        const value = previous[key];
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+      await rm(workspace, { force: true, recursive: true });
+    }
+  }
+});

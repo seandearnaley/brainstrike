@@ -211,6 +211,9 @@ export {
   type DelegatedCancellationTarget,
   type DelegatedConversationBinding,
   type DelegatedConversationIdentity,
+  type DelegatedFollowupControl,
+  type DelegatedFollowupInput,
+  type DelegatedFollowupTarget,
   type DelegatedToolActionScope,
 } from './mastra/delegated-conversation-binding';
 export type { DelegatedRunIdentity } from './mastra/delegated-run-publication';

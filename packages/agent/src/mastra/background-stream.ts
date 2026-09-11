@@ -110,7 +110,7 @@ export async function* projectBackgroundStream(
         break;
       case 'background-task-output': {
         const output = readMastraStreamPartValue(decoded.payload, 'payload');
-        if (asMastraStreamPart(output).type !== 'tool-output') {
+        if (!['data-user-message', 'tool-output'].includes(asMastraStreamPart(output).type)) {
           throw new Error('Native background child output omitted its delegation envelope.');
         }
         yield output;
