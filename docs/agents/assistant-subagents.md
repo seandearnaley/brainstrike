@@ -1251,3 +1251,19 @@ already staged attachments. Optional callback props that explicitly accept
 undefined pass directly; plan-mode configuration is assembled before transport
 selection. These boundaries preserve the existing runtime/transport tests and
 remove the reviewed panel/runtime complexity findings without rule suppression.
+
+A child reopened after renderer restart has no live snapshot identity. Its
+explicit persisted-decision resolver binds the selected child's thread id to a
+native invocation in the decision path and validates owner, root, parent run,
+parent call, child run and persona. Same-persona siblings are never interchangeable.
+The owning runtime must exist before lookup and remain the same after it; a
+runtime disposed during lookup cannot receive the decision. The final native
+host admission remains authoritative.
+
+Child pause rediscovery queries the owning root's thread/resource, then projects
+only paths whose durable invocation belongs to the selected child. Root-only
+and sibling pauses are omitted from that child's view. Missing/conflicting path
+bindings surface an explicit discovery error; known transcript content and valid
+recovered decisions remain visible. Capability gating reuses the same durable
+assistant backend capability as root history. Native restart and full rendered
+control parity still require the end-to-end delivery checks.

@@ -1,6 +1,8 @@
 import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
+  createSuspendedRunDiscovery,
+  hasDurableAssistantUsageCapability,
 } from '@brainstrike/assistant-data';
 import {
   type DelegatedConversationRuntimeOptions,
@@ -24,12 +26,15 @@ import {
   DelegatedConversationRootsProvider,
   useDelegatedConversationRoot,
 } from './delegated-conversation-root';
+import { createDelegatedWorkspaceDiscovery } from './delegated-workspace-discovery';
 import { type ChildNode, loadDelegatedWorkspaceNode } from './delegated-workspace-node';
 import {
   type DelegatedWorkspaceTab,
   delegatedWorkspaceTabId,
   readDelegatedWorkspaceTab,
 } from './delegated-workspace-tab';
+import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
+import { resolveDelegatedWorkspaceDecision } from './resolve-delegated-workspace-identity';
 
 /** Both main and child cards use the existing workspace's singleton tab action. */
 export function DelegatedWorkspaceNavigation({
@@ -89,6 +94,15 @@ function ChildView({ db, node }: { readonly db: DbHandle; readonly node: ChildNo
     }
     let active = true;
     const adapter = createAssistantThreadHistoryAdapter({
+      ...(hasDurableAssistantUsageCapability()
+        ? {
+            discoverSuspendedRuns: createDelegatedWorkspaceDiscovery(
+              createDelegatedConversationRepository(db),
+              node,
+              createSuspendedRunDiscovery(resolveAssistantBaseUrl)
+            ),
+          }
+        : {}),
       repository: createPgliteAssistantThreadRepository(db),
       resourceId: node.resourceId,
       threadId: node.threadId,
@@ -108,7 +122,7 @@ function ChildView({ db, node }: { readonly db: DbHandle; readonly node: ChildNo
     return () => {
       active = false;
     };
-  }, [db, node.resourceId, node.threadId, root]);
+  }, [db, node, root]);
   if (saved && 'error' in saved) {
     return <Failure error={saved.error} />;
   }
@@ -126,7 +140,15 @@ function ChildView({ db, node }: { readonly db: DbHandle; readonly node: ChildNo
     >
       <DelegatedConversationPanel
         label={node.displayName}
-        onNew={(message) => root.sendDecision(node.threadId, message)}
+        onNew={(message) =>
+          root.sendDecision(node.threadId, message, () =>
+            resolveDelegatedWorkspaceDecision(
+              createDelegatedConversationRepository(db),
+              node,
+              message
+            )
+          )
+        }
         {...(saved ? { persistedHistory: saved.history } : {})}
         store={root.store}
         threadId={node.threadId}

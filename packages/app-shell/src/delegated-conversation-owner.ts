@@ -1,3 +1,4 @@
+import type { DelegatedRunIdentity } from '@brainstrike/assistant-contract';
 import type {
   AssistantUiPanelProps,
   DelegatedConversationRuntimeOptions,
@@ -27,15 +28,25 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
         }
       };
     },
-    async sendDecision(threadId: string, message: DecisionMessage): Promise<void> {
+    async sendDecision(
+      threadId: string,
+      message: DecisionMessage,
+      resolvePersistedIdentity?: () => Promise<DelegatedRunIdentity | undefined>
+    ): Promise<void> {
       const child = store.getConversation(threadId);
-      if (!(runtime && child)) {
+      if (!runtime) {
         throw new Error('The owning conversation is not available for this decision.');
       }
       const owner = runtime;
-      await createDelegatedDecisionDispatcher(child.update.identity, (input) =>
-        owner.thread.append(input)
-      )(message);
+      const identity = child?.update.identity ?? (await resolvePersistedIdentity?.());
+      if (!identity || runtime !== owner) {
+        throw new Error(
+          'The owning conversation or persisted child binding is no longer available.'
+        );
+      }
+      await createDelegatedDecisionDispatcher(identity, (input) => owner.thread.append(input))(
+        message
+      );
     },
     store,
   };
