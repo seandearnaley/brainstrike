@@ -791,6 +791,7 @@ export const ChatThreadUI = ({
   onThreadRunStart,
   onToolApprovalRequired,
   isComposerDisabled,
+  hideDefaultCancel,
   disabledReason,
   localLoadingState,
   slashCommands,
@@ -830,6 +831,7 @@ export const ChatThreadUI = ({
   onThreadRunStart?: (() => void) | undefined;
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   isComposerDisabled: boolean;
+  hideDefaultCancel?: boolean | undefined;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   slashCommands: readonly SlashCommand[];
@@ -972,6 +974,7 @@ export const ChatThreadUI = ({
               its preview + Remove button after a switch to a text-only model. */}
               {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
               <ComposerInputWithTriggers
+                hideDefaultCancel={hideDefaultCancel}
                 isComposerDisabled={composerDisabled}
                 queueControl={
                   <ComposerRunControls onSteerActiveRun={onSteerActiveRun} threadKey={threadKey} />

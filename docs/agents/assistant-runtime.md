@@ -4188,3 +4188,12 @@ root-owned teardown. Repeated Stop completes interrupted snapshot deletion.
 Native/HTTP regressions live in `background-failure-cleanup.spec.ts`,
 `background-worker-stream.integration.spec.ts` and
 `delegated-waiting-cancel.integration.test.ts`.
+
+Selected child Stop is a shared conversation capability separate from the root
+composer's cancellation. A reloaded pending decision exposes the same control as
+a live child. The button waits for `/assistant/cancel-child` to join the selected
+native owners, reports errors locally, then invalidates only that child's live
+snapshot and hydrates its durable history. The default composer Cancel is hidden
+when this explicit child control owns cancellation, so there is only one Stop.
+Root messaging remains usable after the child is stopped. The actual Electron
+worker test covers that transition and the subsequent reload/reopen.

@@ -375,8 +375,12 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         Math.min(persona.maxSteps, DELEGATION_LIMITS.maxChildSteps),
         context.params.maxSteps
       );
-      params.conversationBinding?.prepare(context, { maxSteps, persona });
-      params.turnPersistence?.prepare(context, params.abortSignal);
+      params.conversationBinding?.prepare(context, { maxSteps, persona }, params.abortSignal);
+      params.turnPersistence?.prepare(
+        context,
+        params.abortSignal,
+        params.conversationBinding?.getAbortSignal?.(context.requestContext)
+      );
       inFlight += 1;
       total += 1;
       return {

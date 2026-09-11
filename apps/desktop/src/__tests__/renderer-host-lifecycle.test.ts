@@ -1137,51 +1137,54 @@ describe('RendererHostLifecycle', () => {
     vi.useRealTimers();
   });
 
-  it('destroys a newly created window if dispose races with in-flight startup', async () => {
-    const hostWindow = createFakeWindow(92);
-    let resolveLoad: (() => void) | null = null;
-    hostWindow.loadURL.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveLoad = resolve;
-        })
-    );
+  it.each([false, true])(
+    'destroys a newly created window if dispose races with in-flight startup (load rejects: %s)',
+    async (rejectLoad) => {
+      const hostWindow = createFakeWindow(92);
+      let resolveLoad: (() => void) | null = null;
+      hostWindow.loadURL.mockImplementation(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            resolveLoad = () => (rejectLoad ? reject(new Error('ERR_FAILED (-2)')) : resolve());
+          })
+      );
 
-    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
-      Object.assign(this, hostWindow);
-    });
-    Object.assign(BrowserWindow, {
-      getAllWindows: vi.fn(() => [hostWindow]),
-    });
+      MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
+        Object.assign(this, hostWindow);
+      });
+      Object.assign(BrowserWindow, {
+        getAllWindows: vi.fn(() => [hostWindow]),
+      });
 
-    const lifecycle = new RendererHostLifecycle({
-      createStatus,
-      createStoppedStatus: () =>
-        createStatus({
-          active: false,
-          lastError: null,
-          runtimeId: 'embedding-host:stopped',
+      const lifecycle = new RendererHostLifecycle({
+        createStatus,
+        createStoppedStatus: () =>
+          createStatus({
+            active: false,
+            lastError: null,
+            runtimeId: 'embedding-host:stopped',
+            state: 'stopped',
+          }),
+        mode: 'embedding-host',
+        role: 'embedding-host',
+        statusEventName: 'embedding-host:status',
+        timeoutMessage: 'timeout',
+      });
+
+      const startupPromise = lifecycle.ensureStarted({ waitForRunning: true });
+      await Promise.resolve();
+      lifecycle.dispose();
+      requireCallback(resolveLoad, 'load resolver')();
+
+      await expect(startupPromise).resolves.toEqual(
+        expect.objectContaining({
           state: 'stopped',
-        }),
-      mode: 'embedding-host',
-      role: 'embedding-host',
-      statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
-    });
-
-    const startupPromise = lifecycle.ensureStarted({ waitForRunning: true });
-    await Promise.resolve();
-    lifecycle.dispose();
-    requireCallback(resolveLoad, 'load resolver')();
-
-    await expect(startupPromise).resolves.toEqual(
-      expect.objectContaining({
-        state: 'stopped',
-      })
-    );
-    expect(hostWindow.destroy).toHaveBeenCalledTimes(1);
-    expect(getWindowRoleByWebContentsId(92)).toBeUndefined();
-  });
+        })
+      );
+      expect(hostWindow.destroy).toHaveBeenCalledTimes(1);
+      expect(getWindowRoleByWebContentsId(92)).toBeUndefined();
+    }
+  );
 
   it('retries loadFile on transient failure and succeeds on second attempt', async () => {
     vi.useFakeTimers();

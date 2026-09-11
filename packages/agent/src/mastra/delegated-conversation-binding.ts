@@ -32,7 +32,16 @@ export interface DelegatedToolActionScope {
   readonly threadId: string;
 }
 
+export type DelegatedCancellationTarget = Pick<
+  DelegatedRunIdentity,
+  'parentRuntimeRunId' | 'parentToolCallId'
+>;
+export type DelegatedCancellationControl = (
+  targets: readonly DelegatedCancellationTarget[]
+) => Promise<void>;
+
 export interface DelegatedConversationBinding {
+  readonly abortInvocations?: (targets: readonly DelegatedCancellationTarget[]) => void;
   /** Host capability required for durable invocation publication/resume authorization. */
   readonly bindRun?: (identity: DelegatedRunIdentity) => Promise<{
     readonly threadId: string;
@@ -48,11 +57,19 @@ export interface DelegatedConversationBinding {
   }) => Promise<void>;
   /** Releases only claims acquired by this binding; consumed leaf ids remain durable. */
   readonly finishToolActions?: () => Promise<void>;
+  readonly getAbortSignal?: (
+    context: DelegationStartContext['requestContext']
+  ) => AbortSignal | undefined;
   readonly hooks?: ToolHooks;
   readonly inputProcessor: InputProcessor;
-  prepare(context: DelegationStartContext, configuration: unknown): void;
+  prepare(
+    context: DelegationStartContext,
+    configuration: unknown,
+    parentSignal?: AbortSignal
+  ): void;
   /** Freeze child history after admission and before invoking native resume. */
   readonly prepareToolAction?: NonNullable<DelegatedConversationBinding['claimToolAction']>;
+  readonly registerCancellation?: (control: DelegatedCancellationControl) => () => void;
   /** Roll back this owner's claim only when native resume has not been invoked. */
   readonly releaseUnexecutedToolAction?: NonNullable<
     DelegatedConversationBinding['claimToolAction']
@@ -109,9 +126,35 @@ export function createDelegatedConversationBinding(
 ): DelegatedConversationBinding {
   const scopes = new WeakMap<DelegationStartContext['requestContext'], ParentIdentity>();
   const inputs = new Map<string, DelegatedOriginalToolCall>();
+  const controllers = new Map<string, AbortController>();
+  const preparedKeys = new Map<string, string>();
+  const signals = new WeakMap<DelegationStartContext['requestContext'], AbortSignal>();
+  const invocationKey = (identity: DelegatedCancellationTarget) =>
+    JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId]);
   const inputKey = (threadId: string, toolCallId: string) => JSON.stringify([threadId, toolCallId]);
   return {
+    abortInvocations(targets) {
+      for (const target of targets) {
+        controllers
+          .get(invocationKey(target))
+          ?.abort(new Error('Delegated conversation stopped by user.'));
+      }
+    },
+    getAbortSignal: (context) => signals.get(context),
     hooks: {
+      afterToolCall({ input, context, toolName }) {
+        if (!toolName.startsWith('agent-')) {
+          return;
+        }
+        const threadId = requireIdentity(readToolExecutionThreadId([input, context]));
+        const toolCallId = requireIdentity(readToolCallId([input, context]));
+        const preparedKey = inputKey(threadId, toolCallId);
+        const nativeKey = preparedKeys.get(preparedKey);
+        if (nativeKey) {
+          controllers.delete(nativeKey);
+          preparedKeys.delete(preparedKey);
+        }
+      },
       beforeToolCall({ input, context, toolName }) {
         if (!toolName.startsWith('agent-')) {
           return;
@@ -155,7 +198,7 @@ export function createDelegatedConversationBinding(
         return messages;
       },
     },
-    prepare(context, configuration) {
+    prepare(context, configuration, parentSignal) {
       if (scopes.has(context.requestContext)) {
         throw new Error('Delegated conversation parent binding already exists.');
       }
@@ -165,6 +208,20 @@ export function createDelegatedConversationBinding(
       if (originalToolCall && originalToolCall.toolName !== `agent-${context.primitiveId}`) {
         throw new Error('Captured delegation input belongs to a different native agent.');
       }
+      const controller = new AbortController();
+      const nativeKey = invocationKey({
+        parentRuntimeRunId: requireIdentity(context.runId),
+        parentToolCallId: requireIdentity(context.toolCallId),
+      });
+      if (controllers.has(nativeKey)) {
+        throw new Error('Delegated cancellation already owns this native invocation.');
+      }
+      controllers.set(nativeKey, controller);
+      preparedKeys.set(key, nativeKey);
+      signals.set(
+        context.requestContext,
+        parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal
+      );
       scopes.set(context.requestContext, {
         configuration: structuredClone(configuration),
         ...(originalToolCall ? { originalToolCall } : {}),

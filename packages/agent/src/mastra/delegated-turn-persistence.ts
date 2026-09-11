@@ -7,11 +7,16 @@ import {
   type AbortedTurnPersistence,
   createAbortedTurnPersistence,
 } from './aborted-turn-persistence';
+import type { DelegatedCancellationTarget } from './delegated-conversation-binding';
 
 export interface DelegatedTurnPersistence {
-  finalize: () => Promise<void>;
+  finalize: (targets?: readonly DelegatedCancellationTarget[]) => Promise<void>;
   hooks: (signal: AbortSignal) => ToolHooks;
-  prepare: (context: DelegationStartContext, signal: AbortSignal) => void;
+  prepare: (
+    context: DelegationStartContext,
+    signal: AbortSignal,
+    childSignal?: AbortSignal
+  ) => void;
   readonly processor: InputProcessor & OutputProcessor;
 }
 
@@ -19,6 +24,7 @@ interface NativeTurn {
   cleanupAbort?: () => void;
   complete: () => void;
   completion: Promise<void>;
+  ownerSignal: AbortSignal;
   persistence?: AbortedTurnPersistence;
   signal: AbortSignal;
   toolCallId: string;
@@ -37,9 +43,19 @@ export function createDelegatedTurnPersistence(
   const key = (context: { runId: string; toolCallId: string }) =>
     JSON.stringify([context.runId, context.toolCallId]);
   return {
-    async finalize() {
+    async finalize(targets) {
+      const selected = targets
+        ? new Set(
+            targets.map((target) =>
+              key({ runId: target.parentRuntimeRunId, toolCallId: target.parentToolCallId })
+            )
+          )
+        : undefined;
       const settled = await Promise.allSettled(
         Array.from(turns, async ([identity, turn]) => {
+          if (selected && !selected.has(identity)) {
+            return;
+          }
           try {
             if (!turn.persistence) {
               // An abort during input preparation may precede processInputStep.
@@ -78,19 +94,20 @@ export function createDelegatedTurnPersistence(
             throw new Error('Delegated persistence requires the native tool execution identity.');
           }
           for (const [identity, turn] of turns) {
-            if (turn.signal !== signal || turn.toolCallId !== context.toolCallId) {
+            if (turn.ownerSignal !== signal || turn.toolCallId !== context.toolCallId) {
               continue;
             }
             turn.cleanupAbort?.();
             turn.complete();
-            if (!signal.aborted) {
+            if (!turn.signal.aborted) {
               turns.delete(identity);
             }
           }
         },
       };
     },
-    prepare(context, signal) {
+    prepare(context, ownerSignal, childSignal) {
+      const signal = childSignal ?? ownerSignal;
       const identity = key(context);
       if (turns.has(identity)) {
         throw new Error('Delegated persistence already owns this native invocation.');
@@ -99,6 +116,7 @@ export function createDelegatedTurnPersistence(
       const turn: NativeTurn = {
         complete: resolve,
         completion: promise,
+        ownerSignal,
         signal,
         toolCallId: context.toolCallId,
       };

@@ -42,6 +42,7 @@ export {
   type ThreadTokenUsage,
   useContextUsageStore,
 } from './context-usage-store';
+export { ConversationExecutionControls } from './conversation-execution-controls';
 export {
   type DebugBundleBinding,
   DebugBundleProvider,

@@ -1346,3 +1346,18 @@ and result remain available after acknowledgement; only undelivered terminal
 rows enter result reconciliation. The shared DDL and migration 133 add the
 column idempotently for already initialized preview profiles. Clear/reset and
 thread deletion remove it with the task row; there is no separate delivery store.
+
+### Selective delegated cancellation admission (migration 134, BST-1723)
+
+`cancellation_requested_at` on the existing invocation is a durable admission
+revocation, not another execution status. Native Mastra remains the execution
+owner. Repeated revocation preserves its timestamp; root ownership and child
+ancestry are checked before selecting either one conversation or its subtree.
+Decision claims atomically exclude revoked paths. New descendant admission and
+model-step reservations reject a revoked ancestor in the same transaction as
+budget admission. Discovery marks the original pending decision cancelled after
+reload without manufacturing an answer or consuming another child's decision.
+The column is covered by the existing invocation deletion/reset paths; upgrade,
+replay and full-engine dump/reload preserve existing invocation identities.
+Revoking admission alone never acknowledges Stop: the control host must still
+join the selected native executors and workflow cleanup before reporting success.

@@ -304,7 +304,11 @@ export class EmbeddingHostManager {
 
   async dispose(): Promise<void> {
     try {
-      await this.stop();
+      // Before running, the renderer may not have installed its command listener.
+      // Lifecycle disposal cancels startup waiters and destroys the owned window.
+      if (this.lifecycle.getStatus().state !== 'starting') {
+        await this.stop();
+      }
     } finally {
       this.disposed = true;
       this.rejectPendingQueryEmbeddingRequests(

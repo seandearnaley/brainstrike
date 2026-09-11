@@ -317,6 +317,16 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     });
   });
 
+  it('disposes a starting host without waiting for an unregistered renderer stop listener', async () => {
+    currentLifecycleStatus.state = 'starting';
+    const manager = new EmbeddingHostManager();
+    await manager.dispose();
+    expect(mockHostWindow.webContents.send).not.toHaveBeenCalled();
+    expect(lifecycleState.waitForStatus).not.toHaveBeenCalled();
+    expect(lifecycleState.dispose).toHaveBeenCalledOnce();
+    expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
+  });
+
   it('captures the runtime id once and tears down on error status during stop', async () => {
     const manager = new EmbeddingHostManager();
 

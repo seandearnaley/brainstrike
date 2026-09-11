@@ -7,6 +7,10 @@ import type { ChunkType } from '@mastra/core/stream';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import {
+  createDelegatedConversationBinding,
+  type DelegatedCancellationTarget,
+} from '../mastra/delegated-conversation-binding';
 import { createPgliteMastraMemory, type PgliteDatabase } from '../pglite-mastra-memory';
 import {
   hasToolResult,
@@ -176,12 +180,16 @@ describe('native background delegation (BST-1723)', () => {
   });
 
   it('honors foreground child cancellation without cancelling the parent', async () => {
-    const childStop = new AbortController();
+    const binding = createDelegatedConversationBinding(async () => undefined);
+    let target: DelegatedCancellationTarget | undefined;
     const parentStop = new AbortController();
     let effectSignal: AbortSignal | undefined;
     const childModel = toolThenAnswer('inspect', 'foreground-effect', {});
     const child = new Agent({
-      defaultOptions: { abortSignal: childStop.signal, maxSteps: 4 },
+      defaultOptions: ({ requestContext }) => ({
+        abortSignal: requestContext ? binding.getAbortSignal?.(requestContext) : undefined,
+        maxSteps: 4,
+      }),
       id: 'foreground-child',
       instructions: 'Inspect once.',
       memory: backing.memory,
@@ -196,7 +204,10 @@ describe('native background delegation (BST-1723)', () => {
               throw new Error('Foreground tool requires its native abort signal');
             }
             effectSignal = signal;
-            childStop.abort(new Error('Selected child stopped'));
+            if (!target) {
+              throw new Error('Missing selected invocation');
+            }
+            binding.abortInvocations?.([target]);
             return { inspected: true };
           },
           id: 'inspect',
@@ -206,6 +217,15 @@ describe('native background delegation (BST-1723)', () => {
     });
     const parent = new Agent({
       agents: { child },
+      defaultOptions: {
+        delegation: {
+          hookErrorStrategy: 'throw',
+          onDelegationStart: (context) => {
+            binding.prepare(context, {}, parentStop.signal);
+            target = { parentRuntimeRunId: context.runId, parentToolCallId: context.toolCallId };
+          },
+        },
+      },
       id: 'foreground-parent',
       instructions: 'Delegate an inspection.',
       memory: backing.memory,

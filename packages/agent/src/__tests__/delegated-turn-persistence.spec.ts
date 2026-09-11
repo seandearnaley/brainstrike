@@ -106,6 +106,41 @@ describe('native delegated turn persistence ownership', () => {
     expect(saveMessages).not.toHaveBeenCalled();
   });
 
+  it('joins and persists only the selected child while its sibling and parent remain active', async () => {
+    const { attach, complete, context, owner, persistence, saveMessages } = fixture();
+    const selected = new AbortController();
+    persistence.prepare(context, owner.signal, selected.signal);
+    await attach();
+    const sibling = {
+      ...context,
+      requestContext: new RequestContext(),
+      toolCallId: 'sibling-call',
+    };
+    persistence.prepare(sibling, owner.signal);
+    selected.abort();
+    let joined = false;
+    const cancellation = persistence
+      .finalize([{ parentRuntimeRunId: context.runId, parentToolCallId: context.toolCallId }])
+      .then(() => {
+        joined = true;
+      });
+    expect(joined).toBe(false);
+    expect(saveMessages).not.toHaveBeenCalled();
+    await complete();
+    await cancellation;
+    expect(joined).toBe(true);
+    expect(saveMessages).toHaveBeenCalledTimes(1);
+    expect(owner.signal.aborted).toBe(false);
+    await persistence.hooks(owner.signal).afterToolCall?.({
+      context: { toolCallId: sibling.toolCallId },
+      input: {},
+      output: {},
+      toolName: 'agent-explore',
+    });
+    await persistence.finalize();
+    expect(saveMessages).toHaveBeenCalledTimes(1);
+  });
+
   it('reports failed child saves after joining native execution and releases ownership', async () => {
     const { attach, complete, context, owner, persistence, saveMessages } = fixture();
     saveMessages.mockRejectedValueOnce(new Error('Child snapshot storage failed'));

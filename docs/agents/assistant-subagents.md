@@ -1534,3 +1534,26 @@ recursive leaf approval, renderer reload and a distinct native host restart.
 plan pause, failed outcomes, lost parent-result delivery and root Stop with a
 queued effect. Native background follow-up/human composer and selective subtree
 controls remain separate acceptance within BST-1723.
+
+### Selected child cancellation (BST-1723)
+
+`POST /assistant/cancel-child` resolves an owned child and explicitly selects either
+that child or its subtree. It first revokes admission on the existing invocation
+rows, then joins registered native execution owners and stored background cleanup.
+Only after those joins does it settle still-running ordinary child run projections
+and append their `run.cancelled` event. Earlier completed legs and siblings retain
+their status. A failed join returns an explicit incomplete cancellation response;
+revoked admission remains durable and does not imply successful teardown.
+
+The same barrier rejects subsequent child steps, repeated invocation admission,
+and pending decision claims after host reconstruction. Closing a tab never invokes
+it. Shared conversation controls expose Stop for live execution and reloaded pending
+decisions, await the host acknowledgement, and reload actual child history.
+
+The shared workspace navigation provider resolves native invocation addresses for
+both root and child cards. Background acknowledgements do not contain a child
+address, so persisted event identity remains necessary after reload. Resolution
+checks owner, root and the selected parent; it never scans other turns by call ID.
+Production proof: `delegated-worker-write.desktop.test.ts` stops a reloaded pending
+child, preserves the absent write, sends another parent message, reloads, reopens
+the original child, and checks cancelled persistence without another model call.

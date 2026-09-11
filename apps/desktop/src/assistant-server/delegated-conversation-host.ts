@@ -240,6 +240,12 @@ export function createDesktopDelegatedConversationHost(
              WHERE cancelled.resource_id = runs.resource_id AND cancelled.thread_id = runs.thread_id
                AND cancelled.turn_message_id = runs.turn_message_id AND cancelled.status IN ('cancelling', 'cancelled')
            )
+           AND NOT EXISTS (
+             SELECT 1 FROM brainstrike_delegated_invocations stopped
+             JOIN jsonb_array_elements_text($11::jsonb) target(thread_id) ON target.thread_id = stopped.thread_id
+             WHERE stopped.owner_resource_id = $2 AND stopped.root_thread_id = $3
+               AND stopped.turn_message_id = $10 AND stopped.cancellation_requested_at IS NOT NULL
+           )
          ON CONFLICT DO NOTHING RETURNING id`,
         [
           id,
@@ -252,6 +258,7 @@ export function createDesktopDelegatedConversationHost(
           action.delegation.toolCallId,
           hostRunId,
           scope.turnMessageId,
+          JSON.stringify(scopes.map((target) => target.threadId)),
         ]
       );
       if (result.rows.length !== 1) {

@@ -172,16 +172,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         this.hostWindow = window;
         this.attachWindow(window);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.setStatus(
-          this.options.createStatus({
-            active: false,
-            lastError: message,
-            runtimeId,
-            state: 'error',
-          })
-        );
-        return this.getStatus();
+        return this.settleStartupFailure(error, runtimeId);
       }
 
       try {
@@ -320,6 +311,21 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     this.status = this.options.createStoppedStatus();
   }
 
+  private settleStartupFailure(error: unknown, runtimeId: string): TStatus {
+    if (this.disposed) {
+      return this.getStatus();
+    }
+    this.setStatus(
+      this.options.createStatus({
+        active: false,
+        lastError: error instanceof Error ? error.message : String(error),
+        runtimeId,
+        state: 'error',
+      })
+    );
+    return this.getStatus();
+  }
+
   private createStatusSnapshot(status: TStatus): TStatus {
     return {
       ...status,
@@ -407,6 +413,9 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         await this.loadWindow(window, target, runtimeId);
         return window;
       } catch (error) {
+        if (this.disposed) {
+          throw createLifecycleDisposedError(this.options.role);
+        }
         lastError = error instanceof Error ? error : new Error(String(error));
         logger.warn(
           `${this.options.role} failed to load (attempt ${attempt + 1}/${HOST_LOAD_RETRY_ATTEMPTS})`,

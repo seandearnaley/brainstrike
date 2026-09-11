@@ -831,6 +831,31 @@ export async function createMastraAgentRuntime(
     runtime?.assistantMessageId,
     Boolean(backgroundAgentOptions.backgroundTasks)
   );
+  const unregisterCancellation = options.conversationBinding?.registerCancellation?.(
+    async (targets) => {
+      options.conversationBinding?.abortInvocations?.(targets);
+      const manager = assistantIdentityRuntime.backgroundTaskManager;
+      if (manager) {
+        if (!options.backgroundTaskScope) {
+          throw new Error('Selective cancellation requires the native root scope.');
+        }
+        for (const target of targets) {
+          const tasks = await manager.listTasks({
+            ...options.backgroundTaskScope,
+            runId: target.parentRuntimeRunId,
+            status: ['pending', 'running', 'suspended', 'cancelled'],
+            toolCallId: target.parentToolCallId,
+          });
+          for (const task of tasks.tasks) {
+            if (task.toolCallId === target.parentToolCallId) {
+              await manager.cancel(task.id);
+            }
+          }
+        }
+      }
+      await delegatedTurnPersistence?.finalize(targets);
+    }
+  );
   const invalidateMcpAppAdmission = registerAppCapableAdmission(
     mcpAppAdmission,
     mcpAppToolAdmission
@@ -855,6 +880,7 @@ export async function createMastraAgentRuntime(
       for (const cleanup of [
         () => invalidateMcpAppAdmission?.(),
         () => mastra?.shutdown(),
+        () => unregisterCancellation?.(),
         () => mcpClient?.disconnect(),
         () => options.conversationBinding?.finishToolActions?.(),
       ]) {

@@ -935,3 +935,12 @@ unknown-part warning; it is not silently ignored. Native EOF with unfinished wor
 fails visibly. `background-worker-stream.integration.spec.ts` exercises the real
 native producer and production iterator, including paragraph, usage, pending
 decision, queued Stop and lost-result boundaries.
+
+Selected child controls register a process-local cancellation capability on the
+actual Mastra runtime and remove it during disposal. The host revokes durable
+admission before invoking it. Native foreground signals compose parent and child
+abort signals; background cancellation joins both the actual executor and its
+workflow deletion. The existing delegated snapshot owner finalizes only the
+selected invocation keys. Native foreground/background tests prove the parent
+signal and unrelated siblings remain live, and failures propagate before Stop
+acknowledgement. No replacement runtime is created merely to cancel work.

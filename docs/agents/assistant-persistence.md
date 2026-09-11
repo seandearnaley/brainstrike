@@ -3480,3 +3480,11 @@ all three terminal outcomes, repeat repair and delivery acknowledgement reload. 
 new resumable decision. Native reconstructed-runtime recovery is tested separately
 from the actual desktop process-restart pending-approval case; it is not evidence
 of completed-undelivered recovery through every host restart boundary.
+
+Delegated background notices can create multiple topology-bearing assistant rows
+within one user turn. History run-event reads retain the originating user message
+from the owning run. Delegation events bind to their exact tool call within that
+turn, before chronological assignment; they cannot attach to a reused call ID in
+another turn. The normal shared workspace resolver then opens the persisted child
+from that native invocation. The owning-turn hydration regression and the real
+Electron stopped-child close/reload/reopen case cover both producer and consumer.
