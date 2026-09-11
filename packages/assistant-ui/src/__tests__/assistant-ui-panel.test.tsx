@@ -36,6 +36,7 @@ interface MockAuiState {
     role?: string;
   };
   thread: {
+    capabilities: { edit: boolean; reload: boolean };
     messages: Array<{ id: string }>;
   };
 }
@@ -48,7 +49,7 @@ const completedReasoningPart = {
 const createMockAuiState = (parts: unknown[]): MockAuiState => ({
   composer: { text: '' },
   message: { parts },
-  thread: { messages: [] },
+  thread: { capabilities: { edit: true, reload: true }, messages: [] },
 });
 
 let mockAuiState = createMockAuiState([completedReasoningPart]);

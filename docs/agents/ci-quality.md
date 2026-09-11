@@ -3570,3 +3570,13 @@ Two react-doctor CLI constraints worth knowing before you script around it:
   invocations — do not pass a changed-file list.
 
 ---
+
+### Delegated workspace smoke coverage
+
+The required desktop smoke command includes
+`delegated-workspace-reload.desktop.test.ts` and its `@smoke` case. It restores
+two native child histories through the real workspace coordinator, switches by
+keyboard, closes a sibling tab, and verifies that inspection neither executes
+inference nor advertises unsupported edit/regenerate actions. Its screenshot
+uses disabled finite animations for stable evidence. The case measured 4.2s
+locally; the existing lane deadline and zero-retry policy remain unchanged.

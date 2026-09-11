@@ -4091,3 +4091,14 @@ mapper checks typed UI support and approval metadata. The root transport target
 is retained; native `agent-*` wrapper names cannot replace the leaf tool shown
 to the user. See `assistant-subagents.md` and the paired production stream-loop
 and native process-restart tests. Read-only persona gates remain unchanged.
+
+### Shared transcript action capabilities
+
+`AssistantActionBar` and `UserActionBar` read the public thread runtime
+`capabilities.reload` and `capabilities.edit` respectively. The vendor action
+primitives gate running/editing state, but do not gate these capabilities.
+Unsupported actions must be omitted, including in delegated external-store
+views; do not install fake `onReload` or `onEdit` handlers to enable them.
+Supported root runtimes retain their existing actions. Copy remains available
+independently. `assistant-conversation-panel.test.tsx` covers both capability
+states using real public runtimes.

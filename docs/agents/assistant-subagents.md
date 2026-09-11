@@ -1291,3 +1291,10 @@ The discovery HTTP response and final root append are test boundaries; native
 Mastra execution/restart remains covered separately by the desktop fresh-process
 harness. Do not describe these as one full browser-to-native end-to-end test.
 Approval and suspension binding lookups run concurrently as independent reads.
+
+The shared assistant action bar reads the public runtime `capabilities.reload`
+before rendering regeneration. A child without an `onReload` adapter must not
+advertise this action; enabling the composer or a generic `onNew` decision
+dispatcher does not authorize regeneration. Copy remains available. The shared
+panel tests exercise both supported and unsupported runtimes, and the Electron
+workspace restoration verifier checks the actual child control surface.
