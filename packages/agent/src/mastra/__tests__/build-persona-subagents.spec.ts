@@ -15,6 +15,8 @@ import {
   resolveScaledToolResultBudget,
   type ScaledToolResultBudget,
 } from '../../stream/tool-output-limits';
+import { createAskUserTool } from '../../tools/ask-user-tool';
+import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
 import type { PermissionToolGateLogger } from '../permission-tool-gate';
@@ -236,6 +238,59 @@ describe('buildPersonaSubAgents', () => {
       }).subAgents['explore']
     ).toBeUndefined();
   });
+
+  it.each(['no-storage', 'incomplete-host', 'complete-host'] as const)(
+    'self-suspending read tools require durable child control (%s)',
+    async (capability) => {
+      const ids = [
+        'brainstrike.readWorkspaceFile',
+        'brainstrike.askUser',
+        'brainstrike.submitPlan',
+      ];
+      const { guardedTools, toolNameMap } = makeGuardedTools(ids);
+      guardedTools['brainstrike_askUser'] = createAskUserTool();
+      guardedTools['brainstrike_submitPlan'] = createSubmitPlanTool();
+      expect(guardedTools['brainstrike_askUser']).toHaveProperty('suspendSchema');
+      expect(guardedTools['brainstrike_submitPlan']).toHaveProperty('suspendSchema');
+      const baseBinding = {
+        ...createDelegatedConversationBinding(async () => undefined),
+        bindRun: async () => ({ threadId: 'child' }),
+        claimToolAction: async () => undefined,
+        finishToolActions: async () => undefined,
+        releaseUnexecutedToolAction: async () => undefined,
+        resolveToolAction: async () => [],
+      };
+      const conversationBinding =
+        capability === 'incomplete-host'
+          ? baseBinding
+          : { ...baseBinding, prepareToolAction: async () => undefined };
+      const result = buildPersonaSubAgents({
+        conversationBinding,
+        guardedTools,
+        hasStorage: capability !== 'no-storage',
+        languageModel: fakeModel,
+        logger: noopLogger,
+        permissionSnapshot: readAllowSnapshot,
+        personas: [{ ...explorePersona, allowedToolIds: ids }],
+        provider: 'openai',
+        resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+        toolNameMap,
+      });
+      const child = assertDefined(
+        result.subAgents['explore'],
+        'The ordinary read tool keeps the child available'
+      );
+      const tools = await child.getToolsForExecution({});
+      expect(tools).toHaveProperty('brainstrike_readWorkspaceFile');
+      for (const toolId of ['brainstrike_askUser', 'brainstrike_submitPlan']) {
+        if (capability === 'complete-host') {
+          expect(tools).toHaveProperty(toolId);
+        } else {
+          expect(tools).not.toHaveProperty(toolId);
+        }
+      }
+    }
+  );
 
   it('re-asserts read-only and THROWS on an injected edit tool even when no permission snapshot gates it (defense-in-depth)', () => {
     // The dangerous case: with `enforce:false` (the user opted out of the
