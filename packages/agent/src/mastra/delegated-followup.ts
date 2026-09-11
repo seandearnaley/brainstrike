@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { ChildInputNotDeliveredError } from '@brainstrike/assistant-contract';
 import { type Agent, createMessageSignal, signalToMastraDBMessage } from '@mastra/core/agent';
 import { z } from 'zod';
 import type {
@@ -55,7 +56,9 @@ async function deliver(
         run.resourceId === target.resourceId
     );
   if (!running) {
-    throw new Error('The selected child is no longer running; follow-up was not delivered.');
+    throw new ChildInputNotDeliveredError(
+      'The selected child is no longer running; follow-up was not delivered.'
+    );
   }
   // Check after queued work and asynchronous receipt lookup, not at HTTP admission alone.
   await assertAdmission();
@@ -93,7 +96,9 @@ async function deliver(
   }).accepted;
   if (result.action !== 'deliver') {
     await store.deleteMessages([id]);
-    throw new Error(`The selected child did not accept the follow-up (${result.action}).`);
+    throw new ChildInputNotDeliveredError(
+      `The selected child did not accept the follow-up (${result.action}).`
+    );
   }
   await store.updateMessages({
     messages: [

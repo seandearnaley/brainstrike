@@ -3585,3 +3585,12 @@ Production evidence: `background-worker-stream.integration.spec.ts`,
 `delegated-conversation-runtime.test.tsx`, and the active child composer case in
 `delegated-child-control.desktop.test.ts` (live send, parent result, reload with no
 additional model request). Idle child continuation is separate acceptance.
+
+Active child input retains the same request ID after an unconfirmed acknowledgement,
+even if the user edits the draft. Replacing that request requires the explicit
+Discard draft action. Stop waiting aborts only the acknowledgement transport;
+it does not stop the child or retract an already accepted instruction. The UI
+retains the request ID and reports unconfirmed delivery, ignores a late response
+from the abandoned wait, and permits only an explicit same-ID retry until discard.
+`assistant-conversation-panel.test.tsx` pins changed-draft refusal, late acknowledgement
+isolation, same-ID retry, and attachment-enabled focus preservation.

@@ -5,7 +5,8 @@ import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 export async function sendDelegatedWorkspaceInput(
   node: DelegatedConversationNode,
   hostRunId: string,
-  input: { readonly id: string; readonly text: string }
+  input: { readonly id: string; readonly text: string },
+  signal: AbortSignal
 ): Promise<void> {
   const [baseUrl, headers] = await Promise.all([
     resolveAssistantBaseUrl(),
@@ -21,6 +22,7 @@ export async function sendDelegatedWorkspaceInput(
     }),
     headers: { ...headers, 'Content-Type': 'application/json' },
     method: 'POST',
+    signal,
   });
   let result: unknown;
   try {

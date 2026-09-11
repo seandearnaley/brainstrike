@@ -135,7 +135,7 @@ test.each(
       onTimeout: (error) =>
         new Error(`${error.message}\nScroll geometry: ${openingGeometry.read()}`, { cause: error }),
     });
-    openingGeometry.stop();
+    // Record through jump completion too: the final affordance is a layout assertion.
     const jump = child.getByRole('button', { name: 'Scroll to latest messages' });
     await waitFor(() => expect(jump).toBeEnabled());
     await act(async () => {
@@ -154,7 +154,11 @@ test.each(
       },
       { timeout: Math.max(5000, getConfig().asyncUtilTimeout) }
     );
-    await waitFor(() => expect(jump).toBeDisabled());
+    await waitFor(() => expect(jump).toBeDisabled(), {
+      onTimeout: (error) =>
+        new Error(`${error.message}\nJump geometry: ${openingGeometry.read()}`, { cause: error }),
+    });
+    openingGeometry.stop();
   }
 );
 
@@ -165,3 +169,27 @@ declare module 'vitest/browser' {
     emulateReducedMotion: (options: { enabled: boolean | null }) => Promise<void>;
   }
 }
+
+test('commits virtual sizing synchronously under reduced motion', async () => {
+  await commands.emulateReducedMotion({ enabled: true });
+  render(<Child dark width={390} />);
+  const viewport = within(screen.getByRole('region', { name: 'Cedar' })).getByTestId(
+    'assistant-ui-viewport'
+  );
+  await waitFor(() => expect(within(viewport).getByText(/Evidence 599:/)).toBeVisible());
+  const sizer = viewport.querySelector<HTMLElement>('.bs-virtual-thread');
+  if (!sizer) {
+    throw new Error('Missing virtual sizing container');
+  }
+  const height = sizer.getBoundingClientRect().height;
+  const previous = sizer.style.height;
+  // The vendor writes and reads geometry in the same ResizeObserver callback.
+  // A nonzero transition duration on the default property `all` defers this
+  // measurement to another frame, even at the reduced-motion duration 0.01ms.
+  try {
+    sizer.style.height = `${height + 400}px`;
+    expect(sizer.getBoundingClientRect().height).toBe(height + 400);
+  } finally {
+    sizer.style.height = previous;
+  }
+});

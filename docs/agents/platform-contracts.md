@@ -1152,6 +1152,28 @@ non-durable native-tool partition that artifact settlement must skip. Do not
 replace those pages with generic artifact settlement: that would create a
 seven-day copy of memory-only PTY data.
 
+### Graceful shutdown ownership (hidden hosts and background indexing)
+
+`main.ts` runs its ordered shutdown steps under ONE forced-exit budget
+(`SIGNAL_SHUTDOWN_TIMEOUT_MS`, 5s). Do not raise that budget to absorb a slow
+step; fix the owner. Settled rulings, each with a paired test:
+
+- The forced-exit log names the step still awaiting completion and its elapsed
+  time (`shutdown-step-tracker.ts`). That record is the only actionable fact a
+  CI runner leaves behind, so it is a product log, not temporary instrumentation.
+- Shutdown retires embedding-backfill admission FIRST
+  (`cancelAllDesktopEmbeddingBackfills()` before any host step), and a backfill
+  that arrives after `markDesktopShuttingDown()` is refused before it touches
+  the host (`ipc-embedding-backfill.test.ts`). Background indexing keeps
+  requesting backfills until its renderer dies; each request would otherwise
+  restart the host the next step is stopping. Job rows stay durable.
+- `EmbeddingHostManager.dispose()` refuses new starts BEFORE its cooperative
+  stop awaits the renderer (`embedding-host-manager.test.ts`), and
+  `RendererHostLifecycle.ensureStarted()` lets a `stopping` host settle instead
+  of replacing its window (`renderer-host-lifecycle.test.ts`). Replacing the
+  window mid-stop orphaned the stop wait for its full 10s timeout and then let
+  the timed-out stop destroy the replacement.
+
 ### Browser preference hydration
 
 Zustand stores that choose between the Electron storage bridge and

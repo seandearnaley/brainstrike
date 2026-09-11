@@ -46,3 +46,8 @@ export const delegatedConversationBaselineSchema = z.object({
   threadId: z.string().min(1),
 });
 export type DelegatedConversationBaseline = z.infer<typeof delegatedConversationBaselineSchema>;
+
+/** Only for confirmed rejection before enqueue, or native discard with memory cleanup. */
+export class ChildInputNotDeliveredError extends Error {
+  override readonly name = 'ChildInputNotDeliveredError';
+}

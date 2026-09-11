@@ -34,7 +34,9 @@ function Conversation({
   running = false,
   onExitPlanMode,
   onSendActiveInput,
+  attachments = false,
 }: {
+  attachments?: boolean;
   id: string;
   messages: readonly ThreadMessageLike[];
   onNew: ExternalStoreAdapter<ThreadMessageLike>['onNew'];
@@ -56,6 +58,7 @@ function Conversation({
   });
   return (
     <AssistantConversationPanel
+      {...(attachments ? { attachmentsAvailability: { state: 'enabled' as const } } : {})}
       label={id}
       onSendActiveInput={onSendActiveInput}
       runtime={runtime}
@@ -175,12 +178,74 @@ describe('shared conversation panel', () => {
     expect(send.mock.calls[0]?.[0].id).not.toBe(send.mock.calls[1]?.[0].id);
   });
 
-  it('keeps the active composer editable and preserves a changed draft during acknowledgement', async () => {
+  it('can stop waiting for an acknowledgement without replaying or losing its request identity', async () => {
     const accepted = Promise.withResolvers<void>();
-    const send = vi.fn(() => accepted.promise);
+    const send = vi.fn(
+      (_input: { readonly id: string; readonly text: string }) => accepted.promise
+    );
     render(
       <TooltipProvider>
         <Conversation
+          id="Cedar"
+          messages={[message('Reading')]}
+          onNew={async () => {}}
+          onSendActiveInput={send}
+          running
+        />
+      </TooltipProvider>
+    );
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'Possibly delivered');
+    await user.keyboard('{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Stop waiting' }));
+    expect(screen.getByRole('button', { name: 'Send to child' })).toBeEnabled();
+    expect(input).toHaveValue('Possibly delivered');
+    expect(send).toHaveBeenCalledOnce();
+    accepted.resolve();
+    await waitFor(() => expect(screen.getByText(/Waiting stopped/)).toBeVisible());
+    expect(input).toHaveValue('Possibly delivered');
+    await user.click(input);
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(send.mock.calls[0]?.[0]).toEqual(send.mock.calls[1]?.[0]);
+  });
+
+  it('requires explicit discard before changed text can replace an unconfirmed request', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('Delivery unconfirmed'));
+    render(
+      <TooltipProvider>
+        <Conversation
+          id="Cedar"
+          messages={[message('Reading')]}
+          onNew={async () => {}}
+          onSendActiveInput={send}
+          running
+        />
+      </TooltipProvider>
+    );
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'First instruction');
+    await user.keyboard('{Enter}');
+    await screen.findByText('Delivery unconfirmed');
+    await user.clear(input);
+    await user.type(input, 'Replacement instruction');
+    await user.keyboard('{Enter}');
+    expect(send).toHaveBeenCalledOnce();
+    expect(screen.getByText(/earlier input is unconfirmed/)).toHaveTextContent('Discard');
+    expect(input).toHaveValue('Replacement instruction');
+  });
+
+  it('keeps the active composer editable and preserves a changed draft during acknowledgement', async () => {
+    const accepted = Promise.withResolvers<void>();
+    const send = vi.fn(
+      (_input: { readonly id: string; readonly text: string }) => accepted.promise
+    );
+    render(
+      <TooltipProvider>
+        <Conversation
+          attachments
           id="Cedar"
           messages={[message('Reading')]}
           onNew={async () => {}}

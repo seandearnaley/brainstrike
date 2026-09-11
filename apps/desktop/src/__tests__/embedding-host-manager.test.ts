@@ -915,3 +915,40 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     );
   });
 });
+
+describe('EmbeddingHostManager teardown ownership', () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+    lifecycleState.getHostWindow.mockReturnValue(mockHostWindow);
+    currentLifecycleStatus.state = 'running';
+    currentLifecycleStatus.runtimeId = 'embedding-host-runtime';
+    mockHostWindow.isDestroyed.mockReturnValue(false);
+  });
+
+  it('rejects new starts while dispose is still waiting for the renderer stop', async () => {
+    const stopped = Promise.withResolvers<EmbeddingLifecycleStatus>();
+    lifecycleState.waitForStatus.mockReturnValueOnce(stopped.promise);
+    const manager = new EmbeddingHostManager();
+
+    const disposing = manager.dispose();
+    await Promise.resolve();
+    expect(lifecycleState.waitForStatus).toHaveBeenCalledOnce();
+
+    // A backfill arriving mid-teardown must not restart (replace) the host that
+    // stop() is waiting on; that orphaned the stop wait for its full timeout.
+    await expect(manager.ensureStarted()).rejects.toThrow(
+      'EmbeddingHostManager.ensureStarted cannot be called after dispose().'
+    );
+    expect(lifecycleState.ensureStarted).not.toHaveBeenCalled();
+
+    stopped.resolve({
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host-runtime',
+      state: 'stopped',
+    });
+    await disposing;
+    expect(lifecycleState.dispose).toHaveBeenCalledOnce();
+  });
+});

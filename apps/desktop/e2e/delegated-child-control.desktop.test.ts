@@ -170,7 +170,10 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
   }
 });
 
-test('sends human input to the active child and reloads its rich conversation @smoke', async ({
+// Regression project (not @smoke): the PR smoke lane's 720s global budget is
+// already consumed by the 43 smoke cases on main, and this case adds a full
+// app launch plus a reload. It runs in the scheduled full-regression lane.
+test('sends human input to the active child and reloads its rich conversation', async ({
   electron,
 }, testInfo) => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-child-input-'));

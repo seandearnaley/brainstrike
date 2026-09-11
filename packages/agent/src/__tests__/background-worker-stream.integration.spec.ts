@@ -93,7 +93,7 @@ it.each(['lookup', 'persist'])(
       const lookup = store.listMessagesById.bind(store);
       const read = vi.spyOn(store, 'listMessagesById').mockImplementation(async (input) => {
         const result = await lookup(input);
-        if (boundary === 'lookup') {
+        if (boundary === 'lookup' && input.messageIds.some((id) => id.startsWith('child-input:'))) {
           revoked = true;
         }
         return result;

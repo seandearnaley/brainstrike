@@ -172,6 +172,7 @@ import {
 } from './provider-auth/provider-auth-runtime';
 import { getSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
+import { createShutdownStepTracker } from './shutdown-step-tracker';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { resolveSourceWindowRole } from './window-role';
@@ -448,19 +449,13 @@ const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
 const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
 let completeFactoryResetRendererReplacement: (() => Promise<void>) | null = null;
 
-async function runShutdownStep(
+const shutdownSteps = createShutdownStepTracker();
+
+function runShutdownStep(
   step: string,
   fn: () => Promise<void>
 ): Promise<SerializedDesktopError | null> {
-  try {
-    await fn();
-    return null;
-  } catch (error) {
-    return {
-      step,
-      ...serializeDesktopError(error),
-    };
-  }
+  return shutdownSteps.run(step, fn);
 }
 
 function scheduleForcedProcessExit(trigger: NodeJS.Signals | 'before-quit'): void {
@@ -470,6 +465,7 @@ function scheduleForcedProcessExit(trigger: NodeJS.Signals | 'before-quit'): voi
 
   forcedProcessExitTimeout = setTimeout(() => {
     logger.error('Timed out waiting for graceful shutdown; forcing exit', {
+      inFlightStep: shutdownSteps.describeInFlight(),
       trigger,
     });
     process.exit(1);
@@ -494,6 +490,11 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     await gracefulShutdownPromise;
     return;
   }
+  // Background indexing keeps requesting embedding backfills until its renderer
+  // dies, and each request would restart the embedding host that the ordered
+  // steps below are about to stop. Retire the admission first so host teardown
+  // owns its window; the job rows stay durable and resume next launch.
+  cancelAllDesktopEmbeddingBackfills();
 
   gracefulShutdownPromise = (async () => {
     const failures: SerializedDesktopError[] = [];

@@ -1,4 +1,5 @@
 import type http from 'node:http';
+import { ChildInputNotDeliveredError } from '@brainstrike/assistant-contract';
 import { respondJson } from '@brainstrike/assistant-service/http';
 import { DelegatedConversationIdentityError } from '@brainstrike/db';
 import { z } from 'zod';
@@ -44,6 +45,13 @@ export async function handleDelegatedFollowupRequest(
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.end(JSON.stringify({ accepted: true, id: input.id, threadId: input.threadId }));
   } catch (error) {
+    if (error instanceof ChildInputNotDeliveredError) {
+      respondJson(res, 409, {
+        error: 'child_input_not_delivered',
+        message: 'Nothing was sent. This child is no longer accepting input.',
+      });
+      return;
+    }
     if (error instanceof DelegatedConversationIdentityError) {
       respondJson(res, 404, {
         error: 'child_input_unavailable',

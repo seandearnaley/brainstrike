@@ -16,6 +16,7 @@ export function ActiveConversationInputProvider({
   const aui = useAui();
   const running = useAuiState((state) => state.thread.isRunning);
   const inFlight = useRef(false);
+  const cancelWait = useRef<(() => void) | undefined>(undefined);
   const request = useRef<{ id: string; text: string } | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -27,15 +28,30 @@ export function ActiveConversationInputProvider({
     if (!text) {
       return;
     }
-    if (request.current?.text !== text) {
+    if (request.current && request.current.text !== text) {
+      setError(
+        'The earlier input is unconfirmed. Inspect the child and use Discard draft before composing a new input.'
+      );
+      return;
+    }
+    if (!request.current) {
       request.current = { id: crypto.randomUUID(), text };
     }
     const input = request.current;
     inFlight.current = true;
     setBusy(true);
     setError(undefined);
+    const controller = new AbortController();
+    const interrupted = Promise.withResolvers<void>();
+    cancelWait.current = () => {
+      const failure = new Error(
+        'Waiting stopped. Delivery is unconfirmed; inspect the child before retrying or discarding this draft.'
+      );
+      interrupted.reject(failure);
+      controller.abort(failure);
+    };
     try {
-      await onSend(input);
+      await Promise.race([onSend(input, controller.signal), interrupted.promise]);
       if (aui.composer().getState().text.trim() === text) {
         aui.composer().setText('');
       }
@@ -45,6 +61,7 @@ export function ActiveConversationInputProvider({
         failure instanceof Error ? failure.message : 'Child input delivery was not confirmed.'
       );
     } finally {
+      cancelWait.current = undefined;
       inFlight.current = false;
       setBusy(false);
     }
@@ -58,7 +75,13 @@ export function ActiveConversationInputProvider({
     setError(undefined);
   };
   return (
-    <ActiveInputContext value={onSend && running ? { busy, discard, error, send } : undefined}>
+    <ActiveInputContext
+      value={
+        onSend && running
+          ? { busy, discard, error, send, stopWaiting: () => cancelWait.current?.() }
+          : undefined
+      }
+    >
       {children}
     </ActiveInputContext>
   );

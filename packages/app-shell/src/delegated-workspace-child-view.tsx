@@ -127,12 +127,15 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
             label={node.displayName}
             {...(hasDurableAssistantUsageCapability() && live?.update.baseline?.hostRunId
               ? {
-                  onSendActiveInput: (input: { readonly id: string; readonly text: string }) => {
+                  onSendActiveInput: (
+                    input: { readonly id: string; readonly text: string },
+                    signal: AbortSignal
+                  ) => {
                     const hostRunId = live.update.baseline?.hostRunId;
                     if (!hostRunId) {
                       throw new Error('Child input has no active host owner.');
                     }
-                    return sendDelegatedWorkspaceInput(node, hostRunId, input);
+                    return sendDelegatedWorkspaceInput(node, hostRunId, input, signal);
                   },
                 }
               : {})}

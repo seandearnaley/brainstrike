@@ -79,7 +79,7 @@ const ComposerInputRow = ({
   const inputId = useId();
   const sendDisabled = isComposerDisabled || budgetSendBlocked || Boolean(activeInput?.busy);
   const InputFrame =
-    attachmentsAvailability?.state === 'enabled' && !sendDisabled
+    attachmentsAvailability?.state === 'enabled' && !isComposerDisabled && !budgetSendBlocked
       ? AttachmentPasteFrame
       : PlainInputFrame;
 
@@ -192,7 +192,14 @@ const ComposerInputRow = ({
           )}
         </ThreadPrimitive.If>
       </div>
-      {activeInput?.busy && <span role="status">Sending to child…</span>}
+      {activeInput?.busy && (
+        <div>
+          <span role="status">Sending to child…</span>
+          <button className="text-sm underline" onClick={activeInput.stopWaiting} type="button">
+            Stop waiting
+          </button>
+        </div>
+      )}
       {activeInput?.error && (
         <div>
           <p role="alert">{activeInput.error}</p>

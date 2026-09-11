@@ -1,3 +1,4 @@
+import { ChildInputNotDeliveredError } from '@brainstrike/assistant-contract';
 import { DelegatedConversationIdentityError } from '@brainstrike/db';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { registerDesktopDelegatedFollowup } from '../../assistant-server/delegated-followup-controls';
@@ -77,6 +78,25 @@ it('returns a scoped rejection when durable ownership is invalid', async () => {
     expect(
       await request({ body: JSON.stringify(body), method: 'POST', url: '/assistant/child-input' })
     ).toMatchObject({ status: 404 });
+  } finally {
+    dispose();
+  }
+});
+
+it('distinguishes definitive non-delivery from an unconfirmed acknowledgement', async () => {
+  send.mockRejectedValue(new ChildInputNotDeliveredError('Child finished'));
+  const dispose = registerDesktopDelegatedFollowup('host', send);
+  try {
+    const response = await request({
+      body: JSON.stringify(body),
+      method: 'POST',
+      url: '/assistant/child-input',
+    });
+    expect(response.status).toBe(409);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: 'child_input_not_delivered',
+      message: 'Nothing was sent. This child is no longer accepting input.',
+    });
   } finally {
     dispose();
   }
