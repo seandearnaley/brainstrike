@@ -5,7 +5,10 @@ import {
   hasDurableAssistantUsageCapability,
   resolveAssistantAuthHeaders,
 } from '@brainstrike/assistant-data';
-import { type DelegatedConversationRuntimeOptions, EditCheckpointProvider } from '@brainstrike/assistant-ui';
+import {
+  type DelegatedConversationRuntimeOptions,
+  EditCheckpointProvider,
+} from '@brainstrike/assistant-ui';
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
@@ -145,7 +148,16 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       active = false;
       controller.abort();
     };
-  }, [historyRepository, node, repository, root, refresh, hasLive, searchTarget, loadedSearchRequest]);
+  }, [
+    historyRepository,
+    node,
+    repository,
+    root,
+    refresh,
+    hasLive,
+    searchTarget,
+    loadedSearchRequest,
+  ]);
   if (!roots) {
     return <Failure error={new Error('The child workspace has no owning root registry.')} />;
   }
@@ -176,75 +188,75 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       rootThreadId={node.rootThreadId}
     >
       <EditCheckpointProvider value={checkpoints}>
-      <div className="flex h-full min-h-0 flex-col">
-        <DelegatedConversationBreadcrumbs db={db} node={node} />
-        <div className="min-h-0 flex-1">
-          <DelegatedConversationPanel
-            extendHistoryForSearch={saved?.hostRunId === live?.update.baseline?.hostRunId}
-            label={node.displayName}
-            {...(hasDurableAssistantUsageCapability() && live?.update.baseline?.hostRunId
-              ? {
-                  onSendActiveInput: (
-                    input: { readonly id: string; readonly text: string },
-                    signal: AbortSignal
-                  ) => {
-                    const hostRunId = live.update.baseline?.hostRunId;
-                    if (!hostRunId) {
-                      throw new Error('Child input has no active host owner.');
-                    }
-                    return sendDelegatedWorkspaceInput(node, hostRunId, input, signal);
-                  },
-                }
-              : {})}
-            {...(hasDurableAssistantUsageCapability()
-              ? {
-                  onCancel: async () => {
-                    const [baseUrl, headers] = await Promise.all([
-                      resolveAssistantBaseUrl(),
-                      resolveAssistantAuthHeaders(),
-                    ]);
-                    const response = await fetch(new URL('/assistant/cancel-child', baseUrl), {
-                      body: JSON.stringify({
-                        ownerResourceId: node.ownerResourceId,
-                        rootThreadId: node.rootThreadId,
-                        scope: 'subtree',
-                        threadId: node.threadId,
-                      }),
-                      headers: { ...headers, 'Content-Type': 'application/json' },
-                      method: 'POST',
-                    });
-                    if (!response.ok) {
-                      const failure: unknown = await response.json();
-                      if (
-                        failure &&
-                        typeof failure === 'object' &&
-                        'message' in failure &&
-                        typeof failure.message === 'string'
-                      ) {
-                        throw new Error(failure.message);
+        <div className="flex h-full min-h-0 flex-col">
+          <DelegatedConversationBreadcrumbs db={db} node={node} />
+          <div className="min-h-0 flex-1">
+            <DelegatedConversationPanel
+              extendHistoryForSearch={saved?.hostRunId === live?.update.baseline?.hostRunId}
+              label={node.displayName}
+              {...(hasDurableAssistantUsageCapability() && live?.update.baseline?.hostRunId
+                ? {
+                    onSendActiveInput: (
+                      input: { readonly id: string; readonly text: string },
+                      signal: AbortSignal
+                    ) => {
+                      const hostRunId = live.update.baseline?.hostRunId;
+                      if (!hostRunId) {
+                        throw new Error('Child input has no active host owner.');
                       }
-                      throw new Error(
-                        `Child Stop returned an invalid error response (status ${response.status}).`
-                      );
-                    }
-                    root.store.invalidate(node.threadId);
-                    setSaved(undefined);
-                    setLoadedSearchRequest(undefined);
-                    setRefresh((value) => value + 1);
-                  },
-                }
-              : {})}
-            onNew={(message) =>
-              root.sendDecision(node.threadId, message, () =>
-                resolveDelegatedWorkspaceDecision(repository, node, message)
-              )
-            }
-            {...(saved ? { persistedHistory: saved.history } : {})}
-            store={root.store}
-            threadId={node.threadId}
-          />
+                      return sendDelegatedWorkspaceInput(node, hostRunId, input, signal);
+                    },
+                  }
+                : {})}
+              {...(hasDurableAssistantUsageCapability()
+                ? {
+                    onCancel: async () => {
+                      const [baseUrl, headers] = await Promise.all([
+                        resolveAssistantBaseUrl(),
+                        resolveAssistantAuthHeaders(),
+                      ]);
+                      const response = await fetch(new URL('/assistant/cancel-child', baseUrl), {
+                        body: JSON.stringify({
+                          ownerResourceId: node.ownerResourceId,
+                          rootThreadId: node.rootThreadId,
+                          scope: 'subtree',
+                          threadId: node.threadId,
+                        }),
+                        headers: { ...headers, 'Content-Type': 'application/json' },
+                        method: 'POST',
+                      });
+                      if (!response.ok) {
+                        const failure: unknown = await response.json();
+                        if (
+                          failure &&
+                          typeof failure === 'object' &&
+                          'message' in failure &&
+                          typeof failure.message === 'string'
+                        ) {
+                          throw new Error(failure.message);
+                        }
+                        throw new Error(
+                          `Child Stop returned an invalid error response (status ${response.status}).`
+                        );
+                      }
+                      root.store.invalidate(node.threadId);
+                      setSaved(undefined);
+                      setLoadedSearchRequest(undefined);
+                      setRefresh((value) => value + 1);
+                    },
+                  }
+                : {})}
+              onNew={(message) =>
+                root.sendDecision(node.threadId, message, () =>
+                  resolveDelegatedWorkspaceDecision(repository, node, message)
+                )
+              }
+              {...(saved ? { persistedHistory: saved.history } : {})}
+              store={root.store}
+              threadId={node.threadId}
+            />
+          </div>
         </div>
-      </div>
       </EditCheckpointProvider>
     </DelegatedWorkspaceNavigation>
   );
