@@ -12,15 +12,11 @@ import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-libr
 import userEvent from '@testing-library/user-event';
 import { use } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  DelegatedConversationRootsProvider,
-  useDelegatedConversationRoot,
-} from '../delegated-conversation-root';
-import {
-  DelegatedWorkspaceNavigation,
-  useDelegatedWorkspaceApps,
-} from '../delegated-workspace-apps';
+import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
+import { DelegatedWorkspaceNavigation } from '../delegated-workspace-navigation';
 import { delegatedWorkspaceTabId } from '../delegated-workspace-tab';
+import { useDelegatedConversationRoot } from '../use-delegated-conversation-root';
+import { useDelegatedWorkspaceApps } from '../use-delegated-workspace-apps';
 import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 
 const mocks = vi.hoisted(() => ({ db: { query: vi.fn() }, get: vi.fn() }));

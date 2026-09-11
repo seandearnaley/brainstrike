@@ -34,9 +34,7 @@ import {
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import {
-  createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
-  createSuspendedRunDiscovery,
   hasDurableAssistantUsageCapability,
   resolveAssistantMemoryResourceId,
   useAssistantThreadStore,
@@ -112,10 +110,8 @@ import {
 } from './assistant-ui-panel-wrapper-runtime';
 import { useChangeset } from './changes/use-changeset';
 import { useWrapperRewindWiring } from './changes/use-wrapper-rewind-wiring';
-import { useDelegatedConversationRoot } from './delegated-conversation-root';
-import { DelegatedWorkspaceNavigation } from './delegated-workspace-apps';
+import { DelegatedWorkspaceNavigation } from './delegated-workspace-navigation';
 import { useAssistantProviderSource } from './hooks/assistant-provider-source';
-import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelChange } from './hooks/use-assistant-model-change';
@@ -133,9 +129,11 @@ import { useProviderModelDefaults } from './hooks/use-provider-model-defaults';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
+import { useAssistantRootHistoryAdapter } from './use-assistant-root-history-adapter';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useAssistantThreadTitleSync } from './use-assistant-thread-title-sync';
+import { useDelegatedConversationRoot } from './use-delegated-conversation-root';
 import { useFileMentions } from './use-file-mentions';
 import { useHookTrustScope } from './use-hook-trust-scope';
 import { useObservationalMemoryRow } from './use-om-segment-row';
@@ -969,26 +967,12 @@ export function AssistantUiPanelWrapper({
     });
   }, [assistantThreadRepository, ensureResourceThreads, memoryResourceId]);
 
-  const historyAdapter = useMemo(() => {
-    if (!(assistantThreadRepository && selectedMemoryThreadId)) {
-      return;
-    }
-    // Restart-safe approval rediscovery is desktop-only (web never suspends —
-    // no assistant server/storage). Capability gating, no isElectron() check.
-    return createAssistantThreadHistoryAdapter({
-      repository: assistantThreadRepository,
-      resourceId: memoryResourceId,
-      threadId: selectedMemoryThreadId,
-      ...(desktopAssistantBackendAvailable
-        ? { discoverSuspendedRuns: createSuspendedRunDiscovery(resolveAssistantBaseUrl) }
-        : {}),
-    });
-  }, [
-    assistantThreadRepository,
-    desktopAssistantBackendAvailable,
-    memoryResourceId,
-    selectedMemoryThreadId,
-  ]);
+  const historyAdapter = useAssistantRootHistoryAdapter({
+    desktopBackend: desktopAssistantBackendAvailable,
+    repository: assistantThreadRepository,
+    resourceId: memoryResourceId,
+    threadId: selectedMemoryThreadId,
+  });
 
   const { requestData, runtimeMemorySettings } = useAssistantThreadRequestData({
     agentLoopSettings,

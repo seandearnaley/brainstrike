@@ -1267,3 +1267,14 @@ bindings surface an explicit discovery error; known transcript content and valid
 recovered decisions remain visible. Capability gating reuses the same durable
 assistant backend capability as root history. Native restart and full rendered
 control parity still require the end-to-end delivery checks.
+
+The workspace's component exports and hooks are separate modules so Fast Refresh
+preserves component state: root registry access is in
+`use-delegated-conversation-root.ts`; metadata loading is in
+`use-delegated-workspace-apps.tsx`; child view and navigation components have their
+own files. Metadata cache removal responds directly to the existing selection
+store's close/hydrate notification, not a synchronous setState during an effect.
+The ordinary root history adapter has its own hook, and the actual wrapper
+stream-binding regression has its own discovered test file. Shrink-only wrapper
+budgets must ratchet downward after extraction; ESLint warning baselines must
+not increase to accommodate these boundaries.

@@ -1,9 +1,3 @@
-import { useSyncExternalStore } from 'react';
-import {
-  DelegatedConversationRootsProvider,
-  useDelegatedConversationRoot,
-} from '../delegated-conversation-root';
-import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 import './assistant-ui-panel-wrapper-test-support';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
@@ -27,7 +21,6 @@ import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import {
   changesetRefreshMock,
-  delegatedPanelCallbacks,
   fileExplorerMocks,
   hasDesktopLlmHostMock,
   loadTestLocalLlmBackend,
@@ -45,43 +38,7 @@ import {
   useChangesetMock,
 } from './assistant-ui-panel-wrapper-test-support';
 
-function DelegatedRootProbe() {
-  const root = useDelegatedConversationRoot('/tmp/test-workspace', 'thread-existing');
-  if (!root) {
-    throw new Error('Missing root provider');
-  }
-  const snapshots = useSyncExternalStore(root.store.subscribe, root.store.getSnapshot);
-  return (
-    <div data-testid="delegated-root-probe">
-      {JSON.stringify([...snapshots.values()].map((snapshot) => snapshot.update.message.parts))}
-    </div>
-  );
-}
-
 describe('AssistantUiPanelWrapper', () => {
-  test('connects the actual panel stream and runtime to its owning workspace root', async () => {
-    render(
-      <DelegatedConversationRootsProvider>
-        <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
-          <AssistantUiPanelWrapper
-            memoryResourceId="/tmp/test-workspace"
-            memoryThreadId="thread-existing"
-            providerKeySources={[{ provider: 'openai', source: 'stored' }]}
-          />
-          <DelegatedRootProbe />
-        </AssistantProviderSourceProvider>
-      </DelegatedConversationRootsProvider>
-    );
-    await screen.findByTestId('assistant-ui-panel');
-    expect(delegatedPanelCallbacks.onRuntimeReady).toBeTypeOf('function');
-    await act(async () => {
-      delegatedPanelCallbacks.onDelegatedConversation?.(
-        delegatedUpdate('child', 'initial', 'Live child evidence')
-      );
-    });
-    expect(screen.getByTestId('delegated-root-probe')).toHaveTextContent('Live child evidence');
-  });
-
   test('re-reads the checkpoint journal when a run finishes (no thread switch)', async () => {
     const user = userEvent.setup();
     const countCheckpointReads = (): number =>
