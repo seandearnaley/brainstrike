@@ -207,12 +207,19 @@ describe('buildPersonaSubAgents', () => {
       releaseUnexecutedToolAction: async () => undefined,
       resolveToolAction: async () => [],
     };
+    const warnings: unknown[] = [];
+    const logger: PermissionToolGateLogger = {
+      ...noopLogger,
+      warn: (message, details) => {
+        warnings.push({ details, message });
+      },
+    };
     const options = {
       conversationBinding,
       guardedTools,
       hasStorage: true,
       languageModel: fakeModel,
-      logger: noopLogger,
+      logger,
       permissionSnapshot: readAskSnapshot,
       personas: [explorePersona],
       provider: 'openai',
@@ -231,6 +238,10 @@ describe('buildPersonaSubAgents', () => {
     expect(
       buildPersonaSubAgents({ ...options, hasStorage: false }).subAgents['explore']
     ).toBeUndefined();
+    expect(warnings).toContainEqual({
+      details: { code: 'subagent_persona_empty_toolset', personaId: 'explore' },
+      message: 'Persona has no available tools after gating; not registering',
+    });
     expect(
       buildPersonaSubAgents({
         ...options,

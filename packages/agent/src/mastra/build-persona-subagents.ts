@@ -384,7 +384,7 @@ export function buildPersonaSubAgents(
     }
 
     if (keptOriginalNames.length === 0) {
-      params.logger.info('Persona has no available tools after gating; not registering', {
+      params.logger.warn('Persona has no available tools after gating; not registering', {
         code: 'subagent_persona_empty_toolset',
         personaId: persona.id,
       });

@@ -1362,3 +1362,8 @@ scripted external model transport; questions and plan approve/reject actions
 flow through the actual child workspace, reload, native tool resume, child
 model result and parent continuation. Existing native grandchild/process-restart
 proofs remain separate and are not repeated to prove renderer interaction.
+
+A child plan approval never exits the root's plan mode, including when its
+forwarded notice is acted on in the parent panel. The delegated decision keeps
+its exact leaf envelope; only a root plan may invoke the root plan-mode exit
+callback. Child inspection already shadows that callback with its own context.

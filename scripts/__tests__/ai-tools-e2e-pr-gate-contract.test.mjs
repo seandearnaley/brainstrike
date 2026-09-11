@@ -32,6 +32,9 @@ const WEB_SMOKE_COMMAND = [
 // *.zip`). Nothing was wrong with the test — it is simply last in this
 // alphabetical file list. 600000 matches WEB_SMOKE_COMMAND above and restores
 // ~2x headroom over the measured maximum, inside the job's 25-minute bound.
+// BST-1720: landed head8d02baa21 measured35 tests in5.2m (job103147368385).
+// Three added interaction scenarios take34.8s locally;720000 preserves about
+// twice that combined work, within the unchanged25-minute job ceiling.
 // Raise it again before adding files, not after the next interruption.
 const DESKTOP_SMOKE_COMMAND = [
   'node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn --',
@@ -59,7 +62,7 @@ const DESKTOP_SMOKE_COMMAND = [
   '--workers=1',
   '--retries=0',
   '--max-failures=1',
-  '--global-timeout=600000',
+  '--global-timeout=720000',
   '--grep="@smoke"',
 ].join(' ');
 const DESKTOP_TOOLS_NIGHTLY_COMMAND = [

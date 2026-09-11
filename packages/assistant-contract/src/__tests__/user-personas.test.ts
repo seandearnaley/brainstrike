@@ -254,7 +254,7 @@ describe('buildUserPersona', () => {
       });
       expect(result).toMatchObject({ ok: false });
       if (!result.ok) {
-        expect(result.error).toMatch(/not available to subagent personas/i);
+        expect(result.error).toMatch(/task-list state belongs to the parent/i);
       }
     }
   );

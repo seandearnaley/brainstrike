@@ -111,6 +111,10 @@ noise in the same log (git-inventory drain abandonment, `DB host closed.`,
 `the worker is ending`) is per-test teardown chatter that also appears in green
 runs, and timestamps place it minutes away from the interruption. Raise a
 lane's budget when you add work to it, not after the next interruption. The
+desktop smoke ceiling is now 720000 ms: landed head `8d02baa21` ran 35 tests
+in 5.2 minutes (job `103147368385`), and the three added child decision cases
+ran in 34.8 seconds locally. Twelve minutes preserves roughly twice that
+combined work inside the unchanged 25-minute job ceiling. The
 exact lane commands are pinned by
 `scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs`, which is the guard
 that forces the change to be deliberate.

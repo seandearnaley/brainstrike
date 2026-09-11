@@ -446,13 +446,16 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
   const approve = useCallback(() => {
     // Exit plan mode BEFORE composing the resume request so the rebuilt server
     // runtime unlocks the mutation tools for the approved plan. Reject keeps
-    // plan mode on (handled by NOT calling this on the reject path).
-    exitPlanMode?.();
+    // plan mode on (handled by NOT calling this on the reject path). Forwarded
+    // child plans have no authority to change the root's mode.
+    if (!request.delegation) {
+      exitPlanMode?.();
+    }
     submit(
       feedback.trim() ? { action: 'approved', feedback: feedback.trim() } : { action: 'approved' },
       'Approved the plan.'
     );
-  }, [exitPlanMode, feedback, submit]);
+  }, [exitPlanMode, feedback, request.delegation, submit]);
 
   if (plan === null) {
     return (
