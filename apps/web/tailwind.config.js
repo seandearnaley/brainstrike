@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
-const base = require('@brainstrike/config/tailwind');
+import base from '@brainstrike/config/tailwind';
 
-module.exports = {
+export default {
   presets: [base],
 };

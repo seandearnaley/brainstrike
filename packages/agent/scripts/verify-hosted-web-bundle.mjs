@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -48,24 +49,6 @@ const forbiddenBundledSymbols = [
   },
   { label: 'tool-schema display table body', pattern: /\bNATIVE_TOOL_SCHEMAS\b/u },
 ];
-
-/**
- * Workspace packages the CJS hosted bundles already `require()` even though
- * they are ESM-only. Each one throws ERR_REQUIRE_ESM under a loader with
- * `require(ESM)` genuinely disabled, so this list is PRE-EXISTING DEBT that is
- * recorded here to make it visible — not a set of approved exceptions. It works
- * today only because Node enables `require(ESM)` by default (>= 22.12). Shrink
- * it by adding the package to the hosted `noExternal` in `tsup.config.ts`;
- * never grow it. A new entry means a freshly broken deploy path, which is
- * exactly what this check exists to stop (BST-1310 review, PR #2476: the
- * `@brainstrike/types` re-export landed here and nothing caught it).
- */
-const KNOWN_ESM_ONLY_CJS_REQUIRES = new Set([
-  '@brainstrike/local-runtime',
-  '@brainstrike/logging',
-  '@brainstrike/tokenization',
-  '@brainstrike/utils',
-]);
 
 const requireFromAgent = createRequire(path.join(packageRoot, 'package.json'));
 
@@ -130,15 +113,25 @@ function collectEsmOnlyRequires(source) {
       match.groups.specifier.split('/').slice(0, 2).join('/')
     )
   );
-  return [...packageNames]
-    .filter((packageName) => !isRequireable(packageName))
-    .filter((packageName) => !KNOWN_ESM_ONLY_CJS_REQUIRES.has(packageName))
-    .sort();
+  return [...packageNames].filter((packageName) => !isRequireable(packageName)).sort();
 }
 
 for (const relativePath of hostedOutputs) {
   const outputPath = path.join(packageRoot, relativePath);
   const source = await readFile(outputPath, 'utf8');
+  if (relativePath.endsWith('.mjs')) {
+    // Hosted functions use ESM and must load without require(ESM) support.
+    execFileSync(
+      process.execPath,
+      [
+        '--no-experimental-require-module',
+        '--input-type=module',
+        '-e',
+        `await import(${JSON.stringify(outputPath)})`,
+      ],
+      { encoding: 'utf8' }
+    );
+  }
   if (relativePath.endsWith('.js')) {
     const esmOnlyRequires = collectEsmOnlyRequires(source);
     if (esmOnlyRequires.length > 0) {

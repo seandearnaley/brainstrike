@@ -98,6 +98,12 @@ function collectViolations({
       continue;
     }
     if (
+      ['package.json', 'apps/web/package.json'].includes(manifest) &&
+      !majors.includes(runtimeMajor)
+    ) {
+      violations.push(`${manifest} must include the deployed Node ${runtimeMajor} runtime`);
+    }
+    if (
       !majors.includes(toolchainMajor) ||
       majors.some((major) => major !== toolchainMajor && major !== runtimeMajor)
     ) {
@@ -308,7 +314,7 @@ test('Node 26 tooling does not permit Node 26-only APIs in the Node 24 applicati
   const state = {
     applicationNodeMajor: 24,
     catalogRange: '^24.13.3',
-    engines: [{ manifest: 'package.json', range: '>=26.8.2 <27' }],
+    engines: [{ manifest: 'apps/desktop/package.json', range: '>=26.8.2 <27' }],
     importerVersions: [{ id: 'apps/desktop', version: '24.13.3' }],
     lockfileCatalog: { specifier: '^24.13.3', version: '24.13.3' },
     nvmrc: '26.8.2',
@@ -330,6 +336,7 @@ test('the real compiler accepts the production Node API and rejects Node 26-only
       noEmit: true,
       skipLibCheck: true,
       target: ts.ScriptTarget.ES2023,
+      typeRoots: [path.join(repoRoot, 'node_modules/@types')],
       types: ['node'],
     };
     const host = ts.createCompilerHost(options);
@@ -374,3 +381,16 @@ test('the hosted range cannot silently admit an unrelated runtime', () => {
     }).length > 0
   );
 });
+
+for (const manifest of ['package.json', 'apps/web/package.json']) {
+  test(`${manifest} retains the deployed runtime alongside the toolchain`, () => {
+    const state = loadActualState();
+    const engines = state.engines.map((entry) =>
+      entry.manifest === manifest ? { ...entry, range: '>=26.8.2 <27' } : entry
+    );
+    assert.match(
+      collectViolations({ ...state, engines }).join('\n'),
+      /must include the deployed Node/u
+    );
+  });
+}

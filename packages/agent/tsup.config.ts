@@ -67,28 +67,17 @@ export default defineConfig((_options) => [
   {
     ...sharedConfig,
     entry: hostedWebEntries,
-    external: sharedExternal,
-    // Vercel builds these functions as CommonJS, so anything left external is
-    // emitted as a bare `require(...)`. Bundle the browser-safe contract into
-    // the Hosted Web entries so the emitted function never crosses that
-    // package boundary. `@brainstrike/types` is inlined for the same reason and
-    // must stay that way: it is ESM-only (`type: module`, no `require`
-    // condition), so leaving it external emits `require("@brainstrike/types")`
-    // into the CJS output. It is externalized for every OTHER entry via
-    // `sharedExternal`, so this override is deliberately hosted-only.
-    //
-    // This comment used to claim Vercel "disables require(ESM)". That was a
-    // trap, and it is corrected rather than removed because it invites the
-    // wrong conclusion in both directions: these bundles still `require()` four
-    // ESM-only workspace packages (logging, utils, tokenization,
-    // local-runtime), so a loader that genuinely disabled require(ESM) would
-    // already fail on load today. They work because Node enables it by default
-    // (>= 22.12). Treat an ESM-only external here as a latent hazard riding on
-    // that default, not as an instant break — and do not add new ones:
-    // `scripts/verify-hosted-web-bundle.mjs` fails the build on any beyond the
-    // four already recorded there.
+    external: [...sharedExternal, 'pino', /^tiktoken(?:\/.*)?$/],
+    // Bundle workspace dependencies at the existing hosted boundary without
+    // ESM-only workspace require exceptions. Hosted functions select the ESM
+    // output and use native imports for external Mastra/provider runtimes.
+    // Pino and tiktoken own Node/WASM loaders and remain declared externals.
     noExternal: [
       assistantContractExternal,
+      '@brainstrike/local-runtime',
+      '@brainstrike/logging',
+      '@brainstrike/tokenization',
+      /^@brainstrike\/utils(?:\/.*)?$/,
       '@brainstrike/mcp-app-host',
       '@brainstrike/mcp-tasks-extension',
       '@brainstrike/types',

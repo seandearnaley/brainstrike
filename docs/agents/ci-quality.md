@@ -1713,7 +1713,7 @@ replaces reference acquisition before the dying-state check with atomic
 ownership changes. The repository pins Node 26.8.2 for development and CI.
 The matching `devEngines.runtime` declaration makes pnpm scripts use that
 checksum-locked executable even when invoked by a hosted builder's older Node.
-Root/web installation engine ranges admit only the bounded Node 24 hosting
+Root/web and MCP package installation ranges admit the bounded Node 24 application/hosting
 major and Node 26 tooling major; the managed script runtime remains exactly 26.
 Vercel Functions currently supports Node 24, not 26. Its separate stateless
 hosted-web entrypoint excludes PGlite and browser-local model inference; validate
@@ -1722,6 +1722,9 @@ Browser-local WASM executes in the browser engine, not the function runtime.
 Electron retains its own bundled Node/V8; changing `.nvmrc` does not upgrade
 Electron's runtime. Shared production code keeps Node 24 declarations matching
 Electron's Node API surface, while the build and test executable uses Node 26.
+The MCP packages also run inside that application and retain the bounded Node 24
+consumer arm. Tooling-only source uses the same conservative types catalog;
+new tooling APIs require an explicit compatible design, not a cast around it.
 `apps/desktop/package.json#config.nodeRuntimeMajor` declares that API floor;
 the required real Electron native smoke test compares both the declaration and
 the installed typings with `process.versions.node`. The static alignment guard
@@ -1734,7 +1737,9 @@ its composite action otherwise installs Node 24, whose npm rejects the managed
 Node 26 declaration before scanning. The paired action-version contract guards
 that input against `.nvmrc`. Updating the pin requires qualifying the replacement;
 future patch releases must not be assumed to have passed this evidence.
-The required DB unit project runs 100 startup/query/close cycles as a persistent
+The DB unit project explicitly includes `__tests__/**/*.test.ts` without an
+integration-suffix exclusion (unlike some other package scripts). It runs
+100 startup/query/close cycles as a persistent
 runtime canary. Its existing 10-second per-case timeout and two-worker CI cap
 remain unchanged. A lost file fails; only the complete three-marker signature
 below is classified as the V8 fatal, so an ordinary OOM is not mislabeled.
@@ -2938,7 +2943,7 @@ Non-native typed packages have two JavaScript build classes, derived from
   `chunking-worker`, `embedding-worker`, `file-tree-worker`, and `token-cache`
   package browser workers/WASM/assets; `agent` produces the self-contained
   hosted-web boundary; `assistant-service` and `assistant-wire` retain the CJS
-  surface consumed by the Node16 web API project; and `file-explorer` emits the
+  surface retained for CommonJS consumers; and `file-explorer` emits the
   renderer's worker-storage artifact. Adding a ninth bundler is an architectural
   decision, not a convenient way to emit a second module format.
   This is the compatibility boundary for BST-1014, not an endorsement of tsup as
@@ -2961,10 +2966,17 @@ Non-native typed packages have two JavaScript build classes, derived from
   artifact. A CommonJS composition boundary that consumes one of these libraries
   uses native dynamic `import()` (and an explicit `resolution-mode: import` for
   type-only imports) rather than forcing the library back into dual-format
-  bundling. The Vercel API's Node16 check proves both are load-bearing: a static
-  logger import fails TS1479 and a plain type-only import fails TS1541. The route
-  memoizes the import lazily inside the first request so a failed seam is observed
-  by that request, never left as a module-initialization rejection. Playwright's
+  bundling. The Vercel API now declares native ESM in the web manifest; its Node16
+  check enforces explicit relative `.js` imports. Vercel disables `require(ESM)`
+  by default, so hosted functions must select the agent's ESM export, including
+  native imports of external Mastra/provider runtimes. The existing hosted bundle
+  guard loads ESM with `--no-experimental-require-module` and permits no ESM-only
+  workspace `require()` exceptions. Pino and tiktoken remain external runtime
+  dependencies declared by the bundle owner; inlining their Node/WASM loaders
+  would break native loading or browser asset references. Validate both built
+  preview status and POST rejection through the generated function artifacts,
+  then the deployed preview; a successful Vercel build is not runtime proof.
+  Playwright's
   TypeScript loader is a distinct CommonJS
   transform boundary: a Node-side E2E helper imports the narrowest side-effect-
   free contract subpath it needs instead of a package barrel that transitively

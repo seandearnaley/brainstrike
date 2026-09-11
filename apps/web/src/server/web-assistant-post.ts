@@ -7,16 +7,16 @@ import type { AssistantRejectionPayload } from '@brainstrike/assistant-wire';
 import {
   resolveAssistantProviderConfig,
   resolveAssistantProviderConfigs,
-} from './assistant-config';
+} from './assistant-config.js';
 import {
   describeWebAssistantInputError,
   WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
-} from './web-assistant-request';
+} from './web-assistant-request.js';
 import {
   filterWebAssistantPayload,
   InvalidWebAssistantRuntimeDataError,
-} from './web-assistant-runtime';
-import { buildWebAssistantStreamFromPrepared } from './web-assistant-stream';
+} from './web-assistant-runtime.js';
+import { buildWebAssistantStreamFromPrepared } from './web-assistant-stream.js';
 
 // This file participates in the Vercel API's Node16/CommonJS compilation.
 // TS1541 requires the import-resolution attribute even though the type is

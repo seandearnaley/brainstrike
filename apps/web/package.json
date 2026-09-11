@@ -133,5 +133,6 @@
     "test:watch": "vitest",
     "type-check": "tsc --build --force && tsc --noEmit && tsc --noEmit --project tsconfig.test.json && pnpm run type-check:api",
     "type-check:api": "tsc --noEmit --project api/tsconfig.json"
-  }
+  },
+  "type": "module"
 }
