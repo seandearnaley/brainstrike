@@ -1242,3 +1242,12 @@ or hidden metadata rendering. Workspace metadata is retained only for open tabs:
 closing and reopening forces graph authorization before prior metadata/history
 can be exposed. Child loading views subscribe to their owning host so a live
 snapshot can become visible while an ordinary history read is still pending.
+
+Panel runtime composition keeps endpoint resolution/cancellation in
+`use-assistant-endpoint-api.ts` and stable attachment/history adapter construction
+in `use-assistant-thread-runtime-adapters.ts`. Attachment identity is keyed on
+capability presence, so disabling a model's vision support does not discard
+already staged attachments. Optional callback props that explicitly accept
+undefined pass directly; plan-mode configuration is assembled before transport
+selection. These boundaries preserve the existing runtime/transport tests and
+remove the reviewed panel/runtime complexity findings without rule suppression.

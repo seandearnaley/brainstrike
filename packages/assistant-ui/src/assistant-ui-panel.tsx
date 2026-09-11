@@ -13,17 +13,18 @@ import {
   // + looping the error boundary in dev. Dev-only; prod/tests (no Fast Refresh) were fine.
   unstable_useSlashCommandAdapter as useSlashCommandAdapter,
 } from '@assistant-ui/react';
-import {
-  type AssistantRunEvent,
-  type AssistantToolApprovalRequest,
-  type AssistantUiThreadHistoryAdapter,
-  getAssistantBridge,
-  type LocalLlmBackendFactory,
-  type OpenRouterModelMetadataLookup,
+import type {
+  AssistantRunEvent,
+  AssistantToolApprovalRequest,
+  AssistantUiThreadHistoryAdapter,
+  LocalLlmBackendFactory,
+  OpenRouterModelMetadataLookup,
 } from '@brainstrike/assistant-contract';
-import { type ReactNode, use, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, use, useEffect, useMemo } from 'react';
 import { AssistantDataRendererRegistration } from './assistant-data-renderer-registration';
 import type { AssistantStreamCallbacks } from './assistant-stream-callbacks';
+import { useAssistantEndpointApi } from './use-assistant-endpoint-api';
+import { useAssistantThreadRuntimeAdapters } from './use-assistant-thread-runtime-adapters';
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import type { ModelPickerModel, ModelPickerProvider } from '@brainstrike/ui';
@@ -32,11 +33,7 @@ import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { AssistantActionBar } from './assistant-action-bar';
 import { AssistantActivityParts } from './assistant-activity-parts';
 import { ControlsMenu } from './assistant-controls-menu';
-import {
-  assistantEndpointLogger,
-  resolveAssistantAuthHeaders,
-  resolveAssistantEndpoint,
-} from './assistant-endpoint';
+import { resolveAssistantAuthHeaders } from './assistant-endpoint';
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
@@ -47,7 +44,6 @@ import {
   ThreadScrollToBottom,
 } from './assistant-thread-messages';
 import { PlanModeExitProvider } from './assistant-tool-suspend-notice';
-import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
 import { BranchPicker } from './branch-picker';
 import { BudgetGuardrailControl, useBudgetSendGate } from './budget-guardrail-control';
 import { ChangesReviewLink } from './changes-review-link';
@@ -664,32 +660,10 @@ const DataStreamRuntimeChat = ({
     threadKey,
   });
 
-  // Stable adapter instance: recreating it per render would reset composer
-  // attachment state. Keyed on availability PRESENCE (not the enabled state,
-  // and not the object identity): the adapter must survive an
-  // enabled→disabled model switch so attachments staged under a vision model
-  // stay removable/sendable — assistant-ui's composer wipes text + staged
-  // attachments and then throws an unhandled "Attachments are not supported"
-  // rejection if Send runs with no adapter. The 'disabled' vision-gate state
-  // blocks NEW adds through the disabled attach button and the absent paste
-  // frame (composer-input.tsx) instead; a sent-anyway staged image surfaces
-  // the documented visible provider error. Absent availability (provider
-  // gate) registers no adapter, so adds are rejected loudly, never silently
-  // accepted.
-  const attachmentsPresent = attachmentsAvailability !== undefined;
-  const attachmentsAdapter = useMemo(
-    () => (attachmentsPresent ? createAssistantImageAttachmentAdapter() : undefined),
-    [attachmentsPresent]
+  const runtimeAdapters = useAssistantThreadRuntimeAdapters(
+    historyAdapter,
+    attachmentsAvailability !== undefined
   );
-  const runtimeAdapters =
-    historyAdapter || attachmentsAdapter
-      ? {
-          adapters: {
-            ...(attachmentsAdapter ? { attachments: attachmentsAdapter } : {}),
-            ...(historyAdapter ? { history: historyAdapter } : {}),
-          },
-        }
-      : {};
   const runtime = useBrainstrikeDataStreamRuntime({
     ...(serverRunSession.activeRunSession
       ? { activeRunSession: serverRunSession.activeRunSession }
@@ -1048,14 +1022,6 @@ export const ChatThreadUI = ({
 };
 
 // Pure UI layer: state management and data wiring live in app-shell wrapper(s).
-/** Initial API URL for the data stream runtime (hosted providers). */
-function resolveInitialAssistantApi(): string {
-  const bridge = getAssistantBridge();
-  return typeof bridge?.url === 'string' && bridge.url
-    ? `${bridge.url}/assistant`
-    : '/api/assistant';
-}
-
 export const AssistantUiPanel = ({
   onRuntimeReady,
   className,
@@ -1109,25 +1075,9 @@ export const AssistantUiPanel = ({
   localChatTransport = 'local-runtime',
   threadKey,
 }: AssistantUiPanelProps) => {
-  // API URL for the runtime; auth headers resolve per-request (assistant-endpoint.ts).
-  const [api, setApi] = useState<string>(resolveInitialAssistantApi);
-
+  const api = useAssistantEndpointApi();
   useEffect(() => {
     void preloadMarkdownText();
-    let ignore = false;
-    resolveAssistantEndpoint()
-      .then((endpoint) => {
-        if (!ignore && endpoint) {
-          setApi(endpoint.api);
-        }
-      })
-      .catch((error) => {
-        // A bridge that exists but errors means a broken assistant — say so.
-        assistantEndpointLogger.error('Failed to resolve assistant endpoint', { error });
-      });
-    return () => {
-      ignore = true;
-    };
   }, []);
 
   const groupedProviders = providerGroups ?? [];
@@ -1144,6 +1094,14 @@ export const AssistantUiPanel = ({
   // Check if using local provider
   const isLocalProvider = selectedProvider === 'local';
   const localViaDataStream = isLocalProvider && localChatTransport === 'data-stream';
+  const planMode = onTogglePlanMode
+    ? {
+        enabled: Boolean(planModeEnabled),
+        onToggle: onTogglePlanMode,
+        ...(onExitPlanMode ? { onExit: onExitPlanMode } : {}),
+      }
+    : undefined;
+
   const { handleLocalLoadingStateChange, localLoadingState, prepareLocalModel } =
     useLocalModelLoading({ localViaDataStream, modelName });
   return (
@@ -1162,11 +1120,15 @@ export const AssistantUiPanel = ({
             disabled={disabled}
             disabledReason={disabledReason}
             effectiveInputBudget={effectiveInputBudget}
+            fileMentions={fileMentions}
             key={threadKey ? `local:${threadKey}` : 'local'}
             loadLocalLlmBackend={loadLocalLlmBackend}
             localLoadingState={localLoadingState}
             modelId={modelName}
             omSegment={omSegment}
+            onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+            onComposerTextChange={onComposerTextChange}
+            onFileMentionQueryChange={onFileMentionQueryChange}
             onLoadingStateChange={handleLocalLoadingStateChange}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
@@ -1177,12 +1139,7 @@ export const AssistantUiPanel = ({
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
-            workspaceBar={workspaceBar}
-            {...(onUsage ? { onUsage } : {})}
-            fileMentions={fileMentions}
-            onComposerDraftCommandApplied={onComposerDraftCommandApplied}
-            onComposerTextChange={onComposerTextChange}
-            onFileMentionQueryChange={onFileMentionQueryChange}
+            onUsage={onUsage}
             pickerModels={pickerModels}
             prepareRequestData={prepareRequestData}
             providerGroups={groupedProviders}
@@ -1194,6 +1151,7 @@ export const AssistantUiPanel = ({
             slashCommands={slashCommands}
             threadKey={threadKey}
             toolMenu={toolMenu}
+            workspaceBar={workspaceBar}
           />
         ) : (
           <DataStreamRuntimeChat
@@ -1207,6 +1165,7 @@ export const AssistantUiPanel = ({
             disabled={disabled}
             disabledReason={disabledReason}
             effectiveInputBudget={effectiveInputBudget}
+            fileMentions={fileMentions}
             historyAdapter={historyAdapter}
             // `historyGeneration` is in the key because hydration runs once per
             // MOUNT: an out-of-band change to this thread's durable history
@@ -1215,37 +1174,27 @@ export const AssistantUiPanel = ({
             localLoadingState={localLoadingState}
             modelName={modelName}
             omSegment={omSegment}
+            onChildRunUsage={onChildRunUsage}
+            onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+            onComposerTextChange={onComposerTextChange}
+            onContextBreakdown={onContextBreakdown}
+            onDelegatedConversation={onDelegatedConversation}
+            onFileMentionQueryChange={onFileMentionQueryChange}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
             onRunEditActivity={onRunEditActivity}
             onRunFailed={onRunFailed}
             onRunFinished={onRunFinished}
             onRuntimeReady={onRuntimeReady}
+            onSteerActiveRun={onSteerActiveRun}
+            onStepUsage={onStepUsage}
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
-            prepareLocalModel={prepareLocalModel}
-            workspaceBar={workspaceBar}
-            {...(onContextBreakdown ? { onContextBreakdown } : {})}
-            onChildRunUsage={onChildRunUsage}
-            onDelegatedConversation={onDelegatedConversation}
-            onSteerActiveRun={onSteerActiveRun}
-            onStepUsage={onStepUsage}
-            {...(onUsage ? { onUsage } : {})}
-            {...(onTogglePlanMode
-              ? {
-                  planMode: {
-                    enabled: Boolean(planModeEnabled),
-                    onToggle: onTogglePlanMode,
-                    ...(onExitPlanMode ? { onExit: onExitPlanMode } : {}),
-                  },
-                }
-              : {})}
-            fileMentions={fileMentions}
-            onComposerDraftCommandApplied={onComposerDraftCommandApplied}
-            onComposerTextChange={onComposerTextChange}
-            onFileMentionQueryChange={onFileMentionQueryChange}
+            onUsage={onUsage}
             pickerModels={pickerModels}
+            planMode={planMode}
+            prepareLocalModel={prepareLocalModel}
             prepareRequestData={prepareRequestData}
             providerGroups={groupedProviders}
             providerSettings={providerSettings}
@@ -1257,6 +1206,7 @@ export const AssistantUiPanel = ({
             slashCommands={slashCommands}
             threadKey={threadKey}
             toolMenu={toolMenu}
+            workspaceBar={workspaceBar}
           />
         )}
       </section>
