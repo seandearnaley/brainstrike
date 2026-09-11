@@ -2,6 +2,7 @@ import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent'
 import type { ScopedLogger } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  MAX_TRACKED_COMPACTION_FAILURES,
   type PreRequestCompactionOutcome,
   runConversationCompactionBeforeStream,
   trustedCompactionOverlayFields,
@@ -342,6 +343,157 @@ describe('runConversationCompactionBeforeStream', () => {
 
     // The `warn` is NOT latched: per-turn operator evidence never disappears.
     expect(second.logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * One failing turn on `runtime`, with its prelude fully DRAINED so the latch
+   * actually arms — BST-1737 arms on delivery, never on mint, so a dedupe test
+   * that skips the drain would pass without ever exercising the latch.
+   * Resolves to the rendered reason when a row was minted, undefined when the
+   * latch suppressed it.
+   */
+  async function failingTurn(runtime: RuntimeData, message: string): Promise<string | undefined> {
+    const { input } = makeInput({ runtime });
+    (input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error(message)
+    );
+    const outcome = await runConversationCompactionBeforeStream(input as never);
+    await deliverPrelude(outcome);
+    const metadata = runEventOf(outcome.failure)?.['metadata'] as { reason?: string } | undefined;
+    return metadata?.reason;
+  }
+
+  /**
+   * BST-1744. The latch used to key on the whole bounded reason, so the two
+   * reachable throws that embed a per-message id defeated it outright: a new
+   * key every turn, hence a row every turn and an entry every turn.
+   */
+  describe('BST-1744: the key is the SHAPE of the throw, not its literal text', () => {
+    function uuid(n: number): string {
+      return `0199aa11-0000-7000-8000-${String(n).padStart(12, '0')}`;
+    }
+
+    it('deduplicates a reason whose only variable part is a per-message id', async () => {
+      const runtime = { memory: { threadId: freshThreadId() } } as unknown as RuntimeData;
+      const candidate = (id: string) => `Compaction candidate ${id} has no valid creation time.`;
+
+      const first = await failingTurn(runtime, candidate(uuid(1)));
+      const second = await failingTurn(runtime, candidate(uuid(2)));
+      const otherKind = await failingTurn(
+        runtime,
+        `Assistant message ${uuid(3)} has conflicting branch topology.`
+      );
+
+      // The ROW still renders the id verbatim — normalization is key-only, so
+      // the user keeps the one fact that identifies the wedged message.
+      expect(first).toBe(candidate(uuid(1)));
+      expect(second).toBeUndefined();
+      // Two different ids collapse; two different KINDS must not. This is the
+      // assertion that stops a future over-broad masker silencing a real
+      // second failure on an already-reported thread.
+      expect(otherKind).toBe(`Assistant message ${uuid(3)} has conflicting branch topology.`);
+    });
+
+    it('deduplicates a reason whose only variable part is a timestamp', async () => {
+      // Evidenced by run-events.test.ts, whose compaction fixture carries a
+      // creation time: a driver error quoting one changes on every turn.
+      const runtime = { memory: { threadId: freshThreadId() } } as unknown as RuntimeData;
+      const at = (stamp: string) => `Compaction candidate has no valid creation time: ${stamp}`;
+
+      expect(await failingTurn(runtime, at('2026-09-10T18:46:26Z'))).toBeDefined();
+      expect(await failingTurn(runtime, at('2026-09-11T07:02:00Z'))).toBeUndefined();
+    });
+
+    it('never merges two model names that differ only in a short digit run', async () => {
+      // `ollama/llama3.2` and `ollama/llama3.3` are DIFFERENT failures. A
+      // blanket digit mask would let the first permanently silence the second,
+      // which is the one thing this latch must never do. Short digit runs are
+      // therefore deliberately NOT volatile tokens.
+      const runtime = { memory: { threadId: freshThreadId() } } as unknown as RuntimeData;
+      const budget = (model: string) => `Unknown compaction input budget for ollama/${model}.`;
+
+      expect(await failingTurn(runtime, budget('llama3.2'))).toBe(budget('llama3.2'));
+      expect(await failingTurn(runtime, budget('llama3.3'))).toBe(budget('llama3.3'));
+    });
+
+    it('keeps two failures apart when they differ only past the rendered reason bound', async () => {
+      // `boundRunEventReason` truncates the RENDERED reason to 200 code points.
+      // A key built from that truncation collapses these two onto one entry and
+      // lets the first silence the second, so the key is built from the
+      // untruncated message instead.
+      const runtime = { memory: { threadId: freshThreadId() } } as unknown as RuntimeData;
+      const shared = `compaction store read failed: ${'detail '.repeat(40)}`;
+      expect(shared.length).toBeGreaterThan(200);
+
+      expect(await failingTurn(runtime, `${shared}alpha`)).toBeDefined();
+      expect(await failingTurn(runtime, `${shared}beta`)).toBeDefined();
+    });
+
+    it('evicts the oldest entry once the latch reaches its cap', async () => {
+      // The masking above cannot be COMPLETE — `mastra_messages.id` is
+      // free-form `TEXT` — so a thread wedged on an id the patterns do not
+      // recognise still mints a fresh key every turn. The cap is the bound that
+      // does not depend on the masking being complete.
+      const runtime = { memory: { threadId: freshThreadId() } } as unknown as RuntimeData;
+      const wedged = 'compaction store read failed: connection terminated';
+
+      expect(await failingTurn(runtime, wedged)).toBeDefined();
+      expect(await failingTurn(runtime, wedged)).toBeUndefined();
+
+      // A full cap's worth of DISTINCT keys must push out everything inserted
+      // before them, whatever else this file has already latched — which makes
+      // the assertion independent of test order. These variants also pin that
+      // short digit runs stay distinct rather than masking into one key.
+      for (let index = 0; index < MAX_TRACKED_COMPACTION_FAILURES; index += 1) {
+        await failingTurn(runtime, `compaction store read failed: variant ${index}`);
+      }
+
+      // Drop-oldest, so the evicted failure reports ONE more time. A repeat row
+      // is the safe direction; a permanent silence is not.
+      expect(await failingTurn(runtime, wedged)).toBeDefined();
+    });
+
+    it('does not evict on a repeated commit of a key it already holds', async () => {
+      // BST-1737 documents `markReported` as idempotent AND accepts that two
+      // turns failing identically before either prelude is consumed both mint
+      // and both commit. At the cap, a commit that adds nothing must also evict
+      // nothing — otherwise that race quietly costs an UNRELATED thread its
+      // latch, and the cap starts eating entries it was never asked to.
+      const runtime = { memory: { threadId: freshThreadId() } } as unknown as RuntimeData;
+      const flush = (index: number) => `compaction flush variant ${index}`;
+
+      // A full cap of distinct keys leaves the set holding exactly these, in
+      // this order, whatever the rest of the file latched before us.
+      for (let index = 0; index < MAX_TRACKED_COMPACTION_FAILURES; index += 1) {
+        await failingTurn(runtime, flush(index));
+      }
+
+      // The documented race: both turns mint, because neither has delivered.
+      const raced = { memory: { threadId: freshThreadId() } } as unknown as RuntimeData;
+      const first = makeInput({ runtime: raced });
+      (
+        first.input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>
+      ).mockRejectedValue(new Error('compaction raced'));
+      const second = makeInput({ runtime: raced });
+      (
+        second.input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>
+      ).mockRejectedValue(new Error('compaction raced'));
+      const one = await runConversationCompactionBeforeStream(first.input as never);
+      const two = await runConversationCompactionBeforeStream(second.input as never);
+      expect(one.failure).toBeDefined();
+      expect(two.failure).toBeDefined();
+
+      // The first commit evicts exactly one entry — the oldest. The second adds
+      // nothing, so it must evict nothing.
+      await deliverPrelude(one);
+      await deliverPrelude(two);
+
+      // Probe the SURVIVOR first: a suppressed probe never reaches
+      // `markReported`, so it cannot disturb the set, whereas the re-minting
+      // probe below delivers a row and evicts `flush(1)` on its way out.
+      expect(await failingTurn(runtime, flush(1))).toBeUndefined();
+      expect(await failingTurn(runtime, flush(0))).toBeDefined();
+    });
   });
 
   it('mints no breadcrumb when the turn was cancelled mid-pass', async () => {

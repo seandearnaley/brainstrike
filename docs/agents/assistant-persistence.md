@@ -2224,24 +2224,78 @@ identical always-visible entry per turn forever, push real content out of the
 timeline, and train the user to ignore it. The latch keys on the reason and
 never on the thread alone, so it can never hide a DIFFERENT failure; the `warn`
 log is NOT latched, so per-turn operator evidence is never lost. The latch is an
-in-memory `Set` with no persistence and no eviction, mirroring
+in-memory `Set` with no persistence, mirroring
 `warnedBaselineExceedsTargetThreadIds` in `conversation-compaction.ts`: a
-restart re-arms it.
+restart re-arms it. It is keyed on the reason's SHAPE and capped since
+BST-1744 — see the next section, which supersedes #3119's "no eviction".
 
-KNOWN LIMIT OF THE KEYING (raised by the Claude review of #3119). The
-key contains the whole bounded reason, and two of the reachable throws embed a
-per-message id — `Compaction candidate <id> has no valid creation time.` and
-`Assistant message <id> has conflicting branch topology.`. For those the reason
-differs on every turn, so the row is NOT deduplicated and the `Set` grows one
-entry per failing turn instead of being bounded by thread cardinality times
-distinct reasons. The opposite edge exists too: two failures sharing their first
-199 characters collapse onto one key, because the key uses the already-truncated
-reason. Neither is silent (the extra rows are visible and the `warn` still fires
-per turn), and the growth is ~200 chars per failing turn of a wedged thread, so
-this is recorded rather than fixed here: choosing between a normalized/classified
-key (dedupe on the SHAPE of the throw while rendering the full reason) and a
-capped drop-oldest set is a design ruling, not a patch, and it is owed a ticket
-of its own rather than a rider on this one.
+THE KEY IS THE SHAPE OF THE THROW, AND THE SET IS CAPPED (BST-1744; raised by
+the Claude review of #3119 and deliberately deferred there). #3119 keyed on the
+whole bounded reason, which defeated the latch outright for the two reachable
+throws that embed a per-message id — `Compaction candidate <id> has no valid
+creation time.` and `Assistant message <id> has conflicting branch topology.` —
+and for any driver error quoting a per-row identifier. A new reason every turn
+is a new key every turn, so the row was never deduplicated and the `Set` grew
+one entry per failing turn. The opposite edge was real too, and reproduced by
+the test that now pins it: because the key used the ALREADY-TRUNCATED reason,
+two failures agreeing on their first 199 characters collapsed onto one entry and
+the first silenced the second.
+
+BOTH HALVES, NOT EITHER ONE. Neither candidate closes this alone, which is why
+the ruling took both:
+
+- `compactionFailureKey` digests the SHAPE of the untruncated message — volatile
+  tokens masked, then sha256. Shaping alone cannot be proven complete:
+  `mastra_messages.id` is free-form `TEXT` (migration 117), so an id in a shape
+  the patterns do not recognise still mints a fresh key every turn.
+- `MAX_TRACKED_COMPACTION_FAILURES` caps the set at 512 with drop-oldest
+  eviction. The cap alone would have bounded memory while leaving the per-turn
+  row noise — the timeline noise this latch exists to prevent — fully in place.
+
+THE MASKING IS NOT THE CLASSIFIER THIS KIND REFUSED. ONE KIND, REASON IN THE ROW
+(above) rejected a hand-maintained taxonomy because it would need extending for
+every new throw and would bucket the next unanticipated one into "other". The
+shaping has neither property: there is no registry of known throws, and an
+unrecognised throw keys on its own text rather than being bucketed anywhere. Its
+failure direction is UNDER-merging — at worst an extra visible row — never
+over-merging, which would be a silence. The row still renders the FULL
+unnormalized reason, id included: normalization is KEY-ONLY, so the user keeps
+the one fact that identifies the wedged message.
+
+TWO VOLATILE TOKEN CLASSES, BOTH EVIDENCE-BACKED: canonical UUIDs (both
+id-bearing throws take theirs from `randomUUID`) and ISO-8601 timestamps (the
+compaction fixture in `run-events.test.ts` quotes a creation time, and a driver
+error that does so changes on every turn). SHORT DIGIT RUNS ARE DELIBERATELY NOT
+VOLATILE: `ollama/llama3.2` and `ollama/llama3.3` are DIFFERENT failures, and a
+blanket digit mask would let the first permanently silence the second — the one
+thing this latch must never do. Do not widen these patterns to chase a residue
+the cap already bounds.
+
+THE KEY IS BUILT FROM THE UNTRUNCATED MESSAGE, and deliberately does NOT re-run
+`boundRunEventReason`'s redaction. It never leaves the in-memory `Set` — never
+logged, persisted, or rendered — and redacting here would mean a second copy of
+credential patterns that were promoted specifically so there is exactly one;
+only the row's `reason` is durable, and that one is still bounded and redacted.
+Hashing is what makes an untruncated key affordable: a fixed-width digest turns
+the cap into a real BYTE bound rather than a bare entry count. Length framing is
+retained even though a fixed-width digest is already self-delimiting — it costs
+nothing, and it keeps the ruling below and its test intact.
+
+DROP-OLDEST, NOT LRU. The dedupe fast path only READS the set, so recency would
+have to be written on every suppressed turn, and first-seen order is already
+exact because a key the set holds is never re-added. Eviction costs the evicted
+failure ONE more visible row if it recurs — a repeat row, never a silence, the
+same direction every other ruling on this latch picks. The idempotency guard in
+`latchCompactionFailure` is load-bearing rather than a fast path: `markReported`
+is documented idempotent, and THE LATCH ARMS ON DELIVERY (below) accepts two
+turns committing the same key; at the cap, a commit that added nothing would
+otherwise evict an unrelated thread's entry.
+
+Pinned by `stream-init-compaction.test.ts` ("BST-1744: the key is the SHAPE of
+the throw, not its literal text"). Every guard is mutation-proven: removing
+either masking pattern, widening the masking to all digit runs, keying on the
+bounded reason, removing the eviction, and removing the idempotency guard each
+fail exactly the intended test and no other.
 
 NO THREAD ID, NO LATCH. `runtime.memory?.threadId` can be absent, and keying
 every unidentified turn under one shared bucket would let a single delivered row

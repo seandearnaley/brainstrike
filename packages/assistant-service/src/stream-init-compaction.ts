@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent';
 import {
   boundRunEventReason,
@@ -37,8 +38,10 @@ export interface PreRequestCompactionCapabilityResult {
 export interface PreRequestCompactionFailureBreadcrumb {
   readonly chunk: StreamChunk;
   /**
-   * Commits the (thread, reason) latch. Idempotent — it adds to a `Set`, so
-   * calling it more than once changes nothing.
+   * Commits the (thread, shape) latch. Idempotent by an explicit guard in
+   * `latchCompactionFailure`, NOT merely because a `Set` ignores a repeat
+   * `add` — that stopped being sufficient when BST-1744 capped the set, since
+   * a commit that added nothing would still have evicted the oldest entry.
    */
   readonly markReported: () => void;
 }
@@ -56,7 +59,7 @@ export interface PreRequestCompactionFailureBreadcrumb {
 export interface PreRequestCompactionOutcome {
   /**
    * BST-1737's always-visible `compaction.failed` breadcrumb, minted when the
-   * pass threw AND the (thread, reason) latch below has not already reported
+   * pass threw AND the (thread, shape) latch below has not already reported
    * it. Undefined on success, on a cancelled turn, and on a repeat.
    */
   readonly failure?: PreRequestCompactionFailureBreadcrumb;
@@ -66,8 +69,8 @@ export interface PreRequestCompactionOutcome {
 const COMPACTION_FAILURE_RUN_EVENT_KIND = 'compaction.failed' as const;
 
 /**
- * BST-1737: latches the visible breadcrumb to once per (thread, reason) for the
- * life of this process.
+ * BST-1737: latches the visible breadcrumb to once per (thread, reason-shape)
+ * for the life of this process.
  *
  * WHY LATCHED AT ALL. Most of what can reach this catch is STICKY — an unknown
  * model, a malformed `agentLoop.inputTokenLimit`, a missing trusted overlay
@@ -78,7 +81,10 @@ const COMPACTION_FAILURE_RUN_EVENT_KIND = 'compaction.failed' as const;
  *
  * WHY KEYED ON THE REASON, not the thread alone. The latch must never be able
  * to hide a DIFFERENT failure — that would recreate this ticket inside its own
- * fix. A new cause on an already-reported thread still gets its own row.
+ * fix. A new cause on an already-reported thread still gets its own row. Since
+ * BST-1744 the key is the reason's SHAPE rather than its literal text, which
+ * merges only what the masking positively recognises as the same throw — see
+ * `compactionFailureKey`.
  *
  * WHAT IS NOT LATCHED. The `warn` log fires on every single failing turn, so
  * per-turn operator evidence is never lost; only the user-facing row is
@@ -98,18 +104,119 @@ const COMPACTION_FAILURE_RUN_EVENT_KIND = 'compaction.failed' as const;
  * closes by far the widest part of that window, and the residue costs at most
  * one thread's repeat row rather than a permanent process-wide silence.
  *
- * Intentionally in-memory only (no persistence, no eviction), mirroring
+ * Intentionally in-memory only (no persistence), mirroring
  * `warnedBaselineExceedsTargetThreadIds` in
  * apps/desktop/src/assistant-server/conversation-compaction.ts: a restart
- * re-arms it, and the set is bounded by real thread cardinality times distinct
- * failure reasons, not by request volume — EXCEPT where the reason embeds a
- * per-message id (`Compaction candidate <id> has no valid creation time.`,
- * `Assistant message <id> has conflicting branch topology.`), which neither
- * deduplicates nor stays bounded and grows one entry per failing turn. See
- * KNOWN LIMIT OF THE KEYING in docs/agents/assistant-persistence.md; do not
- * re-derive the unqualified bound from this comment.
+ * re-arms it. BST-1744 replaced #3119's unqualified "no eviction" with a real
+ * bound, because keying on the whole bounded reason left the two id-bearing
+ * throws deduplicating nothing and growing an entry per failing turn: the key
+ * is now a fixed-width digest of the throw's SHAPE (`compactionFailureKey`)
+ * and the set is capped by `latchCompactionFailure`. BOTH halves were needed —
+ * shaping cannot be proven complete against a free-form `TEXT` message id, and
+ * a cap alone would have left a wedged thread minting a row every turn. See
+ * THE KEY IS THE SHAPE OF THE THROW in docs/agents/assistant-persistence.md.
  */
 const reportedCompactionFailures = new Set<string>();
+
+/**
+ * BST-1744: the hard ceiling on `reportedCompactionFailures`.
+ *
+ * The masking in `compactionFailureKey` cannot be proven complete —
+ * `mastra_messages.id` is free-form `TEXT` (migration 117), so a thread wedged
+ * on an id in some unrecognised shape still mints a fresh key every turn. This
+ * cap is therefore the ONLY component that bounds the set without assuming the
+ * masking caught everything, which is why BST-1744 took both halves and not
+ * whichever one looked sufficient on its own.
+ *
+ * 512 fixed-width entries is a few tens of KB — far below anything worth
+ * evicting for on a healthy process, and small enough that a pathological one
+ * cannot grow this without limit.
+ */
+export const MAX_TRACKED_COMPACTION_FAILURES = 512;
+
+/**
+ * Commits one key, evicting the OLDEST first-seen entry at the cap.
+ *
+ * Drop-oldest, not least-recently-used: the dedupe fast path only READS the
+ * set, so recency would have to be written on every suppressed turn, and
+ * first-seen order is already exact because a key present in the set is never
+ * re-added. Eviction costs the evicted failure ONE more visible row if it
+ * recurs — a repeat row, never a silence, which is the direction every other
+ * ruling on this latch picks.
+ *
+ * The early return is load-bearing, not just a fast path: `markReported` is
+ * documented idempotent, and two turns that fail identically before either
+ * prelude is consumed both mint and both commit. Without it the second commit
+ * would evict the oldest entry while adding nothing.
+ */
+function latchCompactionFailure(key: string): void {
+  if (reportedCompactionFailures.has(key)) {
+    return;
+  }
+  if (reportedCompactionFailures.size >= MAX_TRACKED_COMPACTION_FAILURES) {
+    const oldest = reportedCompactionFailures.values().next();
+    if (!oldest.done) {
+      reportedCompactionFailures.delete(oldest.value);
+    }
+  }
+  reportedCompactionFailures.add(key);
+}
+
+/**
+ * BST-1744: tokens that differ between two occurrences of the SAME failure.
+ *
+ * This is deliberately NOT the classifier the `compaction.failed` kind refused
+ * (see ONE KIND, REASON IN THE ROW): there is no registry of known throws to
+ * extend, and an unrecognised throw is never bucketed into an "other" — it
+ * simply keys on its own text. The masking therefore fails in ONE direction
+ * only, by UNDER-merging: the worst it can do is mint an extra visible row,
+ * never suppress a real second failure.
+ *
+ * Both patterns are evidence-backed rather than speculative. Ids, because the
+ * two reachable throws that embed one take it from `randomUUID`
+ * (apps/desktop/src/assistant-server/conversation-compaction.ts,
+ * packages/assistant-data/src/assistant-memory-repository.ts). Timestamps,
+ * because the compaction fixture in `run-events.test.ts` quotes a creation
+ * time, and a driver error that does so changes on every turn.
+ *
+ * SHORT DIGIT RUNS ARE NOT VOLATILE, deliberately. `ollama/llama3.2` and
+ * `ollama/llama3.3` are DIFFERENT failures, and a blanket digit mask would let
+ * the first permanently silence the second — the one thing this latch must
+ * never do. `mastra_messages.id` is free-form `TEXT`, so an id in some other
+ * shape still defeats the de-duplication; that residue is bounded by
+ * MAX_TRACKED_COMPACTION_FAILURES above rather than by widening these patterns
+ * until they start merging distinct failures.
+ */
+const VOLATILE_TIMESTAMP =
+  /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/g;
+const VOLATILE_UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+/**
+ * The latch key for one failure, as `<threadId.length>:<threadId><digest>`.
+ *
+ * Built from the UNTRUNCATED message, never from the rendered reason. The
+ * rendered reason is bounded to 200 code points, so a key built from it
+ * collapses two failures that agree on their first 199 characters onto one
+ * entry and lets the first silence the second. Hashing the shape is what makes
+ * an untruncated key affordable: the digest is fixed-width, so the capped set
+ * below is a real BYTE bound and not merely an entry count.
+ *
+ * The key never leaves this module — it is never logged, persisted or
+ * rendered — so it deliberately does NOT run `boundRunEventReason`'s
+ * redaction. Only the row's `reason` is durable, and that one is still
+ * redacted; re-running the credential regexes here would mean a second copy of
+ * patterns that were promoted specifically so there is exactly one.
+ *
+ * Length-framing is retained from BST-1737 even though a fixed-width digest is
+ * already self-delimiting: it costs nothing, keeps that settled ruling and its
+ * test intact, and stays correct if the digest width ever changes.
+ */
+function compactionFailureKey(threadId: string, error: unknown): string {
+  // Same extraction `boundRunEventReason` performs, applied before truncation.
+  const message = error instanceof Error ? error.message : String(error);
+  const shape = message.replace(VOLATILE_TIMESTAMP, '<ts>').replace(VOLATILE_UUID, '<id>');
+  return `${threadId.length}:${threadId}${createHash('sha256').update(shape).digest('hex')}`;
+}
 
 /**
  * The commit for a breadcrumb that is deliberately NOT latched. Deliberately
@@ -148,13 +255,13 @@ function compactionFailureChunk(input: {
     // do, in exactly the case where it knows least. Report every time instead.
     return { chunk: compactionFailureRunEventChunk(reason), markReported: NEVER_LATCHED };
   }
-  // LENGTH-FRAMED, not delimited: unambiguous for any thread id and reason
+  // LENGTH-FRAMED, not delimited: unambiguous for any thread id and digest
   // without depending on some character being impossible in either. It was a
   // NUL separator until #3119's own review quoted this line and reproduced that
   // byte, which `execFileSync` refuses in an argv string — see
   // docs/agents/assistant-persistence.md. A key that never leaves this `Set`
   // must carry nothing the rest of the toolchain cannot transport.
-  const key = `${threadId.length}:${threadId}${reason}`;
+  const key = compactionFailureKey(threadId, input.error);
   if (reportedCompactionFailures.has(key)) {
     return;
   }
@@ -165,7 +272,7 @@ function compactionFailureChunk(input: {
   return {
     chunk: compactionFailureRunEventChunk(reason),
     markReported: () => {
-      reportedCompactionFailures.add(key);
+      latchCompactionFailure(key);
     },
   };
 }
