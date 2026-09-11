@@ -1,3 +1,4 @@
+// Keep foreground decisions covered explicitly; delegated-worker-write covers background mode.
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -37,7 +38,10 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       ? {
           finalText: 'PARENT_RECEIVED_CHILD_1720',
           toolCall: {
-            arguments: { prompt: 'Read evidence.txt and report its marker.' },
+            arguments: {
+              _background: { enabled: false },
+              prompt: 'Read evidence.txt and report its marker.',
+            },
             name: 'agent-explore',
           },
         }

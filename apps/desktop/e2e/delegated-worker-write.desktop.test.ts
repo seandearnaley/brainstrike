@@ -250,6 +250,7 @@ async function assertWorkerWrite(
         await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
       }
       if (depth === 3) {
+        // Mixed foreground/background siblings retain distinct shared-workspace identities.
         provider.setScript(({ messages }) => {
           const task = JSON.stringify(
             messages.filter(
@@ -272,6 +273,7 @@ async function assertWorkerWrite(
                 finalText: 'SECOND_CHILD_PARENT_RESULT_1725',
                 toolCall: {
                   arguments: {
+                    _background: { enabled: false },
                     prompt:
                       'SECOND_SIBLING_TASK_1725: read worker-output.txt and report its contents.',
                   },
