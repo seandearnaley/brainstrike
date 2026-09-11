@@ -385,6 +385,7 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
           rootId: 'r-1',
           threadId: 't-busy',
         });
+        expect(created.ok).toBe(true);
         if (!created.ok) {
           return;
         }

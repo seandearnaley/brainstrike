@@ -582,19 +582,9 @@ async function completeDesktopAssistantThreadRun(
   await database.query(
     `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
      SET status = $2, error = $3, completed_at = $4, updated_at = $5
-     WHERE id = $1 AND (status NOT IN ('cancelling', 'cancelled') OR $2 = 'cancelled')`,
+     WHERE id = $1 AND status NOT IN ('cancelling', 'cancelled')`,
     [runId, status, error, now, now]
   );
-  if (status === 'cancelled') {
-    await database.query(
-      `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE} pending SET status = 'cancelled', completed_at = $2, updated_at = $2
-       FROM ${ASSISTANT_THREAD_RUNS_TABLE} finished
-       WHERE finished.id = $1 AND pending.resource_id = finished.resource_id
-         AND pending.thread_id = finished.thread_id AND pending.turn_message_id = finished.turn_message_id
-         AND pending.status = 'cancelling'`,
-      [runId, now]
-    );
-  }
 }
 
 /**

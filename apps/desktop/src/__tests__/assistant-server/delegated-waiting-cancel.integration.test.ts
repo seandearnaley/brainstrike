@@ -266,6 +266,18 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
       });
       if (registeredAfterCompletion) {
         await vi.waitFor(() => expect(controller.signal.aborted).toBe(true));
+        // A stream terminal write must not release the archive barrier before
+        // server-finally unregisters the still-live owner.
+        await recordDesktopAssistantThreadRunStatus(
+          'initial',
+          'cancelled',
+          null,
+          async () => database
+        );
+        const beforeTeardown = await database.query(
+          "SELECT status FROM brainstrike_assistant_thread_runs WHERE id = 'initial'"
+        );
+        expect.soft(beforeTeardown.rows).toEqual([{ status: 'cancelling' }]);
         unregisterSteerableRun('initial');
       }
       const response = await request;
@@ -348,9 +360,9 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
       expect([...states.values()]).toEqual(['cancelled']);
       expect(effects).toEqual([]);
     } finally {
+      unregisterSteerableRun('initial');
       server.close();
       await once(server, 'close');
-      unregisterSteerableRun('initial');
     }
   } finally {
     await host?.shutdown();

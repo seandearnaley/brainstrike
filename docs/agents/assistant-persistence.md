@@ -3351,7 +3351,9 @@ only a snapshot bracket whose first run belongs to those authoritative legs,
 including after process restart. Only then does waiting work become `cancelled`.
 The renderer does not preempt the server-owned cancellation with an optimistic
 terminal database write. Both completion writers preserve cancelling/cancelled
-authority against late completed/failed reports. Startup reaping retains a
+authority against every stream terminal report, including cancelled. Only the
+cancel endpoint finalizes cancelling rows after owner teardown; stream writers
+never cascade terminal cancellation into sibling legs. Startup reaping retains a
 crashed cancellation as cancelled with the existing orphan diagnostic; it never
 restores admission or fabricates the lost turn-end capture. Reattachment treats
 cancelling as in-flight. The text status column needs no schema migration.
