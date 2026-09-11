@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const hostedOutputs = [
@@ -99,10 +99,10 @@ function isRequireable(specifier) {
 }
 
 /**
- * The CJS outputs must not `require()` an ESM-only package. tsup emits a bare
- * `require("<pkg>")` for anything left external, and the Hosted Web functions
- * are built as CommonJS — so an ESM-only external fails at LOAD time, before a
- * single request is handled, with a green build and a green type-check.
+ * The compatibility CJS outputs must not require ESM-only workspace packages.
+ * Hosted functions select native ESM, checked by the actual load probe below;
+ * retaining unsafe workspace requires in the compatibility output would hide
+ * module-boundary regressions from consumers with stricter loaders.
  */
 function collectEsmOnlyRequires(source) {
   // Reduced to the package name: `require("@brainstrike/utils/string-utils")`
@@ -127,7 +127,7 @@ for (const relativePath of hostedOutputs) {
         '--no-experimental-require-module',
         '--input-type=module',
         '-e',
-        `await import(${JSON.stringify(outputPath)})`,
+        `await import(${JSON.stringify(pathToFileURL(outputPath).href)})`,
       ],
       { encoding: 'utf8' }
     );
