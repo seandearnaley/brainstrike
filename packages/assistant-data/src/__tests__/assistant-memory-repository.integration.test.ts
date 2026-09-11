@@ -76,6 +76,58 @@ function makeSuspend(overrides: Partial<RediscoveredToolSuspend>): RediscoveredT
 }
 
 describe('createAssistantThreadHistoryAdapter', () => {
+  it('hydrates native user signals as human turns without rendering system signals as user input', async () => {
+    const repository = makeMessagesOnlyRepository();
+    // Native envelope observed by mastra-child-messages.integration.spec.ts.
+    repository.listMessages = vi.fn(async () => [
+      {
+        content: { format: 2, parts: [{ text: 'Prior child output', type: 'text' }] },
+        createdAt: new Date('2026-09-11T20:00:00Z'),
+        id: 'prior',
+        role: 'assistant',
+      },
+      {
+        content: {
+          format: 2,
+          metadata: { signal: { id: 'human-followup-request', tagName: 'user', type: 'user' } },
+          parts: [{ text: 'ACTIVE_FOLLOWUP', type: 'text' }],
+        },
+        createdAt: new Date('2026-09-11T20:00:01Z'),
+        id: 'human-followup-request',
+        role: 'signal',
+      },
+      {
+        content: {
+          format: 2,
+          metadata: { signal: { id: 'notification', type: 'notification' } },
+          parts: [{ text: 'System notification', type: 'text' }],
+        },
+        createdAt: new Date('2026-09-11T20:00:02Z'),
+        id: 'notification',
+        role: 'signal',
+      },
+      {
+        content: { format: 2, parts: [{ text: 'Child reply', type: 'text' }] },
+        createdAt: new Date('2026-09-11T20:00:03Z'),
+        id: 'reply',
+        role: 'assistant',
+      },
+    ]);
+    const history = await createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'child-owner',
+      threadId: 'child',
+    }).load();
+    expect(history.messages.map(({ message }) => [message.id, message.role])).toEqual([
+      ['prior', 'assistant'],
+      ['human-followup-request', 'user'],
+      ['reply', 'assistant'],
+    ]);
+    expect(history.messages[1]?.message.content).toEqual([
+      { text: 'ACTIVE_FOLLOWUP', type: 'text' },
+    ]);
+    expect(history.messages[2]?.parentId).toBe('human-followup-request');
+  });
   // Mirrors the REAL persisted envelope pinned in
   // packages/agent mastra-memory-persistence.integration.spec.ts
   // ("persists a user image attachment part…") — never hand-edit the shape.

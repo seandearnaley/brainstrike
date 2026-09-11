@@ -948,3 +948,12 @@ workflow deletion. The existing delegated snapshot owner finalizes only the
 selected invocation keys. Native foreground/background tests prove the parent
 signal and unrelated siblings remain live, and failures propagate before Stop
 acknowledgement. No replacement runtime is created merely to cancel work.
+
+Native human child input uses the installed Agent signal API, not a new delegation
+call with a reused thread ID. The native child-message integration proof uses
+`createMessageSignal` with a stable ID and `signalToMastraDBMessage` for durable
+history, then `child.sendSignal` to an observed active child run. A parent Agent
+cannot address that child as its own execution (native acceptance is blocked).
+Repeated signal IDs reach the child model once. Idle `sendMessage` wakes the same
+native child memory thread, but that native proof alone does not establish the
+Brainstrike host admission, budget, decision or human-composer integration.

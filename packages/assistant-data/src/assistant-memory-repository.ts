@@ -2183,7 +2183,11 @@ function appendUserHistoryMessage(args: {
   parentId: string | null;
   repositoryMessages: AssistantHistoryRepositoryMessages;
 }): boolean {
-  const content = toTextHistoryContentParts(args.message.content);
+  const content = toTextHistoryContentParts(
+    isNativeUserSignal(args.message)
+      ? readContentPartArray(args.message.content)
+      : args.message.content
+  );
   const attachments = toUserHistoryAttachments(args.message.id, args.message.content);
   // An image-only user message has no text part but must survive hydration.
   if (content.length === 0 && attachments.length === 0) {
@@ -2225,6 +2229,18 @@ function appendSystemHistoryMessage(args: {
     parentId: args.parentId,
   });
   return true;
+}
+
+function isNativeUserSignal(message: AssistantHistoryMessage): boolean {
+  if (message.role !== 'signal' || !isRecord(message.content)) {
+    return false;
+  }
+  const metadata = message.content['metadata'];
+  if (!isRecord(metadata)) {
+    return false;
+  }
+  const signal = metadata['signal'];
+  return isRecord(signal) && signal['type'] === 'user';
 }
 
 /**
@@ -2285,9 +2301,10 @@ function buildHistoryUnits(
       );
       continue;
     }
-    if (message.role === 'user' || message.role === 'system') {
+    const role = isNativeUserSignal(message) ? 'user' : message.role;
+    if (role === 'user' || role === 'system') {
       closeOpenGroup();
-      units.push({ kind: message.role, message });
+      units.push({ kind: role, message });
     }
     // Other roles (legacy 'tool' rows) are folded into tool results and never
     // rendered — they intentionally do not split an assistant group.

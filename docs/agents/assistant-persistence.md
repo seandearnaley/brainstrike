@@ -3546,3 +3546,8 @@ Delegated event assignment may use a retained assistant row's explicit durable
 `parentId` equal to the originating user message even when that user row is outside
 the hydration window. This is exact topology evidence, not a call-id-only or
 nearest-turn heuristic; reused call IDs under another user cannot claim the event.
+
+Native Mastra signal messages with `content.metadata.signal.type === 'user'` are
+human history turns. Render their format-2 `parts`, split assistant groups at the
+human input, and retain normal branch topology. Notification/state signals must
+not be reclassified as human messages.
