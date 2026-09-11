@@ -10,6 +10,8 @@ export interface DelegatedConversationStore {
   clear(): void;
   getConversation(threadId: string): DelegatedConversationSnapshot | undefined;
   getSnapshot(): ReadonlyMap<string, DelegatedConversationSnapshot>;
+  hasUnread(threadId: string): boolean;
+  markRead(threadId: string): void;
   publish(update: DelegatedConversationUpdate): boolean;
   readonly rootThreadId: string;
   subscribe(listener: () => void): () => void;
@@ -28,6 +30,7 @@ export function createDelegatedConversationStore(rootThreadId: string): Delegate
     throw new Error('A delegated store requires its root thread.');
   }
   let values = new Map<string, DelegatedConversationSnapshot>();
+  const seen = new Map<string, DelegatedConversationSnapshot>();
   const retiredLegs = new Map<string, Set<string>>();
   const threadByInvocation = new Map<string, string>();
   const listeners = new Set<() => void>();
@@ -39,12 +42,22 @@ export function createDelegatedConversationStore(rootThreadId: string): Delegate
   return {
     clear: () => {
       values = new Map();
+      seen.clear();
       retiredLegs.clear();
       threadByInvocation.clear();
       notify();
     },
     getConversation: (threadId) => values.get(threadId),
     getSnapshot: () => values,
+    hasUnread: (threadId) => values.has(threadId) && values.get(threadId) !== seen.get(threadId),
+    markRead: (threadId) => {
+      const snapshot = values.get(threadId);
+      if (!snapshot || seen.get(threadId) === snapshot) {
+        return;
+      }
+      seen.set(threadId, snapshot);
+      notify();
+    },
     publish: (update) => {
       const baseline = update.baseline;
       if (!baseline) {

@@ -73,6 +73,7 @@ function createThreadScrollFollow(): ThreadScrollFollow {
   /** True while a follow/explicit scroll is in flight and may still settle. */
   let pendingFollow = false;
   let lastScrollTop = 0;
+  let hidden = false;
   let lastScrollHeight = 0;
   let lastObservedScrollHeight = 0;
   let lastObservedClientHeight = 0;
@@ -142,7 +143,24 @@ function createThreadScrollFollow(): ThreadScrollFollow {
 
   const measure = (el: HTMLElement): void => {
     const { scrollHeight, clientHeight } = el;
-    if (scrollHeight === lastObservedScrollHeight && clientHeight === lastObservedClientHeight) {
+    // Hidden workspace tabs report zero geometry. That is not a reader at
+    // the bottom; retain the visible tab's pinnedness until layout returns.
+    if (clientHeight === 0) {
+      hidden = true;
+      return;
+    }
+    const resuming = hidden;
+    hidden = false;
+    if (resuming && !isAtBottom && !pendingFollow) {
+      // Browser anchoring can displace a kept-alive viewport while hidden.
+      // Restore the last observed reading position before judging new geometry.
+      el.scrollTo({ behavior: 'instant', top: lastScrollTop });
+    }
+    if (
+      !resuming &&
+      scrollHeight === lastObservedScrollHeight &&
+      clientHeight === lastObservedClientHeight
+    ) {
       return;
     }
     lastObservedScrollHeight = scrollHeight;
@@ -181,6 +199,7 @@ function createThreadScrollFollow(): ThreadScrollFollow {
   return {
     attach: (el) => {
       element = el;
+      hidden = el.clientHeight === 0;
       lastScrollTop = el.scrollTop;
       lastScrollHeight = el.scrollHeight;
       lastObservedScrollHeight = el.scrollHeight;
@@ -231,6 +250,13 @@ function createThreadScrollFollow(): ThreadScrollFollow {
        * still disengage). Anything the engine did not write is the user's.
        */
       const onScroll = () => {
+        if (el.clientHeight === 0) {
+          hidden = true;
+          return;
+        }
+        if (hidden) {
+          measure(el);
+        }
         const isOwnWriteEcho = unechoedWriteTop === el.scrollTop;
         unechoedWriteTop = null;
         if (isOwnWriteEcho) {

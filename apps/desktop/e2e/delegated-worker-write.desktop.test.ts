@@ -149,6 +149,7 @@ async function assertWorkerWrite(
         .getByRole('tablist', { name: 'Workspace tabs' })
         .getByRole('tab', { selected: true });
       await expect(selectedTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+      const firstChildName = (await selectedTab.innerText()).trim();
       for (let level = 1; level < depth; level += 1) {
         const currentName = (await selectedTab.innerText()).trim();
         const current = window.getByRole('region', { exact: true, name: currentName });
@@ -156,6 +157,16 @@ async function assertWorkerWrite(
         await current.getByRole('button', { name: /Open .* conversation/ }).click();
         await expect(selectedTab).not.toHaveText(currentName);
         await expect(selectedTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+        const nextName = (await selectedTab.innerText()).trim();
+        const nextPanel = window.getByRole('tabpanel', { exact: true, name: nextName });
+        await nextPanel
+          .getByRole('navigation', { name: 'Conversation ancestry' })
+          .getByRole('button', { exact: true, name: currentName })
+          .click();
+        const origin = current.getByRole('button', { name: /Open .* conversation/ });
+        await expect(origin).toBeFocused();
+        await origin.press('Enter');
+        await expect(selectedTab).toHaveText(nextName);
       }
       const childName = (await selectedTab.innerText()).trim();
       const child = window.getByRole('region', { exact: true, name: childName });
@@ -200,6 +211,70 @@ async function assertWorkerWrite(
         expect((await stat(outputPath)).mtimeMs).toBe(writtenMtime);
       } else {
         await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      }
+      if (depth === 3) {
+        provider.setScript(({ messages }) => {
+          const task = JSON.stringify(
+            messages.filter(
+              (message) =>
+                message &&
+                typeof message === 'object' &&
+                'role' in message &&
+                message.role === 'user'
+            )
+          );
+          return task.includes('SECOND_SIBLING_TASK_1725')
+            ? {
+                finalText: 'SECOND_CHILD_READ_1725',
+                toolCall: {
+                  arguments: { path: 'worker-output.txt' },
+                  name: 'brainstrike_readWorkspaceFile',
+                },
+              }
+            : {
+                finalText: 'SECOND_CHILD_PARENT_RESULT_1725',
+                toolCall: {
+                  arguments: {
+                    prompt:
+                      'SECOND_SIBLING_TASK_1725: read worker-output.txt and report its contents.',
+                  },
+                  name: 'agent-worker',
+                },
+              };
+        });
+        await root
+          .getByRole('textbox', { name: 'Message input' })
+          .fill('START_SECOND_CHILD_1725: delegate another Worker to inspect the deliverable.');
+        await root.getByRole('button', { exact: true, name: 'Send' }).click();
+        await expect(
+          root.getByText('SECOND_CHILD_PARENT_RESULT_1725', { exact: true })
+        ).toBeVisible();
+        await root.getByRole('button', { exact: true, name: 'Expand activity' }).last().click();
+        await root
+          .getByRole('button', { name: /Open .* conversation/ })
+          .last()
+          .click();
+        await expect(selectedTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+        const secondName = (await selectedTab.innerText()).trim();
+        expect(secondName).not.toBe(firstChildName);
+        await expect(
+          window
+            .getByRole('region', { exact: true, name: secondName })
+            .getByText('SECOND_CHILD_READ_1725', { exact: true })
+        ).toBeVisible();
+        const afterSecond = provider.requestCount();
+        await window.getByRole('button', { exact: true, name: `Close ${secondName}` }).click();
+        await root
+          .getByRole('button', { name: /Open .* conversation/ })
+          .last()
+          .click();
+        await expect(selectedTab).toHaveText(secondName);
+        await window.reload();
+        await ensureAssistantShellVisible(window);
+        await expect(selectedTab).toHaveText(secondName);
+        await expect(window.getByRole('tab', { exact: true, name: firstChildName })).toBeVisible();
+        expect(provider.requestCount()).toBe(afterSecond);
+        expect((await stat(outputPath)).mtimeMs).toBe(writtenMtime);
       }
       await window.screenshot({
         animations: 'disabled',

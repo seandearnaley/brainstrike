@@ -10,11 +10,14 @@ import {
 } from '@brainstrike/assistant-ui';
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { use, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { DelegatedConversationBreadcrumbs } from './delegated-conversation-breadcrumbs';
 import { DelegatedConversationPanel } from './delegated-conversation-panel';
 import { createDelegatedWorkspaceDiscovery } from './delegated-workspace-discovery';
 import { DelegatedWorkspaceNavigation } from './delegated-workspace-navigation';
 import type { ChildNode } from './delegated-workspace-node';
+import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { resolveDelegatedWorkspaceDecision } from './resolve-delegated-workspace-identity';
 import { RootsContext, useDelegatedConversationRoot } from './use-delegated-conversation-root';
@@ -40,6 +43,21 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
     () => root?.store.getConversation(node.threadId),
     () => root?.store.getConversation(node.threadId)
   );
+  useEffect(() => {
+    const markVisibleRead = () => {
+      const { selection } = useWorkspaceTabSelectionStore.getState();
+      if (selection.kind === 'app' && selection.appId === delegatedWorkspaceTabId(node)) {
+        root?.store.markRead(node.threadId);
+      }
+    };
+    markVisibleRead();
+    const unsubscribeSelection = useWorkspaceTabSelectionStore.subscribe(markVisibleRead);
+    const unsubscribeActivity = root?.store.subscribe(markVisibleRead);
+    return () => {
+      unsubscribeSelection();
+      unsubscribeActivity?.();
+    };
+  }, [root, node]);
   const resolveInvocation = useCallback(
     async (identity: { parentRuntimeRunId: string; parentToolCallId: string }): Promise<string> => {
       const invocation = await repository.getInvocation(node, identity);
@@ -108,21 +126,27 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
   }
   return (
     <DelegatedWorkspaceNavigation
+      currentThreadId={node.threadId}
       ownerResourceId={node.ownerResourceId}
       rootThreadId={node.rootThreadId}
     >
       <SubagentInvocationResolverContext value={resolveInvocation}>
-        <DelegatedConversationPanel
-          label={node.displayName}
-          onNew={(message) =>
-            root.sendDecision(node.threadId, message, () =>
-              resolveDelegatedWorkspaceDecision(repository, node, message)
-            )
-          }
-          {...(saved ? { persistedHistory: saved.history } : {})}
-          store={root.store}
-          threadId={node.threadId}
-        />
+        <div className="flex h-full min-h-0 flex-col">
+          <DelegatedConversationBreadcrumbs db={db} node={node} />
+          <div className="min-h-0 flex-1">
+            <DelegatedConversationPanel
+              label={node.displayName}
+              onNew={(message) =>
+                root.sendDecision(node.threadId, message, () =>
+                  resolveDelegatedWorkspaceDecision(repository, node, message)
+                )
+              }
+              {...(saved ? { persistedHistory: saved.history } : {})}
+              store={root.store}
+              threadId={node.threadId}
+            />
+          </div>
+        </div>
       </SubagentInvocationResolverContext>
     </DelegatedWorkspaceNavigation>
   );

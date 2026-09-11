@@ -5,7 +5,15 @@ import {
 import { createContext } from 'react';
 
 export const SubagentConversationNavigationContext = createContext<
-  ((threadId: string) => void) | null
+  ((threadId: string, origin?: HTMLElement) => void) | null
+>(null);
+
+export interface SubagentConversationPresentation {
+  readonly displayName: string;
+  readonly markClassName: string;
+}
+export const SubagentConversationPresentationContext = createContext<
+  ((threadId: string) => Promise<SubagentConversationPresentation>) | null
 >(null);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

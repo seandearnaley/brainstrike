@@ -94,6 +94,7 @@ import {
   THREAD_CONTROL_TITLE_CLASS_NAME,
   type ThreadRowStatusState,
 } from './assistant-thread-presentation';
+import { DelegatedSidebarCell } from './delegated-sidebar-cell';
 import { useCreateThreadInFolder } from './hooks/use-create-thread-in-folder';
 import { type ForgePrCacheLookup, useForgePrCache } from './hooks/use-forge-pr-cache';
 import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
@@ -136,6 +137,7 @@ import {
 import { ThreadsPanelSearch } from './threads-panel-search';
 import { ThreadsViewOptionsPopover } from './threads-panel-view-options';
 import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
+import { useDelegatedSidebar } from './use-delegated-sidebar';
 import { type ThreadPanelSelection, useThreadPanelSelection } from './use-thread-panel-selection';
 import { useThreadSearchController } from './use-thread-search-controller';
 
@@ -1735,15 +1737,25 @@ interface ThreadGroupSectionHandlers {
 }
 
 function buildThreadPanelTreeNodes(
-  rows: readonly ThreadPanelVisibleRow[]
+  rows: readonly ThreadPanelVisibleRow[],
+  delegatedEnabled = false
 ): TreeNode<ThreadPanelVisibleRow>[] {
   return rows.map((row) => ({
     data: row,
-    depth: row.kind === 'group' ? 0 : row.parentId === null ? 0 : 1,
+    depth:
+      row.kind === 'delegated' || row.kind === 'delegated-state'
+        ? row.depth
+        : row.kind === 'group'
+          ? 0
+          : row.parentId === null
+            ? 0
+            : 1,
     // Disclosure is already applied by buildThreadPanelVisibleRows, but every
     // section header remains an expandable treegrid parent so aria-expanded
     // and the shared Left/Right keyboard contract expose a symmetric tree.
-    hasChildren: row.kind === 'group',
+    hasChildren:
+      row.kind === 'group' ||
+      (delegatedEnabled && (row.kind === 'thread' || row.kind === 'delegated')),
     id: row.id,
     parentId: row.kind === 'group' ? null : row.parentId,
     type: `thread-panel-${row.kind}`,
@@ -1980,7 +1992,9 @@ function ThreadPanelCell({
   onShowMore,
   row,
   rowsProps,
+  onShowMoreChildren,
 }: {
+  readonly onShowMoreChildren: (id: string) => void;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onShowMore: (sectionKey: string) => void;
@@ -1988,7 +2002,9 @@ function ThreadPanelCell({
   readonly rowsProps: Omit<ThreadRowsProps, 'threads'>;
 }): ReactElement {
   let content: ReactElement;
-  if (row.kind === 'thread') {
+  if (row.kind === 'delegated' || row.kind === 'delegated-state') {
+    content = <DelegatedSidebarCell onShowMore={onShowMoreChildren} row={row} />;
+  } else if (row.kind === 'thread') {
     content = <ThreadRows {...rowsProps} threads={[row.thread]} />;
   } else if (row.kind === 'show-more') {
     content = <ThreadPanelShowMoreCell onShowMore={onShowMore} row={row} />;
@@ -2289,7 +2305,11 @@ function ThreadPanelTree({
     selectedThreadIds: selectedAvailableThreadIds,
     visibleRows,
   } = selection;
-  const nodes = useMemo(() => buildThreadPanelTreeNodes(visibleRows.rows), [visibleRows.rows]);
+  const delegated = useDelegatedSidebar(visibleRows.rows);
+  const nodes = useMemo(
+    () => buildThreadPanelTreeNodes(delegated.rows, delegated.enabled),
+    [delegated.rows, delegated.enabled]
+  );
   const colorByGroupId = useMemo(
     () =>
       new Map(
@@ -2309,10 +2329,13 @@ function ThreadPanelTree({
   );
   const expandedGroupIds = useMemo(
     () =>
-      new Set(
-        visibleRows.rows.flatMap((row) => (row.kind === 'group' && !row.collapsed ? [row.id] : []))
-      ),
-    [visibleRows.rows]
+      new Set([
+        ...delegated.expandedIds,
+        ...visibleRows.rows.flatMap((row) =>
+          row.kind === 'group' && !row.collapsed ? [row.id] : []
+        ),
+      ]),
+    [delegated.expandedIds, visibleRows.rows]
   );
   const bulkSelectionController = useThreadBulkSelectionController({
     onBulkColor,
@@ -2371,6 +2394,7 @@ function ThreadPanelTree({
             groupHandlers={groupHandlers}
             onNewThreadInFolder={onNewThreadInFolder}
             onShowMore={handleShowMore}
+            onShowMoreChildren={delegated.showMore}
             row={node.data}
             rowsProps={rowsProps}
           />
@@ -2383,7 +2407,7 @@ function ThreadPanelTree({
         treeControlsPosition: 'top',
       },
     ],
-    [groupHandlers, handleShowMore, onNewThreadInFolder, rowsProps]
+    [delegated.showMore, groupHandlers, handleShowMore, onNewThreadInFolder, rowsProps]
   );
 
   return (
@@ -2436,9 +2460,16 @@ function ThreadPanelTree({
             selectGroup(getThreadPanelMemberSectionId(row), nextState);
           }
         }}
-        onMultiSelectChange={replaceSelection}
+        onMultiSelectChange={(ids) => {
+          const selectable = new Set(visibleRows.visibleThreadIds);
+          replaceSelection(new Set([...ids].filter((id) => selectable.has(id))));
+        }}
         onToggleExpand={(nodeId) => {
-          const row = visibleRows.rows.find((candidate) => candidate.id === nodeId);
+          const row = delegated.rows.find((candidate) => candidate.id === nodeId);
+          if (row?.kind === 'thread' || row?.kind === 'delegated') {
+            delegated.toggle(row);
+            return;
+          }
           if (row?.kind !== 'group') {
             return;
           }

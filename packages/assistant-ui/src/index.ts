@@ -101,6 +101,8 @@ export {
 export type { SlashCommand } from './slash-commands';
 export {
   SubagentConversationNavigationContext,
+  type SubagentConversationPresentation,
+  SubagentConversationPresentationContext,
   SubagentInvocationResolverContext,
 } from './subagent-conversation-navigation';
 export {

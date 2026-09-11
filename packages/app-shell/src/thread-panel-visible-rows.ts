@@ -6,6 +6,7 @@ import type {
 } from '@brainstrike/assistant-data';
 import { UNASSIGNED_FOLDER_SECTION_ID } from '@brainstrike/assistant-data';
 import { THREAD_CONTROL_ROW_PITCH_PX } from './assistant-thread-presentation';
+import type { DelegatedSidebarRow } from './delegated-sidebar-rows';
 
 export const THREAD_PANEL_INITIAL_VISIBLE_LIMIT = 50;
 export const THREAD_PANEL_DISCLOSURE_INCREMENT = 50;
@@ -42,6 +43,7 @@ export interface ThreadPanelGroupRow {
 }
 
 export type ThreadPanelVisibleRow =
+  | DelegatedSidebarRow
   | ThreadPanelGroupRow
   | {
       readonly groupId: string | null;
@@ -116,6 +118,8 @@ export function getThreadPanelCollapseId(row: ThreadPanelGroupRow): string {
  * are their unwrapped min-height; re-measurement corrects the rest.
  */
 const THREAD_PANEL_ROW_HEIGHT_PX = {
+  delegated: THREAD_CONTROL_ROW_PITCH_PX,
+  'delegated-state': 36,
   empty: 40,
   group: 40,
   'show-more': 36,

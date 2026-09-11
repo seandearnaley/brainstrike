@@ -194,6 +194,34 @@ describe('own-write echo guard (BST-1039)', () => {
     return { detach, follow, observeContentChange, unmount };
   };
 
+  test.each([false, true])(
+    'preserves pinned=%s while an inactive workspace tab has zero geometry',
+    (pinned) => {
+      const scroller = createScriptedScroller(1000, 100);
+      const { detach, follow, observeContentChange, unmount } = attachScripted(scroller);
+      follow.jumpToBottomInstant();
+      scroller.element.dispatchEvent(new Event('scroll'));
+      if (!pinned) {
+        scroller.userScrollTo(0);
+        scroller.element.dispatchEvent(new Event('scroll'));
+      }
+      expect(follow.getIsAtBottom()).toBe(pinned);
+      scroller.resize({ clientHeight: 0, scrollHeight: 0 });
+      observeContentChange();
+      scroller.element.dispatchEvent(new Event('scroll'));
+      expect(follow.getIsAtBottom()).toBe(pinned);
+      scroller.resize({ clientHeight: 100, scrollHeight: 1200 });
+      // Chromium may restore an anchor displaced by hidden-tab layout.
+      scroller.userScrollTo(90);
+      observeContentChange();
+      flushAnimationFrames();
+      expect(follow.getIsAtBottom()).toBe(pinned);
+      expect(scroller.scrollTop()).toBe(pinned ? 1100 : 0);
+      detach();
+      unmount();
+    }
+  );
+
   test('swallows the echo of its own moving write, then re-sticks through the resize', () => {
     const scroller = createScriptedScroller(1000, 100);
     const { detach, follow, observeContentChange, unmount } = attachScripted(scroller);

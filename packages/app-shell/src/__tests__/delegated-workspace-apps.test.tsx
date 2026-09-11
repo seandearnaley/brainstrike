@@ -1,6 +1,6 @@
 import { loadDelegatedWorkspaceNode } from '../delegated-workspace-node';
-// @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
+import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { SubagentConversationNavigationContext } from '@brainstrike/assistant-ui';
 import type { DelegatedConversationNode } from '@brainstrike/db';
 import {
@@ -46,6 +46,28 @@ afterEach(() => {
 });
 
 describe('delegated workspace app registration', () => {
+  it('returns to the owning root without manufacturing a child tab for it', async () => {
+    useWorkspaceTabSelectionStore.getState().hydrate([], { kind: 'empty' });
+    function ReturnToRoot() {
+      const navigate = use(SubagentConversationNavigationContext);
+      return (
+        <button onClick={() => navigate?.('root')} type="button">
+          Return to root
+        </button>
+      );
+    }
+    render(
+      <DelegatedConversationRootsProvider>
+        <DelegatedWorkspaceNavigation ownerResourceId="owner" rootThreadId="root">
+          <ReturnToRoot />
+        </DelegatedWorkspaceNavigation>
+      </DelegatedConversationRootsProvider>
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Return to root' }));
+    expect(useAssistantThreadStore.getState().activeThreadIdByResourceId['owner']).toBe('root');
+    expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual([]);
+  });
+
   it('keeps resolved app identities stable and loads only the newly opened child', async () => {
     mocks.get.mockImplementation(async (_scope, id) =>
       id === 'child' ? node : { ...node, displayName: 'Flint', threadId: 'second' }
