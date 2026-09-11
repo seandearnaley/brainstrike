@@ -251,6 +251,17 @@ describe('read-before-write staleness guard', () => {
       };
       const tools = buildDesktopAssistantTools(runtime);
       const execution = { agent: { threadId: 'child-bound', toolCallId: 'bound-write' } };
+      const command = { command: process.platform === 'win32' ? 'cd' : 'pwd' };
+      const shell = await requireToolExecute<{ cwd: string; rootId: string; exitCode: number }>(
+        tools,
+        'brainstrike.executeCommand'
+      )(command, execution);
+      expect(shell).toMatchObject({
+        cwd: await fsPromises.realpath(firstRoot),
+        exitCode: 0,
+        rootId: 'bound-root',
+      });
+
       await requireToolExecute(tools, 'brainstrike.writeWorkspaceFile')(
         { content: 'Bound child effect', path: '/child.txt' },
         execution
@@ -265,6 +276,9 @@ describe('read-before-write staleness guard', () => {
         ...runtime,
         workspaceRoots: roots.filter((root) => root.rootId !== 'bound-root'),
       });
+      await expect(
+        requireToolExecute(disconnected, 'brainstrike.executeCommand')(command, execution)
+      ).rejects.toThrow(/bound workspace root.*no longer open/i);
       await expect(
         requireToolExecute(disconnected, 'brainstrike.writeWorkspaceFile')(
           { content: 'Must not switch roots', path: '/other.txt' },

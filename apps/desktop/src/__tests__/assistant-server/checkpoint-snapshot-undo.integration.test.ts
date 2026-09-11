@@ -569,6 +569,53 @@ describe('undoCheckpointEntry', () => {
 });
 
 describe('undoCheckpointRun', () => {
+  it('refuses child restoration over a later sibling edit without changing either journal', async () => {
+    await write('a.txt', 'User baseline');
+    const childThread = 'child-restore';
+    const childRun = 'child-restore-run';
+    const snapshot = await service.snapshot(handle, {
+      kind: 'turn-start',
+      runId: childRun,
+      threadId: childThread,
+    });
+    await repository.insertSnapshot({
+      commitOid: snapshot.commitOid,
+      kind: 'turn-start',
+      rootId: ROOT_ID,
+      rootPath: handle.rootPath,
+      runId: childRun,
+      threadId: childThread,
+    });
+    await write('a.txt', 'First child edit');
+    const child = await recordEditCheckpoint(
+      db,
+      journalInput({
+        afterHash: await hashOf('First child edit'),
+        runId: childRun,
+        threadId: childThread,
+      })
+    );
+    await write('a.txt', 'Later sibling edit');
+    const sibling = await recordEditCheckpoint(
+      db,
+      journalInput({
+        afterHash: await hashOf('Later sibling edit'),
+        runId: 'sibling-run',
+        threadId: 'sibling-thread',
+      })
+    );
+    const result = await undoCheckpointRun(db, { runId: childRun }, undoDeps());
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]).toMatchObject({ code: 'conflict', ok: false });
+    expect(await readOrNull('a.txt')).toBe('Later sibling edit');
+    const rows = await db.query(
+      'SELECT reverted_at FROM brainstrike_assistant_edit_checkpoints WHERE id IN ($1, $2)',
+      [child.id, sibling.id]
+    );
+    expect(rows.rows).toEqual([{ reverted_at: null }, { reverted_at: null }]);
+    expect(reindexActions).toEqual([]);
+  });
+
   it('restores the parent edits without erasing a child effect or independent user work', async () => {
     await write('a.txt', 'Parent baseline');
     await recordTurnStart();
