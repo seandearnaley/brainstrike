@@ -86,7 +86,11 @@ product capabilities.
 The native suite is **not desktop E2E coverage**. For production-path tests,
 reuse `apps/desktop/e2e/utils/model-provider-shim.ts` with the isolated profile
 and real host launch pattern in `mcp-packaged-core.desktop.test.ts`; script the
-model endpoint, not the assistant stream. The existing renderer-only
+model endpoint, not the assistant stream. The shim accepts either one fixed script
+or a per-request selector receiving parsed messages, advertised function-tool
+names, and the request ordinal. Route parent and child scripts from those
+request inputs; each selected script still derives its tool/final turn from
+that request's own history. The existing renderer-only
 `setupAssistantMock` is suitable for UI states, not execution/persistence proof.
 Each runtime/UI ticket must extend these existing seams with its scenario;
 BST-1728 runs the assembled matrix. No new mock-only lane can stand in for the

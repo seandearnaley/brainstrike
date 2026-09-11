@@ -56,12 +56,21 @@ export interface ModelProviderTurnRecord {
   readonly toolResultCount: number;
 }
 
+/** Parsed provider request available to parent/child test script routing. */
+export interface ModelProviderRequest {
+  readonly messages: readonly unknown[];
+  readonly requestIndex: number;
+  readonly toolNames: readonly string[];
+}
+
+export type ModelProviderScriptSelector = (request: ModelProviderRequest) => ModelProviderScript;
+
 export interface ModelProviderShim {
   readonly baseUrl: string;
   readonly close: () => Promise<void>;
   readonly requestCount: () => number;
   /** Configure what the next tool-call/follow-up cycle returns. */
-  readonly setScript: (script: ModelProviderScript) => void;
+  readonly setScript: (script: ModelProviderScript | ModelProviderScriptSelector) => void;
   /** Every decided request, oldest first — failure diagnostics only. */
   readonly transcript: () => readonly ModelProviderTurnRecord[];
 }
@@ -69,6 +78,7 @@ export interface ModelProviderShim {
 interface ChatCompletionsRequestBody {
   readonly messages?: unknown[];
   readonly stream?: boolean;
+  readonly tools?: unknown[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -94,6 +104,7 @@ async function readJsonBody(request: IncomingMessage): Promise<ChatCompletionsRe
   }
   return {
     ...(Array.isArray(parsed['messages']) ? { messages: parsed['messages'] } : {}),
+    ...(Array.isArray(parsed['tools']) ? { tools: parsed['tools'] } : {}),
     ...(typeof parsed['stream'] === 'boolean' ? { stream: parsed['stream'] } : {}),
   };
 }
@@ -302,7 +313,7 @@ function messageRoles(messages: unknown[] | undefined): readonly string[] {
 }
 
 export async function startModelProviderShim(
-  initialScript: ModelProviderScript
+  initialScript: ModelProviderScript | ModelProviderScriptSelector
 ): Promise<ModelProviderShim> {
   let script = initialScript;
   let requestCount = 0;
@@ -319,9 +330,23 @@ export async function startModelProviderShim(
     }
 
     void readJsonBody(request)
-      .then(({ messages, stream }) => {
+      .then(({ messages, stream, tools }) => {
         const toolResultCount = countToolResultMessages(messages);
-        const turn = resolveTurn(script, toolResultCount);
+        const selectedScript =
+          typeof script === 'function'
+            ? script({
+                messages: messages ?? [],
+                requestIndex: requestOrdinal,
+                toolNames: (tools ?? []).flatMap((tool) =>
+                  isRecord(tool) &&
+                  isRecord(tool['function']) &&
+                  typeof tool['function']['name'] === 'string'
+                    ? [tool['function']['name']]
+                    : []
+                ),
+              })
+            : script;
+        const turn = resolveTurn(selectedScript, toolResultCount);
         transcript.push({
           decision: 'finalText' in turn ? 'final-text' : `tool:${turn.call.name}`,
           requestIndex: requestOrdinal,
