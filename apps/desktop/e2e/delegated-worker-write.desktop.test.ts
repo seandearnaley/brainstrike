@@ -1,4 +1,6 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import type { ChildProcess } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { TestInfo } from '@playwright/test';
@@ -9,6 +11,13 @@ import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
+
+async function waitForOwnedExit(process: ChildProcess | undefined): Promise<void> {
+  if (!process || process.exitCode !== null || process.signalCode !== null) {
+    return;
+  }
+  await once(process, 'exit', { signal: AbortSignal.timeout(5000) });
+}
 
 // A new, previously absent file is deliberately used: runWriteWorkspaceFile's
 // staleness guard permits new/unobserved files. Existing-file edit acceptance
@@ -36,14 +45,21 @@ test('background worker survives a host restart with its pending approval and wr
   await assertWorkerWrite(electron, testInfo, 'Approve', 1, true);
 });
 
+test('stops a reloaded pending child and preserves parent interaction @smoke', async ({
+  electron,
+}, testInfo) => {
+  await assertWorkerWrite(electron, testInfo, 'Stop');
+});
+
 async function assertWorkerWrite(
   electron: ElectronHarness,
   testInfo: TestInfo,
-  decision: 'Approve' | 'Decline',
+  decision: 'Approve' | 'Decline' | 'Stop',
   depth = 1,
   restartHost = false
 ): Promise<void> {
   const failures: unknown[] = [];
+  let ownedProcess: ChildProcess | undefined;
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-worker-write-'));
   const outputPath = path.join(workspace, 'worker-output.txt');
   const content = 'WORKER_DISPOSABLE_DELIVERABLE_1721\n';
@@ -135,6 +151,7 @@ async function assertWorkerWrite(
   Object.assign(process.env, environment);
   try {
     let window = await electron.ensureWindow();
+    ownedProcess = (await electron.ensureContext()).app.process();
     try {
       await ensureMockWorkspaceOpen(window);
       await configureAssistantProvider(window, {
@@ -198,7 +215,13 @@ async function assertWorkerWrite(
       const pendingRequests = provider.requestCount();
       if (restartHost) {
         const oldProcessId = (await electron.ensureContext()).app.process().pid;
-        const restarted = await electron.restart();
+        const stoppedProcess = ownedProcess;
+        const [, restarted] = await Promise.all([
+          waitForOwnedExit(stoppedProcess),
+          electron.restart(),
+        ]);
+        expect(stoppedProcess?.exitCode).toBe(0);
+        ownedProcess = restarted.app.process();
         expect(restarted.app.process().pid).not.toBe(oldProcessId);
         window = restarted.window;
         root = window.getByTestId('chat-panel');
@@ -214,106 +237,159 @@ async function assertWorkerWrite(
       await expect(child.getByRole('button', { exact: true, name: approvalName })).toBeVisible();
       expect(provider.requestCount()).toBe(pendingRequests);
       await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-      await child
-        .getByRole('button', { exact: true, name: `${decision} brainstrike.writeWorkspaceFile` })
-        .click();
-      await expect(child.getByText(childResult, { exact: true })).toBeVisible();
-      await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
-      expect(observed).toEqual({
-        backgroundStarted: true,
-        parentResult: true,
-        writeResult: decision === 'Approve',
-      });
-      expect(
-        provider
-          .transcript()
-          .filter((entry) => entry.decision === 'tool:brainstrike_writeWorkspaceFile')
-      ).toHaveLength(1);
-      const completedRequests = provider.requestCount();
-      let writtenMtime: number | undefined;
-      if (decision === 'Approve') {
-        expect(await readFile(outputPath, 'utf8')).toBe(content);
-        writtenMtime = (await stat(outputPath)).mtimeMs;
-      } else {
+      if (decision === 'Stop') {
+        await child.getByRole('button', { exact: true, name: 'Stop' }).click();
+        await expect(
+          child.getByRole('button', { exact: true, name: approvalName })
+        ).not.toBeVisible();
         await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-      }
-      await window.getByRole('button', { exact: true, name: `Close ${childName}` }).click();
-      await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
-      await window.reload();
-      await ensureAssistantShellVisible(window);
-      await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
-      expect(provider.requestCount()).toBe(completedRequests);
-      if (decision === 'Approve') {
-        expect(await readFile(outputPath, 'utf8')).toBe(content);
-        expect((await stat(outputPath)).mtimeMs).toBe(writtenMtime);
-      } else {
-        await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-      }
-      if (depth === 3) {
-        // Mixed foreground/background siblings retain distinct shared-workspace identities.
-        provider.setScript(({ messages }) => {
-          const task = JSON.stringify(
-            messages.filter(
-              (message) =>
-                message &&
-                typeof message === 'object' &&
-                'role' in message &&
-                message.role === 'user'
-            )
-          );
-          return task.includes('SECOND_SIBLING_TASK_1725')
-            ? {
-                finalText: 'SECOND_CHILD_READ_1725',
-                toolCall: {
-                  arguments: { path: 'worker-output.txt' },
-                  name: 'brainstrike_readWorkspaceFile',
-                },
-              }
-            : {
-                finalText: 'SECOND_CHILD_PARENT_RESULT_1725',
-                toolCall: {
-                  arguments: {
-                    _background: { enabled: false },
-                    prompt:
-                      'SECOND_SIBLING_TASK_1725: read worker-output.txt and report its contents.',
-                  },
-                  name: 'agent-worker',
-                },
-              };
-        });
+        await window.getByRole('button', { exact: true, name: `Close ${childName}` }).click();
+        provider.setScript({ finalText: 'PARENT_REMAINS_USABLE_AFTER_CHILD_STOP_1723' });
         await root
           .getByRole('textbox', { name: 'Message input' })
-          .fill('START_SECOND_CHILD_1725: delegate another Worker to inspect the deliverable.');
+          .fill('Continue after stopping that child.');
         await root.getByRole('button', { exact: true, name: 'Send' }).click();
         await expect(
-          root.getByText('SECOND_CHILD_PARENT_RESULT_1725', { exact: true })
+          root.getByText('PARENT_REMAINS_USABLE_AFTER_CHILD_STOP_1723', { exact: true })
         ).toBeVisible();
-        await root.getByRole('button', { exact: true, name: 'Expand activity' }).last().click();
-        await root
-          .getByRole('button', { name: /Open .* conversation/ })
-          .last()
-          .click();
-        await expect(selectedTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
-        const secondName = (await selectedTab.innerText()).trim();
-        expect(secondName).not.toBe(firstChildName);
-        await expect(
-          window
-            .getByRole('region', { exact: true, name: secondName })
-            .getByText('SECOND_CHILD_READ_1725', { exact: true })
-        ).toBeVisible();
-        const afterSecond = provider.requestCount();
-        await window.getByRole('button', { exact: true, name: `Close ${secondName}` }).click();
-        await root
-          .getByRole('button', { name: /Open .* conversation/ })
-          .last()
-          .click();
-        await expect(selectedTab).toHaveText(secondName);
+        const afterStop = provider.requestCount();
         await window.reload();
         await ensureAssistantShellVisible(window);
-        await expect(selectedTab).toHaveText(secondName);
-        await expect(window.getByRole('tab', { exact: true, name: firstChildName })).toBeVisible();
-        expect(provider.requestCount()).toBe(afterSecond);
-        expect((await stat(outputPath)).mtimeMs).toBe(writtenMtime);
+        await root.getByRole('button', { exact: true, name: 'Expand activity' }).first().click();
+        const reopen = root.getByRole('button', { name: /Open .* conversation/ }).first();
+        await expect(reopen).toBeVisible();
+        await reopen.click();
+        await expect(selectedTab).toHaveText(childName);
+        await expect(
+          child.getByRole('button', { exact: true, name: approvalName })
+        ).not.toBeVisible();
+        await expect
+          .poll(async () =>
+            window.evaluate(async () => {
+              const api = (
+                globalThis as {
+                  electronAPI?: {
+                    db?: { query?: (sql: string) => Promise<{ rows: { status: string }[] }> };
+                  };
+                }
+              ).electronAPI;
+              if (!api?.db?.query) {
+                throw new Error('Missing database API');
+              }
+              return (
+                await api.db.query(
+                  'SELECT run.status FROM brainstrike_assistant_thread_runs run JOIN brainstrike_delegated_conversations child ON child.thread_id = run.thread_id WHERE child.parent_thread_id IS NOT NULL'
+                )
+              ).rows.map((row) => row.status);
+            })
+          )
+          .toEqual(['cancelled']);
+        expect(provider.requestCount()).toBe(afterStop);
+        await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      } else {
+        await child
+          .getByRole('button', { exact: true, name: `${decision} brainstrike.writeWorkspaceFile` })
+          .click();
+        await expect(child.getByText(childResult, { exact: true })).toBeVisible();
+        await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
+        expect(observed).toEqual({
+          backgroundStarted: true,
+          parentResult: true,
+          writeResult: decision === 'Approve',
+        });
+        expect(
+          provider
+            .transcript()
+            .filter((entry) => entry.decision === 'tool:brainstrike_writeWorkspaceFile')
+        ).toHaveLength(1);
+        const completedRequests = provider.requestCount();
+        let writtenMtime: number | undefined;
+        if (decision === 'Approve') {
+          expect(await readFile(outputPath, 'utf8')).toBe(content);
+          writtenMtime = (await stat(outputPath)).mtimeMs;
+        } else {
+          await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+        }
+        await window.getByRole('button', { exact: true, name: `Close ${childName}` }).click();
+        await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
+        await window.reload();
+        await ensureAssistantShellVisible(window);
+        await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
+        expect(provider.requestCount()).toBe(completedRequests);
+        if (decision === 'Approve') {
+          expect(await readFile(outputPath, 'utf8')).toBe(content);
+          expect((await stat(outputPath)).mtimeMs).toBe(writtenMtime);
+        } else {
+          await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+        }
+        if (depth === 3) {
+          // Mixed foreground/background siblings retain distinct shared-workspace identities.
+          provider.setScript(({ messages }) => {
+            const task = JSON.stringify(
+              messages.filter(
+                (message) =>
+                  message &&
+                  typeof message === 'object' &&
+                  'role' in message &&
+                  message.role === 'user'
+              )
+            );
+            return task.includes('SECOND_SIBLING_TASK_1725')
+              ? {
+                  finalText: 'SECOND_CHILD_READ_1725',
+                  toolCall: {
+                    arguments: { path: 'worker-output.txt' },
+                    name: 'brainstrike_readWorkspaceFile',
+                  },
+                }
+              : {
+                  finalText: 'SECOND_CHILD_PARENT_RESULT_1725',
+                  toolCall: {
+                    arguments: {
+                      _background: { enabled: false },
+                      prompt:
+                        'SECOND_SIBLING_TASK_1725: read worker-output.txt and report its contents.',
+                    },
+                    name: 'agent-worker',
+                  },
+                };
+          });
+          await root
+            .getByRole('textbox', { name: 'Message input' })
+            .fill('START_SECOND_CHILD_1725: delegate another Worker to inspect the deliverable.');
+          await root.getByRole('button', { exact: true, name: 'Send' }).click();
+          await expect(
+            root.getByText('SECOND_CHILD_PARENT_RESULT_1725', { exact: true })
+          ).toBeVisible();
+          await root.getByRole('button', { exact: true, name: 'Expand activity' }).last().click();
+          await root
+            .getByRole('button', { name: /Open .* conversation/ })
+            .last()
+            .click();
+          await expect(selectedTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+          const secondName = (await selectedTab.innerText()).trim();
+          expect(secondName).not.toBe(firstChildName);
+          await expect(
+            window
+              .getByRole('region', { exact: true, name: secondName })
+              .getByText('SECOND_CHILD_READ_1725', { exact: true })
+          ).toBeVisible();
+          const afterSecond = provider.requestCount();
+          await window.getByRole('button', { exact: true, name: `Close ${secondName}` }).click();
+          await root
+            .getByRole('button', { name: /Open .* conversation/ })
+            .last()
+            .click();
+          await expect(selectedTab).toHaveText(secondName);
+          await window.reload();
+          await ensureAssistantShellVisible(window);
+          await expect(selectedTab).toHaveText(secondName);
+          await expect(
+            window.getByRole('tab', { exact: true, name: firstChildName })
+          ).toBeVisible();
+          expect(provider.requestCount()).toBe(afterSecond);
+          expect((await stat(outputPath)).mtimeMs).toBe(writtenMtime);
+        }
       }
       await window.screenshot({
         animations: 'disabled',
@@ -322,6 +398,39 @@ async function assertWorkerWrite(
     } catch (error) {
       failures.push(error);
       for (const attach of [
+        async () => window.screenshot({ path: testInfo.outputPath('worker-write-failure.png') }),
+        async () =>
+          writeFile(
+            testInfo.outputPath('worker-write-failure.txt'),
+            await window.locator('body').innerText()
+          ),
+        async () => {
+          const state = await window.evaluate(async () => {
+            const api = (
+              globalThis as {
+                electronAPI?: { db?: { query?: (sql: string) => Promise<{ rows: unknown[] }> } };
+              }
+            ).electronAPI;
+            if (!api?.db?.query) {
+              throw new Error('Missing diagnostic database API');
+            }
+            return {
+              events: await api.db.query(
+                'SELECT run_id, thread_id, kind, metadata, occurred_at FROM brainstrike_assistant_run_events ORDER BY occurred_at'
+              ),
+              messages: await api.db.query(
+                'SELECT id, role, content, "createdAt", thread_id FROM mastra_messages ORDER BY "createdAt"'
+              ),
+              runs: await api.db.query(
+                'SELECT id, thread_id, turn_message_id, status, started_at FROM brainstrike_assistant_thread_runs ORDER BY started_at'
+              ),
+            };
+          });
+          await writeFile(
+            testInfo.outputPath('worker-database-diagnostic.json'),
+            JSON.stringify(state, null, 2)
+          );
+        },
         async () =>
           testInfo.attach('worker-write-failure', {
             body: await window.locator('body').innerText(),
@@ -346,7 +455,13 @@ async function assertWorkerWrite(
     // Every owner is released, even when an earlier teardown rejects. Keep
     // the acceptance failure first rather than replacing it with diagnostics.
     for (const cleanup of [
-      async () => electron.dispose(),
+      async () => {
+        await Promise.all([waitForOwnedExit(ownedProcess), electron.dispose()]);
+        if (ownedProcess) {
+          expect(ownedProcess.exitCode).toBe(0);
+          expect(ownedProcess.signalCode).toBeNull();
+        }
+      },
       async () => provider.close(),
       async () => {
         for (const key of Object.keys(environment)) {

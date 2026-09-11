@@ -3,6 +3,19 @@ import { createDelegatedConversationStore } from '../delegated-conversation-stor
 import { delegatedUpdate as update } from './helpers/delegated-conversation-fixtures';
 
 describe('host-owned delegated conversations', () => {
+  it('retires stopped publications before reload without rejecting a later admitted leg', () => {
+    const store = createDelegatedConversationStore('root');
+    store.publish(update('a'));
+    store.publish(update('b'));
+    const sibling = store.getConversation('b');
+    store.markRead('a');
+    store.invalidate('a');
+    expect(store.publish(update('a', 'initial', 'Late stopped snapshot'))).toBe(false);
+    expect(store.getConversation('a')).toBeUndefined();
+    expect(store.getConversation('b')).toBe(sibling);
+    expect(store.hasUnread('a')).toBe(false);
+    expect(store.publish(update('a', 'resumed', 'Later admitted leg'))).toBe(true);
+  });
   it('retains independent child snapshots after every view unsubscribes and publishes replay as replacement', () => {
     const store = createDelegatedConversationStore('root');
     const listener = vi.fn();

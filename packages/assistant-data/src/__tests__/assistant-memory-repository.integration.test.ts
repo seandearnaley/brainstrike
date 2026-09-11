@@ -1298,6 +1298,7 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     content: unknown;
     createdAt: Date;
     id: string;
+    parentId?: string | null;
     role: 'assistant' | 'user';
   }
 
@@ -2095,6 +2096,96 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
       )
     ).toEqual(['event:event-1', 'tool-call', 'event:event-2', 'text', 'event:event-3']);
   });
+
+  it.each([false, true])(
+    'keeps delegated navigation on its exact tool message across a trimmed user boundary (%s)',
+    async (trimUser) => {
+      const history = await loadHistory({
+        messages: [
+          ...(trimUser
+            ? []
+            : [
+                {
+                  content: { format: 2, parts: [{ text: 'Delegate', type: 'text' }] },
+                  createdAt: new Date('2026-09-11T19:21:17.346Z'),
+                  id: 'user-one',
+                  role: 'user' as const,
+                },
+              ]),
+          {
+            content: {
+              format: 2,
+              parts: [
+                makeToolInvocationPart({
+                  input: {},
+                  result: 'Background task started',
+                  toolCallId: 'reused-call',
+                  toolName: 'agent-worker',
+                }),
+              ],
+            },
+            createdAt: new Date('2026-09-11T19:21:17.383Z'),
+            id: 'delegation',
+            parentId: 'user-one',
+            role: 'assistant',
+          },
+          {
+            content: { format: 2, parts: [{ text: 'Worker needs approval.', type: 'text' }] },
+            createdAt: new Date('2026-09-11T19:21:17.500Z'),
+            id: 'notice',
+            parentId: 'delegation',
+            role: 'assistant',
+          },
+          {
+            content: { format: 2, parts: [{ text: 'Continue', type: 'text' }] },
+            createdAt: new Date('2026-09-11T19:21:18.532Z'),
+            id: 'user-two',
+            role: 'user',
+          },
+          {
+            content: {
+              format: 2,
+              parts: [
+                makeToolInvocationPart({
+                  input: {},
+                  result: 'Another task',
+                  toolCallId: 'reused-call',
+                  toolName: 'agent-worker',
+                }),
+              ],
+            },
+            createdAt: new Date('2026-09-11T19:21:18.548Z'),
+            id: 'second-delegation',
+            parentId: 'user-two',
+            role: 'assistant',
+          },
+        ],
+        runEvents: [
+          {
+            id: 'native-child-started',
+            kind: 'subagent.started',
+            label: 'Subagent started',
+            metadata: {
+              originatingTurnMessageId: 'user-one',
+              parentRuntimeRunId: 'native-parent-one',
+              parentToolCallId: 'reused-call',
+            },
+            runId: 'run-one',
+            sequence: 1,
+            status: 'running',
+            timestamp: '2026-09-11T19:21:17.380Z',
+          },
+        ],
+      });
+      const owners = history.messages.filter(({ message }) =>
+        message.content.some(
+          (part) =>
+            part.type === 'data' && (part.data as AssistantRunEvent).id === 'native-child-started'
+        )
+      );
+      expect(owners.map(({ message }) => message.id)).toEqual(['delegation']);
+    }
+  );
 
   it('hydrates a persisted agent-explore delegation with subAgentToolResults intact and weaves its subagent.* events into the group', async () => {
     // Copied from the REAL persisted parent row shape pinned agent-side in

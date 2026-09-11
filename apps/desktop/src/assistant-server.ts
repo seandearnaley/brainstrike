@@ -30,6 +30,7 @@ import {
   isAuthorizedAssistantToken,
   mintAssistantServerAuthToken,
 } from './assistant-server/auth';
+import { handleDelegatedCancelRequest } from './assistant-server/cancel-delegated-conversation';
 import { createCompactionRangeLookup } from './assistant-server/compaction-range-repository';
 import { handleCancelRequest, handleSteerRequest } from './assistant-server/control-endpoints';
 import {
@@ -380,6 +381,10 @@ export async function handleAssistantRequest(
     return;
   }
 
+  if (route === 'cancel-child') {
+    await handleDelegatedCancelRequest(req, res);
+    return;
+  }
   if (route === 'cancel') {
     await handleCancelRequest(
       req,

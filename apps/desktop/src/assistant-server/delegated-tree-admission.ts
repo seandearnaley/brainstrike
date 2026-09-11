@@ -5,6 +5,7 @@ import {
   type DelegatedConversationScope,
 } from '@brainstrike/db';
 import { z } from 'zod';
+import { assertDelegatedConversationAdmission } from './delegated-cancellation-admission';
 
 const budgetSchema = z.object({
   chargedOutputTokens: z.number().int().nonnegative(),
@@ -27,6 +28,7 @@ export async function reserveDelegatedInvocation(
   configuration: unknown
 ): Promise<void> {
   await assertDelegationRootRunning(tx, scope, hostRunId);
+  await assertDelegatedConversationAdmission(tx, scope, [parentThreadId, childThreadId]);
   const legacy = await tx.query(
     `SELECT 1 FROM brainstrike_delegated_invocations invocation
       JOIN brainstrike_assistant_thread_runs host ON host.id = invocation.host_run_id

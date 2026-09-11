@@ -2316,6 +2316,50 @@ function assignNativeMessageRunEvent(
   return true;
 }
 
+/** Background notices can split a turn into multiple topology-bearing messages.
+ * Bind delegated events to the actual call within the persisted owning user turn. */
+function assignDelegatedInvocationRunEvent(
+  event: AssistantRunEvent,
+  units: readonly AssistantHistoryUnit[],
+  assignments: Map<AssistantHistoryUnit, AssistantRunEventDataPart[]>
+): boolean {
+  const turnMessageId = event.metadata?.['originatingTurnMessageId'];
+  const toolCallId = event.metadata?.['parentToolCallId'];
+  if (
+    !event.kind.startsWith('subagent.') ||
+    typeof turnMessageId !== 'string' ||
+    typeof toolCallId !== 'string'
+  ) {
+    return false;
+  }
+  let insideTurn = false;
+  const matches: AssistantHistoryRowGroup[] = [];
+  for (const unit of units) {
+    if (unit.kind === 'user') {
+      insideTurn = unit.message.id === turnMessageId;
+      continue;
+    }
+    if (
+      unit.kind === 'assistant-group' &&
+      (insideTurn || unit.rows.some((row) => row.parentId === turnMessageId)) &&
+      unit.parts.some(({ part }) => part.type === 'tool-call' && part.toolCallId === toolCallId)
+    ) {
+      matches.push(unit);
+    }
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      'Delegated history event has ambiguous call ownership within its original turn.'
+    );
+  }
+  const target = matches[0];
+  if (target) {
+    assignments.set(target, [...(assignments.get(target) ?? []), ...toRunEventDataParts([event])]);
+  }
+  // A call outside the retained history window must not attach to another turn.
+  return true;
+}
+
 /**
  * Assign each persisted run back to its own assistant group. A run's earliest
  * events occur before its first assistant row is saved, while the next run's
@@ -2340,7 +2384,10 @@ function assignRunEventsToGroups(
     assistantGroups.flatMap((group) => group.rows.map((row) => [row.id, group] as const))
   );
   for (const event of runEvents) {
-    if (assignNativeMessageRunEvent(event, groupsByNativeMessageId, assignments)) {
+    if (
+      assignNativeMessageRunEvent(event, groupsByNativeMessageId, assignments) ||
+      assignDelegatedInvocationRunEvent(event, units, assignments)
+    ) {
       continue;
     }
     const runId = event.runId;

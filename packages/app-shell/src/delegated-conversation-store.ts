@@ -12,6 +12,7 @@ export interface DelegatedConversationStore {
   getSnapshot(): ReadonlyMap<string, DelegatedConversationSnapshot>;
   /** Every accepted host publication is activity; identical text is still a new event. */
   hasUnread(threadId: string): boolean;
+  invalidate(threadId: string): void;
   markRead(threadId: string): void;
   publish(update: DelegatedConversationUpdate): boolean;
   readonly rootThreadId: string;
@@ -51,6 +52,22 @@ export function createDelegatedConversationStore(rootThreadId: string): Delegate
     getConversation: (threadId) => values.get(threadId),
     getSnapshot: () => values,
     hasUnread: (threadId) => values.has(threadId) && values.get(threadId) !== seen.get(threadId),
+    invalidate(threadId) {
+      const snapshot = values.get(threadId);
+      if (!snapshot) {
+        return;
+      }
+      const hostRunId = snapshot.update.baseline?.hostRunId;
+      if (hostRunId) {
+        const retired = retiredLegs.get(threadId) ?? new Set<string>();
+        retired.add(hostRunId);
+        retiredLegs.set(threadId, retired);
+      }
+      values = new Map(values);
+      values.delete(threadId);
+      seen.delete(threadId);
+      notify();
+    },
     markRead: (threadId) => {
       const snapshot = values.get(threadId);
       if (!snapshot || seen.get(threadId) === snapshot) {

@@ -3469,6 +3469,11 @@ Native completion hooks acknowledge only after native `onResult` flushes memory;
 resumed/repaired outcomes acknowledge only after the host message write succeeds.
 A failed acknowledgement remains recoverable and never re-executes the effect.
 Exactly one retained matching invocation is updated; ambiguous matches fail.
+Delegated `subagent.*` history events carrying their originating turn attach only to
+that turn's exact tool call. An absent retained call does not redirect the event to
+another turn by run or reused call ID; ambiguous ownership fails visibly. Ordinary
+event kinds retain their existing assignment path. Native outcome repair below is
+the explicit recovery path for removed invocation messages.
 If retention removed the invocation, the task's durable input and outcome create
 a deterministic recovery message that visibly explains the missing original and
 that no work was rerun. Missing failure details and timeouts get explicit error
@@ -3480,3 +3485,16 @@ all three terminal outcomes, repeat repair and delivery acknowledgement reload. 
 new resumable decision. Native reconstructed-runtime recovery is tested separately
 from the actual desktop process-restart pending-approval case; it is not evidence
 of completed-undelivered recovery through every host restart boundary.
+
+Delegated background notices can create multiple topology-bearing assistant rows
+within one user turn. History run-event reads retain the originating user message
+from the owning run. Delegation events bind to their exact tool call within that
+turn, before chronological assignment; they cannot attach to a reused call ID in
+another turn. The normal shared workspace resolver then opens the persisted child
+from that native invocation. The owning-turn hydration regression and the real
+Electron stopped-child close/reload/reopen case cover both producer and consumer.
+
+Delegated event assignment may use a retained assistant row's explicit durable
+`parentId` equal to the originating user message even when that user row is outside
+the hydration window. This is exact topology evidence, not a call-id-only or
+nearest-turn heuristic; reused call IDs under another user cannot claim the event.

@@ -136,6 +136,7 @@ export async function readAssistantHistoryRunEvents(
           event.detail,
           event.duration_ms,
           event.metadata,
+          run.turn_message_id AS "originatingTurnMessageId",
           event.occurred_at
        FROM ${ASSISTANT_RUN_EVENTS_TABLE} AS event
        INNER JOIN ${ASSISTANT_THREAD_RUNS_TABLE} AS run ON run.id = event.run_id
@@ -261,7 +262,10 @@ function isFiniteInteger(value: unknown): value is number {
 
 function toThreadRunEvent(row: Record<string, unknown>): AssistantRunEvent {
   const metadata = optionalJsonRecord(row['metadata']);
-  const sanitizedMetadata = sanitizeAssistantRunEventMetadata(metadata);
+  const originatingTurnMessageId = nullableString(row['originatingTurnMessageId']);
+  const sanitizedMetadata = sanitizeAssistantRunEventMetadata(
+    originatingTurnMessageId ? { ...metadata, originatingTurnMessageId } : metadata
+  );
   const detail = nullableString(row['detail']);
   const durationRaw = getRowValue(row, 'durationMs', 'duration_ms');
   const durationMs = isFiniteInteger(durationRaw) ? durationRaw : undefined;

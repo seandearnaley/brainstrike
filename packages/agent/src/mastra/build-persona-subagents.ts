@@ -566,7 +566,7 @@ async function createConfiguredChild({
     // internally: `Agent.stream()` deep-merges `defaultOptions` with the
     // per-call options the delegation tool passes, and that call sets
     // `maxSteps` but never `onIterationComplete`.
-    defaultOptions: () => {
+    defaultOptions: ({ requestContext }) => {
       const durable = resolveDelegatedWorkBudget(
         params.conversationBinding?.budget,
         params.delegatedExecutionOptions?.workQueue
@@ -578,7 +578,11 @@ async function createConfiguredChild({
             params.delegatedExecutionOptions?.abortSignal
           )
         : undefined;
+      const childSignal = requestContext
+        ? params.conversationBinding?.getAbortSignal?.(requestContext)
+        : undefined;
       return {
+        ...(childSignal ? { abortSignal: childSignal } : {}),
         ...(params.delegatedExecutionOptions?.delegation
           ? { delegation: params.delegatedExecutionOptions.delegation }
           : {}),

@@ -1,6 +1,7 @@
 import {
   AssistantConversationPanel,
   type AssistantConversationPanelProps,
+  ConversationExecutionControls,
   type DelegatedConversationRuntimeOptions,
   useDelegatedConversationRuntime,
 } from '@brainstrike/assistant-ui';
@@ -9,6 +10,7 @@ import type { DelegatedConversationStore } from './delegated-conversation-store'
 
 export interface DelegatedConversationPanelProps {
   readonly label: string;
+  readonly onCancel?: () => Promise<void>;
   readonly onNew: DelegatedConversationRuntimeOptions['onNew'];
   readonly panelProps?: Omit<
     AssistantConversationPanelProps,
@@ -23,6 +25,7 @@ export interface DelegatedConversationPanelProps {
 export function DelegatedConversationPanel({
   label,
   onNew,
+  onCancel,
   panelProps,
   persistedHistory,
   store,
@@ -45,10 +48,21 @@ export function DelegatedConversationPanel({
   return (
     <AssistantConversationPanel
       {...panelProps}
+      hideDefaultCancel={Boolean(onCancel)}
       isComposerDisabled
       label={label}
       runtime={runtime}
       threadKey={threadId}
+      {...(onCancel
+        ? {
+            workspaceBar: (
+              <>
+                {panelProps?.workspaceBar}
+                <ConversationExecutionControls onCancel={onCancel} />
+              </>
+            ),
+          }
+        : {})}
     />
   );
 }

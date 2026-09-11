@@ -1,10 +1,5 @@
 import { type CreateAppendMessage, useAui, useAuiState } from '@assistant-ui/react';
-import {
-  getToolActionIdentityKey,
-  getToolActionTarget,
-  isDelegatedToolActionIdentity,
-  isMatchingToolAction,
-} from '@brainstrike/assistant-contract';
+import { getToolActionIdentityKey, getToolActionTarget } from '@brainstrike/assistant-contract';
 import type {
   AssistantToolApprovalAction,
   AssistantToolApprovalDecision,
@@ -40,6 +35,12 @@ import {
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 import { formatRunDuration } from './run-python-result-model';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
+import {
+  type ApprovalRunOutcome,
+  type ApprovalRunOutcomeState,
+  isAssistantToolApprovalRequest,
+  resolveApprovalRunOutcome,
+} from './tool-decision-run-outcome';
 
 const logger = createLogger('AssistantToolApprovalNotice');
 
@@ -822,17 +823,6 @@ function ApprovalPreview({ approval }: { approval: AssistantToolApprovalRequest 
   return null;
 }
 
-function isAssistantToolApprovalRequest(value: unknown): value is AssistantToolApprovalRequest {
-  return (
-    isRecord(value) &&
-    typeof value['runId'] === 'string' &&
-    typeof value['toolCallId'] === 'string' &&
-    typeof value['toolName'] === 'string' &&
-    (!('delegation' in value) ||
-      (Object.hasOwn(value, 'delegation') && isDelegatedToolActionIdentity(value['delegation'])))
-  );
-}
-
 /**
  * Human-readable reason for the approval, derived from the permission risk
  * bucket that resolved to `'ask'`. Returns `null` when the pause carried no
@@ -884,14 +874,6 @@ function formatJsonValue(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-type ApprovalRunOutcomeState = 'none' | 'pending' | 'retryable' | 'completed';
-
-interface ApprovalRunOutcome {
-  action: AssistantToolApprovalDecision | null;
-  state: ApprovalRunOutcomeState;
-}
-
-const emptyApprovalRunOutcome: ApprovalRunOutcome = { action: null, state: 'none' };
 const APPROVAL_RUN_OUTCOME_SEPARATOR = ':';
 
 type ApprovalRunOutcomeKey =
@@ -907,91 +889,6 @@ function fromApprovalRunOutcomeKey(key: ApprovalRunOutcomeKey): ApprovalRunOutco
     ApprovalRunOutcomeState,
   ];
   return { action: action === 'none' ? null : action, state };
-}
-
-function isMatchingApprovalAction(value: unknown, approval: AssistantToolApprovalRequest): boolean {
-  return isMatchingToolAction(value, approval);
-}
-
-function getMessageRole(message: unknown): unknown {
-  return isRecord(message) ? message['role'] : undefined;
-}
-
-function getMessageStatus(message: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(message)) {
-    return;
-  }
-  const status = message['status'];
-  return isRecord(status) ? status : undefined;
-}
-
-function getToolApprovalActionFromMessage(message: unknown): unknown {
-  if (!isRecord(message)) {
-    return;
-  }
-  const metadata = message['metadata'];
-  if (!isRecord(metadata)) {
-    return;
-  }
-  const custom = metadata['custom'];
-  if (!isRecord(custom)) {
-    return;
-  }
-  return custom[TOOL_APPROVAL_RUN_CONFIG_KEY];
-}
-
-function getToolApprovalDecision(value: unknown): AssistantToolApprovalDecision | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  const action = value['action'];
-  return action === 'approve' || action === 'decline' ? action : null;
-}
-
-function resolveApprovalRunOutcome(
-  messages: readonly unknown[],
-  approval: AssistantToolApprovalRequest | null
-): ApprovalRunOutcome {
-  if (!approval) {
-    return emptyApprovalRunOutcome;
-  }
-
-  let submittedMessageIndex = -1;
-  let submittedAction: AssistantToolApprovalDecision | null = null;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    const approvalAction = getToolApprovalActionFromMessage(message);
-    if (getMessageRole(message) === 'user' && isMatchingApprovalAction(approvalAction, approval)) {
-      submittedMessageIndex = index;
-      submittedAction = getToolApprovalDecision(approvalAction);
-      break;
-    }
-  }
-  if (submittedMessageIndex < 0) {
-    return emptyApprovalRunOutcome;
-  }
-
-  for (let index = submittedMessageIndex + 1; index < messages.length; index += 1) {
-    const message = messages[index];
-    const role = getMessageRole(message);
-    if (role === 'user') {
-      return { action: submittedAction, state: 'pending' };
-    }
-    if (role !== 'assistant') {
-      continue;
-    }
-
-    const status = getMessageStatus(message);
-    if (status?.['type'] === 'complete') {
-      return { action: submittedAction, state: 'completed' };
-    }
-    if (status?.['type'] === 'incomplete') {
-      return { action: submittedAction, state: 'retryable' };
-    }
-    return { action: submittedAction, state: 'pending' };
-  }
-
-  return { action: submittedAction, state: 'pending' };
 }
 
 /**

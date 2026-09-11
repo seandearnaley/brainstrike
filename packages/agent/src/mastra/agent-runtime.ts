@@ -45,7 +45,10 @@ import {
   buildLocalDefaultInstructions,
   type DelegationPersonaSummary,
 } from './default-instructions';
-import type { DelegatedConversationBinding } from './delegated-conversation-binding';
+import type {
+  DelegatedCancellationControl,
+  DelegatedConversationBinding,
+} from './delegated-conversation-binding';
 import {
   createRootDelegatedContextProcessor,
   type DelegatedSystemContextSource,
@@ -498,6 +501,25 @@ function registerAppCapableAdmission(
   return registry?.register(admission);
 }
 
+async function initializeRuntimeLifetime(
+  register: () => void,
+  dispose: () => Promise<void>
+): Promise<void> {
+  try {
+    register();
+  } catch (error) {
+    try {
+      await dispose();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'Assistant runtime construction and cleanup failed.'
+      );
+    }
+    throw error;
+  }
+}
+
 async function buildBackgroundAgentOptions(
   scope: BackgroundTaskScope | undefined,
   hasSubAgents: boolean,
@@ -831,10 +853,58 @@ export async function createMastraAgentRuntime(
     runtime?.assistantMessageId,
     Boolean(backgroundAgentOptions.backgroundTasks)
   );
-  const invalidateMcpAppAdmission = registerAppCapableAdmission(
-    mcpAppAdmission,
-    mcpAppToolAdmission
-  );
+  let unregisterCancellation: (() => void) | undefined;
+  let invalidateMcpAppAdmission: (() => void) | undefined;
+  const dispose = async () => {
+    const failures: unknown[] = [];
+    // Preserve cleanup order, but a failure cannot skip another owner or
+    // replace an earlier error. Decision settlement remains fail-closed.
+    for (const cleanup of [
+      () => invalidateMcpAppAdmission?.(),
+      () => mastra?.shutdown(),
+      () => unregisterCancellation?.(),
+      () => mcpClient?.disconnect(),
+      () => options.conversationBinding?.finishToolActions?.(),
+    ]) {
+      try {
+        await cleanup();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Assistant runtime disposal failed.');
+    }
+  };
+  const cancelInvocations: DelegatedCancellationControl = async (targets) => {
+    options.conversationBinding?.abortInvocations?.(targets);
+    const manager = assistantIdentityRuntime.backgroundTaskManager;
+    if (manager) {
+      if (!options.backgroundTaskScope) {
+        throw new Error('Selective cancellation requires the native root scope.');
+      }
+      for (const target of targets) {
+        const tasks = await manager.listTasks({
+          ...options.backgroundTaskScope,
+          runId: target.parentRuntimeRunId,
+          toolCallId: target.parentToolCallId,
+        });
+        for (const task of tasks.tasks) {
+          if (task.toolCallId === target.parentToolCallId) {
+            await manager.cancel(task.id);
+          }
+        }
+      }
+    }
+    await delegatedTurnPersistence?.finalize(targets);
+  };
+  await initializeRuntimeLifetime(() => {
+    unregisterCancellation = options.conversationBinding?.registerCancellation?.(cancelInvocations);
+    invalidateMcpAppAdmission = registerAppCapableAdmission(mcpAppAdmission, mcpAppToolAdmission);
+  }, dispose);
 
   return {
     agent,
@@ -848,29 +918,7 @@ export async function createMastraAgentRuntime(
     delegatedExecutionOptions,
     delegatedTurnPersistence,
     delegationToolPersonas,
-    dispose: async () => {
-      const failures: unknown[] = [];
-      // Preserve cleanup order, but a failure cannot skip another owner or
-      // replace an earlier error. Decision settlement remains fail-closed.
-      for (const cleanup of [
-        () => invalidateMcpAppAdmission?.(),
-        () => mastra?.shutdown(),
-        () => mcpClient?.disconnect(),
-        () => options.conversationBinding?.finishToolActions?.(),
-      ]) {
-        try {
-          await cleanup();
-        } catch (error) {
-          failures.push(error);
-        }
-      }
-      if (failures.length === 1) {
-        throw failures[0];
-      }
-      if (failures.length > 1) {
-        throw new AggregateError(failures, 'Assistant runtime disposal failed.');
-      }
-    },
+    dispose,
     instructionBreakdown,
     mcpAppToolAdmission,
     mcpDiscoverySkips,

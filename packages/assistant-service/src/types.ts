@@ -13,6 +13,7 @@ export type AssistantRoute =
   | 'status'
   | 'assistant'
   | 'cancel'
+  | 'cancel-child'
   | 'openrouter-model'
   | 'resume'
   | 'run-status'

@@ -3,15 +3,13 @@ import {
   createPgliteAssistantThreadRepository,
   createSuspendedRunDiscovery,
   hasDurableAssistantUsageCapability,
+  resolveAssistantAuthHeaders,
 } from '@brainstrike/assistant-data';
-import {
-  type DelegatedConversationRuntimeOptions,
-  SubagentInvocationResolverContext,
-} from '@brainstrike/assistant-ui';
+import type { DelegatedConversationRuntimeOptions } from '@brainstrike/assistant-ui';
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import { use, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { use, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { DelegatedConversationBreadcrumbs } from './delegated-conversation-breadcrumbs';
 import { DelegatedConversationPanel } from './delegated-conversation-panel';
 import { createDelegatedWorkspaceDiscovery } from './delegated-workspace-discovery';
@@ -58,16 +56,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       unsubscribeActivity?.();
     };
   }, [root, node]);
-  const resolveInvocation = useCallback(
-    async (identity: { parentRuntimeRunId: string; parentToolCallId: string }): Promise<string> => {
-      const invocation = await repository.getInvocation(node, identity);
-      if (!invocation || invocation.parentThreadId !== node.threadId) {
-        throw new Error('The delegated conversation is unavailable or belongs to another parent.');
-      }
-      return invocation.threadId;
-    },
-    [repository, node]
-  );
+  const [refresh, setRefresh] = useState(0);
   const [saved, setSaved] = useState<{ readonly history: History } | { readonly error: Error }>();
   useEffect(() => {
     if (!root || root.store.getConversation(node.threadId)) {
@@ -103,7 +92,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
     return () => {
       active = false;
     };
-  }, [db, node, repository, root]);
+  }, [db, node, repository, root, refresh, live]);
   if (!roots) {
     return <Failure error={new Error('The child workspace has no owning root registry.')} />;
   }
@@ -130,24 +119,59 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       ownerResourceId={node.ownerResourceId}
       rootThreadId={node.rootThreadId}
     >
-      <SubagentInvocationResolverContext value={resolveInvocation}>
-        <div className="flex h-full min-h-0 flex-col">
-          <DelegatedConversationBreadcrumbs db={db} node={node} />
-          <div className="min-h-0 flex-1">
-            <DelegatedConversationPanel
-              label={node.displayName}
-              onNew={(message) =>
-                root.sendDecision(node.threadId, message, () =>
-                  resolveDelegatedWorkspaceDecision(repository, node, message)
-                )
-              }
-              {...(saved ? { persistedHistory: saved.history } : {})}
-              store={root.store}
-              threadId={node.threadId}
-            />
-          </div>
+      <div className="flex h-full min-h-0 flex-col">
+        <DelegatedConversationBreadcrumbs db={db} node={node} />
+        <div className="min-h-0 flex-1">
+          <DelegatedConversationPanel
+            label={node.displayName}
+            {...(hasDurableAssistantUsageCapability()
+              ? {
+                  onCancel: async () => {
+                    const [baseUrl, headers] = await Promise.all([
+                      resolveAssistantBaseUrl(),
+                      resolveAssistantAuthHeaders(),
+                    ]);
+                    const response = await fetch(new URL('/assistant/cancel-child', baseUrl), {
+                      body: JSON.stringify({
+                        ownerResourceId: node.ownerResourceId,
+                        rootThreadId: node.rootThreadId,
+                        scope: 'subtree',
+                        threadId: node.threadId,
+                      }),
+                      headers: { ...headers, 'Content-Type': 'application/json' },
+                      method: 'POST',
+                    });
+                    if (!response.ok) {
+                      const failure: unknown = await response.json();
+                      if (
+                        failure &&
+                        typeof failure === 'object' &&
+                        'message' in failure &&
+                        typeof failure.message === 'string'
+                      ) {
+                        throw new Error(failure.message);
+                      }
+                      throw new Error(
+                        `Child Stop returned an invalid error response (status ${response.status}).`
+                      );
+                    }
+                    root.store.invalidate(node.threadId);
+                    setSaved(undefined);
+                    setRefresh((value) => value + 1);
+                  },
+                }
+              : {})}
+            onNew={(message) =>
+              root.sendDecision(node.threadId, message, () =>
+                resolveDelegatedWorkspaceDecision(repository, node, message)
+              )
+            }
+            {...(saved ? { persistedHistory: saved.history } : {})}
+            store={root.store}
+            threadId={node.threadId}
+          />
         </div>
-      </SubagentInvocationResolverContext>
+      </div>
     </DelegatedWorkspaceNavigation>
   );
 }

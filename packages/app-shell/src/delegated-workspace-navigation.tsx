@@ -2,6 +2,7 @@ import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import {
   SubagentConversationNavigationContext,
   SubagentConversationPresentationContext,
+  SubagentInvocationResolverContext,
 } from '@brainstrike/assistant-ui';
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
@@ -32,6 +33,22 @@ export function DelegatedWorkspaceNavigation({
 }) {
   const root = useDelegatedConversationRoot(ownerResourceId, rootThreadId);
   const db = usePGliteDatabase();
+  const resolveInvocation = useCallback(
+    async (identity: { parentRuntimeRunId: string; parentToolCallId: string }): Promise<string> => {
+      if (!(db && rootThreadId)) {
+        throw new Error('The owning workspace is unavailable.');
+      }
+      const invocation = await createDelegatedConversationRepository(db).getInvocation(
+        { ownerResourceId, rootThreadId },
+        identity
+      );
+      if (!invocation || invocation.parentThreadId !== (currentThreadId ?? rootThreadId)) {
+        throw new Error('The delegated conversation is unavailable or belongs to another parent.');
+      }
+      return invocation.threadId;
+    },
+    [db, ownerResourceId, rootThreadId, currentThreadId]
+  );
   const presentation = useCallback(
     async (threadId: string) => {
       if (!(db && rootThreadId)) {
@@ -98,7 +115,9 @@ export function DelegatedWorkspaceNavigation({
   return (
     <SubagentConversationNavigationContext value={root ? open : null}>
       <SubagentConversationPresentationContext value={db && root ? presentation : null}>
-        {children}
+        <SubagentInvocationResolverContext value={db && root ? resolveInvocation : null}>
+          {children}
+        </SubagentInvocationResolverContext>
       </SubagentConversationPresentationContext>
     </SubagentConversationNavigationContext>
   );

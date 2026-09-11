@@ -1,10 +1,5 @@
 import { type CreateAppendMessage, useAui, useAuiState } from '@assistant-ui/react';
-import {
-  getToolActionIdentityKey,
-  getToolActionTarget,
-  isDelegatedToolActionIdentity,
-  isMatchingToolAction,
-} from '@brainstrike/assistant-contract';
+import { getToolActionIdentityKey, getToolActionTarget } from '@brainstrike/assistant-contract';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import type {
   AskUserOption,
@@ -34,6 +29,10 @@ import {
 } from 'react';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
+import {
+  isAssistantToolSuspendRequest,
+  resolveSuspendRunOutcome,
+} from './tool-decision-run-outcome';
 import { rememberUnreadablePauseLogIdentity } from './unreadable-pause-log-cache';
 
 const logger = createLogger('AssistantToolSuspendNotice');
@@ -173,105 +172,6 @@ function readAskUserPayload(value: unknown): AskUserPayload | null | undefined {
 
 function readAskUserQuestion(value: unknown): string | null {
   return isRecord(value) && typeof value['question'] === 'string' ? value['question'] : null;
-}
-
-function isAssistantToolSuspendRequest(value: unknown): value is AssistantToolSuspendRequest {
-  return (
-    isRecord(value) &&
-    typeof value['runId'] === 'string' &&
-    typeof value['toolCallId'] === 'string' &&
-    typeof value['toolName'] === 'string' &&
-    (!('delegation' in value) ||
-      (Object.hasOwn(value, 'delegation') && isDelegatedToolActionIdentity(value['delegation'])))
-  );
-}
-
-function isMatchingResumeAction(value: unknown, request: AssistantToolSuspendRequest): boolean {
-  return isMatchingToolAction(value, request);
-}
-
-function getResumeActionFromMessage(message: unknown): unknown {
-  if (!isRecord(message)) {
-    return;
-  }
-  const metadata = message['metadata'];
-  if (!isRecord(metadata)) {
-    return;
-  }
-  const custom = metadata['custom'];
-  return isRecord(custom) ? custom[TOOL_SUSPEND_RUN_CONFIG_KEY] : undefined;
-}
-
-function getMessageRole(message: unknown): unknown {
-  return isRecord(message) ? message['role'] : undefined;
-}
-
-function getMessageStatusType(message: unknown): string | undefined {
-  if (!isRecord(message)) {
-    return;
-  }
-  const status = message['status'];
-  return isRecord(status) && typeof status['type'] === 'string' ? status['type'] : undefined;
-}
-
-/**
- * Lifecycle of the run kicked off by a resume for THIS suspended call:
- *   - `none`       — no matching resume appended yet.
- *   - `pending`    — a resume is in flight (still streaming, or awaiting a new run).
- *   - `retryable`  — the resumed run FAILED (assistant status `incomplete`); the
- *                    controls RE-ENABLE so the user can resubmit (mirrors the
- *                    approval notice — a stale/failed resume must not lock forever).
- *   - `completed`  — the resumed run finished successfully; controls stay locked.
- */
-type SuspendRunOutcomeState = 'none' | 'pending' | 'retryable' | 'completed';
-
-/**
- * Scan the thread for a `user` message carrying a matching `brainstrikeToolSuspend`
- * action, then classify the run that followed it. Mirrors the approval notice's
- * `resolveApprovalRunOutcome`: a failed resume is `retryable` (controls unlock),
- * never permanently locked.
- */
-function resolveSuspendRunOutcome(
-  messages: readonly unknown[],
-  request: AssistantToolSuspendRequest | null
-): SuspendRunOutcomeState {
-  if (!request) {
-    return 'none';
-  }
-  let submittedIndex = -1;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (
-      getMessageRole(message) === 'user' &&
-      isMatchingResumeAction(getResumeActionFromMessage(message), request)
-    ) {
-      submittedIndex = index;
-      break;
-    }
-  }
-  if (submittedIndex < 0) {
-    return 'none';
-  }
-
-  for (let index = submittedIndex + 1; index < messages.length; index += 1) {
-    const message = messages[index];
-    const role = getMessageRole(message);
-    if (role === 'user') {
-      return 'pending';
-    }
-    if (role !== 'assistant') {
-      continue;
-    }
-    const statusType = getMessageStatusType(message);
-    if (statusType === 'complete') {
-      return 'completed';
-    }
-    if (statusType === 'incomplete') {
-      return 'retryable';
-    }
-    return 'pending';
-  }
-  return 'pending';
 }
 
 /**

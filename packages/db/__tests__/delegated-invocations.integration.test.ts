@@ -2,6 +2,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { migration128DelegatedInvocationUsage } from '../src/migrations/128-delegated-invocation-usage';
+import { migration134DelegatedCancellationAdmission } from '../src/migrations/134-delegated-cancellation-admission';
 import { createEnginePglite } from '../src/pglite-factory.js';
 import { createDelegatedConversationRepository } from '../src/repositories/delegated-conversation-repository.js';
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
@@ -46,6 +47,49 @@ describe('durable delegated invocation identity (BST-1718)', () => {
 
   afterEach(async () => {
     await database.close();
+  });
+
+  it('upgrades and replays cancellation admission without changing old invocations or losing a Stop', async () => {
+    const repository = createDelegatedConversationRepository(database);
+    await repository.createInvocation(scope, invocation);
+    if (
+      typeof migration134DelegatedCancellationAdmission.down !== 'string' ||
+      typeof migration134DelegatedCancellationAdmission.up !== 'string'
+    ) {
+      throw new Error('Expected SQL migration');
+    }
+    await database.exec(migration134DelegatedCancellationAdmission.down);
+    await database.exec(migration134DelegatedCancellationAdmission.up);
+    expect(
+      (
+        await database.query(
+          'SELECT cancellation_requested_at FROM brainstrike_delegated_invocations'
+        )
+      ).rows
+    ).toEqual([{ cancellation_requested_at: null }]);
+    await database.exec(
+      "UPDATE brainstrike_delegated_invocations SET cancellation_requested_at = '2026-09-11T18:00:00Z'"
+    );
+    await database.exec(migration134DelegatedCancellationAdmission.up);
+    const restored = await createEnginePglite({ loadDataDir: await database.dumpDataDir() });
+    try {
+      expect(
+        (
+          await restored.query(
+            'SELECT cancellation_requested_at IS NOT NULL AS stopped FROM brainstrike_delegated_invocations'
+          )
+        ).rows
+      ).toEqual([{ stopped: true }]);
+      expect(
+        await createDelegatedConversationRepository(restored).getInvocation(scope, invocation)
+      ).toMatchObject(invocation);
+      await restored.query('DELETE FROM mastra_threads WHERE id = $1', [scope.rootThreadId]);
+      expect(
+        (await restored.query('SELECT * FROM brainstrike_delegated_invocations')).rows
+      ).toEqual([]);
+    } finally {
+      await restored.close();
+    }
   });
 
   it('reloads separate host leg, root turn, native parent and native child identities', async () => {

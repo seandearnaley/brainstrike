@@ -6,6 +6,7 @@ import {
   type DelegatedConversationScope,
 } from '@brainstrike/db';
 import { z } from 'zod';
+import { assertDelegatedConversationAdmission } from './delegated-cancellation-admission';
 import { assertDelegationRootRunning } from './delegated-tree-admission';
 
 const treeSchema = z.object({
@@ -61,6 +62,7 @@ export function createDelegatedStepBudget(
   return {
     async reserveStep(childScope) {
       return await transact(async (tx, scope) => {
+        await assertDelegatedConversationAdmission(tx, scope, [childScope.threadId]);
         const node = await createDelegatedConversationRepository(tx).get(
           scope,
           childScope.threadId

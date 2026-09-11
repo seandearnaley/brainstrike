@@ -32,6 +32,7 @@ import type { DesktopMemoryFeature } from '@brainstrike/assistant-service/types'
 import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
+import { registerDesktopDelegatedCancellation } from './delegated-execution-controls';
 import { resolveProviderApiKey } from './provider-credentials';
 import { createRunCriticalDatabase } from './run-critical-database';
 
@@ -250,6 +251,7 @@ async function createDesktopMastraMemoryFromCacheState({
         claimToolAction: host.claimToolAction,
         finishToolActions: host.finishToolActions,
         prepareToolAction: host.prepareToolAction,
+        registerCancellation: (control) => registerDesktopDelegatedCancellation(runId, control),
         releaseUnexecutedToolAction: host.releaseUnexecutedToolAction,
         resolveToolAction: host.resolveToolAction,
       },

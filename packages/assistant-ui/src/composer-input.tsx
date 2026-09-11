@@ -48,6 +48,7 @@ export type ComposerAttachmentsAvailability =
 const ComposerInputRow = ({
   attachmentsAvailability,
   isComposerDisabled,
+  hideDefaultCancel,
   mentionPopover,
   planMode,
   queueControl,
@@ -55,6 +56,7 @@ const ComposerInputRow = ({
 }: {
   attachmentsAvailability?: ComposerAttachmentsAvailability;
   isComposerDisabled: boolean;
+  hideDefaultCancel?: boolean | undefined;
   mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
   /** Rendered in the RUNNING branch (where Send is unmounted) so a draft can
@@ -147,14 +149,16 @@ const ComposerInputRow = ({
         </ThreadPrimitive.If>
         <ThreadPrimitive.If running>
           {queueControl}
-          <ComposerPrimitive.Cancel
-            aria-label="Stop"
-            className="aui-button aui-button-primary aui-composer-cancel"
-            disabled={isComposerDisabled}
-            title="Stop"
-          >
-            <SquareIcon className="size-3.5 fill-current" />
-          </ComposerPrimitive.Cancel>
+          {!hideDefaultCancel && (
+            <ComposerPrimitive.Cancel
+              aria-label="Stop"
+              className="aui-button aui-button-primary aui-composer-cancel"
+              disabled={isComposerDisabled}
+              title="Stop"
+            >
+              <SquareIcon className="size-3.5 fill-current" />
+            </ComposerPrimitive.Cancel>
+          )}
         </ThreadPrimitive.If>
       </div>
     </InputFrame>
@@ -219,6 +223,7 @@ const AttachmentPasteFrame = ({ children }: { children: ReactNode }) => {
 export const ComposerInputWithTriggers = ({
   attachmentsAvailability,
   isComposerDisabled,
+  hideDefaultCancel,
   slashPopover,
   mentionPopover,
   planMode,
@@ -226,6 +231,7 @@ export const ComposerInputWithTriggers = ({
 }: {
   attachmentsAvailability?: ComposerAttachmentsAvailability;
   isComposerDisabled: boolean;
+  hideDefaultCancel?: boolean | undefined;
   slashPopover?: ReactNode;
   mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
@@ -233,6 +239,7 @@ export const ComposerInputWithTriggers = ({
 }) => {
   const row = (
     <ComposerInputRow
+      hideDefaultCancel={hideDefaultCancel}
       isComposerDisabled={isComposerDisabled}
       {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
       {...(slashPopover ? { slashPopover } : {})}

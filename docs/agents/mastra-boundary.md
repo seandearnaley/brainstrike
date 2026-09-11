@@ -129,6 +129,25 @@ from a guarded host restart with a changed native process ID. Selective child
 controls, human follow-up and additional interrupted-work recovery acceptance
 remain BST-1723 work; this layer does not establish the whole ticket.
 
+The selective-cancellation native regression holds one executor's cleanup while
+a sibling remains active. Native `cancel()` must join that executor before
+acknowledging Stop, or reject visibly at the existing native grace deadline.
+The core patch owns the executor promise by task ID in both ESM and CJS;
+it does not shut down the shared manager to stop one task. Terminal cancellation
+retries join the same outstanding executor. A cancelled database status alone
+does not prove that workspace effects have stopped. This native contract is a
+prerequisite for the host-authorized child controls, not proof of their UI wiring.
+The selected join also owns the native workflow's deletion and pending-queue
+settlement. Cleanup failures propagate to that task's cancel call, including
+repeated calls after settlement, and remain reported by root shutdown. A completed
+executor or terminal task row does not release an unfinished workflow write.
+Native delegation also composes the child's configured `abortSignal` with its
+parent tool signal in both ESM and CJS. Core 1.64.0 otherwise overwrites the child
+signal with the parent signal. The foreground regression aborts the child from
+its first real tool, verifies that tool sees cancellation and no second child
+model step starts, and verifies the parent is not cancelled. This preserves root
+abort propagation; it does not itself wire the application Stop control.
+
 Use `stream(..., { untilIdle: true })` when that integration is ready. The
 installed `streamUntilIdle()` declaration is deprecated. Consuming the complete
 stream is necessary for continuation output; first-turn aggregate properties
@@ -916,3 +935,12 @@ unknown-part warning; it is not silently ignored. Native EOF with unfinished wor
 fails visibly. `background-worker-stream.integration.spec.ts` exercises the real
 native producer and production iterator, including paragraph, usage, pending
 decision, queued Stop and lost-result boundaries.
+
+Selected child controls register a process-local cancellation capability on the
+actual Mastra runtime and remove it during disposal. The host revokes durable
+admission before invoking it. Native foreground signals compose parent and child
+abort signals; background cancellation joins both the actual executor and its
+workflow deletion. The existing delegated snapshot owner finalizes only the
+selected invocation keys. Native foreground/background tests prove the parent
+signal and unrelated siblings remain live, and failures propagate before Stop
+acknowledgement. No replacement runtime is created merely to cancel work.

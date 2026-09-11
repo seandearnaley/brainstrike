@@ -7,6 +7,10 @@ import type { ChunkType } from '@mastra/core/stream';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import {
+  createDelegatedConversationBinding,
+  type DelegatedCancellationTarget,
+} from '../mastra/delegated-conversation-binding';
 import { createPgliteMastraMemory, type PgliteDatabase } from '../pglite-mastra-memory';
 import {
   hasToolResult,
@@ -174,6 +178,247 @@ describe('native background delegation (BST-1723)', () => {
       await consuming;
     }
   });
+
+  it('honors foreground child cancellation without cancelling the parent', async () => {
+    const binding = createDelegatedConversationBinding(async () => undefined);
+    let target: DelegatedCancellationTarget | undefined;
+    const parentStop = new AbortController();
+    let effectSignal: AbortSignal | undefined;
+    const childModel = toolThenAnswer('inspect', 'foreground-effect', {});
+    const child = new Agent({
+      defaultOptions: ({ requestContext }) => ({
+        abortSignal: requestContext ? binding.getAbortSignal?.(requestContext) : undefined,
+        maxSteps: 4,
+      }),
+      id: 'foreground-child',
+      instructions: 'Inspect once.',
+      memory: backing.memory,
+      model: childModel.model,
+      name: 'Foreground child',
+      tools: {
+        inspect: createTool({
+          description: 'Inspect once and stop the selected child.',
+          execute: async (_input, context) => {
+            const signal: unknown = context?.['abortSignal'];
+            if (!(signal instanceof AbortSignal)) {
+              throw new Error('Foreground tool requires its native abort signal');
+            }
+            effectSignal = signal;
+            if (!target) {
+              throw new Error('Missing selected invocation');
+            }
+            binding.abortInvocations?.([target]);
+            return { inspected: true };
+          },
+          id: 'inspect',
+          inputSchema: z.object({}),
+        }),
+      },
+    });
+    const parent = new Agent({
+      agents: { child },
+      defaultOptions: {
+        delegation: {
+          hookErrorStrategy: 'throw',
+          onDelegationStart: (context) => {
+            binding.prepare(context, {}, parentStop.signal);
+            target = { parentRuntimeRunId: context.runId, parentToolCallId: context.toolCallId };
+          },
+        },
+      },
+      id: 'foreground-parent',
+      instructions: 'Delegate an inspection.',
+      memory: backing.memory,
+      model: toolThenAnswer('agent-child', 'foreground-call', { prompt: 'Inspect' }).model,
+      name: 'Foreground parent',
+    });
+    const host = new Mastra({ agents: { parent }, logger: false, storage: backing.storage });
+    hosts.add(host);
+    const output = await parent.stream('Inspect', {
+      abortSignal: parentStop.signal,
+      maxSteps: 4,
+      memory: { resource: 'owner', thread: 'foreground-root' },
+    });
+    await collect(output.fullStream);
+    expect(effectSignal?.aborted).toBe(true);
+    expect(childModel.prompts).toHaveLength(1);
+    expect(parentStop.signal.aborted).toBe(false);
+  });
+
+  it.each([false, true])(
+    'joins selected child cleanup or reports its deadline without aborting a sibling (%s)',
+    async (expireCleanup) => {
+      const host = new Mastra({
+        backgroundTasks: { enabled: true },
+        logger: false,
+        storage: backing.storage,
+      });
+      hosts.add(host);
+      const manager = host.backgroundTaskManager;
+      if (!manager) {
+        throw new Error('Missing native background manager');
+      }
+      await manager.init(host.pubsub);
+      const childStarted = Promise.withResolvers<void>();
+      const childAborted = Promise.withResolvers<void>();
+      const releaseChild = Promise.withResolvers<void>();
+      const siblingStarted = Promise.withResolvers<void>();
+      const releaseSibling = Promise.withResolvers<void>();
+      let siblingSignal: AbortSignal | undefined;
+      let childCleaned = false;
+      let cancellation: Promise<void> | undefined;
+      try {
+        const { task: child } = await manager.enqueue(
+          {
+            agentId: 'selective-owner',
+            args: {},
+            runId: 'selective-run',
+            toolCallId: 'selected-child',
+            toolName: 'inspect',
+          },
+          {
+            executor: {
+              execute: async (_args, options) => {
+                options?.abortSignal?.addEventListener(
+                  'abort',
+                  () => {
+                    if (expireCleanup) {
+                      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000);
+                    }
+                    childAborted.resolve();
+                  },
+                  { once: true }
+                );
+                childStarted.resolve();
+                await releaseChild.promise;
+                childCleaned = true;
+                return { cleaned: true };
+              },
+            },
+          }
+        );
+        const { task: sibling } = await manager.enqueue(
+          {
+            agentId: 'selective-owner',
+            args: {},
+            runId: 'selective-run',
+            toolCallId: 'sibling-child',
+            toolName: 'inspect',
+          },
+          {
+            executor: {
+              execute: async (_args, options) => {
+                siblingSignal = options?.abortSignal;
+                siblingStarted.resolve();
+                await releaseSibling.promise;
+                return { inspected: true };
+              },
+            },
+          }
+        );
+        await Promise.all([childStarted.promise, siblingStarted.promise]);
+        let acknowledged = false;
+        cancellation = manager.cancel(child.id).then(() => {
+          acknowledged = true;
+        });
+        const deadlineRejected = expireCleanup
+          ? expect(cancellation).rejects.toThrow(/cancellation cleanup exceeded the deadline/)
+          : undefined;
+        await childAborted.promise;
+        await nextEventLoopTurn();
+        expect(siblingSignal?.aborted).toBe(false);
+        expect((await manager.getTask(sibling.id))?.status).toBe('running');
+        expect(childCleaned).toBe(false);
+        expect(
+          acknowledged,
+          'Stop must not acknowledge while the selected executor owns work'
+        ).toBe(false);
+        if (expireCleanup) {
+          await deadlineRejected;
+          expect(childCleaned).toBe(false);
+        }
+        releaseChild.resolve();
+        if (!expireCleanup) {
+          await cancellation;
+          expect(childCleaned).toBe(true);
+        }
+        expect((await manager.getTask(child.id))?.status).toBe('cancelled');
+        expect(siblingSignal?.aborted).toBe(false);
+      } finally {
+        releaseChild.resolve();
+        releaseSibling.resolve();
+        await Promise.allSettled([cancellation]);
+        vi.restoreAllMocks();
+      }
+    }
+  );
+
+  it.each([false, true])(
+    'joins selected workflow deletion and reports cleanup errors (%s)',
+    async (failDeletion) => {
+      const host = new Mastra({
+        backgroundTasks: { enabled: true },
+        logger: false,
+        storage: backing.storage,
+      });
+      hosts.add(host);
+      const manager = host.backgroundTaskManager;
+      if (!manager) {
+        throw new Error('Missing native background manager');
+      }
+      await manager.init(host.pubsub);
+      const deleting = Promise.withResolvers<void>();
+      const releaseDeletion = Promise.withResolvers<void>();
+      const cleanupFailure = new Error('Controlled selected workflow deletion failure');
+      const remove = backing.workflows.deleteWorkflowRunById.bind(backing.workflows);
+      vi.spyOn(backing.workflows, 'deleteWorkflowRunById').mockImplementation(async (input) => {
+        deleting.resolve();
+        await releaseDeletion.promise;
+        if (failDeletion) {
+          throw cleanupFailure;
+        }
+        await remove(input);
+      });
+      let cancellation: Promise<void> | undefined;
+      try {
+        const { task } = await manager.enqueue(
+          {
+            agentId: 'cleanup-owner',
+            args: {},
+            runId: 'cleanup-run',
+            toolCallId: 'selected-cleanup',
+            toolName: 'inspect',
+          },
+          { executor: { execute: async () => ({ inspected: true }) } }
+        );
+        await deleting.promise;
+        let acknowledged = false;
+        cancellation = manager.cancel(task.id).then(() => {
+          acknowledged = true;
+        });
+        const outcome = cancellation.then(
+          () => undefined,
+          (error: unknown) => error
+        );
+        await nextEventLoopTurn();
+        expect(acknowledged, 'Stop must own the selected workflow deletion').toBe(false);
+        releaseDeletion.resolve();
+        if (failDeletion) {
+          expect(await outcome).toBe(cleanupFailure);
+          await expect(manager.cancel(task.id)).rejects.toThrow(cleanupFailure);
+        } else {
+          await cancellation;
+        }
+      } finally {
+        releaseDeletion.resolve();
+        await Promise.allSettled([cancellation]);
+        vi.restoreAllMocks();
+        if (failDeletion) {
+          await expect(shutdownHost(host)).rejects.toMatchObject({ errors: [cleanupFailure] });
+        }
+      }
+    }
+  );
 
   it('reports a held workflow cleanup at the existing shutdown deadline without hanging the owner', async () => {
     const host = new Mastra({
