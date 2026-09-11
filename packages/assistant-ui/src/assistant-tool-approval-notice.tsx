@@ -822,7 +822,9 @@ function ApprovalPreview({ approval }: { approval: AssistantToolApprovalRequest 
   return null;
 }
 
-function isAssistantToolApprovalRequest(value: unknown): value is AssistantToolApprovalRequest {
+export function isAssistantToolApprovalRequest(
+  value: unknown
+): value is AssistantToolApprovalRequest {
   return (
     isRecord(value) &&
     typeof value['runId'] === 'string' &&
@@ -948,7 +950,7 @@ function getToolApprovalDecision(value: unknown): AssistantToolApprovalDecision 
   return action === 'approve' || action === 'decline' ? action : null;
 }
 
-function resolveApprovalRunOutcome(
+export function resolveApprovalRunOutcome(
   messages: readonly unknown[],
   approval: AssistantToolApprovalRequest | null
 ): ApprovalRunOutcome {

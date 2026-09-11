@@ -35,7 +35,6 @@ const intentionallyClosingApps = new WeakSet<ElectronApplication>();
 const electronOutputBuffers = new WeakMap<ElectronApplication, ElectronOutputBuffer>();
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
 const electronAppCloseTimeoutMs = 10_000;
-const electronWindowCloseTimeoutMs = 5000;
 const ignoredElectronOutputPatterns = [
   'Electron Security Warning (Insecure Content-Security-Policy)',
   'This renderer process has either no Content Security',
@@ -677,39 +676,9 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
 export async function closeElectronApp(appContext: ElectronAppContext): Promise<void> {
   verboseLog('🔒 Closing Electron app...');
   try {
-    const windows = appContext.app.windows();
-    verboseLog(`📋 Closing ${windows.length} window(s)...`);
+    // Application shutdown owns hidden hosts. Closing their windows first removes
+    // the command listeners needed to acknowledge native runtime cleanup.
     intentionallyClosingApps.add(appContext.app);
-    const windowClosePromises: Promise<void>[] = [];
-    for (const window of windows) {
-      if (window.isClosed()) {
-        console.log('ℹ️ Window already closed');
-        continue;
-      }
-
-      windowClosePromises.push(
-        (async () => {
-          const windowClosed = waitForWithTimeout(
-            window.waitForEvent('close').then(() => true),
-            electronWindowCloseTimeoutMs,
-            'Electron window close event'
-          );
-          await waitForWithTimeout(
-            window.close(),
-            electronWindowCloseTimeoutMs,
-            'Electron window close request'
-          );
-          await windowClosed;
-        })()
-      );
-    }
-
-    const windowCloseResults = await Promise.allSettled(windowClosePromises);
-    for (const result of windowCloseResults) {
-      if (result.status === 'rejected') {
-        console.warn('⚠️ Failed to close Electron window gracefully:', result.reason);
-      }
-    }
 
     let didClose: boolean | null = true;
     try {

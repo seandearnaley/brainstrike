@@ -2340,8 +2340,8 @@ function assignDelegatedInvocationRunEvent(
       continue;
     }
     if (
-      insideTurn &&
       unit.kind === 'assistant-group' &&
+      (insideTurn || unit.rows.some((row) => row.parentId === turnMessageId)) &&
       unit.parts.some(({ part }) => part.type === 'tool-call' && part.toolCallId === toolCallId)
     ) {
       matches.push(unit);

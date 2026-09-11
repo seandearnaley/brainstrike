@@ -3493,3 +3493,8 @@ turn, before chronological assignment; they cannot attach to a reused call ID in
 another turn. The normal shared workspace resolver then opens the persisted child
 from that native invocation. The owning-turn hydration regression and the real
 Electron stopped-child close/reload/reopen case cover both producer and consumer.
+
+Delegated event assignment may use a retained assistant row's explicit durable
+`parentId` equal to the originating user message even when that user row is outside
+the hydration window. This is exact topology evidence, not a call-id-only or
+nearest-turn heuristic; reused call IDs under another user cannot claim the event.

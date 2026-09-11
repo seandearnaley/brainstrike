@@ -175,7 +175,9 @@ function readAskUserQuestion(value: unknown): string | null {
   return isRecord(value) && typeof value['question'] === 'string' ? value['question'] : null;
 }
 
-function isAssistantToolSuspendRequest(value: unknown): value is AssistantToolSuspendRequest {
+export function isAssistantToolSuspendRequest(
+  value: unknown
+): value is AssistantToolSuspendRequest {
   return (
     isRecord(value) &&
     typeof value['runId'] === 'string' &&
@@ -231,7 +233,7 @@ type SuspendRunOutcomeState = 'none' | 'pending' | 'retryable' | 'completed';
  * `resolveApprovalRunOutcome`: a failed resume is `retryable` (controls unlock),
  * never permanently locked.
  */
-function resolveSuspendRunOutcome(
+export function resolveSuspendRunOutcome(
   messages: readonly unknown[],
   request: AssistantToolSuspendRequest | null
 ): SuspendRunOutcomeState {

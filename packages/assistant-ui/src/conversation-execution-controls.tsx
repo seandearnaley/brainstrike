@@ -4,6 +4,14 @@ import { TOOL_SUSPEND_DATA_NAME } from '@brainstrike/assistant-contract/tool-sus
 import { Button } from '@brainstrike/ui';
 import { SquareIcon } from 'lucide-react';
 import { useState } from 'react';
+import {
+  isAssistantToolApprovalRequest,
+  resolveApprovalRunOutcome,
+} from './assistant-tool-approval-notice';
+import {
+  isAssistantToolSuspendRequest,
+  resolveSuspendRunOutcome,
+} from './assistant-tool-suspend-notice';
 
 /** Uses the shared thread's actual state, including a persisted pending decision. */
 export function ConversationExecutionControls({
@@ -23,8 +31,18 @@ export function ConversationExecutionControls({
             ) {
               return false;
             }
-            return Boolean(
-              part.data && typeof part.data === 'object' && !('decisionState' in part.data)
+            if (!part.data || typeof part.data !== 'object' || 'decisionState' in part.data) {
+              return false;
+            }
+            if (part.name === TOOL_APPROVAL_DATA_NAME) {
+              return (
+                isAssistantToolApprovalRequest(part.data) &&
+                resolveApprovalRunOutcome(state.thread.messages, part.data).state !== 'completed'
+              );
+            }
+            return (
+              isAssistantToolSuspendRequest(part.data) &&
+              resolveSuspendRunOutcome(state.thread.messages, part.data) !== 'completed'
             );
           })
         )

@@ -1,3 +1,4 @@
+import { once } from 'node:events';
 // Keep foreground decisions covered explicitly; delegated-worker-write covers background mode.
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -107,6 +108,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     await expect(child.getByText('CHILD_READ_COMPLETE_1720', { exact: true })).toBeVisible();
     await expect(root.getByText('PARENT_RECEIVED_CHILD_1720', { exact: true })).toBeVisible();
     expect(observed).toEqual({ childRead: true, parentResult: true });
+    await expect(child.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
     const completedRequests = provider.requestCount();
     const closeChild = window.getByRole('button', {
       name: /^Close (Cedar|Fern|Aspen|Maple|Iris|Willow)-/,
@@ -128,6 +130,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     await delegationGroup.getByRole('button', { name: /Open .* conversation/ }).click();
     await expect(child.getByText('CHILD_READ_COMPLETE_1720', { exact: true })).toBeVisible();
     expect(provider.requestCount()).toBe(completedRequests);
+    await expect(child.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
     const geometry = await child.boundingBox();
     expect(geometry).not.toBeNull();
     expect(geometry?.width).toBeGreaterThan(200);
@@ -137,23 +140,32 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       path: testInfo.outputPath('real-child-control.png'),
     });
   } finally {
-    await electron.dispose();
-    await provider.close();
-    if (previousUrl === undefined) {
-      delete process.env['OPENROUTER_BASE_URL'];
-    } else {
-      process.env['OPENROUTER_BASE_URL'] = previousUrl;
+    try {
+      const ownedProcess = (await electron.ensureContext()).app.process();
+      await Promise.all([
+        once(ownedProcess, 'exit', { signal: AbortSignal.timeout(5000) }),
+        electron.dispose(),
+      ]);
+      expect(ownedProcess.exitCode).toBe(0);
+      expect(ownedProcess.signalCode).toBeNull();
+    } finally {
+      await provider.close();
+      if (previousUrl === undefined) {
+        delete process.env['OPENROUTER_BASE_URL'];
+      } else {
+        process.env['OPENROUTER_BASE_URL'] = previousUrl;
+      }
+      if (previousKey === undefined) {
+        delete process.env['BRAINSTRIKE_OPENROUTER_API_KEY'];
+      } else {
+        process.env['BRAINSTRIKE_OPENROUTER_API_KEY'] = previousKey;
+      }
+      if (previousRoot === undefined) {
+        delete process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'];
+      } else {
+        process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = previousRoot;
+      }
+      await rm(workspace, { force: true, recursive: true });
     }
-    if (previousKey === undefined) {
-      delete process.env['BRAINSTRIKE_OPENROUTER_API_KEY'];
-    } else {
-      process.env['BRAINSTRIKE_OPENROUTER_API_KEY'] = previousKey;
-    }
-    if (previousRoot === undefined) {
-      delete process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'];
-    } else {
-      process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = previousRoot;
-    }
-    await rm(workspace, { force: true, recursive: true });
   }
 });

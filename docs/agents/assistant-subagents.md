@@ -1567,3 +1567,10 @@ checks owner, root and the selected parent; it never scans other turns by call I
 Production proof: `delegated-worker-write.desktop.test.ts` stops a reloaded pending
 child, preserves the absent write, sends another parent message, reloads, reopens
 the original child, and checks cancelled persistence without another model call.
+
+Construction must unwind cancellation registration and all runtime cleanup owners
+when a later Apps admission registration throws; preserve both construction and
+cleanup errors. Shared Stop eligibility reuses the approval/suspend notice's exact
+identity and resume outcome: separate successful decision messages retire historical
+pause controls, failed decisions remain actionable, and sibling decisions do not
+retire the selected child's pause.
