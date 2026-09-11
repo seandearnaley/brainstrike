@@ -39,7 +39,8 @@ export interface ModelProviderScript {
    */
   readonly deferredTool?: true;
   readonly finalText: string;
-  readonly toolCall: ScriptedToolCall;
+  /** Omit for a response-only turn, including native background wakeups. */
+  readonly toolCall?: ScriptedToolCall;
 }
 
 /**
@@ -141,6 +142,9 @@ function resolveTurn(
   script: ModelProviderScript,
   toolResultCount: number
 ): { call: ScriptedToolCall } | { finalText: string } {
+  if (!script.toolCall) {
+    return { finalText: script.finalText };
+  }
   if (!script.deferredTool) {
     return toolResultCount === 0 ? { call: script.toolCall } : { finalText: script.finalText };
   }

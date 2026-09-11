@@ -638,28 +638,30 @@ async function handleAssistantPost(
   // participates; snapshot bookkeeping NEVER blocks or fails the run.
   const turnBoundaries = resolveTurnBoundariesForRun(options, runId, threadId);
   const legPause: LegPauseState = { paused: false };
-  if (turnBoundaries && runId && threadId) {
-    try {
-      await turnBoundaries.beginLeg({
-        // TURN ANCHOR: the triggering user message, never the run row (a turn
-        // is not a run — approval/suspend resumes mint additional run rows).
-        anchorMessageId: resolveTurnAnchorMessageId(messages),
-        isResume: toolApprovalAction !== undefined || toolResumeAction !== undefined,
-        roots: await resolveSnapshotWorkspaceRoots(runtimeData),
-        runId,
-        threadId,
-      });
-    } catch (error) {
-      // beginLeg itself never throws; this guards the roots resolution. A run
-      // is never blocked by snapshot bookkeeping — the turn simply has no
-      // recorded start and its changeset resolves to the typed honest error.
-      logger.error('Turn-start snapshot bookkeeping failed; the run proceeds', {
-        error,
-        runId,
-        threadId,
-      });
+  const beginOwnedTurnLeg = async (): Promise<void> => {
+    if (turnBoundaries && runId && threadId) {
+      try {
+        await turnBoundaries.beginLeg({
+          // TURN ANCHOR: the triggering user message, never the run row (a turn
+          // is not a run — approval/suspend resumes mint additional run rows).
+          anchorMessageId: resolveTurnAnchorMessageId(messages),
+          isResume: toolApprovalAction !== undefined || toolResumeAction !== undefined,
+          roots: await resolveSnapshotWorkspaceRoots(runtimeData),
+          runId,
+          threadId,
+        });
+      } catch (error) {
+        // beginLeg itself never throws; this guards the roots resolution. A run
+        // is never blocked by snapshot bookkeeping — the turn simply has no
+        // recorded start and its changeset resolves to the typed honest error.
+        logger.error('Turn-start snapshot bookkeeping failed; the run proceeds', {
+          error,
+          runId,
+          threadId,
+        });
+      }
     }
-  }
+  };
   // Turn-end snapshots complete BEFORE the terminal thread_runs status write
   // (plan global constraint 5): the port wrapper runs completeLeg first, so
   // by the time the run reads terminal the turn-end ledger rows exist.
@@ -706,6 +708,8 @@ async function handleAssistantPost(
       authInput,
       executionSignal: executionAbortController.signal,
       initializeStream: async (core) => {
+        // runAssistantTurn admits this root only after its previous owner settles.
+        await beginOwnedTurnLeg();
         // Apps admission is keyed by the OWNING THREAD (review finding on
         // BST-1572): an app mounted in thread A must never execute under a
         // later run of thread B that knows the same server. A run without a

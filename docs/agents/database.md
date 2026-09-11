@@ -1328,3 +1328,15 @@ resets counters. Old turns without a budget fail visibly before new inference.
 All three tables are included in direct transport reset, desktop IPC reset and
 the reset registry; full-engine dump/reload and upgrade/replay are covered by
 `delegated-tree-limits.integration.test.ts`.
+
+
+### Native background task domain (BST-1723)
+
+Migration 133 (`ledgerKey: custom-133-mastra-background-tasks`) adds the native
+Mastra background task table and indexes. The shared schema definition, forward
+migration, engine construction, direct transport clear and desktop clear/reset
+registry must remain aligned. The reset registry now includes 48 clear relations
+and 54 factory-reset relations. `mastra-schema-migration-parity.test.ts` and
+`reset-table-registry.test.tsx` verify the migration/schema and reset boundaries;
+`pglite-background-store.integration.spec.ts` verifies real persisted task state,
+scoping, expected-status updates, pagination and execution limits.

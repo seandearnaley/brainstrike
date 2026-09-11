@@ -27,6 +27,7 @@
  * probe helpers accept, and the exclusion ledger.
  */
 import {
+  MASTRA_BACKGROUND_TASKS_TABLE,
   MASTRA_MEMORY_TABLES,
   MASTRA_VECTOR_TABLE,
   MASTRA_WORKFLOW_TABLE,
@@ -40,6 +41,7 @@ import {
  */
 export type MastraResetTable =
   | (typeof MASTRA_MEMORY_TABLES)[keyof typeof MASTRA_MEMORY_TABLES]
+  | typeof MASTRA_BACKGROUND_TASKS_TABLE
   | typeof MASTRA_VECTOR_TABLE
   | typeof MASTRA_WORKFLOW_TABLE;
 
@@ -185,6 +187,7 @@ export type ResetTable =
  */
 export function getMastraResetTables(): readonly MastraResetTable[] {
   return [
+    MASTRA_BACKGROUND_TASKS_TABLE,
     MASTRA_MEMORY_TABLES.messages,
     MASTRA_MEMORY_TABLES.observationalMemory,
     MASTRA_MEMORY_TABLES.resources,

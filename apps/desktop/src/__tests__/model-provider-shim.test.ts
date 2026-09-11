@@ -80,6 +80,16 @@ describe('model provider shim', () => {
     ]);
   });
 
+  it('can answer a native background wakeup without issuing another delegation', async () => {
+    shim = await startModelProviderShim(() => ({ finalText: 'The child is waiting for approval' }));
+    expect(
+      await request({ messages: [{ content: 'Background task suspended', role: 'user' }] })
+    ).toMatchObject({
+      choices: [{ message: { content: 'The child is waiting for approval' } }],
+    });
+    expect(shim.transcript()).toMatchObject([{ decision: 'final-text' }]);
+  });
+
   it('preserves static scripts and setScript exchanges', async () => {
     shim = await startModelProviderShim(parent);
     expect(await request({ messages: [{ content: 'First turn', role: 'user' }] })).toMatchObject({

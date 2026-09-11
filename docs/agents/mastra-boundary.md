@@ -103,16 +103,22 @@ limits live in `assistant-subagents.md`. `AgentController` is a beta alternative
 session owner, not a prerequisite for those capabilities. Adopting it now would
 duplicate existing permission, workspace, run and thread responsibilities.
 
-**Named capability for BST-1723:** a background child must survive the end of a
-parent's request and deliver its result to the correct live conversation. The
-current per-request Mastra construction/shutdown cannot be treated as that
-long-lived host. That ticket must define manager ownership and drain/cancel
-behavior, register a durable background-task storage domain, and test recovery
-before enabling background dispatch. The current composite store silently
-supplies an in-memory background domain; the native regression stores a record
-and proves it is absent after reconstructing the wrapper on the same database.
-Do not mistake storage availability for durability or adopt the in-memory
-substitution in production.
+**BST-1723 background ownership:** the service acquires the root conversation's
+FIFO execution owner before constructing Mastra or opening a turn checkpoint.
+`agent.stream(messages, { untilIdle: true })` keeps that owner through native
+background work and parent continuations; release follows session closure and
+terminal persistence, including when the transport subscriber detaches. The
+PGlite composite store registers a resource/thread-scoped background domain;
+retries are zero and per-task timeouts must be positive and at most five minutes.
+Explicit root Stop closes native admission, cancels running, queued and suspended
+tasks, and joins workflow writes. Ordinary paused shutdown retains pending
+approvals for discovery/resume. The local core patch preserves native child
+suspension IDs and joins workflow cleanup in both ESM and CJS, even when pubsub
+flush fails. Remove each patch hunk only when its native regression passes
+against an upstream replacement. Actual desktop tests distinguish renderer reload
+from a guarded host restart with a changed native process ID. Selective child
+controls, human follow-up and additional interrupted-work recovery acceptance
+remain BST-1723 work; this layer does not establish the whole ticket.
 
 Use `stream(..., { untilIdle: true })` when that integration is ready. The
 installed `streamUntilIdle()` declaration is deprecated. Consuming the complete
@@ -356,7 +362,7 @@ adds exactly two `AgentChunkType` members, `custom` and `reasoning-file`, and
 changes nothing handled: the compile-time guard caught both, as designed, and
 each is dispositioned `ignored`.
 
-The static inventory records an explicit `'mapped' | 'ignored'` disposition,
+The static inventory records an explicit `'mapped' | 'ignored' | 'normalized'` disposition,
 not mere presence. An unhandled dynamic-family member has no disposition and
 therefore warns once per type per stream rather than once per chunk. A widened
 upstream `string` union is also a type-check failure.
@@ -887,3 +893,17 @@ owner/root/turn scope. Resume authorizes the original invocation against the
 current host leg, rather than recreating it. The existing usage writer resolves
 native completion ids to that same invocation; its stream queue waits for the
 matching parent terminal so completion cannot outrun publication authorization.
+
+
+### Native background stream normalization (BST-1723)
+
+`background-stream.ts` normalizes native untilIdle transport before the existing
+R6 mapper. Native child envelopes still enter the same delegated projection and
+`StreamChunk` persistence path. Dispatch acknowledgements are not child results;
+terminal parent usage includes all continuation legs and parent text has paragraph
+boundaries. Eight native background lifecycle/output types are `normalized` in
+the exhaustive inventory. An escaped normalized type receives the normal coded
+unknown-part warning; it is not silently ignored. Native EOF with unfinished work
+fails visibly. `background-worker-stream.integration.spec.ts` exercises the real
+native producer and production iterator, including paragraph, usage, pending
+decision, queued Stop and lost-result boundaries.

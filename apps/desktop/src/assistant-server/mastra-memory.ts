@@ -224,6 +224,14 @@ async function createDesktopMastraMemoryFromCacheState({
     // Run-scoped memory instances intentionally bypass the shared cache so the
     // per-run event sink cannot leak observability events across concurrent runs.
     const memory = await createPgliteMastraMemory({
+      ...(runtimeData?.memory
+        ? {
+            backgroundTaskScope: {
+              resourceId: runtimeData.memory.resourceId,
+              threadId: runtimeData.memory.threadId,
+            },
+          }
+        : {}),
       database,
       ...(embedder ? { embedder } : {}),
       ...(eventSink ? { eventSink } : {}),

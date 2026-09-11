@@ -3453,3 +3453,21 @@ failure shows an explicit error; another user click may retry that read. No run 
 started, no alternate snapshot store is introduced, and reload uses the ordinary
 thread workspace record. Coordinator regressions cover delayed, superseded and
 failed reads; the Electron workspace fixture checks both roots' actual saved tabs.
+
+
+### Durable native background outcomes (BST-1723)
+
+Migration 133 registers `mastra_background_tasks` with the native PGlite adapter;
+the table participates in database clear and factory reset. Task scope is the
+root resource/thread, not a renderer tab. Updates use expected-status comparison
+so competing lifecycle transitions cannot overwrite each other.
+
+Completed-but-undelivered outcomes are reconciled against the original parent
+message's native background task metadata before inference. Exactly one matching
+invocation is required. Result/error and cleared pending-decision metadata are
+saved together; failed tools use `output-error` and `errorText`. Recovery never
+re-executes a completed effect. All durable result pages are read, not only the
+first page. Native resuspension joins the workflow snapshot before exposing a
+new resumable decision. Native reconstructed-runtime recovery is tested separately
+from the actual desktop process-restart pending-approval case; it is not evidence
+of completed-undelivered recovery through every host restart boundary.

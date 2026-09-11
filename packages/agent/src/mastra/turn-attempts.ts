@@ -74,14 +74,23 @@ export interface StreamIterationParams {
 }
 export interface StreamAbortContext {
   abort: (reason: Error) => void;
-  dispose: () => void;
+  dispose: () => Promise<void>;
   signal: AbortSignal;
 }
 
 export function createStreamAbortContext(
-  externalSignal: AbortSignal | undefined
+  externalSignal: AbortSignal | undefined,
+  stopOwnedBackground?: (cancelPaused: boolean) => Promise<void>
 ): StreamAbortContext {
   const controller = new AbortController();
+  let backgroundStop: Promise<void> | undefined;
+  let closingNormally = false;
+  const abortBackground = (): void => {
+    backgroundStop ??= stopOwnedBackground?.(!closingNormally);
+    // Disposal below joins the original rejection; an event listener cannot await it.
+    backgroundStop?.catch(() => {});
+  };
+  controller.signal.addEventListener('abort', abortBackground, { once: true });
   const forwardExternalAbort = (): void => {
     controller.abort(externalSignal?.reason);
   };
@@ -98,8 +107,14 @@ export function createStreamAbortContext(
         controller.abort(reason);
       }
     },
-    dispose: () => {
+    dispose: async () => {
       externalSignal?.removeEventListener('abort', forwardExternalAbort);
+      if (!controller.signal.aborted) {
+        closingNormally = true;
+        controller.abort(new Error('Mastra stream consumption ended.'));
+      }
+      controller.signal.removeEventListener('abort', abortBackground);
+      await backgroundStop;
     },
     signal: controller.signal,
   };

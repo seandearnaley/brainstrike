@@ -65,6 +65,7 @@ export interface BrainstrikeAgentStreamOptions {
   modelSettings?: RuntimeData['modelSettings'];
   providerOptions?: RuntimeData['providerOptions'];
   requireToolApproval?: ApprovalGate;
+  untilIdle?: boolean;
 }
 
 /**
@@ -342,6 +343,7 @@ export function buildStreamOptions(
   );
   const options: BrainstrikeAgentStreamOptions & { runId?: string; toolCallId?: string } = {
     ...loop,
+    ...(runtime.backgroundTaskManager ? { untilIdle: true } : {}),
     ...(runtime.rootDelegatedContextProcessor
       ? {
           inputProcessors: [runtime.rootDelegatedContextProcessor, ...(loop.inputProcessors ?? [])],

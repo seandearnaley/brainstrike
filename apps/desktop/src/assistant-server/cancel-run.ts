@@ -6,6 +6,7 @@ import {
 } from '@brainstrike/assistant-service/steering';
 import { z } from 'zod';
 import { getDatabase } from '../db-main';
+import { createDesktopDelegatedSuspensionResolver } from './delegated-conversation-host';
 import { getDesktopMastraMemory } from './mastra-memory';
 import type { TurnBoundaryController } from './snapshot-turn-boundaries';
 
@@ -61,6 +62,11 @@ export async function cancelDesktopAssistantRun(
     const discovery = await listSuspendedMastraRuns(
       { resourceId: scope.resourceId, threadId: scope.threadId },
       {
+        backgroundTaskScope: { resourceId: scope.resourceId, threadId: scope.threadId },
+        delegatedSuspensionDiscovery: createDesktopDelegatedSuspensionResolver(database, {
+          ownerResourceId: scope.resourceId,
+          rootThreadId: scope.threadId,
+        }),
         memory: backing.memory,
         runtime: {
           memory: { resourceId: scope.resourceId, threadId: scope.threadId },

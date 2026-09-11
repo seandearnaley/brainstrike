@@ -1,3 +1,4 @@
+import { stopBackgroundTree } from './background-stop';
 /**
  * Mastra attempt-leg factories (BST-1649, split out of `turn-attempts.ts` to
  * respect the per-file line cap): the three legs — initial, tool-approval-
@@ -19,6 +20,7 @@
  *
  * See docs/agents/assistant-runtime.md and docs/agents/mastra-boundary.md.
  */
+
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/logging';
@@ -32,6 +34,8 @@ import {
   type ResumedToolCallStart,
   streamAttemptChunks,
 } from './agent-streaming';
+import { repairBackgroundResults } from './background-results';
+import { createBackgroundResumeStream, findPendingBackgroundTask } from './background-resume';
 import {
   assertDelegatedToolActionPending,
   claimDelegatedToolAction,
@@ -112,7 +116,9 @@ async function createInitialTurnAttempt(
   disposeRuntimeOnFailure = true
 ): Promise<TurnAttempt> {
   const mastraMessages = convertMessagesToMastra(messages);
-  const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
+  const streamAbortContext = createStreamAbortContext(runtimeData?.signal, (cancelPaused) =>
+    stopBackgroundTree(runtime.backgroundTaskManager, cancelPaused)
+  );
   // Same lifetime as `delegationUsage`: written by the delegation hook, read by
   // the chunk loop when it maps the delegation's terminal run event (BST-1410).
   // Built BEFORE the lifecycle state because that state carries it.
@@ -158,7 +164,25 @@ async function createInitialTurnAttempt(
       runtime,
       runtimeData,
     });
-    const resolvedStreamOptions = Object.keys(streamOptions).length > 0 ? streamOptions : undefined;
+    const repaired = await repairBackgroundResults({
+      manager: runtime.backgroundTaskManager,
+      memory,
+      scope: runtimeData?.memory,
+    });
+    const resolvedStreamOptions =
+      repaired.length > 0
+        ? {
+            ...streamOptions,
+            context: [
+              {
+                content: `Previously finished background tasks ${repaired.join(', ')} now have their saved outcomes in this conversation. Use those outcomes; do not execute those tasks again.`,
+                role: 'user' as const,
+              },
+            ],
+          }
+        : Object.keys(streamOptions).length > 0
+          ? streamOptions
+          : undefined;
 
     const streamResult = resolvedStreamOptions
       ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
@@ -213,7 +237,7 @@ async function createInitialTurnAttempt(
     };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra stream construction failed.'));
-    streamAbortContext.dispose();
+    await streamAbortContext.dispose();
     if (!disposeRuntimeOnFailure) {
       throw err;
     }
@@ -279,7 +303,10 @@ function resolveResumeApprovalGate(
 }
 
 export async function readResumedApprovalToolCall(
-  runtime: Pick<MastraAgentRuntime, 'agent' | 'conversationBinding' | 'toolNameMap'>,
+  runtime: Pick<
+    MastraAgentRuntime,
+    'agent' | 'backgroundTaskManager' | 'conversationBinding' | 'toolNameMap'
+  >,
   runtimeData: RuntimeData | undefined,
   action: AssistantToolApprovalAction
 ): Promise<ResumedApprovalToolCall> {
@@ -290,6 +317,31 @@ export async function readResumedApprovalToolCall(
     requiresApproval: true,
   });
   const memoryContext = runtimeData?.memory;
+  const backgroundTask = await findPendingBackgroundTask(
+    runtime.backgroundTaskManager,
+    memoryContext,
+    action
+  );
+  if (backgroundTask) {
+    if (!(delegated?.toolName && delegated.originalToolCall)) {
+      throw new Error(
+        'Background approval requires its authorized native child and original input.'
+      );
+    }
+    const original = delegated.originalToolCall;
+    return {
+      approvedToolName: resolveDiscoveredApprovalToolName(
+        delegated.toolName,
+        runtime.toolNameMap,
+        action.runId
+      ),
+      args: original.args,
+      displayToolName: original.toolName,
+      registeredToolName: original.toolName,
+      siblings: [],
+      toolCallId: action.toolCallId,
+    };
+  }
   const { runs } = await runtime.agent.listSuspendedRuns(
     memoryContext
       ? { resourceId: memoryContext.resourceId, threadId: memoryContext.threadId }
@@ -389,7 +441,9 @@ async function createToolApprovalTurnAttempt({
   requireToolApproval,
   sanitizedNameMap,
 }: ToolApprovalIterationParams): Promise<TurnAttempt> {
-  const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
+  const streamAbortContext = createStreamAbortContext(runtimeData?.signal, (cancelPaused) =>
+    stopBackgroundTree(runtime.backgroundTaskManager, cancelPaused)
+  );
   // Same lifetime as `delegationUsage`: written by the delegation hook, read by
   // the chunk loop when it maps the delegation's terminal run event (BST-1410).
   // Built BEFORE the lifecycle state because that state carries it.
@@ -448,11 +502,30 @@ async function createToolApprovalTurnAttempt({
       requiresApproval: true,
     });
     streamAbortContext.signal.throwIfAborted();
+    const backgroundTask = await findPendingBackgroundTask(
+      runtime.backgroundTaskManager,
+      runtimeData?.memory,
+      action
+    );
+    if (backgroundTask && !memory) {
+      throw new Error('Background resume requires durable memory.');
+    }
     const streamResult =
-      action.action === 'approve'
-        ? await runtime.agent.approveToolCall(approvalOptions as AgentToolApprovalOptions)
-        : await runtime.agent.declineToolCall(approvalOptions as AgentToolApprovalOptions);
-    await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
+      backgroundTask && memory
+        ? createBackgroundResumeStream({
+            attachParent: (stream) => attachAbortedTurnMessageList(abortedTurnPersistence, stream),
+            memory,
+            options: approvalOptions,
+            resumeData: { approved: action.action === 'approve' },
+            runtime,
+            task: backgroundTask,
+          })
+        : action.action === 'approve'
+          ? await runtime.agent.approveToolCall(approvalOptions as AgentToolApprovalOptions)
+          : await runtime.agent.declineToolCall(approvalOptions as AgentToolApprovalOptions);
+    if ('messageList' in streamResult) {
+      await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
+    }
 
     logger.info('mastra tool approval resume stream started', {
       action: action.action,
@@ -505,7 +578,7 @@ async function createToolApprovalTurnAttempt({
     };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra approval-resume stream construction failed.'));
-    streamAbortContext.dispose();
+    await streamAbortContext.dispose();
     return await handleStreamFailure(err, runtime);
   }
 }
@@ -589,6 +662,23 @@ async function assertResumedCallIsSuspendPause(
   action: AssistantToolResumeAction
 ): Promise<{ readonly toolName: string }> {
   const memoryContext = runtimeData?.memory;
+  const backgroundTask = await findPendingBackgroundTask(
+    runtime.backgroundTaskManager,
+    memoryContext,
+    action
+  );
+  if (backgroundTask) {
+    const delegated = await assertDelegatedToolActionPending({
+      action,
+      agent: runtime.agent,
+      binding: runtime.conversationBinding,
+      requiresApproval: false,
+    });
+    if (!delegated?.toolName) {
+      throw new Error('Background resume requires its authorized native child decision.');
+    }
+    return { toolName: delegated.toolName };
+  }
   const { runs } = await runtime.agent.listSuspendedRuns(
     memoryContext
       ? { resourceId: memoryContext.resourceId, threadId: memoryContext.threadId }
@@ -657,7 +747,9 @@ async function createToolResumeTurnAttempt({
   memory,
   sanitizedNameMap,
 }: ToolResumeIterationParams): Promise<TurnAttempt> {
-  const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
+  const streamAbortContext = createStreamAbortContext(runtimeData?.signal, (cancelPaused) =>
+    stopBackgroundTree(runtime.backgroundTaskManager, cancelPaused)
+  );
   // Same lifetime as `delegationUsage`: written by the delegation hook, read by
   // the chunk loop when it maps the delegation's terminal run event (BST-1410).
   // Built BEFORE the lifecycle state because that state carries it.
@@ -755,11 +847,31 @@ async function createToolResumeTurnAttempt({
       requiresApproval: false,
     });
     streamAbortContext.signal.throwIfAborted();
-    const streamResult = await runtime.agent.resumeStream(
-      resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
-      resumeOptions as AgentResumeStreamOptions
+    const backgroundTask = await findPendingBackgroundTask(
+      runtime.backgroundTaskManager,
+      runtimeData?.memory,
+      action
     );
-    await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
+    if (backgroundTask && !memory) {
+      throw new Error('Background resume requires durable memory.');
+    }
+    const streamResult =
+      backgroundTask && memory
+        ? createBackgroundResumeStream({
+            attachParent: (stream) => attachAbortedTurnMessageList(abortedTurnPersistence, stream),
+            memory,
+            options: resumeOptions,
+            resumeData,
+            runtime,
+            task: backgroundTask,
+          })
+        : await runtime.agent.resumeStream(
+            resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
+            resumeOptions as AgentResumeStreamOptions
+          );
+    if ('messageList' in streamResult) {
+      await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
+    }
 
     logger.info('mastra tool resume stream started', {
       code: 'mastra_agent_tool_resume_started',
@@ -807,7 +919,7 @@ async function createToolResumeTurnAttempt({
     };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra suspended-tool stream construction failed.'));
-    streamAbortContext.dispose();
+    await streamAbortContext.dispose();
     return await handleStreamFailure(err, runtime);
   }
 }

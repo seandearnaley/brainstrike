@@ -294,3 +294,99 @@ describe('runAssistantTurn', () => {
     expect(recordThreadRunStatus).not.toHaveBeenCalled();
   });
 });
+
+it('queues the same root until its actual session and terminal write finish, while other roots proceed', async () => {
+  const firstClosed = Promise.withResolvers<void>();
+  const firstWritten = Promise.withResolvers<void>();
+  const writeEntered = Promise.withResolvers<void>();
+  const first = baseParams({
+    runtimeData: { memory: { resourceId: 'owner', threadId: 'queued-root' }, provider: 'openai' },
+  });
+  first.sessions.session.whenClosed.mockReturnValue(firstClosed.promise);
+  recordThreadRunStatus.mockImplementation(async (runId) => {
+    if (runId !== 'run-1') {
+      return;
+    }
+    writeEntered.resolve();
+    await firstWritten.promise;
+  });
+  const firstTurn = await runAssistantTurn(first.params as never);
+  if (!firstTurn.ok) {
+    throw new Error('First root failed');
+  }
+  const second = baseParams({ runId: 'second', runtimeData: first.params.runtimeData });
+  const queued = runAssistantTurn(second.params as never);
+  const other = baseParams({
+    runId: 'other',
+    runtimeData: {
+      memory: { resourceId: 'owner', threadId: 'independent-root' },
+      provider: 'openai',
+    },
+  });
+  try {
+    const independent = await runAssistantTurn(other.params as never);
+    if (!independent.ok) {
+      throw new Error('Independent root failed');
+    }
+    expect(second.params.initializeStream).not.toHaveBeenCalled();
+    firstClosed.resolve();
+    await writeEntered.promise;
+    expect(second.params.initializeStream).not.toHaveBeenCalled();
+    firstWritten.resolve();
+    await firstTurn.completion();
+    const secondTurn = await queued;
+    expect(second.params.initializeStream).toHaveBeenCalledTimes(1);
+    if (!secondTurn.ok) {
+      throw new Error('Queued root failed');
+    }
+    await Promise.all([secondTurn.completion(), independent.completion()]);
+  } finally {
+    firstClosed.resolve();
+    firstWritten.resolve();
+    await firstTurn.completion();
+    const remaining = await queued;
+    if (remaining.ok) {
+      await remaining.completion();
+    }
+  }
+});
+
+it('cancels a queued request without releasing its predecessor or blocking its successor', async () => {
+  const closed = Promise.withResolvers<void>();
+  const scope = { resourceId: 'owner', threadId: 'cancel-queued-root' };
+  const first = baseParams({ runtimeData: { memory: scope, provider: 'openai' } });
+  first.sessions.session.whenClosed.mockReturnValue(closed.promise);
+  const firstTurn = await runAssistantTurn(first.params as never);
+  if (!firstTurn.ok) {
+    throw new Error('First root failed');
+  }
+  const controller = new AbortController();
+  const second = baseParams({
+    executionSignal: controller.signal,
+    runtimeData: first.params.runtimeData,
+  });
+  const queued = runAssistantTurn(second.params as never);
+  const third = baseParams({ runId: 'third', runtimeData: first.params.runtimeData });
+  const following = runAssistantTurn(third.params as never);
+  try {
+    controller.abort(new Error('Cancel queued follow-up'));
+    await expect(queued).rejects.toThrow('Cancel queued follow-up');
+    expect(second.params.initializeStream).not.toHaveBeenCalled();
+    expect(third.params.initializeStream).not.toHaveBeenCalled();
+    closed.resolve();
+    await firstTurn.completion();
+    const lastTurn = await following;
+    if (!lastTurn.ok) {
+      throw new Error('Following root failed');
+    }
+    expect(third.params.initializeStream).toHaveBeenCalledTimes(1);
+    await lastTurn.completion();
+  } finally {
+    closed.resolve();
+    await firstTurn.completion();
+    const remaining = await following;
+    if (remaining.ok) {
+      await remaining.completion();
+    }
+  }
+});

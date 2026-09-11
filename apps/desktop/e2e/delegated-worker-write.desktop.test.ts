@@ -30,11 +30,18 @@ test('recursive worker reloads its leaf approval and returns the result through 
   await assertWorkerWrite(electron, testInfo, 'Approve', 3);
 });
 
+test('background worker survives a host restart with its pending approval and writes once @smoke', async ({
+  electron,
+}, testInfo) => {
+  await assertWorkerWrite(electron, testInfo, 'Approve', 1, true);
+});
+
 async function assertWorkerWrite(
   electron: ElectronHarness,
   testInfo: TestInfo,
   decision: 'Approve' | 'Decline',
-  depth = 1
+  depth = 1,
+  restartHost = false
 ): Promise<void> {
   const failures: unknown[] = [];
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-worker-write-'));
@@ -48,8 +55,11 @@ async function assertWorkerWrite(
   const advertisedTools = new Promise<readonly string[]>((resolve) => {
     resolveAdvertisedTools = resolve;
   });
-  const observed = { parentResult: false, writeResult: false };
+  const observed = { backgroundStarted: false, parentResult: false, writeResult: false };
   const provider = await startModelProviderShim(({ toolNames, messages }) => {
+    if (toolNames.length === 0) {
+      return { finalText: 'Worker workspace task' };
+    }
     const history = JSON.stringify(messages);
     const task = JSON.stringify(
       messages.filter(
@@ -67,7 +77,17 @@ async function assertWorkerWrite(
     const isParent = level === 0;
     if (isParent) {
       resolveAdvertisedTools(toolNames);
+      observed.backgroundStarted ||= history.includes('Background task started.');
       observed.parentResult ||= history.includes(childResult);
+      if (history.includes('Background task started.') || history.includes(childResult)) {
+        return {
+          finalText: history.includes(childResult)
+            ? parentResult
+            : history.includes('Parent continues useful work while Worker is pending.')
+              ? 'Worker needs your approval.'
+              : 'Parent continues useful work while Worker is pending.',
+        };
+      }
       return {
         finalText: parentResult,
         toolCall: {
@@ -114,7 +134,7 @@ async function assertWorkerWrite(
   );
   Object.assign(process.env, environment);
   try {
-    const window = await electron.ensureWindow();
+    let window = await electron.ensureWindow();
     try {
       await ensureMockWorkspaceOpen(window);
       await configureAssistantProvider(window, {
@@ -128,7 +148,7 @@ async function assertWorkerWrite(
         .getByRole('combobox', { exact: true, name: 'Read permission' })
         .selectOption('allow');
       await ensureAssistantShellVisible(window);
-      const root = window.getByTestId('chat-panel');
+      let root = window.getByTestId('chat-panel');
       await root
         .getByRole('textbox', { name: 'Message input' })
         .fill(
@@ -141,7 +161,9 @@ async function assertWorkerWrite(
         'agent-worker'
       );
       const approvalName = 'Approve brainstrike.writeWorkspaceFile';
-      await expect(root.getByRole('button', { exact: true, name: approvalName })).toBeVisible();
+      await expect(
+        root.getByText('Parent continues useful work while Worker is pending.', { exact: true })
+      ).toBeVisible();
       await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
       await root.getByRole('button', { exact: true, name: 'Expand activity' }).click();
       await root.getByRole('button', { name: /Open .* conversation/ }).click();
@@ -171,10 +193,19 @@ async function assertWorkerWrite(
         await expect(selectedTab).toHaveText(nextName);
       }
       const childName = (await selectedTab.innerText()).trim();
-      const child = window.getByRole('region', { exact: true, name: childName });
+      let child = window.getByRole('region', { exact: true, name: childName });
       await expect(child.getByRole('button', { exact: true, name: approvalName })).toBeVisible();
       const pendingRequests = provider.requestCount();
-      await window.reload();
+      if (restartHost) {
+        const oldProcessId = (await electron.ensureContext()).app.process().pid;
+        const restarted = await electron.restart();
+        expect(restarted.app.process().pid).not.toBe(oldProcessId);
+        window = restarted.window;
+        root = window.getByTestId('chat-panel');
+        child = window.getByRole('region', { exact: true, name: childName });
+      } else {
+        await window.reload();
+      }
       await configureAssistantProvider(window, {
         compositeModelKey: 'openrouter::openai/gpt-5.4',
         provider: 'openrouter',
@@ -188,7 +219,11 @@ async function assertWorkerWrite(
         .click();
       await expect(child.getByText(childResult, { exact: true })).toBeVisible();
       await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
-      expect(observed).toEqual({ parentResult: true, writeResult: decision === 'Approve' });
+      expect(observed).toEqual({
+        backgroundStarted: true,
+        parentResult: true,
+        writeResult: decision === 'Approve',
+      });
       expect(
         provider
           .transcript()

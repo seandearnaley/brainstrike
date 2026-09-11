@@ -131,6 +131,7 @@ import { migration129ArtifactExecutionScope } from './129-artifact-execution-sco
 import { migration130OpenrouterDeepseekDeepseekV41Flash } from './130-openrouter-deepseek-deepseek-v4-1-flash.js';
 import { migration131DelegatedToolDecisions } from './131-delegated-tool-decisions.js';
 import { migration132DelegationBudgets } from './132-delegation-budgets.js';
+import { migration133MastraBackgroundTasks } from './133-mastra-background-tasks.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -268,6 +269,7 @@ export const migrations: Migration[] = [
   migration130OpenrouterDeepseekDeepseekV41Flash,
   migration131DelegatedToolDecisions,
   migration132DelegationBudgets,
+  migration133MastraBackgroundTasks,
 ];
 
 // Export base migrations (without chunks table) for test environments

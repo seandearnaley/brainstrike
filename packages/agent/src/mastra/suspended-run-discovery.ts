@@ -16,6 +16,7 @@ import type { DelegatedToolActionIdentity } from '@brainstrike/assistant-contrac
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
 import type { Agent } from '@mastra/core/agent';
+import type { MastraCompositeStore } from '@mastra/core/storage';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import type { MastraAgentRuntimeOptions } from './agent-runtime';
 import { initializeMastraRuntime, withRuntimeDerivedStreamOptions } from './agent-streaming';
@@ -209,6 +210,36 @@ async function classifySuspendedToolCalls(
   return { approvals, suspends };
 }
 
+/** Background roots can finish while their native child snapshot remains suspended.
+ * These are storage-backed dispatch addresses, not resumable parent Agent runs. */
+async function readBackgroundSuspensions(
+  storage: MastraCompositeStore,
+  filter: { readonly threadId: string; readonly resourceId: string }
+): Promise<SuspendedRunsForClassification> {
+  const store = await storage.getStore('backgroundTasks');
+  if (!store) {
+    throw new Error('Background approval discovery requires durable task storage.');
+  }
+  const { tasks } = await store.listTasks({ ...filter, status: 'suspended' });
+  return tasks.map((task) => {
+    if (!(task.runId && task.suspendedAt)) {
+      throw new Error('Suspended background child lacks its native dispatch identity.');
+    }
+    const payload = task.suspendPayload;
+    const requiresApproval = Boolean(
+      payload && typeof payload === 'object' && 'requireToolApproval' in payload
+    );
+    return {
+      runId: task.runId,
+      status: 'suspended',
+      suspendedAt: task.suspendedAt,
+      toolCalls: [
+        { args: task.args, requiresApproval, toolCallId: task.toolCallId, toolName: task.toolName },
+      ],
+    };
+  });
+}
+
 /**
  * Restart-safe discovery of pending tool approvals for a thread. Rebuilds a
  * FRESH runtime (like {@link streamMastraToolApprovalAction}) and calls the
@@ -241,8 +272,9 @@ export async function listSuspendedMastraRuns(
   // provider/model is resolved. This is why the discovery route can pass a
   // keyless provider with no static default (e.g. ollama) without the
   // `No default model configured` init throw (the D1 fix).
+  const { backgroundTaskScope, ...listingOptions } = options;
   const { runtime } = await initializeMastraRuntime(
-    withRuntimeDerivedStreamOptions({ ...options, modelOverride: createListingOnlyModel() }),
+    withRuntimeDerivedStreamOptions({ ...listingOptions, modelOverride: createListingOnlyModel() }),
     runtimeResolution
   );
 
@@ -253,19 +285,54 @@ export async function listSuspendedMastraRuns(
     });
 
     const storage = options.storage;
+    const backgroundAddresses = new Set<string>();
+    if (backgroundTaskScope) {
+      if (
+        backgroundTaskScope.threadId !== filter.threadId ||
+        backgroundTaskScope.resourceId !== filter.resourceId
+      ) {
+        throw new Error('Background discovery scope does not match the requested root.');
+      }
+      const pending = await readBackgroundSuspensions(storage, filter);
+      if (pending.length > 0 && !options.delegatedSuspensionDiscovery) {
+        throw new Error('Background decision discovery requires an authorized child resolver.');
+      }
+      for (const candidate of pending) {
+        for (const call of candidate.toolCalls) {
+          backgroundAddresses.add(JSON.stringify([candidate.runId, call.toolCallId]));
+        }
+        const existing = runs.find((run) => run.runId === candidate.runId);
+        if (existing) {
+          const known = new Set(existing.toolCalls.map((call) => call.toolCallId));
+          existing.toolCalls.push(
+            ...candidate.toolCalls.filter((call) => !known.has(call.toolCallId))
+          );
+        } else {
+          runs.push(candidate);
+        }
+      }
+    }
     const resolver = options.delegatedSuspensionDiscovery;
     const { approvals, suspends } = await classifySuspendedToolCalls(
       runs,
       runtime.toolNameMap,
       resolver
-        ? (runId, toolCall) =>
-            discoverDelegatedToolPause({
+        ? async (runId, toolCall) => {
+            const resolved = await discoverDelegatedToolPause({
               resolveInvocation: resolver,
               rootThreadId: filter.threadId,
               runId,
               storage,
               toolCall,
-            })
+            });
+            if (
+              !resolved &&
+              backgroundAddresses.has(JSON.stringify([runId, toolCall.toolCallId]))
+            ) {
+              throw new Error('Background decision has no authorized child address.');
+            }
+            return resolved;
+          }
         : undefined
     );
 
