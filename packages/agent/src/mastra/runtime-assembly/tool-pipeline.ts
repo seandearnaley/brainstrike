@@ -1,5 +1,3 @@
-import type { RequestContext } from '@mastra/core/request-context';
-import type { ModelOutputProjectionObserver } from '../tool-model-output';
 /**
  * The runtime tool pipeline: everything between the caller-supplied local tool
  * map and the final model-projected tool map the Agent receives. Extracted from
@@ -24,6 +22,7 @@ import {
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage, ToolsInput } from '@mastra/core/agent';
+import type { RequestContext } from '@mastra/core/request-context';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import {
   type AssistantResilienceConfig,
@@ -60,6 +59,7 @@ import { filterToolsForPlanMode, resolveSuspendToolsForRun } from '../plan-mode-
 import { ProjectionSafeToolCallFilter } from '../projection-safe-tool-call-filter';
 import type { ResolvedRuntimeConfiguration } from '../runtime-configuration';
 import { createRunTokenDiagnostics, type RunTokenDiagnostics } from '../token-measurement';
+import type { ModelOutputProjectionObserver } from '../tool-model-output';
 import { applyToolModelOutputProjections, wouldTruncateMcpModelOutput } from '../tool-model-output';
 import {
   applyToolOutputArtifactSettlement,
@@ -459,8 +459,8 @@ export interface RuntimeToolMapResult {
   /** Post-settlement tool map — the discovery/projection phase's input. */
   artifactSettledTools: ToolsInput;
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
-  /** Pre-permission-gate map; persona subagents re-gate it independently. */
-  guardedTools: ToolsInput;
+  /** Post-lifecycle-hook, pre-permission map; children re-gate it independently. */
+  hookedTools: ToolsInput;
   /** Apps admission surface captured only after ordinary runtime admission. */
   mcpAppToolAdmission: McpAppToolAdmissionCapability;
   mcpClient: McpRuntimeClient | undefined;
@@ -628,7 +628,7 @@ export async function composeRuntimeToolMap(
     artifactSettledTools,
     askTools,
     // Children retain the same lifecycle hooks before their independent permission gate.
-    guardedTools: hookedTools,
+    hookedTools,
     mcpAppToolAdmission,
     mcpClient,
     mcpDiscoverySkips,

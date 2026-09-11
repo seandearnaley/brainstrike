@@ -8,7 +8,7 @@ import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-met
 import { type Agent, MessageList, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { createTool, noopObserve } from '@mastra/core/tools';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { createListingOnlyModel } from '../../providers/listing-only-model';
 import {
@@ -184,6 +184,37 @@ async function workerCatalog(child: Agent) {
   });
 }
 describe('worker tool admission', () => {
+  it('visibly omits a worker pinned to the embedded local model before resolving it', async () => {
+    const resolvePinnedModel = vi.fn(() => fakeModel);
+    const warn = vi.fn();
+    const result = await buildPersonaSubAgents({
+      ...workerOptions({ ...workerPersona, model: { modelId: 'local-worker', provider: 'local' } }),
+      logger: { ...noopLogger, warn },
+      resolvePinnedModel,
+    });
+    expect(result.subAgents).toEqual({});
+    expect(resolvePinnedModel).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: 'subagent_worker_local_model_unavailable' })
+    );
+  });
+  it('visibly omits a worker without its host catalog', async () => {
+    const { localToolIds: _removed, ...options } = workerOptions();
+    const warn = vi.fn();
+    const result = await buildPersonaSubAgents({ ...options, logger: { ...noopLogger, warn } });
+    expect(result.subAgents).toEqual({});
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: 'subagent_worker_catalog_unavailable' })
+    );
+  });
+  it('keeps deferred catalog names out of worker instructions', async () => {
+    const result = await buildPersonaSubAgents(workerOptions());
+    const child = assertDefined(result.subAgents['worker'], 'Expected worker');
+    expect(await child.getInstructions()).toBe(workerPersona.instructions);
+  });
+
   it.each([
     'storage',
     'bindRun',

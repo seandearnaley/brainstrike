@@ -2,8 +2,9 @@ import type { InputProcessor, ProcessInputArgs } from '@mastra/core/processors';
 import type { AgentMessage } from '../types';
 
 export type DelegatedSystemContext = ProcessInputArgs['systemMessages'];
+export type DelegatedSystemContextSource = () => DelegatedSystemContext;
 const CONTEXT_TAG = 'brainstrike-delegated-workspace';
-const MAX_CONTEXT_BYTES = 64 * 1024;
+export const MAX_DELEGATED_CONTEXT_BYTES = 64 * 1024;
 
 /** Only host-supplied system messages enter this boundary, never the generated
  * supervisor instructions or model-authored delegation parameters. */
@@ -31,12 +32,13 @@ export function captureDelegatedSystemContext(
  * Mastra snapshots tagged system messages; a fresh approval runtime must use
  * that original snapshot, not reread potentially changed workspace files. */
 export function createDelegatedSystemContextProcessor(
-  context: DelegatedSystemContext
+  getContext: DelegatedSystemContextSource
 ): InputProcessor {
   return {
     id: CONTEXT_TAG,
     processInput({ messageList }) {
-      if (Buffer.byteLength(JSON.stringify(context), 'utf8') > MAX_CONTEXT_BYTES) {
+      const context = getContext();
+      if (Buffer.byteLength(JSON.stringify(context), 'utf8') > MAX_DELEGATED_CONTEXT_BYTES) {
         throw new Error('Trusted delegated context exceeds its 64 KiB budget.');
       }
       messageList.addSystem(context, CONTEXT_TAG);

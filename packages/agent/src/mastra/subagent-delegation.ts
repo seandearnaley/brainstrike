@@ -28,6 +28,7 @@ import {
 import type { ScopedLogger } from '@brainstrike/logging';
 import type { DelegationConfig } from '@mastra/core/agent';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
+import { MAX_DELEGATED_CONTEXT_BYTES } from './delegated-system-context';
 import type { DelegatedTurnPersistence } from './delegated-turn-persistence';
 
 export const MAX_CONCURRENT_DELEGATIONS = 2;
@@ -254,7 +255,7 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         (sum, message) => sum + Buffer.byteLength(JSON.stringify(message), 'utf8') + 1,
         2
       );
-      if (bytes > 64 * 1024) {
+      if (bytes > MAX_DELEGATED_CONTEXT_BYTES) {
         throw new Error('Trusted delegated context exceeds its 64 KiB budget.');
       }
       const selected = new Set(protectedMessages);
@@ -263,8 +264,11 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         if (message.role === 'system') {
           continue;
         }
+        if (ordinary >= 16) {
+          break;
+        }
         const size = Buffer.byteLength(JSON.stringify(message), 'utf8') + 1;
-        if (ordinary >= 16 || bytes + size > 64 * 1024) {
+        if (bytes + size > MAX_DELEGATED_CONTEXT_BYTES) {
           continue;
         }
         selected.add(message);

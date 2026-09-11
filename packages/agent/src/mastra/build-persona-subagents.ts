@@ -1,9 +1,3 @@
-import { type MastraMemory, parseMemoryRequestContext } from '@mastra/core/memory';
-import {
-  createDelegatedSystemContextProcessor,
-  type DelegatedSystemContext,
-} from './delegated-system-context';
-
 /**
  * Persona → child-`Agent` factory (subagent personas, T2).
  *
@@ -20,7 +14,7 @@ import {
  * post-gate map is empty is NOT registered (no useless delegation tool).
  */
 
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { deriveEffectiveInputBudget, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import {
   type AssistantPersonaDefinition,
   assertPersonaToolScope,
@@ -29,6 +23,7 @@ import {
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
 import { Agent, type AgentExecutionOptions, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
+import { type MastraMemory, parseMemoryRequestContext } from '@mastra/core/memory';
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import {
   resolveToolResultBudgetForModel,
@@ -36,6 +31,10 @@ import {
 } from '../stream/tool-output-limits';
 import type { RuntimeData } from '../types';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
+import {
+  createDelegatedSystemContextProcessor,
+  type DelegatedSystemContextSource,
+} from './delegated-system-context';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
 import {
   filterToolsByPermissionWithMetadata,
@@ -65,8 +64,8 @@ export interface PersonaSubAgentBuildResult {
 
 export interface BuildPersonaSubAgentsParams {
   readonly conversationBinding?: DelegatedConversationBinding;
-  readonly delegatedSystemContext?: DelegatedSystemContext;
-  /** Parent's post-guard tool map (keyed by sanitized id), RAW — not yet
+  readonly getDelegatedSystemContext?: DelegatedSystemContextSource;
+  /** Parent's post-guard, post-lifecycle-hook tool map (keyed by sanitized id), RAW — not yet
    * model-output-projected. Each child projects its own selected subset
    * against its own resolved budget (see {@link resolvedToolResultBudget}). */
   readonly guardedTools: ToolsInput;
@@ -226,7 +225,7 @@ function buildChildInstructions(
   persona: AssistantPersonaDefinition,
   toolOriginalNames: readonly string[]
 ): string {
-  if (toolOriginalNames.length === 0) {
+  if (persona.mode === 'worker' || toolOriginalNames.length === 0) {
     return persona.instructions;
   }
   return `${persona.instructions}\n\nAvailable tools: ${toolOriginalNames.join(', ')}.`;
@@ -318,8 +317,8 @@ function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
   outputProcessors?: OutputProcessor[];
 } {
   const inputProcessors: InputProcessor[] = [];
-  if (params.delegatedSystemContext?.length) {
-    inputProcessors.push(createDelegatedSystemContextProcessor(params.delegatedSystemContext));
+  if (params.getDelegatedSystemContext) {
+    inputProcessors.push(createDelegatedSystemContextProcessor(params.getDelegatedSystemContext));
   }
   if (params.conversationBinding) {
     inputProcessors.push(params.conversationBinding.inputProcessor);
@@ -351,6 +350,36 @@ function canSuspendPersonaTools(params: BuildPersonaSubAgentsParams): boolean {
       binding.releaseUnexecutedToolAction &&
       binding.resolveToolAction
   );
+}
+
+function isWorkerAvailable(
+  persona: AssistantPersonaDefinition,
+  params: BuildPersonaSubAgentsParams,
+  canSuspend: boolean
+): boolean {
+  if (persona.mode !== 'worker') {
+    return true;
+  }
+  const provider = persona.model?.provider ?? params.provider;
+  const code = canSuspend
+    ? provider === 'local'
+      ? 'subagent_worker_local_model_unavailable'
+      : (persona.model?.modelId ?? params.modelName) && params.localToolIds
+        ? undefined
+        : 'subagent_worker_catalog_unavailable'
+    : 'subagent_worker_host_unavailable';
+  if (!code) {
+    return true;
+  }
+  params.logger.warn(
+    'Worker requires hosted discovery, its catalog and complete durable child control; not registering',
+    {
+      code,
+      personaId: persona.id,
+      provider,
+    }
+  );
+  return false;
 }
 
 async function prepareWorkerToolSurface(
@@ -412,7 +441,7 @@ async function prepareWorkerToolSurface(
       ...(params.workspaceSkills && hasSkillControls
         ? { workspaceSkills: params.workspaceSkills }
         : {}),
-      agentLoop: { inputTokenLimit: Math.min(16_384, Math.floor(budget.contextWindow / 2)) },
+      agentLoop: { inputTokenLimit: deriveEffectiveInputBudget(budget.contextWindow) },
     },
     discovery.toolSearchProcessor,
     createToolHistoryFilter(provider, toolNameMap)
@@ -514,7 +543,7 @@ export async function buildPersonaSubAgents(
 ): Promise<PersonaSubAgentBuildResult> {
   const canSuspend = canSuspendPersonaTools(params);
   const originalToSanitized = buildOriginalToSanitized(params.toolNameMap);
-  const subAgents: Record<string, Agent> = {};
+  const childBuilders: (() => Promise<readonly [string, Agent]>)[] = [];
   const delegationToolPersonas = new Map<string, string>();
   const personasById = new Map<string, AssistantPersonaDefinition>();
 
@@ -522,11 +551,7 @@ export async function buildPersonaSubAgents(
     // Scope validation precedes permission opt-outs: legacy personas stay
     // read-only, while worker declarations can only narrow the host catalog.
     assertPersonaToolScope(persona);
-    if (persona.mode === 'worker' && !canSuspend) {
-      params.logger.warn('Worker requires complete durable child control; not registering', {
-        code: 'subagent_worker_host_unavailable',
-        personaId: persona.id,
-      });
+    if (!isWorkerAvailable(persona, params, canSuspend)) {
       continue;
     }
 
@@ -591,18 +616,25 @@ export async function buildPersonaSubAgents(
     const settledChildTools = params.settleChildToolOutputs
       ? params.settleChildToolOutputs(childTools as ToolsInput, childToolResultBudget)
       : (childTools as ToolsInput);
-    subAgents[persona.id] = await createConfiguredChild({
-      childModel,
-      childNameMap,
-      childToolResultBudget,
-      keptOriginalNames,
-      params,
-      persona,
-      settledChildTools,
-    });
+    childBuilders.push(
+      async () =>
+        [
+          persona.id,
+          await createConfiguredChild({
+            childModel,
+            childNameMap,
+            childToolResultBudget,
+            keptOriginalNames,
+            params,
+            persona,
+            settledChildTools,
+          }),
+        ] as const
+    );
     delegationToolPersonas.set(`agent-${persona.id}`, persona.id);
     personasById.set(persona.id, persona);
   }
 
+  const subAgents = Object.fromEntries(await Promise.all(childBuilders.map((build) => build())));
   return { delegationToolPersonas, personasById, subAgents };
 }

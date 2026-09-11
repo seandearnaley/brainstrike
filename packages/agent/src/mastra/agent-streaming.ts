@@ -1293,11 +1293,14 @@ export async function streamMastraAgent(
   assertNoUnsupportedDirectStreamOptions(options);
 
   const runtimeData = options.runtime;
+  const initialSystemMessages = structuredClone(
+    messages.filter((message) => message.role === 'system')
+  );
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
     {
       ...options,
-      delegatedSystemContext: captureDelegatedSystemContext(messages),
+      getDelegatedSystemContext: () => captureDelegatedSystemContext(initialSystemMessages),
     },
     runtimeResolution
   );

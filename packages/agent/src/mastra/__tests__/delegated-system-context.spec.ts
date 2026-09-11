@@ -18,7 +18,7 @@ describe('trusted delegated system context', () => {
     const messageList = new MessageList();
     messageList.addSystem('Persona instructions');
     messageList.addSystem('Other processor context', 'other-owner');
-    await createDelegatedSystemContextProcessor(context).processInput?.({
+    await createDelegatedSystemContextProcessor(() => context).processInput?.({
       abort(reason): never {
         throw new Error(reason);
       },
@@ -43,7 +43,7 @@ describe('trusted delegated system context', () => {
     ]);
     const messageList = new MessageList();
     expect(() =>
-      createDelegatedSystemContextProcessor(context).processInput?.({
+      createDelegatedSystemContextProcessor(() => context).processInput?.({
         abort(reason): never {
           throw new Error(reason);
         },

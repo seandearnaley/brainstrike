@@ -18,7 +18,7 @@ import type { RuntimeData } from '../../types';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import type { DelegationPersonaSummary } from '../default-instructions';
 import type { DelegatedConversationBinding } from '../delegated-conversation-binding';
-import type { DelegatedSystemContext } from '../delegated-system-context';
+import type { DelegatedSystemContextSource } from '../delegated-system-context';
 import type { PermissionToolGateSnapshot } from '../permission-tool-gate';
 import { shouldEnablePersonas } from '../subagent-delegation';
 import type { ModelOutputProjectionObserver } from '../tool-model-output';
@@ -58,7 +58,7 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
 export async function resolvePersonaRuntimeParts(params: {
   conversationBinding?: DelegatedConversationBinding | undefined;
   guardedTools: ToolsInput;
-  delegatedSystemContext?: DelegatedSystemContext | undefined;
+  getDelegatedSystemContext?: DelegatedSystemContextSource | undefined;
   hasStorage?: boolean;
   modelName: string;
   memory?: MastraMemory | undefined;
@@ -87,8 +87,8 @@ export async function resolvePersonaRuntimeParts(params: {
       ? { settleChildToolOutputs: params.settleChildToolOutputs }
       : {}),
     guardedTools: params.guardedTools,
-    ...(params.delegatedSystemContext
-      ? { delegatedSystemContext: params.delegatedSystemContext }
+    ...(params.getDelegatedSystemContext
+      ? { getDelegatedSystemContext: params.getDelegatedSystemContext }
       : {}),
     localToolIds: params.localToolIds,
     modelName: params.modelName,

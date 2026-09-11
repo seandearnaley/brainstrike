@@ -51,8 +51,21 @@ both pass. The missing-grandchild-memory and ephemeral-background-store cases
 remain explicit negative controls rather than being disguised as supported
 product capabilities.
 
-#
 ## Capable workers and context transfer (BST-1721)
+
+Workers require hosted catalog discovery; pins to the embedded `local` provider
+are visibly omitted before model resolution, preserving the root local runtime's
+no-skills boundary. Ollama and LM Studio use their existing hosted adapters.
+The worker input budget derives from its resolved context window with the shared
+output reservation and safety margin. Catalog names remain deferred rather than
+being enumerated in worker system instructions.
+
+Trusted context is captured and validated only when a child starts. Invalid or
+oversized trusted context rejects that delegation before child inference; native
+Mastra returns the tool error to the supervisor so it can respond. Disabled
+delegation does not validate unused child context. Permission `allow`/YOLO permits
+worker effects without a new prompt; `ask` requires the exact durable child decision.
+
 
 Workers reuse permission filtering, output-artifact settlement, model projections,
 canonical catalog search/loading, skill injection, provider history compatibility,
@@ -77,7 +90,9 @@ from the instruction override and appended to the delegated user task instead.
 selecting at most 16 ordinary messages under a 64 KiB UTF-8 serialization budget;
 trusted system entries, if supplied by the framework, are retained or rejected
 when oversized. Pruning is logged. Hook failures propagate. Parent completion
-uses the compact native child result, not the child's full transcript.
+uses the compact native child result for Worker, Explorer and Analyst, matching
+Mastra 1.64's default. Raw nested tool results remain available to stream
+projection and durable child persistence; this only controls the parent model prompt.
 
 Paired evidence: persona/parser and child-factory specs; native
 `worker-delegation.integration.spec.ts` inspects initial and resumed model roles,

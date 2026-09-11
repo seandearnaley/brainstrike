@@ -38,7 +38,7 @@ import {
   type DelegationPersonaSummary,
 } from './default-instructions';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
-import type { DelegatedSystemContext } from './delegated-system-context';
+import type { DelegatedSystemContextSource } from './delegated-system-context';
 import {
   createDelegatedTurnPersistence,
   type DelegatedTurnPersistence,
@@ -79,7 +79,7 @@ export interface MastraAgentRuntimeOptions {
   /** Host-owned native identity persistence; never serialized through RuntimeData. */
   conversationBinding?: DelegatedConversationBinding | undefined;
   /** @internal Initial host system context; native child snapshots own resumption. */
-  delegatedSystemContext?: DelegatedSystemContext;
+  getDelegatedSystemContext?: DelegatedSystemContextSource;
   /**
    * Server-injected tool-lifecycle hook runner (desktop). Composed OUTSIDE the
    * guard and BEFORE the permission gate. Overrides `runtime.hookRunner` when
@@ -574,7 +574,7 @@ export async function createMastraAgentRuntime(
   const {
     artifactSettledTools,
     askTools,
-    guardedTools,
+    hookedTools,
     mcpAppToolAdmission,
     mcpClient,
     mcpDiscoverySkips,
@@ -659,7 +659,7 @@ export async function createMastraAgentRuntime(
     subAgents,
   } = await resolvePersonaRuntimeParts({
     conversationBinding: options.conversationBinding,
-    delegatedSystemContext: options.delegatedSystemContext,
+    getDelegatedSystemContext: options.getDelegatedSystemContext,
     // BST-1206 review (P2): a persona that pins its OWN model must project
     // its tools against THAT model's resolved budget, not the parent's — so
     // `guardedTools` here is deliberately the RAW (pre-model-output-projection)
@@ -667,7 +667,7 @@ export async function createMastraAgentRuntime(
     // `applyToolModelOutputProjections` themselves, per persona, choosing the
     // pinned model's own resolved budget when one is pinned and the parent's
     // `resolvedToolResultBudget` otherwise (see build-persona-subagents.ts).
-    guardedTools,
+    guardedTools: hookedTools,
     hasStorage: Boolean(storage),
     hydrateToolDiscoveryFromMemory,
     languageModel: observedLanguageModel,

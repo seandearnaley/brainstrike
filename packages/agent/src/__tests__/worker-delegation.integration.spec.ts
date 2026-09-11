@@ -1,5 +1,6 @@
 import { buildNativeToolRiskMap, getToolActionTarget } from '@brainstrike/assistant-contract';
 import { BUILT_IN_PERSONAS } from '@brainstrike/assistant-contract/personas';
+import { buildUserPersona } from '@brainstrike/assistant-contract/user-personas';
 import { InMemoryStore } from '@mastra/core/storage';
 import { createTool } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
@@ -21,16 +22,27 @@ import {
 } from '../test-fixtures/scripted-agent-model';
 import type { StreamChunk } from '../types';
 
-const { modelHolder } = vi.hoisted(() => ({
+const { modelHolder, resolvedModels, invokedModels } = vi.hoisted(() => ({
+  invokedModels: [] as { model: string | undefined; tools: string[] }[],
   modelHolder: { current: undefined as ReturnType<typeof scriptedAgentModel>['model'] | undefined },
+  resolvedModels: [] as { provider: string; model: string | undefined }[],
 }));
 vi.mock('../providers/provider-factory', async (original) => ({
   ...(await original<typeof import('../providers/provider-factory')>()),
-  createProvider: () => {
+  createProvider: (provider: string, _auth: unknown, model: string | undefined) => {
+    resolvedModels.push({ model, provider });
     if (!modelHolder.current) {
       throw new Error('Missing scripted model');
     }
-    return modelHolder.current;
+    const transport = modelHolder.current;
+    return {
+      ...transport,
+      doStream: (options: Parameters<typeof transport.doStream>[0]) => {
+        invokedModels.push({ model, tools: options.tools?.map((tool) => tool.name) ?? [] });
+        return transport.doStream(options);
+      },
+      modelId: model ?? transport.modelId,
+    };
   },
 }));
 const { streamMastraAgent, streamMastraToolApprovalAction } = await import(
@@ -47,14 +59,36 @@ async function drain(stream: AsyncIterable<StreamChunk>): Promise<StreamChunk[]>
 
 // Runtime assembly and native approval are real; this in-memory host port is
 // deliberately not another proof of desktop persistence or process restart.
-it.for(['approve', 'decline'] as const)(
-  'built-in worker preserves context and executes a guarded edit only after %s',
-  async (action) => {
-    const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
-    expect(worker, 'The production built-in worker must be available after BST-1720').toBeDefined();
-    if (!worker) {
+it.for([
+  { action: 'approve', custom: false },
+  { action: 'decline', custom: false },
+  { action: 'approve', custom: true },
+] as const)(
+  'worker preserves context, model and guarded edit behavior (%j)',
+  async ({ action, custom }) => {
+    resolvedModels.length = 0;
+    invokedModels.length = 0;
+    const builtIn = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
+    expect(
+      builtIn,
+      'The production built-in worker must be available after BST-1720'
+    ).toBeDefined();
+    if (!builtIn) {
       throw new Error('Built-in worker is not implemented');
     }
+    const parsed = buildUserPersona({
+      content:
+        '---\nmode: worker\ndescription: Author the requested deliverable using only declared tools.\nmodel: openai::gpt-5-mini\ntools: writeWorkspaceFile, skill, skill_read, skill_search\n---\nComplete the delegated deliverable and report provenance.',
+      fileName: 'custom-writer.md',
+    });
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+    const worker = custom ? parsed.persona : builtIn;
+    const delegationTool = `agent-${worker.id}`;
+    const parentRead = vi.fn(async () => ({
+      content: 'PARENT_READ_RESULT_NOT_CHILD_AUTHORITY_1721',
+    }));
     const write = vi.fn(async (_input: { content: string; path: string }) => ({ written: true }));
     const preToolUse = vi.fn(async (_toolName: string, _toolInput: unknown) => ({
       decision: 'allow' as const,
@@ -96,12 +130,17 @@ it.for(['approve', 'decline'] as const)(
     const childTools: string[][] = [];
     const parentResults: unknown[] = [];
     modelHolder.current = scriptedAgentModel((options) => {
-      if (options.tools?.some((tool) => tool.name === 'agent-worker')) {
-        if (hasToolResult(options, 'agent-worker')) {
+      if (options.tools?.some((tool) => tool.name === delegationTool)) {
+        if (hasToolResult(options, delegationTool)) {
           parentResults.push(options.prompt);
           return textParts('PARENT_RECEIVED_WORKER_RESULT');
         }
-        return toolCallParts('agent-worker', 'worker-delegation', {
+        if (!hasToolResult(options, 'brainstrike_readWorkspaceFile')) {
+          return toolCallParts('brainstrike_readWorkspaceFile', 'parent-read', {
+            path: 'parent-evidence.txt',
+          });
+        }
+        return toolCallParts(delegationTool, 'worker-delegation', {
           instructions: 'DELEGATED_TASK_DETAIL',
           prompt: 'Create the requested deliverable.',
         });
@@ -123,11 +162,13 @@ it.for(['approve', 'decline'] as const)(
     const options = {
       conversationBinding: binding,
       memory,
+      model: 'gpt-5.4',
       personas: [worker],
       runtime: {
         apiKey: 'test-key',
         hookRunner: { postToolUse, preToolUse },
         memory: { resourceId: `worker-resource-${action}`, threadId: `worker-root-${action}` },
+        model: 'gpt-5.4',
         permissionPolicy: {
           policies: { edit: 'ask', execute: 'ask', mcp: 'deny', read: 'allow' },
           riskByTool: { ...buildNativeToolRiskMap(), 'brainstrike.writeWorkspaceFile': 'edit' },
@@ -138,6 +179,12 @@ it.for(['approve', 'decline'] as const)(
       },
       storage,
       tools: {
+        'brainstrike.readWorkspaceFile': createTool({
+          description: 'A parent read tool excluded by the custom persona.',
+          execute: parentRead,
+          id: 'brainstrike.readWorkspaceFile',
+          inputSchema: z.object({ path: z.string() }),
+        }),
         'brainstrike.writeWorkspaceFile': createTool({
           description: 'Write a disposable workspace deliverable.',
           execute: write,
@@ -175,8 +222,14 @@ it.for(['approve', 'decline'] as const)(
     const pending = initial.find((chunk) => chunk.type === 'tool-approval-required');
     expect(pending).toBeDefined();
     expect(write).not.toHaveBeenCalled();
-    expect(preToolUse.mock.calls.map(([name]) => name)).toEqual(['skill']);
-    expect(postToolUse.mock.calls.map(([input]) => input.toolName)).toEqual(['skill']);
+    expect(preToolUse.mock.calls.map(([name]) => name)).toEqual([
+      'brainstrike.readWorkspaceFile',
+      'skill',
+    ]);
+    expect(postToolUse.mock.calls.map(([input]) => input.toolName)).toEqual([
+      'brainstrike.readWorkspaceFile',
+      'skill',
+    ]);
     if (pending?.type !== 'tool-approval-required') {
       throw new Error('Missing native child approval');
     }
@@ -197,7 +250,9 @@ it.for(['approve', 'decline'] as const)(
     );
     expect(write).toHaveBeenCalledTimes(action === 'approve' ? 1 : 0);
     const expectedHookTools =
-      action === 'approve' ? ['skill', 'brainstrike.writeWorkspaceFile'] : ['skill'];
+      action === 'approve'
+        ? ['brainstrike.readWorkspaceFile', 'skill', 'brainstrike.writeWorkspaceFile']
+        : ['brainstrike.readWorkspaceFile', 'skill'];
     expect(preToolUse.mock.calls.map(([name]) => name)).toEqual(expectedHookTools);
     expect(postToolUse.mock.calls.map(([input]) => input.toolName)).toEqual(expectedHookTools);
     if (action === 'approve') {
@@ -234,6 +289,12 @@ it.for(['approve', 'decline'] as const)(
     for (const [index, prompt] of childPrompts.entries()) {
       const messages = z.array(z.object({ content: z.unknown(), role: z.string() })).parse(prompt);
       const system = JSON.stringify(messages.filter((message) => message.role === 'system'));
+      expect(system).toContain(
+        custom
+          ? 'Complete the delegated deliverable and report provenance.'
+          : 'You are the Worker subagent'
+      );
+      expect(JSON.stringify(messages)).not.toContain('PARENT_READ_RESULT_NOT_CHILD_AUTHORITY_1721');
       expect(system).toContain('<available_skills>');
       expect(system).toContain('worker-deliverable');
       expect(system).not.toContain('SKILL_BODY_TOOL_PROVENANCE_1721');
@@ -244,6 +305,25 @@ it.for(['approve', 'decline'] as const)(
         expect(JSON.stringify(messages.filter((message) => message.role === 'tool'))).toContain(
           'SKILL_BODY_TOOL_PROVENANCE_1721'
         );
+      }
+    }
+    expect(parentRead).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(parentResults)).toContain('PARENT_READ_RESULT_NOT_CHILD_AUTHORITY_1721');
+    if (custom) {
+      expect(resolvedModels).toContainEqual({ model: 'gpt-5.4', provider: 'openai' });
+      expect(resolvedModels).toContainEqual({ model: 'gpt-5-mini', provider: 'openai' });
+      const parentCalls = invokedModels.filter((entry) => entry.tools.includes(delegationTool));
+      const childCalls = invokedModels.filter((entry) => !entry.tools.includes(delegationTool));
+      expect(parentCalls.length).toBeGreaterThan(0);
+      expect(childCalls.length).toBeGreaterThan(1);
+      expect(
+        parentCalls.every((entry) => entry.model === 'gpt-5.4'),
+        JSON.stringify({ invokedModels, resolvedModels })
+      ).toBe(true);
+      expect(childCalls.every((entry) => entry.model === 'gpt-5-mini')).toBe(true);
+      expect(parentCalls[0]?.tools).toContain('brainstrike_readWorkspaceFile');
+      for (const names of childTools) {
+        expect(names).not.toContain('brainstrike_readWorkspaceFile');
       }
     }
     await memory.settled();
