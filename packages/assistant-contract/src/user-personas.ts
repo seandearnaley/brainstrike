@@ -8,19 +8,21 @@
  *
  * Posture mirrors user-slash-commands.ts: hand-rolled frontmatter (NO YAML
  * dep), fail-closed on malformed input (a broken file is skipped with a
- * visible error, never half-parsed), and the read-only invariant is enforced
- * here at build time — a user persona can never name a mutation tool.
+ * visible error, never half-parsed). Absent mode preserves read-only behavior;
+ * explicit worker mode selects an eligible host scope without granting authority.
  */
 
 import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
 import {
   type AssistantPersonaDefinition,
+  type AssistantPersonaMode,
   type AssistantPersonaModelPin,
-  assertReadOnlyPersona,
+  assertPersonaToolScope,
   BUILT_IN_PERSONAS,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from './personas.js';
 import { isSupportedProvider } from './provider-metadata.js';
+import { getNativeToolDefaults } from './tool-categories.js';
 
 /** Directory (under `.brainstrike/`) scanned for persona `.md` files. */
 export const USER_PERSONA_DIRNAME = 'agents';
@@ -97,6 +99,7 @@ export type ParsedUserPersonaFile =
       readonly description?: string;
       readonly instructions: string;
       readonly maxSteps?: number;
+      readonly mode?: AssistantPersonaMode;
       readonly model?: string;
       readonly name?: string;
       readonly ok: true;
@@ -107,6 +110,7 @@ export type ParsedUserPersonaFile =
 interface FrontmatterAccumulator {
   description?: string;
   maxSteps?: number;
+  mode?: AssistantPersonaMode;
   model?: string;
   name?: string;
   /**
@@ -151,6 +155,13 @@ function consumeKeyValueLine(state: FrontmatterAccumulator, line: string): strin
     }
     case 'description': {
       state.description = value;
+      return null;
+    }
+    case 'mode': {
+      if (value !== 'worker' && value !== 'read-only') {
+        return 'mode must be read-only or worker';
+      }
+      state.mode = value;
       return null;
     }
     case 'model': {
@@ -234,6 +245,7 @@ export function parseUserPersonaFile(content: string): ParsedUserPersonaFile {
     ...(state.name ? { name: state.name } : {}),
     ...(state.description ? { description: state.description } : {}),
     ...(state.model ? { model: state.model } : {}),
+    ...(state.mode ? { mode: state.mode } : {}),
     ...(state.maxSteps === undefined ? {} : { maxSteps: state.maxSteps }),
     ...(state.tools === undefined ? {} : { tools: state.tools }),
   };
@@ -360,8 +372,13 @@ export type BuildUserPersonaResult =
 
 const BUILT_IN_PERSONA_IDS = new Set<string>(BUILT_IN_PERSONAS.map((persona) => persona.id));
 
-function normalizeToolId(toolId: string): string {
-  return toolId.includes('.') ? toolId : `${NATIVE_TOOL_ID_PREFIX}${toolId}`;
+function normalizeToolId(toolId: string, mode: AssistantPersonaMode): string {
+  if (toolId.includes('.')) {
+    return toolId;
+  }
+  const nativeId = `${NATIVE_TOOL_ID_PREFIX}${toolId}`;
+  // Native short names are normalized; a worker's opaque MCP id remains exact.
+  return mode === 'read-only' || getNativeToolDefaults(nativeId) ? nativeId : toolId;
 }
 
 /**
@@ -427,10 +444,15 @@ function resolvePersonaModelPin(
 }
 
 function resolvePersonaTools(
-  declared: readonly string[] | undefined
+  declared: readonly string[] | undefined,
+  mode: AssistantPersonaMode
 ): PersonaFieldResult<readonly string[]> {
   const allowedToolIds =
-    declared === undefined ? DEFAULT_USER_PERSONA_TOOL_IDS : declared.map(normalizeToolId);
+    declared === undefined
+      ? mode === 'worker'
+        ? ['*']
+        : DEFAULT_USER_PERSONA_TOOL_IDS
+      : declared.map((id) => normalizeToolId(id, mode));
   if (allowedToolIds.length === 0) {
     return { error: 'persona tools list must not be empty', ok: false };
   }
@@ -477,7 +499,7 @@ export function buildUserPersona(input: BuildUserPersonaInput): BuildUserPersona
   if (!model.ok) {
     return { error: model.error, ok: false };
   }
-  const tools = resolvePersonaTools(parsed.tools);
+  const tools = resolvePersonaTools(parsed.tools, parsed.mode ?? 'read-only');
   if (!tools.ok) {
     return { error: tools.error, ok: false };
   }
@@ -490,11 +512,12 @@ export function buildUserPersona(input: BuildUserPersonaInput): BuildUserPersona
     label: parsed.name && parsed.name.length > 0 ? parsed.name : id.value,
     maxSteps: maxSteps.value,
     source: 'user',
+    ...(parsed.mode ? { mode: parsed.mode } : {}),
     ...(model.value ? { model: model.value } : {}),
   };
 
   try {
-    assertReadOnlyPersona(persona);
+    assertPersonaToolScope(persona);
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : 'persona failed the read-only check',

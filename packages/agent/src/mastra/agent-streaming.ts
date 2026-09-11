@@ -72,6 +72,7 @@ import {
   validateToolResumeAction,
 } from './attempt-legs';
 import { createDelegatedStreamProjection } from './delegated-stream-projection';
+import { captureDelegatedSystemContext } from './delegated-system-context';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import {
   asMastraStreamPart,
@@ -1293,7 +1294,13 @@ export async function streamMastraAgent(
 
   const runtimeData = options.runtime;
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
-  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(options, runtimeResolution);
+  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
+    {
+      ...options,
+      delegatedSystemContext: captureDelegatedSystemContext(messages),
+    },
+    runtimeResolution
+  );
 
   // Per-call approval for `'ask'` tools comes from the PER-TOOL `requireApproval`
   // flag the permission gate set (see permission-tool-gate.ts), NOT from the

@@ -1,3 +1,5 @@
+import type { RequestContext } from '@mastra/core/request-context';
+import type { ModelOutputProjectionObserver } from '../tool-model-output';
 /**
  * The runtime tool pipeline: everything between the caller-supplied local tool
  * map and the final model-projected tool map the Agent receives. Extracted from
@@ -312,7 +314,10 @@ export async function prepareHostedToolDiscovery(params: {
   eligibleTools: ToolsInput;
   localToolIds: ReadonlySet<string>;
   modelName: string;
-  persistedDiscoveryMessages?: () => Promise<readonly MastraDBMessage[]>;
+  persistedDiscoveryMessages?: (
+    requestContext?: RequestContext
+  ) => Promise<readonly MastraDBMessage[]>;
+  toolOutputObserver?: ModelOutputProjectionObserver;
   provider: ResolvedRuntimeConfiguration['provider'];
   resolvedToolResultBudget: ScaledToolResultBudget;
   toolNameMap: ReadonlyMap<string, string>;
@@ -362,8 +367,10 @@ export async function prepareHostedToolDiscovery(params: {
     resolvedToolResultBudget: params.resolvedToolResultBudget,
     tools: initialTools,
   });
-  const recordModelOutput = (toolId: string, output: unknown): void =>
+  const recordModelOutput = (toolId: string, output: unknown): void => {
     tokenDiagnostics.recordModelOutput(toolId, output);
+    params.toolOutputObserver?.(toolId, output);
+  };
   const modelProjectedTools = applyToolModelOutputProjections(
     initialTools,
     params.toolNameMap,
@@ -620,7 +627,8 @@ export async function composeRuntimeToolMap(
   return {
     artifactSettledTools,
     askTools,
-    guardedTools,
+    // Children retain the same lifecycle hooks before their independent permission gate.
+    guardedTools: hookedTools,
     mcpAppToolAdmission,
     mcpClient,
     mcpDiscoverySkips,
