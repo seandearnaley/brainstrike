@@ -1270,7 +1270,9 @@ control parity still require the end-to-end delivery checks.
 
 The workspace's component exports and hooks are separate modules so Fast Refresh
 preserves component state: root registry access is in
-`use-delegated-conversation-root.ts`; metadata loading is in
+`use-delegated-conversation-root.ts`; its `useDelegatedPanelBinding` hook supplies
+stable capability-shaped callbacks without conditional registration logic in the
+main wrapper. Metadata loading is in
 `use-delegated-workspace-apps.tsx`; child view and navigation components have their
 own files. Metadata cache removal responds directly to the existing selection
 store's close/hydrate notification, not a synchronous setState during an effect.

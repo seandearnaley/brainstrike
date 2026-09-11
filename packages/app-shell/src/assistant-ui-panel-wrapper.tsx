@@ -133,7 +133,7 @@ import { useAssistantRootHistoryAdapter } from './use-assistant-root-history-ada
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useAssistantThreadTitleSync } from './use-assistant-thread-title-sync';
-import { useDelegatedConversationRoot } from './use-delegated-conversation-root';
+import { useDelegatedPanelBinding } from './use-delegated-conversation-root';
 import { useFileMentions } from './use-file-mentions';
 import { useHookTrustScope } from './use-hook-trust-scope';
 import { useObservationalMemoryRow } from './use-om-segment-row';
@@ -725,7 +725,7 @@ export function AssistantUiPanelWrapper({
     (state) => state.threadsByResourceId[memoryResourceId] ?? EMPTY_MEMORY_THREADS
   );
   const selectedMemoryThreadId = memoryThreadId ?? selectedThreadByResourceId[memoryResourceId];
-  const delegatedRoot = useDelegatedConversationRoot(memoryResourceId, selectedMemoryThreadId);
+  const delegatedPanelBinding = useDelegatedPanelBinding(memoryResourceId, selectedMemoryThreadId);
   const resourceThreadsReady = loadStateByResourceId[memoryResourceId]?.status === 'ready';
   const refreshThreadsAfterRun = useAssistantThreadTitleSync({
     enabled: Boolean(db && !dbInitializing && resourceThreadsReady),
@@ -1442,18 +1442,13 @@ export function AssistantUiPanelWrapper({
             <DebugBundleProvider value={debugBundleBinding}>
               <BudgetGuardrailProvider value={budgetGuardrailBinding}>
                 <AssistantUiPanel
-                  {...(delegatedRoot
-                    ? {
-                        onDelegatedConversation: delegatedRoot.onDelegatedConversation,
-                        onRuntimeReady: delegatedRoot.onRuntimeReady,
-                      }
-                    : {})}
-                  {...(composerDraftCommand ? { composerDraftCommand } : {})}
+                  {...delegatedPanelBinding}
+                  composerDraftCommand={composerDraftCommand}
                   {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
                   {...(hasDesktopAssistantBridge() ? { onSteerActiveRun: steerActiveRun } : {})}
                   completePreparedRequest={completeRequestAndSettleLiveUsage}
                   contextWindow={openRouterModelDef?.contextWindow}
-                  {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                  cumulativeUsage={cumulativeUsage ?? undefined}
                   effectiveInputBudget={effectiveInputBudget}
                   omSegment={omSegment}
                   openRouterModelMetadataLookup={openRouterMetadata.lookup}
