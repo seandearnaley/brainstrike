@@ -144,7 +144,8 @@ async function collectEditDiagnostics(args: {
 export async function runWriteWorkspaceFile(
   input: WriteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
-  toolCallId?: string
+  toolCallId?: string,
+  threadScope = readStateScope(runtimeData)
 ): Promise<{
   rootName: string;
   rootId: string;
@@ -177,7 +178,7 @@ export async function runWriteWorkspaceFile(
   // RAG row stale relative to disk. `triggerEditedFileReindex` is already
   // non-fatal (it catches+logs internally), so it never extends the lock's
   // failure surface.
-  const scope = readStateScope(runtimeData);
+  const scope = threadScope;
   const { created } = await withFileLock(resolved.absolutePath, async () => {
     // Staleness compare INSIDE the lock (report R8): if this scope observed the
     // file at a different mtime than disk carries now, someone else edited it
@@ -249,7 +250,8 @@ export async function runWriteWorkspaceFile(
 export async function runStringReplaceWorkspaceFile(
   input: StringReplaceWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
-  toolCallId?: string
+  toolCallId?: string,
+  threadScope = readStateScope(runtimeData)
 ): Promise<{
   rootName: string;
   rootId: string;
@@ -270,7 +272,7 @@ export async function runStringReplaceWorkspaceFile(
   // a concurrent edit (another stringReplace, or a writeWorkspaceFile) to the
   // SAME file cannot interleave and drop an update or stale the RAG row. Edits to
   // different files still run in parallel.
-  const scope = readStateScope(runtimeData);
+  const scope = threadScope;
   const result = await withFileLock(resolved.absolutePath, async () => {
     // Read through the SAME checked read path the read tools use (isFile, 2 MB
     // byte cap, NUL-byte binary probe, realpath-both-sides containment), so the
@@ -409,7 +411,8 @@ export function withTwoFileLocks<T>(
 export async function runDeleteWorkspaceFile(
   input: DeleteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
-  toolCallId?: string
+  toolCallId?: string,
+  threadScope = readStateScope(runtimeData)
 ): Promise<{
   ok: true;
   path: string;
@@ -457,7 +460,7 @@ export async function runDeleteWorkspaceFile(
     await fsPromises.unlink(mutationPath);
     // Drop the staleness observation with the file so a later re-creation at
     // this path is treated as new, not compared against a ghost.
-    forgetKnownFile(readStateScope(runtimeData), mutationPath);
+    forgetKnownFile(threadScope, mutationPath);
     const { invalidated } = await triggerFileDeletionInvalidation({
       rootId: root.rootId,
       runtimeData,
@@ -487,7 +490,8 @@ export async function runDeleteWorkspaceFile(
 export async function runRenameWorkspaceFile(
   input: RenameWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
-  toolCallId?: string
+  toolCallId?: string,
+  threadScope = readStateScope(runtimeData)
 ): Promise<{
   ok: true;
   fromPath: string;
@@ -551,6 +555,7 @@ export async function runRenameWorkspaceFile(
       requestedFromPath: input.fromPath,
       runtimeData,
       targetAbsolutePath: fromResolved.absolutePath,
+      threadScope,
     });
 
     // Destination must NOT already exist (no overwrite in v1). lstat so a symlink
@@ -585,9 +590,9 @@ export async function runRenameWorkspaceFile(
     // target file and its (realpath-keyed) observation stay valid, and the
     // destination stat would follow the link (or throw on a dangling one), so
     // no destination record is made.
-    forgetKnownFile(readStateScope(runtimeData), fromMutationPath);
+    forgetKnownFile(threadScope, fromMutationPath);
     if (!sourceIsSymlink) {
-      await recordOwnWriteObservation(readStateScope(runtimeData), toResolved.absolutePath);
+      await recordOwnWriteObservation(threadScope, toResolved.absolutePath);
     }
 
     // Index coherence: invalidate the SOURCE rows immediately (the differentiator

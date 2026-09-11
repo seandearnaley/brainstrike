@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { type RuntimeData, resetFileReadState, withFileLock } from '@brainstrike/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -96,6 +98,77 @@ describe('read-before-write staleness guard', () => {
 
   beforeEach(() => {
     resetFileReadState();
+  });
+
+  it('keeps sibling native execution read observations separate in one shared tool registry', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const file = path.join(workspaceRootPath, 'README.md');
+    try {
+      await promisify(execFile)('git', ['init', '--quiet', workspaceRootPath]);
+      await fsPromises.utimes(file, new Date(1000), new Date(1000));
+      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const read = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+      const write = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
+      const cedar = { threadId: 'child-cedar', toolCallId: 'cedar-edit' };
+      const flint = { threadId: 'child-flint', toolCallId: 'flint-edit' };
+      await read({ path: '/README.md' }, cedar);
+      await read({ path: '/README.md' }, flint);
+      await write({ content: '# Cedar\n', path: '/README.md' }, cedar);
+      await expect(write({ content: '# Flint\n', path: '/README.md' }, flint)).rejects.toThrow(
+        /changed on disk since/i
+      );
+      expect(await fsPromises.readFile(file, 'utf8')).toBe('# Cedar\n');
+      await read({ path: '/README.md' }, flint);
+      await write({ content: '# Flint after reread\n', path: '/README.md' }, flint);
+      expect(await fsPromises.readFile(file, 'utf8')).toBe('# Flint after reread\n');
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('preserves dirty user files and disjoint child edits in a real shared repository', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    try {
+      const git = (args: string[]) =>
+        promisify(execFile)('git', ['-C', workspaceRootPath, ...args]);
+      await git(['init', '--quiet']);
+      await git(['add', '.']);
+      await git([
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@example.invalid',
+        'commit',
+        '--quiet',
+        '-m',
+        'baseline',
+      ]);
+      await fsPromises.writeFile(path.join(workspaceRootPath, 'README.md'), '# User draft\n');
+      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const read = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+      const write = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
+      const cedar = { threadId: 'child-cedar', toolCallId: 'cedar-edit' };
+      const flint = { threadId: 'child-flint', toolCallId: 'flint-edit' };
+      await read({ path: '/src/main.ts' }, cedar);
+      await read({ path: '/src/lib/math.ts' }, flint);
+      await Promise.all([
+        write({ content: '// Cedar\n', path: '/src/main.ts' }, cedar),
+        write({ content: '// Flint\n', path: '/src/lib/math.ts' }, flint),
+      ]);
+      expect(await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8')).toBe(
+        '# User draft\n'
+      );
+      expect(await fsPromises.readFile(path.join(workspaceRootPath, 'src/main.ts'), 'utf8')).toBe(
+        '// Cedar\n'
+      );
+      expect(
+        await fsPromises.readFile(path.join(workspaceRootPath, 'src/lib/math.ts'), 'utf8')
+      ).toBe('// Flint\n');
+      expect((await git(['status', '--porcelain'])).stdout.trim().split('\n')).toHaveLength(3);
+      expect((await git(['rev-list', '--count', 'HEAD'])).stdout.trim()).toBe('1');
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
   });
 
   it('write refuses when the file changed on disk after the assistant read it', async () => {
