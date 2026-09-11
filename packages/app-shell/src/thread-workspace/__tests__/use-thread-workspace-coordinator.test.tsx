@@ -160,6 +160,86 @@ describe('useThreadWorkspaceCoordinator', () => {
     ]);
   });
 
+  it.each([
+    {
+      action: 'open',
+      apps: {
+        openAppIds: ['context-explorer', 'delegated-child'],
+        selection: { appId: 'delegated-child', kind: 'app' as const },
+      },
+    },
+    {
+      action: 'close',
+      apps: {
+        openAppIds: ['context-explorer'],
+        selection: { appId: 'context-explorer', kind: 'app' as const },
+      },
+    },
+    {
+      action: 'select',
+      apps: {
+        openAppIds: ['context-explorer', 'delegated-child'],
+        selection: { appId: 'context-explorer', kind: 'app' as const },
+      },
+    },
+  ])('publishes app $action before a reload can discard the debounce timer', async ({ apps }) => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const harness = createHarness();
+    harness.state.openAppIds = ['context-explorer', 'delegated-child'];
+    harness.state.selection = { appId: 'delegated-child', kind: 'app' };
+    // Opening starts with a closed child; close/selection start with it open.
+    if (apps.openAppIds.length === 2 && apps.selection.appId === 'delegated-child') {
+      harness.state.openAppIds = ['context-explorer'];
+      harness.state.selection = { appId: 'context-explorer', kind: 'app' };
+    }
+    await act(async () => {
+      render(harness, 'thread-a');
+    });
+    expect(harness.rows.has('thread-a')).toBe(true);
+    vi.mocked(harness.repository.setThreadWorkspace).mockClear();
+
+    act(() => {
+      harness.state.openAppIds = apps.openAppIds;
+      harness.state.selection = apps.selection;
+      harness.notify();
+    });
+
+    // No clock advance and no unmount flush: publication must happen on the
+    // live store change so a document reload cannot drop the pending save.
+    expect(harness.repository.setThreadWorkspace).toHaveBeenCalledTimes(1);
+    expect(harness.rows.get('thread-a')?.apps).toEqual(apps);
+  });
+
+  it('keeps scroll and editor updates debounced when app state is unchanged', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const harness = createHarness();
+    harness.state.activeTabId = 'ka';
+    harness.state.tabs = [{ compositeKey: 'ka', path: 'a.ts' }];
+    await act(async () => {
+      render(harness, 'thread-a');
+    });
+    expect(harness.rows.has('thread-a')).toBe(true);
+    vi.mocked(harness.repository.setThreadWorkspace).mockClear();
+
+    act(() => {
+      harness.state.explorerScrollTop = 120;
+      harness.notify();
+      harness.state.editorState = { mode: 'source', scrollTop: 45 };
+      harness.notify();
+    });
+    expect(harness.repository.setThreadWorkspace).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(49);
+    });
+    expect(harness.repository.setThreadWorkspace).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(harness.repository.setThreadWorkspace).toHaveBeenCalledTimes(1);
+    expect(harness.rows.get('thread-a')?.explorer.scrollTop).toBe(120);
+    expect(harness.rows.get('thread-a')?.editors['ka']).toEqual({ mode: 'source', scrollTop: 45 });
+  });
+
   it('on switch: flushes outgoing synchronously, hydrates incoming from the repository', async () => {
     const harness = createHarness();
     harness.rows.set('thread-b', SNAPSHOT_B);
