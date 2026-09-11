@@ -167,7 +167,7 @@
     "zustand": "catalog:"
   },
   "engines": {
-    "node": ">=24.15.0 <25"
+    "node": ">=26.8.2 <27"
   },
   "main": "dist/main.js",
   "private": true,

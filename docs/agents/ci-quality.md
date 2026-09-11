@@ -1699,21 +1699,37 @@ observed BST-1221 hits landed in lanes that were ALREADY serialized to a single
 worker — `@brainstrike/embeddings#test:integration` (`--maxWorkers=1
 --no-file-parallelism`, 2026-08-16, red main) and the desktop unit lane (same
 flags, 2026-08-18). Do not "fix" BST-1221 by lowering worker counts; the
-evidence says it is not concurrency-driven. The crash itself remains upstream
-(Node/V8); this reporter only guarantees it can never read as success.
+evidence disproves worker-count reduction as a fix. The reporter detects the
+failure; it does not correct the runtime defect or permit merging with it.
 
-**Trigger and in-repo mitigation (2026-08-26).** The dominant trigger was
-`embedding-queue-load.integration.test.ts` allocating and closing a fresh
-`memory://` PGlite per scenario (five WASM instantiate/teardown cycles per
-run). PGlite `close()` does not tear the WASM instance down synchronously —
-finalization is GC-driven and lands during the NEXT scenario's instantiation
-and load churn, which is exactly the window where V8's PKU-gated
-`ThreadIsolation` jit-page bookkeeping fatal fires on Linux x64 (macOS/arm64
-has no PKU, which is why it never reproduced locally). The spec now shares one
-instance across scenarios (closed once in `afterAll`); sibling integration
-specs that churn per-test `memory://` instances (e.g. model-resolution, ~10
-cycles) carry the same residual risk. `--no-memory-protection-keys` was tried
-and disproven (BST-1221, 2026-08-22).
+**Runtime correction and qualification (BST-1221, 2026-09-11).**
+The Node 24.20.0 Linux x64 stack from PR #3137 resolves through
+`WasmImportWrapperCache::Free`, `WasmCodeRefScope::~WasmCodeRefScope`, and
+`Runtime_TierUpWasmToJSWrapper`. V8's
+[dying-wrapper reference fix](https://github.com/v8/v8/commit/9b8ca54d5a6b6c615eb7ad6d9e2bdca7f8cb1a81)
+replaces reference acquisition before the dying-state check with atomic
+`AddRefIfNotDying`. Node 24.20.0 and 24.21.0 retain the unsafe order; Node
+26.8.2 contains the corrected reference handling and subsequent wrapper
+ownership changes. The repository pins Node 26.8.2 for development and CI.
+Electron retains its own bundled Node/V8; changing `.nvmrc` does not upgrade
+Electron's runtime.
+
+Source correspondence identifies a correction candidate, not proof that an
+intermittent crash has disappeared. Qualification requires repeated affected
+workloads on the affected Linux x64 platform, preservation of every outcome,
+exact-head required checks, and replacement-main verification. A single passing
+run, passing rerun, or macOS ARM64-only test is insufficient. Any recurrence
+blocks completion and requires investigation; no quarantine, skip, or accepted
+runtime-defect exception applies.
+
+**Historical fixture changes, not a runtime fix (2026-08-26).**
+Sharing a PGlite instance reduced instantiate/teardown churn in
+`embedding-queue-load.integration.test.ts`; later crashes, including #3137,
+disproved this as a complete correction. Earlier claims that this isolated the
+dominant trigger or proved a PKU-specific cause exceeded the evidence.
+`--no-memory-protection-keys` was tried and disproven (2026-08-22). Preserve
+correct fixture ownership, but do not substitute reduced workload for fixing
+the runtime.
 
 **In-memory fixture ownership (BST-1221, 2026-09-05).**
 `wasmLoader.createPGlite('memory://...')` returns an uncached handle;

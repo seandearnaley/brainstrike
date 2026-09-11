@@ -5,7 +5,7 @@
 Future‑ready, AI‑assisted productivity apps built with React 19, Vite, Turborepo, and a typed TypeScript stack. This repo contains the Web app, Desktop app, and shared packages powering them.
 
 [![CI](https://github.com/seandearnaley/brainstrike/actions/workflows/test.yml/badge.svg)](https://github.com/seandearnaley/brainstrike/actions/workflows/test.yml)
-[![Node 24.x](https://img.shields.io/badge/node-24.x-3C873A?logo=node.js&logoColor=white)](./.nvmrc)
+[![Node 26.8.2](https://img.shields.io/badge/node-26.8.2-3C873A?logo=node.js&logoColor=white)](./.nvmrc)
 [![pnpm](https://img.shields.io/badge/pnpm-11.15.0-F69220?logo=pnpm&logoColor=white)](https://pnpm.io)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](LICENSE)
 
@@ -13,7 +13,7 @@ Future‑ready, AI‑assisted productivity apps built with React 19, Vite, Turbo
 
 ## Quick Start
 
-- Prereqs: Node 24.x and the repository-pinned pnpm 11.15.0 (`corepack enable`
+- Prereqs: Node 26.8.2 and the repository-pinned pnpm 11.15.0 (`corepack enable`
   recommended; `package.json#packageManager` is authoritative).
 - Install deps: `pnpm install`
 - Web dev server: `pnpm dev --filter @brainstrike/web`
@@ -253,7 +253,7 @@ are classified in [`docs/archive/README.md`](docs/archive/README.md).
 
 ## Troubleshooting
 
-- Node version errors: ensure you’re on Node 24.x (`nvm use` reads `.nvmrc`).
+- Node version errors: ensure you’re on Node 26.8.2 (`nvm use` reads `.nvmrc`).
 - Playwright prompts: run `pnpm exec playwright install --with-deps chromium` if needed locally.
 - Tailwind CSS checks failing in CI: ensure only one `@import "tailwindcss"` per package stylesheet and that the web app scans sources from shared packages; use `TAILWIND_DEBUG=1 pnpm build` to inspect.
 - Turborepo caching oddities: `pnpm clean` then retry the command.
