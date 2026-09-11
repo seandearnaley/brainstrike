@@ -1729,7 +1729,10 @@ checks the toolchain and production API floor separately, preventing Node
 26-only APIs from compiling into the Node 24 application runtime.
 
 The exact toolchain patch is intentional: local and CI qualification must name
-the same executable. Updating that pin requires qualifying the replacement;
+the same executable. React Doctor also receives this explicit Node version:
+its composite action otherwise installs Node 24, whose npm rejects the managed
+Node 26 declaration before scanning. The paired action-version contract guards
+that input against `.nvmrc`. Updating the pin requires qualifying the replacement;
 future patch releases must not be assumed to have passed this evidence.
 The required DB unit project runs 100 startup/query/close cycles as a persistent
 runtime canary. Its existing 10-second per-case timeout and two-worker CI cap

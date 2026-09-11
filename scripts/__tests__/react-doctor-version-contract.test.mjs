@@ -126,3 +126,17 @@ test('money control: local/CI version skew fails visibly', () => {
   });
   assert.match(violations.join('\n'), /local\/CI version skew/u);
 });
+
+test('React Doctor explicitly uses the qualified repository Node runtime', () => {
+  const workflow = parseYaml(
+    readFileSync(path.join(repoRoot, '.github/workflows/react-doctor.yml'), 'utf8')
+  );
+  const action = workflow.jobs['react-doctor'].steps.find(
+    (step) => step.uses === 'millionco/react-doctor@v2'
+  );
+  assert.equal(
+    action.with['node-version'],
+    readFileSync(path.join(repoRoot, '.nvmrc'), 'utf8').trim(),
+    'The action default can differ from devEngines.runtime and make npm refuse to scan'
+  );
+});

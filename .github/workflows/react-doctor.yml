@@ -46,5 +46,7 @@ jobs:
         with:
           # Pinned for reproducible CI (kept in lockstep with the devDependency).
           version: "0.9.13"
+          # Match .nvmrc; the composite otherwise defaults to Node 24.
+          node-version: "26.8.2"
           scope: changed
           blocking: error
