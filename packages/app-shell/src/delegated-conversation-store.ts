@@ -10,6 +10,7 @@ export interface DelegatedConversationStore {
   clear(): void;
   getConversation(threadId: string): DelegatedConversationSnapshot | undefined;
   getSnapshot(): ReadonlyMap<string, DelegatedConversationSnapshot>;
+  /** Every accepted host publication is activity; identical text is still a new event. */
   hasUnread(threadId: string): boolean;
   markRead(threadId: string): void;
   publish(update: DelegatedConversationUpdate): boolean;

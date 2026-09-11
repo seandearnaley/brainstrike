@@ -15,10 +15,12 @@ export async function loadDelegatedConversationAncestry(
     if (
       node.threadId !== expectedId ||
       node.ownerResourceId !== scope.ownerResourceId ||
-      node.rootThreadId !== scope.rootThreadId ||
-      visited.has(node.threadId)
+      node.rootThreadId !== scope.rootThreadId
     ) {
       throw new Error('Conversation ancestry conflicts with its owning root.');
+    }
+    if (visited.has(node.threadId)) {
+      throw new Error('Conversation ancestry contains a cycle.');
     }
     visited.add(node.threadId);
     if (node.threadId === scope.rootThreadId) {

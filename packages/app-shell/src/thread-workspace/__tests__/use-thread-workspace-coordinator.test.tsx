@@ -2,6 +2,7 @@ import type { ThreadWorkspaceRepository, WorkspaceSnapshotV1 } from '@brainstrik
 import { EMPTY_WORKSPACE_SNAPSHOT } from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ThreadWorkspaceNavigation } from '../thread-workspace-navigation';
 import { useThreadWorkspaceCoordinator } from '../use-thread-workspace-coordinator';
 import type { WorkspaceStateFacade } from '../workspace-snapshot-io';
 
@@ -88,7 +89,16 @@ function createHarness() {
     listeners.add(listener);
     return () => listeners.delete(listener);
   };
-  return { applied, facade, notify, repository, rows, state, subscribe };
+  const navigation = new ThreadWorkspaceNavigation({
+    activateThread: vi.fn(),
+    openApp: (appId) => {
+      state.openAppIds = [...state.openAppIds, appId];
+      state.selection = { appId, kind: 'app' };
+      notify();
+    },
+    reportError: vi.fn(),
+  });
+  return { applied, facade, navigation, notify, repository, rows, state, subscribe };
 }
 
 const SNAPSHOT_B: WorkspaceSnapshotV1 = {
@@ -113,6 +123,59 @@ describe('useThreadWorkspaceCoordinator', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 
+  it('does not save another root child into the outgoing workspace while switching', async () => {
+    const harness = createHarness();
+    harness.rows.set('thread-b', SNAPSHOT_B);
+    const { rerender } = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    act(() => {
+      harness.navigation.open('brainstrike:workspace', 'thread-b', 'child-b');
+    });
+    rerender({ activeThreadId: 'thread-b', openThreadIds: ['thread-a', 'thread-b'] });
+    await waitFor(() => expect(harness.state.selection).toEqual({ appId: 'child-b', kind: 'app' }));
+    expect(harness.rows.get('thread-a')?.apps.openAppIds).not.toContain('child-b');
+    expect(harness.rows.get('thread-b')?.apps.openAppIds).toEqual(['changes', 'child-b']);
+  });
+
+  it('waits for delayed incoming hydration and discards a superseded child navigation', async () => {
+    const harness = createHarness();
+    const pending = Promise.withResolvers<WorkspaceSnapshotV1 | null>();
+    const { rerender } = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    vi.mocked(harness.repository.getThreadWorkspace).mockImplementation(async (id) =>
+      id === 'thread-b' ? pending.promise : null
+    );
+    act(() => harness.navigation.open('brainstrike:workspace', 'thread-b', 'child-b'));
+    rerender({ activeThreadId: 'thread-b', openThreadIds: ['thread-a', 'thread-b'] });
+    expect(harness.state.openAppIds).not.toContain('child-b');
+    rerender({ activeThreadId: 'thread-c', openThreadIds: ['thread-a', 'thread-b', 'thread-c'] });
+    await act(async () => {
+      pending.resolve(SNAPSHOT_B);
+    });
+    expect(harness.state.openAppIds).not.toContain('child-b');
+    expect(harness.rows.get('thread-a')?.apps.openAppIds).not.toContain('child-b');
+  });
+
+  it('allows an explicit navigation retry after incoming hydration fails', async () => {
+    const harness = createHarness();
+    const { rerender } = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    vi.mocked(harness.repository.getThreadWorkspace).mockRejectedValueOnce(
+      new Error('Read unavailable')
+    );
+    act(() => harness.navigation.open('brainstrike:workspace', 'thread-b', 'child-b'));
+    rerender({ activeThreadId: 'thread-b', openThreadIds: ['thread-a', 'thread-b'] });
+    await waitFor(() =>
+      expect(harness.repository.getThreadWorkspace).toHaveBeenCalledWith('thread-b')
+    );
+    await act(async () => undefined);
+    expect(harness.state.openAppIds).not.toContain('child-b');
+    vi.mocked(harness.repository.getThreadWorkspace).mockResolvedValueOnce(SNAPSHOT_B);
+    act(() => harness.navigation.open('brainstrike:workspace', 'thread-b', 'child-b'));
+    await waitFor(() => expect(harness.state.selection).toEqual({ appId: 'child-b', kind: 'app' }));
+    expect(harness.rows.get('thread-a')?.apps.openAppIds).not.toContain('child-b');
+  });
+
   function render(harness: ReturnType<typeof createHarness>, initialThread: string | null) {
     return renderHook(
       ({ activeThreadId, openThreadIds }) =>
@@ -120,6 +183,7 @@ describe('useThreadWorkspaceCoordinator', () => {
           activeThreadId,
           debounceMs: 50,
           facade: harness.facade,
+          navigation: harness.navigation,
           openThreadIds,
           repository: harness.repository,
           resourceId: 'brainstrike:workspace',

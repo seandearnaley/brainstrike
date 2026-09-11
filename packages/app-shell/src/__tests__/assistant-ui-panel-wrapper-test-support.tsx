@@ -1117,6 +1117,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
   SubagentConversationNavigationContext: (await import('react')).createContext<
     ((threadId: string) => void) | null
   >(null),
+  SubagentConversationPresentationContext: (await import('react')).createContext(null),
   // Same passthrough rationale as EditCheckpointProvider: the mocked panel
   // never renders an approval notice, so the grant context is never read.
   ToolApprovalGrantProvider: ({ children }: { children: ReactNode }) => children,

@@ -222,6 +222,30 @@ describe('own-write echo guard (BST-1039)', () => {
     }
   );
 
+  test('does not re-pin a reader when hidden content shrinks and clamps the restored position', () => {
+    const scroller = createScriptedScroller(1000, 100);
+    const { detach, follow, observeContentChange, unmount } = attachScripted(scroller);
+    follow.jumpToBottomInstant();
+    scroller.element.dispatchEvent(new Event('scroll'));
+    scroller.userScrollTo(300);
+    scroller.element.dispatchEvent(new Event('scroll'));
+    expect(follow.getIsAtBottom()).toBe(false);
+    scroller.resize({ clientHeight: 0, scrollHeight: 0 });
+    observeContentChange();
+    flushAnimationFrames();
+    scroller.resize({ clientHeight: 100, scrollHeight: 200 });
+    observeContentChange();
+    flushAnimationFrames();
+    scroller.element.dispatchEvent(new Event('scroll'));
+    expect(follow.getIsAtBottom()).toBe(false);
+    scroller.resize({ clientHeight: 100, scrollHeight: 600 });
+    observeContentChange();
+    flushAnimationFrames();
+    expect(scroller.scrollTop()).toBe(100);
+    detach();
+    unmount();
+  });
+
   test('swallows the echo of its own moving write, then re-sticks through the resize', () => {
     const scroller = createScriptedScroller(1000, 100);
     const { detach, follow, observeContentChange, unmount } = attachScripted(scroller);

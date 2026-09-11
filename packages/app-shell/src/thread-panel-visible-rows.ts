@@ -356,3 +356,16 @@ export function buildThreadPanelVisibleRows({
   });
   return { rows, visibleThreadIds };
 }
+
+/** Root bulk selection survives filtering/collapse; delegated rows are inspection targets. */
+export function filterThreadPanelSelection(
+  ids: ReadonlySet<string>,
+  rows: readonly ThreadPanelVisibleRow[]
+): Set<string> {
+  const delegatedIds = new Set(
+    rows.flatMap((row) =>
+      row.kind === 'delegated' || row.kind === 'delegated-state' ? [row.id] : []
+    )
+  );
+  return new Set([...ids].filter((id) => !delegatedIds.has(id)));
+}

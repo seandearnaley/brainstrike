@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { loadDelegatedWorkspaceNode } from '../delegated-workspace-node';
 import '@testing-library/jest-dom/vitest';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
@@ -39,9 +40,11 @@ const node: DelegatedConversationNode = {
   resourceId: 'native-child-resource',
   workspaceRootId: null,
 };
+const originalThreadState = useAssistantThreadStore.getState();
 afterEach(() => {
   cleanup();
   __resetWorkspaceTabSelectionStoreForTests();
+  useAssistantThreadStore.setState(originalThreadState, true);
   vi.clearAllMocks();
 });
 

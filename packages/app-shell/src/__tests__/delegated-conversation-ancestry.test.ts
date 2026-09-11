@@ -49,8 +49,11 @@ describe('durable conversation ancestry', () => {
   });
   it('rejects a cycle rather than looping or truncating the trail', async () => {
     await expect(
-      loadDelegatedConversationAncestry(repositoryFor([{ ...cedar, parentThreadId: 'Wren' }]), wren)
-    ).rejects.toThrow(/ancestry/i);
+      loadDelegatedConversationAncestry(
+        repositoryFor([wren, { ...cedar, parentThreadId: 'Wren' }]),
+        wren
+      )
+    ).rejects.toThrow(/cycle/i);
   });
   it.each([
     { ...cedar, ownerResourceId: 'other-owner' },

@@ -1,4 +1,3 @@
-import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { Button } from '@brainstrike/ui';
 import { useSyncExternalStore } from 'react';
 import {
@@ -6,6 +5,7 @@ import {
   ASSISTANT_THREAD_ICON_PRESENTATION,
 } from './assistant-thread-presentation';
 import type { DelegatedSidebarRow } from './delegated-sidebar-rows';
+import { threadWorkspaceNavigation } from './thread-workspace/live-thread-workspace-navigation';
 import { useDelegatedConversationRoot } from './use-delegated-conversation-root';
 
 const Icon = ASSISTANT_THREAD_ICON_PRESENTATION.message.iconComponent;
@@ -23,7 +23,9 @@ function ChildRow({ row }: { readonly row: Extract<DelegatedSidebarRow, { kind: 
   return (
     <button
       className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted"
-      onClick={() => useWorkspaceTabSelectionStore.getState().openApp(row.id)}
+      onClick={() =>
+        threadWorkspaceNavigation.open(row.node.ownerResourceId, row.node.rootThreadId, row.id)
+      }
       type="button"
     >
       <Icon

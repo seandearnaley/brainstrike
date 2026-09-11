@@ -66,7 +66,7 @@ export function DelegatedConversationBreadcrumbs({
           <Breadcrumbs
             ariaLabel="Conversation ancestry"
             className="[&_ol]:flex-wrap"
-            onSegmentClick={navigate ?? undefined}
+            onSegmentClick={navigate ? (path) => navigate(path) : undefined}
             segments={[
               { label: rootTitle ?? 'Main conversation', path: current.trail.root.threadId },
               ...current.trail.children.map((ancestor) => ({

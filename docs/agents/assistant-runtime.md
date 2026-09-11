@@ -4146,9 +4146,11 @@ rejects queued admission and releases model capacity; the existing native
 completion join still drains descendants before terminal publication. Durable
 reservations remain conservative when abort prevents usage settlement.
 
-
 ### Inactive workspace scroll geometry (BST-1724)
 
 The shared `ThreadScrollFollowProvider` ignores zero-height geometry from hidden workspace tabs in both Resize/MutationObserver measurement and scroll-event handling. Hiding a tab is not evidence that the reader reached the bottom: retain pinnedness and pending explicit follow until visible geometry returns. A pinned child follows new output when shown; an unpinned child retains its reading position. `thread-scroll-follow.test.ts` covers both states, and the actual Electron workspace-navigation test switches two long children and a grandchild while retaining the parent draft.
 
-Child conversation panels explicitly clear inherited rewind capability. Their rewind composer bridge leaves the root prompt handoff untouched; viewing a child cannot restore the parent or consume its draft. Shared static scrolling preserves the last visible reader position when a kept-alive workspace tab returns from zero geometry, including Chromium anchor displacement. Paired tests cover parent rewind, child isolation and actual Electron sidebar navigation.
+- Child conversation panels explicitly clear inherited rewind capability.
+- Their rewind composer bridge leaves the root prompt handoff untouched; viewing a child cannot restore the parent or consume its draft.
+- Shared static scrolling preserves the last visible reader position when a kept-alive workspace tab returns from zero geometry, including Chromium anchor displacement.
+- Paired tests cover parent rewind, child isolation and actual Electron sidebar navigation.

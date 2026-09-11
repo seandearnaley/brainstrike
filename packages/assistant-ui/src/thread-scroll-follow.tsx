@@ -147,11 +147,14 @@ function createThreadScrollFollow(): ThreadScrollFollow {
     // the bottom; retain the visible tab's pinnedness until layout returns.
     if (clientHeight === 0) {
       hidden = true;
+      unechoedWriteTop = null;
       return;
     }
     const resuming = hidden;
     hidden = false;
-    if (resuming && !isAtBottom && !pendingFollow) {
+    const restoringReader = resuming && !isAtBottom && !pendingFollow;
+    const topBefore = el.scrollTop;
+    if (restoringReader) {
       // Browser anchoring can displace a kept-alive viewport while hidden.
       // Restore the last observed reading position before judging new geometry.
       el.scrollTo({ behavior: 'instant', top: lastScrollTop });
@@ -165,7 +168,6 @@ function createThreadScrollFollow(): ThreadScrollFollow {
     }
     lastObservedScrollHeight = scrollHeight;
     lastObservedClientHeight = clientHeight;
-    const topBefore = el.scrollTop;
     if (pendingFollow) {
       // Complete an in-flight follow/explicit scroll through the resize.
       write(el);
@@ -174,7 +176,13 @@ function createThreadScrollFollow(): ThreadScrollFollow {
       // per-token streaming growth.
       write(el, 'instant');
     }
-    handleScroll(el);
+    if (restoringReader) {
+      // A clamp after hidden content shrank is not a user's request to follow.
+      lastScrollTop = el.scrollTop;
+      lastScrollHeight = el.scrollHeight;
+    } else {
+      handleScroll(el);
+    }
     // The claim is made HERE, and only here, because the justification for
     // swallowing an echo is the synchronous `handleScroll` immediately above —
     // this is the one path that judges its own write in the same breath. The
@@ -252,10 +260,12 @@ function createThreadScrollFollow(): ThreadScrollFollow {
       const onScroll = () => {
         if (el.clientHeight === 0) {
           hidden = true;
+          unechoedWriteTop = null;
           return;
         }
         if (hidden) {
           measure(el);
+          return;
         }
         const isOwnWriteEcho = unechoedWriteTop === el.scrollTop;
         unechoedWriteTop = null;

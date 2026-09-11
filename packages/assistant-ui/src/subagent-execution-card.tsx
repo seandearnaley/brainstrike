@@ -38,6 +38,8 @@ export type SubagentCardProps = Pick<
   task?: string;
   onOpenConversation?: (event: MouseEvent<HTMLButtonElement>) => void;
   navigationError?: string;
+  presentationError?: string;
+  onReloadPresentation?: () => void;
   /**
    * Terminal outcome the tool-call status cannot express (BST-1410) — today
    * only `'no-answer'`: the child ran, made tool calls, and never wrote its
@@ -154,6 +156,30 @@ function SubagentTaskSummary({
   );
 }
 
+function SubagentPresentationError({
+  error,
+  onReload,
+}: {
+  readonly error: string | undefined;
+  readonly onReload: (() => void) | undefined;
+}) {
+  if (!error) {
+    return null;
+  }
+  return (
+    <div className="border-border border-t px-3 py-2 text-xs">
+      <p className="text-destructive" role="alert">
+        {error}
+      </p>
+      {onReload ? (
+        <Button onClick={onReload} size="sm" variant="ghost">
+          Reload child details
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 const EMPTY_LIVE_ROWS: readonly SubAgentToolRow[] = [];
 
 /**
@@ -173,6 +199,8 @@ export const SubagentExecutionCard = ({
   liveRows = EMPTY_LIVE_ROWS,
   onOpenConversation,
   navigationError,
+  presentationError,
+  onReloadPresentation,
   presentation,
   task,
   outcome,
@@ -228,6 +256,7 @@ export const SubagentExecutionCard = ({
           {navigationError}
         </p>
       ) : null}
+      <SubagentPresentationError error={presentationError} onReload={onReloadPresentation} />
       {onOpenConversation && !navigationError ? (
         <div className="flex justify-end border-border border-t px-2 py-1">
           <Button

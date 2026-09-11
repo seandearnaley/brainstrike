@@ -113,6 +113,7 @@ import {
   type ThreadPanelLoadState,
 } from './thread-panel-content-state';
 import {
+  filterThreadPanelSelection,
   getThreadPanelCollapseId,
   getThreadPanelMemberSectionId,
   getThreadPanelRowHeightPx,
@@ -2460,10 +2461,9 @@ function ThreadPanelTree({
             selectGroup(getThreadPanelMemberSectionId(row), nextState);
           }
         }}
-        onMultiSelectChange={(ids) => {
-          const selectable = new Set(visibleRows.visibleThreadIds);
-          replaceSelection(new Set([...ids].filter((id) => selectable.has(id))));
-        }}
+        onMultiSelectChange={(ids) =>
+          replaceSelection(filterThreadPanelSelection(ids, delegated.rows))
+        }
         onToggleExpand={(nodeId) => {
           const row = delegated.rows.find((candidate) => candidate.id === nodeId);
           if (row?.kind === 'thread' || row?.kind === 'delegated') {

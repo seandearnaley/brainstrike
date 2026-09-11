@@ -51,7 +51,7 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
     () => JSON.parse(addressJson) as SubagentConversationAddress,
     [addressJson]
   );
-  const presentation = useSubagentPresentation(
+  const { entry: presentation, reload } = useSubagentPresentation(
     address.kind === 'available' ? address.threadId : undefined
   );
   const navigation = useSubagentNavigation(address, invocation, props.toolCallId);
@@ -80,7 +80,9 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
     ...(presentation && 'presentation' in presentation
       ? { presentation: presentation.presentation }
       : {}),
-    ...(presentation && 'error' in presentation ? { navigationError: presentation.error } : {}),
+    ...(presentation && 'error' in presentation
+      ? { onReloadPresentation: reload, presentationError: presentation.error }
+      : {}),
     ...(typeof props.args['prompt'] === 'string' ? { task: props.args['prompt'] } : {}),
     liveRows,
     ...(outcome ? { outcome } : {}),

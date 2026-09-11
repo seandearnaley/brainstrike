@@ -151,6 +151,19 @@ test('restores distinct child tabs and native transcripts without executing a ru
       'INSERT INTO brainstrike_assistant_thread_workspaces (thread_id, resource_id, payload, updated_at) VALUES ($1, $2, $3::jsonb, NOW()) ON CONFLICT (thread_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()',
       [root['id'], root['resource'], JSON.stringify(snapshot)]
     );
+    const otherId = `${root['id']}-other-root`;
+    await query(
+      `INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt", metadata) VALUES ($1, $2, 'Other root navigation', NOW(), NOW(), '{}'::jsonb)`,
+      [otherId, root['resource']]
+    );
+    await query(
+      'INSERT INTO brainstrike_assistant_thread_workspaces (thread_id, resource_id, payload, updated_at) VALUES ($1, $2, $3::jsonb, NOW())',
+      [
+        otherId,
+        root['resource'],
+        JSON.stringify({ ...snapshot, apps: { openAppIds: [], selection: { kind: 'empty' } } }),
+      ]
+    );
   }, memory);
 
   const unexpectedModelRequests: string[] = [];
@@ -163,7 +176,10 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await mockFileSystemOperations(window);
   await setupAssistantMock(window, { message: 'Opening a child must not request this.' });
   await ensureAssistantShellVisible(window);
-  await window.getByRole('button', { exact: true, name: 'Child workspace verification' }).click();
+  await window
+    .getByTestId('thread-row')
+    .getByRole('button', { exact: true, name: 'Child workspace verification' })
+    .click();
   const cedar = window.getByRole('tab', { exact: true, name: 'Cedar' });
   const flint = window.getByRole('tab', { exact: true, name: 'Flint' });
   await expect(cedar).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
@@ -250,6 +266,35 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(cedar).toBeFocused();
   await expect.poll(() => cedarViewport.evaluate((element) => element.scrollTop)).toBe(0);
   await expect(rootDraft).toHaveValue('UNSENT_PARENT_DRAFT_1724');
+  // Open an existing child's sidebar row while another root owns the workspace.
+  await window.getByRole('button', { exact: true, name: 'Other root navigation' }).click();
+  await expect(cedar).toHaveCount(0);
+  await sidebarCedar.getByRole('button', { exact: true, name: 'Cedar Child' }).click();
+  await expect(cedar).toHaveAttribute('aria-selected', 'true');
+  await expect(rootDraft).toHaveValue('UNSENT_PARENT_DRAFT_1724');
+  const otherApps = await window.evaluate(async (rootId) => {
+    const api = (
+      globalThis as typeof globalThis & {
+        electronAPI?: {
+          db?: {
+            query?: (
+              sql: string,
+              params: readonly unknown[]
+            ) => Promise<{ rows: Array<{ payload: { apps: { openAppIds: string[] } } }> }>;
+          };
+        };
+      }
+    ).electronAPI;
+    if (!api?.db?.query) {
+      throw new Error('Native database bridge unavailable');
+    }
+    const result = await api.db.query(
+      'SELECT payload FROM brainstrike_assistant_thread_workspaces WHERE thread_id = $1',
+      [`${rootId}-other-root`]
+    );
+    return result.rows[0]?.payload.apps.openAppIds;
+  }, memory.threadId);
+  expect(otherApps).toEqual([]);
   // The page-side mock observes the post-reload view; the network listener above
   // also covers the interval before the mock is reinstalled after navigation.
   expect(await readAssistantMockRequests(window)).toHaveLength(0);

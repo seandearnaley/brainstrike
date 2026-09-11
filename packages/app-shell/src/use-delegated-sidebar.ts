@@ -1,4 +1,3 @@
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
 import { use, useCallback, useEffect, useEffectEvent, useMemo, useState } from 'react';
@@ -10,7 +9,7 @@ import {
 } from './delegated-sidebar-rows';
 import type { ChildNode } from './delegated-workspace-node';
 import type { ThreadPanelVisibleRow } from './thread-panel-visible-rows';
-import { RootsContext } from './use-delegated-conversation-root';
+import { type Roots, RootsContext } from './use-delegated-conversation-root';
 
 interface CachedEntry {
   readonly db: DbHandle;
@@ -60,45 +59,11 @@ export function useDelegatedSidebar(baseRows: readonly ThreadPanelVisibleRow[]) 
     if (!(db && roots)) {
       return;
     }
-    const cleanups: Array<() => void> = [];
-    for (const parent of activeExpanded.values()) {
-      let active = true;
-      let sequence = 0;
-      let observedSignature: string | undefined;
-      const release = roots.subscribe(parent, () => undefined);
-      const root = roots.get(parent);
-      if (!root) {
-        throw new Error('The expanded conversation has no root registry.');
-      }
-      const refresh = () => {
-        const signature = JSON.stringify([...root.store.getSnapshot().keys()]);
-        if (observedSignature === signature) {
-          return;
-        }
-        observedSignature = signature;
-        if (readEntry(parent.id)?.db === db && readEntry(parent.id)?.signature === signature) {
-          return;
-        }
-        const request = ++sequence;
-        const publish = (value: DelegatedSidebarEntry) => {
-          if (active && sequence === request) {
-            setEntries((current) => new Map(current).set(parent.id, { db, signature, value }));
-          }
-        };
-        loadChildren(db, parent).then(
-          (children) => publish({ children }),
-          (error: unknown) =>
-            publish({ error: error instanceof Error ? error : new Error(String(error)) })
-        );
-      };
-      refresh();
-      const unsubscribe = root.store.subscribe(refresh);
-      cleanups.push(() => {
-        active = false;
-        unsubscribe();
-        release();
-      });
-    }
+    const cleanups = [...activeExpanded.values()].map((parent) =>
+      subscribeParent(roots, db, parent, readEntry, (id, entry) => {
+        setEntries((current) => new Map(current).set(id, entry));
+      })
+    );
     return () => {
       for (const cleanup of cleanups) {
         cleanup();
@@ -111,9 +76,9 @@ export function useDelegatedSidebar(baseRows: readonly ThreadPanelVisibleRow[]) 
         baseRows,
         activeExpanded,
         new Map(
-          [...entries]
-            .filter(([, entry]) => entry.db === db)
-            .map(([id, entry]) => [id, entry.value])
+          [...entries].flatMap(([id, entry]) =>
+            entry.db === db ? [[id, entry.value] as const] : []
+          )
         ),
         limits
       ),
@@ -139,7 +104,7 @@ export function useDelegatedSidebar(baseRows: readonly ThreadPanelVisibleRow[]) 
                 depth: row.parentId === null ? 0 : 1,
                 groupId: row.groupId,
                 id: row.id,
-                ownerResourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+                ownerResourceId: row.thread.resourceId,
                 parentThreadId: null,
                 rootThreadId: row.id,
                 threadId: row.id,
@@ -164,9 +129,10 @@ export function useDelegatedSidebar(baseRows: readonly ThreadPanelVisibleRow[]) 
       ),
     []
   );
+  const expandedIds = useMemo(() => new Set(activeExpanded.keys()), [activeExpanded]);
   return {
     enabled: Boolean(db && roots),
-    expandedIds: new Set(activeExpanded.keys()),
+    expandedIds,
     rows,
     showMore,
     toggle,
@@ -196,4 +162,70 @@ function collapseDescendants(
     }
   }
   return removed;
+}
+
+/** Each parent owns both subscriptions, including partial setup failure. */
+function subscribeParent(
+  roots: Roots,
+  db: DbHandle,
+  parent: DelegatedSidebarAddress,
+  readEntry: (id: string) => CachedEntry | undefined,
+  publishEntry: (id: string, entry: CachedEntry) => void
+): () => void {
+  let active = true;
+  let sequence = 0;
+  let observedSignature: string | undefined;
+  let release: (() => void) | undefined;
+  let unsubscribe: (() => void) | undefined;
+  const cleanup = () => {
+    active = false;
+    const stop = unsubscribe;
+    const releaseRoot = release;
+    unsubscribe = undefined;
+    release = undefined;
+    try {
+      stop?.();
+    } finally {
+      releaseRoot?.();
+    }
+  };
+  try {
+    release = roots.subscribe(parent, () => undefined);
+    const root = roots.get(parent);
+    if (!root) {
+      throw new Error('The expanded conversation has no root registry.');
+    }
+    const refresh = () => {
+      const signature = JSON.stringify([...root.store.getSnapshot().keys()]);
+      if (observedSignature === signature) {
+        return;
+      }
+      observedSignature = signature;
+      const cached = readEntry(parent.id);
+      if (cached?.db === db && cached.signature === signature) {
+        return;
+      }
+      const request = ++sequence;
+      const publish = (value: DelegatedSidebarEntry) => {
+        if (active && sequence === request) {
+          publishEntry(parent.id, { db, signature, value });
+        }
+      };
+      loadChildren(db, parent).then(
+        (children) => publish({ children }),
+        (error: unknown) =>
+          publish({ error: error instanceof Error ? error : new Error(String(error)) })
+      );
+    };
+    refresh();
+    unsubscribe = root.store.subscribe(refresh);
+  } catch (error) {
+    cleanup();
+    publishEntry(parent.id, {
+      db,
+      signature: '',
+      value: { error: error instanceof Error ? error : new Error(String(error)) },
+    });
+  }
+  return cleanup;
 }

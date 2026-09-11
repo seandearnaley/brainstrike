@@ -15,7 +15,7 @@ import { useDelegatedConversationRoot } from './use-delegated-conversation-root'
 
 const origins = new WeakMap<
   DelegatedConversationRoot,
-  Map<string, { readonly element: HTMLElement; readonly parentThreadId: string }>
+  Map<string, { readonly element: WeakRef<HTMLElement>; readonly parentThreadId: string }>
 >();
 
 /** Both main and child cards use the existing workspace's singleton tab action. */
@@ -64,7 +64,7 @@ export function DelegatedWorkspaceNavigation({
       }
       if (origin) {
         remembered.set(threadId, {
-          element: origin,
+          element: new WeakRef(origin),
           parentThreadId: currentThreadId ?? rootThreadId,
         });
       }
@@ -80,8 +80,10 @@ export function DelegatedWorkspaceNavigation({
       }
       // Selection commits before focus, matching the ordinary thread-tab shell.
       window.requestAnimationFrame(() => {
-        if (returningTo?.parentThreadId === threadId && returningTo.element.isConnected) {
-          returningTo.element.focus();
+        const element = returningTo?.element.deref();
+        if (returningTo?.parentThreadId === threadId && element?.isConnected) {
+          remembered.delete(currentThreadId ?? threadId);
+          element.focus();
           return;
         }
         document

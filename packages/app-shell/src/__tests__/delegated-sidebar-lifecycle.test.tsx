@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
 import type { ChildNode } from '../delegated-workspace-node';
 import type { ThreadPanelVisibleRow } from '../thread-panel-visible-rows';
-import { useDelegatedConversationRoot } from '../use-delegated-conversation-root';
+import { RootsContext, useDelegatedConversationRoot } from '../use-delegated-conversation-root';
 import { useDelegatedSidebar } from '../use-delegated-sidebar';
 import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 
@@ -74,4 +74,32 @@ it('revalidates reopened children and releases hidden descendant subscriptions',
     expect(result.current.sidebar.rows[1]).toMatchObject({ label: 'No child conversations' })
   );
   expect(result.current.sidebar.rows).toHaveLength(2);
+});
+
+it('uses the owning resource of a sidebar root', async () => {
+  mocks.listChildren.mockResolvedValue([]);
+  const ownedRow: ThreadPanelVisibleRow = {
+    ...row,
+    thread: { ...row.thread, resourceId: 'another-owner' },
+  };
+  const ownedRows = [ownedRow];
+  const { result } = renderHook(() => useDelegatedSidebar(ownedRows), {
+    wrapper: DelegatedConversationRootsProvider,
+  });
+  act(() => result.current.toggle(ownedRow));
+  await waitFor(() => expect(mocks.listChildren).toHaveBeenCalled());
+  expect(mocks.listChildren.mock.calls[0]?.[0]).toMatchObject({ ownerResourceId: 'another-owner' });
+});
+
+it('shows registry setup failures and releases the partial subscription exactly once', async () => {
+  const release = vi.fn();
+  const roots = { get: () => undefined, subscribe: () => release };
+  const { result, unmount } = renderHook(() => useDelegatedSidebar(base), {
+    wrapper: ({ children }) => <RootsContext value={roots}>{children}</RootsContext>,
+  });
+  act(() => result.current.toggle(row));
+  await waitFor(() => expect(result.current.rows[1]).toMatchObject({ isError: true }));
+  expect(release).toHaveBeenCalledTimes(1);
+  unmount();
+  expect(release).toHaveBeenCalledTimes(1);
 });

@@ -3364,3 +3364,15 @@ The local completion callback runs only after cancellation acknowledgement. A
 failed POST does not fabricate a terminal result; a later send reconciles the
 latched request against actual durable status and remains blocked while running
 or cancelling. Worktree archive also treats cancelling as active.
+
+### Cross-root child navigation (BST-1725)
+
+A sidebar child action activates its owning root before opening the workspace app.
+`ThreadWorkspaceNavigation` holds only a session navigation intent; the existing
+workspace coordinator owns hydration and persistence. It drains that intent after
+cached or asynchronous incoming hydration completes, so the outgoing root never
+captures another root's child tab. A newer root switch discards the intent. Read
+failure shows an explicit error; another user click may retry that read. No run is
+started, no alternate snapshot store is introduced, and reload uses the ordinary
+thread workspace record. Coordinator regressions cover delayed, superseded and
+failed reads; the Electron workspace fixture checks both roots' actual saved tabs.

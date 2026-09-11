@@ -149,6 +149,7 @@ async function assertWorkerWrite(
         .getByRole('tablist', { name: 'Workspace tabs' })
         .getByRole('tab', { selected: true });
       await expect(selectedTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+      await expect(selectedTab).toBeFocused();
       const firstChildName = (await selectedTab.innerText()).trim();
       for (let level = 1; level < depth; level += 1) {
         const currentName = (await selectedTab.innerText()).trim();
@@ -156,6 +157,7 @@ async function assertWorkerWrite(
         await current.getByRole('button', { exact: true, name: 'Expand activity' }).click();
         await current.getByRole('button', { name: /Open .* conversation/ }).click();
         await expect(selectedTab).not.toHaveText(currentName);
+        await expect(selectedTab).toBeFocused();
         await expect(selectedTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
         const nextName = (await selectedTab.innerText()).trim();
         const nextPanel = window.getByRole('tabpanel', { exact: true, name: nextName });
