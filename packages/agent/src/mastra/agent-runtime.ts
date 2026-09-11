@@ -1,10 +1,11 @@
-import { type McpHostPort, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import type { McpHostPort } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
+import type { InputProcessor } from '@mastra/core/processors';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
@@ -38,7 +39,10 @@ import {
   type DelegationPersonaSummary,
 } from './default-instructions';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
-import type { DelegatedSystemContextSource } from './delegated-system-context';
+import {
+  createRootDelegatedContextProcessor,
+  type DelegatedSystemContextSource,
+} from './delegated-system-context';
 import {
   createDelegatedTurnPersistence,
   type DelegatedTurnPersistence,
@@ -218,6 +222,7 @@ export interface MastraAgentRuntime {
   resilienceConfig: AssistantResilienceConfig;
   /** Per-run budget shared by fresh producers and runtime projection guards. */
   resolvedToolResultBudget: ScaledToolResultBudget;
+  rootDelegatedContextProcessor?: InputProcessor | undefined;
   /** Bounded, content-free token measurements for this concrete run/tool map. */
   tokenDiagnostics: RunTokenDiagnostics;
   /** Content-free discovery surface metadata for traces, tests, and diagnostics. */
@@ -652,6 +657,7 @@ export async function createMastraAgentRuntime(
   // names personas that actually registered a delegation tool this run.
   const delegatedTurnPersistence = createDelegatedTurnPersistence(memory, sanitizedRuntime.memory);
   const {
+    artifactReaderDelegationTools,
     delegationToolPersonas,
     hasSubAgents,
     instructionPersonaSummaries,
@@ -710,11 +716,7 @@ export async function createMastraAgentRuntime(
     turnPersistenceProcessor: delegatedTurnPersistence?.processor,
     workspaceSkills: sanitizedRuntime.workspaceSkills,
   });
-  registeredDelegationToolNames = Array.from(delegationToolPersonas, ([toolName, personaId]) =>
-    personasById.get(personaId)?.allowedToolIds.includes(NATIVE_TOOL_ID.readToolOutputArtifact)
-      ? toolName
-      : null
-  ).filter((toolName): toolName is string => toolName !== null);
+  registeredDelegationToolNames = [...artifactReaderDelegationTools];
 
   const composedInstructions = composeRuntimeInstructions({
     budgetNote,
@@ -770,6 +772,10 @@ export async function createMastraAgentRuntime(
 
   return {
     agent,
+    rootDelegatedContextProcessor: createRootDelegatedContextProcessor(
+      options.getDelegatedSystemContext,
+      hasSubAgents
+    ),
     ...assistantIdentityRuntime,
     askTools,
     conversationBinding: options.conversationBinding,

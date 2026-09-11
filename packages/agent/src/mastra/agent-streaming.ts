@@ -837,6 +837,7 @@ export async function initializeMastraRuntime(
 
 interface StreamGeneratorParams {
   abortedTurnPersistence: AbortedTurnPersistence | undefined;
+  completeNativeStream: () => Promise<unknown>;
   /** Child-usage bridge for this leg's delegation config (personas enabled only). */
   delegationUsage?: DelegationUsageCapture;
   /**
@@ -1110,6 +1111,18 @@ export function createAttemptDelegatedProjection({
   };
 }
 
+async function completeNativeTerminal(
+  part: unknown,
+  complete: () => Promise<unknown>
+): Promise<void> {
+  // A provider error is already represented by the terminal error chunks.
+  if (asMastraStreamPart(part).type === 'error') {
+    return;
+  }
+  // Native pauses and finish parts precede final snapshot storage.
+  await complete();
+}
+
 export async function* streamAttemptChunks({
   abortedTurnPersistence,
   delegationUsage,
@@ -1123,6 +1136,7 @@ export async function* streamAttemptChunks({
   sanitizedNameMap,
   resumedApprovalToolCall,
   titleMessages,
+  completeNativeStream,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   let titleGenerationTask: Promise<void> | undefined;
   const calibrationState = { emitted: false };
@@ -1211,6 +1225,7 @@ export async function* streamAttemptChunks({
       );
       yield* drainToolCallTelemetryChunks(finished, runtime, toolCallTelemetryState);
       if (finished) {
+        await completeNativeTerminal(part, completeNativeStream);
         yield* delegatedProjection.settle();
         // Publishing child terminal chunks yields to the consumer. Flush warnings
         // recorded during publication before downstream stops at the finish.

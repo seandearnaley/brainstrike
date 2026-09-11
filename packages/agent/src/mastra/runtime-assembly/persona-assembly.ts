@@ -26,6 +26,7 @@ import type { ModelOutputProjectionObserver } from '../tool-model-output';
 const logger = createLogger('MastraAgent');
 
 export interface PersonaRuntimeParts {
+  artifactReaderDelegationTools: readonly string[];
   delegationToolPersonas: ReadonlyMap<string, string>;
   hasSubAgents: boolean;
   instructionPersonaSummaries: DelegationPersonaSummary[] | undefined;
@@ -34,6 +35,7 @@ export interface PersonaRuntimeParts {
 }
 
 const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
+  artifactReaderDelegationTools: [],
   delegationToolPersonas: new Map(),
   hasSubAgents: false,
   instructionPersonaSummaries: undefined,
@@ -108,6 +110,7 @@ export async function resolvePersonaRuntimeParts(params: {
     ...(params.toolOutputObserver ? { toolOutputObserver: params.toolOutputObserver } : {}),
   });
   return {
+    artifactReaderDelegationTools: personaBuild.artifactReaderDelegationTools,
     delegationToolPersonas: personaBuild.delegationToolPersonas,
     hasSubAgents: Object.keys(personaBuild.subAgents).length > 0,
     instructionPersonaSummaries: Array.from(personaBuild.personasById.values(), (persona) => ({

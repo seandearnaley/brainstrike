@@ -54,6 +54,7 @@ import {
 } from './tool-model-output';
 
 export interface PersonaSubAgentBuildResult {
+  readonly artifactReaderDelegationTools: readonly string[];
   /** 'agent-<personaId>' → personaId, for the stream mapper (D9). */
   readonly delegationToolPersonas: ReadonlyMap<string, string>;
   /** Persona id → resolved persona (for delegation caps + instructions). */
@@ -317,7 +318,7 @@ function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
   outputProcessors?: OutputProcessor[];
 } {
   const inputProcessors: InputProcessor[] = [];
-  if (params.getDelegatedSystemContext) {
+  if (params.getDelegatedSystemContext || params.rootMemoryContext) {
     inputProcessors.push(createDelegatedSystemContextProcessor(params.getDelegatedSystemContext));
   }
   if (params.conversationBinding) {
@@ -543,6 +544,7 @@ export async function buildPersonaSubAgents(
 ): Promise<PersonaSubAgentBuildResult> {
   const canSuspend = canSuspendPersonaTools(params);
   const originalToSanitized = buildOriginalToSanitized(params.toolNameMap);
+  const artifactReaderCapabilities = new Map<string, boolean>();
   const childBuilders: (() => Promise<readonly [string, Agent]>)[] = [];
   const delegationToolPersonas = new Map<string, string>();
   const personasById = new Map<string, AssistantPersonaDefinition>();
@@ -631,10 +633,21 @@ export async function buildPersonaSubAgents(
           }),
         ] as const
     );
+    artifactReaderCapabilities.set(
+      `agent-${persona.id}`,
+      keptOriginalNames.includes(NATIVE_TOOL_ID.readToolOutputArtifact)
+    );
     delegationToolPersonas.set(`agent-${persona.id}`, persona.id);
     personasById.set(persona.id, persona);
   }
 
   const subAgents = Object.fromEntries(await Promise.all(childBuilders.map((build) => build())));
-  return { delegationToolPersonas, personasById, subAgents };
+  return {
+    artifactReaderDelegationTools: Array.from(artifactReaderCapabilities)
+      .filter(([, allowed]) => allowed)
+      .map(([tool]) => tool),
+    delegationToolPersonas,
+    personasById,
+    subAgents,
+  };
 }

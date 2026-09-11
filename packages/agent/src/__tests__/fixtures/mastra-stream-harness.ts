@@ -354,8 +354,9 @@ function createMockMastraOutput(parts: readonly unknown[] = streamParts) {
   });
   return {
     fullStream: stream,
+    getFullOutput: async () => ({}),
     ...(mockMessageList ? { messageList: mockMessageList } : {}),
-  } as { fullStream: ReadableStream<unknown> };
+  } as { fullStream: ReadableStream<unknown>; getFullOutput: () => Promise<unknown> };
 }
 
 interface RunEventChunk {

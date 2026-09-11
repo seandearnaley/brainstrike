@@ -58,9 +58,18 @@ are visibly omitted before model resolution, preserving the root local runtime's
 no-skills boundary. Ollama and LM Studio use their existing hosted adapters.
 The worker input budget derives from its resolved context window with the shared
 output reservation and safety margin. Catalog names remain deferred rather than
-being enumerated in worker system instructions.
+being enumerated in worker system instructions. Whole-result delegation hints
+use each registered child's actual permission-gated artifact-reader capability,
+including wildcard workers; a denied reader never produces a hint.
 
-Trusted context is captured and validated only when a child starts. Invalid or
+The root stores only its host-projected system text in native RequestContext
+snapshot data before inference. Both approval and question resume restore that
+original data, so newly started children inherit it too; callbacks, RuntimeData,
+tool results and execution capabilities are never serialized. Non-text metadata
+is excluded from system authority exactly as in the root message converter.
+Legacy snapshots without this context reject new children visibly.
+
+Trusted context size is validated only when a child starts. Invalid or
 oversized trusted context rejects that delegation before child inference; native
 Mastra returns the tool error to the supervisor so it can respond. Disabled
 delegation does not validate unused child context. Permission `allow`/YOLO permits

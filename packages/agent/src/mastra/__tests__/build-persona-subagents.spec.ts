@@ -1,3 +1,4 @@
+import { deriveEffectiveInputBudget } from '@brainstrike/assistant-contract';
 import { GEMMA4_E2B_MODEL_ID } from '@brainstrike/assistant-contract/local-llm';
 import {
   type AssistantPersonaDefinition,
@@ -14,6 +15,7 @@ import { createListingOnlyModel } from '../../providers/listing-only-model';
 import {
   decodedTextModelOutputChars,
   resolveScaledToolResultBudget,
+  resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
 } from '../../stream/tool-output-limits';
 import { createAskUserTool } from '../../tools/ask-user-tool';
@@ -21,6 +23,7 @@ import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
 import type { PermissionToolGateLogger } from '../permission-tool-gate';
+import { ProjectionAwareTokenLimiter } from '../projection-aware-token-limiter';
 import { applyToolModelOutputProjections, getActiveToolResultBudget } from '../tool-model-output';
 import { BrainstrikeToolSearchProcessor } from '../tool-search-runtime';
 
@@ -184,6 +187,44 @@ async function workerCatalog(child: Agent) {
   });
 }
 describe('worker tool admission', () => {
+  it('derives the pinned worker input limit from its own model window', async () => {
+    const options = workerOptions({
+      ...workerPersona,
+      model: { modelId: 'qwen3', provider: 'ollama' },
+    });
+    const result = await buildPersonaSubAgents({ ...options, resolvePinnedModel: () => fakeModel });
+    const child = assertDefined(result.subAgents['worker'], 'Expected pinned worker');
+    const limiter = (await child.listConfiguredInputProcessors()).find(
+      (processor) => processor instanceof ProjectionAwareTokenLimiter
+    );
+    if (!(limiter instanceof ProjectionAwareTokenLimiter)) {
+      throw new Error('Missing worker context limiter');
+    }
+    const childWindow = resolveToolResultBudgetForModel('ollama', 'qwen3').contextWindow;
+    expect(childWindow).not.toBe(options.resolvedToolResultBudget.contextWindow);
+    expect(limiter.getMaxTokens()).toBe(deriveEffectiveInputBudget(childWindow));
+  });
+
+  it.each(['allow', 'deny'] as const)(
+    'advertises wildcard artifact delegation only when its actual reader is %s',
+    async (permission) => {
+      const options = workerOptions();
+      const reader = 'brainstrike.readToolOutputArtifact';
+      const result = await buildPersonaSubAgents({
+        ...options,
+        ...makeGuardedTools([reader, 'brainstrike.grepSearch']),
+        localToolIds: new Set(['brainstrike_readToolOutputArtifact', 'brainstrike_grepSearch']),
+        permissionSnapshot: {
+          ...readAllowSnapshot,
+          perToolOverrides: { [reader]: permission },
+        },
+      });
+      expect(result.artifactReaderDelegationTools).toEqual(
+        permission === 'allow' ? ['agent-worker'] : []
+      );
+    }
+  );
+
   it('visibly omits a worker pinned to the embedded local model before resolving it', async () => {
     const resolvePinnedModel = vi.fn(() => fakeModel);
     const warn = vi.fn();

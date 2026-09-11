@@ -26,6 +26,8 @@ const WEB_SMOKE_COMMAND = [
 // BST-1721 adds two worker decisions measured locally at 11.5s and 6.5s;
 // the existing ceiling still has headroom. Keep the unchanged 25-minute job
 // boundary and reassess measured CI cost when adding future acceptance cases.
+// Calibration remains approximately 2x the measured maximum; the current
+// baseline has less headroom, so review that margin before expanding this lane.
 const DESKTOP_SMOKE_COMMAND = [
   'node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn --',
   'xvfb-maybe pnpm exec playwright test',
