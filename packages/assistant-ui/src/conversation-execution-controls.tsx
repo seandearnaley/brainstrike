@@ -15,17 +15,19 @@ export function ConversationExecutionControls({
     (state) =>
       state.thread.isRunning ||
       Boolean(
-        state.thread.messages.at(-1)?.content.some((part) => {
-          if (
-            part.type !== 'data' ||
-            (part.name !== TOOL_APPROVAL_DATA_NAME && part.name !== TOOL_SUSPEND_DATA_NAME)
-          ) {
-            return false;
-          }
-          return Boolean(
-            part.data && typeof part.data === 'object' && !('decisionState' in part.data)
-          );
-        })
+        state.thread.messages.some((message) =>
+          message.content.some((part) => {
+            if (
+              part.type !== 'data' ||
+              (part.name !== TOOL_APPROVAL_DATA_NAME && part.name !== TOOL_SUSPEND_DATA_NAME)
+            ) {
+              return false;
+            }
+            return Boolean(
+              part.data && typeof part.data === 'object' && !('decisionState' in part.data)
+            );
+          })
+        )
       )
   );
   const [pending, setPending] = useState(false);
@@ -56,8 +58,9 @@ export function ConversationExecutionControls({
         variant="outline"
       >
         <SquareIcon className="size-3.5 fill-current" />
-        {pending ? 'Stopping…' : 'Stop'}
+        Stop
       </Button>
+      {pending ? <span role="status">Stopping…</span> : null}
       {error ? (
         <p className="text-destructive text-sm" role="alert">
           {error}

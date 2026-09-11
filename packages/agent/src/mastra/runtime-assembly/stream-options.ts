@@ -313,13 +313,33 @@ export interface BuildStreamOptionsParams {
   toolCallId?: string;
 }
 
-/**
- * The single option builder the three attempt legs
- * (`createInitialTurnAttempt`, `createToolApprovalTurnAttempt`,
- * `createToolResumeTurnAttempt` in `agent-streaming.ts`) share. Legs differ
- * only in whether `runId`/`toolCallId` are set and whether
- * `requireToolApproval` is carried at all (see {@link BuildStreamOptionsParams}).
- */
+/** Both owners must settle even when either after-call hook fails. */
+function composeDelegatedHooks(
+  binding: ToolHooks | undefined,
+  persistence: ToolHooks | undefined
+): ToolHooks {
+  return {
+    ...binding,
+    ...persistence,
+    afterToolCall: async (call) => {
+      const results = await Promise.allSettled([
+        Promise.resolve().then(() => binding?.afterToolCall?.(call)),
+        Promise.resolve().then(() => persistence?.afterToolCall?.(call)),
+      ]);
+      const errors = results.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : []
+      );
+      if (errors.length === 1) {
+        throw errors[0];
+      }
+      if (errors.length > 1) {
+        throw new AggregateError(errors, 'Delegated after-call owners failed.');
+      }
+    },
+  };
+}
+
+/** Shared option assembly for initial, approval and resume stream legs. */
 export function buildStreamOptions(
   params: BuildStreamOptionsParams
 ): BrainstrikeAgentStreamOptions & { runId?: string; toolCallId?: string } {
@@ -352,10 +372,10 @@ export function buildStreamOptions(
     abortSignal,
     ...(delegationUsage && (runtime.delegatedTurnPersistence || runtime.conversationBinding?.hooks)
       ? {
-          hooks: {
-            ...runtime.conversationBinding?.hooks,
-            ...runtime.delegatedTurnPersistence?.hooks(abortSignal),
-          },
+          hooks: composeDelegatedHooks(
+            runtime.conversationBinding?.hooks,
+            runtime.delegatedTurnPersistence?.hooks(abortSignal)
+          ),
         }
       : {}),
     ...(runId === undefined ? {} : { runId }),

@@ -77,8 +77,8 @@ describe('delegated decision rediscovery HTTP contract', () => {
           'workspace-a',
           'thread-1',
           JSON.stringify([
-            ['root-run', 'root-call', 'child-run', 'leaf-call'],
-            ['root-run', 'root-call', 'child-run', 'next-leaf'],
+            ['root-run', 'root-call', 'child-run', 'leaf-call', ['child-run']],
+            ['root-run', 'root-call', 'child-run', 'next-leaf', ['child-run']],
           ]),
         ]
       );
@@ -135,6 +135,7 @@ it('reads decision state only for the newest returned suspends', async () => {
           `call-${index + 2}`,
           `child-${index + 2}`,
           'leaf-call',
+          [`child-${index + 2}`],
         ])
       ),
     ]

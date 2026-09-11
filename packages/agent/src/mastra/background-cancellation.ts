@@ -50,8 +50,7 @@ async function cancelSelectedTasks(
     const page = await tasks.listTasks({
       ...scope,
       runId,
-      ...(toolCallId ? { toolCallId } : {}),
-      status: ['pending', 'running', 'suspended', 'cancelled'],
+      ...(toolCallId === undefined ? {} : { toolCallId }),
     });
     for (const task of page.tasks) {
       if (
@@ -63,7 +62,7 @@ async function cancelSelectedTasks(
         throw new Error('Native cancellation returned a task outside the cancelled turn.');
       }
       if (
-        task.status !== 'cancelled' &&
+        (task.status === 'pending' || task.status === 'running' || task.status === 'suspended') &&
         !(await tasks.updateTask(
           task.id,
           { completedAt: new Date(), status: 'cancelled' },

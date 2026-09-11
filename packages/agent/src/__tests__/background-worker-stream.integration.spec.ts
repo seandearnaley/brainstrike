@@ -1,7 +1,9 @@
 import { addAbortListener } from 'node:events';
 import { TransformStream } from 'node:stream/web';
+import { setImmediate as nextEventLoopTurn } from 'node:timers/promises';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { AgentExecutionOptionsBase } from '@mastra/core/agent';
+import { BACKGROUND_TASK_WORKFLOW_ID } from '@mastra/core/background-tasks';
 import { createTool, type ToolExecutionContext } from '@mastra/core/tools';
 import { expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -14,6 +16,7 @@ import {
 import { repairBackgroundResults } from '../mastra/background-results';
 import {
   createDelegatedConversationBinding,
+  type DelegatedCancellationControl,
   type DelegatedConversationIdentity,
 } from '../mastra/delegated-conversation-binding';
 import type { DelegatedRunIdentity } from '../mastra/delegated-run-publication';
@@ -108,12 +111,19 @@ async function createBackgroundFixture(
     provider: 'openai',
     ...(signal ? { signal } : {}),
   } as const;
+  let cancel: DelegatedCancellationControl | undefined;
   const options = {
     backgroundTaskScope: scope,
     conversationBinding: {
       claimToolAction: async () => {},
       finishToolActions: async () => {},
       prepareToolAction: async () => {},
+      registerCancellation: (control: DelegatedCancellationControl) => {
+        cancel = control;
+        return () => {
+          cancel = undefined;
+        };
+      },
       releaseUnexecutedToolAction: async () => {},
       resolveToolAction: async (action: { runId: string; toolCallId: string }) => {
         const identity = runIdentities.find(
@@ -195,6 +205,12 @@ async function createBackgroundFixture(
   const runtime = await createMastraAgentRuntime(options);
   return {
     backing,
+    cancel: (targets: Parameters<DelegatedCancellationControl>[0]) => {
+      if (!cancel) {
+        throw new Error('Missing production cancellation owner');
+      }
+      return cancel(targets);
+    },
     database,
     discoveryOptions: {
       ...options,
@@ -228,6 +244,76 @@ async function createBackgroundFixture(
     toolSignals,
   };
 }
+
+it('selected Stop joins cleanup even after the native task becomes completed', async () => {
+  const fixture = await createBackgroundFixture();
+  const { backing, runtime, runtimeData, entered, release, database } = fixture;
+  const workflows = await backing.storage.getStore('workflows');
+  if (!workflows) {
+    throw new Error('Missing native workflows');
+  }
+  const deleting = Promise.withResolvers<void>();
+  const releaseDeletion = Promise.withResolvers<void>();
+  const remove = workflows.deleteWorkflowRunById.bind(workflows);
+  const deletion = vi
+    .spyOn(workflows, 'deleteWorkflowRunById')
+    .mockImplementation(async (input) => {
+      if (input.workflowName !== BACKGROUND_TASK_WORKFLOW_ID) {
+        return remove(input);
+      }
+      deleting.resolve();
+      await releaseDeletion.promise;
+      await remove(input);
+    });
+  let consuming: Promise<void> | undefined;
+  let stopping: Promise<void> | undefined;
+  try {
+    const iterator = await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [
+        { id: 'cleanup-request', parts: [{ text: 'Read evidence', type: 'text' }], role: 'user' },
+      ],
+      runtime,
+      runtimeData,
+    });
+    consuming = (async () => {
+      for await (const _chunk of iterator) {
+        /* drain */
+      }
+    })();
+    consuming.catch(() => {});
+    await entered.promise;
+    release.resolve();
+    await deleting.promise;
+    const task = (await runtime.backgroundTaskManager?.listTasks({ status: 'completed' }))
+      ?.tasks[0];
+    if (!task) {
+      throw new Error('Expected completed task with held cleanup');
+    }
+    let acknowledged = false;
+    stopping = fixture
+      .cancel([{ parentRuntimeRunId: task.runId, parentToolCallId: task.toolCallId }])
+      .then(() => {
+        acknowledged = true;
+      });
+    stopping.catch(() => {});
+    await nextEventLoopTurn();
+    expect(acknowledged, 'Production Stop must join terminal native cleanup').toBe(false);
+    releaseDeletion.resolve();
+    await stopping;
+    await consuming;
+    expect(await runtime.backgroundTaskManager?.getTask(task.id)).toMatchObject({
+      status: 'completed',
+    });
+  } finally {
+    release.resolve();
+    releaseDeletion.resolve();
+    await Promise.allSettled([stopping, consuming]);
+    deletion.mockRestore();
+    await runtime.dispose();
+    await database.close();
+  }
+});
 
 it('streams useful parent output, the complete rich background child and the final parent outcome once', async () => {
   const { database, backing, runtime, runtimeData, effect, release, entered, model } =
@@ -481,6 +567,10 @@ it.each([
           return;
         }
         expect(effect).toHaveBeenCalledTimes(action === 'approve' ? 1 : 0);
+        const finishedTasks = (await resumedRuntime.backgroundTaskManager?.listTasks({}))?.tasks;
+        expect(finishedTasks, JSON.stringify(finishedTasks)).toMatchObject([
+          { status: 'completed' },
+        ]);
         expect(
           resumedChunks
             .flatMap((chunk) =>

@@ -245,11 +245,11 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
       }
       const abortSignal = new AbortController().signal;
       const persistenceHooks = persistence.hooks(abortSignal);
-      // These producers own disjoint lifecycle hooks. Adding a colliding hook
-      // must fail this contract before a spread can silently replace capture.
-      expect(Object.keys(binding.hooks)).toEqual(['beforeToolCall']);
+      // Both after-call owners must survive composition on every stream leg.
+      expect(Object.keys(binding.hooks).sort()).toEqual(['afterToolCall', 'beforeToolCall']);
       expect(Object.keys(persistenceHooks)).toEqual(['afterToolCall']);
       const capture = vi.spyOn(binding.hooks, 'beforeToolCall');
+      const release = vi.spyOn(binding.hooks, 'afterToolCall');
       const persist = vi.spyOn(persistenceHooks, 'afterToolCall');
       vi.spyOn(persistence, 'hooks').mockReturnValue(persistenceHooks);
       const options = buildStreamOptions({
@@ -271,6 +271,13 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
       await options.hooks?.afterToolCall?.({ ...call, output: {} });
       expect(capture).toHaveBeenCalledExactlyOnceWith(call);
       expect(persist).toHaveBeenCalledExactlyOnceWith({ ...call, output: {} });
+      expect(release).toHaveBeenCalledExactlyOnceWith({ ...call, output: {} });
+      const failure = new Error('Controlled invocation cleanup failure');
+      release.mockImplementationOnce(() => {
+        throw failure;
+      });
+      await expect(options.hooks?.afterToolCall?.({ ...call, output: {} })).rejects.toBe(failure);
+      expect(persist).toHaveBeenCalledTimes(2);
     }
   );
 

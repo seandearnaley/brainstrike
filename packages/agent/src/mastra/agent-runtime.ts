@@ -843,7 +843,6 @@ export async function createMastraAgentRuntime(
           const tasks = await manager.listTasks({
             ...options.backgroundTaskScope,
             runId: target.parentRuntimeRunId,
-            status: ['pending', 'running', 'suspended', 'cancelled'],
             toolCallId: target.parentToolCallId,
           });
           for (const task of tasks.tasks) {

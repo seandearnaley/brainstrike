@@ -1544,6 +1544,16 @@ Only after those joins does it settle still-running ordinary child run projectio
 and append their `run.cancelled` event. Earlier completed legs and siblings retain
 their status. A failed join returns an explicit incomplete cancellation response;
 revoked admission remains durable and does not imply successful teardown.
+Stop selects a conversation, including its admitted invocation legs across turns;
+it does not select just the currently displayed message. Child host-run IDs include
+the host leg and complete native invocation identity, so distinct invocations never
+share a terminal projection. Native task selection includes terminal tasks: completed
+status can precede workflow deletion, which Stop must still join. Stored cleanup
+preserves completed/failed outcomes while removing their workflow snapshots.
+Controls register before the runtime can be returned for streaming and remain
+registered through shutdown. The host snapshots those live capabilities, checks their
+root ownership in one bounded query, and joins them after durable admission revocation.
+A subsequently constructed runtime cannot admit a revoked invocation.
 
 The same barrier rejects subsequent child steps, repeated invocation admission,
 and pending decision claims after host reconstruction. Closing a tab never invokes

@@ -2,6 +2,7 @@ import type http from 'node:http';
 import { cancelStoredBackgroundInvocations } from '@brainstrike/agent';
 import { CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import { respondJson } from '@brainstrike/assistant-service/http';
+import { DelegatedConversationIdentityError } from '@brainstrike/db';
 import { z } from 'zod';
 import { getDatabase } from '../db-main';
 import {
@@ -60,6 +61,14 @@ export async function handleDelegatedCancelRequest(
     res.statusCode = 200;
     res.end(JSON.stringify({ cancelled: true, threadId: action.threadId }));
   } catch (error) {
+    if (error instanceof DelegatedConversationIdentityError) {
+      respondJson(res, 404, {
+        error: 'child_cancel_unavailable',
+        message:
+          'This child is unavailable in the selected conversation. Reopen it from its parent.',
+      });
+      return;
+    }
     logger.error('Selected child cancellation did not complete', {
       error,
       threadId: action.threadId,

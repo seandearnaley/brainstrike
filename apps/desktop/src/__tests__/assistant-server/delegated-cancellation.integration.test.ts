@@ -1,13 +1,17 @@
 import type { DelegatedConversationIdentity, DelegatedRunIdentity } from '@brainstrike/agent';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   completeDelegatedConversationCancellation,
   revokeDelegatedConversationAdmission,
 } from '../../assistant-server/delegated-cancellation-admission';
 import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
 import { readDelegatedDecisionStates } from '../../assistant-server/delegated-decision-discovery';
+import {
+  joinDesktopDelegatedCancellation,
+  registerDesktopDelegatedCancellation,
+} from '../../assistant-server/delegated-execution-controls';
 
 describe('desktop delegated cancellation', () => {
   let database: PGlite;
@@ -62,6 +66,39 @@ describe('desktop delegated cancellation', () => {
     status: 'running',
     timestamp: '2026-09-10T01:00:00.000Z',
   } as const;
+  it('joins registered owners in the selected root and propagates cleanup failure', async () => {
+    const release = Promise.withResolvers<void>();
+    const first = vi.fn(async () => {
+      await release.promise;
+    });
+    const failure = new Error('Native cleanup failed');
+    const second = vi.fn(async () => {
+      throw failure;
+    });
+    const otherRoot = vi.fn(async () => undefined);
+    const unregister = [
+      registerDesktopDelegatedCancellation('initial-leg', first),
+      registerDesktopDelegatedCancellation('resume-leg', second),
+      registerDesktopDelegatedCancellation('other-root-leg', otherRoot),
+    ];
+    let joined: Promise<void> | undefined;
+    try {
+      joined = joinDesktopDelegatedCancellation(database, scope, []);
+      const assertion = expect(joined).rejects.toMatchObject({ errors: [failure] });
+      await vi.waitFor(() => expect(first).toHaveBeenCalledOnce());
+      expect(otherRoot).not.toHaveBeenCalled();
+      release.resolve();
+      await assertion;
+      expect(second).toHaveBeenCalledOnce();
+    } finally {
+      release.resolve();
+      await Promise.allSettled([joined]);
+      for (const dispose of unregister) {
+        dispose();
+      }
+    }
+    await expect(joinDesktopDelegatedCancellation(database, scope, [])).resolves.toBeUndefined();
+  });
   it('settles stopped child projections once while preserving sibling and completed runs', async () => {
     const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
     await host.persist(identity);
@@ -124,6 +161,43 @@ describe('desktop delegated cancellation', () => {
     );
     expect(terminal.rows).toHaveLength(1);
     expect(terminal.rows[0]?.['metadata']).toMatchObject({ nativeMessageId: 'child-message' });
+  });
+
+  it('stops every admitted leg of the selected conversation without duplicating terminal events', async () => {
+    const ids: string[] = [];
+    for (const [hostId, parentRuntimeRunId] of [
+      ['initial-leg', 'parent-one'],
+      ['other-turn-leg', 'parent-two'],
+    ] as const) {
+      const host = createDesktopDelegatedConversationHost(database, hostId);
+      await host.persist({ ...identity, parentRuntimeRunId });
+      const childRun = {
+        ...run,
+        childRuntimeRunId: `${parentRuntimeRunId}-child`,
+        parentRuntimeRunId,
+      };
+      await host.bindRun(childRun);
+      const event = await host.persistEvent(
+        childRun,
+        `${parentRuntimeRunId}-message`,
+        { ...childStarted, id: `${parentRuntimeRunId}-started` },
+        0
+      );
+      if (!event.runId) {
+        throw new Error('Missing child host run');
+      }
+      ids.push(event.runId);
+    }
+    const targets = await revokeDelegatedConversationAdmission(database, scope, 'child', false);
+    expect(targets).toHaveLength(2);
+    await completeDelegatedConversationCancellation(database, scope, targets);
+    await completeDelegatedConversationCancellation(database, scope, targets);
+    const result = await database.query<{ run_id: string; count: number }>(
+      "SELECT run_id, COUNT(*)::int AS count FROM brainstrike_assistant_run_events WHERE run_id = ANY($1::text[]) AND kind = 'run.cancelled' GROUP BY run_id",
+      [ids]
+    );
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows.every((row) => row.count === 1)).toBe(true);
   });
 
   it.each([false, true])(

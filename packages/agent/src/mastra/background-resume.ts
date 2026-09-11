@@ -121,7 +121,7 @@ export function createBackgroundResumeStream(params: {
                 // call. The host join belongs to this original dispatch address.
                 try {
                   await options.hooks?.afterToolCall?.({
-                    context: { toolCallId: task.toolCallId },
+                    context: { threadId: task.threadId, toolCallId: task.toolCallId },
                     input: args,
                     output,
                     toolName: task.toolName,

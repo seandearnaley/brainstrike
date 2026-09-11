@@ -109,7 +109,7 @@ export async function completeDelegatedConversationCancellation(
      ), settled AS (
        UPDATE brainstrike_assistant_thread_runs run
        SET status = 'cancelled', completed_at = NOW(), updated_at = NOW()
-       FROM pending WHERE run.id = pending.id
+       FROM pending WHERE run.id = pending.id AND run.status IN ('running', 'cancelling')
        RETURNING run.id, run.resource_id, run.thread_id, run.completed_at
      ) INSERT INTO brainstrike_assistant_run_events
        (id, run_id, resource_id, thread_id, sequence, kind, status, label, metadata, occurred_at, created_at, updated_at)

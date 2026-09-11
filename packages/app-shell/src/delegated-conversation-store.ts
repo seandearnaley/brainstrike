@@ -53,11 +53,19 @@ export function createDelegatedConversationStore(rootThreadId: string): Delegate
     getSnapshot: () => values,
     hasUnread: (threadId) => values.has(threadId) && values.get(threadId) !== seen.get(threadId),
     invalidate(threadId) {
-      if (!values.has(threadId)) {
+      const snapshot = values.get(threadId);
+      if (!snapshot) {
         return;
+      }
+      const hostRunId = snapshot.update.baseline?.hostRunId;
+      if (hostRunId) {
+        const retired = retiredLegs.get(threadId) ?? new Set<string>();
+        retired.add(hostRunId);
+        retiredLegs.set(threadId, retired);
       }
       values = new Map(values);
       values.delete(threadId);
+      seen.delete(threadId);
       notify();
     },
     markRead: (threadId) => {

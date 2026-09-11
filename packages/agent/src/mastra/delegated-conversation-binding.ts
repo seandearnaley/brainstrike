@@ -143,7 +143,8 @@ export function createDelegatedConversationBinding(
     getAbortSignal: (context) => signals.get(context),
     hooks: {
       afterToolCall({ input, context, toolName }) {
-        if (!toolName.startsWith('agent-')) {
+        // Snapshot resume has no process-local prepared controller to release.
+        if (preparedKeys.size === 0 || !toolName.startsWith('agent-')) {
           return;
         }
         const threadId = requireIdentity(readToolExecutionThreadId([input, context]));

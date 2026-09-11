@@ -53,7 +53,16 @@ export function DelegatedConversationPanel({
       label={label}
       runtime={runtime}
       threadKey={threadId}
-      {...(onCancel ? { workspaceBar: <ConversationExecutionControls onCancel={onCancel} /> } : {})}
+      {...(onCancel
+        ? {
+            workspaceBar: (
+              <>
+                {panelProps?.workspaceBar}
+                <ConversationExecutionControls onCancel={onCancel} />
+              </>
+            ),
+          }
+        : {})}
     />
   );
 }

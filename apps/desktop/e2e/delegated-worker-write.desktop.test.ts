@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +11,13 @@ import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
+
+async function waitForOwnedExit(process: ChildProcess | undefined): Promise<void> {
+  if (!process || process.exitCode !== null || process.signalCode !== null) {
+    return;
+  }
+  await once(process, 'exit', { signal: AbortSignal.timeout(5000) });
+}
 
 // A new, previously absent file is deliberately used: runWriteWorkspaceFile's
 // staleness guard permits new/unobserved files. Existing-file edit acceptance
@@ -208,7 +216,10 @@ async function assertWorkerWrite(
       if (restartHost) {
         const oldProcessId = (await electron.ensureContext()).app.process().pid;
         const stoppedProcess = ownedProcess;
-        const restarted = await electron.restart();
+        const [, restarted] = await Promise.all([
+          waitForOwnedExit(stoppedProcess),
+          electron.restart(),
+        ]);
         expect(stoppedProcess?.exitCode).toBe(0);
         ownedProcess = restarted.app.process();
         expect(restarted.app.process().pid).not.toBe(oldProcessId);
@@ -445,7 +456,7 @@ async function assertWorkerWrite(
     // the acceptance failure first rather than replacing it with diagnostics.
     for (const cleanup of [
       async () => {
-        await electron.dispose();
+        await Promise.all([waitForOwnedExit(ownedProcess), electron.dispose()]);
         if (ownedProcess) {
           expect(ownedProcess.exitCode).toBe(0);
           expect(ownedProcess.signalCode).toBeNull();

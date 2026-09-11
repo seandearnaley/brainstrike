@@ -2325,7 +2325,11 @@ function assignDelegatedInvocationRunEvent(
 ): boolean {
   const turnMessageId = event.metadata?.['originatingTurnMessageId'];
   const toolCallId = event.metadata?.['parentToolCallId'];
-  if (typeof turnMessageId !== 'string' || typeof toolCallId !== 'string') {
+  if (
+    !event.kind.startsWith('subagent.') ||
+    typeof turnMessageId !== 'string' ||
+    typeof toolCallId !== 'string'
+  ) {
     return false;
   }
   let insideTurn = false;

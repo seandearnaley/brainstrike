@@ -142,7 +142,18 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
                       method: 'POST',
                     });
                     if (!response.ok) {
-                      throw new Error(`Child Stop did not complete (status ${response.status}).`);
+                      const failure: unknown = await response.json();
+                      if (
+                        failure &&
+                        typeof failure === 'object' &&
+                        'message' in failure &&
+                        typeof failure.message === 'string'
+                      ) {
+                        throw new Error(failure.message);
+                      }
+                      throw new Error(
+                        `Child Stop returned an invalid error response (status ${response.status}).`
+                      );
                     }
                     root.store.invalidate(node.threadId);
                     setSaved(undefined);

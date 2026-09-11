@@ -4197,3 +4197,7 @@ snapshot and hydrates its durable history. The default composer Cancel is hidden
 when this explicit child control owns cancellation, so there is only one Stop.
 Root messaging remains usable after the child is stopped. The actual Electron
 worker test covers that transition and the subsequent reload/reopen.
+Binding cleanup and delegated persistence both own after-tool-call work. Stream
+option assembly joins both hooks, including when either fails. Background resume
+supplies the original native task thread and call identity to that completion hook;
+the leaf's mutated resume context cannot identify the parent dispatch.
