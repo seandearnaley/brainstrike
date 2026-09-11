@@ -16,6 +16,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
   return {
     ...actual,
+    withFileLock: vi.fn(actual.withFileLock),
   };
 });
 
@@ -170,6 +171,115 @@ describe('read-before-write staleness guard', () => {
       expect((await git(['rev-list', '--count', 'HEAD'])).stdout.trim()).toBe('1');
     } finally {
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it.each([
+    ['writeWorkspaceFile', { content: 'Late effect', path: '/README.md' }],
+    [
+      'stringReplaceWorkspaceFile',
+      { newStr: 'Late effect', oldStr: 'Completed child effect', path: '/README.md' },
+    ],
+    ['deleteWorkspaceFile', { path: '/README.md' }],
+    ['renameWorkspaceFile', { fromPath: '/README.md', toPath: '/moved.md' }],
+  ] as const)(
+    'stopping a child prevents a queued %s while preserving completed work',
+    async (name, input) => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const release = Promise.withResolvers<void>();
+      let holding: Promise<void> | undefined;
+      let mutation: Promise<unknown> | undefined;
+      try {
+        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+        const write = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
+        await write(
+          { content: 'Completed child effect', path: '/README.md' },
+          { agent: { threadId: 'child-stopped', toolCallId: 'completed-write' } }
+        );
+        const canonicalPath = realpathSync(path.join(workspaceRootPath, 'README.md'));
+        vi.mocked(withFileLock).mockClear();
+        holding = withFileLock(canonicalPath, () => release.promise);
+        const controller = new AbortController();
+        mutation = Promise.resolve(
+          requireToolExecute(tools, `brainstrike.${name}`)(input, {
+            abortSignal: controller.signal,
+            agent: { threadId: 'child-stopped', toolCallId: 'queued-mutation' },
+          })
+        );
+        // Observe admission to the real path lock before stopping the child.
+        await vi.waitFor(() =>
+          expect(
+            vi.mocked(withFileLock).mock.calls.filter(([key]) => key === canonicalPath)
+          ).toHaveLength(2)
+        );
+        controller.abort(new Error('Selected child stopped'));
+        const rejected = expect(mutation).rejects.toThrow('Selected child stopped');
+        release.resolve();
+        await rejected;
+        expect(await fsPromises.readFile(canonicalPath, 'utf8')).toBe('Completed child effect');
+        await expect(
+          fsPromises.stat(path.join(workspaceRootPath, 'moved.md'))
+        ).rejects.toMatchObject({ code: 'ENOENT' });
+        await write(
+          { content: 'Sibling still active', path: '/sibling.txt' },
+          { agent: { threadId: 'child-sibling', toolCallId: 'sibling-write' } }
+        );
+        expect(await fsPromises.readFile(path.join(workspaceRootPath, 'sibling.txt'), 'utf8')).toBe(
+          'Sibling still active'
+        );
+      } finally {
+        release.resolve();
+        await Promise.allSettled([holding, mutation]);
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }
+  );
+
+  it('keeps the child on its bound non-Git root and refuses a disconnected root instead of switching folders', async () => {
+    const firstRoot = await createWorkspaceFixture();
+    const focusedRoot = await createWorkspaceFixture();
+    try {
+      const roots = [
+        { displayName: 'Bound', path: firstRoot, rootId: 'bound-root' },
+        { displayName: 'Focused', path: focusedRoot, rootId: 'focused-root' },
+      ];
+      const runtime = {
+        ...guardRuntime(firstRoot),
+        boundWorkspaceRootId: 'bound-root',
+        workspaceRootPath: focusedRoot,
+        workspaceRoots: roots,
+      };
+      const tools = buildDesktopAssistantTools(runtime);
+      const execution = { agent: { threadId: 'child-bound', toolCallId: 'bound-write' } };
+      await requireToolExecute(tools, 'brainstrike.writeWorkspaceFile')(
+        { content: 'Bound child effect', path: '/child.txt' },
+        execution
+      );
+      expect(await fsPromises.readFile(path.join(firstRoot, 'child.txt'), 'utf8')).toBe(
+        'Bound child effect'
+      );
+      await expect(
+        fsPromises.readFile(path.join(focusedRoot, 'child.txt'), 'utf8')
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      const disconnected = buildDesktopAssistantTools({
+        ...runtime,
+        workspaceRoots: roots.filter((root) => root.rootId !== 'bound-root'),
+      });
+      await expect(
+        requireToolExecute(disconnected, 'brainstrike.writeWorkspaceFile')(
+          { content: 'Must not switch roots', path: '/other.txt' },
+          execution
+        )
+      ).rejects.toThrow(/bound workspace root.*no longer open/i);
+      await expect(
+        fsPromises.readFile(path.join(focusedRoot, 'other.txt'), 'utf8')
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await fsPromises.readFile(path.join(firstRoot, 'child.txt'), 'utf8')).toBe(
+        'Bound child effect'
+      );
+    } finally {
+      await fsPromises.rm(firstRoot, { force: true, recursive: true });
+      await fsPromises.rm(focusedRoot, { force: true, recursive: true });
     }
   });
 

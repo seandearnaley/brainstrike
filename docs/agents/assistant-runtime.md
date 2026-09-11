@@ -4233,3 +4233,14 @@ alert and disconnects its observer; it does not crash or unmount the transcript.
 In the static tier, targets taller than the viewport align their start rather
 than centering it above the visible frame. The virtual tier retains its existing
 center alignment through the virtualizer; both tiers keep their own scroll owners.
+
+### Cancellation at queued native file mutations (BST-1726)
+
+The native workspace executor forwards `ToolExecutionContext.abortSignal` for
+write, string replacement, delete and rename. The operation checks both this
+selected-child signal and the host-leg signal inside the canonical path lock,
+immediately before filesystem mutation. It does not substitute the root signal
+for the child's signal. A mutation already started completes ordinary checkpoint
+and index settlement, preserving inspectable completed work. Real lock-contention
+integration cases verify all four cancelled mutations and an unaffected sibling;
+this boundary does not itself claim UI selective-Stop acceptance.

@@ -141,11 +141,23 @@ async function collectEditDiagnostics(args: {
   }
 }
 
+/** Stop prevents a queued mutation from starting. Once a filesystem mutation
+ * starts, its normal checkpoint/index settlement must finish before releasing
+ * the lock; cancellation must not erase or leave completed work unattributed. */
+function assertFileMutationActive(
+  runtimeData: RuntimeData | undefined,
+  signal: AbortSignal | undefined
+): void {
+  runtimeData?.signal?.throwIfAborted();
+  signal?.throwIfAborted();
+}
+
 export async function runWriteWorkspaceFile(
   input: WriteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
   toolCallId?: string,
-  threadScope = readStateScope(runtimeData)
+  threadScope = readStateScope(runtimeData),
+  signal?: AbortSignal
 ): Promise<{
   rootName: string;
   rootId: string;
@@ -193,6 +205,7 @@ export async function runWriteWorkspaceFile(
     // ledger INSIDE the lock so no concurrent same-file edit can slip newer
     // bytes between capture and write.
     const beforeState = await captureBeforeState(resolved.absolutePath);
+    assertFileMutationActive(runtimeData, signal);
     const writeResult = await writeContainedFileBytes({
       buffer,
       requestedPath: input.path,
@@ -252,7 +265,8 @@ export async function runStringReplaceWorkspaceFile(
   input: StringReplaceWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
   toolCallId?: string,
-  threadScope = readStateScope(runtimeData)
+  threadScope = readStateScope(runtimeData),
+  signal?: AbortSignal
 ): Promise<{
   rootName: string;
   rootId: string;
@@ -320,6 +334,7 @@ export async function runStringReplaceWorkspaceFile(
       );
     }
 
+    assertFileMutationActive(runtimeData, signal);
     await writeContainedFileBytes({ buffer, requestedPath: input.path, resolved });
     resetEditFailureStreak(scope, root.rootId, resolved.workspacePath);
     // Our own write is the scope's freshest observation — a follow-up edit in
@@ -414,7 +429,8 @@ export async function runDeleteWorkspaceFile(
   input: DeleteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
   toolCallId?: string,
-  threadScope = readStateScope(runtimeData)
+  threadScope = readStateScope(runtimeData),
+  signal?: AbortSignal
 ): Promise<{
   ok: true;
   path: string;
@@ -459,6 +475,7 @@ export async function runDeleteWorkspaceFile(
     // Capture the before-identity for the attribution ledger BEFORE
     // unlinking; the undo recreates the file from the turn-start snapshot.
     const beforeState = await captureBeforeState(mutationPath);
+    assertFileMutationActive(runtimeData, signal);
     await fsPromises.unlink(mutationPath);
     // Drop the staleness observation with the file so a later re-creation at
     // this path is treated as new, not compared against a ghost.
@@ -494,7 +511,8 @@ export async function runRenameWorkspaceFile(
   input: RenameWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
   toolCallId?: string,
-  threadScope = readStateScope(runtimeData)
+  threadScope = readStateScope(runtimeData),
+  signal?: AbortSignal
 ): Promise<{
   ok: true;
   fromPath: string;
@@ -585,6 +603,7 @@ export async function runRenameWorkspaceFile(
       path.dirname(toResolved.absolutePath)
     );
 
+    assertFileMutationActive(runtimeData, signal);
     await fsPromises.rename(fromMutationPath, toResolved.absolutePath);
 
     // Move the observation with the file. Regular file: the source path is

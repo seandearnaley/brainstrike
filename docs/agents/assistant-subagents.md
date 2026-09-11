@@ -1648,3 +1648,9 @@ without the checkpoint bridge do not query or expose native checkpoint controls.
 The Electron worker test proves child restore after reopen, durable reverted
 state after reload, preservation of an independent user file, and no new model
 request. This does not complete all workspace coordination acceptance.
+
+Delegated native file mutations carry the selected execution's abort signal to
+the per-path mutation boundary. A child stopped while waiting for a shared file
+lock cannot mutate after the lock becomes available; completed child edits stay
+inspectable and a sibling retains its own execution signal. The four real queued
+write/replace/delete/rename cases live in the workspace staleness integration suite.

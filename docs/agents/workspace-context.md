@@ -1747,3 +1747,17 @@ sibling workspace tools and temporary Git repositories,
 `delegated-workspace-snapshot.integration.test.ts` covers baseline recovery and
 failed/legacy captures, and `delegated-worker-write.desktop.test.ts` opens the
 real child, restores its created file, and reloads without replaying the worker.
+
+Child file-mutation callbacks retain Mastra's per-execution `abortSignal` as well
+as the host-leg signal. After waiting for the canonical path lock and reading
+before-state, they check both immediately before write/replace/delete/rename.
+Stopping one child cannot start its queued mutation when the lock is released.
+A filesystem operation already started still settles its existing checkpoint
+and index attribution; Stop does not roll back completed edits. The real path-lock
+cases in `assistant-tools-write-staleness.integration.test.ts` cover all four
+mutations, preserved completed bytes, and an unaffected sibling.
+
+A child's explicit bound root also wins over the currently focused folder on
+non-Git workspaces. Disconnecting that root is a visible error; neither a new
+folder focus nor unavailable worktree capability authorizes switching roots.
+The same integration file proves both actual filesystem destinations.
