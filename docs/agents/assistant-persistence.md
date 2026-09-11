@@ -3453,3 +3453,30 @@ failure shows an explicit error; another user click may retry that read. No run 
 started, no alternate snapshot store is introduced, and reload uses the ordinary
 thread workspace record. Coordinator regressions cover delayed, superseded and
 failed reads; the Electron workspace fixture checks both roots' actual saved tabs.
+
+
+### Durable native background outcomes (BST-1723)
+
+Migration 133 registers `mastra_background_tasks` with the native PGlite adapter;
+the table participates in database clear and factory reset. Task scope is the
+root resource/thread, not a renderer tab. Updates use expected-status comparison
+so competing lifecycle transitions cannot overwrite each other.
+
+Completed, failed and timed-out outcomes are reconciled before inference. The
+native task row carries `delivered_at`, separate from native status, so transcript
+retention cannot make an already delivered task poison every subsequent turn.
+Native completion hooks acknowledge only after native `onResult` flushes memory;
+resumed/repaired outcomes acknowledge only after the host message write succeeds.
+A failed acknowledgement remains recoverable and never re-executes the effect.
+Exactly one retained matching invocation is updated; ambiguous matches fail.
+If retention removed the invocation, the task's durable input and outcome create
+a deterministic recovery message that visibly explains the missing original and
+that no work was rerun. Missing failure details and timeouts get explicit error
+text, including uncertainty about external effects. Result/error and cleared
+pending-decision metadata are saved together. Recovery scans every undelivered
+page before acknowledging, so acknowledgements cannot shift pagination and skip
+a task. `background-outcome-recovery.integration.spec.ts` covers lost messages,
+all three terminal outcomes, repeat repair and delivery acknowledgement reload. Native resuspension joins the workflow snapshot before exposing a
+new resumable decision. Native reconstructed-runtime recovery is tested separately
+from the actual desktop process-restart pending-approval case; it is not evidence
+of completed-undelivered recovery through every host restart boundary.

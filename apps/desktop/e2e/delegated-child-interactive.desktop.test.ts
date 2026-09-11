@@ -1,3 +1,4 @@
+// Keep foreground decisions covered explicitly; delegated-worker-write covers background mode.
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -61,7 +62,10 @@ async function assertChildDecision(
       return {
         finalText: parentResult,
         toolCall: {
-          arguments: { prompt: 'Request my decision, then report the exact outcome.' },
+          arguments: {
+            _background: { enabled: false },
+            prompt: 'Request my decision, then report the exact outcome.',
+          },
           name: 'agent-decision-probe',
         },
       };

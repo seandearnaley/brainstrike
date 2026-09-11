@@ -12,6 +12,7 @@ import { Mastra } from '@mastra/core/mastra';
 import { parseMemoryRequestContext } from '@mastra/core/memory';
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import { RequestContext } from '@mastra/core/request-context';
+import { MastraCompositeStore } from '@mastra/core/storage';
 import type { ChunkType } from '@mastra/core/stream';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -898,7 +899,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     const host = new Mastra({
       backgroundTasks: { enabled: true },
       logger: false,
-      storage: backing.storage,
+      storage: new MastraCompositeStore({
+        domains: { memory: backing.store },
+        id: 'omitted-domain-control',
+      }),
     });
     hosts.add(host);
     const store = await host.backgroundTaskManager?.getStorage();
@@ -927,7 +931,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     const nextHost = new Mastra({
       backgroundTasks: { enabled: true },
       logger: false,
-      storage: recreated.storage,
+      storage: new MastraCompositeStore({
+        domains: { memory: recreated.store },
+        id: 'omitted-domain-recreated',
+      }),
     });
     hosts.add(nextHost);
     const nextStore = await nextHost.backgroundTaskManager?.getStorage();
@@ -938,7 +945,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
   });
 
   it('uses stream untilIdle without a second model invocation when no background work exists', async () => {
-    const { parent, effect } = tree();
+    const { parent, effect, parentModel } = tree();
     const output = await parent.stream('Read', {
       memory: { resource: 'owner', thread: 'root' },
       untilIdle: true,
@@ -946,5 +953,6 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     await collect(output.fullStream);
     expect(await output.text).toBe('child-1 answered');
     expect(effect).toHaveBeenCalledTimes(1);
+    expect(parentModel.prompts).toHaveLength(2);
   });
 });

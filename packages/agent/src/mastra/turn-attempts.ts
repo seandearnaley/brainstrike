@@ -74,14 +74,23 @@ export interface StreamIterationParams {
 }
 export interface StreamAbortContext {
   abort: (reason: Error) => void;
-  dispose: () => void;
+  dispose: () => Promise<void>;
   signal: AbortSignal;
 }
 
 export function createStreamAbortContext(
-  externalSignal: AbortSignal | undefined
+  externalSignal: AbortSignal | undefined,
+  stopOwnedBackground?: (cancelPaused: boolean) => Promise<void>
 ): StreamAbortContext {
   const controller = new AbortController();
+  let backgroundStop: Promise<void> | undefined;
+  let closingNormally = false;
+  const abortBackground = (): void => {
+    backgroundStop ??= stopOwnedBackground?.(!closingNormally);
+    // Disposal below joins the original rejection; an event listener cannot await it.
+    backgroundStop?.catch(() => {});
+  };
+  controller.signal.addEventListener('abort', abortBackground, { once: true });
   const forwardExternalAbort = (): void => {
     controller.abort(externalSignal?.reason);
   };
@@ -95,15 +104,61 @@ export function createStreamAbortContext(
   return {
     abort: (reason) => {
       if (!controller.signal.aborted) {
+        // Attempt/provider/watchdog failure is not an explicit root Stop.
+        closingNormally = true;
         controller.abort(reason);
       }
     },
-    dispose: () => {
+    dispose: async () => {
       externalSignal?.removeEventListener('abort', forwardExternalAbort);
+      if (!controller.signal.aborted) {
+        closingNormally = true;
+        controller.abort(new Error('Mastra stream consumption ended.'));
+      }
+      controller.signal.removeEventListener('abort', abortBackground);
+      await backgroundStop;
     },
     signal: controller.signal,
   };
 }
+/** Preserve the construction cause while still joining background cleanup. */
+export async function disposeStreamAfterFailure(
+  context: StreamAbortContext,
+  failure: unknown
+): Promise<unknown> {
+  try {
+    await context.dispose();
+    return failure;
+  } catch (cleanupFailure) {
+    return new AggregateError(
+      [failure, cleanupFailure],
+      'Stream construction and background cleanup failed'
+    );
+  }
+}
+
+/** One cleanup boundary joins every owner and keeps primary and cleanup causes. */
+export async function settleStreamCleanup(
+  owners: readonly (Promise<void> | undefined)[],
+  primaryFailure: unknown,
+  diagnostics: () => void
+): Promise<void> {
+  const settled = await Promise.allSettled(owners);
+  diagnostics();
+  const failures = settled.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : []
+  );
+  if (failures.length === 0) {
+    return;
+  }
+  if (primaryFailure !== undefined) {
+    failures.unshift(primaryFailure);
+  }
+  throw failures.length === 1
+    ? failures[0]
+    : new AggregateError(failures, 'Stream and background cleanup failed');
+}
+
 interface StreamResultLike {
   fullStream?: NodeReadableStream<unknown> | ReadableStream<unknown>;
 }

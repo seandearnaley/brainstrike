@@ -42,7 +42,7 @@ Verified against installed **core 1.64.0 / memory 1.28.2**:
 | Context | Each delegation gets a separate RequestContext map. This is a **shallow** copy, not deep isolation of mutable values; R5 in mastra-boundary.md still governs product context ownership. |
 | Hook failure | Select `hookErrorStrategy: 'throw'`. The default continues after a filter/observer failure. Brainstrike's `createDelegationConfig` now explicitly fails the delegation if its lifecycle hook throws; the real-loop regression proves a failed usage sink is not reported as a successful result. |
 | Current background API | Use `agent.stream(messages, { untilIdle: true })`; `streamUntilIdle()` is deprecated in the installed declarations. The no-background case completes without a second effect. Full background delivery needs BST-1723. |
-| Background durability | The current composite store supplies an **in-memory** background domain when none is registered. A record disappears when the storage wrapper is recreated over the same PGlite DB. Enabling the manager alone is not durable support. |
+| Background durability | The composite store registers the native background domain in PGlite. Tasks survive storage reconstruction; runtime scopes constrain all reads and writes to the root owner. Pending approval recovery is also exercised across an actual desktop host restart. |
 
 The initial failed assertions established that a throwing context filter still
 ran the child under the default policy, and that a throwing Brainstrike usage
@@ -1514,3 +1514,23 @@ subagent event; other ancestors may still complete after handling it.
 Delegation cards resolve durable names and colors through the owning workspace repository, validating the actual parent rather than persona identity. Task text comes from the delegation tool input. Missing or contradictory authorized identity remains a visible local error; generic role labels before an address arrives are not fabricated child names.
 
 A child-open request made before the workspace repository is available fails visibly and clears its session intent. Boot hydration still restores the saved root, but cannot replay that rejected child-open request; the user may explicitly open the child after storage is ready. The shared coordinator test covers this boundary.
+
+
+### Background worker execution and pending controls (BST-1723)
+
+Desktop run-scoped memory supplies `backgroundTaskScope` through assistant-service
+to the native agent runtime. Persona delegation defaults to nonblocking native
+background execution when that capability exists; the native `_background`
+argument retains foreground selection. Recursive descendants retain their native
+foreground execution inside the background child and use the same durable limits.
+A parent can emit useful text while a child works or waits for a decision. Live
+child content and exact approval controls use the existing rich conversation view.
+Discovery supplies the same root scope and resolves the authorized native leaf;
+missing scope/address is not permission to resume an arbitrary wrapper.
+
+`delegated-worker-write.desktop.test.ts` covers approve-once, decline-without-write,
+recursive leaf approval, renderer reload and a distinct native host restart.
+`background-worker-stream.integration.spec.ts` covers questions followed by a new
+plan pause, failed outcomes, lost parent-result delivery and root Stop with a
+queued effect. Native background follow-up/human composer and selective subtree
+controls remain separate acceptance within BST-1723.

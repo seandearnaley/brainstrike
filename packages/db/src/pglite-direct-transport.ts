@@ -12,6 +12,7 @@
  * `db-provider.tsx` puts the capability-probed desktop bridge ahead of it.
  */
 import {
+  MASTRA_BACKGROUND_TASKS_TABLE,
   MASTRA_MEMORY_TABLES,
   MASTRA_VECTOR_TABLE,
   MASTRA_WORKFLOW_TABLE,
@@ -216,6 +217,7 @@ async function purgeTablesTx(tx: { query: (sql: string) => Promise<unknown> }): 
   await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.resources);
   await clearRelationIfPresent(tx, MASTRA_VECTOR_TABLE);
   await clearRelationIfPresent(tx, MASTRA_WORKFLOW_TABLE);
+  await clearRelationIfPresent(tx, MASTRA_BACKGROUND_TASKS_TABLE);
   // Task Ledger outcome labels: web-writable (user verdicts), no FK —
   // clear explicitly per the FACTORY RESET CONTRACT (review #1693).
   await clearRelationIfPresent(tx, 'brainstrike_assistant_run_outcomes');
@@ -522,6 +524,7 @@ export function createPgliteDirectTransport(
       // Suspended Mastra workflow snapshots: unbounded lifetime, no FK, and they
       // retain the pending tool call and its arguments (BST-558).
       await clearRelationIfPresent(tx, MASTRA_WORKFLOW_TABLE);
+      await clearRelationIfPresent(tx, MASTRA_BACKGROUND_TASKS_TABLE);
       // Thread search index (migration 067): derived conversation text + sync
       // state. Diagnostic events (migration 073): the durable warn+ error log,
       // no FK, so nothing cascades it. Neither may survive a "true fresh start"

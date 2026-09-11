@@ -1,4 +1,4 @@
-import { listSuspendedMastraRuns } from '@brainstrike/agent';
+import { cancelStoredBackgroundTasks, listSuspendedMastraRuns } from '@brainstrike/agent';
 import { CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import {
   cancelSteerableRunAndWait,
@@ -6,6 +6,7 @@ import {
 } from '@brainstrike/assistant-service/steering';
 import { z } from 'zod';
 import { getDatabase } from '../db-main';
+import { createDesktopDelegatedSuspensionResolver } from './delegated-conversation-host';
 import { getDesktopMastraMemory } from './mastra-memory';
 import type { TurnBoundaryController } from './snapshot-turn-boundaries';
 
@@ -15,6 +16,106 @@ const runScope = z.object({
   threadId: z.string().min(1),
   turnMessageId: z.string().nullable(),
 });
+
+type CancellationDatabase = Awaited<ReturnType<typeof getDatabase>>;
+type CancellationScope = z.infer<typeof runScope>;
+
+async function hasWaitingTurnWork(
+  database: CancellationDatabase,
+  scope: CancellationScope
+): Promise<boolean> {
+  if (!scope.turnMessageId) {
+    return false;
+  }
+  const invocations = await database.query(
+    `SELECT DISTINCT invocation.parent_runtime_run_id AS "runId"
+       FROM brainstrike_delegated_invocations invocation
+       JOIN brainstrike_delegated_conversations child ON child.thread_id = invocation.thread_id
+         AND child.owner_resource_id = invocation.owner_resource_id AND child.root_thread_id = invocation.root_thread_id
+       WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
+         AND child.parent_thread_id = $2 AND invocation.turn_message_id = $3`,
+    [scope.resourceId, scope.threadId, scope.turnMessageId]
+  );
+  const ids = z.array(z.object({ runId: z.string().min(1) })).parse(invocations.rows);
+  if (ids.length === 0) {
+    return false;
+  }
+  const backing = await getDesktopMastraMemory(CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS);
+  if (!backing.storage) {
+    throw new Error('Workflow storage is unavailable; waiting work cannot be cancelled.');
+  }
+  const nativeIds = new Set(ids.map(({ runId: nativeRunId }) => nativeRunId));
+  const tasks = await backing.storage.getStore('backgroundTasks');
+  if (!tasks) {
+    throw new Error('Native task storage is unavailable; waiting work cannot be cancelled.');
+  }
+  const background = await tasks.listTasks({
+    resourceId: scope.resourceId,
+    status: ['pending', 'running', 'suspended'],
+    threadId: scope.threadId,
+  });
+  let waiting = background.tasks.some((task) => nativeIds.has(task.runId));
+  if (!waiting) {
+    // Teardown needs root ownership, not a resumable leaf decision. Background
+    // rows above are authoritative even if their decision snapshot is damaged.
+    const discovery = await listSuspendedMastraRuns(
+      { resourceId: scope.resourceId, threadId: scope.threadId },
+      {
+        delegatedSuspensionDiscovery: createDesktopDelegatedSuspensionResolver(database, {
+          ownerResourceId: scope.resourceId,
+          rootThreadId: scope.threadId,
+        }),
+        memory: backing.memory,
+        runtime: {
+          memory: { resourceId: scope.resourceId, threadId: scope.threadId },
+          provider: 'ollama',
+        },
+        storage: backing.storage,
+      }
+    );
+    waiting = [...discovery.approvals, ...discovery.suspends].some((pause) =>
+      nativeIds.has(pause.runId)
+    );
+  }
+  if (!waiting) {
+    return false;
+  }
+  return true;
+}
+
+async function cancelWaitingTurnTasks(
+  database: CancellationDatabase,
+  scope: CancellationScope
+): Promise<void> {
+  if (scope.turnMessageId) {
+    const invocations = await database.query(
+      `SELECT DISTINCT invocation.parent_runtime_run_id AS "runId"
+       FROM brainstrike_delegated_invocations invocation
+       JOIN brainstrike_delegated_conversations child ON child.thread_id = invocation.thread_id
+         AND child.owner_resource_id = invocation.owner_resource_id AND child.root_thread_id = invocation.root_thread_id
+       WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
+         AND child.parent_thread_id = $2 AND invocation.turn_message_id = $3`,
+      [scope.resourceId, scope.threadId, scope.turnMessageId]
+    );
+    const nativeIds = z
+      .array(z.object({ runId: z.string().min(1) }))
+      .parse(invocations.rows)
+      .map((row) => row.runId);
+    if (nativeIds.length > 0) {
+      const backing = await getDesktopMastraMemory(
+        CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS
+      );
+      if (!backing.storage) {
+        throw new Error('Background storage is unavailable; cancellation is incomplete.');
+      }
+      await cancelStoredBackgroundTasks(
+        backing.storage,
+        { resourceId: scope.resourceId, threadId: scope.threadId },
+        nativeIds
+      );
+    }
+  }
+}
 
 /** Cancel host authority durably before aborting any registered execution leg. */
 export async function cancelDesktopAssistantRun(
@@ -35,47 +136,13 @@ export async function cancelDesktopAssistantRun(
     return requestRunCancel(runId);
   }
   const scope = runScope.parse(result.rows[0]);
-  if (scope.status !== 'running' && scope.status !== 'cancelling' && scope.status !== 'cancelled') {
-    if (!scope.turnMessageId) {
-      return false;
-    }
-    const invocations = await database.query(
-      `SELECT DISTINCT invocation.parent_runtime_run_id AS "runId"
-       FROM brainstrike_delegated_invocations invocation
-       JOIN brainstrike_delegated_conversations child ON child.thread_id = invocation.thread_id
-         AND child.owner_resource_id = invocation.owner_resource_id AND child.root_thread_id = invocation.root_thread_id
-       WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
-         AND child.parent_thread_id = $2 AND invocation.turn_message_id = $3`,
-      [scope.resourceId, scope.threadId, scope.turnMessageId]
-    );
-    const ids = z.array(z.object({ runId: z.string().min(1) })).parse(invocations.rows);
-    if (ids.length === 0) {
-      return false;
-    }
-    const backing = await getDesktopMastraMemory(
-      CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS
-    );
-    if (!backing.storage) {
-      throw new Error('Workflow storage is unavailable; waiting work cannot be cancelled.');
-    }
-    const discovery = await listSuspendedMastraRuns(
-      { resourceId: scope.resourceId, threadId: scope.threadId },
-      {
-        memory: backing.memory,
-        runtime: {
-          memory: { resourceId: scope.resourceId, threadId: scope.threadId },
-          provider: 'ollama',
-        },
-        storage: backing.storage,
-      }
-    );
-    const nativeIds = new Set(ids.map(({ runId: nativeRunId }) => nativeRunId));
-    const waiting = [...discovery.approvals, ...discovery.suspends].some((pause) =>
-      nativeIds.has(pause.runId)
-    );
-    if (!waiting) {
-      return false;
-    }
+  if (
+    scope.status !== 'running' &&
+    scope.status !== 'cancelling' &&
+    scope.status !== 'cancelled' &&
+    !(await hasWaitingTurnWork(database, scope))
+  ) {
+    return false;
   }
   // One statement serializes cancellation with durable decision admission in
   // the owning PGlite host. A later resume leg still sees this turn's barrier.
@@ -96,6 +163,7 @@ export async function cancelDesktopAssistantRun(
     .parse(cancelled.rows)
     .map((row) => row.id);
   await Promise.all(ids.map((id) => cancelSteerableRunAndWait(id)));
+  await cancelWaitingTurnTasks(database, scope);
   // Teardown may follow a terminal write. Always finalize after actual owners
   // settle; registration alone is not evidence that a future writer remains.
   await boundaries?.completeCancelledTurn({ runId, threadId: scope.threadId, turnRunIds: ids });

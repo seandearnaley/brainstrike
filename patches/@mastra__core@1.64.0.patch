@@ -1,0 +1,206 @@
+diff --git a/dist/background-tasks-BPwDHuMD.cjs b/dist/background-tasks-BPwDHuMD.cjs
+index 1c2cdfedc207e760276df3be6dd310d207dc54f4..3b845ee237c3cd923d488589f7e07d2c175622d0 100644
+--- a/dist/background-tasks-BPwDHuMD.cjs
++++ b/dist/background-tasks-BPwDHuMD.cjs
+@@ -35,6 +35,8 @@ var BackgroundTaskManager = class {
+ 	initPromise;
+ 	shutdownPromise;
+ 	shutdownDeadline;
++	executionPromises = new Set();
++	executionErrors = [];
+ 	constructor(config = { enabled: false }) {
+ 		this.config = {
+ 			globalConcurrency: config.globalConcurrency ?? 10,
+@@ -504,6 +506,12 @@ var BackgroundTaskManager = class {
+ 		this.shutdownPromise = this.#shutdown();
+ 		return this.shutdownPromise;
+ 	}
++	#ownExecution(promise) {
++		const owned = promise.catch((error) => {
++			this.executionErrors.push(error);
++		}).finally(() => this.executionPromises.delete(owned));
++		this.executionPromises.add(owned);
++	}
+ 	async #shutdown() {
+ 		if (this.cleanupInterval) {
+ 			clearInterval(this.cleanupInterval);
+@@ -526,9 +534,22 @@ var BackgroundTaskManager = class {
+ 			if (result.status === "rejected") this.#mastra?.getLogger?.()?.warn(`Failed to unsubscribe from ${subscriptions[index]?.[0]} during background task shutdown:`, result.reason);
+ 		});
+ 		this.#abortActiveControllers();
++		if (this.initPromise) await this.#joinOwnedShutdown("background task pubsub flush", this.pubsub.flush());
++		await this.#joinOwnedShutdown("background execution cleanup", Promise.all([...this.executionPromises]));
+ 		this.taskContexts.clear();
+ 		this.staticExecutors.clear();
+-		if (this.initPromise) await this.#waitForShutdownStep("background task pubsub flush", this.pubsub.flush());
++		if (this.executionErrors.length) throw new AggregateError(this.executionErrors, "Background execution cleanup failed");
++	}
++	async #joinOwnedShutdown(description, promise) {
++		let settled = false;
++		const observed = promise.then(() => {
++			settled = true;
++		}, (error) => {
++			settled = true;
++			this.executionErrors.push(error);
++		});
++		await this.#waitForShutdownStep(description, observed);
++		if (!settled) this.executionErrors.push(new Error(`${description} exceeded the shutdown deadline; unfinished work must not be replayed`));
+ 	}
+ 	async #cancelTaskForShutdown(taskId) {
+ 		const task = await (await this.getStorage()).getTask(taskId);
+@@ -662,13 +683,13 @@ var BackgroundTaskManager = class {
+ 			const shouldRestart = isRestart && prevWorkflowRun?.status === "running";
+ 			const run = await workflow.createRun({ runId: taskId });
+ 			if (this.shuttingDown) return false;
+-			(shouldRestart ? run.restart() : run.start({ inputData: { taskId } })).then((result) => {
+-				if (result.status !== "suspended") workflow.deleteWorkflowRunById(taskId);
++			const execution = (shouldRestart ? run.restart() : run.start({ inputData: { taskId } })).then(async (result) => {
++				if (result.status !== "suspended") await workflow.deleteWorkflowRunById(taskId);
+ 			}).catch((err) => {
+ 				this.#mastra?.getLogger?.()?.error(`background-task workflow ${shouldRestart ? "restart" : "start"} failed for ${taskId}:`, err);
+-			}).finally(() => {
+-				this.drainPending();
+-			});
++				this.executionErrors.push(err);
++			}).finally(() => this.drainPending());
++			this.#ownExecution(execution);
+ 		}
+ 		return true;
+ 	}
+@@ -697,13 +718,13 @@ var BackgroundTaskManager = class {
+ 		if (resumedTask) await this.publishLifecycleEvent("task.resumed", resumedTask);
+ 		if (!this.#mastra) return true;
+ 		const workflow = this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID);
+-		(await workflow.createRun({ runId: taskId })).resume({ resumeData }).then((result) => {
+-			if (result.status !== "suspended") workflow.deleteWorkflowRunById(taskId);
++		const execution = (await workflow.createRun({ runId: taskId })).resume({ resumeData }).then(async (result) => {
++			if (result.status !== "suspended") await workflow.deleteWorkflowRunById(taskId);
+ 		}).catch((err) => {
+ 			this.#mastra?.getLogger?.()?.error(`background-task workflow resume failed for ${taskId}:`, err);
+-		}).finally(() => {
+-			this.drainPending();
+-		});
++			this.executionErrors.push(err);
++		}).finally(() => this.drainPending());
++		this.#ownExecution(execution);
+ 		return true;
+ 	}
+ 	/**
+diff --git a/dist/background-tasks-BwuORdY5.js b/dist/background-tasks-BwuORdY5.js
+index 6f314202774f22f9a299a86fab5a10346099fc2b..ecee05386c79e2873c6aab28595aa5f6f5ce9dcf 100644
+--- a/dist/background-tasks-BwuORdY5.js
++++ b/dist/background-tasks-BwuORdY5.js
+@@ -35,6 +35,8 @@ var BackgroundTaskManager = class {
+ 	initPromise;
+ 	shutdownPromise;
+ 	shutdownDeadline;
++	executionPromises = new Set();
++	executionErrors = [];
+ 	constructor(config = { enabled: false }) {
+ 		this.config = {
+ 			globalConcurrency: config.globalConcurrency ?? 10,
+@@ -504,6 +506,12 @@ var BackgroundTaskManager = class {
+ 		this.shutdownPromise = this.#shutdown();
+ 		return this.shutdownPromise;
+ 	}
++	#ownExecution(promise) {
++		const owned = promise.catch((error) => {
++			this.executionErrors.push(error);
++		}).finally(() => this.executionPromises.delete(owned));
++		this.executionPromises.add(owned);
++	}
+ 	async #shutdown() {
+ 		if (this.cleanupInterval) {
+ 			clearInterval(this.cleanupInterval);
+@@ -526,9 +534,22 @@ var BackgroundTaskManager = class {
+ 			if (result.status === "rejected") this.#mastra?.getLogger?.()?.warn(`Failed to unsubscribe from ${subscriptions[index]?.[0]} during background task shutdown:`, result.reason);
+ 		});
+ 		this.#abortActiveControllers();
++		if (this.initPromise) await this.#joinOwnedShutdown("background task pubsub flush", this.pubsub.flush());
++		await this.#joinOwnedShutdown("background execution cleanup", Promise.all([...this.executionPromises]));
+ 		this.taskContexts.clear();
+ 		this.staticExecutors.clear();
+-		if (this.initPromise) await this.#waitForShutdownStep("background task pubsub flush", this.pubsub.flush());
++		if (this.executionErrors.length) throw new AggregateError(this.executionErrors, "Background execution cleanup failed");
++	}
++	async #joinOwnedShutdown(description, promise) {
++		let settled = false;
++		const observed = promise.then(() => {
++			settled = true;
++		}, (error) => {
++			settled = true;
++			this.executionErrors.push(error);
++		});
++		await this.#waitForShutdownStep(description, observed);
++		if (!settled) this.executionErrors.push(new Error(`${description} exceeded the shutdown deadline; unfinished work must not be replayed`));
+ 	}
+ 	async #cancelTaskForShutdown(taskId) {
+ 		const task = await (await this.getStorage()).getTask(taskId);
+@@ -662,13 +683,13 @@ var BackgroundTaskManager = class {
+ 			const shouldRestart = isRestart && prevWorkflowRun?.status === "running";
+ 			const run = await workflow.createRun({ runId: taskId });
+ 			if (this.shuttingDown) return false;
+-			(shouldRestart ? run.restart() : run.start({ inputData: { taskId } })).then((result) => {
+-				if (result.status !== "suspended") workflow.deleteWorkflowRunById(taskId);
++			const execution = (shouldRestart ? run.restart() : run.start({ inputData: { taskId } })).then(async (result) => {
++				if (result.status !== "suspended") await workflow.deleteWorkflowRunById(taskId);
+ 			}).catch((err) => {
+ 				this.#mastra?.getLogger?.()?.error(`background-task workflow ${shouldRestart ? "restart" : "start"} failed for ${taskId}:`, err);
+-			}).finally(() => {
+-				this.drainPending();
+-			});
++				this.executionErrors.push(err);
++			}).finally(() => this.drainPending());
++			this.#ownExecution(execution);
+ 		}
+ 		return true;
+ 	}
+@@ -697,13 +718,13 @@ var BackgroundTaskManager = class {
+ 		if (resumedTask) await this.publishLifecycleEvent("task.resumed", resumedTask);
+ 		if (!this.#mastra) return true;
+ 		const workflow = this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID);
+-		(await workflow.createRun({ runId: taskId })).resume({ resumeData }).then((result) => {
+-			if (result.status !== "suspended") workflow.deleteWorkflowRunById(taskId);
++		const execution = (await workflow.createRun({ runId: taskId })).resume({ resumeData }).then(async (result) => {
++			if (result.status !== "suspended") await workflow.deleteWorkflowRunById(taskId);
+ 		}).catch((err) => {
+ 			this.#mastra?.getLogger?.()?.error(`background-task workflow resume failed for ${taskId}:`, err);
+-		}).finally(() => {
+-			this.drainPending();
+-		});
++			this.executionErrors.push(err);
++		}).finally(() => this.drainPending());
++		this.#ownExecution(execution);
+ 		return true;
+ 	}
+ 	/**
+diff --git a/dist/workflow-BZbspbFy.js b/dist/workflow-BZbspbFy.js
+index a0e434869e564a5c651358b6f26f4330f452c7b2..7275104fd92775bf2d3a09e9fd3c4ff25dbc4a93 100644
+--- a/dist/workflow-BZbspbFy.js
++++ b/dist/workflow-BZbspbFy.js
+@@ -125,7 +125,9 @@ function buildBackgroundTaskWorkflow(manager) {
+ 					await manager.publishLifecycleEvent("task.suspended", suspendedTask);
+ 				}
+ 				pendingSuspend = {
+-					data,
++					data: suspendOptions?.isAgentSuspend && typeof suspendOptions.runId === "string"
++						? { toolCallSuspended: data, suspendedToolRunId: suspendOptions.runId }
++						: data,
+ 					suspendOptions
+ 				};
+ 			};
+diff --git a/dist/workflow-Dsi1sm19.cjs b/dist/workflow-Dsi1sm19.cjs
+index dbf247538683d1c244f736502a0285a8a8f79ed0..a0d8c61174c78ead656c6644fa82b01f8ca5d8fc 100644
+--- a/dist/workflow-Dsi1sm19.cjs
++++ b/dist/workflow-Dsi1sm19.cjs
+@@ -125,7 +125,9 @@ function buildBackgroundTaskWorkflow(manager) {
+ 					await manager.publishLifecycleEvent("task.suspended", suspendedTask);
+ 				}
+ 				pendingSuspend = {
+-					data,
++					data: suspendOptions?.isAgentSuspend && typeof suspendOptions.runId === "string"
++						? { toolCallSuspended: data, suspendedToolRunId: suspendOptions.runId }
++						: data,
+ 					suspendOptions
+ 				};
+ 			};

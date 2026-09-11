@@ -10,6 +10,7 @@ import { MastraCompositeStore } from '@mastra/core/storage';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { Memory } from '@mastra/memory';
 import type { AssistantRunEventSink } from '../run-events';
+import { type BackgroundTaskScope, PgliteBackgroundTasksStore } from './background-store';
 import { PgliteMemoryStore } from './memory-store';
 import type { PgliteDatabase } from './types';
 import { PgliteVectorStore } from './vector-store';
@@ -19,6 +20,7 @@ type MastraRuntimeMemoryOptions = NonNullable<AgentMemoryOption['options']>;
 type ConcreteLanguageModel = Exclude<MastraModelConfig, string | OpenAICompatibleConfig>;
 
 export interface PgliteMastraMemoryOptions {
+  backgroundTaskScope?: BackgroundTaskScope;
   database: PgliteDatabase;
   embedder?: MastraEmbeddingModel<string> | string;
   eventSink?: AssistantRunEventSink;
@@ -32,6 +34,7 @@ export interface PgliteMastraMemoryOptions {
 }
 
 export interface PgliteMastraMemoryResult {
+  backgroundTaskScope?: BackgroundTaskScope;
   memory: Memory;
   storage: MastraCompositeStore;
   store: PgliteMemoryStore;
@@ -111,6 +114,7 @@ function buildMastraMemoryOptions({
 }
 
 export async function createPgliteMastraMemory({
+  backgroundTaskScope,
   database,
   embedder,
   eventSink,
@@ -147,8 +151,10 @@ export async function createPgliteMastraMemory({
   await store.init();
   const workflows = new PgliteWorkflowsStore({ database });
   await workflows.init();
+  const backgroundTasks = new PgliteBackgroundTasksStore(database, backgroundTaskScope);
+  await backgroundTasks.init();
   const storage = new MastraCompositeStore({
-    domains: { memory: store, workflows },
+    domains: { backgroundTasks, memory: store, workflows },
     id: `${id}-storage`,
   });
   const vector = new PgliteVectorStore({
@@ -169,5 +175,12 @@ export async function createPgliteMastraMemory({
     }),
   });
 
-  return { memory, storage, store, vector, workflows };
+  return {
+    ...(backgroundTaskScope ? { backgroundTaskScope } : {}),
+    memory,
+    storage,
+    store,
+    vector,
+    workflows,
+  };
 }

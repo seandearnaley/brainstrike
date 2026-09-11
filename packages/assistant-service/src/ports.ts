@@ -29,6 +29,7 @@ type LocalLlmWarmupArgs = Parameters<LocalLlmHostClient['warmup']>;
 /** Process-local options independent of serialized RuntimeData, including host capabilities. */
 type SerializableIndependentStreamRuntimeOptions = Pick<
   MastraAgentRuntimeOptions,
+  | 'backgroundTaskScope'
   | 'conversationBinding'
   | 'memory'
   | 'storage'

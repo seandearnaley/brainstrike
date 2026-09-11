@@ -4154,3 +4154,37 @@ The shared `ThreadScrollFollowProvider` ignores zero-height geometry from hidden
 - Their rewind composer bridge leaves the root prompt handoff untouched; viewing a child cannot restore the parent or consume its draft.
 - Shared static scrolling preserves the last visible reader position when a kept-alive workspace tab returns from zero geometry, including Chromium anchor displacement.
 - Paired tests cover parent rewind, child isolation and actual Electron sidebar navigation.
+
+
+### Background conversation ownership (BST-1723)
+
+`runAssistantTurn` acquires a FIFO owner keyed by resource and root thread before
+initialization. Waiting input is abortable without releasing its predecessor or
+starting its initializer. Independent roots do not share that queue. Ownership
+ends only after the managed session closes and its terminal status write settles;
+completion is owned even when the caller has not awaited the returned promise.
+Desktop turn checkpoints begin inside the admitted initializer.
+
+Background child output enters the ordinary delegated projection. Resume first
+validates the exact durable decision and claim, then reconstructs the native
+executor through `getToolsForExecution`, resumes the original native task, and
+forwards its real output writer. A further question/plan pause ends the resume
+leg after native snapshot persistence, without premature parent inference.
+Explicit root Stop shuts native admission, cancels queued/paused/running work and
+joins the execution and workflow writes; tab closure is not a stop command.
+Tests: service `run-turn.test.ts`, native `background-worker-stream.integration.spec.ts`
+and desktop `delegated-worker-write.desktop.test.ts`.
+
+### Background failure and stopped-pause ownership (BST-1723)
+
+Only explicit external root cancellation cancels paused native tasks. Provider
+construction failure, watchdog failure and ordinary disposal abort the attempt
+while retaining durable approvals/questions. Construction and streaming cleanup
+join their background work; multiple failures retain all causes and diagnostics.
+A Stop after the response closes revokes the durable turn, waits for live owners,
+CAS-cancels that turn's native background tasks and deletes their workflow
+snapshots before reporting success. Damaged decision payloads cannot prevent
+root-owned teardown. Repeated Stop completes interrupted snapshot deletion.
+Native/HTTP regressions live in `background-failure-cleanup.spec.ts`,
+`background-worker-stream.integration.spec.ts` and
+`delegated-waiting-cancel.integration.test.ts`.

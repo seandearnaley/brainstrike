@@ -2,6 +2,7 @@ import type { McpHostPort } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
+import type { AgentBackgroundConfig, BackgroundTaskManager } from '@mastra/core/background-tasks';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
@@ -10,6 +11,10 @@ import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
+import {
+  type BackgroundTaskScope,
+  MAX_BACKGROUND_TASK_TIMEOUT_MS,
+} from '../pglite-mastra-memory/background-store';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import {
   createProviderCallWarningSink,
@@ -30,6 +35,7 @@ import {
   type CacheAwareInstructions,
   composeCacheAwareInstructions,
 } from './anthropic-instruction-cache';
+import { requireBackgroundResultDelivery } from './background-result-delivery';
 import type { DelegatedExecutionOptions } from './build-persona-subagents';
 import {
   buildContextBudgetNote,
@@ -81,6 +87,8 @@ export interface MastraAgentRuntimeOptions {
    * the legacy runtime/env key resolution.
    */
   authInput?: ProviderAuthInput;
+  /** Host-owned durable background scope; never client RuntimeData. */
+  backgroundTaskScope?: BackgroundTaskScope;
   /** Host-owned native identity persistence; never serialized through RuntimeData. */
   conversationBinding?: DelegatedConversationBinding | undefined;
   /** @internal Initial host system context; native child snapshots own resumption. */
@@ -167,6 +175,7 @@ export interface MastraAgentRuntime {
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
   /** Fail-loud completion check for the client-provided persisted assistant id. */
   assertAssistantMessageIdPersisted?: () => void;
+  backgroundTaskManager?: BackgroundTaskManager | undefined;
   conversationBinding?: DelegatedConversationBinding | undefined;
   delegatedExecutionOptions?: DelegatedExecutionOptions;
   delegatedTurnPersistence?: DelegatedTurnPersistence | undefined;
@@ -415,9 +424,11 @@ function composeRuntimeInstructions(params: {
 function registerAgentWithMastra(
   agent: Agent,
   storage: MastraCompositeStore | undefined,
-  assistantMessageId: string | undefined
+  assistantMessageId: string | undefined,
+  backgroundEnabled: boolean
 ): {
   assertAssistantMessageIdPersisted?: () => void;
+  backgroundTaskManager?: BackgroundTaskManager | undefined;
   mastra?: Mastra;
 } {
   if (!storage) {
@@ -428,6 +439,12 @@ function registerAgentWithMastra(
     : undefined;
   const mastra = new Mastra({
     agents: { brainstrikeAssistant: agent },
+    backgroundTasks: {
+      defaultRetries: { maxRetries: 0 },
+      defaultTimeoutMs: MAX_BACKGROUND_TASK_TIMEOUT_MS,
+      enabled: backgroundEnabled,
+      waitTimeoutMs: 0,
+    },
     ...(assistantMessageIdGenerator ? { idGenerator: assistantMessageIdGenerator.generate } : {}),
     logger: false,
     storage,
@@ -436,6 +453,7 @@ function registerAgentWithMastra(
     ...(assistantMessageIdGenerator
       ? { assertAssistantMessageIdPersisted: assistantMessageIdGenerator.assertConsumed }
       : {}),
+    backgroundTaskManager: backgroundEnabled ? mastra.backgroundTaskManager : undefined,
     mastra,
   };
 }
@@ -480,9 +498,45 @@ function registerAppCapableAdmission(
   return registry?.register(admission);
 }
 
+async function buildBackgroundAgentOptions(
+  scope: BackgroundTaskScope | undefined,
+  hasSubAgents: boolean,
+  personas: ReadonlyMap<string, AssistantPersonaDefinition>,
+  storage: MastraCompositeStore | undefined
+): Promise<{ backgroundTasks?: AgentBackgroundConfig }> {
+  if (!(scope && hasSubAgents)) {
+    return {};
+  }
+  const delivery = requireBackgroundResultDelivery(await storage?.getStore('backgroundTasks'));
+  // Native onResult joins SaveQueueManager.flushMessages before these public hooks.
+  return {
+    backgroundTasks: {
+      onTaskComplete: (task) => delivery.markResultDelivered(task.id),
+      onTaskFailed: (task) => delivery.markResultDelivered(task.id),
+      tools: Object.fromEntries([...personas.keys()].map((id) => [id, true])),
+      waitTimeoutMs: 0,
+    },
+  };
+}
+
+function assertBackgroundScope(options: MastraAgentRuntimeOptions): void {
+  const scope = options.backgroundTaskScope;
+  if (!scope) {
+    return;
+  }
+  if (
+    !(options.storage && options.memory) ||
+    scope.resourceId !== options.runtime?.memory?.resourceId ||
+    scope.threadId !== options.runtime?.memory?.threadId
+  ) {
+    throw new Error('Background children require matching durable host memory scope.');
+  }
+}
+
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
+  assertBackgroundScope(options);
   const {
     authInput,
     runtime,
@@ -751,7 +805,14 @@ export async function createMastraAgentRuntime(
   // implicit default to 10 (see ASSISTANT_MAX_PROCESSOR_RETRIES). See docs/agents/assistant-runtime.md
   // ASSISTANT RESILIENCE.
   const errorProcessors = buildAssistantErrorProcessors(normalizedProvider);
+  const backgroundAgentOptions = await buildBackgroundAgentOptions(
+    options.backgroundTaskScope,
+    hasSubAgents,
+    personasById,
+    storage
+  );
   const agent = new Agent({
+    ...backgroundAgentOptions,
     id: 'brainstrike-assistant',
     instructions: composedInstructions.agentInstructions,
     model: observedLanguageModel,
@@ -767,7 +828,8 @@ export async function createMastraAgentRuntime(
   const { mastra, ...assistantIdentityRuntime } = registerAgentWithMastra(
     agent,
     storage,
-    runtime?.assistantMessageId
+    runtime?.assistantMessageId,
+    Boolean(backgroundAgentOptions.backgroundTasks)
   );
   const invalidateMcpAppAdmission = registerAppCapableAdmission(
     mcpAppAdmission,

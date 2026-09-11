@@ -13,6 +13,7 @@ export const MASTRA_MEMORY_TABLES = {
 
 export const MASTRA_VECTOR_TABLE = 'mastra_vectors';
 export const MASTRA_WORKFLOW_TABLE = TABLE_WORKFLOW_SNAPSHOT;
+export const MASTRA_BACKGROUND_TASKS_TABLE = 'mastra_background_tasks';
 
 /**
  * Assistant-ui's client-owned branch topology layered over Mastra's durable
@@ -300,6 +301,7 @@ export const ASSISTANT_COMPACTION_RANGES_TABLE = 'brainstrike_assistant_compacti
  * ("threadId" OR "lookupKey") and stays inline at each site.
  */
 export const THREAD_DELETE_SIDECAR_TABLES = [
+  { table: MASTRA_BACKGROUND_TASKS_TABLE, threadColumn: 'thread_id' },
   { table: ASSISTANT_COMPACTION_RANGES_TABLE, threadColumn: 'thread_id' },
   { table: ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE, threadColumn: 'thread_id' },
   { table: 'brainstrike_canvas_versions', threadColumn: 'thread_id' },
@@ -366,3 +368,33 @@ export const DELEGATED_THREAD_DELETE_CTES = `
   deletion_threads AS (
     SELECT id FROM deletion_candidates WHERE (SELECT all_authorized FROM deletion_scope_validation)
   )`;
+
+/** Mastra's public background-task storage schema; shared with migrations/reset. */
+export const MASTRA_BACKGROUND_TASKS_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS ${MASTRA_BACKGROUND_TASKS_TABLE} (
+  id TEXT PRIMARY KEY,
+  tool_call_id TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  thread_id TEXT,
+  resource_id TEXT,
+  status TEXT NOT NULL,
+  args JSONB NOT NULL,
+  result JSONB,
+  error JSONB,
+  suspend_payload JSONB,
+  retry_count INTEGER NOT NULL,
+  max_retries INTEGER NOT NULL,
+  timeout_ms INTEGER NOT NULL,
+  "createdAt" TIMESTAMPTZ NOT NULL,
+  "startedAt" TIMESTAMPTZ,
+  "suspendedAt" TIMESTAMPTZ,
+  "completedAt" TIMESTAMPTZ
+);
+ALTER TABLE ${MASTRA_BACKGROUND_TASKS_TABLE} ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_mastra_background_tasks_thread
+  ON ${MASTRA_BACKGROUND_TASKS_TABLE} (resource_id, thread_id, "createdAt", id);
+CREATE INDEX IF NOT EXISTS idx_mastra_background_tasks_status
+  ON ${MASTRA_BACKGROUND_TASKS_TABLE} (status, agent_id);
+`;

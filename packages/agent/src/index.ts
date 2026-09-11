@@ -180,6 +180,7 @@ export {
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
 } from './mastra/agent-streaming';
+export { cancelStoredBackgroundTasks } from './mastra/background-cancellation';
 export {
   buildPersonaSubAgents,
   type PersonaSubAgentBuildResult,

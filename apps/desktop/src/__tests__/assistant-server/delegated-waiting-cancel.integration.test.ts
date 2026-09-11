@@ -15,6 +15,7 @@ import {
   type DelegationStartContext,
   Mastra,
   processMastraStreamPart,
+  projectBackgroundStream,
 } from '@brainstrike/agent/test-fixtures/delegated-stream';
 import {
   hasToolResult,
@@ -61,7 +62,11 @@ vi.mock('@brainstrike/agent', async (original) => ({
   ...(await original<typeof import('@brainstrike/agent')>()),
 }));
 
-async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
+async function assertWaitingCancellation(
+  registeredAfterCompletion: boolean,
+  background = false,
+  damagedDecision = false
+) {
   const database = await createEnginePglite();
   holder.database = database;
   let host: Mastra | undefined;
@@ -81,7 +86,9 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
           enabled: false,
         },
       },
-      'initial'
+      'initial',
+      undefined,
+      { memory: { resourceId: 'owner', threadId: 'root' }, provider: 'openai' }
     );
     const binding = backing.conversationBinding;
     if (!(backing.memory && backing.storage && binding)) {
@@ -116,6 +123,9 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
     const flint = child('flint');
     const parent = new Agent({
       agents: { cedar, flint },
+      ...(background
+        ? { backgroundTasks: { tools: { cedar: true, flint: true }, waitTimeoutMs: 0 } }
+        : {}),
       defaultOptions: {
         delegation: {
           hookErrorStrategy: 'throw',
@@ -139,7 +149,12 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
       }).model,
       name: 'Parent',
     });
-    host = new Mastra({ agents: { parent }, logger: false, storage: backing.storage });
+    host = new Mastra({
+      agents: { parent },
+      backgroundTasks: { enabled: background },
+      logger: false,
+      storage: backing.storage,
+    });
     const personas = new Map([
       ['agent-cedar', 'cedar'],
       ['agent-flint', 'flint'],
@@ -179,7 +194,7 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
       });
       const names = new Map<string, string>();
       const chunks: StreamChunk[] = [];
-      for await (const part of stream) {
+      for await (const part of projectBackgroundStream(stream, background)) {
         chunks.push(...(await projection.project(part, names)));
         const mapped = await processMastraStreamPart(
           projection.preparePart(part),
@@ -210,26 +225,35 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
     const initial = await parent.stream('Read both.', {
       abortSignal: controller.signal,
       memory: { resource: 'owner', thread: 'root' },
+      ...(background ? { untilIdle: true as const } : {}),
     });
     const chunks = await drain(initial.fullStream);
     // Mirror assistant-server.ts's finally after a native suspended stream completes.
     if (!registeredAfterCompletion) {
       unregisterSteerableRun('initial');
     }
-    const notice = chunks.find(
-      (chunk) =>
-        chunk.type === 'tool-approval-required' && chunk.delegation?.path[0]?.personaId === 'cedar'
-    );
+    const notice = chunks
+      .flatMap((chunk) => (chunk.type === 'delegated-conversation-chunk' ? [chunk.chunk] : [chunk]))
+      .find(
+        (chunk) =>
+          chunk.type === 'tool-approval-required' &&
+          chunk.delegation?.path[0]?.personaId === 'cedar'
+      );
     if (notice?.type !== 'tool-approval-required' || !notice.delegation) {
       throw new Error('Missing waiting native child');
     }
     const action = {
       delegation: notice.delegation,
       runId: initial.runId,
-      toolCallId: notice.toolCallId,
+      toolCallId: notice.delegation.path[0]?.parentToolCallId ?? notice.toolCallId,
     };
     const pending = await parent.listSuspendedRuns({ resourceId: 'owner', threadId: 'root' });
-    expect(pending.runs).toHaveLength(1);
+    expect(pending.runs).toHaveLength(background ? 0 : 1);
+    if (background) {
+      expect(
+        (await host.backgroundTaskManager?.listTasks({ status: 'suspended' }))?.tasks
+      ).toHaveLength(2);
+    }
     expect(effects).toEqual([]);
     await recordDesktopAssistantThreadRunStatus('initial', 'completed', null, async () => database);
     await database.query(`INSERT INTO brainstrike_assistant_thread_runs
@@ -241,6 +265,11 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
       ...binding,
       ...createDesktopDelegatedConversationHost(database, 'after-reload'),
     };
+    if (damagedDecision) {
+      await database.query(
+        "UPDATE mastra_background_tasks SET suspend_payload = 'null'::jsonb WHERE status = 'suspended'"
+      );
+    }
     const completeCancelledTurn = vi.fn(async () => {
       const pending = await database.query(
         "SELECT status FROM brainstrike_assistant_thread_runs WHERE id = 'initial'"
@@ -359,6 +388,19 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
       );
       expect([...states.values()]).toEqual(['cancelled']);
       expect(effects).toEqual([]);
+      if (background) {
+        const tasks = await host.backgroundTaskManager?.listTasks({});
+        expect(tasks?.tasks).toHaveLength(2);
+        expect(tasks?.tasks.map((task) => task.status)).toEqual(['cancelled', 'cancelled']);
+        for (const task of tasks?.tasks ?? []) {
+          expect(
+            await backing.workflows.getWorkflowRunById({
+              runId: task.id,
+              workflowName: '__background-task',
+            })
+          ).toBeNull();
+        }
+      }
     } finally {
       unregisterSteerableRun('initial');
       server.close();
@@ -376,3 +418,11 @@ it.each([false, true])(
   'cancels a durably waiting child through a fresh host (registered after completion: %s)',
   assertWaitingCancellation
 );
+
+it('cancels durable background pauses and workflow snapshots through the desktop HTTP endpoint', async () => {
+  await assertWaitingCancellation(false, true);
+});
+
+it('root Stop can tear down an owned background task with a damaged decision payload', async () => {
+  await assertWaitingCancellation(false, true, true);
+});

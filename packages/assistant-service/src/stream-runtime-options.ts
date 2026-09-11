@@ -22,6 +22,9 @@ export function buildInitialStreamMemoryOptions(
     ...(hosts.mcpAppAdmission ? { mcpAppAdmission: hosts.mcpAppAdmission } : {}),
     ...(hosts.mcpTaskTracking ? { mcpTaskTracking: hosts.mcpTaskTracking } : {}),
     ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
+    ...(memoryResult?.backgroundTaskScope
+      ? { backgroundTaskScope: memoryResult.backgroundTaskScope }
+      : {}),
     ...(memoryResult?.conversationBinding
       ? { conversationBinding: memoryResult.conversationBinding }
       : {}),

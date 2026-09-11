@@ -71,6 +71,7 @@ import {
   validateToolApprovalAction,
   validateToolResumeAction,
 } from './attempt-legs';
+import { projectBackgroundStream } from './background-stream';
 import { createDelegatedStreamProjection } from './delegated-stream-projection';
 import { captureDelegatedSystemContext } from './delegated-system-context';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
@@ -136,7 +137,11 @@ import {
   resolveDelegationPersona,
   type ToolLifecycleState,
 } from './tool-lifecycle-processors';
-import { createTurnAttemptLifecycleState, type StreamAbortContext } from './turn-attempts';
+import {
+  createTurnAttemptLifecycleState,
+  type StreamAbortContext,
+  settleStreamCleanup,
+} from './turn-attempts';
 
 const logger = createLogger('MastraAgent');
 
@@ -146,13 +151,16 @@ type DynamicMastraChunkType =
   | `workflow-execution-event-${string}`;
 type MastraChunkTypeMustStayLiteral = string extends ChunkType['type'] ? never : unknown;
 type StaticMastraChunkType = Exclude<ChunkType['type'], DynamicMastraChunkType>;
-type MastraStaticChunkDisposition = 'ignored' | 'mapped';
+type MastraStaticChunkDisposition = 'ignored' | 'mapped' | 'normalized';
 
 /**
  * A complete disposition inventory for Mastra's exported static chunk union.
  * `satisfies` makes a newly-added literal chunk type a type-check failure at
  * upgrade time. `ignored` is a deliberate no-output decision; `mapped` means
- * the switch below must consume the type. Dynamic chunk families remain
+ * the switch below must consume the type. `normalized` must be consumed by
+ * the native background transport adapter before this dispatch; an escaped
+ * normalized part receives the same coded diagnostic as an unmapped part.
+ * Dynamic chunk families remain
  * observable at runtime because an unhandled member has no disposition.
  */
 const MASTRA_STATIC_CHUNK_DISPOSITIONS = {
@@ -162,15 +170,15 @@ const MASTRA_STATIC_CHUNK_DISPOSITIONS = {
   'agent-execution-end': 'ignored',
   'agent-execution-start': 'ignored',
   'agent-execution-suspended': 'ignored',
-  'background-task-cancelled': 'ignored',
-  'background-task-completed': 'ignored',
-  'background-task-failed': 'ignored',
-  'background-task-output': 'ignored',
+  'background-task-cancelled': 'normalized',
+  'background-task-completed': 'normalized',
+  'background-task-failed': 'normalized',
+  'background-task-output': 'normalized',
   'background-task-progress': 'ignored',
-  'background-task-resumed': 'ignored',
-  'background-task-running': 'ignored',
-  'background-task-started': 'ignored',
-  'background-task-suspended': 'ignored',
+  'background-task-resumed': 'normalized',
+  'background-task-running': 'normalized',
+  'background-task-started': 'normalized',
+  'background-task-suspended': 'normalized',
   custom: 'ignored',
   error: 'mapped',
   file: 'ignored',
@@ -1149,6 +1157,7 @@ export async function* streamAttemptChunks({
   completeNativeStream,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   let titleGenerationTask: Promise<void> | undefined;
+  let streamFailure: unknown;
   const calibrationState = { emitted: false };
   const toolCallTelemetryState = { emitted: false };
   const toolNames = new Map<string, string>();
@@ -1190,7 +1199,8 @@ export async function* streamAttemptChunks({
         reasoningPartKind: readMastraReasoningPartKind,
       }
     );
-    for await (const part of source) {
+    const projectedSource = projectBackgroundStream(source, Boolean(runtime.backgroundTaskManager));
+    for await (const part of projectedSource) {
       // BST-1701. The provider's own report about the request it just served
       // (a dropped `temperature`, a deprecated setting) is recorded UNDER
       // Mastra by the model observer, because Mastra drops the adapter's
@@ -1276,6 +1286,7 @@ export async function* streamAttemptChunks({
       yield chunk;
     }
   } catch (error) {
+    streamFailure = error;
     // The provider can report stream-start warnings and then fail before
     // Mastra yields any mapped part. Preserve those facts before propagating
     // the original stream failure, including cancellation/watchdog paths.
@@ -1298,13 +1309,14 @@ export async function* streamAttemptChunks({
     }
     throw error;
   } finally {
-    if (titleGenerationTask) {
-      await titleGenerationTask;
-    }
-    streamAbortContext.abort(new Error('Mastra stream consumption ended.'));
-    streamAbortContext.dispose();
-    logTokenDiagnostics(runtime, runtimeData, lifecycleState);
-    logStreamOutcome(Boolean(runtimeData?.signal?.aborted));
+    await settleStreamCleanup(
+      [titleGenerationTask, streamAbortContext.dispose()],
+      streamFailure,
+      () => {
+        logTokenDiagnostics(runtime, runtimeData, lifecycleState);
+        logStreamOutcome(Boolean(runtimeData?.signal?.aborted));
+      }
+    );
     // NOTE: `runtime.dispose()` is deliberately NOT here. The runtime outlives
     // a single attempt so a recovered turn can stream again on it; the turn
     // layer disposes exactly once (BST-1409).

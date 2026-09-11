@@ -112,6 +112,16 @@ process boundaries are serializable plain data. `AbortSignal` and class
 instances are process-local; represent cancellation or state changes through a
 dedicated bridge/protocol rather than putting them in serialized runtime data.
 
+### Background runtime capability
+
+`MastraAgentRuntimeOptions.backgroundTaskScope` is a host-owned resource/thread
+scope supplied alongside matching durable memory/storage. It enables native
+untilIdle background delegation; it is not model-provided configuration. Desktop
+memory forwards it through assistant-service. See `docs/agents/assistant-subagents.md`
+and `docs/agents/mastra-boundary.md` for ownership, pending decision recovery and
+native shutdown qualifications. Explicit root Stop joins native work and cancels
+queued/paused tasks; ordinary disposal preserves resumable decisions.
+
 ### Tools
 
 Tools are the main extension point. A tool is an object with an `id`, a  

@@ -323,6 +323,7 @@ export async function handleSuspendedRunsRequest(
     const discovery = await listSuspendedMastraRuns(
       { resourceId, threadId },
       {
+        backgroundTaskScope: { resourceId, threadId },
         delegatedSuspensionDiscovery: async (parent) =>
           createDesktopDelegatedSuspensionResolver(await getDatabase(), {
             ownerResourceId: resourceId,

@@ -1,4 +1,5 @@
 import {
+  MASTRA_BACKGROUND_TASKS_TABLE,
   MASTRA_MEMORY_TABLES,
   MASTRA_VECTOR_TABLE,
   MASTRA_WORKFLOW_TABLE,
@@ -922,6 +923,7 @@ export function registerDatabaseIpcHandlers(
             // legacy edge — which is why clearOptionalRelation probes rather
             // than deletes-and-catches for every table it touches.
             await clearOptionalRelation(tx, MASTRA_WORKFLOW_TABLE);
+            await clearOptionalRelation(tx, MASTRA_BACKGROUND_TASKS_TABLE);
             // Durable diagnostic events (Flight Recorder P1): warn+ error log.
             // No FK, so nothing cascades it — clear explicitly per the FACTORY
             // RESET CONTRACT so error history cannot survive a fresh start.

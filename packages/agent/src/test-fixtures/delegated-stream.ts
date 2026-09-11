@@ -7,6 +7,7 @@ export {
   processMastraStreamPart,
 } from '../mastra/agent-streaming';
 export { readResumedApprovalToolCall } from '../mastra/attempt-legs';
+export { projectBackgroundStream } from '../mastra/background-stream';
 export { discoverDelegatedToolPause } from '../mastra/delegated-suspension-discovery';
 export {
   assertDelegatedToolActionPending,

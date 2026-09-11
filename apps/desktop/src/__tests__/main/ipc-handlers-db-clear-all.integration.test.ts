@@ -90,6 +90,7 @@ const PRESENT_RELATIONS = [
  * absence does not abort the reset transaction.
  */
 const LAZY_MASTRA_RELATIONS = [
+  'mastra_background_tasks',
   'mastra_messages',
   'mastra_observational_memory',
   'mastra_resources',

@@ -295,4 +295,5 @@ minimumReleaseAge: 1440
 # that was never configured, so nothing ever triggered the removal.
 minimumReleaseAgeExclude: []
 patchedDependencies:
+  '@mastra/core@1.64.0': patches/@mastra__core@1.64.0.patch
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch

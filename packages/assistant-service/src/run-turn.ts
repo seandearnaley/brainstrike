@@ -34,6 +34,7 @@ import {
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
 } from '@brainstrike/assistant-contract';
 import type { RunPersistencePort, StreamInitializer } from './ports.js';
+import { acquireThreadRunOwnership } from './thread-run-ownership.js';
 import type { AgentStreamFailure } from './types.js';
 
 export interface RunAssistantTurnParams {
@@ -77,6 +78,33 @@ export type RunAssistantTurnResult =
     };
 
 export async function runAssistantTurn(
+  params: RunAssistantTurnParams
+): Promise<RunAssistantTurnResult> {
+  const scope = params.runtimeData.memory;
+  if (!scope) {
+    return runOwnedAssistantTurn(params);
+  }
+  const release = await acquireThreadRunOwnership(scope, params.executionSignal);
+  try {
+    params.executionSignal.throwIfAborted();
+    const turn = await runOwnedAssistantTurn(params);
+    if (!turn.ok) {
+      release();
+      return turn;
+    }
+    // Host-owned execution settles even when its HTTP subscriber disconnects.
+    // Releasing after the terminal write prevents the next native manager from
+    // recovering or overwriting a still-owned root.
+    const completion = turn.completion().finally(release);
+    completion.catch(() => {});
+    return { ...turn, completion: () => completion };
+  } catch (error) {
+    release();
+    throw error;
+  }
+}
+
+async function runOwnedAssistantTurn(
   params: RunAssistantTurnParams
 ): Promise<RunAssistantTurnResult> {
   const {
