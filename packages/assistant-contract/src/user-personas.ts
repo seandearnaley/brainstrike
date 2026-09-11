@@ -82,18 +82,9 @@ const PROVIDER_TOOL_NAME_MAX_CHARS = 64;
 export const MAX_USER_PERSONA_ID_LENGTH =
   PROVIDER_TOOL_NAME_MAX_CHARS - SUBAGENT_DELEGATION_TOOL_PREFIX.length;
 
-/**
- * Read-risk tools a user persona must NOT allowlist: `askUser`/`submitPlan`
- * SUSPEND the run (child tool maps are built from the parent's guarded map
- * BEFORE the suspend-storage fail-safe, so a no-storage run could expose a
- * child suspend tool nothing can resume — a wedge), and `manageTaskList` is
- * parent-scoped. The default toolset already excludes them; this blocks the
- * explicit-allowlist path too.
- */
+/** Task-list state belongs to the parent; interactive tools are capability-gated at runtime. */
 const USER_PERSONA_DISALLOWED_TOOL_IDS: ReadonlySet<string> = new Set([
-  NATIVE_TOOL_ID.askUser,
   NATIVE_TOOL_ID.manageTaskList,
-  NATIVE_TOOL_ID.submitPlan,
 ]);
 
 const MODEL_PIN_SEPARATOR = '::';

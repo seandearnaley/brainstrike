@@ -165,9 +165,9 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   `packages/assistant-contract/src/user-personas.ts` (`buildUserPersona` —
   fail-closed; omitted `tools` = `DEFAULT_USER_PERSONA_TOOL_IDS`, the curated
   read-only exploration set WITHOUT webSearch/askUser/submitPlan/manageTaskList;
-  the suspending/interactive trio is ALSO rejected when explicitly allowlisted —
-  child maps bypass the parent's suspend-storage fail-safe, so a no-storage run
-  could otherwise expose an unresumable child suspend tool; bare tool names get
+  explicit askUser/submitPlan declarations are allowed only with the complete
+  durable child-control capability at runtime; manageTaskList remains rejected
+  because its state belongs to the parent; bare tool names get
   the `brainstrike.` prefix; out-of-range `maxSteps` is an ERROR, never a
   clamp; ids are capped at 58 chars so `agent-<id>` fits the 64-char provider
   tool-name limit). Scan: `apps/desktop/src/assistant-server/user-personas-loader.ts`
@@ -1347,3 +1347,18 @@ host rejection, and admission-cancellation attempt regressions. The provider-shi
 Electron scenario uses the actual host, permission engine, workspace and shared
 child panel; it does not replace the assistant endpoint. Full question/plan,
 process restart and worker acceptance remain distinct gates.
+
+### Child interactive production entry
+
+Custom personas can explicitly declare askUser and submitPlan. Their maps reuse
+the parent runtime's canonical resolveSuspendToolsForRun gate, with the complete
+durable child-decision capability as the availability condition. This gate is
+independent of permission-ask flags: a read-allow self-suspending tool still
+requires storage, exact routing, admission and settlement. Default built-in
+toolsets, read-only enforcement and parent-owned task lists remain unchanged.
+
+The real Electron interactive verifier uses an isolated workspace persona and
+scripted external model transport; questions and plan approve/reject actions
+flow through the actual child workspace, reload, native tool resume, child
+model result and parent continuation. Existing native grandchild/process-restart
+proofs remain separate and are not repeated to prove renderer interaction.

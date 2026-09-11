@@ -4110,3 +4110,9 @@ rediscovery consult that intent; an aborted initialization failure completes as
 cancelled, using the same precedence as an aborted stream. Cancellation never
 grants or consumes an unrelated child's decision. See assistant-persistence.md
 for terminal publication and restart recovery.
+
+Explicit custom-persona questions/plans pass through the same canonical
+self-suspending-tool gate as root tools, with durable child host capability
+required even when read permission allows the tool. The child inspector sends
+the existing exact leaf decision envelope; it does not create a second root
+execution or copy approval authority into a sibling.
