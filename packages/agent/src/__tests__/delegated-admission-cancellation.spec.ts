@@ -159,6 +159,7 @@ it.each([
       .rejects.toThrow();
     expect(claimToolAction).toHaveBeenCalledOnce();
     expect(prepareToolAction).toHaveBeenCalledOnce();
+    expect(finishToolActions).toHaveBeenCalledOnce();
     expect(owner.signal.aborted).toBe(true);
     expect.soft(approve).not.toHaveBeenCalled();
     expect.soft(resume).not.toHaveBeenCalled();

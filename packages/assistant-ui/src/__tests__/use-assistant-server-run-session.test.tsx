@@ -67,6 +67,44 @@ describe('useAssistantServerRunSession stale-record reclaim', () => {
     Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'assistant');
   });
 
+  it('retains cancelled-request authority on HTTP failure and reclaims only a terminal server run', async () => {
+    window.sessionStorage.clear();
+    let status = 'running';
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith('/assistant/cancel')
+        ? new Response(null, { status: 503 })
+        : new Response(JSON.stringify({ runId: 'cancel-retry', status }), { status: 200 })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const completePreparedRequest = vi.fn();
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        completePreparedRequest,
+        prepareRequestData: async () => ({ memory: { runId: 'cancel-retry' } }),
+        threadKey: THREAD_KEY,
+      })
+    );
+    await act(async () => {
+      await result.current.prepareRequest();
+    });
+    await act(async () => {
+      result.current.onCancel();
+      result.current.onError(new Error('abort'));
+    });
+    expect(completePreparedRequest).not.toHaveBeenCalled();
+    await act(async () => {
+      await expect(result.current.prepareRequest()).rejects.toThrow(/awaiting stream reattachment/);
+    });
+    status = 'cancelled';
+    await act(async () => {
+      await expect(result.current.prepareRequest()).resolves.toEqual({
+        memory: { runId: 'cancel-retry' },
+      });
+    });
+    expect(completePreparedRequest).not.toHaveBeenCalled();
+  });
+
   it('reclaims the record and proceeds when the durable run is terminal', async () => {
     const fetchMock = stubRunStatusFetch({
       body: { runId: RECORD.runId, status: 'completed' },

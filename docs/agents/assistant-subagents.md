@@ -1331,7 +1331,10 @@ or used as application state. A cancelled original turn rejects a newly created
 resume leg in the atomic durable admission statement. Both native attempt legs
 check the owner signal again after awaited admission, before invoking resume.
 Both server and renderer terminal writers preserve an existing cancelled status.
-Repeated cancellation still aborts registered same-turn legs.
+Repeated cancellation still aborts registered same-turn legs. Acknowledgement
+waits for their teardown, then finalizes cancellation even when the normal
+terminal write preceded unregister. Completed earlier legs retain their status
+unless they are the specifically requested waiting leg.
 
 Discovery preserves real admission states first. A native pending decision with
 no admission record in a cancelled turn receives the explicit non-actionable

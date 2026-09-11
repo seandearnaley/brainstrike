@@ -3343,8 +3343,10 @@ writers, so a late completion cannot reopen a cancelled turn's child decisions.
 
 Desktop cancellation first marks all authoritative same-owner/root/turn legs
 `cancelling`, which is nonterminal and blocks new delegated decision admission.
-It aborts registered legs. A live leg owns its normal turn-end capture and
-terminal write; waiting work has no remaining stream, so cancellation closes
+It aborts registered legs and awaits their owner teardown before acknowledging
+cancellation, including the gap after a terminal write but before unregister.
+A live leg owns its normal turn-end capture; waiting work has no remaining
+stream, so cancellation closes
 only a snapshot bracket whose first run belongs to those authoritative legs,
 including after process restart. Only then does waiting work become `cancelled`.
 The renderer does not preempt the server-owned cancellation with an optimistic
@@ -3353,3 +3355,10 @@ authority against late completed/failed reports. Startup reaping retains a
 crashed cancellation as cancelled with the existing orphan diagnostic; it never
 restores admission or fabricates the lost turn-end capture. Reattachment treats
 cancelling as in-flight. The text status column needs no schema migration.
+
+A renderer Stop latches cancellation on its prepared request before issuing HTTP,
+so a racing abort/error cannot publish failed over the server-owned request.
+The local completion callback runs only after cancellation acknowledgement. A
+failed POST does not fabricate a terminal result; a later send reconciles the
+latched request against actual durable status and remains blocked while running
+or cancelling. Worktree archive also treats cancelling as active.

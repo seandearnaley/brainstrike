@@ -1,6 +1,9 @@
 import { listSuspendedMastraRuns } from '@brainstrike/agent';
 import { CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
-import { requestRunCancel } from '@brainstrike/assistant-service/steering';
+import {
+  cancelSteerableRunAndWait,
+  requestRunCancel,
+} from '@brainstrike/assistant-service/steering';
 import { z } from 'zod';
 import { getDatabase } from '../db-main';
 import { getDesktopMastraMemory } from './mastra-memory';
@@ -77,27 +80,29 @@ export async function cancelDesktopAssistantRun(
   // One statement serializes cancellation with durable decision admission in
   // the owning PGlite host. A later resume leg still sees this turn's barrier.
   const cancelled = await database.query(
-    `UPDATE brainstrike_assistant_thread_runs SET status = CASE WHEN status = 'cancelled' THEN status ELSE 'cancelling' END,
+    `WITH owned AS (
+       SELECT id FROM brainstrike_assistant_thread_runs WHERE resource_id = $1 AND thread_id = $2
+         AND (id = $3 OR (turn_message_id = $4 AND $4 IS NOT NULL))
+     ), updated AS (UPDATE brainstrike_assistant_thread_runs SET status = CASE WHEN status = 'cancelled' THEN status ELSE 'cancelling' END,
        updated_at = NOW()
      WHERE resource_id = $1 AND thread_id = $2
        AND (id = $3 OR (turn_message_id = $4 AND $4 IS NOT NULL))
-     RETURNING id`,
+       AND (id = $3 OR status IN ('running', 'cancelling'))
+     RETURNING id) SELECT id FROM owned`,
     [scope.resourceId, scope.threadId, runId, scope.turnMessageId]
   );
   const ids = z
     .array(z.object({ id: z.string() }))
     .parse(cancelled.rows)
     .map((row) => row.id);
-  const active = ids.map((id) => requestRunCancel(id)).some(Boolean);
-  // Active execution owns its end capture. Waiting work has no stream left to
-  // close the bracket, so close only the exact authoritative turn here.
-  if (!active) {
-    await boundaries?.completeCancelledTurn({ runId, threadId: scope.threadId, turnRunIds: ids });
-    await database.query(
-      `UPDATE brainstrike_assistant_thread_runs SET status = 'cancelled', completed_at = NOW(), updated_at = NOW()
-       WHERE id = ANY($1::text[]) AND status = 'cancelling'`,
-      [ids]
-    );
-  }
+  await Promise.all(ids.map((id) => cancelSteerableRunAndWait(id)));
+  // Teardown may follow a terminal write. Always finalize after actual owners
+  // settle; registration alone is not evidence that a future writer remains.
+  await boundaries?.completeCancelledTurn({ runId, threadId: scope.threadId, turnRunIds: ids });
+  await database.query(
+    `UPDATE brainstrike_assistant_thread_runs SET status = 'cancelled', completed_at = NOW(), updated_at = NOW()
+     WHERE id = ANY($1::text[]) AND status = 'cancelling'`,
+    [ids]
+  );
   return ids.length > 0;
 }

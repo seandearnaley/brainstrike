@@ -189,7 +189,7 @@ export function createWorktreeLedger(
         `SELECT 1
            FROM brainstrike_assistant_thread_runs AS runs
            JOIN ${WORKTREE_LEDGER_TABLE} AS wt ON wt.thread_id = runs.thread_id
-          WHERE wt.id = $1 AND runs.status = 'running'
+          WHERE wt.id = $1 AND runs.status IN ('running', 'cancelling')
           LIMIT 1`,
         [id]
       );

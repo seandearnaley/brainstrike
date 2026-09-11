@@ -113,7 +113,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       body: await root.innerText(),
       contentType: 'text/plain',
     });
-    await openChild.click();
+    await delegationGroup.getByRole('button', { name: /Open .* conversation/ }).click();
     await expect(child.getByText('CHILD_READ_COMPLETE_1720', { exact: true })).toBeVisible();
     expect(provider.requestCount()).toBe(completedRequests);
     const geometry = await child.boundingBox();

@@ -39,7 +39,10 @@ import { z } from 'zod';
 import { handleCancelRequest } from '../../assistant-server/control-endpoints';
 import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
 import { readDelegatedDecisionStates } from '../../assistant-server/delegated-decision-discovery';
-import { getDesktopMastraMemory } from '../../assistant-server/mastra-memory';
+import {
+  getDesktopMastraMemory,
+  resetDesktopMastraMemoryCacheForTests,
+} from '../../assistant-server/mastra-memory';
 import {
   observeDesktopAssistantRunEvents,
   recordDesktopAssistantThreadRunStatus,
@@ -242,7 +245,9 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
       const pending = await database.query(
         "SELECT status FROM brainstrike_assistant_thread_runs WHERE id = 'initial'"
       );
-      expect(pending.rows).toEqual([{ status: 'cancelling' }]);
+      if (completeCancelledTurn.mock.calls.length === 1) {
+        expect(pending.rows).toEqual([{ status: 'cancelling' }]);
+      }
     });
     const server = createServer((req, res) => {
       void handleCancelRequest(req, res, { completeCancelledTurn });
@@ -254,11 +259,16 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
       if (!address || typeof address === 'string') {
         throw new Error('Missing control endpoint port');
       }
-      const response = await fetch(`http://127.0.0.1:${address.port}/assistant/cancel`, {
+      const request = fetch(`http://127.0.0.1:${address.port}/assistant/cancel`, {
         body: JSON.stringify({ runId: 'initial' }),
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       });
+      if (registeredAfterCompletion) {
+        await vi.waitFor(() => expect(controller.signal.aborted).toBe(true));
+        unregisterSteerableRun('initial');
+      }
+      const response = await request;
       const payload: unknown = await response.json();
       expect
         .soft({ payload, status: response.status })
@@ -267,7 +277,6 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
         // The native stream and normal terminal writer already finished. Only
         // server-finally unregister remains; there will be no later status write.
         expect(controller.signal.aborted).toBe(true);
-        unregisterSteerableRun('initial');
         const settled = await database.query(
           "SELECT status FROM brainstrike_assistant_thread_runs WHERE id = 'initial'"
         );
@@ -296,6 +305,11 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
       });
       const resumedController = new AbortController();
       registerSteerableRun('after-reload', resumedController);
+      resumedController.signal.addEventListener(
+        'abort',
+        () => unregisterSteerableRun('after-reload'),
+        { once: true }
+      );
       const repeated = await fetch(`http://127.0.0.1:${address.port}/assistant/cancel`, {
         body: JSON.stringify({ runId: 'initial' }),
         headers: { 'content-type': 'application/json' },
@@ -340,6 +354,7 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
     }
   } finally {
     await host?.shutdown();
+    resetDesktopMastraMemoryCacheForTests();
     await database.close();
     holder.database = undefined;
   }
