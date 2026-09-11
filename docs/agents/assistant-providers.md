@@ -363,7 +363,11 @@
     `VERCEL_ENV=preview`; missing, development, production, and unknown values
     fail closed as `production_auth_required`. Production enablement requires
     application authentication plus distributed quota/cost controls. Never
-    expose a key through a `VITE_`-prefixed variable. The shared renderer's
+    expose a key through a `VITE_`-prefixed variable. The web package declares
+    native ESM so Vercel selects ESM library exports without relying on its
+    disabled `require(ESM)` feature. API-relative imports use explicit `.js`
+    extensions under the Node16 type check; built and deployed status/POST
+    routes must be exercised when changing this module boundary. The shared renderer's
     model, generation, loop, MCP, and enabled-tool fields are wire-compatibility
     hints only and are never copied into that trusted runtime. The provider field
     is the sole exception: it is copied only after exact membership validation

@@ -11,7 +11,7 @@
     "vitest": "catalog:"
   },
   "engines": {
-    "node": ">=24.15.0 <25"
+    "node": ">=26.8.2 <27"
   },
   "exports": {
     "./settings-test-overrides": "./settings-test-overrides.ts"

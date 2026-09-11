@@ -1699,21 +1699,69 @@ observed BST-1221 hits landed in lanes that were ALREADY serialized to a single
 worker — `@brainstrike/embeddings#test:integration` (`--maxWorkers=1
 --no-file-parallelism`, 2026-08-16, red main) and the desktop unit lane (same
 flags, 2026-08-18). Do not "fix" BST-1221 by lowering worker counts; the
-evidence says it is not concurrency-driven. The crash itself remains upstream
-(Node/V8); this reporter only guarantees it can never read as success.
+evidence disproves worker-count reduction as a fix. The reporter detects the
+failure; it does not correct the runtime defect or permit merging with it.
 
-**Trigger and in-repo mitigation (2026-08-26).** The dominant trigger was
-`embedding-queue-load.integration.test.ts` allocating and closing a fresh
-`memory://` PGlite per scenario (five WASM instantiate/teardown cycles per
-run). PGlite `close()` does not tear the WASM instance down synchronously —
-finalization is GC-driven and lands during the NEXT scenario's instantiation
-and load churn, which is exactly the window where V8's PKU-gated
-`ThreadIsolation` jit-page bookkeeping fatal fires on Linux x64 (macOS/arm64
-has no PKU, which is why it never reproduced locally). The spec now shares one
-instance across scenarios (closed once in `afterAll`); sibling integration
-specs that churn per-test `memory://` instances (e.g. model-resolution, ~10
-cycles) carry the same residual risk. `--no-memory-protection-keys` was tried
-and disproven (BST-1221, 2026-08-22).
+**Runtime correction and qualification (BST-1221, 2026-09-11).**
+The Node 24.20.0 Linux x64 stack from PR #3137 resolves through
+`WasmImportWrapperCache::Free`, `WasmCodeRefScope::~WasmCodeRefScope`, and
+`Runtime_TierUpWasmToJSWrapper`. V8's
+[dying-wrapper reference fix](https://github.com/v8/v8/commit/9b8ca54d5a6b6c615eb7ad6d9e2bdca7f8cb1a81)
+replaces reference acquisition before the dying-state check with atomic
+`AddRefIfNotDying`. Node 24.20.0 and 24.21.0 retain the unsafe order; Node
+26.8.2 contains the corrected reference handling and subsequent wrapper
+ownership changes. The repository pins Node 26.8.2 for development and CI.
+The matching `devEngines.runtime` declaration makes pnpm scripts use that
+checksum-locked executable even when invoked by a hosted builder's older Node.
+Root/web and MCP package installation ranges admit the bounded Node 24 application/hosting
+major and Node 26 tooling major; the managed script runtime remains exactly 26.
+Vercel Functions currently supports Node 24, not 26. Its separate stateless
+hosted-web entrypoint excludes PGlite and browser-local model inference; validate
+the generated function runtime and deployed routes when changing this boundary.
+Browser-local WASM executes in the browser engine, not the function runtime.
+Electron retains its own bundled Node/V8; changing `.nvmrc` does not upgrade
+Electron's runtime. Shared production code keeps Node 24 declarations matching
+Electron's Node API surface, while the build and test executable uses Node 26.
+The MCP packages also run inside that application and retain the bounded Node 24
+consumer arm. Tooling-only source uses the same conservative types catalog;
+new tooling APIs require an explicit compatible design, not a cast around it.
+`apps/desktop/package.json#config.nodeRuntimeMajor` declares that API floor;
+the required real Electron native smoke test compares both the declaration and
+the installed typings with `process.versions.node`. The static alignment guard
+checks the toolchain and production API floor separately, preventing Node
+26-only APIs from compiling into the Node 24 application runtime.
+
+The exact toolchain patch is intentional: local and CI qualification must name
+the same executable. React Doctor also receives this explicit Node version:
+its composite action otherwise installs Node 24, whose npm rejects the managed
+Node 26 declaration before scanning. The paired action-version contract guards
+that input against `.nvmrc`. Any added composite action that runs npm/npx
+from the workspace must select the managed Node version too; its private
+default does not inherit the surrounding job setup. Updating the pin requires qualifying the replacement;
+future patch releases must not be assumed to have passed this evidence.
+The DB unit project explicitly includes `__tests__/**/*.test.ts` without an
+integration-suffix exclusion (unlike some other package scripts). It runs
+100 startup/query/close cycles as a persistent
+runtime canary. Its existing 10-second per-case timeout and two-worker CI cap
+remain unchanged. A lost file fails; only the complete three-marker signature
+below is classified as the V8 fatal, so an ordinary OOM is not mislabeled.
+
+Source correspondence identifies a correction candidate, not proof that an
+intermittent crash has disappeared. Qualification requires repeated affected
+workloads on the affected Linux x64 platform, preservation of every outcome,
+exact-head required checks, and replacement-main verification. A single passing
+run, passing rerun, or macOS ARM64-only test is insufficient. Any recurrence
+blocks completion and requires investigation; no quarantine, skip, or accepted
+runtime-defect exception applies.
+
+**Historical fixture changes, not a runtime fix (2026-08-26).**
+Sharing a PGlite instance reduced instantiate/teardown churn in
+`embedding-queue-load.integration.test.ts`; later crashes, including #3137,
+disproved this as a complete correction. Earlier claims that this isolated the
+dominant trigger or proved a PKU-specific cause exceeded the evidence.
+`--no-memory-protection-keys` was tried and disproven (2026-08-22). Preserve
+correct fixture ownership, but do not substitute reduced workload for fixing
+the runtime.
 
 **In-memory fixture ownership (BST-1221, 2026-09-05).**
 `wasmLoader.createPGlite('memory://...')` returns an uncached handle;
@@ -2897,7 +2945,7 @@ Non-native typed packages have two JavaScript build classes, derived from
   `chunking-worker`, `embedding-worker`, `file-tree-worker`, and `token-cache`
   package browser workers/WASM/assets; `agent` produces the self-contained
   hosted-web boundary; `assistant-service` and `assistant-wire` retain the CJS
-  surface consumed by the Node16 web API project; and `file-explorer` emits the
+  surface retained for CommonJS consumers; and `file-explorer` emits the
   renderer's worker-storage artifact. Adding a ninth bundler is an architectural
   decision, not a convenient way to emit a second module format.
   This is the compatibility boundary for BST-1014, not an endorsement of tsup as
@@ -2920,10 +2968,19 @@ Non-native typed packages have two JavaScript build classes, derived from
   artifact. A CommonJS composition boundary that consumes one of these libraries
   uses native dynamic `import()` (and an explicit `resolution-mode: import` for
   type-only imports) rather than forcing the library back into dual-format
-  bundling. The Vercel API's Node16 check proves both are load-bearing: a static
-  logger import fails TS1479 and a plain type-only import fails TS1541. The route
-  memoizes the import lazily inside the first request so a failed seam is observed
-  by that request, never left as a module-initialization rejection. Playwright's
+  bundling. The Vercel API now declares native ESM in the web manifest; its Node16
+  check enforces explicit relative `.js` imports. Vercel disables `require(ESM)`
+  by default, so hosted functions must select the agent's ESM export, including
+  native imports of external Mastra/provider runtimes. The existing hosted bundle
+  guard loads ESM under the Node 26 toolchain with
+  `--no-experimental-require-module`, kills a nonterminating probe after 30 seconds,
+  and permits no ESM-only
+  workspace `require()` exceptions. Pino and tiktoken remain external runtime
+  dependencies declared by the bundle owner; inlining their Node/WASM loaders
+  would break native loading or browser asset references. Validate both built
+  preview status and POST rejection through the generated function artifacts,
+  then the deployed preview; a successful Vercel build is not runtime proof.
+  Playwright's
   TypeScript loader is a distinct CommonJS
   transform boundary: a Node-side E2E helper imports the narrowest side-effect-
   free contract subpath it needs instead of a package barrel that transitively

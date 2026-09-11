@@ -50,3 +50,19 @@ test('agent development watches declarations and JavaScript as sibling processes
     'the package that invokes concurrently must declare it directly (via the catalog)'
   );
 });
+
+// The deployed loader disables require(ESM). The actual generated status/POST
+// routes are qualified with that flag; retain the consumer's ESM selection.
+test('hosted functions select native ESM library exports', () => {
+  const webManifest = JSON.parse(
+    readFileSync(path.join(repoRoot, 'apps/web/package.json'), 'utf8')
+  );
+  assert.equal(webManifest.type, 'module');
+  assert.equal(agentManifest.exports['./hosted-web'].import, './dist/hosted-web.mjs');
+});
+
+test('hosted external native loaders belong to the bundle owner', () => {
+  for (const dependency of ['pino', 'tiktoken']) {
+    assert.equal(agentManifest.dependencies[dependency], 'catalog:');
+  }
+});
