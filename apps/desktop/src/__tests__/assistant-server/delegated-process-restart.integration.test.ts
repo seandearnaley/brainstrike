@@ -4,7 +4,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { expect, it } from 'vitest';
+import { build } from 'esbuild';
+import { beforeAll, expect, it } from 'vitest';
 import { z } from 'zod';
 
 const execFileAsync = promisify(execFile);
@@ -16,15 +17,47 @@ const resultSchema = z.object({
   toolResults: z.array(z.object({ output: z.unknown(), toolName: z.string() })),
 });
 
+let fixtureCode: string;
+beforeAll(async () => {
+  // Compile the complete local-source closure, as the Electron main bundle does.
+  // Package imports remain external and resolve from the desktop workspace.
+  const output = await build({
+    bundle: true,
+    entryPoints: [path.join(import.meta.dirname, 'fixtures/delegated-process-restart.mts')],
+    external: ['@brainstrike/*'],
+    format: 'esm',
+    packages: 'external',
+    platform: 'node',
+    write: false,
+  });
+  const file = output.outputFiles[0];
+  if (!file) {
+    throw new Error('Restart fixture build emitted no JavaScript');
+  }
+  fixtureCode = file.text;
+});
+
 it.for(['approve', 'decline', 'interrupt', 'answer', 'plan-approve', 'plan-reject'] as const)(
   'retains native grandchild decisions across fresh processes (%s)',
   async (decision, { signal }) => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-delegated-restart-'));
-    const fixture = path.join(import.meta.dirname, 'fixtures/delegated-process-restart.mts');
     const run = async (phase: string) => {
-      await execFileAsync(process.execPath, [fixture, directory, phase, decision], {
-        signal,
-      });
+      await execFileAsync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '--eval',
+          fixtureCode,
+          'delegated-process-restart',
+          directory,
+          phase,
+          decision,
+        ],
+        {
+          cwd: path.resolve(import.meta.dirname, '../../..'),
+          signal,
+        }
+      );
       return resultSchema.parse(
         JSON.parse(await readFile(path.join(directory, `${phase}.json`), 'utf8'))
       );

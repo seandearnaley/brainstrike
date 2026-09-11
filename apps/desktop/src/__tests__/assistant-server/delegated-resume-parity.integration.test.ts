@@ -114,7 +114,7 @@ describe('native approval resume child transcript parity', () => {
     const delegation = {
       hookErrorStrategy: 'throw' as const,
       onDelegationStart: (context: DelegationStartContext) =>
-        binding.prepare(context, { personaId: context.primitiveId }),
+        binding.prepare(context, { maxSteps: 4, personaId: context.primitiveId }),
     };
     const effect = vi.fn(async () => ({ value: 'APPROVED-EVIDENCE' }));
     const leafModel = scriptedAgentModel((options) =>
