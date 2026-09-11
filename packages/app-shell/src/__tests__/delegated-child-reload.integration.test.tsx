@@ -154,6 +154,25 @@ describe('child view after renderer restart', () => {
     expect(screen.getByText('Persisted native child transcript.')).toBeVisible();
     expect(append).not.toHaveBeenCalled();
   });
+  it('renders the durable ancestry in the actual child view', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
+    );
+    render(
+      <TooltipProvider>
+        <DelegatedConversationRootsProvider>
+          <OwningRoot />
+          <ChildView db={database as DbHandle} node={node} />
+        </DelegatedConversationRootsProvider>
+      </TooltipProvider>
+    );
+    const trail = await screen.findByRole('navigation', { name: 'Conversation ancestry' });
+    expect(within(trail).getByRole('button', { name: 'Main conversation' })).toBeVisible();
+    expect(within(trail).getByText(node.displayName)).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('heading', { name: node.displayName })).toBeVisible();
+    expect(append).not.toHaveBeenCalled();
+  });
   it('keeps native history visible when pending decision discovery fails', async () => {
     vi.stubGlobal(
       'fetch',

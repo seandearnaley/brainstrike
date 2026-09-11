@@ -14,8 +14,10 @@ vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({ composer: () => ({ setText }) }),
 }));
 
+import type { PropsWithChildren } from 'react';
 import { RewindComposerBridge } from '../message-rewind-action';
 import { useRewindComposerStore } from '../rewind-composer-store';
+import { RewindProvider } from '../rewind-context';
 
 beforeEach(() => {
   useRewindComposerStore.getState().consume();
@@ -38,7 +40,17 @@ describe('useRewindComposerStore', () => {
   });
 });
 
+const Owner = ({ children }: PropsWithChildren) => (
+  <RewindProvider value={{ requestRewind: vi.fn() }}>{children}</RewindProvider>
+);
+
 describe('RewindComposerBridge', () => {
+  it('leaves the parent handoff untouched without a child rewind capability', () => {
+    useRewindComposerStore.getState().requestComposerText('Parent prompt');
+    render(<RewindComposerBridge />);
+    expect(setText).not.toHaveBeenCalled();
+    expect(useRewindComposerStore.getState().pendingText).toBe('Parent prompt');
+  });
   it('renders nothing and touches the composer only when text is pending', () => {
     const { container } = render(<RewindComposerBridge />);
 
@@ -47,7 +59,7 @@ describe('RewindComposerBridge', () => {
   });
 
   it('drains a pending prompt into the composer, ONCE', () => {
-    const { rerender } = render(<RewindComposerBridge />);
+    const { rerender } = render(<RewindComposerBridge />, { wrapper: Owner });
 
     useRewindComposerStore.getState().requestComposerText('my original prompt');
     rerender(<RewindComposerBridge />);

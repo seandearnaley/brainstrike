@@ -1304,8 +1304,9 @@ and registers its actual runtime into that root; standalone panels without a
 workspace do not advertise child navigation. Runtime cleanup is identity-aware:
 disposing an old runtime cannot unregister a replacement. An unavailable owner
 rejects a decision before append, while previously captured child output stays
-available for inspection. The wrapper behavioral test removes the production
-stream callback as a negative control and must lose the observed child output.
+available for inspection. Removing the production stream callback in the manual negative-control run
+makes the wrapper behavioral test lose its observed child output. The committed
+test exercises the restored production callback.
 
 Child workspace tab addresses encode owner, root and child identifiers and use
 the existing workspace selection store's singleton/open/close/hydrate behavior.
@@ -1509,3 +1510,7 @@ authoritative hook outcome rather than label the tool-result completed. Child
 mapper states share the outcome capture while retaining independent lifecycle
 state. Failure produces a compact explicit parent explanation and a failed
 subagent event; other ancestors may still complete after handling it.
+
+Delegation cards resolve durable names and colors through the owning workspace repository, validating the actual parent rather than persona identity. Task text comes from the delegation tool input. Missing or contradictory authorized identity remains a visible local error; generic role labels before an address arrives are not fabricated child names.
+
+A child-open request made before the workspace repository is available fails visibly and clears its session intent. Boot hydration still restores the saved root, but cannot replay that rejected child-open request; the user may explicitly open the child after storage is ready. The shared coordinator test covers this boundary.

@@ -6,6 +6,7 @@ import { PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { type AssistantUiPanelProps, ChatThreadUI } from './assistant-ui-panel';
 import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
 import { MetadataProviders } from './openrouter-model-metadata-context';
+import { RewindProvider } from './rewind-context';
 
 type ThreadSurfaceProps = ComponentProps<typeof ChatThreadUI>;
 export type AssistantConversationPanelProps = Partial<
@@ -53,26 +54,28 @@ export function AssistantConversationPanel({
       >
         <AssistantRuntimeProvider runtime={runtime}>
           <PlanModeExitProvider onExit={props.planMode?.onExit}>
-            <FollowUpQueueOwnershipContext value={false}>
-              <AssistantPanelErrorBoundary>
-                <ChatThreadUI
-                  disabledReason={undefined}
-                  fileMentions={fileMentions}
-                  hasGroupedProviders={providerGroups.length > 0}
-                  isComposerDisabled={isComposerDisabled}
-                  onFileMentionQueryChange={undefined}
-                  onModelChange={undefined}
-                  pickerModels={pickerModels}
-                  providerGroups={providerGroups}
-                  recentModels={undefined}
-                  selectedModel={undefined}
-                  selectedProvider={undefined}
-                  slashCommands={slashCommands}
-                  {...props}
-                  threadKey={threadKey}
-                />
-              </AssistantPanelErrorBoundary>
-            </FollowUpQueueOwnershipContext>
+            <RewindProvider value={null}>
+              <FollowUpQueueOwnershipContext value={false}>
+                <AssistantPanelErrorBoundary>
+                  <ChatThreadUI
+                    disabledReason={undefined}
+                    fileMentions={fileMentions}
+                    hasGroupedProviders={providerGroups.length > 0}
+                    isComposerDisabled={isComposerDisabled}
+                    onFileMentionQueryChange={undefined}
+                    onModelChange={undefined}
+                    pickerModels={pickerModels}
+                    providerGroups={providerGroups}
+                    recentModels={undefined}
+                    selectedModel={undefined}
+                    selectedProvider={undefined}
+                    slashCommands={slashCommands}
+                    {...props}
+                    threadKey={threadKey}
+                  />
+                </AssistantPanelErrorBoundary>
+              </FollowUpQueueOwnershipContext>
+            </RewindProvider>
           </PlanModeExitProvider>
         </AssistantRuntimeProvider>
       </section>

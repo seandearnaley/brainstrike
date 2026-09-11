@@ -23,6 +23,23 @@ describe('host-owned delegated conversations', () => {
     ]);
   });
 
+  it('keeps read receipts with the host when a virtual sidebar row unmounts', () => {
+    const store = createDelegatedConversationStore('root');
+    store.publish(update('a'));
+    expect(store.hasUnread('a')).toBe(true);
+    const stop = store.subscribe(() => undefined);
+    store.markRead('a');
+    stop();
+    expect(store.hasUnread('a')).toBe(false);
+    store.publish(update('b'));
+    expect(store.hasUnread('a')).toBe(false);
+    expect(store.hasUnread('b')).toBe(true);
+    store.publish(update('a', 'initial', 'New activity'));
+    expect(store.hasUnread('a')).toBe(true);
+    store.clear();
+    expect(store.hasUnread('a')).toBe(false);
+  });
+
   it('ignores an old host leg after a new leg has replaced it, without discarding the new history', () => {
     const store = createDelegatedConversationStore('root');
     store.publish(update('a'));

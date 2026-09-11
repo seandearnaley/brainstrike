@@ -4,13 +4,11 @@ import {
   delegationToolNameForPersona,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '@brainstrike/assistant-contract/personas';
-import { createElement, use, useMemo, useState } from 'react';
+import { createElement, useMemo } from 'react';
 import {
   readSubagentConversationAddress,
   readSubagentInvocationRun,
   type SubagentConversationAddress,
-  SubagentConversationNavigationContext,
-  SubagentInvocationResolverContext,
   type SubagentInvocationRun,
 } from './subagent-conversation-navigation';
 import { SubagentExecutionCard } from './subagent-execution-card';
@@ -20,6 +18,8 @@ import {
   type SubagentDelegationOutcome,
   serializeLiveSubagentToolRowsFromMessages,
 } from './subagent-tool-rows';
+import { useSubagentNavigation } from './use-subagent-navigation';
+import { useSubagentPresentation } from './use-subagent-presentation';
 
 /**
  * The registered delegation-tool component: reads the current message's parts
@@ -35,9 +35,6 @@ import {
  * never re-render, freezing the live count on an early snapshot (D2).
  */
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
-  const openConversation = use(SubagentConversationNavigationContext);
-  const resolveInvocation = use(SubagentInvocationResolverContext);
-  const [navigationError, setNavigationError] = useState<string>();
   const invocationJson = useAuiState((state) =>
     JSON.stringify(readSubagentInvocationRun(state.message.parts, props.toolCallId))
   );
@@ -54,6 +51,10 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
     () => JSON.parse(addressJson) as SubagentConversationAddress,
     [addressJson]
   );
+  const { entry: presentation, reload } = useSubagentPresentation(
+    address.kind === 'available' ? address.threadId : undefined
+  );
+  const navigation = useSubagentNavigation(address, invocation, props.toolCallId);
   // THREAD-wide, not message-scoped (2026-08-24 field failure): hydration can
   // weave this delegation's `subagent.tool.*` events into a SIBLING message of
   // an approval-resume turn, so a message-scoped read showed "0 tool calls"
@@ -75,27 +76,14 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
     // `exactOptionalPropertyTypes` an optional prop may be absent but never
     // explicitly `undefined`.
     ...(props.isError === undefined ? {} : { isError: props.isError }),
-    ...(openConversation && address.kind === 'available'
-      ? { onOpenConversation: () => openConversation(address.threadId) }
-      : openConversation &&
-          resolveInvocation &&
-          invocation.kind === 'available' &&
-          address.kind === 'unavailable'
-        ? {
-            onOpenConversation: () => {
-              setNavigationError(undefined);
-              resolveInvocation({
-                parentRuntimeRunId: invocation.parentRuntimeRunId,
-                parentToolCallId: props.toolCallId,
-              }).then(openConversation, (error: unknown) =>
-                setNavigationError(error instanceof Error ? error.message : String(error))
-              );
-            },
-          }
-        : {}),
-    ...(navigationError ? { navigationError } : {}),
-    ...(invocation.kind === 'invalid' ? { navigationError: invocation.error } : {}),
-    ...(address.kind === 'invalid' ? { navigationError: address.error } : {}),
+    ...navigation,
+    ...(presentation && 'presentation' in presentation
+      ? { presentation: presentation.presentation }
+      : {}),
+    ...(presentation && 'error' in presentation
+      ? { onReloadPresentation: reload, presentationError: presentation.error }
+      : {}),
+    ...(typeof props.args['prompt'] === 'string' ? { task: props.args['prompt'] } : {}),
     liveRows,
     ...(outcome ? { outcome } : {}),
     result: props.result,

@@ -19,6 +19,8 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
 import { resetFollowUpQueueStore, useFollowUpQueueStore } from '../follow-up-queue-store';
+import { useRewindComposerStore } from '../rewind-composer-store';
+import { RewindProvider } from '../rewind-context';
 import { ToolResultRendererProvider } from '../tool-result-renderer-context';
 import type { ToolResultRenderer } from '../use-tool-result-renderers';
 
@@ -72,6 +74,27 @@ describe('shared conversation panel', () => {
   afterEach(() => {
     cleanup();
     resetFollowUpQueueStore();
+    useRewindComposerStore.getState().consume();
+  });
+
+  it('does not inherit the parent rewind capability', () => {
+    const requestRewind = vi.fn();
+    useRewindComposerStore.getState().requestComposerText('Parent rewind prompt');
+    render(
+      <TooltipProvider>
+        <RewindProvider value={{ requestRewind }}>
+          <Conversation
+            id="Cedar"
+            messages={[{ content: 'Child instructions', id: 'child-user', role: 'user' }]}
+            onNew={async () => undefined}
+          />
+        </RewindProvider>
+      </TooltipProvider>
+    );
+    expect(screen.queryByRole('button', { name: 'Restore to before this message' })).toBeNull();
+    expect(requestRewind).not.toHaveBeenCalled();
+    expect(useRewindComposerStore.getState().pendingText).toBe('Parent rewind prompt');
+    expect(screen.getByRole('textbox', { name: 'Message input' })).toHaveValue('');
   });
 
   it.each([false, true])('advertises editing only when the runtime supports it (%s)', (canEdit) => {

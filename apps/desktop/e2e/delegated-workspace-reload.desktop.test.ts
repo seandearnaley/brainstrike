@@ -73,9 +73,10 @@ test('restores distinct child tabs and native transcripts without executing a ru
       [root['id'], root['resource']]
     );
     const ids: string[] = [];
-    for (const [name, color] of [
+    for (const [name, color, parentName] of [
       ['Cedar', 'emerald'],
       ['Flint', 'amber'],
+      ['Wren', 'violet', 'Cedar'],
     ]) {
       const child = `${root['id']}-${name}`;
       const resource = `${root['resource']}-${name}`;
@@ -84,8 +85,16 @@ test('restores distinct child tabs and native transcripts without executing a ru
         [child, resource, name]
       );
       await query(
-        `INSERT INTO brainstrike_delegated_conversations (thread_id, owner_resource_id, root_thread_id, parent_thread_id, resource_id, configuration, display_name, color) VALUES ($1, $2, $3, $3, $4, '{}'::jsonb, $5, $6)`,
-        [child, root['resource'], root['id'], resource, name, color]
+        `INSERT INTO brainstrike_delegated_conversations (thread_id, owner_resource_id, root_thread_id, parent_thread_id, resource_id, configuration, display_name, color) VALUES ($1, $2, $3, $7, $4, '{}'::jsonb, $5, $6)`,
+        [
+          child,
+          root['resource'],
+          root['id'],
+          resource,
+          name,
+          color,
+          parentName ? `${root['id']}-${parentName}` : root['id'],
+        ]
       );
       await query(
         `INSERT INTO mastra_messages (id, thread_id, content, role, type, "createdAt", "resourceId") VALUES ($1, $2, $3::jsonb, 'user', 'v2', NOW(), $4)`,
@@ -108,7 +117,16 @@ test('restores distinct child tabs and native transcripts without executing a ru
           JSON.stringify({
             content: `${name} saved native transcript`,
             format: 2,
-            parts: [{ text: `${name} saved native transcript`, type: 'text' }],
+            parts: [
+              {
+                text: `${name} saved native transcript\n\n${Array.from(
+                  { length: 180 },
+                  (_, index) =>
+                    `${name} evidence paragraph ${index}: inspect this child independently.`
+                ).join('\n\n')}`,
+                type: 'text',
+              },
+            ],
           }),
           resource,
         ]
@@ -122,7 +140,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
       );
     }
     const snapshot = {
-      apps: { openAppIds: ids, selection: { appId: ids[0], kind: 'app' } },
+      apps: { openAppIds: ids.slice(0, 2), selection: { appId: ids[0], kind: 'app' } },
       editors: {},
       explorer: { byRoot: {} },
       fileTabs: { activeTabId: null, tabs: [] },
@@ -132,6 +150,19 @@ test('restores distinct child tabs and native transcripts without executing a ru
     await query(
       'INSERT INTO brainstrike_assistant_thread_workspaces (thread_id, resource_id, payload, updated_at) VALUES ($1, $2, $3::jsonb, NOW()) ON CONFLICT (thread_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()',
       [root['id'], root['resource'], JSON.stringify(snapshot)]
+    );
+    const otherId = `${root['id']}-other-root`;
+    await query(
+      `INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt", metadata) VALUES ($1, $2, 'Other root navigation', NOW(), NOW(), '{}'::jsonb)`,
+      [otherId, root['resource']]
+    );
+    await query(
+      "INSERT INTO brainstrike_assistant_thread_workspaces (thread_id, resource_id, payload, updated_at) VALUES ($1, $2, $3::jsonb, TIMESTAMPTZ '2000-01-01')",
+      [
+        otherId,
+        root['resource'],
+        JSON.stringify({ ...snapshot, apps: { openAppIds: [], selection: { kind: 'empty' } } }),
+      ]
     );
   }, memory);
 
@@ -145,31 +176,130 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await mockFileSystemOperations(window);
   await setupAssistantMock(window, { message: 'Opening a child must not request this.' });
   await ensureAssistantShellVisible(window);
-  await window.getByRole('button', { exact: true, name: 'Child workspace verification' }).click();
+  await window
+    .getByTestId('thread-row')
+    .getByRole('button', { exact: true, name: 'Child workspace verification' })
+    .click();
   const cedar = window.getByRole('tab', { exact: true, name: 'Cedar' });
   const flint = window.getByRole('tab', { exact: true, name: 'Flint' });
   await expect(cedar).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
   await expect(window.getByText('Cedar saved native transcript', { exact: true })).toBeVisible();
+  const rootDraft = rootPanel.getByRole('textbox', { name: 'Message input' });
+  await rootDraft.fill('UNSENT_PARENT_DRAFT_1724');
+  const cedarPanel = window.getByRole('region', { exact: true, name: 'Cedar' });
+  const cedarViewport = cedarPanel.getByTestId('assistant-ui-viewport');
+  await expect
+    .poll(() =>
+      cedarViewport.evaluate((element) => element.scrollHeight > element.clientHeight * 3)
+    )
+    .toBe(true);
+  await cedarViewport.evaluate((element) => element.scrollTo({ behavior: 'instant', top: 0 }));
+  await expect.poll(() => cedarViewport.evaluate((element) => element.scrollTop)).toBe(0);
   await cedar.focus();
   await cedar.press('ArrowRight');
   await expect(flint).toBeFocused();
   await flint.press('Enter');
   await expect(flint).toHaveAttribute('aria-selected', 'true');
   await expect(window.getByText('Flint saved native transcript', { exact: true })).toBeVisible();
+  const flintViewport = window
+    .getByRole('region', { exact: true, name: 'Flint' })
+    .getByTestId('assistant-ui-viewport');
+  await expect
+    .poll(() => flintViewport.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(100);
   await cedar.click();
+  await expect(cedar).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(() => cedarViewport.evaluate((element) => element.scrollTop)).toBe(0);
+  await expect(rootDraft).toHaveValue('UNSENT_PARENT_DRAFT_1724');
   await expect(window.getByText('Cedar saved native transcript', { exact: true })).toBeVisible();
   const childPanel = window.getByRole('region', { exact: true, name: 'Cedar' });
   await expect(childPanel.getByText('Instructions for Cedar', { exact: true })).toBeVisible();
-  await expect(childPanel.getByRole('button', { name: 'Regenerate response' })).toHaveCount(0);
-  await childPanel.getByText('Instructions for Cedar', { exact: true }).hover();
+  await expect(
+    childPanel.getByRole('button', { includeHidden: true, name: 'Regenerate response' })
+  ).toHaveCount(0);
   await expect(
     childPanel.getByRole('button', { includeHidden: true, name: 'Edit message' })
   ).toHaveCount(0);
   await expect(childPanel.getByRole('textbox', { name: 'Message input' })).toBeDisabled();
+  await expect(
+    childPanel.getByRole('button', { includeHidden: true, name: 'Restore to before this message' })
+  ).toHaveCount(0);
   await window.getByRole('button', { exact: true, name: 'Close Flint' }).click();
   await expect(flint).toHaveCount(0);
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
+  // Expand the actual shared TreeTable; listing children mounts no transcripts.
+  const rootRow = window.getByRole('row').filter({
+    has: window.getByRole('button', { exact: true, name: 'Child workspace verification' }),
+  });
+  await rootRow.getByRole('button', { name: /Expand/ }).click();
+  const sidebarCedar = window.getByRole('row').filter({
+    has: window.getByRole('button', { exact: true, name: 'Cedar Child' }),
+  });
+  await expect(sidebarCedar).toBeVisible();
+  await expect(
+    window.getByRole('region', { exact: true, includeHidden: true, name: 'Wren' })
+  ).toHaveCount(0);
+  // Establish the reader's position before the sidebar navigation sequence.
+  await cedarViewport.evaluate((element) => element.scrollTo({ behavior: 'instant', top: 0 }));
+  await expect.poll(() => cedarViewport.evaluate((element) => element.scrollTop)).toBe(0);
+  await window.getByRole('button', { exact: true, name: 'Flint Child' }).click();
+  await expect(flint).toHaveAttribute('aria-selected', 'true');
+  await sidebarCedar.getByRole('button', { name: /Expand/ }).click();
+  const wrenRow = window.getByRole('row').filter({
+    has: window.getByRole('button', { exact: true, name: 'Wren Child' }),
+  });
+  await expect(wrenRow).toHaveAttribute('aria-level', '3');
+  const wrenButton = wrenRow.getByRole('button', { exact: true, name: 'Wren Child' });
+  await wrenButton.focus();
+  await wrenButton.press('Enter');
+  await expect(window.getByRole('tab', { exact: true, name: 'Wren' })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
+  const wrenPanel = window.getByRole('tabpanel', { exact: true, name: 'Wren' });
+  await expect(wrenPanel.getByRole('navigation', { name: 'Conversation ancestry' })).toContainText(
+    'Cedar'
+  );
+  await wrenPanel.getByRole('button', { exact: true, name: 'Cedar' }).click();
+  await expect(cedar).toHaveAttribute('aria-selected', 'true');
+  await expect(cedar).toBeFocused();
+  await expect.poll(() => cedarViewport.evaluate((element) => element.scrollTop)).toBe(0);
+  await expect(rootDraft).toHaveValue('UNSENT_PARENT_DRAFT_1724');
+  // Open an existing child's sidebar row while another root owns the workspace.
+  await window.getByRole('button', { exact: true, name: 'Other root navigation' }).click();
+  await expect(cedar).toHaveCount(0);
+  await sidebarCedar.getByRole('button', { exact: true, name: 'Cedar Child' }).click();
+  await expect(cedar).toHaveAttribute('aria-selected', 'true');
+  await expect(rootDraft).toHaveValue('UNSENT_PARENT_DRAFT_1724');
+  const readOtherWorkspace = () =>
+    window.evaluate(async (rootId) => {
+      const api = (
+        globalThis as typeof globalThis & {
+          electronAPI?: {
+            db?: {
+              query?: (
+                sql: string,
+                params: readonly unknown[]
+              ) => Promise<{
+                rows: Array<{ payload: { apps: { openAppIds: string[] } }; persisted: boolean }>;
+              }>;
+            };
+          };
+        }
+      ).electronAPI;
+      if (!api?.db?.query) {
+        throw new Error('Native database bridge unavailable');
+      }
+      const result = await api.db.query(
+        "SELECT payload, updated_at > TIMESTAMPTZ '2000-01-01' AS persisted FROM brainstrike_assistant_thread_workspaces WHERE thread_id = $1",
+        [`${rootId}-other-root`]
+      );
+      return result.rows[0];
+    }, memory.threadId);
+  // Observe the outgoing write, not the empty seed before it has persisted.
+  await expect.poll(async () => (await readOtherWorkspace())?.persisted).toBe(true);
+  expect((await readOtherWorkspace())?.payload.apps.openAppIds).toEqual([]);
   // The page-side mock observes the post-reload view; the network listener above
   // also covers the interval before the mock is reinstalled after navigation.
   expect(await readAssistantMockRequests(window)).toHaveLength(0);

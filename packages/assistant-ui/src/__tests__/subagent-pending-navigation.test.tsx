@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   SubagentConversationNavigationContext,
+  SubagentConversationPresentationContext,
   SubagentInvocationResolverContext,
 } from '../subagent-conversation-navigation';
 import { Harness } from './assistant-activity-timeline-fixtures';
@@ -83,7 +84,7 @@ it('opens the exact pending invocation when two turns reuse a native tool-call I
     parentRuntimeRunId: 'run-two',
     parentToolCallId: 'reused-call',
   });
-  expect(open).toHaveBeenLastCalledWith('child-run-two');
+  expect(open).toHaveBeenLastCalledWith('child-run-two', second);
   await user.click(first);
   expect(resolve).toHaveBeenLastCalledWith({
     parentRuntimeRunId: 'run-one',
@@ -98,4 +99,53 @@ it('renders a contradictory invocation as a local navigation error without losin
   await user.click(await screen.findByTestId('assistant-activity-summary'));
   expect(await screen.findByText('Conflicting native invocation addresses.')).toBeVisible();
   expect(screen.getByRole('textbox', { name: 'Message' })).toBeVisible();
+});
+
+it('renders durable sibling names, roles and tasks through the shared tool renderer', async () => {
+  const open = vi.fn();
+  const presentation = vi.fn(async (threadId: string) => ({
+    displayName: threadId === 'child-one' ? 'Cedar' : 'Flint',
+    markClassName: 'text-emerald-500',
+  }));
+  const named = (id: string, task: string): ThreadMessageLike => ({
+    content: [
+      {
+        args: { prompt: task },
+        argsText: JSON.stringify({ prompt: task }),
+        result: { subAgentThreadId: id, text: 'Completed' },
+        toolCallId: id,
+        toolName: 'agent-worker',
+        type: 'tool-call',
+      },
+    ],
+    id,
+    role: 'assistant',
+  });
+  render(
+    <SubagentConversationNavigationContext value={open}>
+      <SubagentConversationPresentationContext value={presentation}>
+        <Harness
+          adapter={adapter}
+          initialMessages={[
+            named('child-one', 'Inspect the renderer'),
+            { content: 'Next task', id: 'next', role: 'user' },
+            named('child-two', 'Inspect the native host'),
+          ]}
+        />
+      </SubagentConversationPresentationContext>
+    </SubagentConversationNavigationContext>
+  );
+  const user = userEvent.setup();
+  for (const fold of await screen.findAllByTestId('assistant-activity-summary')) {
+    if (fold.getAttribute('aria-expanded') === 'false') {
+      await user.click(fold);
+    }
+  }
+  const cedar = await screen.findByRole('button', { name: 'Open Cedar conversation' });
+  expect(await screen.findByRole('button', { name: 'Open Flint conversation' })).toBeVisible();
+  expect(screen.getByText('Inspect the renderer')).toBeVisible();
+  expect(screen.getByText('Inspect the native host')).toBeVisible();
+  expect(screen.getAllByText('Worker')).toHaveLength(2);
+  await user.click(cedar);
+  expect(open).toHaveBeenLastCalledWith('child-one', cedar);
 });

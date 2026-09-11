@@ -382,3 +382,21 @@ it('keeps a conflicting conversation address visible as a card-local error', () 
   expect(screen.queryByRole('button', { name: /Open .* conversation/ })).not.toBeInTheDocument();
   expect(screen.getByText('Explorer finished')).toBeInTheDocument();
 });
+
+it('keeps valid child navigation available when presentation fails and offers an explicit reload', () => {
+  const open = vi.fn();
+  const reload = vi.fn();
+  renderCard({
+    onOpenConversation: open,
+    onReloadPresentation: reload,
+    presentationError: 'Child details could not be loaded',
+    status: { type: 'complete' },
+    toolCallId: 'call',
+    toolName: 'agent-explore',
+  });
+  expect(screen.getByRole('alert').textContent).toContain('Child details could not be loaded');
+  fireEvent.click(screen.getByRole('button', { name: 'Open Explorer conversation' }));
+  expect(open).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Reload child details' }));
+  expect(reload).toHaveBeenCalledTimes(1);
+});
