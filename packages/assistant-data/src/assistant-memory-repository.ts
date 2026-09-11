@@ -150,7 +150,12 @@ type MutableAssistantThreadMetadata = {
   -readonly [Key in keyof AssistantThreadMetadata]?: AssistantThreadMetadata[Key];
 };
 
-export type AssistantThreadRunStatus = 'cancelled' | 'completed' | 'failed' | 'running';
+export type AssistantThreadRunStatus =
+  | 'cancelling'
+  | 'cancelled'
+  | 'completed'
+  | 'failed'
+  | 'running';
 export type AssistantThreadRuntimeKind = 'browser' | 'gateway' | 'hosted' | 'local';
 
 export interface AssistantThreadRunRecord {
@@ -198,7 +203,7 @@ export interface CreateAssistantThreadRunInput {
 
 export interface CompleteAssistantThreadRunInput {
   readonly error?: string | null;
-  readonly status: Exclude<AssistantThreadRunStatus, 'running'>;
+  readonly status: Exclude<AssistantThreadRunStatus, 'running' | 'cancelling'>;
 }
 
 /**
@@ -1359,7 +1364,13 @@ function assertAllBulkThreadsFound(row: Record<string, unknown> | undefined): vo
 }
 
 function requireRunStatus(value: unknown): AssistantThreadRunStatus {
-  if (value === 'cancelled' || value === 'completed' || value === 'failed' || value === 'running') {
+  if (
+    value === 'cancelling' ||
+    value === 'cancelled' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'running'
+  ) {
     return value;
   }
   throw new Error('Invalid assistant thread run row: status is not valid.');
@@ -2865,7 +2876,7 @@ export function createPgliteAssistantThreadRepository(
       await database.query(
         `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
          SET status = $2, error = $3, completed_at = $4, updated_at = $5
-         WHERE id = $1`,
+         WHERE id = $1 AND status NOT IN ('cancelling', 'cancelled')`,
         [runId, input.status, input.error ?? null, new Date(), new Date()]
       );
     },

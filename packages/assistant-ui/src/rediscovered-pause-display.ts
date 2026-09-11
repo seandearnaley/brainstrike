@@ -24,6 +24,7 @@ export type RediscoveredPauseDisplay =
     };
 
 export const DELEGATED_DECISION_STATUS_LABELS = {
+  cancelled: 'Turn cancelled',
   claimed: 'Decision in progress',
   consumed: 'Decision already submitted',
   interrupted: 'Decision interrupted',

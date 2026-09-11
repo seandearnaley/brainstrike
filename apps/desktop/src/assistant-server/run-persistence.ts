@@ -582,7 +582,7 @@ async function completeDesktopAssistantThreadRun(
   await database.query(
     `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
      SET status = $2, error = $3, completed_at = $4, updated_at = $5
-     WHERE id = $1`,
+     WHERE id = $1 AND status NOT IN ('cancelling', 'cancelled')`,
     [runId, status, error, now, now]
   );
 }

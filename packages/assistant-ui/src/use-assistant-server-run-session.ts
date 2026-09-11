@@ -124,7 +124,7 @@ async function isStoredRunSessionStale(args: {
       });
       return false;
     }
-    return payload.status !== 'running';
+    return payload.status !== 'running' && payload.status !== 'cancelling';
   } catch (error: unknown) {
     assistantEndpointLogger.warn('Assistant run-status probe failed; keeping reattachment guard', {
       error,
@@ -151,9 +151,10 @@ export function useAssistantServerRunSession({
     [resumeApi, threadKey]
   );
   const activeRunSessionRef = useRef<AssistantActiveRunSession | undefined>(activeRunSession);
-  const preparedRequestRef = useRef<{ readonly data: Record<string, unknown> | undefined } | null>(
-    null
-  );
+  const preparedRequestRef = useRef<{
+    readonly data: Record<string, unknown> | undefined;
+    cancelRequested?: boolean;
+  } | null>(null);
   const completePreparedRequestRef = useRef(completePreparedRequest);
   const replayRetryCountRef = useRef(0);
   const [replayRetryToken, setReplayRetryToken] = useState(0);
@@ -176,7 +177,7 @@ export function useAssistantServerRunSession({
   const completeLatestPreparedRequest = useCallback(
     async (status: PreparedRequestStatus, error?: string): Promise<void> => {
       const preparedRequest = preparedRequestRef.current;
-      if (!preparedRequest) {
+      if (!preparedRequest || preparedRequest.cancelRequested) {
         return;
       }
       preparedRequestRef.current = null;
@@ -185,11 +186,28 @@ export function useAssistantServerRunSession({
     []
   );
 
+  const reconcilePendingCancellation = useCallback(async (): Promise<void> => {
+    const pendingCancellation = preparedRequestRef.current;
+    const cancelledRunId = readPreparedRunId(pendingCancellation?.data);
+    if (pendingCancellation?.cancelRequested && cancelledRunId) {
+      await reconcileStoredRunSessionGuard({
+        authHeaders,
+        baseUrl: desktopAssistantBaseUrl,
+        clear: clearActiveRunSession,
+        runId: cancelledRunId,
+      });
+      if (preparedRequestRef.current === pendingCancellation) {
+        preparedRequestRef.current = null;
+      }
+    }
+  }, [authHeaders, clearActiveRunSession, desktopAssistantBaseUrl]);
+
   const prepareRequest = useCallback(
     async (
       abortSignal?: AbortSignal,
       turnAnchorMessageId?: string | null
     ): Promise<Record<string, unknown> | undefined> => {
+      await reconcilePendingCancellation();
       if (preparedRequestRef.current) {
         throw new Error('Cannot start a hosted assistant run while another run is in progress.');
       }
@@ -225,7 +243,13 @@ export function useAssistantServerRunSession({
       preparedRequestRef.current = { data };
       return data;
     },
-    [authHeaders, clearActiveRunSession, desktopAssistantBaseUrl, prepareRequestData]
+    [
+      authHeaders,
+      clearActiveRunSession,
+      desktopAssistantBaseUrl,
+      prepareRequestData,
+      reconcilePendingCancellation,
+    ]
   );
 
   const onCancel = useCallback((): void => {
@@ -235,13 +259,20 @@ export function useAssistantServerRunSession({
       void completeLatestPreparedRequest('cancelled');
       return;
     }
-    void completeLatestPreparedRequest('cancelled');
+    const cancellingRequest = preparedRequestRef.current;
+    if (cancellingRequest) {
+      cancellingRequest.cancelRequested = true;
+    }
     void requestAssistantRunCancel({
       authHeaders,
       baseUrl: desktopAssistantBaseUrl,
       runId,
     })
-      .then(() => {
+      .then(async () => {
+        if (cancellingRequest && preparedRequestRef.current === cancellingRequest) {
+          preparedRequestRef.current = null;
+          await completePreparedRequestRef.current?.(cancellingRequest.data, 'cancelled');
+        }
         clearActiveRunSession();
       })
       .catch((error: unknown) => {

@@ -44,7 +44,7 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
  * (delegation is out of scope for planning — the `agent-<id>` tools are
  * Mastra-constructed and never enter the plan-mode-filtered tool map, so we
  * simply do not pass `agents`). Children re-gate the parent's GUARDED tool map
- * (pre-permission-filter) so ask tools are omitted per the child's own gate.
+ * (pre-permission-filter) and retain ask tools only with native storage and durable child control.
  *
  * `guardedTools` is the RAW (pre-model-output-projection) map: model-output
  * projection is applied per-child in `buildPersonaSubAgents`, since a persona
@@ -55,6 +55,7 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
 export function resolvePersonaRuntimeParts(params: {
   conversationBinding?: DelegatedConversationBinding | undefined;
   guardedTools: ToolsInput;
+  hasStorage?: boolean;
   languageModel: MastraModelConfig;
   permissionSnapshot: PermissionToolGateSnapshot | undefined;
   personas: readonly AssistantPersonaDefinition[] | undefined;
@@ -76,6 +77,7 @@ export function resolvePersonaRuntimeParts(params: {
       ? { settleChildToolOutputs: params.settleChildToolOutputs }
       : {}),
     guardedTools: params.guardedTools,
+    hasStorage: Boolean(params.hasStorage),
     languageModel: params.languageModel,
     logger,
     permissionSnapshot: params.permissionSnapshot,

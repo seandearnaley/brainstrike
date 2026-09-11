@@ -318,7 +318,16 @@ export function useThreadWorkspaceCoordinator({
         });
       });
     };
+    let previousAppIds = [...facadeRef.current.getOpenAppIds()];
+    let previousSelection = facadeRef.current.getSelection();
     const unsubscribe = subscribe(() => {
+      const appIds = facadeRef.current.getOpenAppIds();
+      const selection = facadeRef.current.getSelection();
+      const appsChanged = !(
+        stringListsMatch(previousAppIds, appIds) && selectionsMatch(previousSelection, selection)
+      );
+      previousAppIds = [...appIds];
+      previousSelection = selection;
       if (hydratingRef.current) {
         return;
       }
@@ -331,6 +340,12 @@ export function useThreadWorkspaceCoordinator({
       }
       if (saveTimerRef.current !== null) {
         clearTimeout(saveTimerRef.current);
+      }
+      // Tab ownership/selection must reach persistence before a reload can
+      // discard the debounce timer. High-frequency viewport edits stay batched.
+      if (appsChanged) {
+        persist();
+        return;
       }
       saveTimerRef.current = setTimeout(persist, debounceMs);
     });

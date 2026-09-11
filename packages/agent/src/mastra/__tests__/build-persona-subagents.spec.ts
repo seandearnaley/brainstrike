@@ -16,6 +16,7 @@ import {
   type ScaledToolResultBudget,
 } from '../../stream/tool-output-limits';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
+import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
 import type { PermissionToolGateLogger } from '../permission-tool-gate';
 import { applyToolModelOutputProjections, getActiveToolResultBudget } from '../tool-model-output';
 
@@ -191,6 +192,49 @@ describe('buildPersonaSubAgents', () => {
     });
     expect(result.subAgents['explore']).toBeUndefined();
     expect(result.delegationToolPersonas.size).toBe(0);
+  });
+
+  it('keeps per-tool read approvals only with native storage and complete durable host control', async () => {
+    const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
+    const conversationBinding = {
+      ...createDelegatedConversationBinding(async () => undefined),
+      bindRun: async () => ({ threadId: 'child' }),
+      claimToolAction: async () => undefined,
+      finishToolActions: async () => undefined,
+      prepareToolAction: async () => undefined,
+      releaseUnexecutedToolAction: async () => undefined,
+      resolveToolAction: async () => [],
+    };
+    const options = {
+      conversationBinding,
+      guardedTools,
+      hasStorage: true,
+      languageModel: fakeModel,
+      logger: noopLogger,
+      permissionSnapshot: readAskSnapshot,
+      personas: [explorePersona],
+      provider: 'openai',
+      resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      toolNameMap,
+    };
+    const child = assertDefined(
+      buildPersonaSubAgents(options).subAgents['explore'],
+      'Expected resumable read-only child'
+    );
+    const tools = await child.getToolsForExecution({});
+    expect(Object.keys(tools)).toHaveLength(5);
+    for (const tool of Object.values(tools)) {
+      expect(tool).toHaveProperty('requireApproval', true);
+    }
+    expect(
+      buildPersonaSubAgents({ ...options, hasStorage: false }).subAgents['explore']
+    ).toBeUndefined();
+    expect(
+      buildPersonaSubAgents({
+        ...options,
+        conversationBinding: createDelegatedConversationBinding(async () => undefined),
+      }).subAgents['explore']
+    ).toBeUndefined();
   });
 
   it('re-asserts read-only and THROWS on an injected edit tool even when no permission snapshot gates it (defense-in-depth)', () => {

@@ -109,6 +109,34 @@ describe('runAssistantTurn', () => {
     expect(result).toEqual({ ok: false, payload: failure.payload, status: 502 });
   });
 
+  it('records cancellation when an in-flight initializer returns a structured failure after abort', async () => {
+    const controller = new AbortController();
+    const initialization = Promise.withResolvers<AgentStreamResult>();
+    const failure: AgentStreamResult = {
+      ok: false,
+      payload: { error: 'initialization_failed', message: 'Provider setup failed' },
+      status: 502,
+    };
+    const { params, sessions } = baseParams({
+      executionSignal: controller.signal,
+      initializeStream: vi.fn(() => initialization.promise),
+    });
+    const pendingTurn = runAssistantTurn(params as never);
+    expect(recordThreadRunStatus).not.toHaveBeenCalled();
+
+    controller.abort(new Error('Assistant run canceled by user.'));
+    initialization.resolve(failure);
+    const result = await pendingTurn;
+
+    expect(recordThreadRunStatus).toHaveBeenCalledExactlyOnceWith(
+      'run-1',
+      'cancelled',
+      'Assistant run canceled by user.'
+    );
+    expect(sessions.create).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: false, payload: failure.payload, status: 502 });
+  });
+
   it('writes NOTHING on an init failure without a runId (the provenance gate)', async () => {
     const { params } = baseParams({
       initializeStream: vi.fn(

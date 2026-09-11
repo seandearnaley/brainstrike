@@ -86,7 +86,11 @@ product capabilities.
 The native suite is **not desktop E2E coverage**. For production-path tests,
 reuse `apps/desktop/e2e/utils/model-provider-shim.ts` with the isolated profile
 and real host launch pattern in `mcp-packaged-core.desktop.test.ts`; script the
-model endpoint, not the assistant stream. The existing renderer-only
+model endpoint, not the assistant stream. The shim accepts either one fixed script
+or a per-request selector receiving parsed messages, advertised function-tool
+names, and the request ordinal. Route parent and child scripts from those
+request inputs; each selected script still derives its tool/final turn from
+that request's own history. The existing renderer-only
 `setupAssistantMock` is suitable for UI states, not execution/persistence proof.
 Each runtime/UI ticket must extend these existing seams with its scenario;
 BST-1728 runs the assembled matrix. No new mock-only lane can stand in for the
@@ -233,8 +237,9 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   Each child's tool map is a permission-gated SUBSET of the parent's ALREADY-
   GUARDED tool map (so per-tool timeout + `GuardedToolError` inherit for free).
   Permission composition (D3): the candidate map passes through the SAME
-  `filterToolsByPermissionWithMetadata` gate as the parent, then EVERY `'ask'`
-  tool is OMITTED (fail-safe — no nested approval UX in v1). An empty post-gate
+  `filterToolsByPermissionWithMetadata` gate as the parent. Read-risk ask tools
+  retain native per-tool approval only when storage and the complete durable
+  child-control binding are available; otherwise they are omitted. An empty post-gate
   map ⇒ the persona is NOT registered. Children have **no `agents`** (no nesting)
   and **no `memory`** (Mastra injects the parent's memory and scopes writes to a
   fresh delegation thread). The child `Agent` id EQUALS the persona id — Mastra
@@ -1315,3 +1320,30 @@ advertise this action; enabling the composer or a generic `onNew` decision
 dispatcher does not authorize regeneration. Copy remains available. The shared
 panel tests exercise both supported and unsupported runtimes, and the Electron
 workspace restoration verifier checks the actual child control surface.
+
+### Waiting-turn cancellation and native child control (BST-1720)
+
+`POST /assistant/cancel` records cancellation against the owning resource/root/turn
+before aborting registered legs. A completed host leg is eligible only while
+public native suspended-run discovery still finds one of that turn's root
+invocations. Native snapshots remain Mastra-owned; no opaque snapshot is edited
+or used as application state. A cancelled original turn rejects a newly created
+resume leg in the atomic durable admission statement. Both native attempt legs
+check the owner signal again after awaited admission, before invoking resume.
+Both server and renderer terminal writers preserve an existing cancelled status.
+Repeated cancellation still aborts registered same-turn legs. Acknowledgement
+waits for their teardown, then finalizes cancellation even when the normal
+terminal write preceded unregister. Completed earlier legs retain their status
+unless they are the specifically requested waiting leg.
+
+Discovery preserves real admission states first. A native pending decision with
+no admission record in a cancelled turn receives the explicit non-actionable
+`cancelled` display state; it does not create a fabricated admission. Shared
+cards explain that the turn was cancelled and lock the original decision.
+Cancellation is cooperative for work already executing, never rollback.
+
+Proof: native sibling decisions, real HTTP waiting cancellation/reconstructed
+host rejection, and admission-cancellation attempt regressions. The provider-shim
+Electron scenario uses the actual host, permission engine, workspace and shared
+child panel; it does not replace the assistant endpoint. Full question/plan,
+process restart and worker acceptance remain distinct gates.

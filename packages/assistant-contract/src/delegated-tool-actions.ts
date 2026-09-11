@@ -148,10 +148,12 @@ export interface DelegatedOriginalToolCall {
 }
 
 /** Durable admission state, never a claim that the tool effect succeeded. */
-export type DelegatedToolDecisionState = 'claimed' | 'consumed' | 'interrupted';
+export type DelegatedToolDecisionState = 'claimed' | 'consumed' | 'interrupted' | 'cancelled';
 
 export function isDelegatedToolDecisionState(value: unknown): value is DelegatedToolDecisionState {
-  return value === 'claimed' || value === 'consumed' || value === 'interrupted';
+  return (
+    value === 'claimed' || value === 'consumed' || value === 'interrupted' || value === 'cancelled'
+  );
 }
 
 /** An absent state is resumable; a present unknown state must fail validation. */

@@ -41,6 +41,7 @@ const DESKTOP_SMOKE_COMMAND = [
   'e2e/app-launch.test.ts',
   'e2e/assistant-panel.desktop.test.ts',
   'e2e/background-indexing-pause.desktop.test.ts',
+  'e2e/delegated-child-control.desktop.test.ts',
   'e2e/delegated-workspace-reload.desktop.test.ts',
   'e2e/file-system.test.ts',
   'e2e/forge-pr.desktop.test.ts',

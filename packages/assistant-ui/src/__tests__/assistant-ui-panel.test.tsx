@@ -844,7 +844,7 @@ describe('AssistantUiPanel model picker', () => {
     );
   });
 
-  it('marks desktop Stop cancelled before an abort error can race the cancel request', async () => {
+  it('protects desktop Stop from abort errors until server cancellation settles', async () => {
     Object.assign(window, {
       assistant: {
         getAuth: vi.fn(async () => ({
@@ -853,9 +853,8 @@ describe('AssistantUiPanel model picker', () => {
         })),
       },
     });
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(null, { status: 200 }));
+    const cancellation = Promise.withResolvers<Response>();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockReturnValue(cancellation.promise);
     const prepareRequestData = vi.fn(async () => ({
       memory: {
         resourceId: 'workspace-1',
@@ -888,10 +887,10 @@ describe('AssistantUiPanel model picker', () => {
     options.onCancel?.();
     options.onError?.(new Error('Assistant request was aborted.'));
 
-    expect(completePreparedRequest).toHaveBeenCalledWith(
-      expect.any(Object),
-      'cancelled',
-      undefined
+    expect(completePreparedRequest).not.toHaveBeenCalled();
+    cancellation.resolve(new Response(null, { status: 200 }));
+    await waitFor(() =>
+      expect(completePreparedRequest).toHaveBeenCalledWith(expect.any(Object), 'cancelled')
     );
     expect(completePreparedRequest).toHaveBeenCalledTimes(1);
     await waitFor(() =>

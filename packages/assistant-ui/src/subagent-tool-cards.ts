@@ -34,7 +34,9 @@ import {
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
   const openConversation = use(SubagentConversationNavigationContext);
   const addressJson = useAuiState((state) =>
-    JSON.stringify(readSubagentConversationAddress(state.message.parts, props.toolCallId))
+    JSON.stringify(
+      readSubagentConversationAddress(state.message.parts, props.toolCallId, props.result)
+    )
   );
   const address = useMemo(
     () => JSON.parse(addressJson) as SubagentConversationAddress,

@@ -228,6 +228,11 @@ export function createDesktopDelegatedConversationHost(
          JOIN mastra_threads root ON root.id = runs.thread_id AND root."resourceId" = runs.resource_id
          WHERE runs.id = $9 AND runs.resource_id = $2 AND runs.thread_id = $3
            AND runs.turn_message_id = $10 AND runs.status = 'running'
+           AND NOT EXISTS (
+             SELECT 1 FROM brainstrike_assistant_thread_runs cancelled
+             WHERE cancelled.resource_id = runs.resource_id AND cancelled.thread_id = runs.thread_id
+               AND cancelled.turn_message_id = runs.turn_message_id AND cancelled.status IN ('cancelling', 'cancelled')
+           )
          ON CONFLICT DO NOTHING RETURNING id`,
         [
           id,

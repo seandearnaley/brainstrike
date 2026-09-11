@@ -11,9 +11,19 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 /** Read the already validated host envelope in this message, never a persona label. */
 export function readSubagentConversationThread(
   parts: readonly unknown[],
-  toolCallId: string
+  toolCallId: string,
+  result?: unknown
 ): string | undefined {
   let threadId: string | undefined;
+  // Native completion persists this address in the delegation's own result.
+  // Live publication has an envelope instead; contradictory sources fail closed.
+  if (isRecord(result) && 'subAgentThreadId' in result) {
+    const child = result['subAgentThreadId'];
+    if (typeof child !== 'string' || !child.trim()) {
+      throw new Error('Invalid child conversation address.');
+    }
+    threadId = child;
+  }
   for (const part of parts) {
     if (
       !(
@@ -55,10 +65,11 @@ export type SubagentConversationAddress =
 /** Render failures locally without hiding a contradictory host address. */
 export function readSubagentConversationAddress(
   parts: readonly unknown[],
-  toolCallId: string
+  toolCallId: string,
+  result?: unknown
 ): SubagentConversationAddress {
   try {
-    const threadId = readSubagentConversationThread(parts, toolCallId);
+    const threadId = readSubagentConversationThread(parts, toolCallId, result);
     return threadId ? { kind: 'available', threadId } : { kind: 'unavailable' };
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error), kind: 'invalid' };

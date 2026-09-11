@@ -664,6 +664,7 @@ export async function createMastraAgentRuntime(
     // pinned model's own resolved budget when one is pinned and the parent's
     // `resolvedToolResultBudget` otherwise (see build-persona-subagents.ts).
     guardedTools,
+    hasStorage: Boolean(storage),
     languageModel: observedLanguageModel,
     permissionSnapshot,
     personas,

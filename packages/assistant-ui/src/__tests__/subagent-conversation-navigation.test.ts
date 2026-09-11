@@ -39,3 +39,14 @@ it('returns an explicit renderable failure for conflicting addresses', () => {
   });
   expect(readSubagentConversationAddress([], 'a')).toEqual({ kind: 'unavailable' });
 });
+
+it('retains the native completed delegation address after reload and rejects conflicting live identity', () => {
+  expect(readSubagentConversationAddress([], 'a', { subAgentThreadId: 'cedar' })).toEqual({
+    kind: 'available',
+    threadId: 'cedar',
+  });
+  expect(
+    readSubagentConversationAddress([part('a', 'willow')], 'a', { subAgentThreadId: 'cedar' })
+  ).toEqual({ error: 'Conflicting child conversation addresses.', kind: 'invalid' });
+  expect(readSubagentConversationAddress([], 'a', { subAgentThreadId: '' }).kind).toBe('invalid');
+});

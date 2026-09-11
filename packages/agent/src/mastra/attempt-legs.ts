@@ -446,6 +446,7 @@ async function createToolApprovalTurnAttempt({
       agent: runtime.agent,
       requiresApproval: true,
     });
+    streamAbortContext.signal.throwIfAborted();
     const streamResult =
       action.action === 'approve'
         ? await runtime.agent.approveToolCall(approvalOptions as AgentToolApprovalOptions)
@@ -751,6 +752,7 @@ async function createToolResumeTurnAttempt({
       agent: runtime.agent,
       requiresApproval: false,
     });
+    streamAbortContext.signal.throwIfAborted();
     const streamResult = await runtime.agent.resumeStream(
       resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
       resumeOptions as AgentResumeStreamOptions

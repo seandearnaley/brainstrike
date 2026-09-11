@@ -55,6 +55,16 @@ function makeDatabase(rows: unknown[] | Error) {
 }
 
 describe('handleRunStatusRequest', () => {
+  it('projects cancelling without treating it as terminal or unknown', async () => {
+    const captured: CapturedResponse = { body: undefined, status: undefined };
+    await handleRunStatusRequest(
+      makeRequest('/assistant/run-status?runId=run-cancel'),
+      makeResponse(captured),
+      makeDatabase([{ status: 'cancelling' }])
+    );
+    expect(captured).toEqual({ body: { runId: 'run-cancel', status: 'cancelling' }, status: 200 });
+  });
+
   it('projects a known durable status', async () => {
     const captured: CapturedResponse = { body: undefined, status: undefined };
     await handleRunStatusRequest(

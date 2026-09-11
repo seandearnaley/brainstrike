@@ -9,8 +9,8 @@
  * and scopes writes to a fresh delegation thread — D6/D7).
  *
  * Permission composition (D3): the persona's candidate map passes through the
- * SAME `filterToolsByPermissionWithMetadata` gate as the parent; every `'ask'`
- * tool is then OMITTED (fail-safe — no nested approval UX in v1). A persona whose
+ * SAME `filterToolsByPermissionWithMetadata` gate as the parent. Ask tools need
+ * native storage and the complete durable child-decision host capability. A persona whose
  * post-gate map is empty is NOT registered (no useless delegation tool).
  */
 
@@ -55,6 +55,7 @@ export interface BuildPersonaSubAgentsParams {
    * model-output-projected. Each child projects its own selected subset
    * against its own resolved budget (see {@link resolvedToolResultBudget}). */
   readonly guardedTools: ToolsInput;
+  readonly hasStorage?: boolean;
   /** Parent's resolved model instance (D5 — children reuse it). */
   readonly languageModel: MastraModelConfig;
   readonly logger: PermissionToolGateLogger;
@@ -310,9 +311,25 @@ function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
   };
 }
 
+function canSuspendPersonaTools(params: BuildPersonaSubAgentsParams): boolean {
+  // Native per-tool approval is available only with the complete durable
+  // host boundary. Storage alone cannot authorize or isolate child decisions.
+  const binding = params.conversationBinding;
+  return Boolean(
+    params.hasStorage &&
+      binding?.bindRun &&
+      binding.claimToolAction &&
+      binding.finishToolActions &&
+      binding.prepareToolAction &&
+      binding.releaseUnexecutedToolAction &&
+      binding.resolveToolAction
+  );
+}
+
 export function buildPersonaSubAgents(
   params: BuildPersonaSubAgentsParams
 ): PersonaSubAgentBuildResult {
+  const canSuspend = canSuspendPersonaTools(params);
   const originalToSanitized = buildOriginalToSanitized(params.toolNameMap);
   const subAgents: Record<string, Agent> = {};
   const delegationToolPersonas = new Map<string, string>();
@@ -337,7 +354,6 @@ export function buildPersonaSubAgents(
       params.logger
     );
 
-    // Same gate as the parent; then OMIT every ask tool (no nested approval UX).
     const gateResult = filterToolsByPermissionWithMetadata(
       candidate,
       params.permissionSnapshot,
@@ -347,8 +363,8 @@ export function buildPersonaSubAgents(
     const childTools: Record<string, unknown> = {};
     const keptOriginalNames: string[] = [];
     for (const [sanitizedId, tool] of Object.entries(gateResult.tools)) {
-      if (gateResult.askToolIds.has(sanitizedId)) {
-        params.logger.info('Persona tool gated to ask; omitting from subagent (fail-safe)', {
+      if (gateResult.askToolIds.has(sanitizedId) && !canSuspend) {
+        params.logger.info('Persona approval requires durable host control; omitting tool', {
           code: 'subagent_ask_tool_omitted',
           personaId: persona.id,
           sanitizedId,

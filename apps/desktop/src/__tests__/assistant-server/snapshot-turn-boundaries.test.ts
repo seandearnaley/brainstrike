@@ -558,3 +558,96 @@ describe('resolveTurnAnchorMessageId', () => {
     expect(resolveTurnAnchorMessageId([{ id: 'a1', parts: [], role: 'assistant' }])).toBeNull();
   });
 });
+
+/** Expected public cancellation contract; production API is implemented separately. */
+function cancelOwnedTurn(
+  controller: ReturnType<typeof createTurnBoundaryController>,
+  input: {
+    readonly threadId: string;
+    readonly runId: string;
+    readonly turnRunIds: readonly string[];
+  }
+): Promise<void> {
+  return controller.completeCancelledTurn(input);
+}
+
+describe('turn-boundary triggers — authoritative cancellation ownership', () => {
+  async function waitingTurn(cold: boolean) {
+    const { repository, rows } = fakeRepository();
+    const first = makeController({ repository });
+    await first.controller.beginLeg({
+      anchorMessageId: 'message-current',
+      isResume: false,
+      roots: [...ROOTS],
+      runId: 'current-start',
+      threadId: THREAD,
+    });
+    await first.controller.beginLeg({
+      anchorMessageId: 'message-current',
+      isResume: true,
+      roots: [...ROOTS],
+      runId: 'current-resume',
+      threadId: THREAD,
+    });
+    await first.controller.completeLeg({
+      paused: true,
+      runId: 'current-resume',
+      status: 'completed',
+      threadId: THREAD,
+    });
+    const active = cold ? makeController({ repository }) : first;
+    return { ...active, rows };
+  }
+
+  it.each([false, true])(
+    'closes only the matching waiting turn once (cold registry: %s)',
+    async (cold) => {
+      const { controller, registry, rows, calls } = await waitingTurn(cold);
+      const before = calls.length;
+      const cancellation = {
+        runId: 'current-resume',
+        threadId: THREAD,
+        turnRunIds: ['current-start', 'current-resume'],
+      };
+      await cancelOwnedTurn(controller, cancellation);
+      expect(registry.openTurn(THREAD)).toBeNull();
+      expect(calls.slice(before)).toEqual([
+        { kind: 'turn-end', rootId: 'root-a', runId: 'current-resume' },
+        { kind: 'turn-end', rootId: 'root-b', runId: 'current-resume' },
+      ]);
+      expect(rows.filter((row) => row.kind === 'turn-end')).toHaveLength(2);
+      await cancelOwnedTurn(controller, cancellation);
+      expect(calls).toHaveLength(before + 2);
+      expect(rows.filter((row) => row.kind === 'turn-end')).toHaveLength(2);
+    }
+  );
+
+  it.each([false, true])(
+    'historical cancellation cannot close the newer bracket (cold registry: %s)',
+    async (cold) => {
+      const { controller, registry, rows, calls } = await waitingTurn(cold);
+      const before = calls.length;
+      await cancelOwnedTurn(controller, {
+        runId: 'historical-resume',
+        threadId: THREAD,
+        turnRunIds: ['historical-start', 'historical-resume'],
+      });
+      expect(calls).toHaveLength(before);
+      expect(rows.filter((row) => row.kind === 'turn-end')).toHaveLength(0);
+      expect(registry.openTurn(THREAD)?.firstRunId).toBe(cold ? undefined : 'current-start');
+    }
+  );
+
+  it('requires the warm turn first run, not merely a matching later resume id', async () => {
+    const { controller, registry, rows, calls } = await waitingTurn(false);
+    const before = calls.length;
+    await cancelOwnedTurn(controller, {
+      runId: 'current-resume',
+      threadId: THREAD,
+      turnRunIds: ['current-resume'],
+    });
+    expect(calls).toHaveLength(before);
+    expect(rows.filter((row) => row.kind === 'turn-end')).toHaveLength(0);
+    expect(registry.openTurn(THREAD)?.firstRunId).toBe('current-start');
+  });
+});

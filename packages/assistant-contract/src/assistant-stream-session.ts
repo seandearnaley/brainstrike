@@ -10,6 +10,7 @@ export const ASSISTANT_RUN_STATUS_PATH = '/assistant/run-status';
  * gain their durable row before any stream response can mint a record.
  */
 export type AssistantRunStatusProjection =
+  | 'cancelling'
   | 'cancelled'
   | 'completed'
   | 'failed'
@@ -22,6 +23,7 @@ export interface AssistantRunStatusResponse {
 }
 
 const RUN_STATUS_PROJECTIONS: readonly AssistantRunStatusProjection[] = [
+  'cancelling',
   'cancelled',
   'completed',
   'failed',

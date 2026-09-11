@@ -106,7 +106,11 @@ export async function runAssistantTurn(
   });
   if (!streamResult.ok) {
     if (runId) {
-      await persistence.recordThreadRunStatus(runId, 'failed', streamResult.payload.message);
+      await persistence.recordThreadRunStatus(
+        runId,
+        executionSignal.aborted ? 'cancelled' : 'failed',
+        executionSignal.aborted ? 'Assistant run canceled by user.' : streamResult.payload.message
+      );
     }
     return { ok: false, payload: streamResult.payload, status: streamResult.status };
   }
