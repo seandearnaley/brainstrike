@@ -175,6 +175,56 @@ describe('native background delegation (BST-1723)', () => {
     }
   });
 
+  it('honors foreground child cancellation without cancelling the parent', async () => {
+    const childStop = new AbortController();
+    const parentStop = new AbortController();
+    let effectSignal: AbortSignal | undefined;
+    const childModel = toolThenAnswer('inspect', 'foreground-effect', {});
+    const child = new Agent({
+      defaultOptions: { abortSignal: childStop.signal, maxSteps: 4 },
+      id: 'foreground-child',
+      instructions: 'Inspect once.',
+      memory: backing.memory,
+      model: childModel.model,
+      name: 'Foreground child',
+      tools: {
+        inspect: createTool({
+          description: 'Inspect once and stop the selected child.',
+          execute: async (_input, context) => {
+            const signal: unknown = context?.['abortSignal'];
+            if (!(signal instanceof AbortSignal)) {
+              throw new Error('Foreground tool requires its native abort signal');
+            }
+            effectSignal = signal;
+            childStop.abort(new Error('Selected child stopped'));
+            return { inspected: true };
+          },
+          id: 'inspect',
+          inputSchema: z.object({}),
+        }),
+      },
+    });
+    const parent = new Agent({
+      agents: { child },
+      id: 'foreground-parent',
+      instructions: 'Delegate an inspection.',
+      memory: backing.memory,
+      model: toolThenAnswer('agent-child', 'foreground-call', { prompt: 'Inspect' }).model,
+      name: 'Foreground parent',
+    });
+    const host = new Mastra({ agents: { parent }, logger: false, storage: backing.storage });
+    hosts.add(host);
+    const output = await parent.stream('Inspect', {
+      abortSignal: parentStop.signal,
+      maxSteps: 4,
+      memory: { resource: 'owner', thread: 'foreground-root' },
+    });
+    await collect(output.fullStream);
+    expect(effectSignal?.aborted).toBe(true);
+    expect(childModel.prompts).toHaveLength(1);
+    expect(parentStop.signal.aborted).toBe(false);
+  });
+
   it.each([false, true])(
     'joins selected child cleanup or reports its deadline without aborting a sibling (%s)',
     async (expireCleanup) => {

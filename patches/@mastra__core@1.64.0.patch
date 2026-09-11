@@ -1,3 +1,31 @@
+diff --git a/dist/agent-Dp3vcrIx.cjs b/dist/agent-Dp3vcrIx.cjs
+index 766f2d4f6741c31fd66a2e5ad79d5317ea7c1eb9..7ae5fd90e629bf856d09b5d5b537000a21b390de 100644
+--- a/dist/agent-Dp3vcrIx.cjs
++++ b/dist/agent-Dp3vcrIx.cjs
+@@ -35374,7 +35374,8 @@ var Agent = class Agent extends require_base.MastraBase {
+ 							role: "user",
+ 							content: effectivePrompt
+ 						}];
+-						const subAgentAbortOptions = context?.abortSignal ? { abortSignal: context.abortSignal } : {};
++						const subAgentAbortSignal = resolvedDefaultOptions?.abortSignal && context?.abortSignal ? AbortSignal.any([resolvedDefaultOptions.abortSignal, context.abortSignal]) : resolvedDefaultOptions?.abortSignal ?? context?.abortSignal;
++						const subAgentAbortOptions = subAgentAbortSignal ? { abortSignal: subAgentAbortSignal } : {};
+ 						if ((methodType === "generate" || methodType === "generateLegacy") && require_trip_wire.supportedLanguageModelSpecifications.includes(resolvedModelVersion)) {
+ 							const generateResult = shouldResumeSubAgent ? await resolvedAgent.resumeGenerate(resumeData, {
+ 								runId: suspendedToolRunId,
+diff --git a/dist/agent-DsRUDsS_.js b/dist/agent-DsRUDsS_.js
+index fc4889177d6cd7396474f3f326a241bb6c88a8b4..e0ad8f32894cb257cced71646e12f6df2a579c7a 100644
+--- a/dist/agent-DsRUDsS_.js
++++ b/dist/agent-DsRUDsS_.js
+@@ -35372,7 +35372,8 @@ var Agent = class Agent extends MastraBase {
+ 							role: "user",
+ 							content: effectivePrompt
+ 						}];
+-						const subAgentAbortOptions = context?.abortSignal ? { abortSignal: context.abortSignal } : {};
++						const subAgentAbortSignal = resolvedDefaultOptions?.abortSignal && context?.abortSignal ? AbortSignal.any([resolvedDefaultOptions.abortSignal, context.abortSignal]) : resolvedDefaultOptions?.abortSignal ?? context?.abortSignal;
++						const subAgentAbortOptions = subAgentAbortSignal ? { abortSignal: subAgentAbortSignal } : {};
+ 						if ((methodType === "generate" || methodType === "generateLegacy") && supportedLanguageModelSpecifications.includes(resolvedModelVersion)) {
+ 							const generateResult = shouldResumeSubAgent ? await resolvedAgent.resumeGenerate(resumeData, {
+ 								runId: suspendedToolRunId,
 diff --git a/dist/background-tasks-BPwDHuMD.cjs b/dist/background-tasks-BPwDHuMD.cjs
 index 1c2cdfedc207e760276df3be6dd310d207dc54f4..3bbddf451a2fc3b014bb833894eb23abbb617ab0 100644
 --- a/dist/background-tasks-BPwDHuMD.cjs

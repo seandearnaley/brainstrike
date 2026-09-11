@@ -141,6 +141,12 @@ The selected join also owns the native workflow's deletion and pending-queue
 settlement. Cleanup failures propagate to that task's cancel call, including
 repeated calls after settlement, and remain reported by root shutdown. A completed
 executor or terminal task row does not release an unfinished workflow write.
+Native delegation also composes the child's configured `abortSignal` with its
+parent tool signal in both ESM and CJS. Core 1.64.0 otherwise overwrites the child
+signal with the parent signal. The foreground regression aborts the child from
+its first real tool, verifies that tool sees cancellation and no second child
+model step starts, and verifies the parent is not cancelled. This preserves root
+abort propagation; it does not itself wire the application Stop control.
 
 Use `stream(..., { untilIdle: true })` when that integration is ready. The
 installed `streamUntilIdle()` declaration is deprecated. Consuming the complete
