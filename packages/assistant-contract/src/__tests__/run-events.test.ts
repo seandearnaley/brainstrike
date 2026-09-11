@@ -3,6 +3,7 @@ import {
   ASSISTANT_RUN_EVENT_KINDS,
   boundRunEventReason,
   MAX_RUN_EVENT_REASON_CHARS,
+  redactRunEventReason,
 } from '../run-events.js';
 
 describe('ASSISTANT_RUN_EVENT_KINDS', () => {
@@ -170,5 +171,34 @@ describe('boundRunEventReason', () => {
     const reason = boundRunEventReason(new Error('\u{1F600}'.repeat(300)));
     expect(Array.from(reason)).toHaveLength(MAX_RUN_EVENT_REASON_CHARS);
     expect(reason.endsWith('\u2026')).toBe(true);
+  });
+});
+
+describe('redactRunEventReason', () => {
+  // BST-1744 split job 1 out so the compaction-failure latch key can redact the
+  // UNTRUNCATED message. The property that earns the split is the one thing
+  // this does NOT do — bound — and the fact that the row's bounded form and the
+  // key's unbounded one still come from a single extraction.
+  it('redacts without bounding, where the bounded form collapses the difference', () => {
+    const shared = `compaction store read failed: ${'detail '.repeat(40)}`;
+    expect(shared.length).toBeGreaterThan(MAX_RUN_EVENT_REASON_CHARS);
+
+    expect(redactRunEventReason(new Error(`${shared}alpha`))).not.toBe(
+      redactRunEventReason(new Error(`${shared}beta`))
+    );
+    expect(boundRunEventReason(new Error(`${shared}alpha`))).toBe(
+      boundRunEventReason(new Error(`${shared}beta`))
+    );
+  });
+
+  it('applies the identical redaction and extraction to Errors and non-Errors', () => {
+    const message = 'connect https://alice:hunter2@host/mcp';
+    // Under the bound the two agree exactly, which is what lets the latch key
+    // and the rendered row describe the same text.
+    expect(redactRunEventReason(new Error(message))).toBe(boundRunEventReason(new Error(message)));
+    expect(redactRunEventReason(message)).not.toContain('hunter2');
+    // An Error is unwrapped to its message; a bare string is not re-wrapped.
+    expect(redactRunEventReason(new Error('plain'))).toBe('plain');
+    expect(redactRunEventReason('Error: plain')).toBe('Error: plain');
   });
 });

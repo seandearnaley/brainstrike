@@ -270,9 +270,27 @@ const URL_QUERY = new RegExp(`(${SCHEME}[^\\s?]+)\\?\\S*`, 'gi');
  * Sliced by CODE POINT, not UTF-16 code unit: `slice` can split a surrogate
  * pair and put a lone surrogate into durable JSON.
  */
-export function boundRunEventReason(value: unknown): string {
+/**
+ * Job 1 on its own: extract the message text and strip credentials from it,
+ * WITHOUT bounding the length.
+ *
+ * Split out by BST-1744 for the compaction-failure latch key, which has to be
+ * built from the UNTRUNCATED text — truncation collapses two failures that
+ * agree on their first 199 characters — while still getting the identical
+ * redaction and, just as importantly, the identical EXTRACTION. Reusing this
+ * rather than re-deriving it keeps ONE copy of the credential patterns (the
+ * whole reason they were promoted here) and keeps the key describing the same
+ * text the row renders: a second `value instanceof Error ? …` would be free to
+ * drift from this one the moment either grows a case, and the latch would then
+ * merge or split rows the user sees differently.
+ */
+export function redactRunEventReason(value: unknown): string {
   const raw = value instanceof Error ? value.message : String(value);
-  const redacted = raw.replace(URL_USERINFO, `$1${REDACTED}@`).replace(URL_QUERY, `$1?${REDACTED}`);
+  return raw.replace(URL_USERINFO, `$1${REDACTED}@`).replace(URL_QUERY, `$1?${REDACTED}`);
+}
+
+export function boundRunEventReason(value: unknown): string {
+  const redacted = redactRunEventReason(value);
   const points = Array.from(redacted);
   if (points.length <= MAX_RUN_EVENT_REASON_CHARS) {
     return redacted;

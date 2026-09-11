@@ -3,6 +3,7 @@ import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent'
 import {
   boundRunEventReason,
   createAssistantRunEvent,
+  redactRunEventReason,
 } from '@brainstrike/assistant-contract/run-events';
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import type { ScopedLogger } from '@brainstrike/logging';
@@ -187,6 +188,10 @@ function latchCompactionFailure(key: string): void {
  * MAX_TRACKED_COMPACTION_FAILURES above rather than by widening these patterns
  * until they start merging distinct failures.
  */
+// USE THESE WITH `.replace()` ONLY. They are module-level and `/g`, so
+// `.test()`/`.exec()` would carry `lastIndex` between calls and make the key
+// depend on call order — an intermittent extra row, or worse an intermittent
+// merge. `replace` resets it at both ends.
 const VOLATILE_TIMESTAMP =
   /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/g;
 const VOLATILE_UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
@@ -201,20 +206,24 @@ const VOLATILE_UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  * an untruncated key affordable: the digest is fixed-width, so the capped set
  * below is a real BYTE bound and not merely an entry count.
  *
- * The key never leaves this module — it is never logged, persisted or
- * rendered — so it deliberately does NOT run `boundRunEventReason`'s
- * redaction. Only the row's `reason` is durable, and that one is still
- * redacted; re-running the credential regexes here would mean a second copy of
- * patterns that were promoted specifically so there is exactly one.
+ * It runs `redactRunEventReason` — `boundRunEventReason` minus the bounding —
+ * rather than re-deriving the text. Not for secrecy (the key never leaves this
+ * module), but because redaction is part of the SHAPE: a message carrying a
+ * rotating secret otherwise mints a fresh key on every rotation, which is this
+ * ticket's own defect relocated from ids to credentials. Sharing the helper
+ * also keeps ONE extraction, so the key cannot drift from the text the row
+ * renders. (Claude review of #3138, findings 2 and 3.)
  *
  * Length-framing is retained from BST-1737 even though a fixed-width digest is
  * already self-delimiting: it costs nothing, keeps that settled ruling and its
  * test intact, and stays correct if the digest width ever changes.
  */
 function compactionFailureKey(threadId: string, error: unknown): string {
-  // Same extraction `boundRunEventReason` performs, applied before truncation.
-  const message = error instanceof Error ? error.message : String(error);
-  const shape = message.replace(VOLATILE_TIMESTAMP, '<ts>').replace(VOLATILE_UUID, '<id>');
+  // `boundRunEventReason` minus the bounding: ONE extraction and ONE copy of
+  // the credential patterns, shared with the rendered reason.
+  const shape = redactRunEventReason(error)
+    .replace(VOLATILE_TIMESTAMP, '<ts>')
+    .replace(VOLATILE_UUID, '<id>');
   return `${threadId.length}:${threadId}${createHash('sha256').update(shape).digest('hex')}`;
 }
 

@@ -2258,9 +2258,13 @@ every new throw and would bucket the next unanticipated one into "other". The
 shaping has neither property: there is no registry of known throws, and an
 unrecognised throw keys on its own text rather than being bucketed anywhere. Its
 failure direction is UNDER-merging — at worst an extra visible row — never
-over-merging, which would be a silence. The row still renders the FULL
-unnormalized reason, id included: normalization is KEY-ONLY, so the user keeps
-the one fact that identifies the wedged message.
+over-merging across distinct throws, which would be a silence. The row still
+renders the FULL unnormalized reason, id included: normalization is KEY-ONLY.
+State the limit of that precisely, because #3138's first draft overstated it:
+the user keeps the id of the FIRST message wedged in a given shape. A second
+message wedged the same way deduplicates against it and never reaches a row, so
+its id survives only in the unlatched `warn`. That is the deliberate price of
+not minting a row per turn, not an oversight.
 
 TWO VOLATILE TOKEN CLASSES, BOTH EVIDENCE-BACKED: canonical UUIDs (both
 id-bearing throws take theirs from `randomUUID`) and ISO-8601 timestamps (the
@@ -2271,11 +2275,22 @@ blanket digit mask would let the first permanently silence the second — the on
 thing this latch must never do. Do not widen these patterns to chase a residue
 the cap already bounds.
 
-THE KEY IS BUILT FROM THE UNTRUNCATED MESSAGE, and deliberately does NOT re-run
-`boundRunEventReason`'s redaction. It never leaves the in-memory `Set` — never
-logged, persisted, or rendered — and redacting here would mean a second copy of
-credential patterns that were promoted specifically so there is exactly one;
-only the row's `reason` is durable, and that one is still bounded and redacted.
+THE KEY IS BUILT FROM THE UNTRUNCATED MESSAGE, through `redactRunEventReason` —
+`boundRunEventReason` minus the bounding, split out by BST-1744 so there is
+still exactly ONE copy of the credential patterns and ONE extraction. #3138's
+first pass skipped redaction altogether, reasoning that the key never leaves the
+in-memory `Set`; the Claude review of that PR showed the reasoning was aimed at
+the wrong target. It is a fair objection to COPYING the patterns and no
+objection at all to REUSING them, and redaction is not secrecy here — it is part
+of the SHAPE. A message quoting a rotating secret (a provider auth error, a
+signed URL, a session id) otherwise mints a fresh key on every rotation: this
+ticket's own defect, relocated from ids to credentials, and no less reachable
+than the timestamp case. Sharing one extraction also keeps the key describing
+the same text the row renders; a second `value instanceof Error ? …` would be
+free to drift the moment either side grew a case, and a drifted key merges or
+splits rows the user sees differently. Both are pinned — "deduplicates a reason
+whose only variable part is a rotating credential" and "keys a non-Error throw
+from the same text the row renders".
 Hashing is what makes an untruncated key affordable: a fixed-width digest turns
 the cap into a real BYTE bound rather than a bare entry count. Length framing is
 retained even though a fixed-width digest is already self-delimiting — it costs
@@ -2285,7 +2300,15 @@ DROP-OLDEST, NOT LRU. The dedupe fast path only READS the set, so recency would
 have to be written on every suppressed turn, and first-seen order is already
 exact because a key the set holds is never re-added. Eviction costs the evicted
 failure ONE more visible row if it recurs — a repeat row, never a silence, the
-same direction every other ruling on this latch picks. The idempotency guard in
+same direction every other ruling on this latch picks. NAME WHO DOES THE
+EVICTING: the keys are per-thread but the cap and the eviction order are
+process-GLOBAL, so a single thread wedged on an unmasked id is the noisy
+neighbour — within 512 such turns it clears every OTHER thread's entry and each
+of them re-reports once. That cost is bounded and is a repeat row rather than a
+silence, so it is accepted. A per-thread sub-cap was considered and rejected: it
+needs its own eviction policy, and it would let one thread's many distinct
+failures evict each other, trading a bounded repeat row for a possible silence.
+The idempotency guard in
 `latchCompactionFailure` is load-bearing rather than a fast path: `markReported`
 is documented idempotent, and THE LATCH ARMS ON DELIVERY (below) accepts two
 turns committing the same key; at the cap, a commit that added nothing would

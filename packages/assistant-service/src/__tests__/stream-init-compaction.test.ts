@@ -352,15 +352,22 @@ describe('runConversationCompactionBeforeStream', () => {
    * Resolves to the rendered reason when a row was minted, undefined when the
    * latch suppressed it.
    */
-  async function failingTurn(runtime: RuntimeData, message: string): Promise<string | undefined> {
+  async function failingTurnRejectingWith(
+    runtime: RuntimeData,
+    thrown: unknown
+  ): Promise<string | undefined> {
     const { input } = makeInput({ runtime });
     (input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error(message)
+      thrown
     );
     const outcome = await runConversationCompactionBeforeStream(input as never);
     await deliverPrelude(outcome);
     const metadata = runEventOf(outcome.failure)?.['metadata'] as { reason?: string } | undefined;
     return metadata?.reason;
+  }
+
+  function failingTurn(runtime: RuntimeData, message: string): Promise<string | undefined> {
+    return failingTurnRejectingWith(runtime, new Error(message));
   }
 
   /**
@@ -427,6 +434,39 @@ describe('runConversationCompactionBeforeStream', () => {
 
       expect(await failingTurn(runtime, `${shared}alpha`)).toBeDefined();
       expect(await failingTurn(runtime, `${shared}beta`)).toBeDefined();
+    });
+
+    it('deduplicates a reason whose only variable part is a rotating credential', async () => {
+      // The key is built from the untruncated message, so it must still run the
+      // SAME redaction the rendered reason gets. Otherwise a rotating secret
+      // mints a new key every rotation — BST-1744's own defect, relocated from
+      // ids to credentials. (Claude review of #3138, finding 2.)
+      const runtime = { memory: { threadId: freshThreadId() } } as unknown as RuntimeData;
+      const query = (token: string) =>
+        `compaction store read failed: https://db.test/x?token=${token}`;
+
+      expect(await failingTurn(runtime, query('sk-live-aaaaaa'))).toBeDefined();
+      expect(await failingTurn(runtime, query('sk-live-bbbbbb'))).toBeUndefined();
+
+      const userinfo = (secret: string) =>
+        `compaction store read failed: postgres://svc:${secret}@db.test/brainstrike`;
+      expect(await failingTurn(runtime, userinfo('rotating-one'))).toBeDefined();
+      expect(await failingTurn(runtime, userinfo('rotating-two'))).toBeUndefined();
+    });
+
+    it('keys a non-Error throw from the same text the row renders', async () => {
+      // ONE extraction, shared with the row. A key that re-derived the text as
+      // `String(error)` would hand an Error and the bare string `Error: <msg>`
+      // the SAME key while the two rows render DIFFERENT reasons — so one would
+      // silence a row the user would have read as distinct. (Finding 3.)
+      const runtime = { memory: { threadId: freshThreadId() } } as unknown as RuntimeData;
+
+      expect(await failingTurnRejectingWith(runtime, new Error('compaction pass rejected'))).toBe(
+        'compaction pass rejected'
+      );
+      expect(await failingTurnRejectingWith(runtime, 'Error: compaction pass rejected')).toBe(
+        'Error: compaction pass rejected'
+      );
     });
 
     it('evicts the oldest entry once the latch reaches its cap', async () => {
