@@ -53,7 +53,8 @@ export interface DelegatedFollowupInput {
 }
 export type DelegatedFollowupControl = (
   target: DelegatedFollowupTarget,
-  input: DelegatedFollowupInput
+  input: DelegatedFollowupInput,
+  assertAdmission: () => Promise<void>
 ) => Promise<void>;
 
 export interface DelegatedConversationBinding {

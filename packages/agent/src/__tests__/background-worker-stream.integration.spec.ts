@@ -14,6 +14,130 @@ import { listSuspendedMastraRuns } from '../mastra/suspended-run-discovery';
 import type { StreamChunk } from '../types';
 import { createBackgroundFixture } from './fixtures/background-worker-runtime';
 
+it('removes a definitively discarded signal when the child finishes during durable admission', async () => {
+  const fixture = await createBackgroundFixture();
+  const { backing, runtime, runtimeData, entered, release, database, model } = fixture;
+  const saved = Promise.withResolvers<void>();
+  const continueDelivery = Promise.withResolvers<void>();
+  let consuming: Promise<void> | undefined;
+  let sending: Promise<void> | undefined;
+  const save = backing.memory.saveMessages.bind(backing.memory);
+  const persist = vi.spyOn(backing.memory, 'saveMessages').mockImplementation(async (input) => {
+    const result = await save(input);
+    if (input.messages.some((message) => message.id.startsWith('child-input:'))) {
+      saved.resolve();
+      await continueDelivery.promise;
+    }
+    return result;
+  });
+  try {
+    const iterator = await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [{ id: 'task', parts: [{ text: 'Inspect', type: 'text' }], role: 'user' }],
+      runtime,
+      runtimeData,
+    });
+    consuming = (async () => {
+      for await (const _chunk of iterator) {
+        /* Drain native output. */
+      }
+    })();
+    consuming.catch(() => {});
+    await entered.promise;
+    sending = fixture.followup({ id: 'late-input', text: 'MUST_NOT_RECALL_DISCARDED_INPUT' });
+    sending.catch(() => {});
+    await saved.promise;
+    release.resolve();
+    await consuming;
+    continueDelivery.resolve();
+    await expect(sending).rejects.toThrow('did not accept');
+    expect(
+      (await database.query("SELECT id FROM mastra_messages WHERE role = 'signal'")).rows
+    ).toEqual([]);
+    expect(JSON.stringify(model.prompts)).not.toContain('MUST_NOT_RECALL_DISCARDED_INPUT');
+  } finally {
+    release.resolve();
+    continueDelivery.resolve();
+    persist.mockRestore();
+    await Promise.allSettled([consuming, sending]);
+    await runtime.dispose();
+    await database.close();
+  }
+});
+
+it.each(['lookup', 'persist'])(
+  'rechecks revoked admission after awaited %s before sending child input',
+  async (boundary) => {
+    const fixture = await createBackgroundFixture();
+    const { backing, runtime, runtimeData, entered, release, database, model } = fixture;
+    let consuming: Promise<void> | undefined;
+    try {
+      const iterator = await createStreamIteratorFromRuntime({
+        memory: backing.memory,
+        messages: [{ id: 'task', parts: [{ text: 'Inspect', type: 'text' }], role: 'user' }],
+        runtime,
+        runtimeData,
+      });
+      consuming = (async () => {
+        for await (const _chunk of iterator) {
+          /* Drain native output. */
+        }
+      })();
+      consuming.catch(() => {});
+      await entered.promise;
+      const store = await backing.storage.getStore('memory');
+      if (!store) {
+        throw new Error('Missing native memory');
+      }
+      let revoked = false;
+      const lookup = store.listMessagesById.bind(store);
+      const read = vi.spyOn(store, 'listMessagesById').mockImplementation(async (input) => {
+        const result = await lookup(input);
+        if (boundary === 'lookup') {
+          revoked = true;
+        }
+        return result;
+      });
+      const save = backing.memory.saveMessages.bind(backing.memory);
+      const persisted = vi
+        .spyOn(backing.memory, 'saveMessages')
+        .mockImplementation(async (input) => {
+          const result = await save(input);
+          if (
+            boundary === 'persist' &&
+            input.messages.some((message) => message.id.startsWith('child-input:'))
+          ) {
+            revoked = true;
+          }
+          return result;
+        });
+      try {
+        await expect(
+          fixture.followup({ id: 'revoked', text: 'INPUT_AFTER_STOP' }, async () => {
+            if (revoked) {
+              throw new Error('Durable admission revoked');
+            }
+          })
+        ).rejects.toThrow('Durable admission revoked');
+      } finally {
+        read.mockRestore();
+        persisted.mockRestore();
+      }
+      expect(
+        (await database.query("SELECT id FROM mastra_messages WHERE role = 'signal'")).rows
+      ).toEqual([]);
+      release.resolve();
+      await consuming;
+      expect(JSON.stringify(model.prompts)).not.toContain('INPUT_AFTER_STOP');
+    } finally {
+      release.resolve();
+      await Promise.allSettled([consuming]);
+      await runtime.dispose();
+      await database.close();
+    }
+  }
+);
+
 it('never replays an ambiguous child input after receipt persistence fails and permits a later explicit request', async () => {
   const fixture = await createBackgroundFixture();
   const { backing, runtime, runtimeData, entered, release, database, model } = fixture;

@@ -6,6 +6,7 @@ export type SendActiveConversationInput = (input: {
 }) => Promise<void>;
 interface ActiveInputControl {
   readonly busy: boolean;
+  readonly discard: () => void;
   readonly error?: string | undefined;
   readonly send: () => Promise<void>;
 }

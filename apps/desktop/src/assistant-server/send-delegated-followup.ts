@@ -31,10 +31,15 @@ export async function handleDelegatedFollowupRequest(
     return;
   }
   try {
-    await sendDesktopDelegatedFollowup(input.hostRunId, input, input.threadId, {
-      id: input.id,
-      text: input.text,
-    });
+    await sendDesktopDelegatedFollowup(
+      input.hostRunId,
+      { ownerResourceId: input.ownerResourceId, rootThreadId: input.rootThreadId },
+      input.threadId,
+      {
+        id: input.id,
+        text: input.text,
+      }
+    );
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.end(JSON.stringify({ accepted: true, id: input.id, threadId: input.threadId }));
@@ -50,7 +55,7 @@ export async function handleDelegatedFollowupRequest(
     respondJson(res, 503, {
       error: 'child_input_incomplete',
       message:
-        'Child input delivery was not confirmed. Your draft is retained; the host will not replay it automatically.',
+        'Child input delivery was not confirmed. Inspect the child conversation before sending again. Discard the draft to compose a new input; this request will not replay automatically.',
     });
   }
 }

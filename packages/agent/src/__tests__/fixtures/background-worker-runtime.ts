@@ -39,7 +39,10 @@ interface BackgroundFixture {
     >
   >;
   entered: PromiseWithResolvers<void>;
-  followup: (input: Parameters<DelegatedFollowupControl>[1]) => Promise<void>;
+  followup: (
+    input: Parameters<DelegatedFollowupControl>[1],
+    admit?: () => Promise<void>
+  ) => Promise<void>;
   model: ReturnType<typeof scriptedAgentModel>;
   release: PromiseWithResolvers<void>;
   runtime: Awaited<ReturnType<typeof createMastraAgentRuntime>>;
@@ -52,7 +55,7 @@ export async function createBackgroundFixture(
   requireApproval = false,
   signal?: AbortSignal,
   question: boolean | 'then-plan' = false,
-  background = true
+  background?: boolean
 ): Promise<BackgroundFixture> {
   const database = await createEnginePglite();
   const scope = { resourceId: 'background-owner', threadId: 'background-root' };
@@ -96,7 +99,8 @@ export async function createBackgroundFixture(
     if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
       if (!hasToolResult(options, 'agent-explore')) {
         return toolCallParts('agent-explore', 'background-child', {
-          _background: { enabled: background },
+          // Omission preserves the production default in existing background cases.
+          ...(background === undefined ? {} : { _background: { enabled: background } }),
           prompt: 'Read background evidence',
         });
       }
@@ -261,7 +265,7 @@ export async function createBackgroundFixture(
     },
     effect,
     entered,
-    followup: (input: Parameters<DelegatedFollowupControl>[1]) => {
+    followup: (input: Parameters<DelegatedFollowupControl>[1], admit = async () => {}) => {
       const child = identities[0];
       const identity = runIdentities[0];
       if (!(followup && child && identity)) {
@@ -275,7 +279,8 @@ export async function createBackgroundFixture(
           runId: identity.childRuntimeRunId,
           threadId: child.childThreadId,
         },
-        input
+        input,
+        admit
       );
     },
     model,

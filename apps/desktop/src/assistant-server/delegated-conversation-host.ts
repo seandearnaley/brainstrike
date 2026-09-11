@@ -502,7 +502,10 @@ export function createDesktopDelegatedConversationHost(
         throw new DelegatedConversationIdentityError('followup-child-owner-unavailable');
       }
       await assertDelegatedConversationAdmission(database, scope, [threadId]);
-      await control(target, input);
+      await control(target, input, async () => {
+        await assertDelegationRootRunning(database, scope, hostRunId);
+        await assertDelegatedConversationAdmission(database, scope, [threadId]);
+      });
     },
   };
   return host;

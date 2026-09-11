@@ -144,6 +144,66 @@ describe('shared conversation panel', () => {
     expect(useFollowUpQueueStore.getState().queuedByThread).toEqual({});
   });
 
+  it('lets the user discard an unconfirmed draft and explicitly compose a fresh request', async () => {
+    const send = vi
+      .fn<(input: { id: string; text: string }) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('Inspect the child before sending again.'))
+      .mockResolvedValue(undefined);
+    render(
+      <TooltipProvider>
+        <Conversation
+          id="Cedar"
+          messages={[message('Reading')]}
+          onNew={async () => {}}
+          onSendActiveInput={send}
+          running
+        />
+      </TooltipProvider>
+    );
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'Inspect again');
+    await user.click(screen.getByRole('button', { name: 'Send to child' }));
+    await screen.findByText('Inspect the child before sending again.');
+    await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+    expect(input).toHaveValue('');
+    expect(send).toHaveBeenCalledOnce();
+    await user.type(input, 'Inspect again');
+    await user.click(screen.getByRole('button', { name: 'Send to child' }));
+    await waitFor(() => expect(input).toHaveValue(''));
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[0]?.[0].id).not.toBe(send.mock.calls[1]?.[0].id);
+  });
+
+  it('keeps the active composer editable and preserves a changed draft during acknowledgement', async () => {
+    const accepted = Promise.withResolvers<void>();
+    const send = vi.fn(() => accepted.promise);
+    render(
+      <TooltipProvider>
+        <Conversation
+          id="Cedar"
+          messages={[message('Reading')]}
+          onNew={async () => {}}
+          onSendActiveInput={send}
+          running
+        />
+      </TooltipProvider>
+    );
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'First input');
+    await user.keyboard('{Enter}');
+    expect(send).toHaveBeenCalledOnce();
+    expect(input).toBeEnabled();
+    expect(input).toHaveFocus();
+    await user.clear(input);
+    await user.type(input, 'Next input');
+    accepted.resolve();
+    await waitFor(() => expect(screen.queryByText('Sending to child…')).not.toBeInTheDocument());
+    expect(input).toHaveValue('Next input');
+    expect(send).toHaveBeenCalledOnce();
+  });
+
   it('does not inherit the parent rewind capability', () => {
     const requestRewind = vi.fn();
     useRewindComposerStore.getState().requestComposerText('Parent rewind prompt');

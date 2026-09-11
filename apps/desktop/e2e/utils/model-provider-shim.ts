@@ -26,6 +26,8 @@ export interface ScriptedToolCall {
 }
 
 export interface ModelProviderScript {
+  /** Hold a streaming tool finish at a deterministic external-provider boundary. */
+  readonly beforeToolFinish?: Promise<void>;
   /**
    * Set when `toolCall` targets a Mastra-deferred tool (present in
    * `deferredToolIds`, not `coreToolIds` — see the `mastra_tool_discovery_surface`
@@ -37,7 +39,6 @@ export interface ModelProviderScript {
    * the tool-result server-side, no shim-authored content needed — then emits
    * `toolCall` once one tool-result for that turn comes back, then `finalText`.
    */
-  readonly beforeToolFinish?: Promise<void>;
   readonly deferredTool?: true;
   readonly finalText: string;
   /** Omit for a response-only turn, including native background wakeups. */

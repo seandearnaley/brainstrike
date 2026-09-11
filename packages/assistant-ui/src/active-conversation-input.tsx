@@ -49,8 +49,16 @@ export function ActiveConversationInputProvider({
       setBusy(false);
     }
   };
+  const discard = () => {
+    if (inFlight.current) {
+      return;
+    }
+    request.current = undefined;
+    aui.composer().setText('');
+    setError(undefined);
+  };
   return (
-    <ActiveInputContext value={onSend && running ? { busy, error, send } : undefined}>
+    <ActiveInputContext value={onSend && running ? { busy, discard, error, send } : undefined}>
       {children}
     </ActiveInputContext>
   );

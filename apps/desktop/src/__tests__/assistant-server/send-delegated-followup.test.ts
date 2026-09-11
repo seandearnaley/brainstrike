@@ -32,11 +32,10 @@ it('acknowledges only the exact input after its execution owner accepts it', asy
       url: '/assistant/child-input',
     });
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({ ownerResourceId: 'owner', rootThreadId: 'root' }),
-      'child',
-      { id: 'input', text: 'Inspect file' }
-    );
+    expect(send).toHaveBeenCalledWith({ ownerResourceId: 'owner', rootThreadId: 'root' }, 'child', {
+      id: 'input',
+      text: 'Inspect file',
+    });
     pending.resolve();
     expect(await response).toMatchObject({ status: 200 });
     expect(JSON.parse((await response).body)).toEqual({

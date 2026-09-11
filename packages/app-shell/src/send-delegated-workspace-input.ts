@@ -22,7 +22,14 @@ export async function sendDelegatedWorkspaceInput(
     headers: { ...headers, 'Content-Type': 'application/json' },
     method: 'POST',
   });
-  const result: unknown = await response.json();
+  let result: unknown;
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error(
+      `Child input was not confirmed (${response.status}); the server returned an unreadable acknowledgement.`
+    );
+  }
   if (!response.ok) {
     if (
       result &&

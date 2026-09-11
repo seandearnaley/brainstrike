@@ -3560,7 +3560,10 @@ thread, and serialize requests per child owner. Store a pending receipt before
 native acceptance and a delivered receipt after it. An identical delivered request
 is acknowledged without another enqueue; changed content under the same id is
 rejected. A pending receipt after an interrupted acknowledgement is ambiguous and
-must never be automatically replayed into a writable child. The native production
+must never be automatically replayed into a writable child. Definitive native
+non-delivery removes the signal from native memory, so a later continuation
+cannot recall rejected input. An unconfirmed draft can be explicitly discarded
+before composing a new request; ordinary repeats keep their original id. The native production
 fixture injects receipt-write failure and proves a later explicit request remains
 usable without duplicating the earlier signal.
 

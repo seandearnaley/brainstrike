@@ -1,4 +1,8 @@
-import type { DelegatedConversationIdentity, DelegatedRunIdentity } from '@brainstrike/agent';
+import type {
+  DelegatedConversationIdentity,
+  DelegatedFollowupControl,
+  DelegatedRunIdentity,
+} from '@brainstrike/agent';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -90,13 +94,46 @@ describe('desktop delegated cancellation', () => {
         runId: run.childRuntimeRunId,
         threadId: 'child',
       },
-      input
+      input,
+      expect.any(Function)
     );
     await revokeDelegatedConversationAdmission(database, scope, 'child', false);
     await expect(
       host.sendFollowup(scope, 'child', { ...input, id: 'after-stop' }, send)
     ).rejects.toThrow();
     expect(send).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a follow-up queued before durable Stop when its serialized admission resumes', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    await host.bindRun(run);
+    const queued = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const delivered = vi.fn();
+    const send: DelegatedFollowupControl = async (_target, _input, assertAdmission) => {
+      queued.resolve();
+      await release.promise;
+      await assertAdmission();
+      delivered();
+    };
+    const pending = host.sendFollowup(
+      scope,
+      'child',
+      { id: 'queued', text: 'Do not deliver after Stop' },
+      send
+    );
+    pending.catch(() => {});
+    try {
+      await queued.promise;
+      await revokeDelegatedConversationAdmission(database, scope, 'child', false);
+      release.resolve();
+      await expect(pending).rejects.toThrow();
+      expect(delivered).not.toHaveBeenCalled();
+    } finally {
+      release.resolve();
+      await Promise.allSettled([pending]);
+    }
   });
 
   it('joins registered owners in the selected root and propagates cleanup failure', async () => {

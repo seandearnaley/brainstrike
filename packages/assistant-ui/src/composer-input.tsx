@@ -74,7 +74,7 @@ const ComposerInputRow = ({
   // whenever this gate is closed. The Cancel (Stop) button deliberately
   // ignores the gate — stopping an in-flight run must always be possible.
   const activeInput = useActiveConversationInput();
-  const draft = useAuiState((state) => state.composer.text);
+  const hasDraft = useAuiState((state) => state.composer.text.trim().length > 0);
   const budgetSendBlocked = useBudgetSendGate();
   const inputId = useId();
   const sendDisabled = isComposerDisabled || budgetSendBlocked || Boolean(activeInput?.busy);
@@ -88,7 +88,7 @@ const ComposerInputRow = ({
       <ComposerPrimitive.Input
         aria-label="Message input"
         className="aui-composer-input"
-        disabled={sendDisabled}
+        disabled={isComposerDisabled || budgetSendBlocked}
         id={inputId}
         onKeyDown={(event) => {
           if (
@@ -168,7 +168,7 @@ const ComposerInputRow = ({
             <button
               aria-label="Send to child"
               className="aui-button aui-button-primary aui-composer-send"
-              disabled={sendDisabled || !draft.trim()}
+              disabled={sendDisabled || !hasDraft}
               onClick={() => {
                 void activeInput.send();
               }}
@@ -193,7 +193,19 @@ const ComposerInputRow = ({
         </ThreadPrimitive.If>
       </div>
       {activeInput?.busy && <span role="status">Sending to child…</span>}
-      {activeInput?.error && <p role="alert">{activeInput.error}</p>}
+      {activeInput?.error && (
+        <div>
+          <p role="alert">{activeInput.error}</p>
+          <button
+            className="text-sm underline"
+            disabled={activeInput.busy}
+            onClick={activeInput.discard}
+            type="button"
+          >
+            Discard draft
+          </button>
+        </div>
+      )}
     </InputFrame>
   );
 };

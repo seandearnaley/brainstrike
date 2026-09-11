@@ -16,7 +16,8 @@ const receiptSchema = z.object({
 async function deliver(
   child: Agent,
   target: DelegatedFollowupTarget,
-  input: DelegatedFollowupInput
+  input: DelegatedFollowupInput,
+  assertAdmission: () => Promise<void>
 ): Promise<void> {
   const memory = await child.getMemory();
   const store = await memory?.storage.getStore('memory');
@@ -29,13 +30,11 @@ async function deliver(
   const previous = (await store.listMessagesById({ messageIds: [id] })).messages;
   if (previous.length > 0) {
     const saved = previous[0];
-    const receipt = receiptSchema.parse(saved?.content.metadata?.['brainstrikeFollowup']);
-    if (
-      saved?.threadId !== target.threadId ||
-      saved.resourceId !== target.resourceId ||
-      receipt.runId !== target.runId ||
-      receipt.text !== input.text
-    ) {
+    if (!saved || saved.threadId !== target.threadId || saved.resourceId !== target.resourceId) {
+      throw new Error('This child follow-up request belongs to a different conversation.');
+    }
+    const receipt = receiptSchema.parse(saved.content.metadata?.['brainstrikeFollowup']);
+    if (receipt.runId !== target.runId || receipt.text !== input.text) {
       throw new Error('This child follow-up request already has different content or ownership.');
     }
     if (receipt.state === 'delivered') {
@@ -58,6 +57,8 @@ async function deliver(
   if (!running) {
     throw new Error('The selected child is no longer running; follow-up was not delivered.');
   }
+  // Check after queued work and asynchronous receipt lookup, not at HTTP admission alone.
+  await assertAdmission();
   const signal = createMessageSignal(
     { contents: input.text, metadata: { brainstrikeDelegatedInput: target.identity } },
     { id }
@@ -70,6 +71,20 @@ async function deliver(
   await memory.saveMessages({
     messages: [{ ...message, content: { ...message.content, metadata } }],
   });
+  try {
+    await assertAdmission();
+  } catch (error) {
+    // No signal was enqueued. Keep it out of future native memory recall.
+    try {
+      await store.deleteMessages([id]);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'Child input was rejected but its memory cleanup failed.'
+      );
+    }
+    throw error;
+  }
   const result = await child.sendSignal(signal, {
     ifIdle: { behavior: 'discard' },
     resourceId: target.resourceId,
@@ -77,6 +92,7 @@ async function deliver(
     threadId: target.threadId,
   }).accepted;
   if (result.action !== 'deliver') {
+    await store.deleteMessages([id]);
     throw new Error(`The selected child did not accept the follow-up (${result.action}).`);
   }
   await store.updateMessages({
@@ -100,14 +116,14 @@ export function createDelegatedFollowupControl(
   agents: Readonly<Record<string, Agent>>
 ): DelegatedFollowupControl {
   const queues = new Map<string, Promise<void>>();
-  return async (target, input) => {
+  return async (target, input, assertAdmission) => {
     const child = agents[target.personaId];
     if (!child) {
       throw new Error('The selected child has no native persona execution owner.');
     }
     const key = JSON.stringify([target.resourceId, target.threadId]);
     const previous = queues.get(key) ?? Promise.resolve();
-    const pending = previous.then(() => deliver(child, target, input));
+    const pending = previous.then(() => deliver(child, target, input, assertAdmission));
     // Failed input must not permanently poison later explicit requests.
     const settled = pending.then(
       () => {},
