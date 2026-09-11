@@ -55,17 +55,8 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
 
   const buildService = () => buildTestService({ db, managedDirectory, repo });
 
-  /**
-   * Seed a running run on `threadId` through the REAL relations (117/118).
-   * These two cases used to `CREATE TABLE IF NOT EXISTS` a three-column
-   * stand-in for `brainstrike_assistant_thread_runs`, back when that table was
-   * bootstrap-only DDL the migration chain never created. The chain owns it
-   * now, so the stand-in silently no-opped and its three-column INSERT met the
-   * real table's NOT NULLs. The archive blocker reads a run's status for a
-   * thread, so seeding the real row exercises it against the production column
-   * set and its `mastra_threads` foreign key rather than a lookalike.
-   */
-  const seedRunningRun = async (threadId: string, runId: string): Promise<void> => {
+  /** Seed the real migrated run relation and owning thread, never a stand-in table. */
+  const seedRun = async (threadId: string, runId: string, status = 'running'): Promise<void> => {
     await db.query(
       `INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt")
        VALUES ($1, 'workspace-archive', $2, NOW(), NOW())`,
@@ -75,9 +66,9 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       `INSERT INTO brainstrike_assistant_thread_runs
          (id, resource_id, thread_id, provider, model, runtime_kind, status,
           started_at, created_at, updated_at)
-       VALUES ($1, 'workspace-archive', $2, 'anthropic', 'test-model', 'hosted', 'running',
+       VALUES ($1, 'workspace-archive', $2, 'anthropic', 'test-model', 'hosted', $3,
                NOW(), NOW(), NOW())`,
-      [runId, threadId]
+      [runId, threadId, status]
     );
   };
 
@@ -382,28 +373,30 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       );
     });
 
-    it('REFUSES while the owning thread has a running run, even with force', async () => {
-      const service = buildService();
-      const created = await service.create({
-        baseRef: 'main',
-        branch: { name: 'bs/busy' },
-        createdBy: 'user',
-        name: 'busy',
-        rootId: 'r-1',
-        threadId: 't-busy',
-      });
-      if (!created.ok) {
-        return;
+    it.each(['running', 'cancelling'])(
+      'REFUSES while the owning thread has a %s run, even with force',
+      async (status) => {
+        const service = buildService();
+        const created = await service.create({
+          baseRef: 'main',
+          branch: { name: 'bs/busy' },
+          createdBy: 'user',
+          name: 'busy',
+          rootId: 'r-1',
+          threadId: 't-busy',
+        });
+        if (!created.ok) {
+          return;
+        }
+        await seedRun('t-busy', 'run-1', status);
+        const worktreeId = created.value.worktree.id;
+        const refused = await service.archive({ force: true, worktreeId });
+        expect(refused.ok === false && refused.error).toBe(
+          'A run is active in this worktree. Wait for it to finish, or stop it first.'
+        );
+        expect(existsSync(created.value.worktree.path)).toBe(true);
       }
-      await seedRunningRun('t-busy', 'run-1');
-      const refused = await service.archive({
-        force: true,
-        worktreeId: created.value.worktree.id,
-      });
-      expect(refused.ok === false && refused.error).toBe(
-        'A run is active in this worktree. Wait for it to finish, or stop it first.'
-      );
-    });
+    );
 
     it('REFUSES force structurally when a running-run blocker copy is reworded', async () => {
       const service = buildService();
@@ -418,7 +411,7 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       if (!created.ok) {
         return;
       }
-      await seedRunningRun('t-busy-reworded', 'run-reworded');
+      await seedRun('t-busy-reworded', 'run-reworded');
       runningBlockerCopy.replacement = 'Running-work copy deliberately changed.';
 
       const refused = await service.archive({
