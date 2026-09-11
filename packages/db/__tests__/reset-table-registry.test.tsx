@@ -64,11 +64,14 @@ function createRecordingQueryMock(cleared: Set<string>): QueryMock {
 }
 
 describe('reset-table registry', () => {
-  it('holds 44 unique relations and never contradicts the exclusion ledger', () => {
+  it('holds 47 unique relations and never contradicts the exclusion ledger', () => {
     const tables = getResetTables();
-    expect(tables).toHaveLength(44);
-    expect(new Set(tables).size).toBe(44);
+    expect(tables).toHaveLength(47);
+    expect(new Set(tables).size).toBe(47);
     expect(tables).toContain('brainstrike_delegated_tool_decisions');
+    expect(tables).toContain('brainstrike_delegation_budgets');
+    expect(tables).toContain('brainstrike_delegation_child_budgets');
+    expect(tables).toContain('brainstrike_delegation_step_reservations');
     // The Mastra six are part of the set, sourced from the canonical exports.
     for (const table of getMastraResetTables()) {
       expect(tables).toContain(table);
@@ -80,8 +83,8 @@ describe('reset-table registry', () => {
     // relations, disjoint from both other ledgers, wiped by purgeTablesTx
     // on top of the clear set.
     expect(getFactoryResetOnlyTables()).toHaveLength(6);
-    expect(getFactoryResetTables()).toHaveLength(50);
-    expect(new Set(getFactoryResetTables()).size).toBe(50);
+    expect(getFactoryResetTables()).toHaveLength(53);
+    expect(new Set(getFactoryResetTables()).size).toBe(53);
   });
 
   // Control tests: an instrument that cannot fail is not evidence. Prove BOTH

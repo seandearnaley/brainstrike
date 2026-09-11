@@ -88,7 +88,7 @@ const binding = {
 const delegation = {
   hookErrorStrategy: 'throw' as const,
   onDelegationStart: (context: Parameters<typeof binding.prepare>[0]) =>
-    binding.prepare(context, { personaId: context.primitiveId }),
+    binding.prepare(context, { maxSteps: 4, personaId: context.primitiveId }),
 };
 const boundary = createResponseBoundaryProcessor();
 const interactiveTool =

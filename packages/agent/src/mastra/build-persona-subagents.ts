@@ -4,9 +4,9 @@
  * Builds Mastra supervisor "subagents" from persona DATA. Each returned child is
  * a plain `new Agent({...})` whose tool map is a permission-gated SUBSET of the
  * parent's already-guarded tool map — so per-tool timeout + structured
- * `GuardedToolError` inherit for free (D4). Children are constructed WITHOUT
- * `agents` (no nesting) and WITHOUT `memory` (Mastra injects the parent's memory
- * and scopes writes to a fresh delegation thread — D6/D7).
+ * `GuardedToolError` inherit for free (D4). Durable host budgets enable lazy
+ * native descendants with explicit shared memory; native delegation owns each
+ * fresh child thread and the root host validates its ancestry and limits.
  *
  * Permission composition (D3): the persona's candidate map passes through the
  * SAME `filterToolsByPermissionWithMetadata` gate as the parent. Ask tools need
@@ -14,7 +14,11 @@
  * post-gate map is empty is NOT registered (no useless delegation tool).
  */
 
-import { deriveEffectiveInputBudget, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import {
+  DELEGATION_LIMITS,
+  deriveEffectiveInputBudget,
+  NATIVE_TOOL_ID,
+} from '@brainstrike/assistant-contract';
 import {
   type AssistantPersonaDefinition,
   assertPersonaToolScope,
@@ -36,6 +40,12 @@ import {
   type DelegatedSystemContextSource,
   readDelegatedHistoryScope,
 } from './delegated-system-context';
+import {
+  createDelegatedWorkBudget,
+  DelegatedWorkQueue,
+  queueDelegatedTools,
+  resolveDelegatedWorkBudget,
+} from './delegated-work-budget';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
 import {
   filterToolsByPermissionWithMetadata,
@@ -64,8 +74,15 @@ export interface PersonaSubAgentBuildResult {
   readonly subAgents: Record<string, Agent>;
 }
 
+export type DelegatedExecutionOptions = Pick<
+  AgentExecutionOptions,
+  'delegation' | 'hooks' | 'abortSignal'
+> & { workQueue?: DelegatedWorkQueue };
+
 export interface BuildPersonaSubAgentsParams {
   readonly conversationBinding?: DelegatedConversationBinding;
+  readonly delegatedExecutionOptions?: DelegatedExecutionOptions | undefined;
+  readonly depth?: number;
   readonly getDelegatedSystemContext?: DelegatedSystemContextSource;
   /** Parent's post-guard, post-lifecycle-hook tool map (keyed by sanitized id), RAW — not yet
    * model-output-projected. Each child projects its own selected subset
@@ -76,6 +93,7 @@ export interface BuildPersonaSubAgentsParams {
   readonly languageModel: MastraModelConfig;
   readonly localToolIds?: ReadonlySet<string>;
   readonly logger: PermissionToolGateLogger;
+  readonly memory?: MastraMemory | undefined;
   readonly modelName?: string;
   readonly permissionSnapshot: PermissionToolGateSnapshot | undefined;
   readonly personas: readonly AssistantPersonaDefinition[];
@@ -454,6 +472,8 @@ async function prepareWorkerToolSurface(
   };
 }
 
+const MAX_CHILD_TOOL_CALL_CONCURRENCY = 8;
+
 async function createConfiguredChild({
   params,
   persona,
@@ -461,6 +481,7 @@ async function createConfiguredChild({
   keptOriginalNames,
   childNameMap,
   settledChildTools,
+  rawChildTools,
   childToolResultBudget,
 }: {
   params: BuildPersonaSubAgentsParams;
@@ -469,14 +490,26 @@ async function createConfiguredChild({
   keptOriginalNames: readonly string[];
   childNameMap: ReadonlyMap<string, string>;
   settledChildTools: ToolsInput;
+  rawChildTools: ToolsInput;
   childToolResultBudget: ScaledToolResultBudget;
 }): Promise<Agent> {
+  const queue = resolveDelegatedWorkBudget(
+    params.conversationBinding?.budget,
+    params.delegatedExecutionOptions?.workQueue
+  )?.queue;
+  const queuedChildTools = queue
+    ? queueDelegatedTools(
+        settledChildTools,
+        queue,
+        () => params.delegatedExecutionOptions?.abortSignal
+      )
+    : settledChildTools;
   const workerSurface =
     persona.mode === 'worker'
       ? await prepareWorkerToolSurface(
           params,
           persona,
-          settledChildTools,
+          queuedChildTools,
           childNameMap,
           childToolResultBudget
         )
@@ -484,7 +517,7 @@ async function createConfiguredChild({
   const projectedChildTools =
     workerSurface?.tools ??
     applyToolModelOutputProjections(
-      settledChildTools,
+      queuedChildTools,
       childNameMap,
       params.toolOutputObserver,
       childToolResultBudget
@@ -505,12 +538,73 @@ async function createConfiguredChild({
   const childErrorProcessors = buildAssistantErrorProcessors(
     persona.model?.provider ?? params.provider
   );
+  const depth = params.depth ?? 1;
+  const childModelName = persona.model?.modelId ?? params.modelName;
+  let descendants: Promise<PersonaSubAgentBuildResult> | undefined;
   return new Agent({
+    ...(params.memory ? { memory: params.memory } : {}),
+    ...(params.conversationBinding?.budget &&
+    params.delegatedExecutionOptions &&
+    depth < DELEGATION_LIMITS.maxDepth
+      ? {
+          agents: async () => {
+            descendants ??= buildPersonaSubAgents({
+              ...params,
+              depth: depth + 1,
+              guardedTools: rawChildTools,
+              languageModel: childModel,
+              provider: persona.model?.provider ?? params.provider,
+              toolNameMap: childNameMap,
+              ...(childModelName ? { modelName: childModelName } : {}),
+              resolvedToolResultBudget: childToolResultBudget,
+            });
+            return (await descendants).subAgents;
+          },
+        }
+      : {}),
     // Carried on the CHILD so it applies when Mastra invokes the delegation
     // internally: `Agent.stream()` deep-merges `defaultOptions` with the
     // per-call options the delegation tool passes, and that call sets
     // `maxSteps` but never `onIterationComplete`.
-    defaultOptions: { onIterationComplete: buildChildIterationPolicy() },
+    defaultOptions: () => {
+      const durable = resolveDelegatedWorkBudget(
+        params.conversationBinding?.budget,
+        params.delegatedExecutionOptions?.workQueue
+      );
+      const work = durable
+        ? createDelegatedWorkBudget(
+            durable.budget,
+            durable.queue,
+            params.delegatedExecutionOptions?.abortSignal
+          )
+        : undefined;
+      return {
+        ...(params.delegatedExecutionOptions?.delegation
+          ? { delegation: params.delegatedExecutionOptions.delegation }
+          : {}),
+        ...(params.delegatedExecutionOptions?.hooks
+          ? { hooks: params.delegatedExecutionOptions.hooks }
+          : {}),
+        onIterationComplete: buildChildIterationPolicy(),
+        toolCallConcurrency: {
+          limit: MAX_CHILD_TOOL_CALL_CONCURRENCY,
+          strategy: 'called' as const,
+        },
+        ...(work
+          ? {
+              errorProcessors: [work.processor, ...(childErrorProcessors ?? [])],
+              inputProcessors: [
+                ...(childProcessors.inputProcessors ?? []),
+                ...(workerSurface?.inputProcessors ?? []),
+                work.processor,
+              ],
+              onError: () => work.release(),
+              onFinish: () => work.release(),
+              outputProcessors: [...(childProcessors.outputProcessors ?? []), work.processor],
+            }
+          : {}),
+      };
+    },
     // Mastra turns this into the `agent-<id>` tool description, the only
     // thing the supervisor reads when sizing a delegation — so it carries the
     // DERIVED step budget rather than the persona's bare prose.
@@ -536,13 +630,27 @@ async function createConfiguredChild({
       : {}),
     model: childModel,
     name: persona.label,
-    tools: projectedChildTools,
+    tools: queue
+      ? {
+          ...projectedChildTools,
+          ...queueDelegatedTools(
+            Object.fromEntries(
+              Object.entries(projectedChildTools).filter(([name]) => !(name in queuedChildTools))
+            ),
+            queue,
+            () => params.delegatedExecutionOptions?.abortSignal
+          ),
+        }
+      : projectedChildTools,
   });
 }
 
 export async function buildPersonaSubAgents(
   params: BuildPersonaSubAgentsParams
 ): Promise<PersonaSubAgentBuildResult> {
+  if (params.delegatedExecutionOptions) {
+    params.delegatedExecutionOptions.workQueue ??= new DelegatedWorkQueue();
+  }
   const canSuspend = canSuspendPersonaTools(params);
   const originalToSanitized = buildOriginalToSanitized(params.toolNameMap);
   const artifactReaderCapabilities = new Map<string, boolean>();
@@ -630,6 +738,7 @@ export async function buildPersonaSubAgents(
             keptOriginalNames,
             params,
             persona,
+            rawChildTools: childTools as ToolsInput,
             settledChildTools,
           }),
         ] as const

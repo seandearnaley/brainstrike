@@ -238,6 +238,7 @@ async function createDesktopMastraMemoryFromCacheState({
       conversationBinding: {
         ...createDelegatedConversationBinding(host.persist),
         bindRun: host.bindRun,
+        budget: host.budget,
         claimToolAction: host.claimToolAction,
         finishToolActions: host.finishToolActions,
         prepareToolAction: host.prepareToolAction,

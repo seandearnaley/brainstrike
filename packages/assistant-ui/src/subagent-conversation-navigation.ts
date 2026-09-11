@@ -1,4 +1,7 @@
-import { DELEGATED_CONVERSATION_DATA_NAME } from '@brainstrike/assistant-contract';
+import {
+  DELEGATED_CONVERSATION_DATA_NAME,
+  readAssistantRunEventDataPart,
+} from '@brainstrike/assistant-contract';
 import { createContext } from 'react';
 
 export const SubagentConversationNavigationContext = createContext<
@@ -71,6 +74,55 @@ export function readSubagentConversationAddress(
   try {
     const threadId = readSubagentConversationThread(parts, toolCallId, result);
     return threadId ? { kind: 'available', threadId } : { kind: 'unavailable' };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error), kind: 'invalid' };
+  }
+}
+
+export interface SubagentInvocationAddress {
+  readonly parentRuntimeRunId: string;
+  readonly parentToolCallId: string;
+}
+/** Host lookup uses the persisted native invocation, including before completion. */
+export const SubagentInvocationResolverContext = createContext<
+  ((identity: SubagentInvocationAddress) => Promise<string>) | null
+>(null);
+
+function readSubagentInvocationRunId(
+  parts: readonly unknown[],
+  toolCallId: string
+): string | undefined {
+  let runId: string | undefined;
+  for (const part of parts) {
+    const event = readAssistantRunEventDataPart(part);
+    if (event?.metadata?.['parentToolCallId'] !== toolCallId) {
+      continue;
+    }
+    const candidate = event.metadata['parentRuntimeRunId'];
+    if (typeof candidate !== 'string' || !candidate.trim()) {
+      continue;
+    }
+    if (runId && candidate !== runId) {
+      throw new Error('Conflicting native invocation addresses.');
+    }
+    runId = candidate;
+  }
+  return runId;
+}
+
+export type SubagentInvocationRun =
+  | { readonly kind: 'unavailable' }
+  | { readonly kind: 'available'; readonly parentRuntimeRunId: string }
+  | { readonly kind: 'invalid'; readonly error: string };
+
+/** Scope to the owning message: native call IDs may repeat in another turn. */
+export function readSubagentInvocationRun(
+  parts: readonly unknown[],
+  toolCallId: string
+): SubagentInvocationRun {
+  try {
+    const parentRuntimeRunId = readSubagentInvocationRunId(parts, toolCallId);
+    return parentRuntimeRunId ? { kind: 'available', parentRuntimeRunId } : { kind: 'unavailable' };
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error), kind: 'invalid' };
   }

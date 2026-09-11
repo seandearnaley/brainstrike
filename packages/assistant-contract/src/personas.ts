@@ -4,6 +4,7 @@
  * native/MCP tools. Runtime host capabilities and permissions remain the ceiling.
  */
 
+import { DELEGATION_LIMITS } from './delegation-limits.js';
 import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
 import {
   getNativeToolDefaults,
@@ -106,9 +107,11 @@ export function delegationDescriptionForPersona(
   persona: Pick<AssistantPersonaDefinition, 'description' | 'maxSteps'>
 ): string {
   return (
-    `${persona.description} Runs at most ${persona.maxSteps} steps, one of which is reserved ` +
+    `${persona.description} Runs at most ${Math.min(persona.maxSteps, DELEGATION_LIMITS.maxChildSteps)} steps, one of which is reserved ` +
     'for its summary — scope the task to that budget and split anything larger across several ' +
-    'delegations.'
+    `delegations. The root turn permits at most ${DELEGATION_LIMITS.maxDepth} descendant levels, ` +
+    `${DELEGATION_LIMITS.maxInvocations} invocations, ${DELEGATION_LIMITS.maxConcurrentWork} active work operations, ` +
+    `${DELEGATION_LIMITS.maxChildOutputTokens} output tokens per child and ${DELEGATION_LIMITS.maxTreeOutputTokens} across descendants.`
   );
 }
 

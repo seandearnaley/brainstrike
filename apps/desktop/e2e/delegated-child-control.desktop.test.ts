@@ -16,8 +16,16 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-child-control-'));
   await writeFile(path.join(workspace, 'evidence.txt'), 'CHILD_EVIDENCE_1720');
   const observed = { childRead: false, parentResult: false };
-  const provider = await startModelProviderShim(({ toolNames, messages }) => {
-    const isParent = toolNames.includes('agent-explore');
+  const provider = await startModelProviderShim(({ messages }) => {
+    // Children now advertise delegation too; identify the actual root task.
+    const isParent = JSON.stringify(
+      messages
+        .filter(
+          (message) =>
+            message && typeof message === 'object' && 'role' in message && message.role === 'user'
+        )
+        .at(-1)
+    ).includes('Delegate to Explorer to read evidence.txt.');
     const history = JSON.stringify(messages);
     if (isParent && history.includes('CHILD_READ_COMPLETE_1720')) {
       observed.parentResult = true;

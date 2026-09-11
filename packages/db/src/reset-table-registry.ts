@@ -51,6 +51,9 @@ export type MastraResetTable =
  */
 const BRAINSTRIKE_RESET_TABLES = [
   // Delegation ancestry is user data. Its self-FKs cascade the graph.
+  'brainstrike_delegation_step_reservations',
+  'brainstrike_delegation_child_budgets',
+  'brainstrike_delegation_budgets',
   'brainstrike_delegated_tool_decisions',
   'brainstrike_delegated_invocations',
   'brainstrike_delegated_conversations',

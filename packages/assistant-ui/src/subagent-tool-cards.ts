@@ -4,11 +4,14 @@ import {
   delegationToolNameForPersona,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '@brainstrike/assistant-contract/personas';
-import { createElement, use, useMemo } from 'react';
+import { createElement, use, useMemo, useState } from 'react';
 import {
   readSubagentConversationAddress,
+  readSubagentInvocationRun,
   type SubagentConversationAddress,
   SubagentConversationNavigationContext,
+  SubagentInvocationResolverContext,
+  type SubagentInvocationRun,
 } from './subagent-conversation-navigation';
 import { SubagentExecutionCard } from './subagent-execution-card';
 import {
@@ -33,6 +36,15 @@ import {
  */
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
   const openConversation = use(SubagentConversationNavigationContext);
+  const resolveInvocation = use(SubagentInvocationResolverContext);
+  const [navigationError, setNavigationError] = useState<string>();
+  const invocationJson = useAuiState((state) =>
+    JSON.stringify(readSubagentInvocationRun(state.message.parts, props.toolCallId))
+  );
+  const invocation = useMemo(
+    () => JSON.parse(invocationJson) as SubagentInvocationRun,
+    [invocationJson]
+  );
   const addressJson = useAuiState((state) =>
     JSON.stringify(
       readSubagentConversationAddress(state.message.parts, props.toolCallId, props.result)
@@ -65,7 +77,24 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
     ...(props.isError === undefined ? {} : { isError: props.isError }),
     ...(openConversation && address.kind === 'available'
       ? { onOpenConversation: () => openConversation(address.threadId) }
-      : {}),
+      : openConversation &&
+          resolveInvocation &&
+          invocation.kind === 'available' &&
+          address.kind === 'unavailable'
+        ? {
+            onOpenConversation: () => {
+              setNavigationError(undefined);
+              resolveInvocation({
+                parentRuntimeRunId: invocation.parentRuntimeRunId,
+                parentToolCallId: props.toolCallId,
+              }).then(openConversation, (error: unknown) =>
+                setNavigationError(error instanceof Error ? error.message : String(error))
+              );
+            },
+          }
+        : {}),
+    ...(navigationError ? { navigationError } : {}),
+    ...(invocation.kind === 'invalid' ? { navigationError: invocation.error } : {}),
     ...(address.kind === 'invalid' ? { navigationError: address.error } : {}),
     liveRows,
     ...(outcome ? { outcome } : {}),

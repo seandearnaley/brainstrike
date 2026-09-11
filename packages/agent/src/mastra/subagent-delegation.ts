@@ -19,7 +19,7 @@
  * run_kind='subagent' usage row instead.
  */
 
-import type { AssistantRunEventMetadata } from '@brainstrike/assistant-contract';
+import { type AssistantRunEventMetadata, DELEGATION_LIMITS } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import {
   type AssistantDelegatedUsageIdentity,
@@ -30,9 +30,10 @@ import type { DelegationConfig } from '@mastra/core/agent';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { MAX_DELEGATED_CONTEXT_BYTES } from './delegated-system-context';
 import type { DelegatedTurnPersistence } from './delegated-turn-persistence';
+import { type DelegatedWorkQueue, resolveDelegatedWorkBudget } from './delegated-work-budget';
 
-export const MAX_CONCURRENT_DELEGATIONS = 2;
-export const MAX_DELEGATIONS_PER_RUN = 8;
+export const MAX_CONCURRENT_DELEGATIONS = DELEGATION_LIMITS.maxConcurrentWork;
+export const MAX_DELEGATIONS_PER_RUN = DELEGATION_LIMITS.maxInvocations;
 
 /** The child run's aggregate provider-reported usage (BST-953). */
 export interface SubagentChildUsageReport {
@@ -44,7 +45,7 @@ export interface SubagentChildUsageReport {
 
 /**
  * Records delegations whose child produced no written answer, keyed by the
- * PARENT tool-call id, so the stream mapper can emit a terminal
+ * PARENT native run and tool-call ids, so the stream mapper can emit a terminal
  * `subagent.failed` instead of reporting a successful-but-empty delegation as
  * completed. Mirrors {@link DelegationUsageCapture}'s shape and lifetime: built
  * per stream leg alongside the delegation config, then read by the chunk loop.
@@ -55,18 +56,27 @@ export interface SubagentChildUsageReport {
  * sees the child's own output.
  */
 export interface DelegationOutcomeCapture {
-  recordNoAnswer(parentToolCallId: string): void;
-  returnedNoAnswer(parentToolCallId: string): boolean;
+  failed(parentToolCallId: string, parentRuntimeRunId?: string): boolean;
+  recordFailure(parentToolCallId: string, parentRuntimeRunId?: string): void;
+  recordNoAnswer(parentToolCallId: string, parentRuntimeRunId?: string): void;
+  returnedNoAnswer(parentToolCallId: string, parentRuntimeRunId?: string): boolean;
 }
 
 export function createDelegationOutcomeCapture(): DelegationOutcomeCapture {
-  const withoutAnswer = new Set<string>();
+  const outcomes = new Map<string, 'failed' | 'no-answer'>();
+  const key = (call: string, run?: string) => JSON.stringify([run, call]);
   return {
-    recordNoAnswer(parentToolCallId) {
-      withoutAnswer.add(parentToolCallId);
+    failed(call, run) {
+      return outcomes.get(key(call, run)) === 'failed';
     },
-    returnedNoAnswer(parentToolCallId) {
-      return withoutAnswer.has(parentToolCallId);
+    recordFailure(call, run) {
+      outcomes.set(key(call, run), 'failed');
+    },
+    recordNoAnswer(call, run) {
+      outcomes.set(key(call, run), 'no-answer');
+    },
+    returnedNoAnswer(call, run) {
+      return outcomes.get(key(call, run)) === 'no-answer';
     },
   };
 }
@@ -88,6 +98,7 @@ export interface CreateDelegationConfigParams {
   /** Persona id → definition; the `primitiveId` Mastra passes is the persona id. */
   readonly personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
   readonly turnPersistence?: DelegatedTurnPersistence | undefined;
+  readonly workQueue?: DelegatedWorkQueue | undefined;
 }
 
 function readTokenCount(value: unknown): number {
@@ -203,10 +214,13 @@ async function resolveMissingAnswerResult(
   // fires for both, and a child that threw plausibly arrives with empty text —
   // handing it the step-cap narrative would be a confident, wrong diagnosis of
   // a provider error, and would run a synthesis turn on an agent that just
-  // failed. Mastra surfaces the failure through its own tool-error path, which
-  // the mapper already maps to `subagent.failed`.
+  // failed. Native streaming failures may return a projected tool-result that
+  // omits finishReason, so retain the hook's authoritative outcome for mapping.
   if (context.success === false) {
-    return;
+    params.delegationOutcomes?.recordFailure(context.toolCallId, context.runId);
+    return {
+      resultText: `Subagent "${persona.label}" failed before completing the task. Any partial results remain in its child conversation; do not treat this as a completed deliverable.`,
+    };
   }
   // The exported type says `string`, but the one place a runtime shape is least
   // likely to match is the path that just went wrong — and a TypeError thrown
@@ -228,7 +242,7 @@ async function resolveMissingAnswerResult(
   // (Mastra's `onIterationComplete`), so reaching this point means even the
   // reserved step produced nothing — there is no second mechanism to try, and
   // adding one would be the bolt-on the iteration hook replaced.
-  params.delegationOutcomes?.recordNoAnswer(context.toolCallId);
+  params.delegationOutcomes?.recordNoAnswer(context.toolCallId, context.runId);
   return { resultText: describeMissingChildAnswer(persona, context.result) };
 }
 
@@ -237,10 +251,9 @@ async function resolveMissingAnswerResult(
  * run's in-flight + total counters).
  */
 export function createDelegationConfig(params: CreateDelegationConfigParams): DelegationConfig {
-  // The closure is rebuilt per stream leg (initial / approval-resume / suspend-
-  // resume), so `total` counts delegations WITHIN a leg, not across resumes — the
-  // per-run cap is effectively a per-leg cap. Acceptable for v1: a leg is a single
-  // model continuation, and cross-leg accumulation would need durable counters.
+  // This per-leg counter remains a backstop. Durable host admission counts the
+  // original turn across all descendants and resume legs. With that capability,
+  // the shared work queue owns runnable concurrency, not waiting delegations.
   let inFlight = 0;
   let total = 0;
 
@@ -331,7 +344,10 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         };
       }
 
-      if (inFlight >= MAX_CONCURRENT_DELEGATIONS) {
+      if (
+        !resolveDelegatedWorkBudget(params.conversationBinding?.budget, params.workQueue) &&
+        inFlight >= MAX_CONCURRENT_DELEGATIONS
+      ) {
         params.logger.warn('Rejecting delegation: concurrency cap reached', {
           code: 'subagent_delegation_concurrency_capped',
           inFlight,
@@ -355,7 +371,10 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         };
       }
 
-      const maxSteps = clampMaxSteps(persona.maxSteps, context.params.maxSteps);
+      const maxSteps = clampMaxSteps(
+        Math.min(persona.maxSteps, DELEGATION_LIMITS.maxChildSteps),
+        context.params.maxSteps
+      );
       params.conversationBinding?.prepare(context, { maxSteps, persona });
       params.turnPersistence?.prepare(context, params.abortSignal);
       inFlight += 1;

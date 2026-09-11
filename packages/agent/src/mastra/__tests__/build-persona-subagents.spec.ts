@@ -348,6 +348,15 @@ describe('worker tool admission', () => {
   });
 });
 describe('buildPersonaSubAgents', () => {
+  it('does not advertise recursive agents without durable host budgets', async () => {
+    const result = await buildPersonaSubAgents({
+      ...workerOptions(),
+      delegatedExecutionOptions: {},
+    });
+    const child = assertDefined(result.subAgents['worker'], 'Expected worker');
+    expect((await childToolKeys(child)).some((key) => key.startsWith('agent-'))).toBe(false);
+  });
+
   it('builds an explore child with exactly its 5 gated tools, no agents, no memory (read:allow)', async () => {
     const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
     const result = await buildPersonaSubAgents({

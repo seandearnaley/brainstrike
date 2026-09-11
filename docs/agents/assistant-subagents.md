@@ -136,11 +136,14 @@ These prove the worker layer, not recursion/background/worktree coordination.
   host and UI before BST-1721 exposes write/execute/general-worker tools.
 - BST-1722 starts with **three descendant levels**, **two runnable children**
   and **eight total invocations per root turn**, with **16 steps per child**
-  including its reserved synthesis step. These are proposed product limits
-  using existing budgets, not an inferred Mastra programmatic limit. Enforce
-  them at the root across every descendant and resume leg. The root's selected
-  token budget covers descendant consumption; reject exhaustion visibly. A
-  waiting parent must not hold a runnable slot needed by its child.
+  including its reserved synthesis step. `DELEGATION_LIMITS` is the shared source:
+  32,768 output tokens per child, 131,072 per original root turn, at most
+  8,192 per working step and one precharged 512-token synthesis allocation.
+  These output allocations are separate from each model's input context window.
+  The host atomically admits invocations and reserves model steps before work,
+  across descendants and resume legs. Unknown usage remains charged; reported
+  overages are persisted before rejecting tool execution. A waiting native
+  delegation holds no model/tool permit.
 - Preserve read-only Explorer/Analyst definitions. A separate general worker
   completes deliverables using the root's eligible guarded capabilities and
   explicit task/context transfer. Profile narrowing never expands host
@@ -225,7 +228,7 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
 - **User-defined personas (v2):** markdown files with frontmatter
   (`description` required; optional `name`, `tools`, `model:
   provider::modelId`, `mode: read-only|worker`, `maxSteps` ≤ 16; body = child instructions), scanned
-  FLAT (no recursion — the id becomes the `agent-<id>` tool name, and provider
+  FLAT (no recursive directory scan — the id becomes the `agent-<id>` tool name, and provider
   tool-name charsets forbid `:` namespacing) from (1) `<root>/.brainstrike/agents/`
   per mounted root, (2) `~/.brainstrike/agents/`, first-id-wins with warn-once;
   a built-in id collision is an INVALID file, not an override. Parse/validate:
@@ -311,9 +314,11 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   `filterToolsByPermissionWithMetadata` gate as the parent. Read-risk ask tools
   retain native per-tool approval only when storage and the complete durable
   child-control binding are available; otherwise they are omitted. An empty post-gate
-  map ⇒ the persona is NOT registered. Children have **no `agents`** (no nesting)
-  and **no `memory`** (Mastra injects the parent's memory and scopes writes to a
-  fresh delegation thread). The child `Agent` id EQUALS the persona id — Mastra
+  map ⇒ the persona is NOT registered. With the durable host budget capability,
+  children lazily assemble native `agents` from their own narrowed tool map,
+  through three descendant levels. The shared Mastra memory is explicit so
+  grandchildren retain native persistence; native delegation still selects a
+  fresh child thread. Without durable budgets, recursion is not advertised. The child `Agent` id EQUALS the persona id — Mastra
   sets `DelegationStartContext.primitiveId = agent.id`, and the caps resolve the
   persona by that id. Because the selected tools are the SAME parent-owned
   objects, the outer model-projection wrapper installs the child's resolved
@@ -335,7 +340,10 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   `streamOptions.delegation` in ALL THREE stream iterators — initial-turn,
   approval-resume, AND suspend-resume (`createToolResumeIteratorFromRuntime`),
   so an askUser pause→answer that then delegates keeps the caps. The closure is
-  rebuilt per leg, so the per-run cap is effectively per-leg (v1 tradeoff).
+  rebuilt per leg as a backstop; durable host budgets enforce original-turn
+  counters across all resume legs. With the budget capability, the shared
+  model/tool queue replaces the in-flight delegation cap so waiting ancestors
+  cannot starve descendants.
   An in-flight delegation whose parent run is ABORTED mid-stream gets a terminal
   `subagent.failed` (status `cancelled`) event via
   `createDelegationLifecycleTracker` (drained on the generator's abort paths),
@@ -899,12 +907,21 @@ event retention and absence of the unfinished tool call. It does not claim a
 packaged process restart or cancellation during snapshot-resumed tool execution;
 those remain in the nested resume and assembled E2E acceptance.
 
-The delayed-consumer case waits for the real native late-result save before
-allowing terminal consumption. It failed when snapshot capture and normal-finish
-classification relied on the child's propagated signal: that signal can lag the
-owner's cancellation. The owner signal supplied by `buildStreamOptions` governs
-both decisions; the child may not turn an already-cancelled owner turn back into
-a normal finish. No sleeps, retries or timeout changes establish this ordering.
+The delayed-consumer case waits for the tool to enter execution, then aborts the
+owner. The authoritative root signal now prevents the old automatic native late
+save. To retain the adversarial persistence proof, the test injects a late result
+through the real `Memory.saveMessages` API using the observed native message id,
+and reads that exact row back before resuming terminal consumption. The frozen
+snapshot must replace that row and retain the visible partial text and cancelled
+events after engine reconstruction. This is fault injection at the native writer
+boundary, not a claim that a cancelled native run normally produces a late save.
+
+Historically this case failed when snapshot capture and normal-finish
+classification relied on the child's propagated signal, which can lag the owner.
+The owner signal supplied by `buildStreamOptions` still governs both decisions;
+the child cannot turn an already-cancelled owner turn into a normal finish.
+`runTurnAttempts` joins child persistence in its generator finalizer after consumption;
+no sleeps, retries or timeout changes establish the verifier's ordering.
 
 ### Child tool input transport parity (BST-1719)
 
@@ -1438,3 +1455,57 @@ A child plan approval never exits the root's plan mode, including when its
 forwarded notice is acted on in the parent panel. The delegated decision keeps
 its exact leaf envelope; only a root plan may invoke the root plan-mode exit
 callback. Child inspection already shadows that callback with its own context.
+
+## Recursive work admission and cancellation (BST-1722)
+
+The root host owns invocation and output counters in migration 132. Host run,
+resource, original turn and complete ancestry are validated inside the admission
+transaction. Duplicate native admission does not consume another invocation;
+deleting a child never refunds the root's spent allocation. Step reservations
+survive database reload. A turn created before budget admission existed cannot
+start fresh child inference or admit another sibling: the visible error asks for a new parent turn.
+Existing invocation rows without their original budget must never seed fresh counters.
+
+The runtime shares a FIFO queue of two active model/tool operations across all
+descendants. Model permits end before native tool/delegation execution; native
+delegation waits do not acquire a permit. Up to eight child streams may be
+admitted, while only two model/tool operations are runnable. The in-flight
+backstop is disabled only when both the durable budget and shared queue exist.
+Ordinary and deferred discovered tools
+retain their native descriptors, projections, approval flags and guarded execution.
+Synthesis forces toolChoice none and no active tools, and rejects a provider tool
+call before execution even if the provider ignores that request.
+
+Every child stream creates its own budget processor. A native same-persona sibling
+barrier proves two models run concurrently with distinct child reservations and
+exactly one settlement per matching reservation. Mastra 1.64 can omit the
+processor abortSignal during unwind and does not call user onFinish on abort.
+Therefore admission uses the authoritative host-leg signal, composed with the
+processor signal when present, and releases a held permit on abort. The existing
+native completion join still owns draining; no timeout or detached executor is
+introduced. Cancellation is the existing subagent.failed event with cancelled
+status, not a new event kind. The native recursive-worker integration checks
+three-level Stop both during provider construction and after visible leaf text,
+with no post-Stop reservation and no workspace effect.
+
+Grandchild navigation before completion resolves the exact persisted invocation
+from its subagent event's parent runtime/run-tool identity, within the selected
+child's authorized root and parent thread. The card reads its owning message,
+never a call-ID-only scan across turns; providers may reuse call IDs. Conflicting
+addresses produce a local navigation error without unmounting the conversation.
+The shared runtime DOM proof opens both same-ID calls to their respective runs.
+Host child-event attribution must
+not overwrite a nested subagent event's own parentToolCallId or personaId.
+Nested events retain that identity and carry their owning conversation edge in
+`delegatedConversationIdentity`; ordinary child run/tool events retain the
+existing ownership metadata. Real PGlite and Electron tests cover publication,
+nested card navigation, leaf approval reload, one workspace effect and parent
+result propagation.
+
+Native completion success=false is captured by parent native run and tool-call
+identity, separately from no-answer. Mastra's projected delegation result can
+omit finishReason even after a provider failure; the mapper must use that
+authoritative hook outcome rather than label the tool-result completed. Child
+mapper states share the outcome capture while retaining independent lifecycle
+state. Failure produces a compact explicit parent explanation and a failed
+subagent event; other ancestors may still complete after handling it.

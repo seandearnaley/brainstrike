@@ -30,6 +30,7 @@ import {
   type CacheAwareInstructions,
   composeCacheAwareInstructions,
 } from './anthropic-instruction-cache';
+import type { DelegatedExecutionOptions } from './build-persona-subagents';
 import {
   buildContextBudgetNote,
   buildCurrentDateNote,
@@ -167,6 +168,7 @@ export interface MastraAgentRuntime {
   /** Fail-loud completion check for the client-provided persisted assistant id. */
   assertAssistantMessageIdPersisted?: () => void;
   conversationBinding?: DelegatedConversationBinding | undefined;
+  delegatedExecutionOptions?: DelegatedExecutionOptions;
   delegatedTurnPersistence?: DelegatedTurnPersistence | undefined;
   /**
    * 'agent-<personaId>' → personaId for every registered delegation tool. Empty
@@ -655,6 +657,7 @@ export async function createMastraAgentRuntime(
 
   // Subagent personas (D10): built BEFORE the instructions so guidance only
   // names personas that actually registered a delegation tool this run.
+  const delegatedExecutionOptions: DelegatedExecutionOptions = {};
   const delegatedTurnPersistence = createDelegatedTurnPersistence(memory, sanitizedRuntime.memory);
   const {
     artifactReaderDelegationTools,
@@ -665,6 +668,7 @@ export async function createMastraAgentRuntime(
     subAgents,
   } = await resolvePersonaRuntimeParts({
     conversationBinding: options.conversationBinding,
+    delegatedExecutionOptions,
     getDelegatedSystemContext: options.getDelegatedSystemContext,
     // BST-1206 review (P2): a persona that pins its OWN model must project
     // its tools against THAT model's resolved budget, not the parent's — so
@@ -779,6 +783,7 @@ export async function createMastraAgentRuntime(
     ...assistantIdentityRuntime,
     askTools,
     conversationBinding: options.conversationBinding,
+    delegatedExecutionOptions,
     delegatedTurnPersistence,
     delegationToolPersonas,
     dispose: async () => {

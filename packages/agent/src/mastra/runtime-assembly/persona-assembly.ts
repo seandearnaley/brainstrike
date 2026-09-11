@@ -15,7 +15,7 @@ import type { MastraMemory } from '@mastra/core/memory';
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import type { RuntimeData } from '../../types';
-import { buildPersonaSubAgents } from '../build-persona-subagents';
+import { buildPersonaSubAgents, type DelegatedExecutionOptions } from '../build-persona-subagents';
 import type { DelegationPersonaSummary } from '../default-instructions';
 import type { DelegatedConversationBinding } from '../delegated-conversation-binding';
 import type { DelegatedSystemContextSource } from '../delegated-system-context';
@@ -58,6 +58,7 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
  * map here would bake the wrong budget into every pinned persona's tools.
  */
 export async function resolvePersonaRuntimeParts(params: {
+  delegatedExecutionOptions?: DelegatedExecutionOptions;
   conversationBinding?: DelegatedConversationBinding | undefined;
   guardedTools: ToolsInput;
   getDelegatedSystemContext?: DelegatedSystemContextSource | undefined;
@@ -84,6 +85,8 @@ export async function resolvePersonaRuntimeParts(params: {
     return EMPTY_PERSONA_RUNTIME_PARTS;
   }
   const personaBuild = await buildPersonaSubAgents({
+    delegatedExecutionOptions: params.delegatedExecutionOptions,
+    memory: params.memory,
     ...(params.conversationBinding ? { conversationBinding: params.conversationBinding } : {}),
     ...(params.settleChildToolOutputs
       ? { settleChildToolOutputs: params.settleChildToolOutputs }

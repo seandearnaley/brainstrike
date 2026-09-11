@@ -96,7 +96,11 @@ describe('desktop child transport and native row parity', () => {
 
   it('retains child content and lifecycle order through live decoding and native reconstruction', async () => {
     holder.model = scriptedAgentModel((options) => {
-      if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
+      if (
+        JSON.stringify(options.prompt.filter((message) => message.role === 'user').at(-1)).includes(
+          'ROOT_PARITY_TASK'
+        )
+      ) {
         return hasToolResult(options, 'agent-explore')
           ? textParts('Parent summary.')
           : toolCallParts('agent-explore', 'delegation-call', { prompt: 'find the flag' });
@@ -114,7 +118,13 @@ describe('desktop child transport and native row parity', () => {
     }).model;
     const memory = await getDesktopMastraMemory(settings, 'host-leg');
     const stream = await streamMastraAgent(
-      [{ id: 'user-turn', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+      [
+        {
+          id: 'user-turn',
+          parts: [{ text: 'ROOT_PARITY_TASK: find the flag', type: 'text' }],
+          role: 'user',
+        },
+      ],
       {
         ...memory,
         personas: [persona],

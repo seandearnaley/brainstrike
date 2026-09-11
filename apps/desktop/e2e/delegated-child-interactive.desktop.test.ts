@@ -47,7 +47,14 @@ async function assertChildDecision(
   const parentCatalogs: string[][] = [];
   const provider = await startModelProviderShim(({ toolNames, messages }) => {
     const history = JSON.stringify(messages);
-    const isParent = toolNames.includes('agent-decision-probe');
+    const isParent = JSON.stringify(
+      messages
+        .filter(
+          (message) =>
+            message && typeof message === 'object' && 'role' in message && message.role === 'user'
+        )
+        .at(-1)
+    ).includes('Delegate to Decision Probe to request my decision.');
     if (isParent) {
       parentCatalogs.push([...toolNames].sort());
       observed.parentResult ||= history.includes(childResult);

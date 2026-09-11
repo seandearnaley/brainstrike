@@ -340,7 +340,7 @@ export function buildStreamOptions(
     runtime.toolSearchProcessor,
     runtime.toolHistoryFilter
   );
-  return {
+  const options: BrainstrikeAgentStreamOptions & { runId?: string; toolCallId?: string } = {
     ...loop,
     ...(runtime.rootDelegatedContextProcessor
       ? {
@@ -368,6 +368,7 @@ export function buildStreamOptions(
       ? {
           delegation: createDelegationConfig({
             abortSignal,
+            workQueue: runtime.delegatedExecutionOptions?.workQueue,
             ...(runtime.conversationBinding
               ? { conversationBinding: runtime.conversationBinding }
               : {}),
@@ -383,4 +384,13 @@ export function buildStreamOptions(
     // this key, even if one is passed.
     ...(leg === 'resume' || requireToolApproval === undefined ? {} : { requireToolApproval }),
   };
+  // The run owner serializes stream legs; descendants read this same leg context lazily.
+  if (runtime.delegatedExecutionOptions) {
+    Object.assign(runtime.delegatedExecutionOptions, {
+      abortSignal,
+      delegation: options.delegation,
+      hooks: options.hooks,
+    });
+  }
+  return options;
 }

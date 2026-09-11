@@ -1312,3 +1312,19 @@ The desktop host imports these readers through the Node-compatible DB entry;
 never import the browser-facing assistant-data barrel into Electron main.
 Paired behavior is covered by assistant-memory-repository integration tests,
 native delegated history tests and main-process-bundle-external-requires.
+
+### Durable delegation limits (migration 132)
+
+`custom-132-delegation-budgets` adds root-turn budgets, child budgets and step
+reservations. Admission and native graph/invocation creation share one callback
+transaction, locking the root run and budget row. Steps validate the same running
+root, owner and ancestry, then lock the root budget before child allocation.
+Output charge includes unresolved reservations; settlement is once per owning
+host reservation and cannot refund an unknown provider result. An observed
+overage commits before the caller receives its failure. Child deletion removes
+child rows but retains root spend; root deletion cascades the whole budget tree.
+These accounting limits are not a provider billing meter. Migration replay never
+resets counters. Old turns without a budget fail visibly before new inference.
+All three tables are included in direct transport reset, desktop IPC reset and
+the reset registry; full-engine dump/reload and upgrade/replay are covered by
+`delegated-tree-limits.integration.test.ts`.

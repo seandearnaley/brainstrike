@@ -130,7 +130,9 @@ describe('desktop durable delegation production loop', () => {
       }),
     });
     holder.model = scriptedAgentModel((options) => {
-      const isParent = options.tools?.some((tool) => tool.name === 'agent-artifact-recovery');
+      const isParent = JSON.stringify(
+        options.prompt.filter((message) => message.role === 'user').at(-1)
+      )?.includes('ROOT_RUNTIME_TASK');
       if (isParent && hasToolResult(options, 'agent-artifact-recovery')) {
         return textParts('Parent summary.');
       }
@@ -189,7 +191,13 @@ describe('desktop durable delegation production loop', () => {
     const memory = await getDesktopMastraMemory(settings, 'host-leg');
     const executed: string[] = [];
     const stream = await streamMastraAgent(
-      [{ id: 'user-turn', parts: [{ text: 'Run both tasks.', type: 'text' }], role: 'user' }],
+      [
+        {
+          id: 'user-turn',
+          parts: [{ text: 'ROOT_RUNTIME_TASK: Run both tasks.', type: 'text' }],
+          role: 'user',
+        },
+      ],
       {
         ...memory,
         personas: [userPersona.persona],
@@ -363,8 +371,13 @@ describe('desktop durable delegation production loop', () => {
     'retains the cancelled child transcript and paired terminal events after engine reconstruction (partial text: %s)',
     async (partialText) => {
       const abort = new AbortController();
+      const toolStarted = Promise.withResolvers<void>();
       holder.model = scriptedAgentModel((options) => {
-        if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
+        if (
+          JSON.stringify(
+            options.prompt.filter((message) => message.role === 'user').at(-1)
+          )?.includes('ROOT_RUNTIME_TASK')
+        ) {
           return toolCallParts('agent-explore', 'cancelled-delegation', {
             prompt: 'find the flag',
           });
@@ -380,28 +393,14 @@ describe('desktop durable delegation production loop', () => {
       if (!memory.memory) {
         throw new Error('Native memory is unavailable');
       }
-      const nativeSave = Promise.withResolvers<void>();
-      const saveMessages = memory.memory.saveMessages.bind(memory.memory);
-      vi.spyOn(memory.memory, 'saveMessages').mockImplementation(async (options) => {
-        const result = await saveMessages(options);
-        if (
-          options.messages.some(
-            (message) =>
-              message.threadId !== 'root' &&
-              message.content.parts.some(
-                (part) =>
-                  part.type === 'tool-invocation' &&
-                  part.toolInvocation.toolCallId === 'waiting-tool' &&
-                  part.toolInvocation.state === 'result'
-              )
-          )
-        ) {
-          nativeSave.resolve();
-        }
-        return result;
-      });
       const stream = await streamMastraAgent(
-        [{ id: 'user-turn', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+        [
+          {
+            id: 'user-turn',
+            parts: [{ text: 'ROOT_RUNTIME_TASK: find the flag', type: 'text' }],
+            role: 'user',
+          },
+        ],
         {
           ...memory,
           personas: [persona],
@@ -417,6 +416,7 @@ describe('desktop durable delegation production loop', () => {
               description: 'Read flags',
               execute: () =>
                 new Promise<{ matches: string[] }>((resolve) => {
+                  toolStarted.resolve();
                   if (abort.signal.aborted) {
                     resolve({ matches: [] });
                     return;
@@ -448,11 +448,69 @@ describe('desktop durable delegation production loop', () => {
         if (chunk.chunk.type === 'run-event') {
           liveEventIds.push(chunk.chunk.event.id);
         }
-        if (chunk.chunk.type === 'tool-event' && chunk.chunk.status === 'start') {
+        if (
+          chunk.chunk.type === 'tool-event' &&
+          chunk.chunk.status === 'start' &&
+          !abort.signal.aborted
+        ) {
+          // The queue publishes the call before execution. This case exercises
+          // cancellation of a running tool and its late native memory write.
+          await toolStarted.promise;
           abort.abort();
-          // Hold the consumer until the real native writer has saved its late result.
-          // The abort snapshot must already be frozen independently of finalization.
-          await nativeSave.promise;
+          const child = (
+            await database.query<{ thread_id: string; resource_id: string }>(
+              "SELECT thread_id, resource_id FROM brainstrike_delegated_conversations WHERE parent_thread_id = 'root'"
+            )
+          ).rows[0];
+          if (!child) {
+            throw new Error('Missing running child');
+          }
+          // Before the suspended consumer resumes terminal snapshot settlement,
+          // inject a late native write through Memory. Root abort now prevents the
+          // old automatic write; the frozen visible snapshot must still win.
+          await memory.memory.saveMessages({
+            messages: [
+              {
+                content: {
+                  format: 2,
+                  parts: [
+                    {
+                      text: 'Late native write must not replace the cancelled snapshot.',
+                      type: 'text',
+                    },
+                    {
+                      toolInvocation: {
+                        args: { pattern: 'flag' },
+                        result: { matches: [] },
+                        state: 'result',
+                        toolCallId: 'waiting-tool',
+                        toolName: 'brainstrike_grepSearch',
+                      },
+                      type: 'tool-invocation',
+                    },
+                  ],
+                },
+                createdAt: new Date(),
+                id: chunk.messageId,
+                resourceId: child.resource_id,
+                role: 'assistant',
+                threadId: child.thread_id,
+              },
+            ],
+          });
+          const injected = await database.query<{ content: unknown }>(
+            'SELECT content FROM mastra_messages WHERE id = $1 AND thread_id = $2',
+            [chunk.messageId, child.thread_id]
+          );
+          expect(injected.rows).toHaveLength(1);
+          expect(injected.rows[0]?.content).toMatchObject({
+            parts: expect.arrayContaining([
+              expect.objectContaining({
+                text: 'Late native write must not replace the cancelled snapshot.',
+                type: 'text',
+              }),
+            ]),
+          });
         }
       }
       expect(abort.signal.aborted).toBe(true);
@@ -481,6 +539,11 @@ describe('desktop durable delegation production loop', () => {
         if (partialText) {
           expect(content).toContainEqual(expect.objectContaining({ text: liveText, type: 'text' }));
         }
+        expect(content).not.toContainEqual(
+          expect.objectContaining({
+            text: 'Late native write must not replace the cancelled snapshot.',
+          })
+        );
         expect(content.filter((part) => part.type === 'tool-call')).toEqual([]);
         const events = content
           .flatMap((part) =>
@@ -506,7 +569,11 @@ describe('desktop durable delegation production loop', () => {
       parentReceivedChildResult = resolve;
     });
     holder.model = scriptedAgentModel((options) => {
-      if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
+      if (
+        JSON.stringify(
+          options.prompt.filter((message) => message.role === 'user').at(-1)
+        )?.includes('ROOT_RUNTIME_TASK')
+      ) {
         if (hasToolResult(options, 'agent-explore')) {
           parentReceivedChildResult?.();
           return textParts('Parent: FLAG-42');
@@ -527,7 +594,13 @@ describe('desktop durable delegation production loop', () => {
       return { matches: ['FLAG-42'] };
     });
     const stream = await streamMastraAgent(
-      [{ id: 'user-turn', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+      [
+        {
+          id: 'user-turn',
+          parts: [{ text: 'ROOT_RUNTIME_TASK: find the flag', type: 'text' }],
+          role: 'user',
+        },
+      ],
       {
         ...memory,
         personas: [persona],
