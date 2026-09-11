@@ -58,7 +58,7 @@ vi.mock('@brainstrike/agent', async (original) => ({
   ...(await original<typeof import('@brainstrike/agent')>()),
 }));
 
-it('cancels a durably waiting child and rejects its stale decision through a fresh host', async () => {
+async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
   const database = await createEnginePglite();
   holder.database = database;
   let host: Mastra | undefined;
@@ -210,7 +210,9 @@ it('cancels a durably waiting child and rejects its stale decision through a fre
     });
     const chunks = await drain(initial.fullStream);
     // Mirror assistant-server.ts's finally after a native suspended stream completes.
-    unregisterSteerableRun('initial');
+    if (!registeredAfterCompletion) {
+      unregisterSteerableRun('initial');
+    }
     const notice = chunks.find(
       (chunk) =>
         chunk.type === 'tool-approval-required' && chunk.delegation?.path[0]?.personaId === 'cedar'
@@ -226,9 +228,7 @@ it('cancels a durably waiting child and rejects its stale decision through a fre
     const pending = await parent.listSuspendedRuns({ resourceId: 'owner', threadId: 'root' });
     expect(pending.runs).toHaveLength(1);
     expect(effects).toEqual([]);
-    await database.query(
-      `UPDATE brainstrike_assistant_thread_runs SET status = 'completed' WHERE id = 'initial'`
-    );
+    await recordDesktopAssistantThreadRunStatus('initial', 'completed', null, async () => database);
     await database.query(`INSERT INTO brainstrike_assistant_thread_runs
         (id, resource_id, thread_id, provider, model, runtime_kind, status, started_at, created_at, updated_at, turn_message_id)
         VALUES ('after-reload', 'owner', 'root', 'openai', 'test', 'desktop', 'running', NOW(), NOW(), NOW(), 'user-turn')`);
@@ -263,6 +263,17 @@ it('cancels a durably waiting child and rejects its stale decision through a fre
       expect
         .soft({ payload, status: response.status })
         .toMatchObject({ payload: { accepted: true }, status: 200 });
+      if (registeredAfterCompletion) {
+        // The native stream and normal terminal writer already finished. Only
+        // server-finally unregister remains; there will be no later status write.
+        expect(controller.signal.aborted).toBe(true);
+        unregisterSteerableRun('initial');
+        const settled = await database.query(
+          "SELECT status FROM brainstrike_assistant_thread_runs WHERE id = 'initial'"
+        );
+        expect(settled.rows).toEqual([{ status: 'cancelled' }]);
+        expect(completeCancelledTurn).toHaveBeenCalledOnce();
+      }
       await recordDesktopAssistantThreadRunStatus(
         'initial',
         'completed',
@@ -332,4 +343,9 @@ it('cancels a durably waiting child and rejects its stale decision through a fre
     await database.close();
     holder.database = undefined;
   }
-});
+}
+
+it.each([false, true])(
+  'cancels a durably waiting child through a fresh host (registered after completion: %s)',
+  assertWaitingCancellation
+);
