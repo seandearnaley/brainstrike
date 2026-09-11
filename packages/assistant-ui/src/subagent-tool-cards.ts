@@ -6,7 +6,8 @@ import {
 } from '@brainstrike/assistant-contract/personas';
 import { createElement, use, useMemo } from 'react';
 import {
-  readSubagentConversationThread,
+  readSubagentConversationAddress,
+  type SubagentConversationAddress,
   SubagentConversationNavigationContext,
 } from './subagent-conversation-navigation';
 import { SubagentExecutionCard } from './subagent-execution-card';
@@ -32,8 +33,12 @@ import {
  */
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
   const openConversation = use(SubagentConversationNavigationContext);
-  const childThreadId = useAuiState((state) =>
-    readSubagentConversationThread(state.message.parts, props.toolCallId)
+  const addressJson = useAuiState((state) =>
+    JSON.stringify(readSubagentConversationAddress(state.message.parts, props.toolCallId))
+  );
+  const address = useMemo(
+    () => JSON.parse(addressJson) as SubagentConversationAddress,
+    [addressJson]
   );
   // THREAD-wide, not message-scoped (2026-08-24 field failure): hydration can
   // weave this delegation's `subagent.tool.*` events into a SIBLING message of
@@ -56,9 +61,10 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
     // `exactOptionalPropertyTypes` an optional prop may be absent but never
     // explicitly `undefined`.
     ...(props.isError === undefined ? {} : { isError: props.isError }),
-    ...(openConversation && childThreadId
-      ? { onOpenConversation: () => openConversation(childThreadId) }
+    ...(openConversation && address.kind === 'available'
+      ? { onOpenConversation: () => openConversation(address.threadId) }
       : {}),
+    ...(address.kind === 'invalid' ? { navigationError: address.error } : {}),
     liveRows,
     ...(outcome ? { outcome } : {}),
     result: props.result,

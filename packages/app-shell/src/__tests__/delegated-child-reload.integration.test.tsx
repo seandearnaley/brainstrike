@@ -4,7 +4,13 @@ import '@testing-library/jest-dom/vitest';
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
-import { createDelegatedConversationRepository, migrate, wasmLoader } from '@brainstrike/db';
+import {
+  ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+  createDelegatedConversationRepository,
+  migrate,
+  readAssistantHistoryMessages,
+  wasmLoader,
+} from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
@@ -32,7 +38,9 @@ function OwningRoot() {
   const root = useDelegatedConversationRoot('owner', rootThreadId);
   useEffect(() => {
     activeRoot = root;
-    return root?.onRuntimeReady({ thread: { append } });
+    return root?.onRuntimeReady({
+      thread: { append, getState: () => ({ threadId: rootThreadId }) },
+    });
   }, [root]);
   return null;
 }
@@ -117,16 +125,33 @@ describe('child view after renderer restart', () => {
       </TooltipProvider>
     );
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    const messages = await readAssistantHistoryMessages(database, node.threadId, node.resourceId, {
+      limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    });
+    const update = delegatedUpdate(
+      node.threadId,
+      'new-host-leg',
+      'Live output while recovery is pending.'
+    );
+    if (!update.baseline) {
+      throw new Error('Missing test baseline');
+    }
+    const baseline = {
+      ...update.baseline,
+      messages: messages.map((message) => ({
+        ...message,
+        createdAt: message.createdAt.toISOString(),
+      })),
+    };
     act(() => {
-      activeRoot?.onDelegatedConversation(
-        delegatedUpdate(node.threadId, 'new-host-leg', 'Live output while recovery is pending.')
-      );
+      activeRoot?.onDelegatedConversation({ ...update, baseline });
     });
     expect(await screen.findByText('Live output while recovery is pending.')).toBeVisible();
     await act(async () => {
       settle?.(Response.json({ approvals: [], suspends: [] }));
     });
     expect(screen.getByText('Live output while recovery is pending.')).toBeVisible();
+    expect(screen.getByText('Persisted native child transcript.')).toBeVisible();
     expect(append).not.toHaveBeenCalled();
   });
   it('keeps native history visible when pending decision discovery fails', async () => {

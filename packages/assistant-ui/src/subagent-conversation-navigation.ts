@@ -46,3 +46,21 @@ export function readSubagentConversationThread(
   }
   return threadId;
 }
+
+export type SubagentConversationAddress =
+  | { readonly kind: 'unavailable' }
+  | { readonly kind: 'available'; readonly threadId: string }
+  | { readonly kind: 'invalid'; readonly error: string };
+
+/** Render failures locally without hiding a contradictory host address. */
+export function readSubagentConversationAddress(
+  parts: readonly unknown[],
+  toolCallId: string
+): SubagentConversationAddress {
+  try {
+    const threadId = readSubagentConversationThread(parts, toolCallId);
+    return threadId ? { kind: 'available', threadId } : { kind: 'unavailable' };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error), kind: 'invalid' };
+  }
+}

@@ -6,11 +6,12 @@ import type { PanelLayoutState } from '@brainstrike/ui';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type React from 'react';
-import { useState } from 'react';
+import { use, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
 import { RootLayoutContent } from '../root-layout-content';
 import type { NavigationItem } from '../types';
+import { RootsContext } from '../use-delegated-conversation-root';
 import { createRecentLongTaskEntryList } from './long-task-entry-list-test-support';
 
 vi.mock('@brainstrike/db/react', async (importOriginal) => ({
@@ -179,7 +180,10 @@ vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({
 }));
 
 vi.mock('../assistant-chat-panel', () => ({
-  AssistantChatPanel: () => <div data-testid="assistant-chat-shell" />,
+  AssistantChatPanel: () => {
+    const roots = use(RootsContext);
+    return <div data-has-root-owner={roots !== null} data-testid="assistant-chat-shell" />;
+  },
 }));
 
 // The palette host pulls in the DB, theme, and command registry; this
@@ -330,7 +334,10 @@ describe('RootLayoutContent', () => {
       'data-suggestions-enabled',
       'false'
     );
-    expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
+    expect(screen.getByTestId('assistant-chat-shell')).toHaveAttribute(
+      'data-has-root-owner',
+      'true'
+    );
     expect(screen.getByTestId('indexing-activity-coordinator')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
     expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();

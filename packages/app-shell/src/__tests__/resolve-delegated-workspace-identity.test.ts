@@ -115,30 +115,34 @@ describe('restored child invocation authority', () => {
     });
     expect(discoverRoot).toHaveBeenCalledWith('root', 'owner');
   });
-  it('surfaces broken invocation discovery instead of showing another child’s decision', async () => {
-    const discover = createDelegatedWorkspaceDiscovery(
-      { getInvocation: async () => null },
-      node,
-      async () => ({
-        approvals: [
-          {
-            delegation: { path: [edge], toolCallId: 'write' },
-            runId: 'parent-run',
-            stale: false,
-            suspendedAt: '2026-09-10T00:00:00.000Z',
-            toolCallId: 'call',
-            toolName: 'write',
-          },
-        ],
+  it.each([false, true])(
+    'surfaces broken invocation discovery even with an upstream failure (%s)',
+    async (upstreamFailure) => {
+      const discover = createDelegatedWorkspaceDiscovery(
+        { getInvocation: async () => null },
+        node,
+        async () => ({
+          ...(upstreamFailure ? { error: { reason: 'request-failed' as const } } : {}),
+          approvals: [
+            {
+              delegation: { path: [edge], toolCallId: 'write' },
+              runId: 'parent-run',
+              stale: false,
+              suspendedAt: '2026-09-10T00:00:00.000Z',
+              toolCallId: 'call',
+              toolName: 'write',
+            },
+          ],
+          suspends: [],
+        })
+      );
+      await expect(discover('child', 'native-child')).resolves.toEqual({
+        approvals: [],
+        error: { reason: 'invalid-response' },
         suspends: [],
-      })
-    );
-    await expect(discover('child', 'native-child')).resolves.toEqual({
-      approvals: [],
-      error: { reason: 'invalid-response' },
-      suspends: [],
-    });
-  });
+      });
+    }
+  );
 
   it('resolves the exact selected child in a nested path using persisted invocation bindings', async () => {
     const other = { ...edge, parentToolCallId: 'ancestor-call' };

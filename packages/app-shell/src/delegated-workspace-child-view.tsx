@@ -7,14 +7,14 @@ import {
 import type { DelegatedConversationRuntimeOptions } from '@brainstrike/assistant-ui';
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { use, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { DelegatedConversationPanel } from './delegated-conversation-panel';
 import { createDelegatedWorkspaceDiscovery } from './delegated-workspace-discovery';
 import { DelegatedWorkspaceNavigation } from './delegated-workspace-navigation';
 import type { ChildNode } from './delegated-workspace-node';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { resolveDelegatedWorkspaceDecision } from './resolve-delegated-workspace-identity';
-import { useDelegatedConversationRoot } from './use-delegated-conversation-root';
+import { RootsContext, useDelegatedConversationRoot } from './use-delegated-conversation-root';
 export function Failure({ error }: { readonly error: Error }) {
   return (
     <div className="p-4 text-destructive" role="alert">
@@ -27,19 +27,19 @@ function asError(value: unknown): Error {
 }
 
 type History = DelegatedConversationRuntimeOptions['history'];
+const emptySubscribe = () => () => undefined;
 export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: ChildNode }) {
+  const roots = use(RootsContext);
+  const repository = useMemo(() => createDelegatedConversationRepository(db), [db]);
   const root = useDelegatedConversationRoot(node.ownerResourceId, node.rootThreadId);
-  if (!root) {
-    throw new Error('The child workspace has no owning root registry.');
-  }
   const live = useSyncExternalStore(
-    root.store.subscribe,
-    () => root.store.getConversation(node.threadId),
-    () => root.store.getConversation(node.threadId)
+    root?.store.subscribe ?? emptySubscribe,
+    () => root?.store.getConversation(node.threadId),
+    () => root?.store.getConversation(node.threadId)
   );
   const [saved, setSaved] = useState<{ readonly history: History } | { readonly error: Error }>();
   useEffect(() => {
-    if (root?.store.getConversation(node.threadId)) {
+    if (!root || root.store.getConversation(node.threadId)) {
       return;
     }
     let active = true;
@@ -47,7 +47,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       ...(hasDurableAssistantUsageCapability()
         ? {
             discoverSuspendedRuns: createDelegatedWorkspaceDiscovery(
-              createDelegatedConversationRepository(db),
+              repository,
               node,
               createSuspendedRunDiscovery(resolveAssistantBaseUrl)
             ),
@@ -72,7 +72,17 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
     return () => {
       active = false;
     };
-  }, [db, node, root]);
+  }, [db, node, repository, root]);
+  if (!roots) {
+    return <Failure error={new Error('The child workspace has no owning root registry.')} />;
+  }
+  if (!root) {
+    return (
+      <p className="p-4" role="status">
+        Opening owning conversation…
+      </p>
+    );
+  }
   if (saved && 'error' in saved) {
     return <Failure error={saved.error} />;
   }
@@ -92,11 +102,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
         label={node.displayName}
         onNew={(message) =>
           root.sendDecision(node.threadId, message, () =>
-            resolveDelegatedWorkspaceDecision(
-              createDelegatedConversationRepository(db),
-              node,
-              message
-            )
+            resolveDelegatedWorkspaceDecision(repository, node, message)
           )
         }
         {...(saved ? { persistedHistory: saved.history } : {})}

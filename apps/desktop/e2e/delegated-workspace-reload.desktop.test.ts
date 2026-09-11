@@ -21,7 +21,25 @@ test('restores distinct child tabs and native transcripts without executing a ru
     timeout: E2E_TIMEOUTS.messageVisibility,
   });
 
-  await window.evaluate(async () => {
+  const rootPanel = window.getByTestId('chat-panel');
+  await expect(
+    rootPanel.getByRole('button', { includeHidden: true, name: 'Regenerate response' })
+  ).toHaveCount(1);
+  await rootPanel.getByText('Prepare the child workspace fixture', { exact: true }).hover();
+  await expect(
+    rootPanel.getByRole('button', { includeHidden: true, name: 'Edit message' })
+  ).toHaveCount(1);
+
+  const requests = (await readAssistantMockRequests(window)) as Array<{
+    data: { memory: { resourceId: string; threadId: string } };
+  }>;
+  expect(requests).toHaveLength(1);
+  const memory = requests[0]?.data.memory;
+  expect(memory).toMatchObject({ resourceId: expect.any(String), threadId: expect.any(String) });
+  if (!memory) {
+    throw new Error('The root request has no native memory identity');
+  }
+  await window.evaluate(async (memory) => {
     const api = (globalThis as typeof globalThis & { electronAPI?: unknown }).electronAPI;
     const query = (
       api as {
@@ -37,8 +55,12 @@ test('restores distinct child tabs and native transcripts without executing a ru
       throw new Error('Native database bridge unavailable');
     }
     const result = await query(
-      `SELECT t.id, t."resourceId" AS resource FROM mastra_threads t JOIN brainstrike_assistant_message_parents e ON e.thread_id = t.id ORDER BY e.created_at DESC LIMIT 1`
+      `SELECT id, "resourceId" AS resource FROM mastra_threads WHERE id = $1 AND "resourceId" = $2`,
+      [memory.threadId, memory.resourceId]
     );
+    if (result.rows.length !== 1) {
+      throw new Error('Expected the exact root from the outgoing request');
+    }
     const root = result.rows[0];
     if (!(root && typeof root['id'] === 'string' && typeof root['resource'] === 'string')) {
       throw new Error('Root thread was not persisted');
@@ -111,7 +133,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
       'INSERT INTO brainstrike_assistant_thread_workspaces (thread_id, resource_id, payload, updated_at) VALUES ($1, $2, $3::jsonb, NOW()) ON CONFLICT (thread_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()',
       [root['id'], root['resource'], JSON.stringify(snapshot)]
     );
-  });
+  }, memory);
 
   const unexpectedModelRequests: string[] = [];
   window.on('request', (request) => {
@@ -126,7 +148,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await window.getByRole('button', { exact: true, name: 'Child workspace verification' }).click();
   const cedar = window.getByRole('tab', { exact: true, name: 'Cedar' });
   const flint = window.getByRole('tab', { exact: true, name: 'Flint' });
-  await expect(cedar).toBeVisible({ timeout: E2E_TIMEOUTS.messageVisibility });
+  await expect(cedar).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
   await expect(window.getByText('Cedar saved native transcript', { exact: true })).toBeVisible();
   await cedar.focus();
@@ -140,11 +162,16 @@ test('restores distinct child tabs and native transcripts without executing a ru
   const childPanel = window.getByRole('region', { exact: true, name: 'Cedar' });
   await expect(childPanel.getByText('Instructions for Cedar', { exact: true })).toBeVisible();
   await expect(childPanel.getByRole('button', { name: 'Regenerate response' })).toHaveCount(0);
-  await expect(childPanel.getByRole('button', { name: 'Edit message' })).toHaveCount(0);
+  await childPanel.getByText('Instructions for Cedar', { exact: true }).hover();
+  await expect(
+    childPanel.getByRole('button', { includeHidden: true, name: 'Edit message' })
+  ).toHaveCount(0);
   await expect(childPanel.getByRole('textbox', { name: 'Message input' })).toBeDisabled();
   await window.getByRole('button', { exact: true, name: 'Close Flint' }).click();
   await expect(flint).toHaveCount(0);
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
+  // The page-side mock observes the post-reload view; the network listener above
+  // also covers the interval before the mock is reinstalled after navigation.
   expect(await readAssistantMockRequests(window)).toHaveLength(0);
   expect(unexpectedModelRequests).toHaveLength(0);
   await window.screenshot({

@@ -1188,7 +1188,9 @@ panel subscribes to that store, so closing/reopening a view neither invokes a
 model nor loses output produced while the view was closed.
 
 A child decision is accepted only if its validated native ancestry includes
-that view's invocation. Its action metadata and run configuration go through
+that view's invocation. A current host snapshot supplies its validated live identity;
+a restored view resolves identity against the durable invocation graph. Both
+paths still require native host authorization. Its action metadata and run configuration go through
 the owning root runtime, without the child's message parent/source ids. The
 root owns its own append topology and the native host still authenticates the
 full decision path. Ordinary follow-up prompts are not decision messages;
@@ -1198,7 +1200,13 @@ returned cleanup runs when that runtime is disposed. Opening a child view must
 never construct another inference runtime.
 
 The workspace owns the ephemeral root registry, keyed by owner resource and
-root thread together. The actual panel wrapper publishes delegated snapshots
+root thread together. Snapshot reads are pure: committed external-store
+subscriptions acquire a lease for each mounted owner or child view. Releasing
+the final lease evicts the root and clears its converted transcripts; saved,
+unvisited tabs recover through native history when mounted. A stale cleanup
+cannot evict a replacement. Registration captures the actual thread handle and
+its runtime identity, and decision append rejects a handle that has retargeted.
+ The actual panel wrapper publishes delegated snapshots
 and registers its actual runtime into that root; standalone panels without a
 workspace do not advertise child navigation. Runtime cleanup is identity-aware:
 disposing an old runtime cannot unregister a replacement. An unavailable owner
@@ -1220,7 +1228,8 @@ never invokes `onNew`. The panel's regression test uses the real ordinary-histor
 converter and proves both no execution on opening and the saved-to-live handoff.
 The subagent card's optional Open conversation action is separate from its
 collapse toggle. Navigation binds the exact parent tool-call id to its host
-baseline thread id; contradictory addresses are errors. The action is absent
+baseline thread id; contradictory addresses surface as card-local alerts, with
+no navigation action, rather than throwing from the streaming selector. The action is absent
 until the workspace supplies a navigation capability.
 
 `DelegatedWorkspaceTabsProvider` registers saved child tab addresses before the
@@ -1242,6 +1251,14 @@ or hidden metadata rendering. Workspace metadata is retained only for open tabs:
 closing and reopening forces graph authorization before prior metadata/history
 can be exposed. Child loading views subscribe to their owning host so a live
 snapshot can become visible while an ordinary history read is still pending.
+Metadata reads skip already authorized entries for the current database; app
+arrays retain their identity until their inputs change. A malformed invocation
+binding takes precedence over a simultaneous discovery request failure.
+The root-layout test pins the owning provider around the actual assistant slot.
+The reload integration test uses the native history reader and its ordinary
+hydration window as the arriving live baseline and retains earlier transcript
+text after the handoff. The Electron smoke test also asserts root edit/reload
+controls are present before checking their absence from the read-only child.
 
 Panel runtime composition keeps endpoint resolution/cancellation in
 `use-assistant-endpoint-api.ts` and stable attachment/history adapter construction

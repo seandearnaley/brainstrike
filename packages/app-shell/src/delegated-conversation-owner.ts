@@ -8,22 +8,32 @@ import { createDelegatedConversationStore } from './delegated-conversation-store
 import { createDelegatedDecisionDispatcher } from './delegated-decision-dispatcher';
 
 type PublishedRuntime = Parameters<NonNullable<AssistantUiPanelProps['onRuntimeReady']>>[0];
+interface Thread {
+  readonly append: PublishedRuntime['thread']['append'];
+  getState(): Pick<ReturnType<PublishedRuntime['thread']['getState']>, 'threadId'>;
+}
 interface Runtime {
-  readonly thread: Pick<PublishedRuntime['thread'], 'append'>;
+  readonly thread: Thread;
+}
+interface Registration {
+  readonly thread: Thread;
+  readonly threadId: string;
 }
 type DecisionMessage = Parameters<DelegatedConversationRuntimeOptions['onNew']>[0];
 
 export function createDelegatedConversationRoot(rootThreadId: string) {
   const store = createDelegatedConversationStore(rootThreadId);
-  let runtime: Runtime | undefined;
+  let runtime: Registration | undefined;
   return {
     onDelegatedConversation(update: DelegatedConversationUpdate): void {
       store.publish(update);
     },
     onRuntimeReady(next: Runtime): () => void {
-      runtime = next;
+      const thread = next.thread;
+      const registration = { thread, threadId: thread.getState().threadId };
+      runtime = registration;
       return () => {
-        if (runtime === next) {
+        if (runtime === registration) {
           runtime = undefined;
         }
       };
@@ -39,7 +49,7 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
       }
       const owner = runtime;
       const identity = child?.update.identity ?? (await resolvePersistedIdentity?.());
-      if (!identity || runtime !== owner) {
+      if (!identity || runtime !== owner || owner.thread.getState().threadId !== owner.threadId) {
         throw new Error(
           'The owning conversation or persisted child binding is no longer available.'
         );

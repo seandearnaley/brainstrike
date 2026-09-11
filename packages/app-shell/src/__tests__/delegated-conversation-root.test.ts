@@ -32,11 +32,18 @@ describe('owning root registration', () => {
     );
     expect(resolve).not.toHaveBeenCalled();
     const append = vi.fn();
-    const dispose = root.onRuntimeReady({ thread: { append } });
+    let threadId = 'registered-root';
+    const dispose = root.onRuntimeReady({ thread: { append, getState: () => ({ threadId }) } });
     await root.sendDecision('child', message, resolve);
     expect(resolve).toHaveBeenCalledTimes(1);
     expect(append).toHaveBeenCalledTimes(1);
     expect(append.mock.calls[0]?.[0]).not.toHaveProperty('parentId');
+    threadId = 'different-root';
+    await expect(root.sendDecision('child', message, resolve)).rejects.toThrow(
+      'owning conversation'
+    );
+    expect(append).toHaveBeenCalledTimes(1);
+    threadId = 'registered-root';
     await expect(
       root.sendDecision('child', message, async () => {
         dispose();
@@ -52,10 +59,14 @@ describe('owning root registration', () => {
     root.onDelegatedConversation(update);
     const oldAppend = vi.fn();
     const append = vi.fn();
-    // Only append is consumed by the ownership adapter; the actual runtime is
+    // The adapter consumes the bound thread identity and append; the actual runtime is
     // exercised by the shared panel and runtime-publication tests.
-    const disposeOld = root.onRuntimeReady({ thread: { append: oldAppend } });
-    const dispose = root.onRuntimeReady({ thread: { append } });
+    const disposeOld = root.onRuntimeReady({
+      thread: { append: oldAppend, getState: () => ({ threadId: 'old-root' }) },
+    });
+    const dispose = root.onRuntimeReady({
+      thread: { append, getState: () => ({ threadId: 'root' }) },
+    });
     disposeOld();
     const action = {
       action: 'approve',

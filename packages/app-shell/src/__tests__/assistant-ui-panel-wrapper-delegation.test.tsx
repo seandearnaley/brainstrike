@@ -3,6 +3,7 @@ import { act, render, screen } from '@testing-library/react';
 import { useSyncExternalStore } from 'react';
 import { describe, expect, test } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
+import type { DelegatedConversationRoot } from '../delegated-conversation-owner';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import { useDelegatedConversationRoot } from '../use-delegated-conversation-root';
@@ -11,9 +12,10 @@ import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 
 function DelegatedRootProbe() {
   const root = useDelegatedConversationRoot('/tmp/test-workspace', 'thread-existing');
-  if (!root) {
-    throw new Error('Missing root provider');
-  }
+  return root ? <SubscribedRootProbe root={root} /> : null;
+}
+
+function SubscribedRootProbe({ root }: { readonly root: DelegatedConversationRoot }) {
   const snapshots = useSyncExternalStore(root.store.subscribe, root.store.getSnapshot);
   return (
     <div data-testid="delegated-root-probe">

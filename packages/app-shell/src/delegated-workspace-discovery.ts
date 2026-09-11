@@ -35,8 +35,7 @@ export function createDelegatedWorkspaceDiscovery(
       Promise.all(result.approvals.map(belongs)),
       Promise.all(result.suspends.map(belongs)),
     ]);
-    const error =
-      result.error ?? (invalidBinding ? { reason: 'invalid-response' as const } : undefined);
+    const error = invalidBinding ? { reason: 'invalid-response' as const } : result.error;
     return {
       approvals: result.approvals.filter((_pause, index) => approvals[index]),
       suspends: result.suspends.filter((_pause, index) => suspends[index]),

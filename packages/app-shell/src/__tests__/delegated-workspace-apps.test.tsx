@@ -46,6 +46,26 @@ afterEach(() => {
 });
 
 describe('delegated workspace app registration', () => {
+  it('keeps resolved app identities stable and loads only the newly opened child', async () => {
+    mocks.get.mockImplementation(async (_scope, id) =>
+      id === 'child' ? node : { ...node, displayName: 'Flint', threadId: 'second' }
+    );
+    const firstId = delegatedWorkspaceTabId(address);
+    useWorkspaceTabSelectionStore.getState().openApp(firstId);
+    const { result, rerender } = renderHook(useDelegatedWorkspaceApps);
+    await waitFor(() => expect(result.current[0]?.label).toBe('Cedar'));
+    const resolved = result.current;
+    rerender();
+    expect(result.current).toBe(resolved);
+    act(() => {
+      useWorkspaceTabSelectionStore
+        .getState()
+        .openApp(delegatedWorkspaceTabId({ ...address, threadId: 'second' }));
+    });
+    await waitFor(() => expect(result.current[1]?.label).toBe('Flint'));
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+  });
+
   it('reauthorizes a closed child before showing cached metadata or reading its history', async () => {
     mocks.get.mockResolvedValueOnce(node);
     const id = delegatedWorkspaceTabId(address);

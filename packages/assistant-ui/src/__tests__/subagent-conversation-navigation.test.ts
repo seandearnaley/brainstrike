@@ -1,6 +1,9 @@
 import { DELEGATED_CONVERSATION_DATA_NAME } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
-import { readSubagentConversationThread } from '../subagent-conversation-navigation';
+import {
+  readSubagentConversationAddress,
+  readSubagentConversationThread,
+} from '../subagent-conversation-navigation';
 
 const part = (call: string, child: string) => ({
   data: { baseline: { threadId: child }, identity: { parentToolCallId: call } },
@@ -23,4 +26,16 @@ describe('subagent card conversation identity', () => {
       'cedar'
     );
   });
+});
+
+it('returns an explicit renderable failure for conflicting addresses', () => {
+  expect(readSubagentConversationAddress([part('a', 'cedar'), part('a', 'willow')], 'a')).toEqual({
+    error: 'Conflicting child conversation addresses.',
+    kind: 'invalid',
+  });
+  expect(readSubagentConversationAddress([part('a', 'cedar')], 'a')).toEqual({
+    kind: 'available',
+    threadId: 'cedar',
+  });
+  expect(readSubagentConversationAddress([], 'a')).toEqual({ kind: 'unavailable' });
 });

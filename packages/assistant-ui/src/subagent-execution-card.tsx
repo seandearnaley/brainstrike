@@ -27,6 +27,7 @@ export type SubagentCardProps = Pick<
   /** In-flight child rows from live `subagent.tool.*` events (see SUBAGENTS). */
   liveRows?: readonly SubAgentToolRow[];
   onOpenConversation?: () => void;
+  navigationError?: string;
   /**
    * Terminal outcome the tool-call status cannot express (BST-1410) — today
    * only `'no-answer'`: the child ran, made tool calls, and never wrote its
@@ -133,6 +134,7 @@ export const SubagentExecutionCard = ({
   status,
   liveRows = EMPTY_LIVE_ROWS,
   onOpenConversation,
+  navigationError,
   outcome,
 }: SubagentCardProps) => {
   const [expanded, setExpanded] = useState(false);
@@ -180,7 +182,12 @@ export const SubagentExecutionCard = ({
           ? { bodyId: rowsId, expanded, onToggle: () => setExpanded((value) => !value) }
           : {})}
       />
-      {onOpenConversation ? (
+      {navigationError ? (
+        <p className="border-border border-t px-3 py-2 text-destructive text-xs" role="alert">
+          {navigationError}
+        </p>
+      ) : null}
+      {onOpenConversation && !navigationError ? (
         <div className="flex justify-end border-border border-t px-2 py-1">
           <Button
             aria-label={`Open ${label} conversation`}

@@ -3,7 +3,7 @@ import { type DbHandle, useDbProviderError, usePGliteDatabase } from '@brainstri
 import type { WorkspaceApp } from '@brainstrike/file-explorer-ui/shell';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { MessageSquare } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { ChildView, Failure } from './delegated-workspace-child-view';
 import { type ChildNode, loadDelegatedWorkspaceNode } from './delegated-workspace-node';
 import { type DelegatedWorkspaceTab, readDelegatedWorkspaceTab } from './delegated-workspace-tab';
@@ -45,6 +45,7 @@ export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
     [openIds]
   );
   const [entries, setEntries] = useState<ReadonlyMap<string, Entry>>(() => new Map());
+  const readEntry = useEffectEvent((id: string) => entries.get(id));
   useEffect(
     () =>
       useWorkspaceTabSelectionStore.subscribe((state, previous) => {
@@ -67,7 +68,7 @@ export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
     let active = true;
     const repository = createDelegatedConversationRepository(db);
     for (const item of addresses) {
-      if (!('address' in item)) {
+      if (!('address' in item) || readEntry(item.id)?.db === db) {
         continue;
       }
       loadDelegatedWorkspaceNode(repository, item.address).then(
@@ -87,33 +88,37 @@ export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
       active = false;
     };
   }, [addresses, db]);
-  return addresses.map((item): WorkspaceApp => {
-    const cached = entries.get(item.id);
-    const entry = cached?.db === db ? cached : undefined;
-    const error =
-      'error' in item
-        ? item.error
-        : (dbError ?? (entry && 'error' in entry ? entry.error : undefined));
-    const node = entry && 'node' in entry ? entry.node : undefined;
-    return {
-      icon: ({ className }) => (
-        <MessageSquare className={`${className ?? ''} ${node ? colors[node.color] : ''}`} />
-      ),
-      id: item.id,
-      label: node?.displayName ?? 'Child conversation',
-      render: () => {
-        if (error) {
-          return <Failure error={asError(error)} />;
-        }
-        if (!(db && node)) {
-          return (
-            <p className="p-4" role="status">
-              Loading conversation…
-            </p>
-          );
-        }
-        return <ChildView db={db} key={item.id} node={node} />;
-      },
-    };
-  });
+  return useMemo(
+    () =>
+      addresses.map((item): WorkspaceApp => {
+        const cached = entries.get(item.id);
+        const entry = cached?.db === db ? cached : undefined;
+        const error =
+          'error' in item
+            ? item.error
+            : (dbError ?? (entry && 'error' in entry ? entry.error : undefined));
+        const node = entry && 'node' in entry ? entry.node : undefined;
+        return {
+          icon: ({ className }) => (
+            <MessageSquare className={`${className ?? ''} ${node ? colors[node.color] : ''}`} />
+          ),
+          id: item.id,
+          label: node?.displayName ?? 'Child conversation',
+          render: () => {
+            if (error) {
+              return <Failure error={asError(error)} />;
+            }
+            if (!(db && node)) {
+              return (
+                <p className="p-4" role="status">
+                  Loading conversation…
+                </p>
+              );
+            }
+            return <ChildView db={db} key={item.id} node={node} />;
+          },
+        };
+      }),
+    [addresses, db, dbError, entries]
+  );
 }

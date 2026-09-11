@@ -369,3 +369,16 @@ it('opens the child conversation without expanding its activity rows', () => {
   expect(open).toHaveBeenCalledTimes(1);
   expect(screen.queryByText('brainstrike_grepSearch')).not.toBeInTheDocument();
 });
+
+it('keeps a conflicting conversation address visible as a card-local error', () => {
+  renderCard({
+    navigationError: 'Conflicting child conversation addresses.',
+    result: completedResult,
+    status: { type: 'complete' },
+    toolCallId: 'call',
+    toolName: 'agent-explore',
+  });
+  expect(screen.getByRole('alert')).toHaveTextContent('Conflicting child conversation addresses.');
+  expect(screen.queryByRole('button', { name: /Open .* conversation/ })).not.toBeInTheDocument();
+  expect(screen.getByText('Explorer finished')).toBeInTheDocument();
+});
