@@ -1,6 +1,6 @@
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
 import { describe, expect, it, vi } from 'vitest';
-import { createDelegatedConversationRoot } from '../delegated-conversation-root';
+import { createDelegatedConversationRoot } from '../delegated-conversation-owner';
 import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 
 describe('owning root registration', () => {

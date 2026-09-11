@@ -6,53 +6,30 @@ import {
   type DelegatedConversationRuntimeOptions,
   SubagentConversationNavigationContext,
 } from '@brainstrike/assistant-ui';
-import {
-  createDelegatedConversationRepository,
-  type DelegatedConversationNode,
-  type DelegatedConversationRepository,
-} from '@brainstrike/db';
+import { createDelegatedConversationRepository } from '@brainstrike/db';
 import { type DbHandle, useDbProviderError, usePGliteDatabase } from '@brainstrike/db/react';
 import { type WorkspaceApp, WorkspaceTabsProvider } from '@brainstrike/file-explorer-ui/shell';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { MessageSquare } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { DelegatedConversationPanel } from './delegated-conversation-panel';
 import {
   DelegatedConversationRootsProvider,
   useDelegatedConversationRoot,
 } from './delegated-conversation-root';
+import { type ChildNode, loadDelegatedWorkspaceNode } from './delegated-workspace-node';
 import {
   type DelegatedWorkspaceTab,
   delegatedWorkspaceTabId,
   readDelegatedWorkspaceTab,
 } from './delegated-workspace-tab';
-
-type ChildNode = DelegatedConversationNode & {
-  readonly displayName: string;
-  readonly color: NonNullable<DelegatedConversationNode['color']>;
-};
-
-export async function loadDelegatedWorkspaceNode(
-  repository: Pick<DelegatedConversationRepository, 'get'>,
-  address: DelegatedWorkspaceTab
-): Promise<ChildNode> {
-  const node = await repository.get(address, address.threadId);
-  if (
-    !(
-      node &&
-      node.threadId === address.threadId &&
-      node.rootThreadId === address.rootThreadId &&
-      node.ownerResourceId === address.ownerResourceId &&
-      node.threadId !== node.rootThreadId &&
-      node.parentThreadId &&
-      node.displayName &&
-      node.color
-    )
-  ) {
-    throw new Error('The child conversation is missing or does not belong to this workspace.');
-  }
-  return { ...node, color: node.color, displayName: node.displayName };
-}
 
 /** Both main and child cards use the existing workspace's singleton tab action. */
 export function DelegatedWorkspaceNavigation({
@@ -97,6 +74,14 @@ function asError(value: unknown): Error {
 type History = DelegatedConversationRuntimeOptions['history'];
 function ChildView({ db, node }: { readonly db: DbHandle; readonly node: ChildNode }) {
   const root = useDelegatedConversationRoot(node.ownerResourceId, node.rootThreadId);
+  if (!root) {
+    throw new Error('The child workspace has no owning root registry.');
+  }
+  const live = useSyncExternalStore(
+    root.store.subscribe,
+    () => root.store.getConversation(node.threadId),
+    () => root.store.getConversation(node.threadId)
+  );
   const [saved, setSaved] = useState<{ readonly history: History } | { readonly error: Error }>();
   useEffect(() => {
     if (root?.store.getConversation(node.threadId)) {
@@ -124,13 +109,10 @@ function ChildView({ db, node }: { readonly db: DbHandle; readonly node: ChildNo
       active = false;
     };
   }, [db, node.resourceId, node.threadId, root]);
-  if (!root) {
-    throw new Error('The child workspace has no owning root registry.');
-  }
   if (saved && 'error' in saved) {
     return <Failure error={saved.error} />;
   }
-  if (!(saved || root.store.getConversation(node.threadId))) {
+  if (!(saved || live)) {
     return (
       <p className="p-4" role="status">
         Loading conversation…
@@ -192,6 +174,12 @@ export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
     }
     let active = true;
     const repository = createDelegatedConversationRepository(db);
+    // Retain metadata only while its tab remains open. A reopen must authorize
+    // again before any prior node can be used to read a native transcript.
+    const open = new Set(addresses.map((item) => item.id));
+    setEntries(
+      (previous) => new Map([...previous].filter(([id, entry]) => open.has(id) && entry.db === db))
+    );
     for (const item of addresses) {
       if (!('address' in item)) {
         continue;

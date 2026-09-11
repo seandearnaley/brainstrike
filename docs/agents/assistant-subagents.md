@@ -1233,3 +1233,12 @@ workspace integration test opens the real shared child panel, closes it, and
 reopens output published by the owning host while it was closed; removing the
 navigation context is its negative control. Restored decision routing and
 sidebar ancestry are not implemented by this registry boundary.
+
+The shared transcript data-renderer registrations live together in
+`assistant-data-renderer-registration.tsx`; the panel still mounts that component
+for both root and child views. This keeps the panel within its existing source
+budget without weakening the guard or changing approval, suspension, timeline,
+or hidden metadata rendering. Workspace metadata is retained only for open tabs:
+closing and reopening forces graph authorization before prior metadata/history
+can be exposed. Child loading views subscribe to their owning host so a live
+snapshot can become visible while an ordinary history read is still pending.

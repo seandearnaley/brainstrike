@@ -1,12 +1,9 @@
 import {
-  type AssistantDataUIProps,
   type AssistantRuntime,
   AssistantRuntimeProvider,
   ComposerPrimitive,
-  type DataMessagePartComponent,
   MessagePrimitive,
   ThreadPrimitive,
-  useAssistantDataUI,
   useAuiState,
   useLocalRuntime,
   // Aliased to a `use`-prefixed name so React Fast Refresh (Vite dev) recognizes
@@ -17,20 +14,15 @@ import {
   unstable_useSlashCommandAdapter as useSlashCommandAdapter,
 } from '@assistant-ui/react';
 import {
-  ASSISTANT_RUN_EVENT_DATA_NAME,
   type AssistantRunEvent,
   type AssistantToolApprovalRequest,
   type AssistantUiThreadHistoryAdapter,
-  CHILD_RUN_USAGE_DATA_NAME,
-  CONTEXT_BREAKDOWN_DATA_NAME,
   getAssistantBridge,
   type LocalLlmBackendFactory,
   type OpenRouterModelMetadataLookup,
-  SHELL_OUTPUT_DATA_NAME,
-  TOOL_APPROVAL_DATA_NAME,
-  TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract';
 import { type ReactNode, use, useEffect, useMemo, useState } from 'react';
+import { AssistantDataRendererRegistration } from './assistant-data-renderer-registration';
 import type { AssistantStreamCallbacks } from './assistant-stream-callbacks';
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
@@ -40,7 +32,6 @@ import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { AssistantActionBar } from './assistant-action-bar';
 import { AssistantActivityParts } from './assistant-activity-parts';
 import { ControlsMenu } from './assistant-controls-menu';
-import { assistantDiscoveryErrorDataUI } from './assistant-discovery-error-data-ui';
 import {
   assistantEndpointLogger,
   resolveAssistantAuthHeaders,
@@ -49,15 +40,13 @@ import {
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
-import { AssistantRunTimelineDataPart } from './assistant-run-timeline-data-part';
 import {
   type ThreadMessageComponents,
   ThreadMessagesRegion,
   ThreadScrollRegion,
   ThreadScrollToBottom,
 } from './assistant-thread-messages';
-import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
-import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
+import { PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
 import { BranchPicker } from './branch-picker';
 import { BudgetGuardrailControl, useBudgetSendGate } from './budget-guardrail-control';
@@ -111,57 +100,6 @@ import {
 import { ThreadScrollFollowProvider } from './thread-scroll-follow';
 import { useAssistantServerRunSession } from './use-assistant-server-run-session';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
-
-const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => (
-  <AssistantToolApprovalNotice data={data} />
-);
-
-const assistantRunTimelineDataUI = {
-  name: ASSISTANT_RUN_EVENT_DATA_NAME,
-  render: AssistantRunTimelineDataPart,
-} satisfies AssistantDataUIProps;
-
-const assistantToolApprovalDataUI = {
-  name: TOOL_APPROVAL_DATA_NAME,
-  render: AssistantToolApprovalDataPart,
-} satisfies AssistantDataUIProps;
-
-const AssistantToolSuspendDataPart: DataMessagePartComponent = ({ data }) => (
-  <AssistantToolSuspendNotice data={data} />
-);
-
-const assistantToolSuspendDataUI = {
-  name: TOOL_SUSPEND_DATA_NAME,
-  render: AssistantToolSuspendDataPart,
-} satisfies AssistantDataUIProps;
-
-// Live shell-output slices are consumed by the tool card (via the incremental
-// shell-output accumulator + ShellOutputProvider), NOT rendered inline in the
-// message flow — register a null renderer so the transient data parts never
-// surface as stray elements.
-const assistantShellOutputDataUI = {
-  name: SHELL_OUTPUT_DATA_NAME,
-  render: () => null,
-} satisfies AssistantDataUIProps;
-
-// The run-start prompt breakdown is consumed by the onContextBreakdown tap
-// (buildContextBreakdownTap in data-stream-runtime.ts) and rendered in the
-// Context Usage popover, NOT inline in the message flow — register a null
-// renderer so the transient data part never surfaces as a stray element
-// (mirrors assistantShellOutputDataUI above).
-const assistantContextBreakdownDataUI = {
-  name: CONTEXT_BREAKDOWN_DATA_NAME,
-  render: () => null,
-} satisfies AssistantDataUIProps;
-
-// Child model-call usage (subagent / OM cycle, BST-953) is consumed by the
-// onChildRunUsage tap and rendered in the Context Usage popover's thread-total
-// section, NOT inline in the message flow — same null-renderer contract as the
-// breakdown part above.
-const assistantChildRunUsageDataUI = {
-  name: CHILD_RUN_USAGE_DATA_NAME,
-  render: () => null,
-} satisfies AssistantDataUIProps;
 
 // Re-export types needed by consumers
 export type { ModelPickerModel, ModelPickerProvider };
@@ -423,18 +361,6 @@ export interface AssistantUiPanelProps
 }
 
 export type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
-
-const AssistantDataRendererRegistration = () => {
-  useAssistantDataUI(assistantRunTimelineDataUI);
-  useAssistantDataUI(assistantDiscoveryErrorDataUI);
-  useAssistantDataUI(assistantToolApprovalDataUI);
-  useAssistantDataUI(assistantToolSuspendDataUI);
-  useAssistantDataUI(assistantShellOutputDataUI);
-  useAssistantDataUI(assistantContextBreakdownDataUI);
-  useAssistantDataUI(assistantChildRunUsageDataUI);
-
-  return null;
-};
 
 // Stable empty default for the optional slashCommands prop. A literal `[]`
 // default would create a new array each render, breaking memoization in the

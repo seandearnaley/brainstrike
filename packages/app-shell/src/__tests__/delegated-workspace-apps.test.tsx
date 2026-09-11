@@ -1,3 +1,4 @@
+import { loadDelegatedWorkspaceNode } from '../delegated-workspace-node';
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { SubagentConversationNavigationContext } from '@brainstrike/assistant-ui';
@@ -17,7 +18,6 @@ import {
 } from '../delegated-conversation-root';
 import {
   DelegatedWorkspaceNavigation,
-  loadDelegatedWorkspaceNode,
   useDelegatedWorkspaceApps,
 } from '../delegated-workspace-apps';
 import { delegatedWorkspaceTabId } from '../delegated-workspace-tab';
@@ -50,6 +50,24 @@ afterEach(() => {
 });
 
 describe('delegated workspace app registration', () => {
+  it('reauthorizes a closed child before showing cached metadata or reading its history', async () => {
+    mocks.get.mockResolvedValueOnce(node);
+    const id = delegatedWorkspaceTabId(address);
+    useWorkspaceTabSelectionStore.getState().hydrate([id], { appId: id, kind: 'app' });
+    const { result } = renderHook(useDelegatedWorkspaceApps);
+    await waitFor(() => expect(result.current[0]?.label).toBe('Cedar'));
+    act(() => {
+      useWorkspaceTabSelectionStore.getState().closeApp(id);
+    });
+    mocks.get.mockImplementation(() => new Promise(() => undefined));
+    act(() => {
+      useWorkspaceTabSelectionStore.getState().openApp(id);
+    });
+    expect(result.current[0]?.label).toBe('Child conversation');
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+    expect(mocks.db.query).not.toHaveBeenCalled();
+  });
+
   it('opens the real child panel, closes it without execution, and reopens host output received while closed', async () => {
     mocks.get.mockResolvedValue(node);
     useWorkspaceTabSelectionStore.getState().hydrate([], { kind: 'empty' });
