@@ -44,6 +44,7 @@ import {
   createDelegatedWorkBudget,
   DelegatedWorkQueue,
   queueDelegatedTools,
+  resolveDelegatedWorkBudget,
 } from './delegated-work-budget';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
 import {
@@ -471,6 +472,8 @@ async function prepareWorkerToolSurface(
   };
 }
 
+const MAX_CHILD_TOOL_CALL_CONCURRENCY = 8;
+
 async function createConfiguredChild({
   params,
   persona,
@@ -490,9 +493,10 @@ async function createConfiguredChild({
   rawChildTools: ToolsInput;
   childToolResultBudget: ScaledToolResultBudget;
 }): Promise<Agent> {
-  const queue = params.conversationBinding?.budget
-    ? params.delegatedExecutionOptions?.workQueue
-    : undefined;
+  const queue = resolveDelegatedWorkBudget(
+    params.conversationBinding?.budget,
+    params.delegatedExecutionOptions?.workQueue
+  )?.queue;
   const queuedChildTools = queue
     ? queueDelegatedTools(
         settledChildTools,
@@ -563,12 +567,17 @@ async function createConfiguredChild({
     // per-call options the delegation tool passes, and that call sets
     // `maxSteps` but never `onIterationComplete`.
     defaultOptions: () => {
-      const budget = params.conversationBinding?.budget;
-      const queue = params.delegatedExecutionOptions?.workQueue;
-      const work =
-        budget && queue
-          ? createDelegatedWorkBudget(budget, queue, params.delegatedExecutionOptions?.abortSignal)
-          : undefined;
+      const durable = resolveDelegatedWorkBudget(
+        params.conversationBinding?.budget,
+        params.delegatedExecutionOptions?.workQueue
+      );
+      const work = durable
+        ? createDelegatedWorkBudget(
+            durable.budget,
+            durable.queue,
+            params.delegatedExecutionOptions?.abortSignal
+          )
+        : undefined;
       return {
         ...(params.delegatedExecutionOptions?.delegation
           ? { delegation: params.delegatedExecutionOptions.delegation }
@@ -578,7 +587,7 @@ async function createConfiguredChild({
           : {}),
         onIterationComplete: buildChildIterationPolicy(),
         toolCallConcurrency: {
-          limit: DELEGATION_LIMITS.maxInvocations,
+          limit: MAX_CHILD_TOOL_CALL_CONCURRENCY,
           strategy: 'called' as const,
         },
         ...(work

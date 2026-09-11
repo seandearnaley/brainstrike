@@ -23,6 +23,13 @@ const childSchema = z.object({
 });
 type Scope = DelegatedConversationScope & { turnMessageId: string };
 
+function readChildBudget(rows: readonly unknown[]): z.infer<typeof childSchema> {
+  if (rows.length !== 1) {
+    throw new Error('Delegated child has no budget in this original turn.');
+  }
+  return childSchema.parse(rows[0]);
+}
+
 export function createDelegatedStepBudget(
   database: DelegatedConversationDatabase,
   hostRunId: string,
@@ -77,7 +84,7 @@ export function createDelegatedStepBudget(
             childScope.resourceId,
           ]
         );
-        const child = childSchema.parse(children.rows[0]);
+        const child = readChildBudget(children.rows);
         if (child.synthesisUsed || child.steps >= child.maxSteps) {
           throw new Error(
             'Delegated step budget exhausted; reserved synthesis is already consumed.'
@@ -132,6 +139,11 @@ export function createDelegatedStepBudget(
            RETURNING child_thread_id AS "childThreadId", output_tokens AS "outputTokens"`,
           [reservationId, hostRunId, scope.rootThreadId, scope.turnMessageId]
         );
+        if (rows.rows.length !== 1) {
+          throw new Error(
+            'Delegated reservation is already settled or does not belong to this host turn.'
+          );
+        }
         const reservation = z
           .object({ childThreadId: z.string(), outputTokens: z.number().int().positive() })
           .parse(rows.rows[0]);

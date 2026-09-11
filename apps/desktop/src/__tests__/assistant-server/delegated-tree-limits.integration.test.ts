@@ -79,6 +79,9 @@ describe('durable delegated tree admission', () => {
         threadId: identity.childThreadId,
       })
     ).rejects.toThrow('Start a new parent turn');
+    const newSibling = await childIdentity('legacy-sibling');
+    await expect(resumed.persist(newSibling)).rejects.toThrow('Start a new parent turn');
+    await expectNotAdmitted(newSibling);
     const budgets = await database.query('SELECT * FROM brainstrike_delegation_budgets');
     expect(budgets.rows).toEqual([]);
     const graph = await database.query('SELECT * FROM brainstrike_delegated_invocations');
@@ -283,7 +286,9 @@ describe('durable delegated tree admission', () => {
       'SELECT charged_output_tokens FROM brainstrike_delegation_budgets'
     );
     expect(rows.rows[0]?.charged_output_tokens).toBe(8193 + 512);
-    await expect(host.budget.settleStep(reservation.id, 0)).rejects.toThrow();
+    await expect(host.budget.settleStep(reservation.id, 0)).rejects.toThrow(
+      'already settled or does not belong to this host turn'
+    );
     expect(
       (await database.query('SELECT charged_output_tokens FROM brainstrike_delegation_budgets'))
         .rows

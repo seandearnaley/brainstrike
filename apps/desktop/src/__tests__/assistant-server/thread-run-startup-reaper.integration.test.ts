@@ -215,6 +215,7 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
       'DROP TABLE brainstrike_delegated_tool_decisions; DROP TABLE brainstrike_delegated_invocations'
     );
     await db.exec('DROP TABLE brainstrike_assistant_run_events');
+    await db.exec('DROP TABLE brainstrike_delegation_step_reservations');
     await db.exec('DROP TABLE brainstrike_assistant_thread_runs');
 
     // The code, never the prose: 42P01 is `undefined_table`. `rejects` also

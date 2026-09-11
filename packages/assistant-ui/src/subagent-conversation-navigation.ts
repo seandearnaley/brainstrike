@@ -88,7 +88,7 @@ export const SubagentInvocationResolverContext = createContext<
   ((identity: SubagentInvocationAddress) => Promise<string>) | null
 >(null);
 
-export function readSubagentInvocationRun(
+function readSubagentInvocationRunId(
   parts: readonly unknown[],
   toolCallId: string
 ): string | undefined {
@@ -108,4 +108,22 @@ export function readSubagentInvocationRun(
     runId = candidate;
   }
   return runId;
+}
+
+export type SubagentInvocationRun =
+  | { readonly kind: 'unavailable' }
+  | { readonly kind: 'available'; readonly parentRuntimeRunId: string }
+  | { readonly kind: 'invalid'; readonly error: string };
+
+/** Scope to the owning message: native call IDs may repeat in another turn. */
+export function readSubagentInvocationRun(
+  parts: readonly unknown[],
+  toolCallId: string
+): SubagentInvocationRun {
+  try {
+    const parentRuntimeRunId = readSubagentInvocationRunId(parts, toolCallId);
+    return parentRuntimeRunId ? { kind: 'available', parentRuntimeRunId } : { kind: 'unavailable' };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error), kind: 'invalid' };
+  }
 }

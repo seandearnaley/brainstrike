@@ -284,6 +284,11 @@ it.each([
     }
     await initialDone;
     if (failLeaf) {
+      const failureTools = initial.flatMap((chunk) => {
+        const part = chunk.type === 'delegated-conversation-chunk' ? chunk.chunk : chunk;
+        return part.type === 'tool-event' && part.status === 'error' ? [part.payload] : [];
+      });
+      expect(JSON.stringify(failureTools)).toContain('failed before completing the task');
       const events = initial.flatMap((chunk) =>
         chunk.type === 'run-event'
           ? [chunk.event]
@@ -375,3 +380,132 @@ it.each([
   },
   10_000
 );
+
+it('isolates step reservations for two concurrent invocations of the same Worker agent', async () => {
+  const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
+  if (!worker) {
+    throw new Error('Missing Worker');
+  }
+  const identities: DelegatedConversationIdentity[] = [];
+  const reservations = new Map<string, string>();
+  const settled: string[] = [];
+  const binding = {
+    ...createDelegatedConversationBinding(async (identity) => {
+      identities.push(identity);
+    }),
+    bindRun: async (run: DelegatedRunIdentity) => {
+      const child = identities.find(
+        (identity) =>
+          identity.parentRuntimeRunId === run.parentRuntimeRunId &&
+          identity.parentToolCallId === run.parentToolCallId
+      );
+      if (!child) {
+        throw new Error('Missing admitted sibling');
+      }
+      return { threadId: child.childThreadId };
+    },
+    budget: {
+      reserveStep: async ({ threadId }: { threadId: string; resourceId: string }) => {
+        const id = `reservation-${reservations.size}`;
+        reservations.set(id, threadId);
+        return { id, outputTokens: 8192, synthesis: false };
+      },
+      settleStep: async (id: string, outputTokens: number | undefined) => {
+        expect(reservations.has(id)).toBe(true);
+        expect(settled).not.toContain(id);
+        expect(outputTokens).toBe(1);
+        settled.push(id);
+      },
+    },
+    claimToolAction: async () => undefined,
+    finishToolActions: async () => undefined,
+    prepareToolAction: async () => undefined,
+    releaseUnexecutedToolAction: async () => undefined,
+    resolveToolAction: async () => [],
+  };
+  const bothChildren = Promise.withResolvers<void>();
+  let childrenEntered = 0;
+  const fixture = scriptedAgentModel((options) => {
+    if (
+      JSON.stringify(options.prompt.filter((message) => message.role === 'user')).includes(
+        'SIBLING_TASK_1722'
+      )
+    ) {
+      return textParts('Sibling result.');
+    }
+    if (hasToolResult(options, 'agent-worker')) {
+      return textParts('Both sibling results received.');
+    }
+    return [
+      ...toolCallParts('agent-worker', 'same-persona-one', {
+        prompt: 'SIBLING_TASK_1722 one',
+      }).slice(0, -1),
+      ...toolCallParts('agent-worker', 'same-persona-two', {
+        prompt: 'SIBLING_TASK_1722 two',
+      }).slice(1),
+    ];
+  });
+  modelHolder.current = {
+    ...fixture.model,
+    doStream: async (options) => {
+      if (
+        JSON.stringify(options.prompt.filter((message) => message.role === 'user')).includes(
+          'SIBLING_TASK_1722'
+        )
+      ) {
+        childrenEntered += 1;
+        if (childrenEntered === 2) {
+          bothChildren.resolve();
+        }
+        await bothChildren.promise;
+      }
+      return fixture.model.doStream(options);
+    },
+  };
+  const storage = new InMemoryStore({ id: 'same-persona-budget' });
+  const chunks = await drain(
+    await streamMastraAgent(
+      [
+        {
+          id: 'user',
+          parts: [{ text: 'Delegate two sibling tasks concurrently.', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        conversationBinding: binding,
+        memory: new Memory({ options: { generateTitle: false }, storage }),
+        model: 'gpt-5.4',
+        personas: [worker],
+        runtime: {
+          apiKey: 'test-key',
+          memory: { resourceId: 'owner', threadId: 'root-siblings' },
+          model: 'gpt-5.4',
+          permissionPolicy: {
+            policies: { edit: 'ask', execute: 'ask', mcp: 'deny', read: 'allow' },
+            riskByTool: buildNativeToolRiskMap(),
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage,
+        tools: {
+          'brainstrike.readWorkspaceFile': createTool({
+            description: 'Read evidence',
+            execute: async () => ({ content: 'evidence' }),
+            id: 'brainstrike.readWorkspaceFile',
+            inputSchema: z.object({ path: z.string() }),
+          }),
+        },
+      }
+    )
+  );
+  expect(childrenEntered, JSON.stringify(chunks)).toBe(2);
+  expect(identities).toHaveLength(2);
+  expect(new Set(identities.map((identity) => identity.childThreadId)).size).toBe(2);
+  expect([...reservations.values()].sort()).toEqual(
+    identities.map((identity) => identity.childThreadId).sort()
+  );
+  expect(settled.sort()).toEqual([...reservations.keys()].sort());
+  expect(JSON.stringify(chunks)).toContain('Both sibling results received.');
+});

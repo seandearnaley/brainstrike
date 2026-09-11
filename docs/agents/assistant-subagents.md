@@ -1454,16 +1454,22 @@ resource, original turn and complete ancestry are validated inside the admission
 transaction. Duplicate native admission does not consume another invocation;
 deleting a child never refunds the root's spent allocation. Step reservations
 survive database reload. A turn created before budget admission existed cannot
-start fresh child inference: the visible error asks for a new parent turn.
+start fresh child inference or admit another sibling: the visible error asks for a new parent turn.
+Existing invocation rows without their original budget must never seed fresh counters.
 
 The runtime shares a FIFO queue of two active model/tool operations across all
 descendants. Model permits end before native tool/delegation execution; native
-delegation waits do not acquire a permit. Ordinary and deferred discovered tools
+delegation waits do not acquire a permit. Up to eight child streams may be
+admitted, while only two model/tool operations are runnable. The in-flight
+backstop is disabled only when both the durable budget and shared queue exist.
+Ordinary and deferred discovered tools
 retain their native descriptors, projections, approval flags and guarded execution.
 Synthesis forces toolChoice none and no active tools, and rejects a provider tool
 call before execution even if the provider ignores that request.
 
-Every child stream creates its own budget processor. Mastra 1.64 can omit the
+Every child stream creates its own budget processor. A native same-persona sibling
+barrier proves two models run concurrently with distinct child reservations and
+exactly one settlement per matching reservation. Mastra 1.64 can omit the
 processor abortSignal during unwind and does not call user onFinish on abort.
 Therefore admission uses the authoritative host-leg signal, composed with the
 processor signal when present, and releases a held permit on abort. The existing
@@ -1475,7 +1481,11 @@ with no post-Stop reservation and no workspace effect.
 
 Grandchild navigation before completion resolves the exact persisted invocation
 from its subagent event's parent runtime/run-tool identity, within the selected
-child's authorized root and parent thread. Host child-event attribution must
+child's authorized root and parent thread. The card reads its owning message,
+never a call-ID-only scan across turns; providers may reuse call IDs. Conflicting
+addresses produce a local navigation error without unmounting the conversation.
+The shared runtime DOM proof opens both same-ID calls to their respective runs.
+Host child-event attribution must
 not overwrite a nested subagent event's own parentToolCallId or personaId.
 Nested events retain that identity and carry their owning conversation edge in
 `delegatedConversationIdentity`; ordinary child run/tool events retain the

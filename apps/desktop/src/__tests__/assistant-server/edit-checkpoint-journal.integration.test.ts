@@ -261,6 +261,7 @@ describe('listRunRangeCheckpoints', () => {
     await db.query('DROP TABLE brainstrike_delegated_tool_decisions');
     await db.query('DROP TABLE brainstrike_delegated_invocations');
     await db.query('DROP TABLE brainstrike_assistant_run_events');
+    await db.query('DROP TABLE brainstrike_delegation_step_reservations');
     await db.query(`DROP TABLE ${RUNS_TABLE}`);
     expect(await runsTableIsPresent()).toBe(false);
 

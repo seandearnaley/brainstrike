@@ -65,11 +65,11 @@ it('resolves the exact persisted native invocation across pending child history 
     name: 'brainstrike.run-event',
     type: 'data',
   });
-  expect(readSubagentInvocationRun([event('native-parent', 'a'), event('sibling', 'b')], 'a')).toBe(
-    'native-parent'
-  );
-  expect(readSubagentInvocationRun([event('sibling', 'b')], 'a')).toBeUndefined();
-  expect(() =>
+  expect(
+    readSubagentInvocationRun([event('native-parent', 'a'), event('sibling', 'b')], 'a')
+  ).toEqual({ kind: 'available', parentRuntimeRunId: 'native-parent' });
+  expect(readSubagentInvocationRun([event('sibling', 'b')], 'a')).toEqual({ kind: 'unavailable' });
+  expect(
     readSubagentInvocationRun([event('native-parent', 'a'), event('wrong-parent', 'a')], 'a')
-  ).toThrow('Conflicting');
+  ).toEqual({ error: 'Conflicting native invocation addresses.', kind: 'invalid' });
 });

@@ -4137,7 +4137,7 @@ the existing exact child resume envelope still carries the approval.
 
 ### Recursive model/tool permit ownership
 
-Delegated model steps and ordinary guarded tools share the root host-leg FIFO
+Delegated model steps and child guarded tools share the root host-leg FIFO
 queue. Native delegation waits do not consume a permit. Each child stream has
 its own budget processor. Its authoritative cancellation signal comes from the
 root stream options, because Mastra 1.64 omits processInputStep.abortSignal on

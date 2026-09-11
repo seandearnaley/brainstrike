@@ -557,6 +557,7 @@ describe('desktop delegated conversation authority', () => {
       0
     );
     expect(event.metadata).toMatchObject({
+      delegatedConversationIdentity: run,
       parentRuntimeRunId: run.childRuntimeRunId,
       parentToolCallId: 'grandchild-call',
       personaId: 'worker',

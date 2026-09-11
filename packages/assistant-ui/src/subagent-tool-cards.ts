@@ -11,6 +11,7 @@ import {
   type SubagentConversationAddress,
   SubagentConversationNavigationContext,
   SubagentInvocationResolverContext,
+  type SubagentInvocationRun,
 } from './subagent-conversation-navigation';
 import { SubagentExecutionCard } from './subagent-execution-card';
 import {
@@ -37,11 +38,12 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
   const openConversation = use(SubagentConversationNavigationContext);
   const resolveInvocation = use(SubagentInvocationResolverContext);
   const [navigationError, setNavigationError] = useState<string>();
-  const parentRuntimeRunId = useAuiState((state) =>
-    readSubagentInvocationRun(
-      state.thread.messages.flatMap<unknown>((message) => message.parts),
-      props.toolCallId
-    )
+  const invocationJson = useAuiState((state) =>
+    JSON.stringify(readSubagentInvocationRun(state.message.parts, props.toolCallId))
+  );
+  const invocation = useMemo(
+    () => JSON.parse(invocationJson) as SubagentInvocationRun,
+    [invocationJson]
   );
   const addressJson = useAuiState((state) =>
     JSON.stringify(
@@ -77,20 +79,22 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
       ? { onOpenConversation: () => openConversation(address.threadId) }
       : openConversation &&
           resolveInvocation &&
-          parentRuntimeRunId &&
+          invocation.kind === 'available' &&
           address.kind === 'unavailable'
         ? {
             onOpenConversation: () => {
               setNavigationError(undefined);
-              resolveInvocation({ parentRuntimeRunId, parentToolCallId: props.toolCallId }).then(
-                openConversation,
-                (error: unknown) =>
-                  setNavigationError(error instanceof Error ? error.message : String(error))
+              resolveInvocation({
+                parentRuntimeRunId: invocation.parentRuntimeRunId,
+                parentToolCallId: props.toolCallId,
+              }).then(openConversation, (error: unknown) =>
+                setNavigationError(error instanceof Error ? error.message : String(error))
               );
             },
           }
         : {}),
     ...(navigationError ? { navigationError } : {}),
+    ...(invocation.kind === 'invalid' ? { navigationError: invocation.error } : {}),
     ...(address.kind === 'invalid' ? { navigationError: address.error } : {}),
     liveRows,
     ...(outcome ? { outcome } : {}),

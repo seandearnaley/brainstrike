@@ -30,6 +30,7 @@ import type { DelegationConfig } from '@mastra/core/agent';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { MAX_DELEGATED_CONTEXT_BYTES } from './delegated-system-context';
 import type { DelegatedTurnPersistence } from './delegated-turn-persistence';
+import { type DelegatedWorkQueue, resolveDelegatedWorkBudget } from './delegated-work-budget';
 
 export const MAX_CONCURRENT_DELEGATIONS = DELEGATION_LIMITS.maxConcurrentWork;
 export const MAX_DELEGATIONS_PER_RUN = DELEGATION_LIMITS.maxInvocations;
@@ -97,6 +98,7 @@ export interface CreateDelegationConfigParams {
   /** Persona id → definition; the `primitiveId` Mastra passes is the persona id. */
   readonly personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
   readonly turnPersistence?: DelegatedTurnPersistence | undefined;
+  readonly workQueue?: DelegatedWorkQueue | undefined;
 }
 
 function readTokenCount(value: unknown): number {
@@ -342,7 +344,10 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         };
       }
 
-      if (!params.conversationBinding?.budget && inFlight >= MAX_CONCURRENT_DELEGATIONS) {
+      if (
+        !resolveDelegatedWorkBudget(params.conversationBinding?.budget, params.workQueue) &&
+        inFlight >= MAX_CONCURRENT_DELEGATIONS
+      ) {
         params.logger.warn('Rejecting delegation: concurrency cap reached', {
           code: 'subagent_delegation_concurrency_capped',
           inFlight,

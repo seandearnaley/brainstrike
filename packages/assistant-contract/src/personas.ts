@@ -1,10 +1,10 @@
-import { DELEGATION_LIMITS } from './delegation-limits.js';
 /**
  * Persona data for Mastra's native agent delegation. Explorer and Analyst
  * retain their read-only invariant; an explicit worker can select permitted
  * native/MCP tools. Runtime host capabilities and permissions remain the ceiling.
  */
 
+import { DELEGATION_LIMITS } from './delegation-limits.js';
 import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
 import {
   getNativeToolDefaults,

@@ -103,7 +103,7 @@ it('resumes exactly one of two native sibling decisions, rejects replay and comp
         delegation: {
           hookErrorStrategy: 'throw',
           onDelegationStart: (context: DelegationStartContext) =>
-            binding.prepare(context, { personaId: context.primitiveId }),
+            binding.prepare(context, { maxSteps: 4, personaId: context.primitiveId }),
         },
         hooks: binding.hooks,
         maxSteps: 4,

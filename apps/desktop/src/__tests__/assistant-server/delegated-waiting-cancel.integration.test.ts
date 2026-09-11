@@ -120,7 +120,7 @@ async function assertWaitingCancellation(registeredAfterCompletion: boolean) {
         delegation: {
           hookErrorStrategy: 'throw',
           onDelegationStart: (context: DelegationStartContext) =>
-            binding.prepare(context, { personaId: context.primitiveId }),
+            binding.prepare(context, { maxSteps: 4, personaId: context.primitiveId }),
         },
         hooks: binding.hooks,
         maxSteps: 4,

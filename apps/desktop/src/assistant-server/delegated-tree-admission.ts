@@ -27,6 +27,17 @@ export async function reserveDelegatedInvocation(
   configuration: unknown
 ): Promise<void> {
   await assertDelegationRootRunning(tx, scope, hostRunId);
+  const legacy = await tx.query(
+    `SELECT 1 FROM brainstrike_delegated_invocations invocation
+      JOIN brainstrike_assistant_thread_runs host ON host.id = invocation.host_run_id
+      WHERE invocation.root_thread_id = $1 AND host.turn_message_id = $2
+      AND NOT EXISTS (SELECT 1 FROM brainstrike_delegation_budgets
+        WHERE root_thread_id = $1 AND turn_message_id = $2) LIMIT 1`,
+    [scope.rootThreadId, scope.turnMessageId]
+  );
+  if (legacy.rows.length > 0) {
+    throw new Error('This legacy delegation has no durable budget. Start a new parent turn.');
+  }
   await tx.query(
     `INSERT INTO brainstrike_delegation_budgets
        (root_thread_id, turn_message_id, owner_resource_id, max_depth, max_invocations,
@@ -50,6 +61,9 @@ export async function reserveDelegatedInvocation(
      WHERE root_thread_id = $1 AND turn_message_id = $2 AND owner_resource_id = $3 FOR UPDATE`,
     [scope.rootThreadId, scope.turnMessageId, scope.ownerResourceId]
   );
+  if (result.rows.length !== 1) {
+    throw new Error('Delegated budget owner scope is unauthorized.');
+  }
   const budget = budgetSchema.parse(result.rows[0]);
   if (duplicate) {
     return;

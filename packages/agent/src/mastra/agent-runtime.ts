@@ -1,12 +1,7 @@
 import type { McpHostPort } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
-import {
-  Agent,
-  type AgentExecutionOptions,
-  type MastraDBMessage,
-  type ToolsInput,
-} from '@mastra/core/agent';
+import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
@@ -35,6 +30,7 @@ import {
   type CacheAwareInstructions,
   composeCacheAwareInstructions,
 } from './anthropic-instruction-cache';
+import type { DelegatedExecutionOptions } from './build-persona-subagents';
 import {
   buildContextBudgetNote,
   buildCurrentDateNote,
@@ -172,7 +168,7 @@ export interface MastraAgentRuntime {
   /** Fail-loud completion check for the client-provided persisted assistant id. */
   assertAssistantMessageIdPersisted?: () => void;
   conversationBinding?: DelegatedConversationBinding | undefined;
-  delegatedExecutionOptions?: Pick<AgentExecutionOptions, 'delegation' | 'hooks' | 'abortSignal'>;
+  delegatedExecutionOptions?: DelegatedExecutionOptions;
   delegatedTurnPersistence?: DelegatedTurnPersistence | undefined;
   /**
    * 'agent-<personaId>' → personaId for every registered delegation tool. Empty
@@ -661,10 +657,7 @@ export async function createMastraAgentRuntime(
 
   // Subagent personas (D10): built BEFORE the instructions so guidance only
   // names personas that actually registered a delegation tool this run.
-  const delegatedExecutionOptions: Pick<
-    AgentExecutionOptions,
-    'delegation' | 'hooks' | 'abortSignal'
-  > = {};
+  const delegatedExecutionOptions: DelegatedExecutionOptions = {};
   const delegatedTurnPersistence = createDelegatedTurnPersistence(memory, sanitizedRuntime.memory);
   const {
     artifactReaderDelegationTools,

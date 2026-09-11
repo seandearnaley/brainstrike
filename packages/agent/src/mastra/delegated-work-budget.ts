@@ -53,6 +53,14 @@ export class DelegatedWorkQueue {
   }
 }
 
+/** A durable binding alone never disables the native in-flight backstop. */
+export function resolveDelegatedWorkBudget(
+  budget: DelegatedBudgetPort | undefined,
+  queue: DelegatedWorkQueue | undefined
+): { budget: DelegatedBudgetPort; queue: DelegatedWorkQueue } | undefined {
+  return budget && queue ? { budget, queue } : undefined;
+}
+
 /** One instance per native stream invocation, never shared by same-persona siblings. */
 export function createDelegatedWorkBudget(
   budget: DelegatedBudgetPort,
@@ -131,7 +139,7 @@ export function createDelegatedWorkBudget(
           if (!reservation) {
             throw new Error('Delegated output has no durable reservation.');
           }
-          await budget.settleStep(reservation.id, usage.outputTokens);
+          await budget.settleStep(reservation.id, usage?.outputTokens);
           if (reservation.synthesis && toolCalls?.length) {
             throw new Error('Delegated synthesis cannot execute tools.');
           }
