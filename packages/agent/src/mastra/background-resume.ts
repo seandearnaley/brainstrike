@@ -3,6 +3,7 @@ import type { MastraMemory } from '@mastra/core/memory';
 import type { RuntimeData } from '../types';
 import type { attachAbortedTurnMessageList } from './aborted-turn-persistence';
 import type { MastraAgentRuntime } from './agent-runtime';
+import { requireBackgroundResultDelivery } from './background-result-delivery';
 import { saveBackgroundResult } from './background-results';
 import type { BrainstrikeAgentStreamOptions } from './runtime-assembly/stream-options';
 import type { AgentStreamOptions } from './turn-attempts';
@@ -135,6 +136,9 @@ export function createBackgroundResumeStream(params: {
           onResult: async (result) => {
             try {
               await saveBackgroundResult(memory, task, result);
+              await requireBackgroundResultDelivery(await manager.getStorage()).markResultDelivered(
+                task.id
+              );
             } catch (error) {
               deliveryError = error;
               watching.abort();

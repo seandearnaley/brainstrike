@@ -175,6 +175,74 @@ describe('native background delegation (BST-1723)', () => {
     }
   });
 
+  it('reports a held workflow cleanup at the existing shutdown deadline without hanging the owner', async () => {
+    const host = new Mastra({
+      backgroundTasks: { enabled: true },
+      logger: false,
+      storage: backing.storage,
+    });
+    const manager = host.backgroundTaskManager;
+    if (!manager) {
+      throw new Error('Missing native background manager');
+    }
+    await manager.init(host.pubsub);
+    const deleting = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const deleted = Promise.withResolvers<void>();
+    const remove = backing.workflows.deleteWorkflowRunById.bind(backing.workflows);
+    vi.spyOn(backing.workflows, 'deleteWorkflowRunById').mockImplementation(async (input) => {
+      deleting.resolve();
+      await release.promise;
+      await remove(input);
+      deleted.resolve();
+    });
+    let shutdown: Promise<void> | undefined;
+    try {
+      await manager.enqueue(
+        {
+          agentId: 'deadline-owner',
+          args: {},
+          runId: 'deadline-run',
+          toolCallId: 'deadline-call',
+          toolName: 'inspect',
+        },
+        { executor: { execute: async () => ({ inspected: true }) } }
+      );
+      await deleting.promise;
+      const flushing = Promise.withResolvers<void>();
+      const flush = host.pubsub.flush.bind(host.pubsub);
+      const future = Date.now() + 60_000;
+      vi.spyOn(host.pubsub, 'flush').mockImplementationOnce(async () => {
+        await flush();
+        vi.spyOn(Date, 'now').mockReturnValue(future);
+        flushing.resolve();
+      });
+      let settled = false;
+      shutdown = manager.shutdown();
+      void shutdown.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
+      );
+      await flushing.promise;
+      await nextEventLoopTurn();
+      expect(
+        settled,
+        'The expired native shutdown deadline must release teardown with an error'
+      ).toBe(true);
+      await expect(shutdown).rejects.toThrow(/cleanup|deadline/i);
+    } finally {
+      release.resolve();
+      await deleted.promise;
+      await shutdown?.catch(() => undefined);
+      vi.restoreAllMocks();
+      await host.shutdown().catch(() => undefined);
+    }
+  });
+
   it.each([false, true])(
     'joins native workflow deletion even when pubsub flush fails (%s)',
     async (failFlush) => {

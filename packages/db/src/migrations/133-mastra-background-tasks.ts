@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS mastra_background_tasks (
   "suspendedAt" TIMESTAMPTZ,
   "completedAt" TIMESTAMPTZ
 );
+ALTER TABLE mastra_background_tasks ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_mastra_background_tasks_thread
   ON mastra_background_tasks (resource_id, thread_id, "createdAt", id);
 CREATE INDEX IF NOT EXISTS idx_mastra_background_tasks_status

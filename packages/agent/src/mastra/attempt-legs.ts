@@ -1,4 +1,3 @@
-import { stopBackgroundTree } from './background-stop';
 /**
  * Mastra attempt-leg factories (BST-1649, split out of `turn-attempts.ts` to
  * respect the per-file line cap): the three legs — initial, tool-approval-
@@ -36,6 +35,7 @@ import {
 } from './agent-streaming';
 import { repairBackgroundResults } from './background-results';
 import { createBackgroundResumeStream, findPendingBackgroundTask } from './background-resume';
+import { stopBackgroundTree } from './background-stop';
 import {
   assertDelegatedToolActionPending,
   claimDelegatedToolAction,
@@ -55,6 +55,7 @@ import {
   createRuntimeAbortedTurnPersistence,
   createStreamAbortContext,
   createTurnAttemptLifecycleState,
+  disposeStreamAfterFailure,
   readAttemptProducedMessages,
   resolveFullStream,
   resolveMemoryOption,
@@ -117,7 +118,7 @@ async function createInitialTurnAttempt(
 ): Promise<TurnAttempt> {
   const mastraMessages = convertMessagesToMastra(messages);
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal, (cancelPaused) =>
-    stopBackgroundTree(runtime.backgroundTaskManager, cancelPaused)
+    stopBackgroundTree(runtime.backgroundTaskManager, cancelPaused, runtimeData?.memory)
   );
   // Same lifetime as `delegationUsage`: written by the delegation hook, read by
   // the chunk loop when it maps the delegation's terminal run event (BST-1410).
@@ -237,11 +238,11 @@ async function createInitialTurnAttempt(
     };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra stream construction failed.'));
-    await streamAbortContext.dispose();
+    const failure = await disposeStreamAfterFailure(streamAbortContext, err);
     if (!disposeRuntimeOnFailure) {
-      throw err;
+      throw failure;
     }
-    return await handleStreamFailure(err, runtime);
+    return await handleStreamFailure(failure, runtime);
   }
 }
 
@@ -442,7 +443,7 @@ async function createToolApprovalTurnAttempt({
   sanitizedNameMap,
 }: ToolApprovalIterationParams): Promise<TurnAttempt> {
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal, (cancelPaused) =>
-    stopBackgroundTree(runtime.backgroundTaskManager, cancelPaused)
+    stopBackgroundTree(runtime.backgroundTaskManager, cancelPaused, runtimeData?.memory)
   );
   // Same lifetime as `delegationUsage`: written by the delegation hook, read by
   // the chunk loop when it maps the delegation's terminal run event (BST-1410).
@@ -578,8 +579,8 @@ async function createToolApprovalTurnAttempt({
     };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra approval-resume stream construction failed.'));
-    await streamAbortContext.dispose();
-    return await handleStreamFailure(err, runtime);
+    const failure = await disposeStreamAfterFailure(streamAbortContext, err);
+    return await handleStreamFailure(failure, runtime);
   }
 }
 
@@ -748,7 +749,7 @@ async function createToolResumeTurnAttempt({
   sanitizedNameMap,
 }: ToolResumeIterationParams): Promise<TurnAttempt> {
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal, (cancelPaused) =>
-    stopBackgroundTree(runtime.backgroundTaskManager, cancelPaused)
+    stopBackgroundTree(runtime.backgroundTaskManager, cancelPaused, runtimeData?.memory)
   );
   // Same lifetime as `delegationUsage`: written by the delegation hook, read by
   // the chunk loop when it maps the delegation's terminal run event (BST-1410).
@@ -919,7 +920,7 @@ async function createToolResumeTurnAttempt({
     };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra suspended-tool stream construction failed.'));
-    await streamAbortContext.dispose();
-    return await handleStreamFailure(err, runtime);
+    const failure = await disposeStreamAfterFailure(streamAbortContext, err);
+    return await handleStreamFailure(failure, runtime);
   }
 }

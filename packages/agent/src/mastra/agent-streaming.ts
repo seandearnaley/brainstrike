@@ -137,7 +137,11 @@ import {
   resolveDelegationPersona,
   type ToolLifecycleState,
 } from './tool-lifecycle-processors';
-import { createTurnAttemptLifecycleState, type StreamAbortContext } from './turn-attempts';
+import {
+  createTurnAttemptLifecycleState,
+  type StreamAbortContext,
+  settleStreamCleanup,
+} from './turn-attempts';
 
 const logger = createLogger('MastraAgent');
 
@@ -1153,6 +1157,7 @@ export async function* streamAttemptChunks({
   completeNativeStream,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   let titleGenerationTask: Promise<void> | undefined;
+  let streamFailure: unknown;
   const calibrationState = { emitted: false };
   const toolCallTelemetryState = { emitted: false };
   const toolNames = new Map<string, string>();
@@ -1281,6 +1286,7 @@ export async function* streamAttemptChunks({
       yield chunk;
     }
   } catch (error) {
+    streamFailure = error;
     // The provider can report stream-start warnings and then fail before
     // Mastra yields any mapped part. Preserve those facts before propagating
     // the original stream failure, including cancellation/watchdog paths.
@@ -1303,12 +1309,14 @@ export async function* streamAttemptChunks({
     }
     throw error;
   } finally {
-    if (titleGenerationTask) {
-      await titleGenerationTask;
-    }
-    await streamAbortContext.dispose();
-    logTokenDiagnostics(runtime, runtimeData, lifecycleState);
-    logStreamOutcome(Boolean(runtimeData?.signal?.aborted));
+    await settleStreamCleanup(
+      [titleGenerationTask, streamAbortContext.dispose()],
+      streamFailure,
+      () => {
+        logTokenDiagnostics(runtime, runtimeData, lifecycleState);
+        logStreamOutcome(Boolean(runtimeData?.signal?.aborted));
+      }
+    );
     // NOTE: `runtime.dispose()` is deliberately NOT here. The runtime outlives
     // a single attempt so a recovered turn can stream again on it; the turn
     // layer disposes exactly once (BST-1409).

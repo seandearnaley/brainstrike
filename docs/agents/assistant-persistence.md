@@ -3462,12 +3462,21 @@ the table participates in database clear and factory reset. Task scope is the
 root resource/thread, not a renderer tab. Updates use expected-status comparison
 so competing lifecycle transitions cannot overwrite each other.
 
-Completed-but-undelivered outcomes are reconciled against the original parent
-message's native background task metadata before inference. Exactly one matching
-invocation is required. Result/error and cleared pending-decision metadata are
-saved together; failed tools use `output-error` and `errorText`. Recovery never
-re-executes a completed effect. All durable result pages are read, not only the
-first page. Native resuspension joins the workflow snapshot before exposing a
+Completed, failed and timed-out outcomes are reconciled before inference. The
+native task row carries `delivered_at`, separate from native status, so transcript
+retention cannot make an already delivered task poison every subsequent turn.
+Native completion hooks acknowledge only after native `onResult` flushes memory;
+resumed/repaired outcomes acknowledge only after the host message write succeeds.
+A failed acknowledgement remains recoverable and never re-executes the effect.
+Exactly one retained matching invocation is updated; ambiguous matches fail.
+If retention removed the invocation, the task's durable input and outcome create
+a deterministic recovery message that visibly explains the missing original and
+that no work was rerun. Missing failure details and timeouts get explicit error
+text, including uncertainty about external effects. Result/error and cleared
+pending-decision metadata are saved together. Recovery scans every undelivered
+page before acknowledging, so acknowledgements cannot shift pagination and skip
+a task. `background-outcome-recovery.integration.spec.ts` covers lost messages,
+all three terminal outcomes, repeat repair and delivery acknowledgement reload. Native resuspension joins the workflow snapshot before exposing a
 new resumable decision. Native reconstructed-runtime recovery is tested separately
 from the actual desktop process-restart pending-approval case; it is not evidence
 of completed-undelivered recovery through every host restart boundary.

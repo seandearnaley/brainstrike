@@ -4174,3 +4174,17 @@ Explicit root Stop shuts native admission, cancels queued/paused/running work an
 joins the execution and workflow writes; tab closure is not a stop command.
 Tests: service `run-turn.test.ts`, native `background-worker-stream.integration.spec.ts`
 and desktop `delegated-worker-write.desktop.test.ts`.
+
+### Background failure and stopped-pause ownership (BST-1723)
+
+Only explicit external root cancellation cancels paused native tasks. Provider
+construction failure, watchdog failure and ordinary disposal abort the attempt
+while retaining durable approvals/questions. Construction and streaming cleanup
+join their background work; multiple failures retain all causes and diagnostics.
+A Stop after the response closes revokes the durable turn, waits for live owners,
+CAS-cancels that turn's native background tasks and deletes their workflow
+snapshots before reporting success. Damaged decision payloads cannot prevent
+root-owned teardown. Repeated Stop completes interrupted snapshot deletion.
+Native/HTTP regressions live in `background-failure-cleanup.spec.ts`,
+`background-worker-stream.integration.spec.ts` and
+`delegated-waiting-cancel.integration.test.ts`.

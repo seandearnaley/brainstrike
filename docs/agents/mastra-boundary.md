@@ -111,10 +111,19 @@ terminal persistence, including when the transport subscriber detaches. The
 PGlite composite store registers a resource/thread-scoped background domain;
 retries are zero and per-task timeouts must be positive and at most five minutes.
 Explicit root Stop closes native admission, cancels running, queued and suspended
-tasks, and joins workflow writes. Ordinary paused shutdown retains pending
-approvals for discovery/resume. The local core patch preserves native child
-suspension IDs and joins workflow cleanup in both ESM and CJS, even when pubsub
-flush fails. Remove each patch hunk only when its native regression passes
+tasks, and joins workflow writes. Ordinary paused shutdown and construction
+failures retain pending approvals; only the external root Stop cancels them.
+Stopped durable pauses are cancelled through the native storage CAS and their
+native background workflow snapshots are deleted after live owners settle.
+Cancellation uses explicit resource/thread/native-parent-run filters and does
+not construct a runtime that might restart unrelated work. The local core patch
+preserves native child suspension IDs and joins workflow cleanup in ESM and CJS,
+even when pubsub flush fails. Joins share the existing native shutdown deadline:
+a held flush/executor produces an explicit cleanup error at that deadline,
+never success or an infinite owner wait. Cleanup errors retain the original
+stream failure and do not skip diagnostics. The native execution timer is
+cleared in the workflow executor's `finally` on suspension; waiting for a human
+does not spend the five-minute execution deadline. Remove each patch hunk only when its native regression passes
 against an upstream replacement. Actual desktop tests distinguish renderer reload
 from a guarded host restart with a changed native process ID. Selective child
 controls, human follow-up and additional interrupted-work recovery acceptance

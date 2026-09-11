@@ -104,6 +104,8 @@ export function createStreamAbortContext(
   return {
     abort: (reason) => {
       if (!controller.signal.aborted) {
+        // Attempt/provider/watchdog failure is not an explicit root Stop.
+        closingNormally = true;
         controller.abort(reason);
       }
     },
@@ -119,6 +121,44 @@ export function createStreamAbortContext(
     signal: controller.signal,
   };
 }
+/** Preserve the construction cause while still joining background cleanup. */
+export async function disposeStreamAfterFailure(
+  context: StreamAbortContext,
+  failure: unknown
+): Promise<unknown> {
+  try {
+    await context.dispose();
+    return failure;
+  } catch (cleanupFailure) {
+    return new AggregateError(
+      [failure, cleanupFailure],
+      'Stream construction and background cleanup failed'
+    );
+  }
+}
+
+/** One cleanup boundary joins every owner and keeps primary and cleanup causes. */
+export async function settleStreamCleanup(
+  owners: readonly (Promise<void> | undefined)[],
+  primaryFailure: unknown,
+  diagnostics: () => void
+): Promise<void> {
+  const settled = await Promise.allSettled(owners);
+  diagnostics();
+  const failures = settled.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : []
+  );
+  if (failures.length === 0) {
+    return;
+  }
+  if (primaryFailure !== undefined) {
+    failures.unshift(primaryFailure);
+  }
+  throw failures.length === 1
+    ? failures[0]
+    : new AggregateError(failures, 'Stream and background cleanup failed');
+}
+
 interface StreamResultLike {
   fullStream?: NodeReadableStream<unknown> | ReadableStream<unknown>;
 }

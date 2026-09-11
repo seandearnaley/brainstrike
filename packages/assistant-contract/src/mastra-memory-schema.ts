@@ -392,6 +392,7 @@ CREATE TABLE IF NOT EXISTS ${MASTRA_BACKGROUND_TASKS_TABLE} (
   "suspendedAt" TIMESTAMPTZ,
   "completedAt" TIMESTAMPTZ
 );
+ALTER TABLE ${MASTRA_BACKGROUND_TASKS_TABLE} ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_mastra_background_tasks_thread
   ON ${MASTRA_BACKGROUND_TASKS_TABLE} (resource_id, thread_id, "createdAt", id);
 CREATE INDEX IF NOT EXISTS idx_mastra_background_tasks_status

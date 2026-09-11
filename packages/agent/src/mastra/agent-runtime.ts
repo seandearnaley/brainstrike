@@ -35,6 +35,7 @@ import {
   type CacheAwareInstructions,
   composeCacheAwareInstructions,
 } from './anthropic-instruction-cache';
+import { requireBackgroundResultDelivery } from './background-result-delivery';
 import type { DelegatedExecutionOptions } from './build-persona-subagents';
 import {
   buildContextBudgetNote,
@@ -427,6 +428,7 @@ function registerAgentWithMastra(
   backgroundEnabled: boolean
 ): {
   assertAssistantMessageIdPersisted?: () => void;
+  backgroundTaskManager?: BackgroundTaskManager | undefined;
   mastra?: Mastra;
 } {
   if (!storage) {
@@ -451,6 +453,7 @@ function registerAgentWithMastra(
     ...(assistantMessageIdGenerator
       ? { assertAssistantMessageIdPersisted: assistantMessageIdGenerator.assertConsumed }
       : {}),
+    backgroundTaskManager: backgroundEnabled ? mastra.backgroundTaskManager : undefined,
     mastra,
   };
 }
@@ -495,16 +498,21 @@ function registerAppCapableAdmission(
   return registry?.register(admission);
 }
 
-function buildBackgroundAgentOptions(
+async function buildBackgroundAgentOptions(
   scope: BackgroundTaskScope | undefined,
   hasSubAgents: boolean,
-  personas: ReadonlyMap<string, AssistantPersonaDefinition>
-): { backgroundTasks?: AgentBackgroundConfig } {
+  personas: ReadonlyMap<string, AssistantPersonaDefinition>,
+  storage: MastraCompositeStore | undefined
+): Promise<{ backgroundTasks?: AgentBackgroundConfig }> {
   if (!(scope && hasSubAgents)) {
     return {};
   }
+  const delivery = requireBackgroundResultDelivery(await storage?.getStore('backgroundTasks'));
+  // Native onResult joins SaveQueueManager.flushMessages before these public hooks.
   return {
     backgroundTasks: {
+      onTaskComplete: (task) => delivery.markResultDelivered(task.id),
+      onTaskFailed: (task) => delivery.markResultDelivered(task.id),
       tools: Object.fromEntries([...personas.keys()].map((id) => [id, true])),
       waitTimeoutMs: 0,
     },
@@ -797,10 +805,11 @@ export async function createMastraAgentRuntime(
   // implicit default to 10 (see ASSISTANT_MAX_PROCESSOR_RETRIES). See docs/agents/assistant-runtime.md
   // ASSISTANT RESILIENCE.
   const errorProcessors = buildAssistantErrorProcessors(normalizedProvider);
-  const backgroundAgentOptions = buildBackgroundAgentOptions(
+  const backgroundAgentOptions = await buildBackgroundAgentOptions(
     options.backgroundTaskScope,
     hasSubAgents,
-    personasById
+    personasById,
+    storage
   );
   const agent = new Agent({
     ...backgroundAgentOptions,
@@ -835,7 +844,6 @@ export async function createMastraAgentRuntime(
     ),
     ...assistantIdentityRuntime,
     askTools,
-    backgroundTaskManager: mastra?.backgroundTaskManager,
     conversationBinding: options.conversationBinding,
     delegatedExecutionOptions,
     delegatedTurnPersistence,

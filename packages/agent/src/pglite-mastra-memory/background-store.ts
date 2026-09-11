@@ -259,16 +259,33 @@ export class PgliteBackgroundTasksStore extends BackgroundTasksStorage {
     ).rows[0];
     return row ? readTask(row) : null;
   }
+  async markResultDelivered(taskId: string): Promise<void> {
+    const values: PgliteQueryValue[] = [taskId];
+    const result = await this.database.query(
+      `UPDATE ${MASTRA_BACKGROUND_TASKS_TABLE} SET delivered_at = COALESCE(delivered_at, NOW())
+       WHERE id = $1 AND status IN ('completed', 'failed', 'timed_out')${scopeCondition(this.scope, values)} RETURNING id`,
+      values
+    );
+    if (result.rows.length !== 1) {
+      throw new Error('Cannot acknowledge an absent, foreign or unfinished background result.');
+    }
+  }
+  async listUndeliveredTasks(filter: TaskFilter): Promise<TaskListResult> {
+    return this.readTaskPage(filter, true);
+  }
   override async listTasks(filter: TaskFilter): Promise<TaskListResult> {
+    return this.readTaskPage(filter, false);
+  }
+  private async readTaskPage(filter: TaskFilter, undelivered: boolean): Promise<TaskListResult> {
     const { clause, values, order } = filterQuery(filter, this.scope);
     const limit = pagination(filter, values);
     // One statement gives the total and page the same snapshot, including an empty page.
     const result = await this.database.query(
       `WITH matching AS MATERIALIZED (
-      SELECT ${select} FROM ${MASTRA_BACKGROUND_TASKS_TABLE} ${clause}
+      SELECT ${select} FROM ${MASTRA_BACKGROUND_TASKS_TABLE} ${clause}${undelivered ? ' AND delivered_at IS NULL' : ''}
     ), page AS (SELECT * FROM matching ${order} ${limit})
     SELECT (SELECT count(*)::int FROM matching) AS total,
-      COALESCE(jsonb_agg(to_jsonb(page)), '[]'::jsonb) AS tasks FROM page`,
+      COALESCE(jsonb_agg(to_jsonb(page) ${order}), '[]'::jsonb) AS tasks FROM page`,
       values
     );
     const row = result.rows[0];

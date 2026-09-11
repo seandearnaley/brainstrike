@@ -11,6 +11,7 @@ import {
   createToolApprovalIteratorFromRuntime,
   createToolResumeIteratorFromRuntime,
 } from '../mastra/attempt-legs';
+import { repairBackgroundResults } from '../mastra/background-results';
 import {
   createDelegatedConversationBinding,
   type DelegatedConversationIdentity,
@@ -281,6 +282,19 @@ it('streams useful parent output, the complete rich background child and the fin
           : []
       );
       expect(childText.join('')).toBe('CHILD_FINAL_EVIDENCE');
+      expect(effect).toHaveBeenCalledTimes(1);
+      // Retention/compaction must not turn an already delivered task into a
+      // permanent construction failure or cause its effect to run again.
+      await database.query('DELETE FROM mastra_messages WHERE thread_id = $1', [
+        runtimeData.memory.threadId,
+      ]);
+      await expect(
+        repairBackgroundResults({
+          manager: runtime.backgroundTaskManager,
+          memory: backing.memory,
+          scope: runtimeData.memory,
+        })
+      ).resolves.toEqual([]);
       expect(effect).toHaveBeenCalledTimes(1);
     } finally {
       release.resolve();
@@ -730,3 +744,31 @@ it.each([false, true])(
     }
   }
 );
+
+it('construction and background cleanup failures both survive the production stream entry point', async () => {
+  const fixture = await createBackgroundFixture();
+  const primary = new Error('Controlled provider initialization failure');
+  const cleanup = new Error('Controlled background cancellation persistence failure');
+  const manager = fixture.runtime.backgroundTaskManager;
+  if (!manager) {
+    throw new Error('Missing native background manager');
+  }
+  const stop = vi.spyOn(manager, 'shutdown').mockRejectedValue(cleanup);
+  const stream = vi.spyOn(fixture.runtime.agent, 'stream').mockRejectedValue(primary);
+  try {
+    await expect(
+      createStreamIteratorFromRuntime({
+        memory: fixture.backing.memory,
+        messages: [],
+        runtime: fixture.runtime,
+        runtimeData: fixture.runtimeData,
+      })
+    ).rejects.toMatchObject({ cause: { errors: [{ errors: [primary, cleanup] }, cleanup] } });
+  } finally {
+    stop.mockRestore();
+    stream.mockRestore();
+    fixture.release.resolve();
+    await fixture.runtime.dispose();
+    await fixture.database.close();
+  }
+});
