@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AssistantDetailLevel } from '../assistant-detail-level';
 import {
   ASSISTANT_DETAIL_LEVEL_STORAGE_KEY,
@@ -354,4 +354,18 @@ describe('SubagentExecutionCard non-interactive row name', () => {
     // making the name assertion above vacuous).
     expect(row).toHaveTextContent('0 tool calls');
   });
+});
+
+it('opens the child conversation without expanding its activity rows', () => {
+  const open = vi.fn();
+  renderCard({
+    onOpenConversation: open,
+    result: completedResult,
+    status: { type: 'complete' },
+    toolCallId: 'delegate',
+    toolName: 'agent-explore',
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Open Explorer conversation' }));
+  expect(open).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText('brainstrike_grepSearch')).not.toBeInTheDocument();
 });

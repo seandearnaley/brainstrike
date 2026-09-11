@@ -99,6 +99,7 @@ export {
   useRunVerdictContext,
 } from './run-verdict-context';
 export type { SlashCommand } from './slash-commands';
+export { SubagentConversationNavigationContext } from './subagent-conversation-navigation';
 export {
   type ToolApprovalGrantHandlers,
   ToolApprovalGrantProvider,

@@ -4,6 +4,7 @@ import {
   TOOL_APPROVAL_DATA_NAME,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
+import { restoreDelegatedConversationHistory } from '@brainstrike/assistant-data';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -16,6 +17,42 @@ import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 afterEach(cleanup);
 
 describe('host-owned child panel', () => {
+  it('opens persisted history without executing and replaces it with a live host continuation', async () => {
+    const store = createDelegatedConversationStore('root');
+    const onNew = vi.fn(async () => undefined);
+    render(
+      <TooltipProvider>
+        <DelegatedConversationPanel
+          label="Cedar"
+          onNew={onNew}
+          persistedHistory={restoreDelegatedConversationHistory({
+            hostRunId: 'saved',
+            messages: [
+              {
+                content: 'Saved child output.',
+                createdAt: '2026-09-10T00:00:00.000Z',
+                id: 'saved',
+                role: 'assistant',
+              },
+            ],
+            runEvents: [],
+            threadId: 'child',
+          })}
+          store={store}
+          threadId="child"
+        />
+      </TooltipProvider>
+    );
+    expect(await screen.findByText('Saved child output.')).toBeVisible();
+    expect(onNew).not.toHaveBeenCalled();
+    await act(async () => {
+      store.publish(delegatedUpdate('child', 'resumed', 'Live continuation.'));
+    });
+    expect(await screen.findByText('Live continuation.')).toBeVisible();
+    expect(screen.queryByText('Saved child output.')).not.toBeInTheDocument();
+    expect(onNew).not.toHaveBeenCalled();
+  });
+
   it('sends the visible leaf approval through the owning root without child transcript ids', async () => {
     const user = userEvent.setup();
     const store = createDelegatedConversationStore('root');

@@ -1,6 +1,7 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { SUBAGENT_NO_ANSWER_OUTCOME } from '@brainstrike/assistant-contract/personas';
-import { AlertCircle, CheckCircle, CircleDashed, CircleSlash } from 'lucide-react';
+import { Button } from '@brainstrike/ui';
+import { AlertCircle, ArrowUpRight, CheckCircle, CircleDashed, CircleSlash } from 'lucide-react';
 import { type ComponentProps, type ReactElement, useId, useMemo, useState } from 'react';
 import type { StepGlyphState } from './activity-step-icons';
 import { StepRowHeader } from './activity-step-row';
@@ -25,6 +26,7 @@ export type SubagentCardProps = Pick<
 > & {
   /** In-flight child rows from live `subagent.tool.*` events (see SUBAGENTS). */
   liveRows?: readonly SubAgentToolRow[];
+  onOpenConversation?: () => void;
   /**
    * Terminal outcome the tool-call status cannot express (BST-1410) — today
    * only `'no-answer'`: the child ran, made tool calls, and never wrote its
@@ -130,6 +132,7 @@ export const SubagentExecutionCard = ({
   result,
   status,
   liveRows = EMPTY_LIVE_ROWS,
+  onOpenConversation,
   outcome,
 }: SubagentCardProps) => {
   const [expanded, setExpanded] = useState(false);
@@ -177,6 +180,19 @@ export const SubagentExecutionCard = ({
           ? { bodyId: rowsId, expanded, onToggle: () => setExpanded((value) => !value) }
           : {})}
       />
+      {onOpenConversation ? (
+        <div className="flex justify-end border-border border-t px-2 py-1">
+          <Button
+            aria-label={`Open ${label} conversation`}
+            className="h-7 gap-1.5 text-xs"
+            onClick={onOpenConversation}
+            size="sm"
+            variant="ghost"
+          >
+            Open conversation <ArrowUpRight aria-hidden="true" className="size-3.5" />
+          </Button>
+        </div>
+      ) : null}
       {expanded && hasRows ? (
         <ul className="border-border border-t px-3 py-2" id={rowsId}>
           {rows.map((row) => (

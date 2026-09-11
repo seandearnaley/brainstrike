@@ -1211,3 +1211,14 @@ the existing workspace selection store's singleton/open/close/hydrate behavior.
 An address is not authority: the durable graph still authorizes history reads.
 Ordinary app ids remain untouched; malformed reserved child addresses must
 surface as errors rather than silently disappear during restoration.
+
+The shared child panel accepts ordinary persisted history for a view reopened
+without a live host envelope. Its caller must authorize the child against the
+durable graph before supplying that history. A live host snapshot replaces the
+saved projection with its own baseline and continuation; opening either view
+never invokes `onNew`. The panel's regression test uses the real ordinary-history
+converter and proves both no execution on opening and the saved-to-live handoff.
+The subagent card's optional Open conversation action is separate from its
+collapse toggle. Navigation binds the exact parent tool-call id to its host
+baseline thread id; contradictory addresses are errors. The action is absent
+until the workspace supplies a navigation capability.

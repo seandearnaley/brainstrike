@@ -14,6 +14,7 @@ export interface DelegatedConversationPanelProps {
     AssistantConversationPanelProps,
     'runtime' | 'threadKey' | 'label' | 'isComposerDisabled'
   >;
+  readonly persistedHistory?: DelegatedConversationRuntimeOptions['history'];
   readonly store: DelegatedConversationStore;
   readonly threadId: string;
 }
@@ -23,6 +24,7 @@ export function DelegatedConversationPanel({
   label,
   onNew,
   panelProps,
+  persistedHistory,
   store,
   threadId,
 }: DelegatedConversationPanelProps) {
@@ -31,10 +33,15 @@ export function DelegatedConversationPanel({
     () => store.getConversation(threadId),
     () => store.getConversation(threadId)
   );
-  if (!snapshot) {
+  const history = snapshot?.history ?? persistedHistory;
+  if (!history) {
     throw new Error('The child conversation has no host-owned transcript.');
   }
-  const runtime = useDelegatedConversationRuntime({ ...snapshot, onNew });
+  const runtime = useDelegatedConversationRuntime({
+    history,
+    onNew,
+    ...(snapshot ? { update: snapshot.update } : {}),
+  });
   return (
     <AssistantConversationPanel
       {...panelProps}
