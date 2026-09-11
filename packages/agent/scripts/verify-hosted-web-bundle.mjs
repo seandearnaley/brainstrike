@@ -129,7 +129,7 @@ for (const relativePath of hostedOutputs) {
         '-e',
         `await import(${JSON.stringify(pathToFileURL(outputPath).href)})`,
       ],
-      { encoding: 'utf8' }
+      { encoding: 'utf8', killSignal: 'SIGKILL', timeout: 30_000 }
     );
   }
   if (relativePath.endsWith('.js')) {

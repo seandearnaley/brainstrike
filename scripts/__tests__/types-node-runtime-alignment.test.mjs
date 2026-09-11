@@ -12,7 +12,27 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 // as the newer CI toolchain. Types must describe the production API floor,
 // not APIs that happen to exist only in the build/test executable. The required
 // native Electron smoke test checks this declaration against process.versions.
+// Historical dependency boundary (BST-1294, measured 2026-08-20): spikes/*
+// are intentionally outside workspace globs and lockfile importers. Their
+// published prototype findings used independent TS versions; adopting them
+// into the workspace to police typings would erase that isolation. They are
+// not shipped or run by Turbo, although source hygiene still scans them.
+// The Node 26 toolchain does not make their separate manifests runtime proof.
+//
+// The same investigation found third-party unbounded @types/node dependencies
+// retaining 26.1.0 after workspace peers were aligned. Real --traceResolution
+// found zero compiler references to that private copy: TypeScript resolves
+// explicit root typeRoots, not every pnpm-store version. Do not repeat lockfile
+// deduplication as an API-safety fix. Guard actual importer/catalog resolution
+// and the real compiler API surface instead; historical counts are not pins.
 const CATALOG_PACKAGE = '@types/node';
+const APPLICATION_ENGINE_MANIFESTS = [
+  'package.json',
+  'apps/web/package.json',
+  'packages/mcp-app-host/package.json',
+  'packages/mcp-app-host-ui/package.json',
+  'packages/mcp-test-lab/package.json',
+];
 
 // Root and app manifests are discovered so a new app cannot bypass the
 // bounded toolchain/hosting engine check. Library-consumer floors remain
@@ -23,7 +43,7 @@ function discoverEngineManifests() {
     .map((entry) => `apps/${entry.name}/package.json`)
     .filter((manifest) => existsSync(path.join(repoRoot, manifest)))
     .sort();
-  return ['package.json', ...apps];
+  return [...new Set([...APPLICATION_ENGINE_MANIFESTS, ...apps])];
 }
 
 const ENGINE_MANIFESTS = discoverEngineManifests();
@@ -97,10 +117,7 @@ function collectViolations({
       );
       continue;
     }
-    if (
-      ['package.json', 'apps/web/package.json'].includes(manifest) &&
-      !majors.includes(runtimeMajor)
-    ) {
+    if (APPLICATION_ENGINE_MANIFESTS.includes(manifest) && !majors.includes(runtimeMajor)) {
       violations.push(`${manifest} must include the deployed Node ${runtimeMajor} runtime`);
     }
     if (
@@ -382,7 +399,7 @@ test('the hosted range cannot silently admit an unrelated runtime', () => {
   );
 });
 
-for (const manifest of ['package.json', 'apps/web/package.json']) {
+for (const manifest of APPLICATION_ENGINE_MANIFESTS) {
   test(`${manifest} retains the deployed runtime alongside the toolchain`, () => {
     const state = loadActualState();
     const engines = state.engines.map((entry) =>

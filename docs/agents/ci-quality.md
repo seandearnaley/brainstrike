@@ -1735,7 +1735,9 @@ The exact toolchain patch is intentional: local and CI qualification must name
 the same executable. React Doctor also receives this explicit Node version:
 its composite action otherwise installs Node 24, whose npm rejects the managed
 Node 26 declaration before scanning. The paired action-version contract guards
-that input against `.nvmrc`. Updating the pin requires qualifying the replacement;
+that input against `.nvmrc`. Any added composite action that runs npm/npx
+from the workspace must select the managed Node version too; its private
+default does not inherit the surrounding job setup. Updating the pin requires qualifying the replacement;
 future patch releases must not be assumed to have passed this evidence.
 The DB unit project explicitly includes `__tests__/**/*.test.ts` without an
 integration-suffix exclusion (unlike some other package scripts). It runs
@@ -2970,7 +2972,9 @@ Non-native typed packages have two JavaScript build classes, derived from
   check enforces explicit relative `.js` imports. Vercel disables `require(ESM)`
   by default, so hosted functions must select the agent's ESM export, including
   native imports of external Mastra/provider runtimes. The existing hosted bundle
-  guard loads ESM with `--no-experimental-require-module` and permits no ESM-only
+  guard loads ESM under the Node 26 toolchain with
+  `--no-experimental-require-module`, kills a nonterminating probe after 30 seconds,
+  and permits no ESM-only
   workspace `require()` exceptions. Pino and tiktoken remain external runtime
   dependencies declared by the bundle owner; inlining their Node/WASM loaders
   would break native loading or browser asset references. Validate both built

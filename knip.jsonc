@@ -502,6 +502,13 @@
     },
     "packages/agent": {
       "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": [
+        // Hosted bundling inlines workspace logging/tokenization. Their native
+        // loaders remain external and resolve from agent, not their source owner.
+        // verify-hosted-web-bundle loads that real artifact; manifest tests pin ownership.
+        "pino",
+        "tiktoken"
+      ],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
