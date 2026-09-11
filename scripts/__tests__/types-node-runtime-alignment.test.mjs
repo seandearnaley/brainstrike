@@ -3,41 +3,20 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-// BST-1294: `@types/node` describes the standard library the compiler believes
-// exists. When it names a HIGHER major than the Node the repo actually runs,
-// `tsc` accepts calls into APIs that are absent at runtime — `node:ffi` and
-// `node:quic` are declared by @types/node 26 and throw ERR_UNKNOWN_BUILTIN_MODULE
-// on Node 24. A green type-check then stops being evidence that the code runs,
-// which is precisely the silent-degradation class AGENTS.md forbids.
-//
-// So the contract is one-way and exact, not "close enough": the catalog major
-// must EQUAL the runtime major. A LOWER types major is not a safe direction
-// either — it hides APIs that do exist, pushing authors toward casts.
+// Shared production code executes in Electron's bundled Node runtime as well
+// as the newer CI toolchain. Types must describe the production API floor,
+// not APIs that happen to exist only in the build/test executable. The required
+// native Electron smoke test checks this declaration against process.versions.
 const CATALOG_PACKAGE = '@types/node';
 
-// The manifests that must pin exactly ONE Node major: the repo root plus every
-// app. These were tightened to a single bounded major by BST-1275 (#2442); this
-// contract is what keeps them tightened, because an unbounded floor like
-// `>=24.15.0` silently re-admits Node 26 and makes the alignment claim
-// meaningless again.
-//
-// DISCOVERED, not hardcoded. A hardcoded list is exactly the drift this file
-// exists to prevent, and it had already gone stale on arrival: `apps/web`
-// (engines.node "24.x", a direct consumer of the catalog `@types/node`) was
-// missing, so pointing the web runtime at another major would have left this
-// test green. `apps/*` mirrors the pnpm-workspace.yaml glob, so a new app is
-// covered the day it lands.
-//
-// Deliberately EXCLUDED: the 26 `packages/*` manifests that declare the
-// library-consumer floor `>=22` (19 more declare no engines at all). That range
-// is unbounded BY DESIGN — they are libraries, and a consumer on any Node >=22
-// may use them — so it implies no single major and would fail
-// `impliedEngineMajor`. The alignment claim is about the Node this repo RUNS,
-// which the root and the apps are what actually name.
+// Root and app manifests are discovered so a new app cannot bypass the
+// bounded toolchain/hosting engine check. Library-consumer floors remain
+// outside this check; their actual workspace typings still use the catalog.
 function discoverEngineManifests() {
   const apps = readdirSync(path.join(repoRoot, 'apps'), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -49,127 +28,9 @@ function discoverEngineManifests() {
 
 const ENGINE_MANIFESTS = discoverEngineManifests();
 
-// Scope note, deliberately narrow: this contract governs the catalog, the
-// lockfile's catalog resolution, and the workspace importers that DECLARE
-// `@types/node`. It is NOT a repo-global uniqueness assertion over the
-// lockfile. Unrelated third-party packages legitimately pin their own copy —
-// `@vercel/node@5.8.22` hard-depends on `@types/node@20.11.0` — and a
-// transitive pin like that cannot change what `tsc` loads for our sources, so
-// reporting it here would fail the lane for someone else's dependency graph.
-//
-// `spikes/*` is outside this contract BY DESIGN, and the gap is recorded here so
-// it stays a known boundary rather than a latent one. The spikes are isolated
-// npm projects with their own committed `package-lock.json`, deliberately kept
-// out of the `pnpm-workspace.yaml` globs (`apps/*`, `packages/*`,
-// `packages/config/*`) — see the global constraint in
-// `docs/superpowers/plans/2026-08-03-changeset-discovery-spike.md`: "NOT part of
-// the pnpm workspace — use `npm` inside it, never add it to
-// pnpm-workspace.yaml". Mechanically that means they are not lockfile importers
-// (measured: 0 of 50 importer ids), so `importerVersions` below cannot see them,
-// and `verify-catalog-references.mjs` is blind for the same reason — both read
-// the workspace globs as their single source of truth.
-//
-// Every number in this block was measured 2026-08-15, and nothing asserts them —
-// they are prose, unlike the claims the tests below back. Date-stamped in the
-// style pnpm-workspace.yaml uses for its own measured notes ("RE-MEASURED
-// 2026-08-15 on pnpm 11.15.0"), so a later reader knows whether to trust them or
-// re-run them. Re-derive with: the importer count from `pnpm-lock.yaml`, and
-//   rg -l '"@types/node": "catalog:"' --glob '**/package.json'
-//
-// One manifest is affected: `spikes/changeset-discovery/package.json` hard-pins
-// `"@types/node": "^24.0.0"`, the only declaration in the repo not on
-// `catalog:` (the sibling `spikes/quickjs-sandbox` declares none). Measured
-// against the runtime THIS repo pins, that is aligned and cannot drift across a
-// major: a caret cannot cross one, this contract compares majors, and the
-// spike's own lockfile resolves 24.13.3 — identical to the catalog.
-//
-// Against the spike's OWN declared floor it is not aligned, and that exposure is
-// accepted here explicitly rather than left implied. The spike declares
-// `engines.node: ">=22.18"` (22.18 is where unflagged type-stripping landed,
-// which is how it runs — `node src/*.ts`) while installing Node 24 typings, and
-// its tsconfig sets `"types": ["node"]`, so those typings really are loaded into
-// its program. Type-check it on a Node 22.x release it claims to support and you
-// get the higher-types/lower-runtime direction described at the top of this file
-// — today, with no edit to a foreign major required.
-//
-// It is accepted because the blast radius is one author's local `npm run
-// typecheck`, not a shipped artifact: the spikes are throwaway prototypes in no
-// build, typecheck, or test lane and no turbo task — though they are NOT beyond
-// CI entirely, so do not read this as "nothing scans spikes/" and conclude the
-// note has gone stale: `verify-no-raw-nul-bytes.mjs` enumerates them
-// deliberately (no pathspec on `git ls-files`, floor `spikes: 8`) and runs on
-// every PR via `lint:ci`. Their deliverable is `RECOMMENDATION.md`, not the
-// code, and `.nvmrc` pins 24 at the repo root, so anyone using the repo's own
-// toolchain on a tree that contains `spikes/` type-checks and runs it on 24. The
-// `>=22.18` floor records the minimum Node that can type-strip these files, not
-// a runtime the spike is exercised on. Aligning the two ranges is the
-// alternative; it was not taken because it edits throwaway code whose findings
-// are already published, to buy nothing at runtime.
-//
-// A second unguarded case remains alongside it: an edit to a foreign types major
-// would also pass unnoticed, for the same structural reason.
-//
-// Do not "fix" it by adopting them into the globs. They would become importers
-// and drag their dependency trees into the root lockfile, and — this is
-// `verify-catalog-references.mjs`, not `catalogMode: strict`, which governs what
-// `pnpm add` writes and would not touch an already-declared range — every
-// dependency carrying a catalog entry would have to be restated as `catalog:`,
-// putting them on the repo's toolchain. For `typescript` that is the aliased
-// `npm:@typescript/typescript6@6.0.2`, against the `^7.0.2` the spike findings
-// were actually measured on. TS 7 is not unavailable repo-wide — the catalog
-// also carries `'@typescript/native': 'npm:typescript@7.0.2'` — but reaching it
-// means declaring a different dependency name than the spike did. Either way the
-// version isolation that makes a spike a spike is gone, to guard code designed
-// to be deleted.
-//
-// A SECOND copy — `@types/node@26.1.0` — is also installed, and it is likewise
-// out of scope. History matters here, because the obvious fix was tried and
-// only half worked.
-//
-// `@types/node` is an optional PEER of vite/vitest, and a catalog does not
-// govern peers it is not asked about. Six packages (assistant-contract,
-// assistant-wire, config, indexing-contract, local-runtime, pipeline) took
-// `vitest` from the catalog while declaring no `@types/node` of their own, so
-// pnpm resolved that peer straight from the registry at the newest satisfying
-// version and keyed a THIRD vite/vitest instance on 26.1.0. Those six now
-// declare `"@types/node": "catalog:"` like the other 41, which collapsed the
-// peer keying: vite and vitest each went 3 peer-keyed instances -> 2, and the
-// lockfile lost 5 snapshots / 70 lines. Every one of the six genuinely imports
-// a `node:` builtin (`node:path` in five vitest configs, `node:crypto` in
-// config's `src/vitest-browser.ts`), so the declaration is honest and knip
-// counts it used — it reports no new unused dependency.
-//
-// What that did NOT do is evict 26.1.0. Nine unrelated third-party packages
-// depend on `@types/node` with UNBOUNDED ranges — happy-dom `>=20.0.0`,
-// protobufjs `>=13.7.0`, buffer-image-size `*`, plus the `@types/*` wrappers
-// (cacheable-request, fs-extra, keyv, responselike, ws, yauzl) — and pnpm
-// resolves an unbounded range to the newest published version. Nothing in this
-// repo can pin someone else's floor, so the second copy stays. Do not chase it
-// again expecting the tree to shrink; that experiment has been run.
-//
-// It never mattered for correctness, which is the part worth not relitigating.
-// Measured with `tsc --noEmit --traceResolution` in all six BEFORE they
-// declared the dependency: zero references to the `@types+node@26.1.0` store
-// path, 2.1k to 24.13.3. The mechanism, from the trace in packages/config:
-// `vite/dist/node/index.d.ts` — served out of the 26.1.0-keyed vite copy —
-// really does emit `/// <reference types="node" />`. But a type reference
-// directive resolves against `typeRoots`, which are anchored at the TSCONFIG
-// directory and walk UP (config/node_modules/@types →
-// packages/node_modules/@types → <root>/node_modules/@types), never at the
-// directory of the file that asked. It therefore landed on the root copy —
-// 24.13.3, logged `primary: true`. The containing-file-relative fallback that
-// would have found 26.1.0 never runs. Bare `node:*` specifiers never resolve
-// as modules at all; they are satisfied by the ambient `declare module` blocks
-// in the single `@types/node` the program loaded.
-//
-// Every package-local `@types/node` link is 24.13.3, so no package shadows the
-// root. (A stale untracked `packages/<name>/node_modules` left behind by an old
-// branch can still hold a 26.1.0 link; those directories have no package.json
-// and are in no workspace glob, so they are install debris, not a shadow.)
-//
-// So the duplicate is dev-only install weight, not a types skew. Reproduce with:
-//   cd packages/config && pnpm exec tsc --noEmit --traceResolution \
-//     | grep -c '@types+node@26\.1\.0/'   # -> 0
+// Third-party private typings and historical spikes do not select the ambient
+// types used by workspace compilation. Every workspace importer declaring
+// @types/node must continue to resolve the shared catalog version.
 function parseMajor(version) {
   const match = /^(?<major>\d+)\./u.exec(String(version ?? ''));
   return match?.groups ? Number(match.groups.major) : null;
@@ -197,27 +58,51 @@ function impliedEngineMajor(range) {
   return null;
 }
 
-function collectViolations({ nvmrc, engines, catalogRange, lockfileCatalog, importerVersions }) {
+function collectViolations({
+  nvmrc,
+  engines,
+  catalogRange,
+  lockfileCatalog,
+  importerVersions,
+  applicationNodeMajor,
+}) {
   const violations = [];
 
   const nvmrcMajor = /^(?<major>\d+)\b/u.exec(String(nvmrc ?? '').trim())?.groups?.major;
-  const runtimeMajor = nvmrcMajor === undefined ? null : Number(nvmrcMajor);
-  if (runtimeMajor === null) {
+  const toolchainMajor = nvmrcMajor === undefined ? null : Number(nvmrcMajor);
+  const runtimeMajor = applicationNodeMajor ?? toolchainMajor;
+  if (
+    applicationNodeMajor !== undefined &&
+    (!Number.isInteger(applicationNodeMajor) ||
+      applicationNodeMajor <= 0 ||
+      applicationNodeMajor > toolchainMajor)
+  ) {
+    violations.push(
+      'Application Node API major must be a positive integer supported by the toolchain'
+    );
+  }
+  if (toolchainMajor === null) {
     violations.push(`.nvmrc must name a Node major, found ${JSON.stringify(nvmrc)}`);
   }
 
-  // Every engines range must pin exactly one major, and the same one .nvmrc names.
+  // Hosting can admit the production API major alongside the managed build
+  // runtime, but every arm remains bounded and no unrelated major is admitted.
   for (const { manifest, range } of engines) {
-    const major = impliedEngineMajor(range);
-    if (major === null) {
+    const majors = String(range ?? '')
+      .split('||')
+      .map(impliedEngineMajor);
+    if (majors.some((major) => major === null)) {
       violations.push(
-        `${manifest} engines.node must pin exactly one Node major (e.g. ">=24.15.0 <25"), found ${JSON.stringify(range)}; an unbounded range re-admits a newer runtime and voids this contract`
+        `${manifest} engines.node must pin exactly one Node major per bounded range arm`
       );
       continue;
     }
-    if (runtimeMajor !== null && major !== runtimeMajor) {
+    if (
+      !majors.includes(toolchainMajor) ||
+      majors.some((major) => major !== toolchainMajor && major !== runtimeMajor)
+    ) {
       violations.push(
-        `${manifest} engines.node implies Node ${major} but .nvmrc names ${runtimeMajor}`
+        `${manifest} engines.node implies Node ${majors.join(', ')} but .nvmrc names ${toolchainMajor}`
       );
     }
   }
@@ -284,13 +169,19 @@ function readActualState() {
     }))
     .filter((entry) => entry.version !== undefined);
   return {
+    applicationNodeMajor: JSON.parse(
+      readFileSync(path.join(repoRoot, 'apps/desktop/package.json'), 'utf8')
+    ).config?.nodeRuntimeMajor,
     catalogRange: workspace?.catalog?.[CATALOG_PACKAGE],
     engines: ENGINE_MANIFESTS.map((manifest) => ({
       manifest,
       range: JSON.parse(readFileSync(path.join(repoRoot, manifest), 'utf8')).engines?.node,
     })),
     importerVersions,
+    lockedRuntime: lockfile.importers?.['.']?.devDependencies?.node,
     lockfileCatalog: lockfile.catalogs?.default?.[CATALOG_PACKAGE],
+    managedRuntime: JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).devEngines
+      ?.runtime,
     nvmrc: readFileSync(path.join(repoRoot, '.nvmrc'), 'utf8'),
   };
 }
@@ -410,5 +301,76 @@ test('money control: the aligned state passes', () => {
       nvmrc: '24\n',
     }),
     []
+  );
+});
+
+test('Node 26 tooling does not permit Node 26-only APIs in the Node 24 application runtime', () => {
+  const state = {
+    applicationNodeMajor: 24,
+    catalogRange: '^24.13.3',
+    engines: [{ manifest: 'package.json', range: '>=26.8.2 <27' }],
+    importerVersions: [{ id: 'apps/desktop', version: '24.13.3' }],
+    lockfileCatalog: { specifier: '^24.13.3', version: '24.13.3' },
+    nvmrc: '26.8.2',
+  };
+  assert.deepEqual(collectViolations(state), []);
+  assert.match(collectViolations({ ...state, catalogRange: '^26.5.1' }).join('\n'), /major skew/u);
+});
+
+test('application API floor is declared explicitly', () => {
+  assert.ok(Number.isInteger(loadActualState().applicationNodeMajor));
+});
+
+test('the real compiler accepts the production Node API and rejects Node 26-only imports', () => {
+  const fileName = path.join(repoRoot, '.node-api-contract.ts');
+  function diagnostics(source) {
+    const options = {
+      module: ts.ModuleKind.NodeNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+      noEmit: true,
+      skipLibCheck: true,
+      target: ts.ScriptTarget.ES2023,
+      types: ['node'],
+    };
+    const host = ts.createCompilerHost(options);
+    const getSourceFile = host.getSourceFile.bind(host);
+    host.getSourceFile = (name, languageVersion, ...rest) =>
+      name === fileName
+        ? ts.createSourceFile(name, source, languageVersion, true)
+        : getSourceFile(name, languageVersion, ...rest);
+    return ts
+      .getPreEmitDiagnostics(ts.createProgram([fileName], options, host))
+      .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
+  }
+  assert.deepEqual(diagnostics("import { readFile } from 'node:fs/promises'; void readFile;"), []);
+  assert.ok(
+    diagnostics("import { dlopen } from 'node:ffi'; void dlopen;").some((message) =>
+      message.includes("Cannot find module 'node:ffi'")
+    )
+  );
+});
+
+test('managed execution pins the exact qualified runtime and lock resolution', () => {
+  const state = loadActualState();
+  assert.deepEqual(state.managedRuntime, {
+    name: 'node',
+    onFail: 'download',
+    version: state.nvmrc.trim(),
+  });
+  assert.deepEqual(state.lockedRuntime, {
+    specifier: `runtime:${state.nvmrc.trim()}`,
+    version: `runtime:${state.nvmrc.trim()}`,
+  });
+});
+
+test('the hosted range cannot silently admit an unrelated runtime', () => {
+  const state = loadActualState();
+  const engines = [{ manifest: 'apps/web/package.json', range: '>=24.20.0 <25 || >=26.8.2 <27' }];
+  assert.deepEqual(collectViolations({ ...state, engines }), []);
+  assert.ok(
+    collectViolations({
+      ...state,
+      engines: [{ ...engines[0], range: `${engines[0].range} || >=25.0.0 <26` }],
+    }).length > 0
   );
 });

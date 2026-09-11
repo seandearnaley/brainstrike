@@ -1711,8 +1711,30 @@ replaces reference acquisition before the dying-state check with atomic
 `AddRefIfNotDying`. Node 24.20.0 and 24.21.0 retain the unsafe order; Node
 26.8.2 contains the corrected reference handling and subsequent wrapper
 ownership changes. The repository pins Node 26.8.2 for development and CI.
+The matching `devEngines.runtime` declaration makes pnpm scripts use that
+checksum-locked executable even when invoked by a hosted builder's older Node.
+Root/web installation engine ranges admit only the bounded Node 24 hosting
+major and Node 26 tooling major; the managed script runtime remains exactly 26.
+Vercel Functions currently supports Node 24, not 26. Its separate stateless
+hosted-web entrypoint excludes PGlite and browser-local model inference; validate
+the generated function runtime and deployed routes when changing this boundary.
+Browser-local WASM executes in the browser engine, not the function runtime.
 Electron retains its own bundled Node/V8; changing `.nvmrc` does not upgrade
-Electron's runtime.
+Electron's runtime. Shared production code keeps Node 24 declarations matching
+Electron's Node API surface, while the build and test executable uses Node 26.
+`apps/desktop/package.json#config.nodeRuntimeMajor` declares that API floor;
+the required real Electron native smoke test compares both the declaration and
+the installed typings with `process.versions.node`. The static alignment guard
+checks the toolchain and production API floor separately, preventing Node
+26-only APIs from compiling into the Node 24 application runtime.
+
+The exact toolchain patch is intentional: local and CI qualification must name
+the same executable. Updating that pin requires qualifying the replacement;
+future patch releases must not be assumed to have passed this evidence.
+The required DB unit project runs 100 startup/query/close cycles as a persistent
+runtime canary. Its existing 10-second per-case timeout and two-worker CI cap
+remain unchanged. A lost file fails; only the complete three-marker signature
+below is classified as the V8 fatal, so an ordinary OOM is not mislabeled.
 
 Source correspondence identifies a correction candidate, not proof that an
 intermittent crash has disappeared. Qualification requires repeated affected

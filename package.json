@@ -17,9 +17,9 @@
     "@mermaid-js/mermaid-cli": "^11.17.0",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
+    "@typescript-eslint/parser": "^8.69.0",
     "@typescript/native": "catalog:",
     "@typescript/old": "catalog:",
-    "@typescript-eslint/parser": "^8.69.0",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "babel-plugin-react-compiler": "1.0.0",
@@ -43,7 +43,7 @@
     "yaml": "catalog:"
   },
   "engines": {
-    "node": ">=26.8.2 <27"
+    "node": ">=24.20.0 <25 || >=26.8.2 <27"
   },
   "keywords": [],
   "license": "ISC",
@@ -131,5 +131,12 @@
   "workspaces": [
     "apps/*",
     "packages/*"
-  ]
+  ],
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.8.2",
+      "onFail": "download"
+    }
+  }
 }

@@ -15,7 +15,8 @@ Future‑ready, AI‑assisted productivity apps built with React 19, Vite, Turbo
 
 - Prereqs: Node 26.8.2 and the repository-pinned pnpm 11.15.0 (`corepack enable`
   recommended; `package.json#packageManager` is authoritative).
-- Install deps: `pnpm install`
+- Install deps: `pnpm install` (pnpm also installs the exact Node 26 runtime
+  declared in `devEngines.runtime` for workspace scripts).
 - Web dev server: `pnpm dev --filter @brainstrike/web`
 - Desktop dev: `pnpm dev --filter @brainstrike/desktop`
 - Build all workspaces: `pnpm build`

@@ -217,5 +217,8 @@
     "type-check:e2e": "tsc --noEmit --project tsconfig.e2e.json",
     "type-check:main": "tsc --noEmit && tsc --noEmit --project tsconfig.main.json",
     "type-check:test": "node ../../scripts/verify-test-tsconfig-program.mjs --project tsconfig.test.json --min-test-files 400"
+  },
+  "config": {
+    "nodeRuntimeMajor": 24
   }
 }
