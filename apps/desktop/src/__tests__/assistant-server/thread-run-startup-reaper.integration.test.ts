@@ -107,6 +107,40 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     expect(await hasInFlightThreadRun(asHandle(db), THREAD_ID)).toBe(true);
   });
 
+  it('retains cancellation authority when reaping an old cancelling leg and leaves recent intent active', async () => {
+    const db = await makeFixtureDb('reaper-cancelling');
+    await insertRun(db, {
+      id: 'old-cancelling',
+      startedAt: '2026-01-01T10:00:00Z',
+      status: 'running',
+    });
+    await insertRun(db, {
+      id: 'old-running',
+      startedAt: '2026-01-01T10:00:00Z',
+      status: 'running',
+    });
+    await insertRun(db, {
+      id: 'recent-cancelling',
+      startedAt: new Date(BOOTED_AT.getTime() - REAP_CLOCK_SKEW_MARGIN_MS / 2).toISOString(),
+      status: 'running',
+    });
+    // The status column is intentionally open text; no schema migration is needed.
+    await db.query(`UPDATE brainstrike_assistant_thread_runs SET status = 'cancelling'
+      WHERE id IN ('old-cancelling', 'recent-cancelling')`);
+    const report = await reapOrphanedThreadRuns(asHandle(db), BOOTED_AT);
+    expect(report.reaped.map(({ id }) => id).sort()).toEqual(['old-cancelling', 'old-running']);
+    const { rows } = await db.query<{ id: string; status: string; completedAt: string | null }>(
+      `SELECT id, status, completed_at::text AS "completedAt" FROM brainstrike_assistant_thread_runs ORDER BY id`
+    );
+    expect(rows).toEqual([
+      { completedAt: expect.any(String), id: 'old-cancelling', status: 'cancelled' },
+      { completedAt: expect.any(String), id: 'old-running', status: 'failed' },
+      { completedAt: null, id: 'recent-cancelling', status: 'cancelling' },
+    ]);
+    // The recent cancellation still owns in-flight settlement, including rewind refusal.
+    expect(await hasInFlightThreadRun(asHandle(db), THREAD_ID)).toBe(true);
+  });
+
   it('leaves terminal rows untouched', async () => {
     const db = await makeFixtureDb('reaper-terminal');
     await insertRun(db, {
