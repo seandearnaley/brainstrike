@@ -1222,3 +1222,14 @@ The subagent card's optional Open conversation action is separate from its
 collapse toggle. Navigation binds the exact parent tool-call id to its host
 baseline thread id; contradictory addresses are errors. The action is absent
 until the workspace supplies a navigation capability.
+
+`DelegatedWorkspaceTabsProvider` registers saved child tab addresses before the
+ordinary workspace provider reconciles selection. It resolves native graph
+ownership and persisted callsign/color before mounting a transcript. Unselected
+restored tabs load metadata only; the existing WorkspaceBody controls transcript
+mounting and closing. Invalid reserved addresses remain visible error tabs.
+Both the main wrapper and child panel provide the same navigation action. The
+workspace integration test opens the real shared child panel, closes it, and
+reopens output published by the owning host while it was closed; removing the
+navigation context is its negative control. Restored decision routing and
+sidebar ancestry are not implemented by this registry boundary.

@@ -743,7 +743,7 @@ vi.mock('../use-assistant-slash-commands', () => ({
 }));
 
 // Mock the AssistantUiPanel component
-vi.mock('@brainstrike/assistant-ui', () => ({
+vi.mock('@brainstrike/assistant-ui', async () => ({
   AssistantUiPanel: ({
     onDelegatedConversation,
     onRuntimeReady,
@@ -1114,6 +1114,9 @@ vi.mock('@brainstrike/assistant-ui', () => ({
   // Same passthrough rationale as EditCheckpointProvider: the mocked panel
   // never renders a verdict control, so the verdict context is never read.
   RunVerdictProvider: ({ children }: { children: ReactNode }) => children,
+  SubagentConversationNavigationContext: (await import('react')).createContext<
+    ((threadId: string) => void) | null
+  >(null),
   // Same passthrough rationale as EditCheckpointProvider: the mocked panel
   // never renders an approval notice, so the grant context is never read.
   ToolApprovalGrantProvider: ({ children }: { children: ReactNode }) => children,

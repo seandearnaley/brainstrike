@@ -13,6 +13,12 @@ import { RootLayoutContent } from '../root-layout-content';
 import type { NavigationItem } from '../types';
 import { createRecentLongTaskEntryList } from './long-task-entry-list-test-support';
 
+vi.mock('@brainstrike/db/react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/db/react')>()),
+  useDbProviderError: () => null,
+  usePGliteDatabase: () => null,
+}));
+
 vi.mock('@brainstrike/file-explorer-hooks', async () => {
   const { createContext } = await import('react');
   return {
