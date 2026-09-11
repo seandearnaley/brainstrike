@@ -6,12 +6,10 @@ import { SquareIcon } from 'lucide-react';
 import { useState } from 'react';
 import {
   isAssistantToolApprovalRequest,
-  resolveApprovalRunOutcome,
-} from './assistant-tool-approval-notice';
-import {
   isAssistantToolSuspendRequest,
+  resolveApprovalRunOutcome,
   resolveSuspendRunOutcome,
-} from './assistant-tool-suspend-notice';
+} from './tool-decision-run-outcome';
 
 /** Uses the shared thread's actual state, including a persisted pending decision. */
 export function ConversationExecutionControls({
