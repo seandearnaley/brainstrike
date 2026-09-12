@@ -34,8 +34,10 @@ import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
 import { registerDesktopDelegatedCancellation } from './delegated-execution-controls';
 import { registerDesktopDelegatedFollowup } from './delegated-followup-controls';
+import { captureDelegatedWorkspaceStart } from './delegated-workspace-snapshot';
 import { resolveProviderApiKey } from './provider-credentials';
 import { createRunCriticalDatabase } from './run-critical-database';
+import type { TurnBoundarySnapshotDeps } from './snapshot-turn-boundaries';
 
 export type DesktopMastraMemoryResult =
   import('@brainstrike/assistant-service/stream-init').AgentStreamMemoryResult;
@@ -74,6 +76,7 @@ export class DesktopMemoryCredentialMissingError extends Error {
 /** Host services memory construction can use (injected from the server options). */
 interface DesktopMemoryDependencies {
   readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  readonly snapshots?: TurnBoundarySnapshotDeps | undefined;
 }
 
 export async function getDesktopMastraMemory(
@@ -242,7 +245,16 @@ async function createDesktopMastraMemoryFromCacheState({
       ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
       runId,
     });
-    const host = createDesktopDelegatedConversationHost(database, runId);
+    // SnapshotRepository needs the full desktop handle; native memory uses the
+    // run-critical wrapper so its query scheduling keeps the owning run context.
+    const host = createDesktopDelegatedConversationHost(database, runId, async (threadId) =>
+      captureDelegatedWorkspaceStart(
+        await getDatabase(),
+        threadId,
+        runtimeData,
+        memoryDependencies?.snapshots
+      )
+    );
     return {
       ...memory,
       conversationBinding: {

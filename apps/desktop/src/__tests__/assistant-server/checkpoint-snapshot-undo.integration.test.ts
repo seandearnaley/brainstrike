@@ -569,6 +569,89 @@ describe('undoCheckpointEntry', () => {
 });
 
 describe('undoCheckpointRun', () => {
+  it('refuses child restoration over a later sibling edit without changing either journal', async () => {
+    await write('a.txt', 'User baseline');
+    const childThread = 'child-restore';
+    const childRun = 'child-restore-run';
+    const snapshot = await service.snapshot(handle, {
+      kind: 'turn-start',
+      runId: childRun,
+      threadId: childThread,
+    });
+    await repository.insertSnapshot({
+      commitOid: snapshot.commitOid,
+      kind: 'turn-start',
+      rootId: ROOT_ID,
+      rootPath: handle.rootPath,
+      runId: childRun,
+      threadId: childThread,
+    });
+    await write('a.txt', 'First child edit');
+    const child = await recordEditCheckpoint(
+      db,
+      journalInput({
+        afterHash: await hashOf('First child edit'),
+        runId: childRun,
+        threadId: childThread,
+      })
+    );
+    await write('a.txt', 'Later sibling edit');
+    const sibling = await recordEditCheckpoint(
+      db,
+      journalInput({
+        afterHash: await hashOf('Later sibling edit'),
+        runId: 'sibling-run',
+        threadId: 'sibling-thread',
+      })
+    );
+    const result = await undoCheckpointRun(db, { runId: childRun }, undoDeps());
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]).toMatchObject({ code: 'conflict', ok: false });
+    expect(await readOrNull('a.txt')).toBe('Later sibling edit');
+    const rows = await db.query(
+      'SELECT reverted_at FROM brainstrike_assistant_edit_checkpoints WHERE id IN ($1, $2) ORDER BY id',
+      [child.id, sibling.id]
+    );
+    expect(rows.rows).toEqual([{ reverted_at: null }, { reverted_at: null }]);
+    expect(reindexActions).toEqual([]);
+  });
+
+  it('restores the parent edits without erasing a child effect or independent user work', async () => {
+    await write('a.txt', 'Parent baseline');
+    await recordTurnStart();
+    await write('a.txt', 'Parent effect');
+    await recordEditCheckpoint(db, journalInput({ afterHash: await hashOf('Parent effect') }));
+    await write('child.txt', 'Completed child effect');
+    const child = await recordEditCheckpoint(
+      db,
+      journalInput({
+        afterHash: await hashOf('Completed child effect'),
+        beforeExisted: false,
+        captureStatus: 'created',
+        path: 'child.txt',
+        resourceId: 'child-resource',
+        runId: 'child-run',
+        threadId: 'child-thread',
+        toolCallId: 'child-write',
+      })
+    );
+    await write('user.txt', 'Independent user edit');
+    const restored = await undoCheckpointRun(db, { runId: RUN }, undoDeps());
+    expect(restored.outcomes).toHaveLength(1);
+    expect(restored.outcomes[0]?.ok).toBe(true);
+    expect(await readOrNull('a.txt')).toBe('Parent baseline');
+    expect(await readOrNull('child.txt')).toBe('Completed child effect');
+    expect(await readOrNull('user.txt')).toBe('Independent user edit');
+    expect(
+      (
+        await db.query(
+          'SELECT reverted_at FROM brainstrike_assistant_edit_checkpoints WHERE id = $1',
+          [child.id]
+        )
+      ).rows
+    ).toEqual([{ reverted_at: null }]);
+  });
+
   it('restores every touched path to turn-start exactly once, newest-first, and stamps every record', {
     timeout: HEAVY_TIMEOUT_MS,
   }, async () => {

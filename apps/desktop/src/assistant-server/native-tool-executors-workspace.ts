@@ -16,6 +16,7 @@ import {
   type ReadWorkspaceDirectoryInput,
   type ReadWorkspaceFileInput,
   type RenameWorkspaceFileInput,
+  readToolExecutionThreadId,
   readToolOutputArtifact,
   type StringReplaceWorkspaceFileInput,
   type UpdateWorkspaceContextSelectionInput,
@@ -39,8 +40,8 @@ import {
   logToolFailure,
   parseToolExecuteInput,
   readToolCallId,
+  type ToolExecuteContext,
   type ToolExecuteInput,
-  type ToolExecuteRunContext,
 } from './tool-execute-support';
 import { projectListWorkspaceContextModelOutput } from './workspace-context-model-projection';
 import {
@@ -60,7 +61,10 @@ export const WORKSPACE_TOOL_EXECUTORS = executorGroup({
     runtimeData,
   }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceFile],
-    execute: async (input: ToolExecuteInput<ReadWorkspaceFileInput>) => {
+    execute: async (
+      input: ToolExecuteInput<ReadWorkspaceFileInput>,
+      context?: ToolExecuteContext
+    ) => {
       const resolvedInput = parseToolExecuteInput(
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceFile],
         input
@@ -78,7 +82,7 @@ export const WORKSPACE_TOOL_EXECUTORS = executorGroup({
         // file first, so it can never go stale in that way.
         return await runReadWorkspaceFile(resolvedInput, runtimeData, readFileCursorRegistry, {
           domainModelResultCharBudget: resolvedDomainCharBudget,
-          threadScope: readStateScope(runtimeData),
+          threadScope: readToolExecutionThreadId([input, context]) ?? readStateScope(runtimeData),
         });
       } catch (error) {
         logToolFailure('readWorkspaceFile failed', error, resolvedInput);
@@ -126,14 +130,20 @@ export const WORKSPACE_TOOL_EXECUTORS = executorGroup({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.writeWorkspaceFile],
     execute: async (
       input: ToolExecuteInput<WriteWorkspaceFileInput>,
-      context?: ToolExecuteRunContext
+      context?: ToolExecuteContext
     ) => {
       const resolvedInput = parseToolExecuteInput(
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.writeWorkspaceFile],
         input
       );
       try {
-        return await runWriteWorkspaceFile(resolvedInput, runtimeData, readToolCallId(context));
+        return await runWriteWorkspaceFile(
+          resolvedInput,
+          runtimeData,
+          readToolCallId(context),
+          readToolExecutionThreadId([input, context]),
+          context?.abortSignal
+        );
       } catch (error) {
         logToolFailure('writeWorkspaceFile failed', error, resolvedInput);
         throw error;
@@ -146,7 +156,7 @@ export const WORKSPACE_TOOL_EXECUTORS = executorGroup({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.stringReplaceWorkspaceFile],
     execute: async (
       input: ToolExecuteInput<StringReplaceWorkspaceFileInput>,
-      context?: ToolExecuteRunContext
+      context?: ToolExecuteContext
     ) => {
       const resolvedInput = parseToolExecuteInput(
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.stringReplaceWorkspaceFile],
@@ -156,7 +166,9 @@ export const WORKSPACE_TOOL_EXECUTORS = executorGroup({
         return await runStringReplaceWorkspaceFile(
           resolvedInput,
           runtimeData,
-          readToolCallId(context)
+          readToolCallId(context),
+          readToolExecutionThreadId([input, context]),
+          context?.abortSignal
         );
       } catch (error) {
         logToolFailure('stringReplaceWorkspaceFile failed', error, resolvedInput);
@@ -170,14 +182,20 @@ export const WORKSPACE_TOOL_EXECUTORS = executorGroup({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.deleteWorkspaceFile],
     execute: async (
       input: ToolExecuteInput<DeleteWorkspaceFileInput>,
-      context?: ToolExecuteRunContext
+      context?: ToolExecuteContext
     ) => {
       const resolvedInput = parseToolExecuteInput(
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.deleteWorkspaceFile],
         input
       );
       try {
-        return await runDeleteWorkspaceFile(resolvedInput, runtimeData, readToolCallId(context));
+        return await runDeleteWorkspaceFile(
+          resolvedInput,
+          runtimeData,
+          readToolCallId(context),
+          readToolExecutionThreadId([input, context]),
+          context?.abortSignal
+        );
       } catch (error) {
         logToolFailure('deleteWorkspaceFile failed', error, resolvedInput);
         throw error;
@@ -190,14 +208,20 @@ export const WORKSPACE_TOOL_EXECUTORS = executorGroup({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.renameWorkspaceFile],
     execute: async (
       input: ToolExecuteInput<RenameWorkspaceFileInput>,
-      context?: ToolExecuteRunContext
+      context?: ToolExecuteContext
     ) => {
       const resolvedInput = parseToolExecuteInput(
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.renameWorkspaceFile],
         input
       );
       try {
-        return await runRenameWorkspaceFile(resolvedInput, runtimeData, readToolCallId(context));
+        return await runRenameWorkspaceFile(
+          resolvedInput,
+          runtimeData,
+          readToolCallId(context),
+          readToolExecutionThreadId([input, context]),
+          context?.abortSignal
+        );
       } catch (error) {
         logToolFailure('renameWorkspaceFile failed', error, resolvedInput);
         throw error;

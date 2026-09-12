@@ -650,6 +650,7 @@ export {
   SAFE_QUEUE_STATUS_ERRORS,
   type VectorQueueSnapshot,
 } from './tools/queue-status-tool';
+export { readToolExecutionThreadId } from './tools/read-tool-call-id';
 export {
   computeExecutionContextFingerprint,
   resolveRunPythonExecutionContext,

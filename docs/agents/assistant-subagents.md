@@ -1632,3 +1632,25 @@ running children. A failed scan/check shows a visible error and Retry, retaining
 it does not silently substitute built-ins for a successful user-profile scan.
 No credentials enter the IPC response and no new state is persisted. Existing
 subagent-personas factory-reset registration remains authoritative.
+
+### Native child workspace reads and checkpoint undo (BST-1726)
+
+The native tool execution thread, not the parent tool-factory closure, owns
+read-before-write timestamps and paged-read cursors. Per-file locks remain the
+existing serialization boundary. The authorized delegated invocation resolves
+the checkpoint's resource and host-leg run with the same `delegatedHostRunId`
+function used by event persistence.
+
+Desktop memory wiring supplies pre-execution snapshot capture to host admission.
+The shared child view reuses `EditCheckpointProvider`/`useEditCheckpoints` with
+the child's thread ID; terminal store events refresh the ledger. Browser views
+without the checkpoint bridge do not query or expose native checkpoint controls.
+The Electron worker test proves child restore after reopen, durable reverted
+state after reload, preservation of an independent user file, and no new model
+request. This does not complete all workspace coordination acceptance.
+
+Delegated native file mutations carry the selected execution's abort signal to
+the per-path mutation boundary. A child stopped while waiting for a shared file
+lock cannot mutate after the lock becomes available; completed child edits stay
+inspectable and a sibling retains its own execution signal. The four real queued
+write/replace/delete/rename cases live in the workspace staleness integration suite.
