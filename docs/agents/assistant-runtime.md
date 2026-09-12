@@ -3238,6 +3238,11 @@ reconnect it; unrelated resolution faults retain the redacted correlation-id
 Catalogued tools that are intentionally unavailable for the active provider
 (for example suspend/task/session tools under the built-in local model) are a
 capability omission, debug-logged separately, and are not mislabeled unknown.
+Admitted-child configuration failures retain their typed identity through runtime
+construction. An unavailable admitted model/tool returns the same actionable HTTP
+409 as a rejected persisted profile, including approval and question resume; it
+is never rewrapped as a generic runtime-initialization 502. The service initializer
+and real native revoked-tool regression cover this boundary.
 Other initialization failures return only a safe stage
 (`provider_model_bootstrap` or `stream_construction`) plus a correlation id;
 the structured main-process log retains the same pair and the redacted error.
