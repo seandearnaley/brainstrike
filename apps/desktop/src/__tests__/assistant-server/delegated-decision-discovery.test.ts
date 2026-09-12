@@ -2,13 +2,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleSuspendedRunsRequest } from '../../assistant-server/status-endpoints';
 import { createRunRequest } from './_harness';
 
-const { mockListSuspendedMastraRuns, mockDesktopDatabase, mockGetDatabase } = vi.hoisted(() => ({
+const {
+  mockListSuspendedMastraRuns,
+  mockListSuspendedChildContinuation,
+  mockDesktopDatabase,
+  mockGetDatabase,
+} = vi.hoisted(() => ({
   mockDesktopDatabase: { query: vi.fn() },
   mockGetDatabase: vi.fn(),
+  mockListSuspendedChildContinuation: vi.fn(),
   mockListSuspendedMastraRuns: vi.fn(),
 }));
 vi.mock('@brainstrike/agent', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/agent')>()),
+  listSuspendedChildContinuation: mockListSuspendedChildContinuation,
   listSuspendedMastraRuns: mockListSuspendedMastraRuns,
 }));
 vi.mock('../../db-main', () => ({ getDatabase: mockGetDatabase }));
@@ -23,6 +30,7 @@ beforeEach(() => {
   mockGetDatabase.mockReset().mockResolvedValue(mockDesktopDatabase);
   mockDesktopDatabase.query.mockReset().mockResolvedValue({ rows: [] });
   mockListSuspendedMastraRuns.mockReset().mockResolvedValue({ approvals: [], suspends: [] });
+  mockListSuspendedChildContinuation.mockReset().mockResolvedValue({ approvals: [], suspends: [] });
 });
 
 describe('delegated decision rediscovery HTTP contract', () => {
@@ -69,6 +77,7 @@ describe('delegated decision rediscovery HTTP contract', () => {
         url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
       });
       expect(response.status).toBe(200);
+      expect(mockDesktopDatabase.query).toHaveBeenCalledTimes(2);
       expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
         expect.stringContaining(
           'WHERE decision.owner_resource_id = $1 AND decision.root_thread_id = $2'
@@ -124,6 +133,7 @@ it('reads decision state only for the newest returned suspends', async () => {
     url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
   });
   expect(response.status).toBe(200);
+  expect(mockDesktopDatabase.query).toHaveBeenCalledTimes(2);
   expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
     expect.stringContaining('brainstrike_delegated_tool_decisions'),
     [
@@ -187,3 +197,65 @@ it.each(['query failure', 'unknown saved state'])(
     });
   }
 );
+
+it('fails the whole discovery visibly when an owned receipt loses its authorized ancestry', async () => {
+  mockListSuspendedMastraRuns.mockResolvedValue({
+    approvals: [{ ...delegatedPause(0), delegation: undefined }],
+    suspends: [],
+  });
+  mockDesktopDatabase.query
+    .mockResolvedValueOnce({ rows: [{ id: 'unverifiable-child' }] })
+    .mockResolvedValue({ rows: [] });
+  const response = await runRequest({
+    method: 'GET',
+    url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+  });
+  expect(response.status).toBe(500);
+  expect(JSON.parse(response.body)).toEqual({
+    error: 'suspended_runs_failed',
+    message: 'Suspended approval discovery failed.',
+  });
+});
+
+it('rejects an invalid suspension timestamp even when there is only one child decision', async () => {
+  mockDesktopDatabase.query
+    .mockResolvedValueOnce({ rows: [{ id: 'receipt' }] })
+    .mockResolvedValueOnce({ rows: [{ id: 'thread-1' }] })
+    .mockResolvedValueOnce({
+      rows: [
+        {
+          configuration: { persona: { id: 'worker' } },
+          delegation_depth: 1,
+          id: 'receipt',
+          native_run_id: 'native-child',
+          parent_thread_id: 'thread-1',
+          resource_id: 'child-resource',
+          state: 'awaiting-approval',
+          thread_id: 'child',
+          turn_message_id: 'turn',
+        },
+      ],
+    });
+  mockListSuspendedChildContinuation.mockResolvedValue({
+    approvals: [
+      {
+        continuationId: 'receipt',
+        runId: 'native-child',
+        suspendedAt: 'invalid',
+        toolCallId: 'call',
+        toolName: 'brainstrike.executeCommand',
+      },
+    ],
+    suspends: [],
+  });
+  const response = await runRequest({
+    method: 'GET',
+    url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+  });
+  expect(mockListSuspendedChildContinuation).toHaveBeenCalledOnce();
+  expect(response.status).toBe(500);
+  expect(JSON.parse(response.body)).toEqual({
+    error: 'suspended_runs_failed',
+    message: 'Suspended approval discovery failed.',
+  });
+});

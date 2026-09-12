@@ -39,7 +39,6 @@ import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
 import type { MastraMemory } from '@mastra/core/memory';
 import type { ChunkType } from '@mastra/core/stream';
-import { z } from 'zod';
 import { isContextOverflowProviderErrorCode } from '../provider-error-metadata';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import {
@@ -78,6 +77,7 @@ import {
   createChildContinuationDecisionStream,
   createChildFollowupStream,
 } from './child-continuation';
+import { readChildContinuationUserMessage } from './child-continuation-user-message';
 import { withDelegatedPersonaSnapshots } from './delegated-persona-snapshots';
 import { createDelegatedStreamProjection } from './delegated-stream-projection';
 import { captureDelegatedSystemContext } from './delegated-system-context';
@@ -464,23 +464,16 @@ export async function processMastraStreamPart(
       return { chunks: [], finished: false };
     case 'data-user-message': {
       const data = readMastraStreamPartValue(p, 'data');
-      const continuation = z
-        .object({
-          contents: z.string(),
-          createdAt: z.iso.datetime(),
-          id: z.string().min(1),
-          metadata: z.object({ brainstrikeChildContinuation: z.string().min(1) }),
-        })
-        .safeParse(data);
-      if (!continuation.success) {
+      const continuation = readChildContinuationUserMessage(data);
+      if (!continuation) {
         return { chunks: [], finished: false };
       }
       return {
         chunks: [
           {
-            createdAt: continuation.data.createdAt,
-            id: continuation.data.id,
-            text: continuation.data.contents,
+            createdAt: continuation.createdAt,
+            id: continuation.id,
+            text: continuation.contents,
             type: 'child-user-message',
           },
         ],

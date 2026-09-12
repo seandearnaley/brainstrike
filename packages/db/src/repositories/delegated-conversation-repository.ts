@@ -1,4 +1,16 @@
 import {
+  type DelegatedConversationDatabase,
+  DelegatedConversationIdentityError,
+  type DelegatedConversationScope,
+} from './delegated-conversation-boundary.js';
+
+export {
+  type DelegatedConversationDatabase,
+  DelegatedConversationIdentityError,
+  type DelegatedConversationScope,
+} from './delegated-conversation-boundary.js';
+
+import {
   type AssistantRunEvent,
   type DelegatedOriginalToolCall,
   sanitizeAssistantRunEventMetadata,
@@ -10,25 +22,9 @@ import {
 } from './delegated-continuation-repository.js';
 import { AUTHORIZED_DELEGATED_GRAPH as AUTHORIZED_GRAPH } from './delegated-graph-sql.js';
 
-/**
- * Host-owned graph over native Mastra conversations. Write inputs come from
- * the host's observed delegation scope, never model arguments or renderer ids.
- * Read authorization joins the live root owner and exact native child scope.
- */
-export interface DelegatedConversationDatabase {
-  /** Only scalar SQL parameters and explicitly serialized configuration JSON. */
-  query(sql: string, params?: (string | number | null)[]): Promise<{ rows: unknown[] }>;
-  transaction?<T>(callback: (tx: DelegatedConversationDatabase) => Promise<T>): Promise<T>;
-}
-
 type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonObject;
 interface JsonObject {
   readonly [key: string]: JsonValue;
-}
-
-export interface DelegatedConversationScope {
-  readonly ownerResourceId: string;
-  readonly rootThreadId: string;
 }
 
 export type DelegatedConversationColor = 'blue' | 'emerald' | 'amber' | 'rose' | 'violet' | 'slate';
@@ -127,17 +123,6 @@ export interface DelegatedConversationRepository {
     usage: DelegatedInvocationUsage
   ): Promise<void>;
   registerRoot(scope: DelegatedConversationScope): Promise<DelegatedConversationNode>;
-}
-
-export class DelegatedConversationIdentityError extends Error {
-  readonly reason: string;
-  constructor(reason = 'identity-conflict') {
-    super(
-      'Delegated conversation identity is missing, unauthorized or conflicts with its persisted binding.'
-    );
-    this.name = 'DelegatedConversationIdentityError';
-    this.reason = reason;
-  }
 }
 
 function requireString(value: unknown): string {

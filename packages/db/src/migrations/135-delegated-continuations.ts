@@ -36,7 +36,7 @@ export const migration135DelegatedContinuations: Migration = {
     tool_call_id text NOT NULL CHECK (length(btrim(tool_call_id)) > 0),
     kind text NOT NULL CHECK (kind IN ('tool-approval', 'tool-resume')),
     host_run_id text NOT NULL REFERENCES brainstrike_assistant_thread_runs(id) ON DELETE CASCADE,
-    previous_host_run_id text NOT NULL,
+    previous_host_run_id text NOT NULL REFERENCES brainstrike_assistant_thread_runs(id) ON DELETE CASCADE,
     state text NOT NULL CHECK (state IN ('claimed', 'consumed', 'interrupted')),
     created_at timestamptz NOT NULL DEFAULT NOW(),
     PRIMARY KEY(continuation_id, target_runtime_run_id, tool_call_id)

@@ -104,7 +104,7 @@ export async function createStreamIteratorFromRuntime(
   });
 }
 
-async function wakeNativeChild(
+async function wakeNativeConversation(
   agent: Agent,
   wake: NonNullable<StreamIterationParams['nativeWake']>,
   runtimeData: RuntimeData | undefined,
@@ -113,7 +113,7 @@ async function wakeNativeChild(
 ) {
   const scope = runtimeData?.memory;
   if (!scope) {
-    throw new Error('Child continuation requires its authorized native memory scope.');
+    throw new Error('Native conversation wake requires its authorized memory scope.');
   }
   const accepted = await agent.sendSignal(wake.signal, {
     ifActive: { behavior: 'discard' },
@@ -128,18 +128,18 @@ async function wakeNativeChild(
     threadId: scope.threadId,
   }).accepted;
   if (accepted.action !== 'wake') {
-    throw new Error(`Child continuation was not started (${accepted.action}).`);
+    throw new Error(`Native conversation wake was not started (${accepted.action}).`);
   }
   try {
     await wake.onWake(accepted.runId);
   } catch (error) {
-    abort(new Error('Child continuation binding failed.', { cause: error }));
+    abort(new Error('Native conversation wake binding failed.', { cause: error }));
     try {
       await accepted.output.consumeStream();
     } catch (settleError) {
       throw new AggregateError(
         [error, settleError],
-        'Child continuation binding and native settlement failed.'
+        'Native conversation wake binding and settlement failed.'
       );
     }
     throw error;
@@ -231,7 +231,7 @@ async function createInitialTurnAttempt(
           : undefined;
 
     const streamResult = nativeWake
-      ? await wakeNativeChild(
+      ? await wakeNativeConversation(
           runtime.agent,
           nativeWake,
           runtimeData,

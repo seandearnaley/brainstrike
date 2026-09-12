@@ -197,7 +197,16 @@ describe('webExtract artifact settlement budget', () => {
           warn: vi.fn(),
         } as unknown as ScopedLogger,
         mcpConfig: undefined,
-        messages: [],
+        messages:
+          kind === 'child-followup'
+            ? [
+                {
+                  id: 'client-system',
+                  parts: [{ text: 'CLIENT_SUPPLIED_SYSTEM_MUST_NOT_CROSS', type: 'text' }],
+                  role: 'system',
+                },
+              ]
+            : [],
         resolveProviderApiKey: vi.fn(async () => undefined),
         runId: 'run-1',
         runtimeData: {

@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
 import type { ConversationStreamChunk, StreamChunkDelegatedConversation } from '../types';
+import { readChildContinuationUserMessage } from './child-continuation-user-message';
 import type { DelegatedRunIdentity } from './delegated-run-publication';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 import { resolveDelegationPersona } from './tool-lifecycle-processors';
@@ -65,15 +66,8 @@ function projectHumanInput<State>(
   children: ReadonlyMap<string, ChildStreamState<State>>
 ): StreamChunkDelegatedConversation[] {
   const data = readMastraStreamPartValue(part, 'data');
-  if (data && typeof data === 'object') {
-    const metadata: unknown = Reflect.get(data, 'metadata');
-    if (
-      metadata &&
-      typeof metadata === 'object' &&
-      typeof Reflect.get(metadata, 'brainstrikeChildContinuation') === 'string'
-    ) {
-      return [];
-    }
+  if (readChildContinuationUserMessage(data)) {
+    return [];
   }
   const input = z
     .object({

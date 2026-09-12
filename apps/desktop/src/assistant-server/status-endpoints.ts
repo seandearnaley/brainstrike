@@ -303,16 +303,31 @@ async function includeContinuationPauses(
     return original;
   }
   const result = { approvals: [...original.approvals], suspends: [...original.suspends] };
-  for (const continuation of continuations) {
-    const pending = await listSuspendedChildContinuation(continuation, {
-      resolveInvocation: createDesktopDelegatedSuspensionResolver(database, scope),
-      storage,
-    });
+  const pendingResults = await Promise.all(
+    continuations.map((continuation) =>
+      listSuspendedChildContinuation(continuation, {
+        resolveInvocation: createDesktopDelegatedSuspensionResolver(database, scope),
+        storage,
+      })
+    )
+  );
+  for (const pending of pendingResults) {
     result.approvals.push(...pending.approvals);
     result.suspends.push(...pending.suspends);
   }
-  result.approvals.sort((a, b) => Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt));
-  result.suspends.sort((a, b) => Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt));
+  const suspendedTime = (decision: { suspendedAt: string }): number => {
+    const timestamp = Date.parse(decision.suspendedAt);
+    if (!Number.isFinite(timestamp)) {
+      throw new Error('Discovered decision has an invalid suspension timestamp.');
+    }
+    return timestamp;
+  };
+  // Validate even a singleton, for which Array.sort never calls its comparator.
+  for (const decision of [...result.approvals, ...result.suspends]) {
+    suspendedTime(decision);
+  }
+  result.approvals.sort((a, b) => suspendedTime(a) - suspendedTime(b));
+  result.suspends.sort((a, b) => suspendedTime(a) - suspendedTime(b));
   return result;
 }
 

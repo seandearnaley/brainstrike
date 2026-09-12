@@ -224,7 +224,12 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(
     childPanel.getByRole('button', { includeHidden: true, name: 'Edit message' })
   ).toHaveCount(0);
-  await expect(childPanel.getByRole('textbox', { name: 'Message input' })).toBeDisabled();
+  // Idle children accept their own draft; opening or editing it must not run
+  // a model or change the parent's composer. Delivery is covered separately.
+  const childInput = childPanel.getByRole('textbox', { name: 'Message input' });
+  await expect(childInput).toBeEnabled();
+  await childInput.fill('UNSENT_CHILD_DRAFT_1724');
+  await expect(rootDraft).toHaveValue('UNSENT_PARENT_DRAFT_1724');
   await expect(
     childPanel.getByRole('button', { includeHidden: true, name: 'Restore to before this message' })
   ).toHaveCount(0);
