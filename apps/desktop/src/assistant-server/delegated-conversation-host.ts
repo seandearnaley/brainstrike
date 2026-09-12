@@ -58,6 +58,9 @@ async function readRequiredBranchHistory(
   resourceId: string,
   requiredMessageIds: readonly string[]
 ): Promise<Awaited<ReturnType<typeof readAssistantHistoryMessages>>> {
+  if (requiredMessageIds.length === 0) {
+    return [];
+  }
   const required = new Set(requiredMessageIds);
   const captured = new Map<
     string,
@@ -247,7 +250,8 @@ export function createDesktopDelegatedConversationHost(
     threadId: string,
     resourceId: string,
     initial: boolean,
-    requiredMessageIds?: readonly string[]
+    requiredMessageIds?: readonly string[],
+    excludedOriginatingTurnMessageId?: string
   ): Promise<DelegatedConversationBaseline> => {
     const [messages, runEvents] = await Promise.all([
       requiredMessageIds
@@ -266,12 +270,34 @@ export function createDesktopDelegatedConversationHost(
       }
       history.push({ ...message, createdAt: message.createdAt.toISOString() });
     }
+    let retainedRunEvents = runEvents;
+    if (initial || requiredMessageIds?.length === 0) {
+      retainedRunEvents = [];
+    } else if (requiredMessageIds) {
+      const branchMessageIds = new Set(requiredMessageIds);
+      retainedRunEvents = runEvents.filter((event) => {
+        const nativeMessageId = event.metadata?.['nativeMessageId'];
+        const originatingTurnMessageId = event.metadata?.['originatingTurnMessageId'];
+        if (typeof nativeMessageId === 'string') {
+          return branchMessageIds.has(nativeMessageId);
+        }
+        if (typeof originatingTurnMessageId === 'string') {
+          return (
+            originatingTurnMessageId !== excludedOriginatingTurnMessageId &&
+            branchMessageIds.has(originatingTurnMessageId)
+          );
+        }
+        // Legacy rows without durable ownership still need the ordinary
+        // chronological assignment path; absence is not evidence of exclusion.
+        return true;
+      });
+    }
     return structuredClone({
       hostRunId,
       // Mastra generates a fresh child thread per delegation invocation. Native
       // input rows are history; this invocation's output belongs to its decoder.
       messages: history,
-      runEvents: initial ? [] : [...runEvents],
+      runEvents: [...retainedRunEvents],
       threadId,
     });
   };

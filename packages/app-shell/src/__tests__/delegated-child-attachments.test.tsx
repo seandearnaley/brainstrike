@@ -130,13 +130,19 @@ it('surfaces provider discovery failure beside the child composer', () => {
         label="Child"
         onNew={async () => {}}
         onSendActiveInput={async () => {}}
+        panelProps={{ className: 'min-h-20 flex-none' }}
         persistedHistory={{ messages: [] }}
         store={createDelegatedConversationStore('root')}
         threadId="child"
       />
     </TooltipProvider>
   );
-  expect(screen.getByRole('alert')).toHaveTextContent('OS keychain is locked');
+  const alert = screen.getByRole('alert');
+  const panel = screen.getByTestId('assistant-conversation-panel');
+  expect(alert).toHaveTextContent('OS keychain is locked');
+  expect(alert).toHaveClass('shrink-0');
+  expect(alert.parentElement).toHaveClass('flex', 'h-full', 'min-h-0', 'flex-col');
+  expect(panel).toHaveClass('min-h-0', 'flex-1');
 });
 
 it('keeps an idle child composer disabled until its admitted configuration loads', () => {

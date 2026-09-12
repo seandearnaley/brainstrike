@@ -11,6 +11,10 @@ boundary and composer input identity; callbacks and `threadKey` must name the
 same conversation. See `assistant-subagents.md` for the host integration limits
 and paired runtime/browser tests. Main runtime construction is unchanged.
 
+Child provider errors share a bounded flex column with the conversation. The
+error row must reserve its own height while the transcript/composer takes the
+remaining space; an error cannot push the composer below the pane.
+
 ## Native suspension completion
 
 Initial, approval-resume and suspended-tool-resume legs await Mastra's public

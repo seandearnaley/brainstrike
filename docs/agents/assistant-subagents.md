@@ -1843,6 +1843,21 @@ from that same root store, not another thread or global settings alone. Desktop
 children use the same shared provider-discovery resource as the parent even when
 the parent panel is not mounted.
 
+Historical Retry/Edit reads admission ancestry and restart capture in bounded
+80-message pages. An empty branch prefix reads no message page. Its baseline
+excludes events whose canonical native-message owner (or, when absent, turn
+owner) is outside the branch. Retry also excludes turn-owned events for the
+replaced answer, even though its user prompt remains in the prefix. Legacy
+ownerless events retain chronological
+assignment; an empty prefix has no events to project. The native branch
+history verifier observes transaction-handle queries as well as outer capture
+queries, and exercises missing targets and cycles directly.
+
+Idle input and historical branch actions wait for a valid admitted persona.
+A malformed latest execution receipt displays a concise, explicit error while
+retaining the original admitted persona and tool/step limits; raw schema issue
+JSON is not user-facing copy, and unreadable execution settings are not inferred.
+
 Changes apply only to a new idle-child input. Active input carries no next-run
 configuration. The shared composer captures the complete next-run request once;
 an unconfirmed retry keeps that exact receipt and settings despite later control
