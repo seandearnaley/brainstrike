@@ -1348,6 +1348,28 @@ from disk; only the step's own `outcome` travels as an environment variable.
 Carrying the review text back through one would reintroduce the same class of
 limit in the other direction.
 
+**The published body reaches `gh` on stdin too (BST-1743).** The reporter
+posts with `gh pr comment --body-file -` and hands the body to `execFileSync`
+as `input`, never as a `--body` argument. Node refuses any argv element that
+contains a NUL byte (`ERR_INVALID_ARG_VALUE: The argument 'args[6]' must be a
+string without null bytes`), and a reviewer that faithfully quotes the diff
+will produce one: twice on #3119 the review had completed and validated at the
+exact head, then destroyed itself by reproducing the PR's own `\u0000` latch
+separator in its prose. Any control character in reviewed code can do this,
+and reviewing such code is normal. A pipe carries every byte sequence, so the
+reviewer's text is published exactly as written — do not "fix" this by
+stripping or escaping, which would alter the review, and do not move the body
+back to argv. It is the same lesson as the prompt's 128 KiB `MAX_ARG_STRLEN`
+ceiling (BST-1666) at a different limit; `gh` 2.91.0 documents `-F,
+--body-file file … (use "-" to read from standard input)`. The unit test's
+`gh` mock mirrors Node's argv contract and refuses NUL, so reverting to
+`--body` fails the suite with the production error text. When publication
+does fail, the reporter writes the cause to **stderr** with the stable prefix
+`CLAUDE_REVIEW_PUBLICATION_FAILED:` as well as to the step summary — grep the
+job log for that prefix; before this the log showed only a bare exit code and
+the reason lived in the summary alone. The exit code is unchanged: nothing
+published is still **incomplete** and red.
+
 Automatic review retains the `opened`, `ready_for_review`, and `reopened`
 lifecycle and omits `synchronize`. Changes to the workflow or its orchestration
 script receive an explicit **skipped** disposition; a maintainer can request
