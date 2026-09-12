@@ -46,6 +46,14 @@ beforeEach(async () => {
 afterEach(async () => database.close());
 
 it('pages backward to the required ancestors on admission and decision restart', async () => {
+  const historyQueries: string[] = [];
+  const query = database.query.bind(database);
+  vi.spyOn(database, 'query').mockImplementation(async (sql, params) => {
+    if (sql.includes('FROM mastra_messages')) {
+      historyQueries.push(sql);
+    }
+    return query(sql, params);
+  });
   const first = createDesktopDelegatedConversationHost(database, 'wake-host').continuation;
   const claimed = await first.prepareContinuation(input);
   expect(claimed.branchMessageIds).toHaveLength(81);
@@ -62,6 +70,8 @@ it('pages backward to the required ancestors on admission and decision restart',
   });
   expect(resumed.baseline.headId).toBe('paged-branch-80');
   expect(resumed.baseline.messages.map(({ id }) => id)).toEqual(claimed.branchMessageIds);
+  expect(historyQueries.length).toBeGreaterThan(4);
+  expect(historyQueries.every((sql) => sql.includes('LIMIT $3'))).toBe(true);
 });
 
 it('fails closed when a required ancestor disappears from every bounded page', async () => {

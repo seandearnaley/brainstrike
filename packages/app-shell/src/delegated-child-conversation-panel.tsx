@@ -101,6 +101,7 @@ function CapableChildPanel({
 }: Props) {
   const persona =
     insights.status === 'ready' ? parseAdmittedPersona(insights.value.configuration) : undefined;
+  const admittedConfigurationReady = insights.status === 'ready' && persona !== undefined;
   const controls = useChildNextRunControls({
     inheritedModel: inheritedModel ?? null,
     inheritedPlanMode,
@@ -145,6 +146,8 @@ function CapableChildPanel({
       ) : null}
       <DelegatedConversationPanel
         {...props}
+        allowIdleInput={admittedConfigurationReady && props.allowIdleInput === true}
+        onBranch={admittedConfigurationReady ? props.onBranch : undefined}
         panelProps={{
           ...props.panelProps,
           ...controls.panelProps,

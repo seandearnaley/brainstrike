@@ -138,3 +138,23 @@ it('surfaces provider discovery failure beside the child composer', () => {
   );
   expect(screen.getByRole('alert')).toHaveTextContent('OS keychain is locked');
 });
+
+it('keeps an idle child composer disabled until its admitted configuration loads', () => {
+  render(
+    <TooltipProvider>
+      <DelegatedChildConversationPanel
+        allowIdleInput
+        inheritedModel="openai::text"
+        insights={{ status: 'loading' }}
+        label="Child"
+        onNew={async () => {}}
+        onSendActiveInput={async () => {}}
+        persistedHistory={{ messages: [] }}
+        store={createDelegatedConversationStore('root')}
+        threadId="child"
+      />
+    </TooltipProvider>
+  );
+
+  expect(screen.getByRole('textbox', { name: 'Message input' })).toBeDisabled();
+});

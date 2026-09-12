@@ -74,16 +74,24 @@ function formatPermissionPolicy(
 
 function AdmittedConfigurationDetails({
   execution,
+  latestReceiptInvalid,
   persona,
   value,
 }: {
   readonly execution: ChildExecutionConfiguration | undefined;
+  readonly latestReceiptInvalid: boolean;
   readonly persona: AssistantPersonaDefinition;
   readonly value: DelegatedConversationInsights;
 }) {
   const scope = personaScope(persona);
-  const model = execution?.model ?? value.latestRun?.model ?? persona.model?.modelId;
-  const provider = execution?.provider ?? value.latestRun?.provider ?? persona.model?.provider;
+  const model =
+    execution?.model ??
+    (latestReceiptInvalid ? undefined : value.latestRun?.model) ??
+    persona.model?.modelId;
+  const provider =
+    execution?.provider ??
+    (latestReceiptInvalid ? undefined : value.latestRun?.provider) ??
+    persona.model?.provider;
   return (
     <div className="space-y-1">
       <p className="font-medium">Admitted child configuration</p>
@@ -163,38 +171,52 @@ function LoadedDetails({
   isRunning,
   persona,
   execution,
+  receiptError,
 }: {
   readonly execution: ChildExecutionConfiguration | undefined;
   readonly persona: AssistantPersonaDefinition;
   readonly value: DelegatedConversationInsights;
   readonly isRunning: boolean;
+  readonly receiptError: Error | undefined;
 }) {
   const scope = personaScope(persona);
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          aria-label="Child details"
-          className="h-7 gap-1.5 px-2 text-xs"
-          size="sm"
-          variant="ghost"
+    <>
+      {receiptError ? (
+        <p className="px-2 text-destructive text-xs" role="alert">
+          Latest child execution receipt could not be read: {receiptError.message}
+        </p>
+      ) : null}
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            aria-label="Child details"
+            className="h-7 gap-1.5 px-2 text-xs"
+            size="sm"
+            variant="ghost"
+          >
+            <SlidersHorizontal aria-hidden="true" className="size-3.5" />
+            <span>{persona.label}</span>
+            <span className="text-muted-foreground">
+              · {scope.mode === 'worker' ? 'Worker mode' : 'Read-only'}
+            </span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          aria-label="Child execution details"
+          className="w-80 max-w-[calc(100vw-2rem)] space-y-3 text-xs"
         >
-          <SlidersHorizontal aria-hidden="true" className="size-3.5" />
-          <span>{persona.label}</span>
-          <span className="text-muted-foreground">
-            · {scope.mode === 'worker' ? 'Worker mode' : 'Read-only'}
-          </span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        aria-label="Child execution details"
-        className="w-80 max-w-[calc(100vw-2rem)] space-y-3 text-xs"
-      >
-        <AdmittedConfigurationDetails execution={execution} persona={persona} value={value} />
-        <CapturedUsageDetails isRunning={isRunning} value={value} />
-      </PopoverContent>
-    </Popover>
+          <AdmittedConfigurationDetails
+            execution={execution}
+            latestReceiptInvalid={receiptError !== undefined}
+            persona={persona}
+            value={value}
+          />
+          <CapturedUsageDetails isRunning={isRunning} value={value} />
+        </PopoverContent>
+      </Popover>
+    </>
   );
 }
 
@@ -223,13 +245,8 @@ export function DelegatedConversationToolbar({
   // This is a presentation boundary for legacy persisted profiles. A malformed
   // profile remains inspectable in history, but can never masquerade as Worker.
   let persona: AssistantPersonaDefinition;
-  let execution: ChildExecutionConfiguration | undefined;
   try {
     persona = readAdmittedPersonaConfiguration(insights.value.configuration);
-    const latestExecution =
-      insights.value.latestExecutionConfiguration ?? insights.value.configuration;
-    const captured = admittedPersonaConfigurationSchema.parse(latestExecution).execution;
-    execution = captured ? readChildExecutionConfiguration(captured) : undefined;
   } catch (error) {
     return (
       <p className="px-2 text-destructive text-xs" role="alert">
@@ -237,12 +254,24 @@ export function DelegatedConversationToolbar({
       </p>
     );
   }
+  let execution: ChildExecutionConfiguration | undefined;
+  let receiptError: Error | undefined;
+  try {
+    const latestExecution =
+      insights.value.latestExecutionConfiguration ?? insights.value.configuration;
+    const captured = admittedPersonaConfigurationSchema.parse(latestExecution).execution;
+    execution = captured ? readChildExecutionConfiguration(captured) : undefined;
+  } catch (error) {
+    receiptError =
+      error instanceof Error ? error : new Error('Child execution receipt could not be read.');
+  }
   return (
     <LoadedDetails
       execution={execution}
       isRunning={isRunning}
       key={insights.value.threadId}
       persona={persona}
+      receiptError={receiptError}
       value={insights.value}
     />
   );

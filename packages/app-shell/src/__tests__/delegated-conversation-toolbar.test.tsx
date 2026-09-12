@@ -142,7 +142,8 @@ it('shows the latest admitted child execution settings and tools, not a later ro
   expect(screen.queryByText('unknown-custom-model')).not.toBeInTheDocument();
 });
 
-it('surfaces an invalid latest execution receipt without reducing the admitted maximum', () => {
+it('surfaces an invalid latest execution receipt while retaining the original admission', async () => {
+  const user = userEvent.setup();
   render(
     <DelegatedConversationToolbar
       insights={{
@@ -153,5 +154,8 @@ it('surfaces an invalid latest execution receipt without reducing the admitted m
     />
   );
   expect(screen.getByRole('alert')).toBeVisible();
-  expect(screen.queryByRole('button', { name: 'Child details' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Child details' }));
+  expect(screen.getByText('Up to 8 steps')).toBeVisible();
+  expect(screen.getByText('1 admitted tool')).toBeVisible();
+  expect(screen.queryByText('unknown-custom-model')).not.toBeInTheDocument();
 });
