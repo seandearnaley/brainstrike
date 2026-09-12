@@ -1783,3 +1783,36 @@ Child workspace breadcrumbs require the same FileExplorerProvider as AppLayout.
 The live/reloaded child tests mount that provider rather than replacing its
 selector. A disconnected bound root displays an explicit unavailable-folder
 label, never an opaque root identifier or a replacement workspace.
+
+
+### Managed opaque workspace effects (BST-1726)
+
+Finite native shell and skill processes acquire an exclusive lease on their
+canonical declared workspace root until actual process settlement. Queueing and
+execution share the existing call deadline; an expired waiter never spawns. Native file
+mutations acquire a shared workspace lease around their existing ordered
+per-file locks, including staleness/capture/write/checkpoint/index settlement.
+Overlapping parent/child root paths conflict; disjoint roots and disjoint file
+mutations without an opaque owner retain concurrency. Queued cancellation
+refuses execution before any effect. Skill runtime resolution plus lease wait
+continues to share its original timeout budget.
+
+A long-lived **delegated** command session retains its exclusive lease until
+PTY exit. A conflicting managed edit/process fails visibly with the session ID
+and the instruction to Stop it before editing; it is never queued indefinitely
+or silently applied later. This is a stop/edit/restart workflow when the child
+chooses a persistent process. The existing Command sessions surface can stop
+the named session, and selected child Stop joins the sessions owned by those
+host-observed native child identities before acknowledging completion. That
+ownership lives in the existing process manager, not a parallel registry.
+Lease release follows actual exit; a failed stop cannot release uncertain work.
+
+Ordinary root/user command sessions retain their existing dev-server/edit flow;
+this lease does not claim to serialize arbitrary user-owned background servers
+or external processes. Shell cwd checks remain the existing containment rule,
+not a sandbox: command bodies are unrestricted after permission. Remote MCP
+servers own their own filesystem scope and cancellation semantics; arbitrary
+tool input or metadata never establishes client-side workspace confinement.
+The real HTTP MCP worker fixture proves an approved server-owned disposable
+file effect once, preserves dirty/sibling files, refuses replay, and prevents
+execution when the pending worker is stopped before dispatch.

@@ -6,11 +6,12 @@ import {
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
   type RuntimeData,
 } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { createCredentialIsolatedChildEnvironment } from '../desktop-env';
+import { withWorkspaceMutationLease } from './workspace-mutation-lease';
 import { isWithinRoot } from './workspace-path';
 import {
   describeOpenRootTopology,
@@ -238,11 +239,16 @@ async function resolveCommandCwd(
   runtimeData: RuntimeData | undefined,
   rootQualifier: string | undefined,
   requestedCwd: string | undefined
-): Promise<{ cwd: string; rootId: string; rootName: string }> {
+): Promise<{ cwd: string; rootId: string; rootName: string; rootPath: string }> {
   const root = resolveWorkspaceRoot(runtimeData, rootQualifier);
   const canonicalRootPath = await fsPromises.realpath(root.path);
   if (requestedCwd === undefined || requestedCwd.trim().length === 0) {
-    return { cwd: canonicalRootPath, rootId: root.rootId, rootName: root.displayName };
+    return {
+      cwd: canonicalRootPath,
+      rootId: root.rootId,
+      rootName: root.displayName,
+      rootPath: canonicalRootPath,
+    };
   }
   // A relative cwd is resolved against the root; an absolute cwd is taken as-is.
   // Either way the canonical (symlink-resolved) result must be inside the root.
@@ -264,7 +270,12 @@ async function resolveCommandCwd(
       `cwd "${requestedCwd}" resolves outside the workspace root "${root.displayName}". A command's start directory must be inside an open folder.`
     );
   }
-  return { cwd: canonicalCwd, rootId: root.rootId, rootName: root.displayName };
+  return {
+    cwd: canonicalCwd,
+    rootId: root.rootId,
+    rootName: root.displayName,
+    rootPath: canonicalRootPath,
+  };
 }
 
 export interface SpawnOutcome {
@@ -732,17 +743,38 @@ export async function runExecuteCommand(
   options?: { signal?: AbortSignal | undefined; stream?: ShellOutputStreamer | undefined }
 ): Promise<ExecuteCommandToolResult> {
   const topology = describeOpenRootTopology(runtimeData);
-  const { cwd, rootId, rootName } = await resolveCommandCwd(runtimeData, input.root, input.cwd);
+  const { cwd, rootId, rootName, rootPath } = await resolveCommandCwd(
+    runtimeData,
+    input.root,
+    input.cwd
+  );
   const timeoutMs = Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
   const startedAt = Date.now();
-  const outcome = await runShellCommand({
-    command: input.command,
-    cwd,
-    signal: options?.signal,
-    streamer: options?.stream,
-    timeoutMs,
-  });
+  // Queueing is part of the same call budget; an expired waiter must never spawn.
+  const deadline = AbortSignal.timeout(timeoutMs);
+  const admissionSignal = options?.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
+  const outcome = await withWorkspaceMutationLease(
+    rootPath,
+    'opaque',
+    () => {
+      admissionSignal.throwIfAborted();
+      const remainingTimeoutMs = timeoutMs - (Date.now() - startedAt);
+      if (remainingTimeoutMs <= 0) {
+        throw new ToolInputError(
+          'The command timed out while waiting for workspace ownership; it was not run.'
+        );
+      }
+      return runShellCommand({
+        command: input.command,
+        cwd,
+        signal: options?.signal,
+        streamer: options?.stream,
+        timeoutMs: remainingTimeoutMs,
+      });
+    },
+    admissionSignal
+  );
   const durationMs = Date.now() - startedAt;
 
   if (outcome.timedOut) {

@@ -13,6 +13,7 @@ import { ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import { runDetachedProcess, type ShellOutputStreamer } from './execute-command-tool';
+import { withWorkspaceMutationLease } from './workspace-mutation-lease';
 import { isWithinRoot } from './workspace-path';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
@@ -41,7 +42,7 @@ async function resolveWorkingDirectory(
   runtimeData: RuntimeData | undefined,
   input: RunSkillScriptInput,
   resolved: ResolvedSkillScriptExecution
-): Promise<{ cwd: string; rootName: string }> {
+): Promise<{ cwd: string; rootName: string; rootPath: string }> {
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   if (resolved.sourceRootId && resolved.sourceRootId !== root.rootId) {
     throw new ToolInputError(
@@ -71,7 +72,7 @@ async function resolveWorkingDirectory(
       `Resolved skill script "${resolved.scriptPath}" escapes skill "${resolved.skillName}".`
     );
   }
-  return { cwd: canonicalCwd, rootName: root.displayName };
+  return { cwd: canonicalCwd, rootName: root.displayName, rootPath: canonicalRoot };
 }
 
 async function resolveRuntime(
@@ -175,7 +176,7 @@ export async function runSkillScript(
     scriptPath: input.scriptPath,
     skillName: input.skillName,
   });
-  const { cwd, rootName } = await resolveWorkingDirectory(runtimeData, input, resolved);
+  const { cwd, rootName, rootPath } = await resolveWorkingDirectory(runtimeData, input, resolved);
 
   // `startedAt` and `timeoutMs` are captured BEFORE resolving the runtime
   // (PR #2205 review): a cold `python3` resolve can itself take real time
@@ -184,30 +185,38 @@ export async function runSkillScript(
   // and leaving `input.timeoutMs` with nothing to bound.
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const startedAt = Date.now();
+  const executionSignal = createRuntimeResolveSignal(timeoutMs, options?.signal);
   const runtime = await resolveRuntime(
     input.runtime,
     options?.resolvePythonExecutable,
-    createRuntimeResolveSignal(timeoutMs, options?.signal)
+    executionSignal
   );
-  const remainingTimeoutMs = timeoutMs - (Date.now() - startedAt);
-  if (remainingTimeoutMs <= 0) {
-    // Resolving the runtime already consumed the model's whole timeout
-    // budget. Never spawn with an ambiguous zero/negative timeout — fail
-    // the same way a process-level timeout would, rather than guessing at
-    // what `runDetachedProcess({ timeoutMs: 0 })` means.
-    throw new ToolInputError(
-      `Resolving the "${input.runtime}" skill-script runtime took longer than the ${timeoutMs}ms timeout; the script was not run.`
-    );
-  }
-  const outcome = await runDetachedProcess({
-    argv: [resolved.absolutePath, ...(input.args ?? [])],
-    cwd,
-    ...(runtime.env ? { env: runtime.env } : {}),
-    executable: runtime.executable,
-    signal: options?.signal,
-    streamer: options?.stream,
-    timeoutMs: remainingTimeoutMs,
-  });
+  const outcome = await withWorkspaceMutationLease(
+    rootPath,
+    'opaque',
+    async () => {
+      const remainingTimeoutMs = timeoutMs - (Date.now() - startedAt);
+      if (remainingTimeoutMs <= 0) {
+        // Resolving the runtime already consumed the model's whole timeout
+        // budget. Never spawn with an ambiguous zero/negative timeout — fail
+        // the same way a process-level timeout would, rather than guessing at
+        // what `runDetachedProcess({ timeoutMs: 0 })` means.
+        throw new ToolInputError(
+          `Resolving the "${input.runtime}" skill-script runtime took longer than the ${timeoutMs}ms timeout; the script was not run.`
+        );
+      }
+      return runDetachedProcess({
+        argv: [resolved.absolutePath, ...(input.args ?? [])],
+        cwd,
+        ...(runtime.env ? { env: runtime.env } : {}),
+        executable: runtime.executable,
+        signal: options?.signal,
+        streamer: options?.stream,
+        timeoutMs: remainingTimeoutMs,
+      });
+    },
+    executionSignal
+  );
   const durationMs = Date.now() - startedAt;
   const output = fitOutput(outcome.stdout, outcome.stderr);
   logger.info('Skill script execution finished', {

@@ -7,7 +7,11 @@ import {
   InspectCommandSessionsInputSchema,
   ManageCommandSessionInputSchema,
 } from '@brainstrike/agent';
-import { type GuardedToolError, isGuardedToolError } from '@brainstrike/assistant-contract';
+import {
+  type GuardedToolError,
+  isGuardedToolError,
+  ToolInputError,
+} from '@brainstrike/assistant-contract';
 import {
   COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS,
   type CommandSessionInfo,
@@ -381,15 +385,27 @@ export function runInspectCommandSessions(
 export async function runManageCommandSession(
   input: ManageCommandSessionInput,
   runtimeData: RuntimeData | undefined,
-  dependencies: CommandSessionToolDependencies & { readonly signal?: AbortSignal } = {}
+  dependencies: CommandSessionToolDependencies & {
+    readonly signal?: AbortSignal;
+    readonly executionThreadId?: string | undefined;
+  } = {}
 ): Promise<ManageCommandSessionResult> {
   const manager = resolveManager(dependencies);
   const rootId = resolveRootId(runtimeData, input.root);
   const operation = input.operation;
   if (operation.action === 'start') {
+    if (dependencies.executionThreadId && !runtimeData?.memory?.threadId) {
+      throw new ToolInputError(
+        'Command session execution requires its originating conversation identity.'
+      );
+    }
     return await manager.start({
       command: operation.command,
       rootId,
+      ...(dependencies.executionThreadId &&
+      dependencies.executionThreadId !== runtimeData?.memory?.threadId
+        ? { delegatedThreadId: dependencies.executionThreadId }
+        : {}),
       ...(operation.cols === undefined ? {} : { cols: operation.cols }),
       ...(operation.cwd === undefined ? {} : { cwd: operation.cwd }),
       ...(operation.rows === undefined ? {} : { rows: operation.rows }),
