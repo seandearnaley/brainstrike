@@ -205,6 +205,12 @@ test('joins renderer IPC producers before closing their hosts @smoke', async ({
   const page = await electron.ensureWindow();
   const ownedProcess = (await electron.ensureContext()).app.process();
   const output: string[] = [];
+  const producerErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.text().startsWith('Renderer shutdown producer failed')) {
+      producerErrors.push(message.text());
+    }
+  });
   const capture = (chunk: Buffer) => output.push(chunk.toString());
   ownedProcess.stderr?.on('data', capture);
   ownedProcess.stdout?.on('data', capture);
@@ -246,6 +252,7 @@ test('joins renderer IPC producers before closing their hosts @smoke', async ({
   await testInfo.attach('renderer-shutdown-process-log', { body: log, contentType: 'text/plain' });
   expect(ownedProcess.exitCode).toBe(0);
   expect(ownedProcess.signalCode).toBeNull();
+  expect(producerErrors).toEqual([]);
   expect(log).not.toContain('chunking-host lifecycle has been disposed');
   expect(log).not.toContain('DB host manager is closing');
   expect(log).not.toContain("Error occurred in handler for 'db:query'");

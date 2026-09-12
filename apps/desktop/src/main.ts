@@ -1212,6 +1212,9 @@ if (singleInstanceLockAcquired) {
     // its delivery path is the SAME queue + channel the open-file e2e
     // exercises end to end. No e2e is invented for it.
     app.on('second-instance', (_event, secondInstanceArgv, workingDirectory) => {
+      if (isDesktopShuttingDown()) {
+        return;
+      }
       enqueueFolderCandidates(
         workspaceOpenQueue,
         filterDirectoryOpenCandidates(

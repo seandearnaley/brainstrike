@@ -1166,11 +1166,14 @@ step; fix the owner. Settled rulings, each with a paired test:
   with `BrowserWindow.close()` / `closed`, while their IPC dependencies still
   exist (`close-desktop-renderers.ts`). Hidden chunking/embedding/LLM windows
   stay alive for their owning stop commands. Normal close preserves unload and
-  window-state hooks; macOS activation cannot recreate a producer during this
-  drain. Already-admitted database work then drains through the existing
-  scheduler before database closure. The existing app-launch smoke test keeps
-  real renderer DB/chunking requests active across quit and rejects late
-  post-disposal IPC errors, with the unchanged 5s owned-process deadline.
+  window-state hooks; macOS activation cannot recreate a producer and
+  second-instance requests cannot enqueue work or show a window during this drain.
+  Already-admitted database work then drains through the existing
+  scheduler before database closure. The new `joins renderer IPC producers before
+  closing their hosts` case in `app-launch.test.ts` keeps real renderer DB/chunking
+  requests active across quit and rejects late renderer or main-process IPC errors.
+  Its owned-process close assertion uses a 5s test deadline; the application retains
+  the separate existing `SIGNAL_SHUTDOWN_TIMEOUT_MS` 5s forced-exit budget above.
 - Shutdown retires embedding-backfill admission FIRST
   (`cancelAllDesktopEmbeddingBackfills()` before any host step), and a backfill
   that arrives after `markDesktopShuttingDown()` is refused before it touches

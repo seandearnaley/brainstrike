@@ -40,6 +40,16 @@ describe('closeDesktopRenderers', () => {
     expect(destroyed.close).not.toHaveBeenCalled();
   });
 
+  it('accepts a window destroyed during close without reporting a false shutdown failure', async () => {
+    const visible = rendererWindow();
+    visible.close.mockImplementation(() => {
+      visible.isDestroyed.mockReturnValue(true);
+      throw new Error('Object has been destroyed');
+    });
+    await expect(closeDesktopRenderers([visible], () => false)).resolves.toBeUndefined();
+    expect(visible.listenerCount('closed')).toBe(0);
+  });
+
   it('attempts every renderer, joins their closes and reports a failed close', async () => {
     const failed = rendererWindow();
     const visible = rendererWindow();

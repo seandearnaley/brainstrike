@@ -15,6 +15,10 @@ function closeRenderer(window: ShutdownRendererWindow): Promise<void> {
       window.close();
     } catch (error) {
       window.removeListener('closed', closed);
+      if (window.isDestroyed()) {
+        resolve();
+        return;
+      }
       reject(error);
     }
   });
@@ -25,12 +29,14 @@ export async function closeDesktopRenderers<Window extends ShutdownRendererWindo
   windows: readonly Window[],
   isOwnedHostWindow: (window: Window) => boolean
 ): Promise<void> {
-  const results = await Promise.allSettled(
-    windows
-      .filter((window) => !(window.isDestroyed() || isOwnedHostWindow(window)))
-      .map(closeRenderer)
-  );
-  const failures = results.flatMap((result) =>
+  const closes: Promise<void>[] = [];
+  for (const window of windows) {
+    if (!(window.isDestroyed() || isOwnedHostWindow(window))) {
+      closes.push(closeRenderer(window));
+    }
+  }
+  const results = await Promise.allSettled(closes);
+  const failures: unknown[] = results.flatMap((result) =>
     result.status === 'rejected' ? [result.reason] : []
   );
   if (failures.length > 0) {
