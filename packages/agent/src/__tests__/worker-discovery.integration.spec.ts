@@ -86,6 +86,7 @@ it.each([true, false])('restores worker MCP tools (memory=%s)', async (withMemor
           throw new Error('Native child was not bound');
         }
         scopes.splice(0, scopes.length, {
+          configuration: child.configuration,
           identity,
           ...(child.originalToolCall ? { originalToolCall: child.originalToolCall } : {}),
           resourceId: child.childResourceId,
@@ -223,6 +224,10 @@ it.each([true, false])('restores worker MCP tools (memory=%s)', async (withMemor
     expect(childCatalogs[0]).toContain('search_tools');
     expect(childCatalogs[0]).toContain('load_tool');
     expect(childCatalogs[0]).not.toContain('remote_echo');
+    expect(identities[0]?.configuration).toMatchObject({
+      persona: { allowedToolIds: expect.arrayContaining(['remote.echo']) },
+    });
+    expect(JSON.stringify(identities[0]?.configuration)).not.toContain('"*"');
     expect(childCatalogs.at(-1)).toContain('remote_echo');
     await memory.settled();
   } catch (error) {

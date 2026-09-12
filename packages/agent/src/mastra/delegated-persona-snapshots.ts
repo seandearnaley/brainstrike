@@ -124,7 +124,7 @@ export async function withDelegatedPersonaSnapshots(
     const provider = persona.model?.provider;
     if (
       !provider ||
-      provider === runtime?.provider ||
+      provider === runtime.provider ||
       PERSONA_PIN_KEYLESS_PROVIDERS.has(provider) ||
       keys[provider]
     ) {

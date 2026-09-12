@@ -333,6 +333,12 @@ describe('worker tool admission', () => {
     });
     expect(resumed.personasById.get('worker')?.allowedToolIds).toEqual(admitted.allowedToolIds);
     expect(resumed.personasById.get('worker')?.allowedToolIds).not.toContain('new.write');
+    const child = assertDefined(resumed.subAgents['worker'], 'Expected resumed worker');
+    const catalog = await workerCatalog(child);
+    expect(catalog.tools).not.toHaveProperty('linear_get_issue');
+    await expect(
+      catalog.tools.load_tool.execute?.({ toolName: 'linear_get_issue' }, { observe: noopObserve })
+    ).resolves.toMatchObject({ success: true });
   });
 
   it('excludes the parent task list from a wildcard worker', async () => {

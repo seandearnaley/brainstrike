@@ -25,13 +25,13 @@ async function suspend(fixture: Awaited<ReturnType<typeof createBackgroundFixtur
 }
 
 it.each([
-  { changed: false, question: false },
-  { changed: true, question: false },
-  { changed: false, question: true },
-  { changed: true, question: true },
+  { edited: false, question: false },
+  { edited: true, question: false },
+  { edited: false, question: true },
+  { edited: true, question: true },
 ])(
-  'restores admitted persona after runtime disposal (edited=$changed, question=$question)',
-  async ({ changed, question }) => {
+  'restores admitted persona after runtime disposal with an edited or removed registry (edited=$edited, question=$question)',
+  async ({ edited, question }) => {
     const fixture = await createBackgroundFixture(!question, undefined, question);
     const { database, discoveryOptions, effect, model, scope } = fixture;
     try {
@@ -42,7 +42,7 @@ it.each([
       }
       const options = {
         ...discoveryOptions,
-        personas: changed
+        personas: edited
           ? [{ ...original, allowedToolIds: [], instructions: 'MUTATED_LIVE_PROFILE', maxSteps: 1 }]
           : [],
       };
