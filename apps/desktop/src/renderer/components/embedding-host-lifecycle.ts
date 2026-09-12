@@ -1,6 +1,9 @@
 import { createLogger } from '@brainstrike/logging';
 import type { MutableRefObject } from 'react';
-import type { EmbeddingHostQueryEmbeddingResponseReport } from '../../embedding-host-shared';
+import {
+  assertEmbeddingHostCommand,
+  type EmbeddingHostQueryEmbeddingResponseReport,
+} from '../../embedding-host-shared';
 
 const logger = createLogger('EmbeddingHostRuntime');
 
@@ -68,5 +71,57 @@ export function createQueryEmbeddingRequestParseErrorReport(
     requestId,
     runtimeId,
     type: 'error',
+  };
+}
+
+/** Commands belong to the renderer, not to its replaceable database worker Effect. */
+export function createEmbeddingHostCommandHandler(owner: {
+  getRuntimeId(): string;
+  isDisposed(): boolean;
+  stop(): Promise<void>;
+  reset(nextRuntimeId: string): Promise<void>;
+  report(
+    runtimeId: string,
+    state: 'stopped' | 'error',
+    commandId: string,
+    lastError?: string
+  ): void;
+}): (command: unknown) => void {
+  return (command) => {
+    const next = assertEmbeddingHostCommand(command);
+    if (next.runtimeId !== owner.getRuntimeId()) {
+      logger.warn('Ignored embedding host command for stale runtime', {
+        action: next.payload.action,
+        commandRuntimeId: next.runtimeId,
+        runtimeId: owner.getRuntimeId(),
+      });
+      return;
+    }
+    if (next.payload.action === 'reset' && next.payload.nextRuntimeId === owner.getRuntimeId()) {
+      throw new Error('Embedding host reset requires a fresh nextRuntimeId.');
+    }
+    const pending =
+      next.payload.action === 'stop' ? owner.stop() : owner.reset(next.payload.nextRuntimeId);
+    void pending.then(
+      () => {
+        if (next.payload.action === 'stop' && !owner.isDisposed()) {
+          owner.report(next.runtimeId, 'stopped', next.requestId);
+        }
+      },
+      (error: unknown) => {
+        logger.error(`Embedding host ${next.payload.action} failed`, {
+          error,
+          requestId: next.requestId,
+        });
+        if (!owner.isDisposed()) {
+          owner.report(
+            owner.getRuntimeId(),
+            'error',
+            next.requestId,
+            error instanceof Error ? error.message : String(error)
+          );
+        }
+      }
+    );
   };
 }

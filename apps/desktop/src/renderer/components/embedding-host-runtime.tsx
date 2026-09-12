@@ -25,7 +25,6 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { type MutableRefObject, useEffect, useRef } from 'react';
 import {
-  assertEmbeddingHostCommand,
   assertEmbeddingHostQueryEmbeddingRequest,
   createEmbeddingHostQueryEmbeddingErrorReport,
   createEmbeddingHostQueryEmbeddingResultReport,
@@ -37,6 +36,7 @@ import {
   type EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
 import {
+  createEmbeddingHostCommandHandler,
   createEmbeddingHostLifecycleFailureHandler,
   createQueryEmbeddingRequestParseErrorReport,
   runEmbeddingHostCleanupStep,
@@ -636,6 +636,11 @@ export function EmbeddingHostRuntime(): null {
   const activeRef = useRef(false);
   const runtimeIdRef = useRef<string>(resolveEmbeddingHostRuntimeId());
   const stopPromiseRef = useRef<Promise<void> | null>(null);
+  const stoppedByCommandRef = useRef(false);
+  const controlsRef = useRef<{
+    stop(): Promise<void>;
+    reset(nextRuntimeId: string): Promise<void>;
+  } | null>(null);
   const queryEmbeddingActiveCountRef = useRef(0);
   const queryEmbeddingServiceStateRef = useRef<QueryEmbeddingServiceState | null>(null);
   const gateRef = useRef<ForegroundEmbeddingGate>(createForegroundEmbeddingGate());
@@ -684,9 +689,15 @@ export function EmbeddingHostRuntime(): null {
     );
 
     const startWorker = async (): Promise<void> => {
+      if (stoppedByCommandRef.current) {
+        return;
+      }
       // Join Stop before registering a new start, so Stop never waits on itself.
       if (stopPromiseRef.current) {
         await stopPromiseRef.current;
+      }
+      if (stoppedByCommandRef.current) {
+        return;
       }
       if (startPromiseRef.current) {
         return startPromiseRef.current;
@@ -840,57 +851,15 @@ export function EmbeddingHostRuntime(): null {
         previousRuntimeId,
       });
       await stopWorker('command-reset', previousRuntimeId);
+      if (disposed) {
+        throw new Error('Embedding host database is unavailable for reset.');
+      }
+      stoppedByCommandRef.current = false;
       runtimeIdRef.current = nextRuntimeId;
       await startWorker();
     };
 
-    const unsubscribeCommand = getEmbeddingHostBridge()?.onCommand?.((command) => {
-      const nextCommand = assertEmbeddingHostCommand(command);
-      if (nextCommand.runtimeId !== runtimeIdRef.current) {
-        logger.warn('Ignored embedding host command for stale runtime', {
-          action: nextCommand.payload.action,
-          commandRuntimeId: nextCommand.runtimeId,
-          runtimeId: runtimeIdRef.current,
-        });
-        return;
-      }
-      if (nextCommand.payload.action === 'stop') {
-        void stopWorker('command-stop').then(
-          () => {
-            if (!disposed) {
-              reportEmbeddingHostRuntimeStatusForRuntimeId(nextCommand.runtimeId, 'stopped', {
-                commandId: nextCommand.requestId,
-                embeddingRuntime: embeddingRuntimeRef.current,
-              });
-            }
-          },
-          (error: unknown) => {
-            logger.error('Embedding host Stop failed', { error, requestId: nextCommand.requestId });
-            if (!disposed) {
-              reportEmbeddingHostRuntimeStatusForRuntimeId(nextCommand.runtimeId, 'error', {
-                commandId: nextCommand.requestId,
-                lastError: error instanceof Error ? error.message : String(error),
-              });
-            }
-          }
-        );
-        return;
-      }
-      if (nextCommand.payload.action === 'reset') {
-        if (nextCommand.payload.nextRuntimeId === runtimeIdRef.current) {
-          throw new Error('Embedding host reset requires a fresh nextRuntimeId.');
-        }
-        void resetWorker(nextCommand.payload.nextRuntimeId).catch((error: unknown) => {
-          logger.error('Embedding host reset failed', { error, requestId: nextCommand.requestId });
-          if (!disposed) {
-            reportEmbeddingHostRuntimeStatusForRuntimeId(runtimeIdRef.current, 'error', {
-              commandId: nextCommand.requestId,
-              lastError: error instanceof Error ? error.message : String(error),
-            });
-          }
-        });
-      }
-    });
+    controlsRef.current = { reset: resetWorker, stop: () => stopWorker('command-stop') };
 
     const unsubscribeQueryEmbedding = getEmbeddingHostBridge()?.onQueryEmbeddingRequest?.(
       (rawRequest) => {
@@ -949,9 +918,6 @@ export function EmbeddingHostRuntime(): null {
       runEmbeddingHostCleanupStep(runtimeIdRef, 'Embedding host power cleanup failed', () => {
         cleanupPower?.();
       });
-      runEmbeddingHostCleanupStep(runtimeIdRef, 'Embedding host command cleanup failed', () => {
-        unsubscribeCommand?.();
-      });
       runEmbeddingHostCleanupStep(
         runtimeIdRef,
         'Embedding host query embedding cleanup failed',
@@ -975,6 +941,40 @@ export function EmbeddingHostRuntime(): null {
       });
     };
   }, [db]);
+
+  useEffect(() => {
+    let disposed = false;
+    const unsubscribe = getEmbeddingHostBridge()?.onCommand?.(
+      createEmbeddingHostCommandHandler({
+        getRuntimeId: () => runtimeIdRef.current,
+        isDisposed: () => disposed,
+        report: (runtimeId, state, commandId, lastError) =>
+          reportEmbeddingHostRuntimeStatusForRuntimeId(runtimeId, state, {
+            commandId,
+            embeddingRuntime: embeddingRuntimeRef.current,
+            ...(lastError === undefined ? {} : { lastError }),
+          }),
+        reset: async (nextRuntimeId) => {
+          stoppedByCommandRef.current = true;
+          const controls = controlsRef.current;
+          if (!controls) {
+            throw new Error('Embedding host database is unavailable for reset.');
+          }
+          await controls.reset(nextRuntimeId);
+        },
+        stop: async () => {
+          stoppedByCommandRef.current = true;
+          await controlsRef.current?.stop();
+        },
+      })
+    );
+    return () => {
+      disposed = true;
+      runEmbeddingHostCleanupStep(runtimeIdRef, 'Embedding host command cleanup failed', () =>
+        unsubscribe?.()
+      );
+    };
+  }, []);
 
   return null;
 }

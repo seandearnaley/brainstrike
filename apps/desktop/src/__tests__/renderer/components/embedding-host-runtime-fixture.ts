@@ -93,11 +93,16 @@ const { hostWindow } = vi.hoisted(() => {
   return { hostWindow: host };
 });
 
+const createHostWindowMock = vi.hoisted(() =>
+  vi.fn(function BrowserWindow() {
+    hostWindow.destroyed = false;
+    return hostWindow;
+  })
+);
+
 vi.mock('electron', () => ({
   app: { getAppPath: () => '/test/app', isPackaged: false },
-  BrowserWindow: vi.fn(function BrowserWindow() {
-    return hostWindow;
-  }),
+  BrowserWindow: createHostWindowMock,
   powerSaveBlocker: { isStarted: vi.fn(), start: vi.fn(), stop: vi.fn() },
 }));
 
@@ -228,6 +233,7 @@ export function installEmbeddingHostRuntimeFixture(): void {
 export {
   commandListenerRef,
   createEmbeddingCacheRepositoryMock,
+  createHostWindowMock,
   currentDbRef,
   dbHandle,
   detectDeviceCapabilitiesMock,

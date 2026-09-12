@@ -455,6 +455,12 @@ Embedding runtime telemetry (BST-402):
   Reset drain failures also echo their exact request ID under the original runtime
   ID: main accepts that owned failure while awaiting the proposed next runtime,
   preserves the original error, and destroys the failed owner before any new start.
+  A reported replacement-start failure also retires that renderer. A later Start
+  creates a fresh host; an unsuccessful Stop never authorizes reusing uncertain work.
+  The renderer's command subscription survives database-worker Effect replacement.
+  Stop joins the last worker's drain even while no DB is mounted, and an explicit
+  Stop fences later DB-driven starts until an authorized reset or a fresh renderer.
+  Reset requires a current DB owner; it never restarts through a retired DB Effect.
   An unrelated old-runtime error cannot settle reset. Closing or destroying an
   owned host rejects its pending lifecycle waits immediately with an explicit
   window-closed error; disappearance is not a fabricated successful Stop ack.

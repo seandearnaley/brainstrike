@@ -242,7 +242,7 @@ export class EmbeddingHostManager {
         HOST_READY_TIMEOUT_MS
       );
       if (status.state === 'error') {
-        // Failed drain does not authorize another worker in the same renderer.
+        // A failed drain or replacement startup retires this renderer before any new start.
         this.lifecycle.destroyHostWindow();
         this.lifecycle.setStatus(status);
       }
@@ -367,6 +367,7 @@ export class EmbeddingHostManager {
       ...(report.commandId ? { commandId: report.commandId } : {}),
       ...(report.embeddingRuntime ? { embeddingRuntime: report.embeddingRuntime } : {}),
     };
+    // Keep this exact identity test aligned with reset()'s old-runtime waiter clause.
     const isPendingResetFailure =
       nextStatus.state === 'error' &&
       this.pendingReset?.requestId === nextStatus.commandId &&
