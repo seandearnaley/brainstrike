@@ -1174,7 +1174,10 @@ step; fix the owner. Settled rulings, each with a paired test:
   Already-admitted database work then drains through the existing
   scheduler before database closure. The new `joins renderer IPC producers before
   closing their hosts` case in `app-launch.test.ts` keeps real renderer DB/chunking
-  requests active across quit and rejects late renderer or main-process IPC errors.
+  requests active across quit and rejects observed renderer console errors and
+  main-process IPC failures. Renderer console capture is observational until the
+  page closes; process output and the owned-process exit assertion remain available
+  through shutdown.
   Its owned-process close assertion uses a 5s test deadline; the application retains
   the separate existing `SIGNAL_SHUTDOWN_TIMEOUT_MS` 5s forced-exit budget above.
 - Shutdown retires embedding-backfill admission FIRST

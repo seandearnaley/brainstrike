@@ -551,6 +551,20 @@ describe('main workspace-open lifecycle', () => {
     expect(window.show).not.toHaveBeenCalled();
   });
 
+  it('does not recreate a window on activate after renderer shutdown begins', async () => {
+    await import('../../main');
+    await vi.waitFor(() => expect(mockWindowInstances).toHaveLength(1));
+    latestWindow().webContents.isDestroyed.mockReturnValue(true);
+    isDesktopShuttingDownMock.mockReturnValue(true);
+    const activateRegistrations = mockApp.on.mock.calls.filter((args) => args[0] === 'activate');
+    expect(activateRegistrations).toHaveLength(2);
+
+    const activateHandler = findLastHandler<() => Promise<void>>(mockApp.on, 'activate');
+    await activateHandler();
+
+    expect(mockWindowInstances).toHaveLength(1);
+  });
+
   it('does not deliver an open-file request after renderer shutdown begins', async () => {
     await import('../../main');
     await vi.waitFor(() => expect(mockWindowInstances).toHaveLength(1));
