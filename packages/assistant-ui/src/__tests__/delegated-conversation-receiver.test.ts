@@ -59,6 +59,45 @@ function serve(lines: string[]): void {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('delegated conversations through the normal runtime adapter', () => {
+  it('receives out-of-band child updates while parent text and tool arguments remain open', async () => {
+    const outOfBand = (line: string) => frame('2', [JSON.parse(line.slice(line.indexOf(':') + 1))]);
+    const updates: AssistantMessage[] = [];
+    serve([
+      frame('f', { messageId: 'parent-message' }),
+      frame('0', 'Before '),
+      outOfBand(
+        child('a', [
+          { code: 'f', value: { messageId: 'native-a' } },
+          { code: '0', value: 'Child live.' },
+        ])
+      ),
+      frame('0', 'after.'),
+      frame('b', { toolCallId: 'parent-tool', toolName: 'read' }),
+      frame('c', { argsTextDelta: '{"path":', toolCallId: 'parent-tool' }),
+      outOfBand(child('a', [finish])),
+      frame('c', { argsTextDelta: '"file"}', toolCallId: 'parent-tool' }),
+      frame('9', { args: { path: 'file' }, toolCallId: 'parent-tool', toolName: 'read' }),
+      frame('a', { result: 'read result', toolCallId: 'parent-tool' }),
+      frame(finish.code, finish.value),
+    ]);
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test',
+      onDelegatedConversation: (update) => updates.push(update.message),
+    });
+    let parent: AssistantMessage | undefined;
+    for await (const snapshot of adapter.run(options())) {
+      parent = snapshot as AssistantMessage;
+    }
+    expect(updates.at(-1)?.parts).toMatchObject([{ text: 'Child live.', type: 'text' }]);
+    expect(parent?.parts.filter((part) => part.type === 'text')).toMatchObject([
+      { text: 'Before after.' },
+    ]);
+    expect(parent?.parts.find((part) => part.type === 'tool-call')).toMatchObject({
+      args: { path: 'file' },
+      result: 'read result',
+    });
+  });
+
   it('rejects a history row whose content disappeared at the JSON boundary', async () => {
     const baseline = {
       hostRunId: 'host',

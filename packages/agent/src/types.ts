@@ -577,7 +577,15 @@ export interface StreamChunkMessageFinish {
     cacheReadInputTokens?: number;
   };
 }
+export interface StreamChunkChildUserMessage {
+  readonly createdAt: string;
+  readonly id: string;
+  readonly text: string;
+  readonly type: 'child-user-message';
+}
+
 export type ConversationStreamChunk =
+  | StreamChunkChildUserMessage
   | StreamChunkChildRunUsage
   | StreamChunkContextBreakdown
   | StreamChunkReasoning

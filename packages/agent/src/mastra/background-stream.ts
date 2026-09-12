@@ -2,6 +2,8 @@ import { asMastraStreamPart, type MastraStreamPart } from './mastra-chunk-decodi
 import { readStreamPartUsage, type UsageLike } from './runtime-assembly/usage-metering';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 
+const CHILD_OUTPUT_TYPES = new Set(['data-user-message', 'tool-output']);
+
 function addParentUsage(total: UsageLike, part: MastraStreamPart): void {
   const next = readStreamPartUsage(part);
   if (!next) {
@@ -110,7 +112,7 @@ export async function* projectBackgroundStream(
         break;
       case 'background-task-output': {
         const output = readMastraStreamPartValue(decoded.payload, 'payload');
-        if (asMastraStreamPart(output).type !== 'tool-output') {
+        if (!CHILD_OUTPUT_TYPES.has(asMastraStreamPart(output).type)) {
           throw new Error('Native background child output omitted its delegation envelope.');
         }
         yield output;

@@ -374,6 +374,11 @@ export async function runDesktopEmbeddingBackfill(params: {
   embeddingBackfillsInFlight.set(normalizedEmbeddingSetId, inFlightState);
 
   const runBackfill = async (): Promise<void> => {
+    if (isDesktopShuttingDown()) {
+      // Starting the host now would recreate a hidden renderer that graceful
+      // shutdown is about to dispose. Job rows stay durable for the next launch.
+      throw new Error('Desktop is shutting down; the embedding backfill was not started.');
+    }
     const hostStatus = await hostManager.ensureStarted({ waitForRunning: true });
     if (hostStatus.state !== 'running') {
       throw new Error(hostStatus.lastError ?? 'Embedding host failed to reach the running state.');

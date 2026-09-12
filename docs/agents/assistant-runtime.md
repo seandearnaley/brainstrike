@@ -4201,3 +4201,19 @@ Binding cleanup and delegated persistence both own after-tool-call work. Stream
 option assembly joins both hooks, including when either fails. Background resume
 supplies the original native task thread and call identity to that completion hook;
 the leaf's mutated resume context cannot identify the parent dispatch.
+
+Active child input reuses the main composer's draft, button and Enter behavior
+through `ActiveConversationInputProvider`. It invokes the selected child's
+host-authorized transport; it never calls root `onNew` or the root follow-up queue.
+A failed acknowledgement retains the draft and request id for an explicit repeat.
+The host verifies owner/root, live host leg, observed native child identity and
+cancellation admission before the native child signal owner can accept input.
+Closing a child panel still neither cancels nor starts execution. The actual
+Electron active-input test covers this shared workspace path. See the active-child
+input receipt contract in assistant-persistence.md for interruption semantics.
+
+Follow-up admission is rechecked inside the per-child delivery queue after native
+receipt lookup and again after signal persistence, immediately before native
+enqueue. If durable Stop revoked admission in either await, no signal is sent;
+a persisted but never-enqueued signal is removed. Native and actual PGlite host
+fixtures pin both timing windows and preserve the tool execution Stop barrier.

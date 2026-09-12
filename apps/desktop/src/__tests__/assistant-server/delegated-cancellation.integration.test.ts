@@ -1,4 +1,8 @@
-import type { DelegatedConversationIdentity, DelegatedRunIdentity } from '@brainstrike/agent';
+import type {
+  DelegatedConversationIdentity,
+  DelegatedFollowupControl,
+  DelegatedRunIdentity,
+} from '@brainstrike/agent';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -66,6 +70,72 @@ describe('desktop delegated cancellation', () => {
     status: 'running',
     timestamp: '2026-09-10T01:00:00.000Z',
   } as const;
+  it('authorizes human input only for the observed child in its owning live host', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const send = vi.fn(async () => {});
+    const input = { id: 'human-input', text: 'Inspect the second file' };
+    await host.persist(identity);
+    await expect(host.sendFollowup(scope, 'child', input, send)).rejects.toThrow();
+    await host.bindRun(run);
+    await expect(
+      host.sendFollowup({ ...scope, rootThreadId: 'other' }, 'child', input, send)
+    ).rejects.toThrow();
+    await expect(
+      host.sendFollowup({ ...scope, ownerResourceId: 'stranger' }, 'child', input, send)
+    ).rejects.toThrow();
+    await expect(host.sendFollowup(scope, 'sibling', input, send)).rejects.toThrow();
+    expect(send).not.toHaveBeenCalled();
+    await host.sendFollowup(scope, 'child', input, send);
+    expect(send).toHaveBeenCalledExactlyOnceWith(
+      {
+        identity: run,
+        personaId: 'explore',
+        resourceId: identity.childResourceId,
+        runId: run.childRuntimeRunId,
+        threadId: 'child',
+      },
+      input,
+      expect.any(Function)
+    );
+    await revokeDelegatedConversationAdmission(database, scope, 'child', false);
+    await expect(
+      host.sendFollowup(scope, 'child', { ...input, id: 'after-stop' }, send)
+    ).rejects.toThrow();
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a follow-up queued before durable Stop when its serialized admission resumes', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    await host.bindRun(run);
+    const queued = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const delivered = vi.fn();
+    const send: DelegatedFollowupControl = async (_target, _input, assertAdmission) => {
+      queued.resolve();
+      await release.promise;
+      await assertAdmission();
+      delivered();
+    };
+    const pending = host.sendFollowup(
+      scope,
+      'child',
+      { id: 'queued', text: 'Do not deliver after Stop' },
+      send
+    );
+    pending.catch(() => {});
+    try {
+      await queued.promise;
+      await revokeDelegatedConversationAdmission(database, scope, 'child', false);
+      release.resolve();
+      await expect(pending).rejects.toThrow();
+      expect(delivered).not.toHaveBeenCalled();
+    } finally {
+      release.resolve();
+      await Promise.allSettled([pending]);
+    }
+  });
+
   it('joins registered owners in the selected root and propagates cleanup failure', async () => {
     const release = Promise.withResolvers<void>();
     const first = vi.fn(async () => {

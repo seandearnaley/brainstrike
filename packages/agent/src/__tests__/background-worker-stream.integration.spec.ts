@@ -1,12 +1,8 @@
-import { addAbortListener } from 'node:events';
 import { TransformStream } from 'node:stream/web';
 import { setImmediate as nextEventLoopTurn } from 'node:timers/promises';
-import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { AgentExecutionOptionsBase } from '@mastra/core/agent';
 import { BACKGROUND_TASK_WORKFLOW_ID } from '@mastra/core/background-tasks';
-import { createTool, type ToolExecutionContext } from '@mastra/core/tools';
 import { expect, it, vi } from 'vitest';
-import { z } from 'zod';
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
 import {
   createStreamIteratorFromRuntime,
@@ -14,236 +10,245 @@ import {
   createToolResumeIteratorFromRuntime,
 } from '../mastra/attempt-legs';
 import { repairBackgroundResults } from '../mastra/background-results';
-import {
-  createDelegatedConversationBinding,
-  type DelegatedCancellationControl,
-  type DelegatedConversationIdentity,
-} from '../mastra/delegated-conversation-binding';
-import type { DelegatedRunIdentity } from '../mastra/delegated-run-publication';
 import { listSuspendedMastraRuns } from '../mastra/suspended-run-discovery';
-import { createPgliteMastraMemory } from '../pglite-mastra-memory';
-import {
-  hasToolResult,
-  scriptedAgentModel,
-  textParts,
-  toolCallParts,
-} from '../test-fixtures/scripted-agent-model';
-import { createAskUserTool } from '../tools/ask-user-tool';
-import { createSubmitPlanTool } from '../tools/submit-plan-tool';
 import type { StreamChunk } from '../types';
+import { createBackgroundFixture } from './fixtures/background-worker-runtime';
 
-async function createBackgroundFixture(
-  requireApproval = false,
-  signal?: AbortSignal,
-  question: boolean | 'then-plan' = false
-) {
-  const database = await createEnginePglite();
-  const scope = { resourceId: 'background-owner', threadId: 'background-root' };
-  const backing = await createPgliteMastraMemory({
-    backgroundTaskScope: scope,
-    database: {
-      exec: (sql) => database.exec(sql),
-      query: (sql, values) => database.query(sql, values ? [...values] : undefined),
-      transaction: (operation) =>
-        database.transaction((tx) =>
-          operation({
-            exec: (sql) => tx.exec(sql),
-            query: (sql, values) => tx.query(sql, values ? [...values] : undefined),
-          })
-        ),
-    },
-    memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
-  });
-  const release = Promise.withResolvers<void>();
-  const entered = Promise.withResolvers<void>();
-  const identities: DelegatedConversationIdentity[] = [];
-  const runIdentities: DelegatedRunIdentity[] = [];
-  const toolSignals: AbortSignal[] = [];
-  const effect = vi.fn(async (_input: unknown, context?: ToolExecutionContext) => {
-    const signal = context?.abortSignal;
-    if (!signal) {
-      throw new Error('Native background tool omitted its cancellation signal.');
+it('removes a definitively discarded signal when the child finishes during durable admission', async () => {
+  const fixture = await createBackgroundFixture();
+  const { backing, runtime, runtimeData, entered, release, database, model } = fixture;
+  const saved = Promise.withResolvers<void>();
+  const continueDelivery = Promise.withResolvers<void>();
+  let consuming: Promise<void> | undefined;
+  let sending: Promise<void> | undefined;
+  const save = backing.memory.saveMessages.bind(backing.memory);
+  const persist = vi.spyOn(backing.memory, 'saveMessages').mockImplementation(async (input) => {
+    const result = await save(input);
+    if (input.messages.some((message) => message.id.startsWith('child-input:'))) {
+      saved.resolve();
+      await continueDelivery.promise;
     }
-    toolSignals.push(signal);
-    const aborted = Promise.withResolvers<never>();
-    const subscription = addAbortListener(signal, () => aborted.reject(signal.reason));
-    entered.resolve();
+    return result;
+  });
+  try {
+    const iterator = await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [{ id: 'task', parts: [{ text: 'Inspect', type: 'text' }], role: 'user' }],
+      runtime,
+      runtimeData,
+    });
+    consuming = (async () => {
+      for await (const _chunk of iterator) {
+        /* Drain native output. */
+      }
+    })();
+    consuming.catch(() => {});
+    await entered.promise;
+    sending = fixture.followup({ id: 'late-input', text: 'MUST_NOT_RECALL_DISCARDED_INPUT' });
+    sending.catch(() => {});
+    await saved.promise;
+    release.resolve();
+    await consuming;
+    continueDelivery.resolve();
+    await expect(sending).rejects.toThrow('did not accept');
+    expect(
+      (await database.query("SELECT id FROM mastra_messages WHERE role = 'signal'")).rows
+    ).toEqual([]);
+    expect(JSON.stringify(model.prompts)).not.toContain('MUST_NOT_RECALL_DISCARDED_INPUT');
+  } finally {
+    release.resolve();
+    continueDelivery.resolve();
+    persist.mockRestore();
+    await Promise.allSettled([consuming, sending]);
+    await runtime.dispose();
+    await database.close();
+  }
+});
+
+it.each(['lookup', 'persist'])(
+  'rechecks revoked admission after awaited %s before sending child input',
+  async (boundary) => {
+    const fixture = await createBackgroundFixture();
+    const { backing, runtime, runtimeData, entered, release, database, model } = fixture;
+    let consuming: Promise<void> | undefined;
     try {
-      await Promise.race([release.promise, aborted.promise]);
-      return { matches: ['BACKGROUND_EVIDENCE'] };
-    } finally {
-      subscription[Symbol.dispose]();
-    }
-  });
-  const model = scriptedAgentModel((options) => {
-    if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
-      if (!hasToolResult(options, 'agent-explore')) {
-        return toolCallParts('agent-explore', 'background-child', {
-          prompt: 'Read background evidence',
-        });
+      const iterator = await createStreamIteratorFromRuntime({
+        memory: backing.memory,
+        messages: [{ id: 'task', parts: [{ text: 'Inspect', type: 'text' }], role: 'user' }],
+        runtime,
+        runtimeData,
+      });
+      consuming = (async () => {
+        for await (const _chunk of iterator) {
+          /* Drain native output. */
+        }
+      })();
+      consuming.catch(() => {});
+      await entered.promise;
+      const store = await backing.storage.getStore('memory');
+      if (!store) {
+        throw new Error('Missing native memory');
       }
-      return textParts(
-        JSON.stringify(options.prompt).includes('CHILD_FINAL_EVIDENCE')
-          ? 'PARENT_FINAL_OUTCOME'
-          : 'PARENT_USEFUL_PROGRESS'
-      );
-    }
-    if (question && !hasToolResult(options, 'brainstrike_askUser')) {
-      return toolCallParts('brainstrike_askUser', 'background-question', {
-        question: 'Which evidence should I inspect?',
-      });
-    }
-    if (question === 'then-plan' && !hasToolResult(options, 'brainstrike_submitPlan')) {
-      return toolCallParts('brainstrike_submitPlan', 'background-plan', {
-        overview: 'Read the selected evidence.',
-        steps: [{ title: 'Read evidence' }],
-        title: 'Inspect evidence',
-      });
-    }
-    return hasToolResult(options, 'brainstrike_grepSearch')
-      ? textParts('CHILD_FINAL_EVIDENCE')
-      : toolCallParts('brainstrike_grepSearch', 'background-read', { pattern: 'evidence' });
-  });
-  const runtimeData = {
-    apiKey: 'test-key',
-    memory: scope,
-    model: 'gpt-5.4',
-    provider: 'openai',
-    ...(signal ? { signal } : {}),
-  } as const;
-  let cancel: DelegatedCancellationControl | undefined;
-  const options = {
-    backgroundTaskScope: scope,
-    conversationBinding: {
-      claimToolAction: async () => {},
-      finishToolActions: async () => {},
-      prepareToolAction: async () => {},
-      registerCancellation: (control: DelegatedCancellationControl) => {
-        cancel = control;
-        return () => {
-          cancel = undefined;
-        };
-      },
-      releaseUnexecutedToolAction: async () => {},
-      resolveToolAction: async (action: { runId: string; toolCallId: string }) => {
-        const identity = runIdentities.find(
-          (candidate) =>
-            candidate.parentRuntimeRunId === action.runId &&
-            candidate.parentToolCallId === action.toolCallId
-        );
-        const child = identities.find(
-          (candidate) =>
-            candidate.parentRuntimeRunId === action.runId &&
-            candidate.parentToolCallId === action.toolCallId
-        );
-        if (!(identity && child)) {
-          throw new Error('Unknown test invocation');
+      let revoked = false;
+      const lookup = store.listMessagesById.bind(store);
+      const read = vi.spyOn(store, 'listMessagesById').mockImplementation(async (input) => {
+        const result = await lookup(input);
+        if (boundary === 'lookup' && input.messageIds.some((id) => id.startsWith('child-input:'))) {
+          revoked = true;
         }
-        return [
-          {
-            identity,
-            resourceId: child.childResourceId,
-            threadId: child.childThreadId,
-            ...(child.originalToolCall ? { originalToolCall: child.originalToolCall } : {}),
-          },
-        ];
-      },
-      ...createDelegatedConversationBinding(async (identity) => {
-        identities.push(identity);
-      }),
-      bindRun: async (identity: DelegatedRunIdentity) => {
-        runIdentities.push(identity);
-        const child = identities.find(
-          (entry) => entry.parentToolCallId === identity.parentToolCallId
-        );
-        if (!child) {
-          throw new Error('Missing native child identity');
-        }
-        const { messages } = await backing.memory.recall({
-          perPage: false,
-          resourceId: child.childResourceId,
-          threadId: child.childThreadId,
-        });
-        const previous = messages.findLast((message) => message.role === 'assistant');
-        return { threadId: child.childThreadId, ...(previous ? { messageId: previous.id } : {}) };
-      },
-    },
-    getDelegatedSystemContext: () => [],
-    memory: backing.memory,
-    modelOverride: model.model,
-    personas: [
-      {
-        allowedToolIds: [
-          'brainstrike.grepSearch',
-          ...(question ? ['brainstrike.askUser', 'brainstrike.submitPlan'] : []),
-        ],
-        description: 'Read evidence',
-        id: 'explore',
-        instructions: 'Read evidence',
-        label: 'Explorer',
-        maxSteps: 4,
-      },
-    ],
-    runtime: runtimeData,
-    storage: backing.storage,
-    tools: {
-      ...(question
-        ? {
-            'brainstrike.askUser': createAskUserTool(),
-            'brainstrike.submitPlan': createSubmitPlanTool(),
+        return result;
+      });
+      const save = backing.memory.saveMessages.bind(backing.memory);
+      const persisted = vi
+        .spyOn(backing.memory, 'saveMessages')
+        .mockImplementation(async (input) => {
+          const result = await save(input);
+          if (
+            boundary === 'persist' &&
+            input.messages.some((message) => message.id.startsWith('child-input:'))
+          ) {
+            revoked = true;
           }
-        : {}),
-      'brainstrike.grepSearch': createTool({
-        description: 'Read evidence',
-        execute: effect,
-        id: 'brainstrike.grepSearch',
-        inputSchema: z.object({ pattern: z.string() }),
-        requireApproval,
-      }),
-    },
-  };
-  const runtime = await createMastraAgentRuntime(options);
-  return {
-    backing,
-    cancel: (targets: Parameters<DelegatedCancellationControl>[0]) => {
-      if (!cancel) {
-        throw new Error('Missing production cancellation owner');
+          return result;
+        });
+      try {
+        await expect(
+          fixture.followup({ id: 'revoked', text: 'INPUT_AFTER_STOP' }, async () => {
+            if (revoked) {
+              throw new Error('Durable admission revoked');
+            }
+          })
+        ).rejects.toThrow('Durable admission revoked');
+      } finally {
+        read.mockRestore();
+        persisted.mockRestore();
       }
-      return cancel(targets);
-    },
-    database,
-    discoveryOptions: {
-      ...options,
-      delegatedSuspensionDiscovery: async (parent: {
-        parentRuntimeRunId: string;
-        parentToolCallId: string;
-      }) => {
-        const identity = runIdentities.find(
-          (candidate) =>
-            candidate.parentRuntimeRunId === parent.parentRuntimeRunId &&
-            candidate.parentToolCallId === parent.parentToolCallId
-        );
-        const child = identities.find(
-          (candidate) =>
-            candidate.parentRuntimeRunId === parent.parentRuntimeRunId &&
-            candidate.parentToolCallId === parent.parentToolCallId
-        );
-        if (!(identity && child)) {
-          return;
+      expect(
+        (await database.query("SELECT id FROM mastra_messages WHERE role = 'signal'")).rows
+      ).toEqual([]);
+      release.resolve();
+      await consuming;
+      expect(JSON.stringify(model.prompts)).not.toContain('INPUT_AFTER_STOP');
+    } finally {
+      release.resolve();
+      await Promise.allSettled([consuming]);
+      await runtime.dispose();
+      await database.close();
+    }
+  }
+);
+
+it('never replays an ambiguous child input after receipt persistence fails and permits a later explicit request', async () => {
+  const fixture = await createBackgroundFixture();
+  const { backing, runtime, runtimeData, entered, release, database, model } = fixture;
+  let consuming: Promise<void> | undefined;
+  try {
+    const iterator = await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [
+        {
+          id: 'interrupted-input-task',
+          parts: [{ text: 'Read evidence', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      runtime,
+      runtimeData,
+    });
+    consuming = (async () => {
+      for await (const _chunk of iterator) {
+        /* Drain the actual production owner. */
+      }
+    })();
+    // Observe rejection before releasing the held production tool.
+    consuming.catch(() => {});
+    await entered.promise;
+    const store = await backing.storage.getStore('memory');
+    if (!store) {
+      throw new Error('Missing native memory store');
+    }
+    const update = vi
+      .spyOn(store, 'updateMessages')
+      .mockRejectedValueOnce(new Error('Receipt persistence unavailable'));
+    const input = { id: 'ambiguous', text: 'AMBIGUOUS_INPUT_ONCE' };
+    try {
+      await expect(fixture.followup(input)).rejects.toThrow('Receipt persistence unavailable');
+    } finally {
+      update.mockRestore();
+    }
+    await expect(fixture.followup(input)).rejects.toThrow('interrupted');
+    await fixture.followup({ id: 'later-explicit', text: 'LATER_EXPLICIT_INPUT' });
+    release.resolve();
+    await consuming;
+    const childPrompt = model.prompts.findLast(
+      (prompt) => !prompt.tools?.some((tool) => tool.name === 'agent-explore')
+    );
+    expect(JSON.stringify(childPrompt).match(/AMBIGUOUS_INPUT_ONCE/g)).toHaveLength(1);
+    expect(JSON.stringify(childPrompt).match(/LATER_EXPLICIT_INPUT/g)).toHaveLength(1);
+  } finally {
+    release.resolve();
+    await Promise.allSettled([consuming]);
+    await runtime.dispose();
+    await database.close();
+  }
+});
+
+it.each([true, false])(
+  'delivers a follow-up once through the production child owner while preserving the parent outcome (background=%s)',
+  async (background) => {
+    const fixture = await createBackgroundFixture(false, undefined, false, background);
+    const { backing, runtime, runtimeData, entered, release, database, model, effect } = fixture;
+    let consuming: Promise<void> | undefined;
+    try {
+      const iterator = await createStreamIteratorFromRuntime({
+        memory: backing.memory,
+        messages: [
+          { id: 'followup-task', parts: [{ text: 'Read evidence', type: 'text' }], role: 'user' },
+        ],
+        runtime,
+        runtimeData,
+      });
+      const chunks: StreamChunk[] = [];
+      consuming = (async () => {
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
         }
-        return { identity, resourceId: child.childResourceId, threadId: child.childThreadId };
-      },
-    },
-    effect,
-    entered,
-    model,
-    release,
-    runtime,
-    runtimeData,
-    scope,
-    toolSignals,
-  };
-}
+      })();
+      consuming.catch(() => {});
+      await entered.promise;
+      await fixture.followup({ id: 'human-update', text: 'FOLLOWUP_PRODUCTION_1723' });
+      await fixture.followup({ id: 'human-update', text: 'FOLLOWUP_PRODUCTION_1723' });
+      const persisted = await database.query(
+        `SELECT content FROM mastra_messages WHERE role = 'signal'`
+      );
+      expect(persisted.rows).toHaveLength(1);
+      expect(JSON.stringify(persisted.rows)).toContain('FOLLOWUP_PRODUCTION_1723');
+      expect(JSON.stringify(persisted.rows)).toContain('delivered');
+      await expect(
+        fixture.followup({ id: 'human-update', text: 'CHANGED_CONTENT' })
+      ).rejects.toThrow('different content');
+      release.resolve();
+      await consuming;
+      const childPrompt = model.prompts.findLast(
+        (prompt) => !prompt.tools?.some((tool) => tool.name === 'agent-explore')
+      );
+      expect(JSON.stringify(childPrompt).match(/FOLLOWUP_PRODUCTION_1723/g)).toHaveLength(1);
+      expect(JSON.stringify(chunks)).toContain('PARENT_FINAL_OUTCOME');
+      const inputs = chunks.filter(
+        (chunk) =>
+          chunk.type === 'delegated-conversation-chunk' && chunk.chunk.type === 'child-user-message'
+      );
+      expect(inputs).toHaveLength(1);
+      expect(JSON.stringify(inputs)).toContain('FOLLOWUP_PRODUCTION_1723');
+      expect(effect).toHaveBeenCalledOnce();
+    } finally {
+      release.resolve();
+      await Promise.allSettled([consuming]);
+      await runtime.dispose();
+      await database.close();
+    }
+  }
+);
 
 it('selected Stop joins cleanup even after the native task becomes completed', async () => {
   const fixture = await createBackgroundFixture();

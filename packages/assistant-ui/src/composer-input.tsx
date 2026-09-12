@@ -1,6 +1,7 @@
-import { ComposerPrimitive, ThreadPrimitive, useAui } from '@assistant-ui/react';
+import { ComposerPrimitive, ThreadPrimitive, useAui, useAuiState } from '@assistant-ui/react';
 import { ArrowUpIcon, ClipboardListIcon, ImageIcon, SquareIcon } from 'lucide-react';
 import { type ClipboardEvent, type ReactNode, useId } from 'react';
+import { useActiveConversationInput } from './active-conversation-input-context';
 import { collectImageFilesFromClipboard } from './attachment-adapter';
 import { useBudgetSendGate } from './budget-guardrail-control';
 
@@ -72,11 +73,13 @@ const ComposerInputRow = ({
   // with its explicit "Send anyway" override renders in the composer shell
   // whenever this gate is closed. The Cancel (Stop) button deliberately
   // ignores the gate — stopping an in-flight run must always be possible.
+  const activeInput = useActiveConversationInput();
+  const hasDraft = useAuiState((state) => state.composer.text.trim().length > 0);
   const budgetSendBlocked = useBudgetSendGate();
   const inputId = useId();
-  const sendDisabled = isComposerDisabled || budgetSendBlocked;
+  const sendDisabled = isComposerDisabled || budgetSendBlocked || Boolean(activeInput?.busy);
   const InputFrame =
-    attachmentsAvailability?.state === 'enabled' && !sendDisabled
+    attachmentsAvailability?.state === 'enabled' && !isComposerDisabled && !budgetSendBlocked
       ? AttachmentPasteFrame
       : PlainInputFrame;
 
@@ -85,8 +88,21 @@ const ComposerInputRow = ({
       <ComposerPrimitive.Input
         aria-label="Message input"
         className="aui-composer-input"
-        disabled={sendDisabled}
+        disabled={isComposerDisabled || budgetSendBlocked}
         id={inputId}
+        onKeyDown={(event) => {
+          if (
+            activeInput &&
+            event.key === 'Enter' &&
+            !event.shiftKey &&
+            !event.nativeEvent.isComposing
+          ) {
+            event.preventDefault();
+            if (!sendDisabled) {
+              void activeInput.send();
+            }
+          }
+        }}
         placeholder="Ask BrainStrike anything..."
         rows={1}
       />
@@ -148,7 +164,22 @@ const ComposerInputRow = ({
           </ComposerPrimitive.Send>
         </ThreadPrimitive.If>
         <ThreadPrimitive.If running>
-          {queueControl}
+          {activeInput ? (
+            <button
+              aria-label="Send to child"
+              className="aui-button aui-button-primary aui-composer-send"
+              disabled={sendDisabled || !hasDraft}
+              onClick={() => {
+                void activeInput.send();
+              }}
+              title="Send to child"
+              type="button"
+            >
+              <ArrowUpIcon className="size-4" />
+            </button>
+          ) : (
+            queueControl
+          )}
           {!hideDefaultCancel && (
             <ComposerPrimitive.Cancel
               aria-label="Stop"
@@ -161,6 +192,27 @@ const ComposerInputRow = ({
           )}
         </ThreadPrimitive.If>
       </div>
+      {activeInput?.busy && (
+        <div>
+          <span role="status">Sending to child…</span>
+          <button className="text-sm underline" onClick={activeInput.stopWaiting} type="button">
+            Stop waiting
+          </button>
+        </div>
+      )}
+      {activeInput?.error && (
+        <div>
+          <p role="alert">{activeInput.error}</p>
+          <button
+            className="text-sm underline"
+            disabled={activeInput.busy}
+            onClick={activeInput.discard}
+            type="button"
+          >
+            Discard draft
+          </button>
+        </div>
+      )}
     </InputFrame>
   );
 };

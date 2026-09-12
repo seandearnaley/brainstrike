@@ -3546,3 +3546,51 @@ Delegated event assignment may use a retained assistant row's explicit durable
 `parentId` equal to the originating user message even when that user row is outside
 the hydration window. This is exact topology evidence, not a call-id-only or
 nearest-turn heuristic; reused call IDs under another user cannot claim the event.
+
+Native Mastra signal messages with `content.metadata.signal.type === 'user'` are
+human history turns. Render their format-2 `parts`, split assistant groups at the
+human input, and retain normal branch topology. Notification/state signals must
+not be reclassified as human messages.
+
+### Active child human input (BST-1723)
+
+The active native child owns input consumption. Persist its canonical Mastra user
+signal before `sendSignal`, scope the client request id to its native resource and
+thread, and serialize requests per child owner. Store a pending receipt before
+native acceptance and a delivered receipt after it. An identical delivered request
+is acknowledged without another enqueue; changed content under the same id is
+rejected. A pending receipt after an interrupted acknowledgement is ambiguous and
+must never be automatically replayed into a writable child. Definitive native
+non-delivery removes the signal from native memory, so a later continuation
+cannot recall rejected input. An unconfirmed draft can be explicitly discarded
+before composing a new request; ordinary repeats keep their original id. The native production
+fixture injects receipt-write failure and proves a later explicit request remains
+usable without duplicating the earlier signal.
+
+Child frames use vendor `2` out-of-band data, so parent text and tool argument
+controllers stay open while child views update. Decode legacy `aui-data` child
+frames for stored replay too. Accepted native `data-user-message` signals route by
+the previously observed exact invocation identity. A child human-input marker
+splits only that child's shared runtime into assistant/user/assistant rows. Native
+memory remains the durable transcript writer; the child composer never launches a
+second runtime, queues a root turn or reconstructs a background task on disconnect.
+The child input endpoint rejects missing/retired host owners explicitly. Reload
+preserves the receipt in user-message custom metadata: pending input shows an
+unconfirmed-delivery notice, while delivered input shows its accepted state.
+Neither state dispatches work from hydration. Human input retains the native
+creation timestamp through live projection and reload.
+
+Production evidence: `background-worker-stream.integration.spec.ts`,
+`delegated-live-wire.spec.ts`, `delegated-conversation-receiver.test.ts`,
+`delegated-conversation-runtime.test.tsx`, and the active child composer case in
+`delegated-child-control.desktop.test.ts` (live send, parent result, reload with no
+additional model request). Idle child continuation is separate acceptance.
+
+Active child input retains the same request ID after an unconfirmed acknowledgement,
+even if the user edits the draft. Replacing that request requires the explicit
+Discard draft action. Stop waiting aborts only the acknowledgement transport;
+it does not stop the child or retract an already accepted instruction. The UI
+retains the request ID and reports unconfirmed delivery, ignores a late response
+from the abandoned wait, and permits only an explicit same-ID retry until discard.
+`assistant-conversation-panel.test.tsx` pins changed-draft refusal, late acknowledgement
+isolation, same-ID retry, and attachment-enabled focus preservation.

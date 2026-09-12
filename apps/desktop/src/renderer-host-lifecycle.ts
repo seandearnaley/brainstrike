@@ -133,7 +133,18 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         );
       }
 
-      // An existing hidden host window in stopped/stopping/error is not usable for new work.
+      if (this.status.state === 'stopping') {
+        // A stop owner is awaiting this window's cooperative 'stopped' report.
+        // Replacing the window here would orphan that wait for its full timeout
+        // and let the stop then destroy the replacement. Let the stop settle.
+        await this.waitForStatus(
+          (status) => status.state !== 'stopping',
+          DEFAULT_HOST_READY_TIMEOUT_MS
+        );
+        return this.ensureStarted(options);
+      }
+
+      // An existing hidden host window in stopped/error is not usable for new work.
       // Replace it inside the startup promise so concurrent callers share one restart path.
     }
 

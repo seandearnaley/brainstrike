@@ -33,7 +33,10 @@ function Conversation({
   onEdit,
   running = false,
   onExitPlanMode,
+  onSendActiveInput,
+  attachments = false,
 }: {
+  attachments?: boolean;
   id: string;
   messages: readonly ThreadMessageLike[];
   onNew: ExternalStoreAdapter<ThreadMessageLike>['onNew'];
@@ -42,6 +45,7 @@ function Conversation({
   onEdit?: ExternalStoreAdapter<ThreadMessageLike>['onEdit'];
   running?: boolean;
   onExitPlanMode?: () => void;
+  onSendActiveInput?: (input: { readonly id: string; readonly text: string }) => Promise<void>;
 }) {
   const runtime = useExternalStoreRuntime({
     convertMessage: (value) => value,
@@ -54,7 +58,9 @@ function Conversation({
   });
   return (
     <AssistantConversationPanel
+      {...(attachments ? { attachmentsAvailability: { state: 'enabled' as const } } : {})}
       label={id}
+      onSendActiveInput={onSendActiveInput}
       runtime={runtime}
       threadKey={id}
       {...(onExitPlanMode
@@ -75,6 +81,192 @@ describe('shared conversation panel', () => {
     cleanup();
     resetFollowUpQueueStore();
     useRewindComposerStore.getState().consume();
+  });
+
+  it.each(['pending', 'delivered'])(
+    'shows the persisted %s child input acknowledgement',
+    (state) => {
+      render(
+        <TooltipProvider>
+          <Conversation
+            id="Cedar"
+            messages={[
+              {
+                content: 'Inspect file',
+                id: 'human',
+                metadata: { custom: { brainstrikeChildInputDelivery: state } },
+                role: 'user',
+              },
+            ]}
+            onNew={async () => {}}
+          />
+        </TooltipProvider>
+      );
+      expect(
+        screen.getByText(
+          state === 'pending'
+            ? 'Delivery unconfirmed. This input will not be replayed automatically.'
+            : 'Accepted by child'
+        )
+      ).toHaveAttribute('role', 'status');
+    }
+  );
+
+  it('sends an active child draft once, retains failed input, and retries the same request id explicitly', async () => {
+    const onNew = vi.fn(async () => {});
+    const send = vi
+      .fn<(input: { readonly id: string; readonly text: string }) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('Delivery was interrupted'))
+      .mockResolvedValue(undefined);
+    render(
+      <TooltipProvider>
+        <Conversation
+          id="Cedar"
+          messages={[message('Reading')]}
+          onNew={onNew}
+          onSendActiveInput={send}
+          running
+        />
+      </TooltipProvider>
+    );
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'Check another file');
+    await user.click(screen.getByRole('button', { name: 'Send to child' }));
+    await expect(screen.findByText('Delivery was interrupted')).resolves.toHaveAttribute(
+      'role',
+      'alert'
+    );
+    expect(input).toHaveValue('Check another file');
+    await user.click(input);
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(input).toHaveValue(''));
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[0]?.[0]).toEqual(send.mock.calls[1]?.[0]);
+    expect(onNew).not.toHaveBeenCalled();
+    expect(useFollowUpQueueStore.getState().queuedByThread).toEqual({});
+  });
+
+  it('lets the user discard an unconfirmed draft and explicitly compose a fresh request', async () => {
+    const send = vi
+      .fn<(input: { id: string; text: string }) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('Inspect the child before sending again.'))
+      .mockResolvedValue(undefined);
+    render(
+      <TooltipProvider>
+        <Conversation
+          id="Cedar"
+          messages={[message('Reading')]}
+          onNew={async () => {}}
+          onSendActiveInput={send}
+          running
+        />
+      </TooltipProvider>
+    );
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'Inspect again');
+    await user.click(screen.getByRole('button', { name: 'Send to child' }));
+    await screen.findByText('Inspect the child before sending again.');
+    await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+    expect(input).toHaveValue('');
+    expect(send).toHaveBeenCalledOnce();
+    await user.type(input, 'Inspect again');
+    await user.click(screen.getByRole('button', { name: 'Send to child' }));
+    await waitFor(() => expect(input).toHaveValue(''));
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[0]?.[0].id).not.toBe(send.mock.calls[1]?.[0].id);
+  });
+
+  it('can stop waiting for an acknowledgement without replaying or losing its request identity', async () => {
+    const accepted = Promise.withResolvers<void>();
+    const send = vi.fn(
+      (_input: { readonly id: string; readonly text: string }) => accepted.promise
+    );
+    render(
+      <TooltipProvider>
+        <Conversation
+          id="Cedar"
+          messages={[message('Reading')]}
+          onNew={async () => {}}
+          onSendActiveInput={send}
+          running
+        />
+      </TooltipProvider>
+    );
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'Possibly delivered');
+    await user.keyboard('{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Stop waiting' }));
+    expect(screen.getByRole('button', { name: 'Send to child' })).toBeEnabled();
+    expect(input).toHaveValue('Possibly delivered');
+    expect(send).toHaveBeenCalledOnce();
+    accepted.resolve();
+    await waitFor(() => expect(screen.getByText(/Waiting stopped/)).toBeVisible());
+    expect(input).toHaveValue('Possibly delivered');
+    await user.click(input);
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(send.mock.calls[0]?.[0]).toEqual(send.mock.calls[1]?.[0]);
+  });
+
+  it('requires explicit discard before changed text can replace an unconfirmed request', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('Delivery unconfirmed'));
+    render(
+      <TooltipProvider>
+        <Conversation
+          id="Cedar"
+          messages={[message('Reading')]}
+          onNew={async () => {}}
+          onSendActiveInput={send}
+          running
+        />
+      </TooltipProvider>
+    );
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'First instruction');
+    await user.keyboard('{Enter}');
+    await screen.findByText('Delivery unconfirmed');
+    await user.clear(input);
+    await user.type(input, 'Replacement instruction');
+    await user.keyboard('{Enter}');
+    expect(send).toHaveBeenCalledOnce();
+    expect(screen.getByText(/earlier input is unconfirmed/)).toHaveTextContent('Discard');
+    expect(input).toHaveValue('Replacement instruction');
+  });
+
+  it('keeps the active composer editable and preserves a changed draft during acknowledgement', async () => {
+    const accepted = Promise.withResolvers<void>();
+    const send = vi.fn(
+      (_input: { readonly id: string; readonly text: string }) => accepted.promise
+    );
+    render(
+      <TooltipProvider>
+        <Conversation
+          attachments
+          id="Cedar"
+          messages={[message('Reading')]}
+          onNew={async () => {}}
+          onSendActiveInput={send}
+          running
+        />
+      </TooltipProvider>
+    );
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'First input');
+    await user.keyboard('{Enter}');
+    expect(send).toHaveBeenCalledOnce();
+    expect(input).toBeEnabled();
+    expect(input).toHaveFocus();
+    await user.clear(input);
+    await user.type(input, 'Next input');
+    accepted.resolve();
+    await waitFor(() => expect(screen.queryByText('Sending to child…')).not.toBeInTheDocument());
+    expect(input).toHaveValue('Next input');
+    expect(send).toHaveBeenCalledOnce();
   });
 
   it('does not inherit the parent rewind capability', () => {

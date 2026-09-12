@@ -1215,6 +1215,14 @@
   scroll-behavior: auto;
 }
 
+/* The global reduced-motion duration also applies to elements whose default
+   transition-property is all. Virtualizer geometry is synchronous bookkeeping,
+   never an animation: even a 0.01ms transition defers the height/offset read. */
+.bs-virtual-thread,
+.bs-virtual-message {
+  transition-property: none;
+}
+
 /* The virtualizer's sizing container: rows are absolutely positioned inside it
    (no column-reverse), so it must not shrink under the viewport's flex column. */
 .bs-virtual-thread {

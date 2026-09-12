@@ -33,6 +33,7 @@ const POST_ROUTES: ReadonlyMap<string, AssistantRoute> = new Map([
   ['/steer', 'steer'],
   ['/assistant/cancel', 'cancel'],
   ['/assistant/cancel-child', 'cancel-child'],
+  ['/assistant/child-input', 'child-input'],
   ['/cancel', 'cancel'],
   ['/assistant', 'assistant'],
   ['/', 'assistant'],

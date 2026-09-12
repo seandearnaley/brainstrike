@@ -146,27 +146,26 @@ describe('AssistantDataStreamSession', () => {
           .join('')
       ).toBe('Parent before.Parent after.');
       expect(events.filter((event) => event.code === 'd')).toHaveLength(1);
-      expect(events).toContainEqual(
+      const childEnvelopes = events
+        .flatMap((event) => {
+          if (event.code !== '2') {
+            return [];
+          }
+          return event.value as { name: string; data: { frames: Encoded[] } }[];
+        })
+        .filter((entry) => entry.name === 'brainstrike.delegated-conversation');
+      expect(childEnvelopes).toContainEqual(
         expect.objectContaining({
-          code: 'aui-data',
-          value: expect.objectContaining({
-            data: expect.objectContaining({
-              frames: expect.arrayContaining([{ code: '0', value: 'Child content.' }]),
-              identity,
-              messageId: 'native-child-message',
-              partId: 'native-part',
-            }),
-            name: 'brainstrike.delegated-conversation',
+          data: expect.objectContaining({
+            frames: expect.arrayContaining([{ code: '0', value: 'Child content.' }]),
+            identity,
+            messageId: 'native-child-message',
+            partId: 'native-part',
           }),
+          name: 'brainstrike.delegated-conversation',
         })
       );
-      const childFrames = events.flatMap((event) => {
-        if (event.code !== 'aui-data') {
-          return [];
-        }
-        const value = event.value as { name: string; data: { frames: Encoded[] } };
-        return value.name === 'brainstrike.delegated-conversation' ? value.data.frames : [];
-      });
+      const childFrames = childEnvelopes.flatMap((entry) => entry.data.frames);
       expect(childFrames.filter((frame) => frame.code === 'f')).toHaveLength(1);
       const child = await accumulateResponse(
         new Response(

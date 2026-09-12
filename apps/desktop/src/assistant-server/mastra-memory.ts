@@ -33,6 +33,7 @@ import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
 import { registerDesktopDelegatedCancellation } from './delegated-execution-controls';
+import { registerDesktopDelegatedFollowup } from './delegated-followup-controls';
 import { resolveProviderApiKey } from './provider-credentials';
 import { createRunCriticalDatabase } from './run-critical-database';
 
@@ -252,6 +253,10 @@ async function createDesktopMastraMemoryFromCacheState({
         finishToolActions: host.finishToolActions,
         prepareToolAction: host.prepareToolAction,
         registerCancellation: (control) => registerDesktopDelegatedCancellation(runId, control),
+        registerFollowup: (control) =>
+          registerDesktopDelegatedFollowup(runId, (scope, threadId, input) =>
+            host.sendFollowup(scope, threadId, input, control)
+          ),
         releaseUnexecutedToolAction: host.releaseUnexecutedToolAction,
         resolveToolAction: host.resolveToolAction,
       },

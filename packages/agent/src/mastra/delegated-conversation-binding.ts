@@ -40,6 +40,23 @@ export type DelegatedCancellationControl = (
   targets: readonly DelegatedCancellationTarget[]
 ) => Promise<void>;
 
+export interface DelegatedFollowupTarget {
+  readonly identity: DelegatedRunIdentity;
+  readonly personaId: string;
+  readonly resourceId: string;
+  readonly runId: string;
+  readonly threadId: string;
+}
+export interface DelegatedFollowupInput {
+  readonly id: string;
+  readonly text: string;
+}
+export type DelegatedFollowupControl = (
+  target: DelegatedFollowupTarget,
+  input: DelegatedFollowupInput,
+  assertAdmission: () => Promise<void>
+) => Promise<void>;
+
 export interface DelegatedConversationBinding {
   readonly abortInvocations?: (targets: readonly DelegatedCancellationTarget[]) => void;
   /** Host capability required for durable invocation publication/resume authorization. */
@@ -70,6 +87,7 @@ export interface DelegatedConversationBinding {
   /** Freeze child history after admission and before invoking native resume. */
   readonly prepareToolAction?: NonNullable<DelegatedConversationBinding['claimToolAction']>;
   readonly registerCancellation?: (control: DelegatedCancellationControl) => () => void;
+  readonly registerFollowup?: (control: DelegatedFollowupControl) => () => void;
   /** Roll back this owner's claim only when native resume has not been invoked. */
   readonly releaseUnexecutedToolAction?: NonNullable<
     DelegatedConversationBinding['claimToolAction']

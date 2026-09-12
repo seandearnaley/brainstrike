@@ -16,6 +16,10 @@ vi.mock('../embedding-backfill', () => ({
   enqueueEmbeddingBackfill: enqueueEmbeddingBackfillMock,
 }));
 
+import {
+  markDesktopShuttingDown,
+  resetDesktopShutdownStateForTests,
+} from '../desktop-shutdown-state';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import {
   EMBEDDING_BACKFILL_CANCELED_MESSAGE,
@@ -559,5 +563,30 @@ describe('desktop embedding backfill termination logging', () => {
         })
       );
     });
+  });
+});
+
+describe('desktop embedding backfill admission during shutdown', () => {
+  afterEach(() => {
+    resetDesktopShutdownStateForTests();
+    vi.clearAllMocks();
+  });
+
+  it('refuses a new backfill once graceful shutdown has begun without starting the host', async () => {
+    markDesktopShuttingDown();
+    const params = createRunParams('set-shutdown', 'background-indexing');
+
+    await runDesktopEmbeddingBackfill(params);
+    await vi.waitFor(() => {
+      expect(params.onDetachedFailure).toHaveBeenCalledOnce();
+    });
+
+    // Starting the host here recreates a hidden renderer that the shutdown
+    // sequence is about to dispose; the job rows stay durable for next launch.
+    expect(params.hostManager.ensureStarted).not.toHaveBeenCalled();
+    expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+    expect(params.onDetachedFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('shutting down') })
+    );
   });
 });

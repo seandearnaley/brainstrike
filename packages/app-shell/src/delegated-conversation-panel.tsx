@@ -12,6 +12,7 @@ export interface DelegatedConversationPanelProps {
   readonly label: string;
   readonly onCancel?: () => Promise<void>;
   readonly onNew: DelegatedConversationRuntimeOptions['onNew'];
+  readonly onSendActiveInput?: AssistantConversationPanelProps['onSendActiveInput'];
   readonly panelProps?: Omit<
     AssistantConversationPanelProps,
     'runtime' | 'threadKey' | 'label' | 'isComposerDisabled'
@@ -26,6 +27,7 @@ export function DelegatedConversationPanel({
   label,
   onNew,
   onCancel,
+  onSendActiveInput,
   panelProps,
   persistedHistory,
   store,
@@ -49,8 +51,9 @@ export function DelegatedConversationPanel({
     <AssistantConversationPanel
       {...panelProps}
       hideDefaultCancel={Boolean(onCancel)}
-      isComposerDisabled
+      isComposerDisabled={!onSendActiveInput || snapshot?.update.message.status.type !== 'running'}
       label={label}
+      onSendActiveInput={onSendActiveInput}
       runtime={runtime}
       threadKey={threadId}
       {...(onCancel

@@ -450,6 +450,9 @@ export async function processMastraStreamPart(
   }
 
   switch (p.type) {
+    case 'data-user-message':
+      // The delegated projection owns this human row, never the parent assistant.
+      return { chunks: [], finished: false };
     case 'start':
       return {
         chunks: [

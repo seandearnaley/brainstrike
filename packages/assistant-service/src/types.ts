@@ -14,6 +14,7 @@ export type AssistantRoute =
   | 'assistant'
   | 'cancel'
   | 'cancel-child'
+  | 'child-input'
   | 'openrouter-model'
   | 'resume'
   | 'run-status'

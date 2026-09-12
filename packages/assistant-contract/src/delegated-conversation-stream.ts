@@ -9,6 +9,16 @@ export interface DelegatedRunIdentity {
   readonly personaId: string;
 }
 
+export const CHILD_INPUT_DELIVERY_METADATA_KEY = 'brainstrikeChildInputDelivery';
+export const childInputDeliveryStateSchema = z.enum(['pending', 'delivered']);
+
+export const CHILD_USER_MESSAGE_DATA_NAME = 'brainstrike.child-user-message';
+export const childUserMessageSchema = z.object({
+  createdAt: z.iso.datetime(),
+  id: z.string().min(1),
+  text: z.string(),
+});
+
 export const DELEGATED_CONVERSATION_DATA_NAME = 'brainstrike.delegated-conversation';
 
 /** Uses the same encoded conversation frames and decoder as the parent stream. */
@@ -36,3 +46,8 @@ export const delegatedConversationBaselineSchema = z.object({
   threadId: z.string().min(1),
 });
 export type DelegatedConversationBaseline = z.infer<typeof delegatedConversationBaselineSchema>;
+
+/** Only for confirmed rejection before enqueue, or native discard with memory cleanup. */
+export class ChildInputNotDeliveredError extends Error {
+  override readonly name = 'ChildInputNotDeliveredError';
+}

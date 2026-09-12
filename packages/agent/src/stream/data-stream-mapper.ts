@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
 import {
+  CHILD_USER_MESSAGE_DATA_NAME,
   DELEGATED_CONVERSATION_DATA_NAME,
   type DelegatedConversationStreamData,
 } from '@brainstrike/assistant-contract/delegated-conversation-stream';
@@ -409,6 +410,23 @@ export class DataStreamMapper {
     }
 
     switch (chunk.type) {
+      case 'child-user-message': {
+        const encoded = {
+          code: DataStreamCode.auiDataPart,
+          value: {
+            data: { createdAt: chunk.createdAt, id: chunk.id, text: chunk.text },
+            name: CHILD_USER_MESSAGE_DATA_NAME,
+          },
+        };
+        if (this.openArgsCallId !== null) {
+          this.pendingRunEventChunks.push(encoded);
+          return;
+        }
+        // Human input deliberately ends the previous assistant text part.
+        yield* this.flushPendingRunEvents();
+        yield encoded;
+        return;
+      }
       case 'delegated-conversation-chunk':
         yield* this.handleDelegatedConversation(chunk);
         return;
@@ -502,15 +520,12 @@ export class DataStreamMapper {
       messageId: chunk.messageId,
       ...(chunk.partId ? { partId: chunk.partId } : {}),
     };
-    const encoded: EncodedChunk = {
-      code: DataStreamCode.auiDataPart,
-      value: { data: toJsonSafe(data), name: DELEGATED_CONVERSATION_DATA_NAME },
+    // The vendor's out-of-band data frame leaves parent text/args controllers
+    // open. A child must remain live while the parent awaits its result.
+    yield {
+      code: DataStreamCode.data,
+      value: [{ data: toJsonSafe(data), name: DELEGATED_CONVERSATION_DATA_NAME }],
     };
-    if (this.mustDeferDataParts()) {
-      this.pendingRunEventChunks.push(encoded);
-      return;
-    }
-    yield encoded;
   }
 
   *handleError(error: unknown): Generator<EncodedChunk> {

@@ -8,6 +8,8 @@ import {
   type AssistantEditCheckpointCaptureStatus,
   type AssistantEditCheckpointOp,
   type AssistantEditCheckpointRecord,
+  CHILD_INPUT_DELIVERY_METADATA_KEY,
+  childInputDeliveryStateSchema,
   getToolActionIdentityKey,
   isGuardedToolError,
   SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME,
@@ -2178,12 +2180,33 @@ function toUserHistoryAttachments(
   return attachments;
 }
 
+function readChildInputReceipt(message: AssistantHistoryMessage): Record<string, unknown> {
+  if (!(isNativeUserSignal(message) && isRecord(message.content))) {
+    return {};
+  }
+  const metadata = message.content['metadata'];
+  if (!isRecord(metadata) || metadata['brainstrikeFollowup'] === undefined) {
+    return {};
+  }
+  const receipt = metadata['brainstrikeFollowup'];
+  if (!isRecord(receipt)) {
+    throw new Error('Child input has an invalid delivery receipt.');
+  }
+  return {
+    [CHILD_INPUT_DELIVERY_METADATA_KEY]: childInputDeliveryStateSchema.parse(receipt['state']),
+  };
+}
+
 function appendUserHistoryMessage(args: {
   message: AssistantHistoryMessage;
   parentId: string | null;
   repositoryMessages: AssistantHistoryRepositoryMessages;
 }): boolean {
-  const content = toTextHistoryContentParts(args.message.content);
+  const content = toTextHistoryContentParts(
+    isNativeUserSignal(args.message)
+      ? readContentPartArray(args.message.content)
+      : args.message.content
+  );
   const attachments = toUserHistoryAttachments(args.message.id, args.message.content);
   // An image-only user message has no text part but must survive hydration.
   if (content.length === 0 && attachments.length === 0) {
@@ -2196,7 +2219,7 @@ function appendUserHistoryMessage(args: {
       content,
       createdAt: args.message.createdAt,
       id: args.message.id,
-      metadata: { custom: {} },
+      metadata: { custom: readChildInputReceipt(args.message) },
       role: 'user',
     },
     parentId: args.parentId,
@@ -2225,6 +2248,18 @@ function appendSystemHistoryMessage(args: {
     parentId: args.parentId,
   });
   return true;
+}
+
+function isNativeUserSignal(message: AssistantHistoryMessage): boolean {
+  if (message.role !== 'signal' || !isRecord(message.content)) {
+    return false;
+  }
+  const metadata = message.content['metadata'];
+  if (!isRecord(metadata)) {
+    return false;
+  }
+  const signal = metadata['signal'];
+  return isRecord(signal) && signal['type'] === 'user';
 }
 
 /**
@@ -2285,9 +2320,10 @@ function buildHistoryUnits(
       );
       continue;
     }
-    if (message.role === 'user' || message.role === 'system') {
+    const role = isNativeUserSignal(message) ? 'user' : message.role;
+    if (role === 'user' || role === 'system') {
       closeOpenGroup();
-      units.push({ kind: message.role, message });
+      units.push({ kind: role, message });
     }
     // Other roles (legacy 'tool' rows) are folded into tool results and never
     // rendered — they intentionally do not split an assistant group.

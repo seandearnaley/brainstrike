@@ -776,6 +776,70 @@ describe('RendererHostLifecycle', () => {
     expect(restartedStatus.runtimeId).not.toBe('embedding-host:old-runtime');
   });
 
+  it('lets a stopping host settle before replacing its window', async () => {
+    const stoppingWindow = createFakeWindow(71);
+    const restartedWindow = createFakeWindow(72);
+    stoppingWindow.loadURL.mockResolvedValue(undefined);
+    restartedWindow.loadURL.mockResolvedValue(undefined);
+    const createdWindows = [stoppingWindow, restartedWindow];
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
+      const nextWindow = createdWindows.shift();
+      if (!nextWindow) {
+        throw new Error('No fake BrowserWindow left to create');
+      }
+      Object.assign(this, nextWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [stoppingWindow, restartedWindow]),
+    });
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+    const initialStart = lifecycle.ensureStarted({ waitForRunning: true });
+    await Promise.resolve();
+    const runtimeId = lifecycle.getStatus().runtimeId;
+    lifecycle.setStatus(
+      createStatus({ active: true, lastError: null, runtimeId, state: 'running' })
+    );
+    await initialStart;
+
+    // The manager's stop() owns this window until the renderer reports stopped.
+    lifecycle.setStatus(
+      createStatus({ active: false, lastError: null, runtimeId, state: 'stopping' })
+    );
+    let settled = false;
+    const restart = lifecycle.ensureStarted({ waitForRunning: false }).then((status) => {
+      settled = true;
+      return status;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(stoppingWindow.destroy).not.toHaveBeenCalled();
+    expect(settled).toBe(false);
+
+    lifecycle.setStatus(
+      createStatus({ active: false, lastError: null, runtimeId, state: 'stopped' })
+    );
+    const restarted = await restart;
+
+    expect(stoppingWindow.destroy).toHaveBeenCalledTimes(1);
+    expect(restartedWindow.loadURL).toHaveBeenCalledTimes(1);
+    expect(restarted.state).toBe('starting');
+    expect(restarted.runtimeId).not.toBe(runtimeId);
+  });
+
   it('serializes concurrent restart calls when replacing a stopped host window', async () => {
     const stoppedWindow = createFakeWindow(63);
     const restartedWindow = createFakeWindow(64);

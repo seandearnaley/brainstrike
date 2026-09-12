@@ -42,6 +42,7 @@ export interface EmbeddingHostManagerOptions {
 
 export class EmbeddingHostManager {
   private disposed = false;
+  private disposing = false;
   private readonly lifecycle: RendererHostLifecycle<EmbeddingHostStatus>;
   private readonly powerSaveBlockerEnabled: boolean;
   private pendingInactiveStatusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -151,6 +152,10 @@ export class EmbeddingHostManager {
 
   async stop(): Promise<EmbeddingHostStatus> {
     this.assertNotDisposed('stop');
+    return this.stopHost();
+  }
+
+  private async stopHost(): Promise<EmbeddingHostStatus> {
     this.rejectPendingQueryEmbeddingRequests(
       'Embedding host stopped while query embedding requests were in flight.'
     );
@@ -303,11 +308,15 @@ export class EmbeddingHostManager {
   }
 
   async dispose(): Promise<void> {
+    // Refuse new starts BEFORE the cooperative stop below awaits the renderer:
+    // a backfill arriving mid-teardown would otherwise replace the very window
+    // stop() is waiting on, orphaning that wait for its whole timeout.
+    this.disposing = true;
     try {
       // Before running, the renderer may not have installed its command listener.
       // Lifecycle disposal cancels startup waiters and destroys the owned window.
       if (this.lifecycle.getStatus().state !== 'starting') {
-        await this.stop();
+        await this.stopHost();
       }
     } finally {
       this.disposed = true;
@@ -514,7 +523,7 @@ export class EmbeddingHostManager {
   private assertNotDisposed(
     methodName: 'destroyAndRestart' | 'ensureStarted' | 'queryEmbedding' | 'reset' | 'stop'
   ): void {
-    if (this.disposed) {
+    if (this.disposed || this.disposing) {
       throw new Error(`EmbeddingHostManager.${methodName} cannot be called after dispose().`);
     }
   }

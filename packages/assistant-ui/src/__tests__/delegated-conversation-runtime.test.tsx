@@ -59,6 +59,57 @@ const finish: [string, unknown] = [
 afterEach(cleanup);
 
 describe('shared child conversation runtime', () => {
+  it('keeps human follow-ups between the child replies through the shared runtime', async () => {
+    const history: History = {
+      headId: 'task',
+      messages: [{ message: saved('task', 'Inspect', 'user'), parentId: null }],
+    };
+    const update = await live('child', [
+      ['0', 'Before input.'],
+      [
+        'aui-data',
+        {
+          data: {
+            createdAt: '2026-09-11T21:00:00.000Z',
+            id: 'human-input',
+            text: 'Check the second file.',
+          },
+          name: 'brainstrike.child-user-message',
+        },
+      ],
+      ['0', 'After input.'],
+      finish,
+    ]);
+    const onNew = vi.fn(async () => {});
+    const { result, rerender } = renderHook(
+      (snapshot) => useDelegatedConversationRuntime({ history, onNew, update: snapshot }),
+      { initialProps: update }
+    );
+    expect(
+      result.current.thread.getState().messages.map((message) => ({
+        content: message.content.map((part) =>
+          part.type === 'text' ? { text: part.text, type: part.type } : { type: part.type }
+        ),
+        role: message.role,
+      }))
+    ).toEqual([
+      { content: [{ text: 'Inspect', type: 'text' }], role: 'user' },
+      { content: [{ text: 'Before input.', type: 'text' }], role: 'assistant' },
+      { content: [{ text: 'Check the second file.', type: 'text' }], role: 'user' },
+      { content: [{ text: 'After input.', type: 'text' }], role: 'assistant' },
+    ]);
+    expect(
+      result.current.thread
+        .getState()
+        .messages.find((message) => message.id === 'human-input')
+        ?.createdAt.toISOString()
+    ).toBe('2026-09-11T21:00:00.000Z');
+    const previous = result.current.thread.getState().messages;
+    rerender({ ...update, messageId: 'later-native-row' });
+    expect(result.current.thread.getState().messages).toEqual(previous);
+    expect(onNew).not.toHaveBeenCalled();
+  });
+
   it('keeps prior text and reasoning, merges the resumed tool in place, and preserves identical continuation text', async () => {
     const history: History = {
       headId: 'prior',
