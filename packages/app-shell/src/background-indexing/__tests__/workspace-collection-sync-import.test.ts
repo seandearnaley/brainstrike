@@ -1739,12 +1739,12 @@ describe('runRootFolderCacheImport — rootId threading', () => {
     }
   });
 
-  it.each(['callback-owned content', ''])(
-    'imports callback-supplied content %j with the durable rootId',
+  it.each(['callback-owned content', '', undefined])(
+    'honors callback-supplied content %j with the durable rootId',
     async (selectedContent) => {
       vi.mocked(runEnhancedImport).mockImplementationOnce(async (params) => {
         const results = await params.baseImportRunner({
-          fileContents: { [COMPOSITE_KEY]: selectedContent },
+          fileContents: selectedContent === undefined ? {} : { [COMPOSITE_KEY]: selectedContent },
           fileTree: params.request.fileTree,
           onProgress: () => {},
           selectedFilePaths: params.request.selectedFilePaths,
@@ -1792,6 +1792,17 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       });
 
+      if (selectedContent === undefined) {
+        expect(applyManagedCacheBatch).not.toHaveBeenCalled();
+        await expect(vi.mocked(runEnhancedImport).mock.results.at(-1)?.value).resolves.toEqual([
+          expect.objectContaining({
+            error: 'Background cache import descriptor is missing.',
+            id: change.id,
+            imported: false,
+          }),
+        ]);
+        return;
+      }
       expect(applyManagedCacheBatch).toHaveBeenCalledOnce();
       expect(applyManagedCacheBatch).toHaveBeenCalledWith(
         expect.objectContaining({
