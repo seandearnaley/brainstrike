@@ -2526,6 +2526,10 @@ request, rejects the same way; there is no zero-honored-ids success state left.
 Real stdio and real Streamable HTTP wire tests cover full, partial, and empty
 acknowledgements
 (`packages/agent/src/__tests__/mcp-tasks-subscription-acknowledgement.integration.spec.ts`).
+These wire fixtures and the modern stdio extension suite await cleanup in reverse
+acquisition order: the client must finish closing before its request-log directory
+is removed. Cleanup continues after a failure, preserving a sole original error
+or aggregating every failure in disposal order.
 Production registration is the BST-1566 layer below.
 
 BST-1564 adds the opt-in interaction coordinator without enabling Tasks in production. It deduplicates
