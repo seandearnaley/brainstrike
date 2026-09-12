@@ -2,6 +2,7 @@ import {
   useAuiState,
   unstable_useThreadMessageIds as useThreadMessageIds,
 } from '@assistant-ui/react';
+import { NATIVE_MESSAGE_IDS_METADATA_KEY } from '@brainstrike/assistant-contract';
 import { type RefObject, use, useLayoutEffect } from 'react';
 import { ThreadMessageNavigationContext } from './thread-message-navigation';
 
@@ -23,7 +24,7 @@ export function useThreadMessageNavigation({
       return;
     }
     return state.thread.messages.find((message) => {
-      const sources = message.metadata.custom['brainstrikeNativeMessageIds'];
+      const sources = message.metadata.custom[NATIVE_MESSAGE_IDS_METADATA_KEY];
       return (
         message.id === navigation.messageId ||
         (Array.isArray(sources) && sources.includes(navigation.messageId))
@@ -36,28 +37,40 @@ export function useThreadMessageNavigation({
       return;
     }
     const index = targetId ? messageIds.indexOf(targetId) : -1;
-    if (index < 0) {
-      navigation.onComplete('The matched message is not in the loaded conversation history.');
-      return;
-    }
     const focusMessage = (): boolean => {
-      const target = Array.from(viewport.querySelectorAll<HTMLElement>('[data-message-id]')).find(
-        (row) => row.dataset['messageId'] === targetId
-      );
+      const escapedId = targetId ? CSS.escape(targetId) : undefined;
+      const target = escapedId
+        ? viewport.querySelector<HTMLElement>(`[data-message-id="${escapedId}"]`)
+        : null;
       if (!target) {
         return false;
       }
-      if (!isVirtual) {
-        scrollToMatch(index, target);
+      try {
+        if (!isVirtual) {
+          scrollToMatch(index, target);
+        }
+        target.focus({ preventScroll: true });
+        navigation.onComplete();
+      } catch (error) {
+        navigation.onComplete(error instanceof Error ? error.message : String(error));
       }
-      target.focus({ preventScroll: true });
-      navigation.onComplete();
       return true;
     };
     let active = true;
+    // A navigation must settle even if a virtual row never mounts. This is an
+    // error boundary for explicit focus, not a delay on successful navigation.
+    const deadline = window.setTimeout(() => {
+      observer.disconnect();
+      navigation.onComplete(
+        index < 0
+          ? 'The matched message is not in the loaded conversation history.'
+          : 'The matched message could not be displayed.'
+      );
+    }, 2000);
     const observer = new MutationObserver(() => {
       if (focusMessage()) {
         observer.disconnect();
+        window.clearTimeout(deadline);
       }
     });
     // Own the allocation and cleanup in this effect, including a cancelled
@@ -67,11 +80,19 @@ export function useThreadMessageNavigation({
       if (!active) {
         return;
       }
-      if (isVirtual) {
-        scrollToMatch(index);
+      if (isVirtual && index >= 0) {
+        try {
+          scrollToMatch(index);
+        } catch (error) {
+          window.clearTimeout(deadline);
+          observer.disconnect();
+          navigation.onComplete(error instanceof Error ? error.message : String(error));
+          return;
+        }
       }
       if (focusMessage()) {
         observer.disconnect();
+        window.clearTimeout(deadline);
       }
     };
     if (isVirtual) {
@@ -82,6 +103,7 @@ export function useThreadMessageNavigation({
     }
     return () => {
       active = false;
+      window.clearTimeout(deadline);
       observer.disconnect();
     };
   }, [isLoading, isVirtual, messageIds, navigation, scrollToMatch, targetId, viewportRef]);

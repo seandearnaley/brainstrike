@@ -105,7 +105,14 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       },
       (error: unknown) => {
         if (active) {
-          setSaved({ error: asError(error) });
+          if (searchTarget) {
+            useThreadSearchStore
+              .getState()
+              .finishNavigation(searchTarget.requestId, asError(error).message);
+            setLoadedSearchRequest(undefined);
+          } else {
+            setSaved({ error: asError(error) });
+          }
         }
       }
     );
@@ -147,6 +154,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
         <DelegatedConversationBreadcrumbs db={db} node={node} />
         <div className="min-h-0 flex-1">
           <DelegatedConversationPanel
+            extendHistoryForSearch={loadedSearchRequest !== undefined}
             label={node.displayName}
             {...(hasDurableAssistantUsageCapability() && live?.update.baseline?.hostRunId
               ? {

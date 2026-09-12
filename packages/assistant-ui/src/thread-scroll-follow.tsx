@@ -354,7 +354,7 @@ function createThreadScrollFollow(): ThreadScrollFollow {
           element.scrollTop +
           target.getBoundingClientRect().top -
           element.getBoundingClientRect().top -
-          (element.clientHeight - target.clientHeight) / 2,
+          Math.max(0, (element.clientHeight - target.clientHeight) / 2),
       });
     },
     subscribe: (listener) => {

@@ -275,6 +275,37 @@ describe('child view after renderer restart', () => {
     expect(append).not.toHaveBeenCalled();
   });
 
+  it('reports an unreachable search target while keeping the child open and allowing a new target', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
+    );
+    render(
+      <TooltipProvider>
+        <DelegatedConversationRootsProvider>
+          <OwningRoot />
+          <ChildView db={database as DbHandle} node={node} />
+        </DelegatedConversationRootsProvider>
+      </TooltipProvider>
+    );
+    await screen.findByText('Persisted native child transcript.');
+    act(() => {
+      const state = useThreadSearchStore.getState();
+      state.setNavigationTarget({
+        messageId: 'removed-after-selection',
+        ownerResourceId: 'owner',
+        requestId: state.beginNavigation(),
+        threadId: node.threadId,
+      });
+    });
+    await waitFor(() =>
+      expect(useThreadSearchStore.getState().navigationError).toMatch(/no longer available/)
+    );
+    expect(useThreadSearchStore.getState().navigationTarget).toBeNull();
+    expect(screen.getByText('Persisted native child transcript.')).toBeVisible();
+    expect(append).not.toHaveBeenCalled();
+  });
+
   it('shows arriving host output before a pending recovery read settles', async () => {
     let settle: ((response: Response) => void) | undefined;
     const fetch = vi.fn(

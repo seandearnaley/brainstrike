@@ -1,6 +1,5 @@
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { ThreadSearchRepository } from '@brainstrike/db';
-import { useCallback } from 'react';
 import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
 import { useThreadSearchStore } from './thread-search-store';
 import { threadWorkspaceNavigation } from './thread-workspace/live-thread-workspace-navigation';
@@ -48,17 +47,4 @@ export async function navigateThreadSearchResult(
       .getState()
       .finishNavigation(requestId, error instanceof Error ? error.message : String(error));
   }
-}
-
-/** Keep result activation bound to the workspace whose search is displayed. */
-export function useThreadSearchResultNavigation(
-  repository: ThreadSearchRepository | null,
-  ownerResourceId: string
-): (threadId: string, messageId?: string) => void {
-  return useCallback(
-    (threadId: string, messageId?: string) => {
-      void navigateThreadSearchResult(repository, ownerResourceId, threadId, messageId);
-    },
-    [ownerResourceId, repository]
-  );
 }

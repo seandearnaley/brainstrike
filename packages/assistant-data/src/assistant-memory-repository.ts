@@ -12,6 +12,7 @@ import {
   childInputDeliveryStateSchema,
   getToolActionIdentityKey,
   isGuardedToolError,
+  NATIVE_MESSAGE_IDS_METADATA_KEY,
   SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME,
   type SuspendedRunDiscoveryError,
 } from '@brainstrike/assistant-contract';
@@ -2088,7 +2089,7 @@ function appendAssistantGroupMessage(args: {
       metadata: {
         custom: {
           ...readHistoryCustomMetadata(lastRow.content),
-          brainstrikeNativeMessageIds: args.group.rows.map((row) => row.id),
+          [NATIVE_MESSAGE_IDS_METADATA_KEY]: args.group.rows.map((row) => row.id),
         },
         steps: [],
         // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
@@ -3568,6 +3569,7 @@ async function loadHistoryThroughSearchTarget(
   signal?.throwIfAborted();
   let messages = await repository.listMessages(threadId, resourceId, {
     limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    ...(targetMessageId ? { targetMessageId } : {}),
   });
   if (!targetMessageId) {
     return messages;
@@ -3582,6 +3584,7 @@ async function loadHistoryThroughSearchTarget(
     const older = await repository.listMessages(threadId, resourceId, {
       beforeMessageId: first.id,
       limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+      ...(targetMessageId ? { targetMessageId } : {}),
     });
     if (older.length === 0) {
       throw new Error('The selected message is no longer available in this conversation.');

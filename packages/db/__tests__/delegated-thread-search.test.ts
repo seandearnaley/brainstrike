@@ -6,7 +6,7 @@ import { readAssistantHistoryMessages } from '../src/repositories/assistant-hist
 import { createDelegatedConversationRepository } from '../src/repositories/delegated-conversation-repository.js';
 import { ThreadSearchRepository } from '../src/repositories/thread-search-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createPGliteTestDataDir } from './test-data-dir.js';
 
 const RESOURCE_ID = 'workspace-memory';
 const PROFILE_DIMENSIONS = 384;
@@ -107,6 +107,18 @@ describe('ThreadSearchRepository', () => {
         `${id}-resource`,
       ]);
     }
+    expect(
+      (
+        await repository.getNavigationTitles(RESOURCE_ID, [
+          'search-root',
+          'search-child',
+          'search-leaf',
+        ])
+      )
+        .map((row) => row.threadId)
+        .sort()
+    ).toEqual(['search-child', 'search-leaf', 'search-root']);
+    expect(await repository.getNavigationTitles('foreign-owner', ['search-leaf'])).toEqual([]);
     await repository.sync();
     const options = { limit: 20, resourceId: RESOURCE_ID };
     expect(
@@ -158,6 +170,9 @@ describe('ThreadSearchRepository', () => {
     expect(
       await repository.getNavigationTarget(RESOURCE_ID, 'search-leaf', 'search-leaf-message')
     ).toBeNull();
+    expect(
+      await repository.getNavigationTitles(RESOURCE_ID, ['search-child', 'search-leaf'])
+    ).toEqual([]);
     expect(await repository.fullTextSearch('quasarcobalt', options)).toEqual([]);
     expect(await repository.searchSimilar(vec(0), options)).toEqual([]);
     expect(await repository.searchThreadTitles('quasarcobalt', options)).toEqual([]);
@@ -209,6 +224,48 @@ describe('ThreadSearchRepository', () => {
       await readAssistantHistoryMessages(db, 'paged', 'foreign-owner', {
         beforeMessageId: 'd',
         limitLatest: 2,
+      })
+    ).toEqual([]);
+    expect(
+      await readAssistantHistoryMessages(db, 'paged', RESOURCE_ID, {
+        limitLatest: 2,
+        targetMessageId: 'removed',
+      })
+    ).toEqual([]);
+    expect(
+      (
+        await readAssistantHistoryMessages(db, 'paged', RESOURCE_ID, {
+          beforeMessageId: 'd',
+          limitLatest: 2,
+          targetMessageId: 'a',
+        })
+      ).map((row) => row.id)
+    ).toEqual(['b', 'c']);
+    await db.query('UPDATE mastra_messages SET "resourceId" = NULL WHERE id IN ($1, $2)', [
+      'a',
+      'd',
+    ]);
+    expect(
+      (
+        await readAssistantHistoryMessages(db, 'paged', RESOURCE_ID, {
+          limitLatest: 5,
+          targetMessageId: 'a',
+        })
+      ).map((row) => row.id)
+    ).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(
+      (
+        await readAssistantHistoryMessages(db, 'paged', RESOURCE_ID, {
+          beforeMessageId: 'd',
+          limitLatest: 2,
+          targetMessageId: 'a',
+        })
+      ).map((row) => row.id)
+    ).toEqual(['b', 'c']);
+    expect(
+      await readAssistantHistoryMessages(db, 'paged', 'foreign-owner', {
+        limitLatest: 2,
+        targetMessageId: 'a',
       })
     ).toEqual([]);
     await expect(

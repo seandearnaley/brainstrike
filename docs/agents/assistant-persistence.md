@@ -3620,3 +3620,16 @@ controls reachable at narrow and wide widths. Attachment paste uses the same
 admission gate without remounting the input frame or losing focus. A selected
 conversation-key switch remounts provider state, isolating its retained receipt
 and any late acknowledgement from the new conversation.
+
+### Search navigation correction boundaries (BST-1725)
+
+Targeted history pages recheck that the selected native message remains visible
+in the same thread/resource before each 80-row read. Deleted or tombstoned hits
+end navigation visibly; they do not replace an otherwise usable child transcript
+with a history failure. Legacy null message resources use the native thread's
+resource consistently at search admission, cursor lookup and hydration. Foreign
+explicit resources remain rejected. Extended search history adds only older
+non-overlapping groups; the host owns its head and overlapping group content,
+while their native source IDs are unioned for exact match focus. Ordinary live
+children do not run this search-only merge. Title labels are resolved in one
+owned-graph query per result set. No arbitrary depth cap hides valid old hits.

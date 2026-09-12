@@ -686,6 +686,23 @@ test('reattaches vendor layout after a virtual to static to virtual round trip',
 });
 
 describe('explicit message navigation uses the active transcript scroll owner', () => {
+  test('settles an absent target visibly instead of keeping an observer alive forever', async () => {
+    const onComplete = vi.fn();
+    render(
+      <ThreadHarness
+        messages={makeMessages(40)}
+        navigation={{ messageId: 'deleted', onComplete, requestId: 2 }}
+      />
+    );
+    await waitFor(
+      () =>
+        expect(onComplete).toHaveBeenCalledWith(
+          'The matched message is not in the loaded conversation history.'
+        ),
+      { timeout: 3000 }
+    );
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
   test.each([40, 600])(
     'focuses the exact old message among %i rows and leaves follow disengaged',
     async (count) => {

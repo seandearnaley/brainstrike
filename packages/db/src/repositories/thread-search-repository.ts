@@ -245,6 +245,36 @@ export class ThreadSearchRepository {
     return result.rows[0] ?? null;
   }
 
+  /** Resolve a bounded result set with one ownership traversal. */
+  async getNavigationTitles(
+    ownerResourceId: string,
+    threadIds: readonly string[]
+  ): Promise<
+    readonly {
+      readonly threadId: string;
+      readonly title: string | null;
+      readonly displayName: string | null;
+    }[]
+  > {
+    if (threadIds.length === 0) {
+      return [];
+    }
+    const result = await this.db.query<{
+      threadId: string;
+      title: string | null;
+      displayName: string | null;
+    }>(
+      `${ownedThreadsSql('$1')}
+      SELECT owned.thread_id AS "threadId", native.title, child.display_name AS "displayName"
+      FROM search_owned_threads owned
+      JOIN mastra_threads native ON native.id = owned.thread_id AND native."resourceId" = owned.resource_id
+      LEFT JOIN brainstrike_delegated_conversations child ON child.thread_id = owned.thread_id
+      WHERE owned.thread_id = ANY($2::text[])`,
+      [ownerResourceId, threadIds]
+    );
+    return result.rows;
+  }
+
   async getEmbeddingProfile(): Promise<ThreadSearchEmbeddingProfile> {
     const result = await this.db.query<ThreadSearchEmbeddingProfile>(
       `SELECT id, model_id AS "modelId", model_key AS "modelKey", dimensions, distance

@@ -4226,3 +4226,9 @@ native discard preserve the original non-delivery error alongside any failed
 memory deletion; cleanup failure never overwrites the rejection or becomes success.
 Native and actual PGlite host
 fixtures pin both timing windows and preserve the tool execution Stop barrier.
+
+Explicit search focus has a two-second failure boundary if the requested row
+never enters the shared renderer. A failed focus reports through the navigation
+alert and disconnects its observer; it does not crash or unmount the transcript.
+Targets taller than the viewport align their start rather than centering it above
+the visible frame. The static and virtual tiers retain their existing scroll owners.

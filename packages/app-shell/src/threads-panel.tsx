@@ -102,7 +102,6 @@ import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-pat
 import { useThreadFolderRows } from './hooks/use-thread-folder-rows';
 import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approval';
 import { useMarkActiveThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
-import { useThreadSearchResultNavigation } from './navigate-thread-search-result';
 import { lookupThreadBranch, type ThreadBranchLookup } from './thread-branch-resolution';
 import { ThreadFolderHeader } from './thread-folder-header';
 import { lookupThreadForgePr } from './thread-forge-pr-resolution';
@@ -142,6 +141,7 @@ import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
 import { useDelegatedSidebar } from './use-delegated-sidebar';
 import { type ThreadPanelSelection, useThreadPanelSelection } from './use-thread-panel-selection';
 import { useThreadSearchController } from './use-thread-search-controller';
+import { useThreadSearchResultNavigation } from './use-thread-search-result-navigation';
 import { useThreadSearchTitles } from './use-thread-search-titles';
 
 // Stable fallback so `threads` keeps referential identity across renders when

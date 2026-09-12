@@ -37,6 +37,8 @@ export interface AssistantThreadMessageListOptions {
   /** Exclusive native message cursor, scoped to the same thread and resource. */
   readonly beforeMessageId?: string;
   readonly limitLatest?: number;
+  /** Stop a targeted read if its same-owner native message was deleted or hidden. */
+  readonly targetMessageId?: string;
 }
 
 export interface AssistantThreadRunEventListOptions {
@@ -61,10 +63,13 @@ export async function readAssistantHistoryMessages(
   if (options?.beforeMessageId && limitLatest === undefined) {
     throw new Error('Assistant message history pagination requires a bounded page size.');
   }
+  // Legacy Mastra rows may omit the message resource. Only the native thread's
+  // actual resource can supply it, matching search admission without widening ownership.
+  const nativeResourceSql = `(SELECT native."resourceId" FROM ${MASTRA_MEMORY_TABLES.threads} native WHERE native.id = $1)`;
   const cursorClause = options?.beforeMessageId
     ? `AND ("createdAt", id) < (
     SELECT cursor."createdAt", cursor.id FROM ${MASTRA_MEMORY_TABLES.messages} cursor
-    WHERE cursor.id = $4 AND cursor.thread_id = $1 AND cursor."resourceId" = $2
+    WHERE cursor.id = $4 AND cursor.thread_id = $1 AND COALESCE(cursor."resourceId", ${nativeResourceSql}) = $2
   )`
     : '';
   const limitClause =
@@ -74,6 +79,14 @@ export async function readAssistantHistoryMessages(
                -- insertion-order ties need a future monotonic schema column.
                ORDER BY "createdAt" DESC, id DESC
                LIMIT $3`;
+  const targetParameter = options?.beforeMessageId ? 5 : limitLatest === undefined ? 3 : 4;
+  const targetClause = options?.targetMessageId
+    ? `AND EXISTS (
+    SELECT 1 FROM ${MASTRA_MEMORY_TABLES.messages} target
+    WHERE target.id = $${targetParameter} AND target.thread_id = $1 AND COALESCE(target."resourceId", ${nativeResourceSql}) = $2
+      AND NOT EXISTS (SELECT 1 FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} hidden WHERE hidden.message_id = target.id)
+  )`
+    : '';
   // Soft-rewind exclusion (BST-1115) sits INSIDE the windowing subquery, so
   // it applies before `limitLatest` — the hydration window is the latest N
   // VISIBLE messages, not N rows of which some are then dropped. Reload
@@ -89,12 +102,13 @@ export async function readAssistantHistoryMessages(
         FROM (
           SELECT id, role, content, "createdAt"
           FROM ${MASTRA_MEMORY_TABLES.messages}
-          WHERE thread_id = $1 AND "resourceId" = $2
+          WHERE thread_id = $1 AND COALESCE("resourceId", ${nativeResourceSql}) = $2
             AND NOT EXISTS (
               SELECT 1 FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} AS tombstones
               WHERE tombstones.message_id = ${MASTRA_MEMORY_TABLES.messages}.id
             )
           ${cursorClause}
+          ${targetClause}
           ${limitClause}
         ) AS recent_messages
         LEFT JOIN ${ASSISTANT_MESSAGE_PARENTS_TABLE} AS message_parents
@@ -107,6 +121,9 @@ export async function readAssistantHistoryMessages(
   }
   if (options?.beforeMessageId) {
     params.push(options.beforeMessageId);
+  }
+  if (options?.targetMessageId) {
+    params.push(options.targetMessageId);
   }
   const result = await database.query(sql, params);
   return result.rows.map((row) => mapAssistantHistoryMessageRow(requireHistoryRow(row)));

@@ -6,43 +6,52 @@ import { useThreadSearchStore } from './thread-search-store';
 export function useThreadSearchTitles(
   repository: ThreadSearchRepository | null,
   ownerResourceId: string
-) {
+): ReadonlyMap<string, string> {
   const results = useThreadSearchStore((state) => state.results);
-  const [titles, setTitles] = useState<ReadonlyMap<string, string>>(new Map());
+  const [loaded, setLoaded] = useState<{
+    readonly results: typeof results;
+    readonly ownerResourceId: string;
+    readonly titles: ReadonlyMap<string, string>;
+  }>();
   useEffect(() => {
-    let active = true;
     if (!(repository && results)) {
-      setTitles(new Map());
       return;
     }
+    let active = true;
     const requestId = useThreadSearchStore.getState().generation;
-    Promise.all(
-      results.map(async (result): Promise<readonly [string, string]> => {
-        const target = await repository.getNavigationTarget(ownerResourceId, result.threadId);
-        return [
-          result.threadId,
-          target
-            ? (target.displayName ?? target.title ?? 'Untitled thread')
-            : 'Unavailable conversation',
-        ];
-      })
-    ).then(
-      (entries) => {
-        if (active) {
-          setTitles(new Map(entries));
+    repository
+      .getNavigationTitles(
+        ownerResourceId,
+        results.map((result) => result.threadId)
+      )
+      .then(
+        (entries) => {
+          if (active) {
+            setLoaded({
+              ownerResourceId,
+              results,
+              titles: new Map(
+                entries.map((entry) => [
+                  entry.threadId,
+                  entry.displayName ?? entry.title ?? 'Untitled thread',
+                ])
+              ),
+            });
+          }
+        },
+        (error: unknown) => {
+          if (active) {
+            useThreadSearchStore
+              .getState()
+              .failSearch(error instanceof Error ? error.message : String(error), requestId);
+          }
         }
-      },
-      (error: unknown) => {
-        if (active) {
-          useThreadSearchStore
-            .getState()
-            .failSearch(error instanceof Error ? error.message : String(error), requestId);
-        }
-      }
-    );
+      );
     return () => {
       active = false;
     };
   }, [ownerResourceId, repository, results]);
-  return titles;
+  return loaded?.results === results && loaded.ownerResourceId === ownerResourceId
+    ? loaded.titles
+    : new Map();
 }
