@@ -7,7 +7,7 @@ import '@testing-library/jest-dom/vitest';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, fireEvent, getConfig, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest';
-import { commands, userEvent } from 'vitest/browser';
+import { commands, page, userEvent } from 'vitest/browser';
 import type { SendActiveConversationInput } from '../active-conversation-input-context';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
 import '@brainstrike/ui/globals.css';
@@ -229,8 +229,16 @@ function ChildInputReceipt({
 test.each([390, 900])(
   'retains pending child input controls after idle without replay at width %s',
   async (width) => {
+    const previousViewport = { height: window.innerHeight, width: window.innerWidth };
+    await page.viewport(width, 800);
+    onTestFinished(() => page.viewport(previousViewport.width, previousViewport.height));
+    expect(window.innerWidth).toBe(width);
     const accepted = Promise.withResolvers<void>();
-    const send = vi.fn(() => accepted.promise);
+    let transportSettled = false;
+    const send = vi.fn(async () => {
+      await accepted.promise;
+      transportSettled = true;
+    });
     const append = vi.fn(async (_message: AppendMessage) => {});
     const view = (running: boolean) => (
       <ChildInputReceipt append={append} running={running} send={send} width={width} />
@@ -251,14 +259,21 @@ test.each([390, 900])(
     const stop = child.getByRole('button', { name: 'Stop waiting' });
     const panelBounds = panel.getBoundingClientRect();
     const stopBounds = stop.getBoundingClientRect();
+    expect(stop).toBeVisible();
+    expect(
+      stop.contains(
+        document.elementFromPoint(
+          stopBounds.x + stopBounds.width / 2,
+          stopBounds.y + stopBounds.height / 2
+        )
+      )
+    ).toBe(true);
     expect(stopBounds.bottom).toBeLessThanOrEqual(panelBounds.bottom + 1);
     expect(stopBounds.right).toBeLessThanOrEqual(panelBounds.right + 1);
     await act(async () => {
       await userEvent.click(stop);
     });
-    expect(child.getByRole('alert', { name: 'Child input delivery' })).toHaveTextContent(
-      'Delivery is unconfirmed'
-    );
+    expect(child.getByTestId('child-input-delivery')).toHaveTextContent('Delivery is unconfirmed');
     expect(input).toHaveValue('Possibly delivered');
     expect(child.getByRole('button', { name: 'Send' })).toBeDisabled();
     await act(async () => {
@@ -270,13 +285,28 @@ test.each([390, 900])(
     expect(send).toHaveBeenCalledOnce();
     expect(append).not.toHaveBeenCalled();
     const discard = child.getByRole('button', { name: 'Discard draft' });
-    expect(discard.getBoundingClientRect().bottom).toBeLessThanOrEqual(panelBounds.bottom + 1);
+    const discardBounds = discard.getBoundingClientRect();
+    expect(discardBounds.bottom).toBeLessThanOrEqual(panelBounds.bottom + 1);
+    expect(discard).toBeVisible();
+    expect(
+      discard.contains(
+        document.elementFromPoint(
+          discardBounds.x + discardBounds.width / 2,
+          discardBounds.y + discardBounds.height / 2
+        )
+      )
+    ).toBe(true);
     await act(async () => {
       await userEvent.click(discard);
     });
     expect(input).toHaveValue('');
-    expect(child.queryByRole('alert', { name: 'Child input delivery' })).not.toBeInTheDocument();
-    await act(async () => accepted.resolve());
+    expect(child.queryByTestId('child-input-delivery')).not.toBeInTheDocument();
+    await act(async () => {
+      accepted.resolve();
+      await accepted.promise;
+    });
+    expect(transportSettled).toBe(true);
+    expect(input).toHaveValue('');
     expect(send).toHaveBeenCalledOnce();
     expect(append).not.toHaveBeenCalled();
   }

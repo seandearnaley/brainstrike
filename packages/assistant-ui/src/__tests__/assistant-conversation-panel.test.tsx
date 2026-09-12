@@ -14,7 +14,7 @@ import {
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-suspend';
 import { TooltipProvider } from '@brainstrike/ui';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
@@ -218,14 +218,20 @@ describe('shared conversation panel', () => {
     'keeps unconfirmed input controls reachable when the child becomes %s',
     async (boundary) => {
       const accepted = Promise.withResolvers<void>();
-      const send = vi.fn(() => accepted.promise);
+      let transportSettled = false;
+      const send = vi.fn(async () => {
+        await accepted.promise;
+        transportSettled = true;
+      });
       const onNew = vi.fn(async () => {});
+      // Idle completes execution; owner-removed retains the running snapshot
+      // but withdraws its transport and explicitly disables the host composer.
       const view = (active: boolean) => (
         <TooltipProvider>
           <Conversation
             composerDisabled={!active && boundary === 'owner-removed'}
             id="Cedar"
-            messages={[message(active ? 'Reading' : 'Completed')]}
+            messages={[message(active || boundary === 'owner-removed' ? 'Reading' : 'Completed')]}
             onNew={onNew}
             {...(active || boundary === 'idle' ? { onSendActiveInput: send } : {})}
             running={active || boundary === 'owner-removed'}
@@ -246,7 +252,7 @@ describe('shared conversation panel', () => {
       }
       expect(screen.getByText('Sending to child…')).toBeVisible();
       await user.click(screen.getByRole('button', { name: 'Stop waiting' }));
-      expect(screen.getByRole('alert', { name: 'Child input delivery' })).toHaveTextContent(
+      expect(screen.getByTestId('child-input-delivery')).toHaveTextContent(
         'Delivery is unconfirmed'
       );
       expect(input).toHaveValue('Possibly delivered');
@@ -259,13 +265,99 @@ describe('shared conversation panel', () => {
       expect(onNew).not.toHaveBeenCalled();
       await user.click(screen.getByRole('button', { name: 'Discard draft' }));
       expect(input).toHaveValue('');
-      expect(screen.queryByRole('alert', { name: 'Child input delivery' })).not.toBeInTheDocument();
-      accepted.resolve();
-      await waitFor(() => expect(screen.queryByText('Sending to child…')).not.toBeInTheDocument());
+      expect(screen.queryByTestId('child-input-delivery')).not.toBeInTheDocument();
+      await act(async () => {
+        accepted.resolve();
+        await accepted.promise;
+      });
+      expect(transportSettled).toBe(true);
+      expect(input).toHaveValue('');
       expect(send).toHaveBeenCalledOnce();
       expect(onNew).not.toHaveBeenCalled();
     }
   );
+
+  it.each(['', '   '])(
+    'keeps blank rejection %j visible and discardable after idle',
+    async (errorMessage) => {
+      const accepted = Promise.withResolvers<void>();
+      const send = vi.fn(() => accepted.promise);
+      const onNew = vi.fn(async () => {});
+      const view = (running: boolean) => (
+        <TooltipProvider>
+          <Conversation
+            attachments
+            id="Cedar"
+            messages={[message('Reading')]}
+            onNew={onNew}
+            onSendActiveInput={send}
+            running={running}
+          />
+        </TooltipProvider>
+      );
+      const { rerender } = render(view(true));
+      const user = userEvent.setup();
+      const input = screen.getByRole('textbox', { name: 'Message input' });
+      await user.type(input, 'Possibly delivered');
+      await user.click(screen.getByRole('button', { name: 'Send to child' }));
+      rerender(view(false));
+      await act(async () => {
+        accepted.reject(new Error(errorMessage));
+        await accepted.promise.catch(() => undefined);
+      });
+      expect(screen.getByTestId('child-input-delivery')).toHaveTextContent(
+        'Child input delivery was not confirmed.'
+      );
+      const file = new File(['image'], 'receipt.png', { type: 'image/png' });
+      expect(fireEvent.paste(input, { clipboardData: { files: [file] } })).toBe(true);
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+      expect(input).toHaveValue('');
+      expect(onNew).not.toHaveBeenCalled();
+    }
+  );
+
+  it('isolates an abandoned receipt when the selected conversation key changes', async () => {
+    const accepted = Promise.withResolvers<void>();
+    let settled = false;
+    const send = vi.fn(async () => {
+      await accepted.promise;
+      settled = true;
+    });
+    const onNew = vi.fn(async () => {});
+    const view = (id: string) => (
+      <TooltipProvider>
+        <Conversation
+          id={id}
+          messages={[message('Reading')]}
+          onNew={onNew}
+          onSendActiveInput={send}
+          running
+        />
+      </TooltipProvider>
+    );
+    const { rerender } = render(view('Cedar'));
+    const user = userEvent.setup();
+    await user.type(screen.getByRole('textbox', { name: 'Message input' }), 'Cedar instruction');
+    await user.click(screen.getByRole('button', { name: 'Send to child' }));
+    await user.click(screen.getByRole('button', { name: 'Stop waiting' }));
+    expect(screen.getByTestId('child-input-delivery')).toHaveTextContent('Delivery is unconfirmed');
+    rerender(view('Flint'));
+    expect(screen.queryByTestId('child-input-delivery')).not.toBeInTheDocument();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.clear(input);
+    await user.type(input, 'Flint draft');
+    expect(screen.getByRole('button', { name: 'Send to child' })).toBeEnabled();
+    await act(async () => {
+      accepted.resolve();
+      await accepted.promise;
+    });
+    expect(settled).toBe(true);
+    expect(input).toHaveValue('Flint draft');
+    expect(screen.queryByTestId('child-input-delivery')).not.toBeInTheDocument();
+    expect(onNew).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledOnce();
+  });
 
   it('settles a confirmed input after the child stops without replaying it', async () => {
     const accepted = Promise.withResolvers<void>();
@@ -293,7 +385,7 @@ describe('shared conversation panel', () => {
     accepted.resolve();
     await waitFor(() => expect(input).toHaveValue(''));
     expect(screen.queryByText('Sending to child…')).not.toBeInTheDocument();
-    expect(screen.queryByRole('alert', { name: 'Child input delivery' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('child-input-delivery')).not.toBeInTheDocument();
     expect(send).toHaveBeenCalledOnce();
     expect(onNew).not.toHaveBeenCalled();
   });

@@ -79,12 +79,10 @@ const ComposerInputRow = ({
   const inputId = useId();
   const sendDisabled = isComposerDisabled || budgetSendBlocked || activeInput?.canSend === false;
   const InputFrame =
-    attachmentsAvailability?.state === 'enabled' && !isComposerDisabled && !budgetSendBlocked
-      ? AttachmentPasteFrame
-      : PlainInputFrame;
+    attachmentsAvailability?.state === 'enabled' ? AttachmentPasteFrame : PlainInputFrame;
 
   return (
-    <InputFrame>
+    <InputFrame disabled={sendDisabled}>
       <ComposerPrimitive.Input
         aria-label="Message input"
         className="aui-composer-input"
@@ -200,9 +198,9 @@ const ComposerInputRow = ({
           </button>
         </div>
       )}
-      {activeInput?.error && (
+      {activeInput?.error !== undefined && (
         <div>
-          <p aria-label="Child input delivery" role="alert">
+          <p data-testid="child-input-delivery" role="alert">
             {activeInput.error}
           </p>
           <button
@@ -219,7 +217,7 @@ const ComposerInputRow = ({
   );
 };
 
-const PlainInputFrame = ({ children }: { children: ReactNode }) => (
+const PlainInputFrame = ({ children }: { children: ReactNode; disabled: boolean }) => (
   <div className="bs-composer-input-frame">{children}</div>
 );
 
@@ -233,10 +231,19 @@ const PlainInputFrame = ({ children }: { children: ReactNode }) => (
  * ComposerAttachmentsBar); the catch only prevents an unhandled-rejection
  * duplicate report.
  */
-const AttachmentPasteFrame = ({ children }: { children: ReactNode }) => {
+const AttachmentPasteFrame = ({
+  children,
+  disabled,
+}: {
+  children: ReactNode;
+  disabled: boolean;
+}) => {
   const aui = useAui();
 
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    if (disabled) {
+      return;
+    }
     const files = collectImageFilesFromClipboard(Array.from(event.clipboardData?.files ?? []));
     if (files.length === 0) {
       return;

@@ -59,7 +59,9 @@ export function ActiveConversationInputProvider({
       request.current = undefined;
     } catch (failure) {
       setError(
-        failure instanceof Error ? failure.message : 'Child input delivery was not confirmed.'
+        failure instanceof Error && failure.message.trim()
+          ? failure.message
+          : 'Child input delivery was not confirmed.'
       );
     } finally {
       cancelWait.current = undefined;
