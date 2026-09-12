@@ -111,7 +111,15 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     const openRouterModels = window.getByRole('menuitem', { name: /OpenRouter/u });
     await openRouterModels.focus();
     await openRouterModels.press('ArrowRight');
-    await window.getByRole('menuitemradio', { name: /GPT-5\.6 Terra.*Most capable/u }).click();
+    await expect(openRouterModels).toHaveAttribute('aria-controls', /.+/u);
+    const submenuId = await openRouterModels.getAttribute('aria-controls');
+    const terra = window
+      .locator(`[id="${submenuId}"]`)
+      .getByRole('menuitemradio')
+      .filter({ hasText: 'GPT-5.6 Terra (OpenRouter)' });
+    await expect(terra).toBeVisible();
+    await expect(terra).toBeEnabled();
+    await terra.click();
     await expect(root.getByTestId('composer-model-menu-trigger')).toContainText('GPT-5.6 Terra');
     const pausedRequests = provider.requestCount();
     await window.reload();

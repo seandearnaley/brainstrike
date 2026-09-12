@@ -56,12 +56,14 @@ afterEach(async () => database.close());
 it('pages backward to the required ancestors on admission and decision restart', async () => {
   await database.exec(`INSERT INTO brainstrike_assistant_thread_runs
     (id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id) VALUES
-    ('included-run','child-resource','child','openai','test','desktop','completed','2026-09-01T02:01:20Z',NOW(),NOW(),'paged-branch-80'),
-    ('excluded-run','child-resource','child','openai','test','desktop','completed','2026-09-01T02:01:39Z',NOW(),NOW(),'paged-branch-99');
+    ('included-run','child-resource','child','openai','test','desktop','completed','2026-09-01T02:01:18Z',NOW(),NOW(),'paged-branch-78'),
+    ('retried-run','child-resource','child','openai','test','desktop','completed','2026-09-01T02:01:20Z',NOW(),NOW(),'paged-branch-80'),
+    ('excluded-run','child-resource','child','openai','test','desktop','completed','2026-09-01T02:01:39Z',NOW(),NOW(),'paged-branch-80');
     INSERT INTO brainstrike_assistant_run_events
-    (id,run_id,resource_id,thread_id,sequence,kind,status,label,occurred_at,created_at,updated_at) VALUES
-    ('included-event','included-run','child-resource','child',1,'tool.completed','completed','Included',NOW(),NOW(),NOW()),
-    ('excluded-event','excluded-run','child-resource','child',1,'tool.completed','completed','Excluded',NOW(),NOW(),NOW());`);
+    (id,run_id,resource_id,thread_id,sequence,kind,status,label,metadata,occurred_at,created_at,updated_at) VALUES
+    ('included-event','included-run','child-resource','child',1,'tool.completed','completed','Included',NULL,NOW(),NOW(),NOW()),
+    ('retried-event','retried-run','child-resource','child',1,'tool.completed','completed','Retried',NULL,NOW(),NOW(),NOW()),
+    ('excluded-event','excluded-run','child-resource','child',1,'tool.completed','completed','Excluded','{"nativeMessageId":"paged-branch-81"}',NOW(),NOW(),NOW());`);
   const historyQueries: string[] = [];
   const transactionHistoryQueries: string[] = [];
   const query = database.query.bind(database);
@@ -92,6 +94,7 @@ it('pages backward to the required ancestors on admission and decision restart',
   const projected = restoreDelegatedConversationHistory(bound.baseline);
   expect(JSON.stringify(projected)).toContain('Included');
   expect(JSON.stringify(projected)).not.toContain('Excluded');
+  expect(JSON.stringify(projected)).not.toContain('Retried');
   expect(bound.baseline.runEvents.map(({ id }) => id)).toEqual(['included-event']);
   await first.finishContinuation({ id: input.id, status: 'awaiting-approval' });
 
@@ -167,6 +170,12 @@ it('rejects missing and cyclic selections directly at branch preparation', async
 });
 
 it('does not read a capture page for an empty first-message edit prefix', async () => {
+  await database.exec(`INSERT INTO brainstrike_assistant_thread_runs
+    (id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id)
+    VALUES ('legacy-run','child-resource','child','openai','test','desktop','completed',NOW(),NOW(),NOW(),NULL);
+    INSERT INTO brainstrike_assistant_run_events
+    (id,run_id,resource_id,thread_id,sequence,kind,status,label,occurred_at,created_at,updated_at)
+    VALUES ('legacy-event','legacy-run','child-resource','child',1,'tool.completed','completed','Legacy',NOW(),NOW(),NOW());`);
   const historyQueries: string[] = [];
   const query = database.query.bind(database);
   vi.spyOn(database, 'query').mockImplementation(async (sql, params) => {
@@ -175,14 +184,19 @@ it('does not read a capture page for an empty first-message edit prefix', async 
     }
     return query(sql, params);
   });
-  const claimed = await createDesktopDelegatedConversationHost(
-    database,
-    'wake-host'
-  ).continuation.prepareContinuation({
+  const claimed = await createDesktopDelegatedConversationHost(database, 'wake-host').continuation;
+  const prepared = await claimed.prepareContinuation({
     ...input,
     branch: { kind: 'edit', messageId: 'paged-branch-0' },
     id: 'first-message-edit',
   });
-  expect(claimed.branchMessageIds).toEqual([]);
+  expect(prepared.branchMessageIds).toEqual([]);
+  const bound = await claimed.bindContinuation({
+    id: 'first-message-edit',
+    nativeRunId: 'first-edit-native',
+  });
+  expect(bound.baseline.runEvents).toEqual([]);
+  // Admission still performs its required bounded target lookup through the
+  // transaction handle; this outer spy isolates the post-admission capture.
   expect(historyQueries).toEqual([]);
 });

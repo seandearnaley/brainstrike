@@ -1845,8 +1845,11 @@ the parent panel is not mounted.
 
 Historical Retry/Edit reads admission ancestry and restart capture in bounded
 80-message pages. An empty branch prefix reads no message page. Its baseline
-retains only run events owned by included messages, so chronological projection
-cannot attach an excluded later turn to the retained branch. The native branch
+excludes events whose canonical native-message owner (or, when absent, turn
+owner) is outside the branch. Retry also excludes turn-owned events for the
+replaced answer, even though its user prompt remains in the prefix. Legacy
+ownerless events retain chronological
+assignment; an empty prefix has no events to project. The native branch
 history verifier observes transaction-handle queries as well as outer capture
 queries, and exercises missing targets and cycles directly.
 

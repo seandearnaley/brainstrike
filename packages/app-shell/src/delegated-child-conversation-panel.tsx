@@ -154,9 +154,9 @@ function CapableChildPanel({
           ...controls.panelProps,
           attachmentsAvailability,
           className: cn(
-            'min-h-0 flex-1',
             props.panelProps?.className,
-            controls.panelProps.className
+            controls.panelProps.className,
+            'min-h-0 flex-1'
           ),
           composerDraftCommand: command,
           fileMentions,

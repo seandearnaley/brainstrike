@@ -130,6 +130,7 @@ it('surfaces provider discovery failure beside the child composer', () => {
         label="Child"
         onNew={async () => {}}
         onSendActiveInput={async () => {}}
+        panelProps={{ className: 'min-h-20 flex-none' }}
         persistedHistory={{ messages: [] }}
         store={createDelegatedConversationStore('root')}
         threadId="child"

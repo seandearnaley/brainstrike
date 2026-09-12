@@ -20,7 +20,8 @@ export function createDesktopDelegatedContinuationHost(
     threadId: string,
     resourceId: string,
     initial: boolean,
-    requiredMessageIds?: readonly string[]
+    requiredMessageIds?: readonly string[],
+    excludedOriginatingTurnMessageId?: string
   ) => Promise<DelegatedConversationBaseline>,
   resolveDelegatedDecision?: (
     input: Parameters<ChildContinuationHostPort['claimContinuationDecision']>[0]
@@ -136,7 +137,8 @@ export function createDesktopDelegatedContinuationHost(
           node.threadId,
           node.resourceId,
           false,
-          node.branchMessageIds
+          node.branchMessageIds,
+          node.branch?.kind === 'retry' ? node.branchMessageIds?.at(-1) : undefined
         );
         baselines.set(
           node.id,
@@ -182,7 +184,8 @@ export function createDesktopDelegatedContinuationHost(
         node.threadId,
         node.resourceId,
         false,
-        prepared.branchMessageIds
+        prepared.branchMessageIds,
+        prepared.branch?.kind === 'retry' ? prepared.branchMessageIds?.at(-1) : undefined
       );
       const selectedBaseline = prepared.branch
         ? { ...baseline, headId: prepared.branchMessageIds?.at(-1) ?? null }

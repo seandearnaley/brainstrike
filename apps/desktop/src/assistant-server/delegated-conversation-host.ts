@@ -250,7 +250,8 @@ export function createDesktopDelegatedConversationHost(
     threadId: string,
     resourceId: string,
     initial: boolean,
-    requiredMessageIds?: readonly string[]
+    requiredMessageIds?: readonly string[],
+    excludedOriginatingTurnMessageId?: string
   ): Promise<DelegatedConversationBaseline> => {
     const [messages, runEvents] = await Promise.all([
       requiredMessageIds
@@ -269,28 +270,34 @@ export function createDesktopDelegatedConversationHost(
       }
       history.push({ ...message, createdAt: message.createdAt.toISOString() });
     }
-    const branchMessageIds = requiredMessageIds ? new Set(requiredMessageIds) : undefined;
-    const retainedRunEvents = branchMessageIds
-      ? runEvents.filter((event) => {
-          const nativeMessageId = event.metadata?.['nativeMessageId'];
-          const originatingTurnMessageId = event.metadata?.['originatingTurnMessageId'];
-          if (typeof nativeMessageId === 'string') {
-            return branchMessageIds.has(nativeMessageId);
-          }
-          if (typeof originatingTurnMessageId === 'string') {
-            return branchMessageIds.has(originatingTurnMessageId);
-          }
-          // Legacy rows without durable ownership still need the ordinary
-          // chronological assignment path; absence is not evidence of exclusion.
-          return true;
-        })
-      : runEvents;
+    let retainedRunEvents = runEvents;
+    if (initial || requiredMessageIds?.length === 0) {
+      retainedRunEvents = [];
+    } else if (requiredMessageIds) {
+      const branchMessageIds = new Set(requiredMessageIds);
+      retainedRunEvents = runEvents.filter((event) => {
+        const nativeMessageId = event.metadata?.['nativeMessageId'];
+        const originatingTurnMessageId = event.metadata?.['originatingTurnMessageId'];
+        if (typeof nativeMessageId === 'string') {
+          return branchMessageIds.has(nativeMessageId);
+        }
+        if (typeof originatingTurnMessageId === 'string') {
+          return (
+            originatingTurnMessageId !== excludedOriginatingTurnMessageId &&
+            branchMessageIds.has(originatingTurnMessageId)
+          );
+        }
+        // Legacy rows without durable ownership still need the ordinary
+        // chronological assignment path; absence is not evidence of exclusion.
+        return true;
+      });
+    }
     return structuredClone({
       hostRunId,
       // Mastra generates a fresh child thread per delegation invocation. Native
       // input rows are history; this invocation's output belongs to its decoder.
       messages: history,
-      runEvents: initial ? [] : [...retainedRunEvents],
+      runEvents: [...retainedRunEvents],
       threadId,
     });
   };
