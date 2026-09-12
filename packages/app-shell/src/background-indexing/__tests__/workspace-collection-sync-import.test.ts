@@ -1739,53 +1739,72 @@ describe('runRootFolderCacheImport — rootId threading', () => {
     }
   });
 
-  it('passes rootId to applyManagedCacheBatch when rootId is provided', async () => {
-    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
-      async () => {}
-    );
-    const change = makeMinimalChange();
-    const collection = makeMinimalCollection();
+  it.each(['callback-owned content', ''])(
+    'imports callback-supplied content %j with the durable rootId',
+    async (selectedContent) => {
+      vi.mocked(runEnhancedImport).mockImplementationOnce(async (params) => {
+        const results = await params.baseImportRunner({
+          fileContents: { [COMPOSITE_KEY]: selectedContent },
+          fileTree: params.request.fileTree,
+          onProgress: () => {},
+          selectedFilePaths: params.request.selectedFilePaths,
+        });
+        return results.map((result) => ({ ...result, chunksCreated: 0 }));
+      });
+      const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+        async () => {}
+      );
+      const change = makeMinimalChange();
+      const collection = makeMinimalCollection();
 
-    await runRootFolderCacheImport({
-      abortSignal: new AbortController().signal,
-      applyManagedCacheBatch,
-      changes: [change],
-      chunkingWorkerPort: {
-        chunkBatch: vi.fn().mockResolvedValue([]),
-        chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
-        isReady: vi.fn().mockReturnValue(true),
-        transportKind: 'local',
-      } as never,
-      chunkRepository: {
-        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
-        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
-        findByFileRecordId: vi.fn().mockResolvedValue([]),
-        insertChunks: vi.fn().mockResolvedValue(undefined),
-      } as never,
-      collection,
-      db: makeMinimalDb() as never,
-      fileContentProcessor: makeMinimalFileContentProcessor(change),
-      fileRecordRepository: {
-        findByCollectionId: vi.fn().mockResolvedValue([]),
-        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
-      } as never,
-      onProgress: () => {},
-      qosPolicy: {
-        allowNewWork: true,
-        contentReadBatchSize: 10,
-        contentReadConcurrency: 1,
-        importBatchSize: 10,
-      },
-      rootId: 'root-db-1',
-      setImporting: () => {},
-      waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
-    });
+      await runRootFolderCacheImport({
+        abortSignal: new AbortController().signal,
+        applyManagedCacheBatch,
+        changes: [change],
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+        } as never,
+        collection,
+        db: makeMinimalDb() as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(change),
+        fileRecordRepository: {
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      });
 
-    expect(applyManagedCacheBatch).toHaveBeenCalledOnce();
-    expect(applyManagedCacheBatch).toHaveBeenCalledWith(
-      expect.objectContaining({ rootId: 'root-db-1' })
-    );
-  });
+      expect(applyManagedCacheBatch).toHaveBeenCalledOnce();
+      expect(applyManagedCacheBatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          changes: [
+            expect.objectContaining({
+              record: expect.objectContaining({ content: selectedContent }),
+            }),
+          ],
+          rootId: 'root-db-1',
+        })
+      );
+    }
+  );
 
   it('passes rootId: null to applyManagedCacheBatch when rootId is absent', async () => {
     const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
