@@ -55,6 +55,11 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
     () => root?.store.getConversation(node.threadId),
     () => root?.store.getConversation(node.threadId)
   );
+  const inheritedModel = useSyncExternalStore(
+    root?.modelSelection.subscribe ?? emptySubscribe,
+    () => root?.modelSelection.getState().selectedModel ?? null,
+    () => root?.modelSelection.getState().selectedModel ?? null
+  );
   const insights = useDelegatedConversationInsights({ db, node, update: live?.update });
   useEffect(() => {
     const markVisibleRead = () => {
@@ -198,7 +203,9 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
             <DelegatedChildConversationPanel
               allowIdleInput={hasDurableAssistantUsageCapability()}
               extendHistoryForSearch={saved?.hostRunId === live?.update.baseline?.hostRunId}
+              inheritedModel={inheritedModel}
               insights={insights}
+              isRunning={live?.update.message.status.type === 'running'}
               label={node.displayName}
               panelProps={{
                 workspaceBar: (

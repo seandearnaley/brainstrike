@@ -1,5 +1,5 @@
 import type { AssistantUiPanelProps } from '@brainstrike/assistant-ui';
-import { createContext, use, useCallback, useMemo, useSyncExternalStore } from 'react';
+import { createContext, use, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { DelegatedConversationRoot } from './delegated-conversation-owner';
 import type { createDelegatedConversationRootRegistry } from './delegated-conversation-root-registry';
 export type Roots = ReturnType<typeof createDelegatedConversationRootRegistry>;
@@ -29,9 +29,13 @@ export function useDelegatedConversationRoot(
 /** The composition wrapper receives a stable capability-shaped callback bundle. */
 export function useDelegatedPanelBinding(
   ownerResourceId: string,
-  rootThreadId: string | undefined
+  rootThreadId: string | undefined,
+  selectedModel: string | null = null
 ): Pick<AssistantUiPanelProps, 'onDelegatedConversation' | 'onRuntimeReady'> {
   const root = useDelegatedConversationRoot(ownerResourceId, rootThreadId);
+  useEffect(() => {
+    root?.modelSelection.setState({ selectedModel });
+  }, [root, selectedModel]);
   return useMemo(
     () =>
       root

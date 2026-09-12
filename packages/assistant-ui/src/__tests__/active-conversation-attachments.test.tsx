@@ -201,3 +201,21 @@ it.each([true, false])(
     });
   }
 );
+
+it('clears delivered text independently when only a newer image was staged', async () => {
+  const delivery = Promise.withResolvers<void>();
+  const send = vi.fn<(input: AssistantChildInput) => Promise<void>>(() => delivery.promise);
+  const runtime = setup(send);
+  await act(() => runtime.thread.composer.setText('Already delivered'));
+  await userEvent.click(screen.getByRole('button', { name: 'Send child' }));
+  await waitFor(() => expect(send).toHaveBeenCalledOnce());
+  await act(() => runtime.thread.composer.addAttachment(file('next.png')));
+  await act(async () => {
+    delivery.resolve();
+    await delivery.promise;
+  });
+  await waitFor(() => expect(runtime.thread.composer.getState().text).toBe(''));
+  expect(runtime.thread.composer.getState().attachments.map((item) => item.name)).toEqual([
+    'next.png',
+  ]);
+});

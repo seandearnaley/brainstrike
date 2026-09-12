@@ -422,33 +422,46 @@ it('retains the complete image-only receipt across an actual engine restart and 
     (await database.query('SELECT input_payload FROM brainstrike_delegated_continuations')).rows
   ).toHaveLength(0);
 });
-it('upgrades legacy text receipts and replays migration 136 without inventing missing attachments', async () => {
-  await repo().prepare(input);
-  // Recreate the exact previous-version shape with a real admitted text receipt.
-  await database.query('UPDATE brainstrike_delegated_continuations SET input_payload=NULL');
-  if (typeof migration136DelegatedInputPayload.down !== 'string') {
-    throw new Error('Expected SQL migration');
+it.each([false, true])(
+  'rolls back text-only receipts and replays migration 136 without losing identity (legacy=%s)',
+  async (legacy) => {
+    await repo().prepare(input);
+    // Recreate the exact previous-version shape with a real admitted text receipt.
+    if (legacy) {
+      await database.query('UPDATE brainstrike_delegated_continuations SET input_payload=NULL');
+    }
+    if (typeof migration136DelegatedInputPayload.down !== 'string') {
+      throw new Error('Expected SQL migration');
+    }
+    await database.exec(migration136DelegatedInputPayload.down);
+    expect(
+      (await database.query('SELECT id, input_text FROM brainstrike_delegated_continuations')).rows
+    ).toEqual([{ id: input.id, input_text: input.text }]);
+    await database.query('DELETE FROM __drizzle_migrations WHERE hash=$1', [
+      migration136DelegatedInputPayload.ledgerKey,
+    ]);
+    expect(await runMigrations(database)).toMatchObject({ success: true });
+    expect(await runMigrations(database)).toMatchObject({ success: true });
+    expect(
+      (
+        await database.query(
+          'SELECT input_text, input_payload FROM brainstrike_delegated_continuations'
+        )
+      ).rows
+    ).toEqual([{ input_payload: null, input_text: input.text }]);
+    await expect(repo().prepare(input)).rejects.toMatchObject({
+      reason: 'continuation-input-already-admitted',
+    });
+    await expect(
+      repo().prepare({ ...input, attachments: [imageAttachment] })
+    ).rejects.toMatchObject({
+      reason: 'continuation-input-id-conflict',
+    });
+    await expect(repo().prepare({ ...input, text: 'Different text' })).rejects.toMatchObject({
+      reason: 'continuation-input-id-conflict',
+    });
   }
-  await database.exec(migration136DelegatedInputPayload.down);
-  await database.query('DELETE FROM __drizzle_migrations WHERE hash=$1', [
-    migration136DelegatedInputPayload.ledgerKey,
-  ]);
-  expect(await runMigrations(database)).toMatchObject({ success: true });
-  expect(await runMigrations(database)).toMatchObject({ success: true });
-  expect(
-    (
-      await database.query(
-        'SELECT input_text, input_payload FROM brainstrike_delegated_continuations'
-      )
-    ).rows
-  ).toEqual([{ input_payload: null, input_text: input.text }]);
-  await expect(repo().prepare(input)).rejects.toMatchObject({
-    reason: 'continuation-input-already-admitted',
-  });
-  await expect(repo().prepare({ ...input, attachments: [imageAttachment] })).rejects.toMatchObject({
-    reason: 'continuation-input-id-conflict',
-  });
-});
+);
 it('refuses a destructive migration downgrade once native image input has been admitted', async () => {
   await repo().prepare({ ...input, attachments: [imageAttachment] });
   if (typeof migration136DelegatedInputPayload.down !== 'string') {
@@ -474,4 +487,25 @@ it('rejects an empty or malformed durable image payload at the SQL boundary', as
       JSON.stringify({ text: '' }),
     ])
   ).rejects.toThrow();
+});
+
+it('refuses text-payload rollback when it would change the admitted content identity', async () => {
+  await repo().prepare(input);
+  const payload = { attachments: [], text: 'Different durable payload text' };
+  await database.query('UPDATE brainstrike_delegated_continuations SET input_payload=$1::jsonb', [
+    JSON.stringify(payload),
+  ]);
+  if (typeof migration136DelegatedInputPayload.down !== 'string') {
+    throw new Error('Expected SQL migration');
+  }
+  await expect(database.exec(migration136DelegatedInputPayload.down)).rejects.toThrow(
+    'Cannot discard admitted child input payloads'
+  );
+  expect(
+    (
+      await database.query(
+        'SELECT input_text, input_payload FROM brainstrike_delegated_continuations'
+      )
+    ).rows
+  ).toEqual([{ input_payload: payload, input_text: input.text }]);
 });

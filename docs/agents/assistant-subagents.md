@@ -1799,16 +1799,22 @@ work may not yet have reported its final usage.
 The shared composer uses the same image adapter, file mentions and workspace slash
 commands as the root. Image-only drafts are valid in both active and idle children;
 Send and Enter share the same content-presence and delivery gates. The selected
-child's admitted model determines vision availability, never the parent's model.
+child's captured running model determines active vision availability. An idle child
+uses its admitted persona model pin, or its owning root's current per-thread model
+selection when unpinned. A previous run's model never overrides the next selection.
 Known unsupported models reject images visibly; unknown provider capabilities use
 the canonical root policy and surface actual provider errors.
 
 Only the authenticated host resolves file/skill references. Caller-supplied system
 context is rejected. Native message signals retain structured file parts and bounded
 host context; live frames and reloaded messages use the ordinary shared renderer.
+The latest native user signal replaces only its input-context tag; absent or empty
+context clears the older tag without altering admitted persona or workspace authority.
 A stable receipt binds the entire normalized payload, including image bytes, through
 acknowledgement loss and restart. Migration136 stores that payload on the existing
-reset-owned continuation receipt; legacy text-only receipts remain readable.
+reset-owned continuation receipt; legacy text-only receipts remain readable. Downgrade
+permits only payloads losslessly represented by the retained input text; image or
+conflicting-content payloads refuse downgrade.
 Acknowledgement clears only the sent attachment cohort and unchanged text, preserving
 newly staged input. An unconfirmed changed payload requires explicit discard rather
 than silently reusing its receipt or replaying the input.

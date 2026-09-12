@@ -307,7 +307,7 @@ test('sends human input to the active child and reloads its rich conversation', 
     await input.fill('/child-evidence');
     await child.getByRole('option', { exact: true, name: 'child-evidence' }).click();
     await expect(input).toHaveValue(/HUMAN_FOLLOWUP_1723/u);
-    await expect(input).toHaveValue(/:file\[context.txt\]/u);
+    await expect(input).toHaveValue(/:file\[context\.txt\]/u);
     const activeChooser = window.waitForEvent('filechooser');
     await child.getByRole('button', { exact: true, name: 'Attach image' }).click();
     await (await activeChooser).setFiles({

@@ -725,7 +725,11 @@ export function AssistantUiPanelWrapper({
     (state) => state.threadsByResourceId[memoryResourceId] ?? EMPTY_MEMORY_THREADS
   );
   const selectedMemoryThreadId = memoryThreadId ?? selectedThreadByResourceId[memoryResourceId];
-  const delegatedPanelBinding = useDelegatedPanelBinding(memoryResourceId, selectedMemoryThreadId);
+  const delegatedPanelBinding = useDelegatedPanelBinding(
+    memoryResourceId,
+    selectedMemoryThreadId,
+    currentModel
+  );
   const resourceThreadsReady = loadStateByResourceId[memoryResourceId]?.status === 'ready';
   const refreshThreadsAfterRun = useAssistantThreadTitleSync({
     enabled: Boolean(db && !dbInitializing && resourceThreadsReady),
