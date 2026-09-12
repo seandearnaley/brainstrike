@@ -1578,8 +1578,7 @@ emission — that is engine territory):
   Queued workspace saves require the still-existing exact native owner. Rejected
   outgoing saves evict the snapshot cache; a still-active navigation reports the
   unavailable owner. Other write failures remain errors.
-  Overlapping bulk requests emit each
-  tombstone once. The desktop `delegated-thread-deletion.integration.test.ts`
+  Overlapping bulk requests emit each tombstone once. The desktop `delegated-thread-deletion.integration.test.ts`
   exercises all three real-PGlite paths, including rejected deletions.
 - **Reset:** registered in the reset registry — the op-log is cleared with
   the mind it describes on all three clear paths.

@@ -6,9 +6,9 @@ import { coerceWorkspaceSnapshot, type WorkspaceSnapshotV1 } from './thread-work
  * Modeled on the thread-groups/placements repository: Brainstrike-owned rows
  * keyed by `thread_id`, no FK to `mastra_threads` (a row whose thread no
  * longer exists is cascaded by `THREAD_DELETE_SIDECAR_TABLES`). Writes require
- * the live native owner so a queued outgoing save cannot recreate a deleted row,
- * one repository instance per `DbHandle` via WeakMap, strict validation at
- * both boundaries. Writes are single-statement upserts — atomic without
+ * the live native owner so a queued outgoing save cannot recreate a deleted row.
+ * A WeakMap keeps one repository instance per `DbHandle`; both boundaries
+ * validate strictly. Writes are single-statement upserts — atomic without
  * needing `DbHandle.transaction`.
  */
 export interface ThreadWorkspaceRepository {

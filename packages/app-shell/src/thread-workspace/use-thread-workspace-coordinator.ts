@@ -338,6 +338,9 @@ export function useThreadWorkspaceCoordinator({
       // Deletion cancels an outgoing save; a still-active owner failure
       // remains visible, as do all database/serialization failures below.
       if (activeThreadId !== threadId) {
+        logger.debug('Cancelled outgoing workspace save after native ownership was revoked', {
+          threadId,
+        });
         return;
       }
       navigation?.failed(resourceId, threadId, error);

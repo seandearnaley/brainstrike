@@ -184,8 +184,9 @@ test('restores distinct child tabs and native transcripts without executing a ru
   const flint = window.getByRole('tab', { exact: true, name: 'Flint' });
   await expect(cedar).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
-  await expect(cedar.locator('svg')).toHaveClass(/text-emerald-500/u);
-  await expect(flint.locator('svg')).toHaveClass(/text-amber-500/u);
+  // The first SVG is the tab's identity mark; trailing controls may add icons.
+  await expect(cedar.locator('svg').first()).toHaveClass(/text-emerald-500/u);
+  await expect(flint.locator('svg').first()).toHaveClass(/text-amber-500/u);
   await expect(window.getByText('Cedar saved native transcript', { exact: true })).toBeVisible();
   const rootDraft = rootPanel.getByRole('textbox', { name: 'Message input' });
   await rootDraft.fill('UNSENT_PARENT_DRAFT_1724');
@@ -247,7 +248,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect.poll(() => cedarViewport.evaluate((element) => element.scrollTop)).toBe(0);
   await window.getByRole('button', { exact: true, name: 'Flint Child' }).click();
   await expect(flint).toHaveAttribute('aria-selected', 'true');
-  await expect(flint.locator('svg')).toHaveClass(/text-amber-500/u);
+  await expect(flint.locator('svg').first()).toHaveClass(/text-amber-500/u);
   await sidebarCedar.getByRole('button', { name: /Expand/ }).click();
   const wrenRow = window.getByRole('row').filter({
     has: window.getByRole('button', { exact: true, name: 'Wren Child' }),
@@ -351,15 +352,16 @@ test('restores distinct child tabs and native transcripts without executing a ru
         `SELECT 'native' AS kind, count(*)::text FROM mastra_threads WHERE id = ANY($1::text[])
        UNION ALL SELECT 'messages', count(*)::text FROM mastra_messages WHERE thread_id = ANY($1::text[])
        UNION ALL SELECT 'graph', count(*)::text FROM brainstrike_delegated_conversations WHERE thread_id = ANY($1::text[])
-       UNION ALL SELECT 'workspace', count(*)::text FROM brainstrike_assistant_thread_workspaces WHERE thread_id = ANY($1::text[])`,
+       UNION ALL SELECT 'workspace', count(*)::text FROM brainstrike_assistant_thread_workspaces WHERE thread_id = ANY($1::text[])
+       ORDER BY kind`,
         [[rootId, `${rootId}-Cedar`, `${rootId}-Flint`, `${rootId}-Wren`]]
       )
     ).rows;
   }, memory.threadId);
   expect(deletedRows).toEqual([
-    { count: '0', kind: 'native' },
-    { count: '0', kind: 'messages' },
     { count: '0', kind: 'graph' },
+    { count: '0', kind: 'messages' },
+    { count: '0', kind: 'native' },
     { count: '0', kind: 'workspace' },
   ]);
 
