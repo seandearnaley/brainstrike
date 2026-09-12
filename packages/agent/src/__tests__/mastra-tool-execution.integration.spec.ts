@@ -93,7 +93,9 @@ const MCP_IMAGE_DATA = 'aW1hZ2UtYnl0ZXM=';
 const MCP_TEXT_RAW_ONLY_TAIL = 'mcp-multimodal-raw-only-tail';
 const MCP_STDIO_TEXT_RAW_ONLY_TAIL = 'mcp-stdio-multimodal-raw-only-tail';
 const ARTIFACT_FIXTURE_NOW = new Date('2026-09-05T12:00:00.000Z');
-const ARTIFACT_FIXTURE_EXPIRES_AT = '2026-09-12T12:00:00.000Z';
+const ARTIFACT_FIXTURE_EXPIRES_AT = new Date(
+  ARTIFACT_FIXTURE_NOW.getTime() + 7 * 24 * 60 * 60 * 1000
+).toISOString();
 function createStoredArtifactReaderTool(stored: readonly StoreSettledToolOutputInput[]) {
   return createTool({
     description: 'Read the saved tool output by its cursor.',
@@ -102,7 +104,7 @@ function createStoredArtifactReaderTool(stored: readonly StoreSettledToolOutputI
         { cursor, mode: 'cursor' },
         {
           // The stored fixture has a fixed lifetime; real transport timers stay live.
-          now: () => ARTIFACT_FIXTURE_NOW,
+          now: () => new Date(ARTIFACT_FIXTURE_NOW),
           reader: {
             readRange: async ({ artifactId, offsetByte, limitBytes }) => {
               const entry = stored[0];

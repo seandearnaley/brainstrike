@@ -230,6 +230,7 @@ describe('tool output artifact reader', () => {
     const input = { artifactRef, mode: 'artifact' } as const;
     const reader = readerFor(content, artifactRef);
     const expiresAt = Date.parse(artifactRef.expiresAt);
+    expect(Number.isFinite(expiresAt)).toBe(true);
 
     await expect(
       readToolOutputArtifactPage(input, { now: () => new Date(expiresAt - 1), reader })
