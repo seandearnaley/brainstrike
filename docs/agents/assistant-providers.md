@@ -2,6 +2,21 @@
 
 > Extracted from AGENTS.md (2026-07-12). Read before changing provider config, MCP transport selection, or assistant native tools/registries. Keep updated with the code.
 
+## Production web runtime capability (BST-1728)
+
+The production web bootstrap configures local-runtime browser access before
+provider discovery. Its CSP does not permit arbitrary local/LAN endpoints, so
+the discovery service returns the existing visible `blocked_web` state before
+fetching, including when a caller overrides its surface to desktop. This is
+an immutable host capability, not a user preference cleared by factory reset.
+Both provider discovery and model catalogs use that same service.
+Desktop's native runtime bridge and development web direct probing keep their
+existing behavior. Do not widen the CSP or repeatedly issue forbidden probes
+as a substitute for the host's capability decision. The paired discovery and
+real catalog tests assert zero browser requests and an unchanged independently
+configured native probe; the compiled production CSP test exercises startup,
+PGlite and embedding workers.
+
 ## AI ASSISTANT INTEGRATION
 
 - Supports hosted providers OpenAI, Anthropic, Google, and OpenRouter, plus the

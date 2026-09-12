@@ -212,13 +212,29 @@ interface LocalRuntimeServices {
 }
 
 let localRuntimeServices: LocalRuntimeServices | null = null;
+let browserRuntimeUnavailableReason: string | undefined;
+
+/** Configure the web host's direct-runtime capability before provider discovery starts. */
+export function configureBrowserRuntimeAccess(unavailableReason: string): void {
+  if (localRuntimeServices) {
+    throw new Error('Browser runtime access must be configured before provider discovery.');
+  }
+  if (!unavailableReason.trim()) {
+    throw new Error('Unavailable browser runtime access requires a visible reason.');
+  }
+  browserRuntimeUnavailableReason = unavailableReason;
+}
 
 function getLocalRuntimeServices(): LocalRuntimeServices {
   if (localRuntimeServices) {
     return localRuntimeServices;
   }
 
-  const discoveryService = new LocalRuntimeDiscoveryService();
+  const discoveryService = new LocalRuntimeDiscoveryService({
+    ...(browserRuntimeUnavailableReason
+      ? { browserUnavailableReason: browserRuntimeUnavailableReason }
+      : {}),
+  });
   const modelCatalogService = new LocalRuntimeModelCatalogService({
     discoveryService,
   });

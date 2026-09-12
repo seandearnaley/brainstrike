@@ -52,6 +52,7 @@ const {
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
   isZustandModule,
+  preserveWorkerEntryPlugin,
 } = await import('@brainstrike/build-utils');
 const wasmPath = findPGliteWasm(__dirname);
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
@@ -388,7 +389,7 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
-    plugins: () => [browserWorkerProcessExitCodePlugin()],
+    plugins: () => [preserveWorkerEntryPlugin(), browserWorkerProcessExitCodePlugin()],
   },
 });
 

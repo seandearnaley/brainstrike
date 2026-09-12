@@ -3214,6 +3214,22 @@ contract instead of parsing the table into JavaScript. Both package build
 scripts run `verify-tokenizer-asset-bundle.mjs`; do not remove that post-build
 guard when changing their bundle topology.
 
+Both app worker builds install `preserveWorkerEntryPlugin`. Vite's worker
+bundler options force `preserveEntrySignatures: false`; the bundler options hook
+restores a strict entry facade. Without that facade, a lazy CommonJS dependency
+can import worker startup from its own entry chunk without the managed instance
+URL fragment and initialize it twice. The real Vite build regression executes
+both the broken stock output and the preserved-entry output. Production web
+also configures Zod's public `jitless` option in its small entry module before
+dynamically configuring the host capability and then importing the application.
+The previous static configuration module was bundled with application schemas,
+whose initialization ran before configuration; this is a compiled chunk-ordering
+failure, not a general claim about ESM dependency evaluation. The compiled
+strict-CSP test is the ordering guard. `jitless` disables Zod parse code generation
+in the window realm, preserving strict CSP at the cost of that optimization;
+worker realms remain separate and their real startup/embedding paths must pass
+the same CSP qualification before changing their schema initialization.
+
 Both app builds install the shared
 `createCspQualifiedEvalWarningFilter`. It suppresses Rolldown's `EVAL` warning
 only for the exact web-tree-sitter 0.25.10 and PGlite 0.5.3 files whose real
