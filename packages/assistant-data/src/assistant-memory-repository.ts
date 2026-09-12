@@ -3070,10 +3070,10 @@ export function createPgliteAssistantThreadRepository(
       // clearThreadPlacement round trip; the CTE now owns the full cascade
       // (placements without a live thread were already inert by contract).
       const sidecarStages = THREAD_DELETE_SIDECAR_TABLES.map(
-        ({ table, threadColumn }) => `deleted_${table} AS (
+        ({ table, threadColumns }) => `deleted_${table} AS (
             DELETE FROM ${table}
-            WHERE ${threadColumn} IN (SELECT id FROM deletion_threads)
-            RETURNING ${threadColumn}
+            WHERE (${threadColumns.map((column) => `${column} IN (SELECT id FROM deletion_threads)`).join(' OR ')})
+            RETURNING 1
           )`
       ).join(',\n          ');
       const sidecarCounts = THREAD_DELETE_SIDECAR_TABLES.map(
@@ -3148,11 +3148,11 @@ export function createPgliteAssistantThreadRepository(
             RETURNING id
           ),
           ${THREAD_DELETE_SIDECAR_TABLES.map(
-            ({ table, threadColumn }) => `deleted_${table} AS (
+            ({ table, threadColumns }) => `deleted_${table} AS (
             DELETE FROM ${table}
             WHERE (SELECT all_found FROM validation)
-              AND ${threadColumn} IN (SELECT id FROM deletion_threads)
-            RETURNING ${threadColumn}
+              AND (${threadColumns.map((column) => `${column} IN (SELECT id FROM deletion_threads)`).join(' OR ')})
+            RETURNING 1
           )`
           ).join(',\n          ')},
           deleted_threads AS (

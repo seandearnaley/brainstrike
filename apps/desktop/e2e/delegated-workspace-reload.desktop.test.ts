@@ -85,7 +85,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
         [child, resource, name]
       );
       await query(
-        `INSERT INTO brainstrike_delegated_conversations (thread_id, owner_resource_id, root_thread_id, parent_thread_id, resource_id, configuration, display_name, color) VALUES ($1, $2, $3, $7, $4, '{}'::jsonb, $5, $6)`,
+        `INSERT INTO brainstrike_delegated_conversations (thread_id, owner_resource_id, root_thread_id, parent_thread_id, resource_id, configuration, display_name, color) VALUES ($1, $2, $3, $7, $4, '{"maxSteps":16,"persona":{"id":"explore"}}'::jsonb, $5, $6)`,
         [
           child,
           root['resource'],
@@ -184,6 +184,9 @@ test('restores distinct child tabs and native transcripts without executing a ru
   const flint = window.getByRole('tab', { exact: true, name: 'Flint' });
   await expect(cedar).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
+  // The first SVG is the tab's identity mark; trailing controls may add icons.
+  await expect(cedar.locator('svg').first()).toHaveClass(/text-emerald-500/u);
+  await expect(flint.locator('svg').first()).toHaveClass(/text-amber-500/u);
   await expect(window.getByText('Cedar saved native transcript', { exact: true })).toBeVisible();
   const rootDraft = rootPanel.getByRole('textbox', { name: 'Message input' });
   await rootDraft.fill('UNSENT_PARENT_DRAFT_1724');
@@ -245,6 +248,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect.poll(() => cedarViewport.evaluate((element) => element.scrollTop)).toBe(0);
   await window.getByRole('button', { exact: true, name: 'Flint Child' }).click();
   await expect(flint).toHaveAttribute('aria-selected', 'true');
+  await expect(flint.locator('svg').first()).toHaveClass(/text-amber-500/u);
   await sidebarCedar.getByRole('button', { name: /Expand/ }).click();
   const wrenRow = window.getByRole('row').filter({
     has: window.getByRole('button', { exact: true, name: 'Wren Child' }),
@@ -313,4 +317,63 @@ test('restores distinct child tabs and native transcripts without executing a ru
     contentType: 'image/png',
     path: testInfo.outputPath('restored-child-workspace.png'),
   });
+
+  // Delete through the actual sidebar action, then reload. The other root and
+  // its workspace survive; stale saved child tabs may never revive work.
+  await rootRow
+    .getByRole('button', { name: 'Thread actions Child workspace verification' })
+    .click();
+  await window.getByRole('button', { exact: true, name: 'Delete…' }).click();
+  await window
+    .getByRole('button', { name: 'Confirm delete thread Child workspace verification' })
+    .click();
+  await expect(rootRow).toHaveCount(0);
+  await expect(cedar).toHaveCount(0);
+  await expect(flint).toHaveCount(0);
+  await expect(window.getByRole('tab', { exact: true, name: 'Wren' })).toHaveCount(0);
+  const deletedRows = await window.evaluate(async (rootId) => {
+    const api = (
+      globalThis as typeof globalThis & {
+        electronAPI?: {
+          db?: {
+            query?: (
+              sql: string,
+              values: string[][]
+            ) => Promise<{ rows: Array<{ kind: string; count: string }> }>;
+          };
+        };
+      }
+    ).electronAPI;
+    if (!api?.db?.query) {
+      throw new Error('Native database bridge unavailable');
+    }
+    return (
+      await api.db.query(
+        `SELECT 'native' AS kind, count(*)::text FROM mastra_threads WHERE id = ANY($1::text[])
+       UNION ALL SELECT 'messages', count(*)::text FROM mastra_messages WHERE thread_id = ANY($1::text[])
+       UNION ALL SELECT 'graph', count(*)::text FROM brainstrike_delegated_conversations WHERE thread_id = ANY($1::text[])
+       UNION ALL SELECT 'workspace', count(*)::text FROM brainstrike_assistant_thread_workspaces WHERE thread_id = ANY($1::text[])
+       ORDER BY kind`,
+        [[rootId, `${rootId}-Cedar`, `${rootId}-Flint`, `${rootId}-Wren`]]
+      )
+    ).rows;
+  }, memory.threadId);
+  expect(deletedRows).toEqual([
+    { count: '0', kind: 'graph' },
+    { count: '0', kind: 'messages' },
+    { count: '0', kind: 'native' },
+    { count: '0', kind: 'workspace' },
+  ]);
+
+  await window.reload();
+  await mockFileSystemOperations(window);
+  await setupAssistantMock(window, { message: 'Deleted children must never execute.' });
+  await ensureAssistantShellVisible(window);
+  await expect(
+    window.getByRole('button', { exact: true, name: 'Other root navigation' })
+  ).toBeVisible();
+  await expect(window.getByRole('tab', { exact: true, name: 'Cedar' })).toHaveCount(0);
+  await expect(window.getByRole('button', { exact: true, name: 'Cedar Child' })).toHaveCount(0);
+  expect(await readAssistantMockRequests(window)).toHaveLength(0);
+  expect(unexpectedModelRequests).toHaveLength(0);
 });

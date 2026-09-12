@@ -53,7 +53,10 @@ export class ThreadWorkspaceNavigation {
   }
 
   failed(resourceId: string, threadId: string, error: unknown): void {
-    this.ready = null;
+    // A save may reject after its coordinator unmounts and another owner is ready.
+    if (this.ready?.resourceId === resourceId && this.ready.threadId === threadId) {
+      this.ready = null;
+    }
     if (this.pending?.resourceId === resourceId && this.pending.threadId === threadId) {
       this.pending = null;
       this.actions.reportError(error);
