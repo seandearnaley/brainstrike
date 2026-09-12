@@ -1636,6 +1636,63 @@ it does not silently substitute built-ins for a successful user-profile scan.
 No credentials enter the IPC response and no new state is persisted. Existing
 subagent-personas factory-reset registration remains authoritative.
 
+### Admitted persona configuration on decision resume (BST-1727)
+
+An admitted child's stored `configuration` contains its persona instructions,
+model pin, mode, effective tool IDs and the invocation's clamped step budget.
+The host returns this immutable configuration only after authorizing the entire
+decision ancestry. Both public approval and question/plan resume entry points
+restore those profiles before constructing discovery or execution Agents.
+Restoration is indexed by depth, so two admitted generations of the same persona
+ID cannot overwrite one another. Registry edits, disable preferences and removal
+apply to fresh root turns; a resumed native leg retains its admitted target
+profile through completion and does not rewrite an already-admitted decision.
+The resumed root leg may invoke that restored profile again; a new root turn
+uses current registry availability.
+Current host tool availability, permission rules and model credentials still gate
+execution. Missing/invalid snapshots or an unavailable admitted profile fail
+visibly before native resume; another persona or model is never substituted.
+The browser-safe `AdmittedChildConfigurationError` carries only a fixed reason and
+safe remediation. The shared HTTP initializer returns status 409 with that message;
+profile text and underlying errors stay private. Missing/legacy shapes request a
+fresh delegation, while a persona/path identity mismatch is a distinct integrity
+failure. Unknown fields, invalid model providers and empty tool catalogs reject.
+The schema exhaustively includes the persona contract's keys, modes and sources.
+
+Wildcard worker profiles are expanded to their effective admitted tool IDs when
+building the admission map. A later catalog addition cannot broaden that child's
+resume. This captures the full eligible catalog before discovery hides unloaded tools;
+`load_tool` can restore an admitted tool from child history after resume.
+Older records retaining an unexpanded `*` fail with an explicit request
+to start a new delegation; their original catalog cannot be inferred from today's
+registry. Cross-provider pins reacquire credentials through the trusted host reader,
+including when the live persona file has been deleted; credentials are not stored
+in child configuration. `assistant-service/stream-init.ts` is the sole production
+caller of the two public resume functions and injects that reader for both.
+Restoration without an authenticated root runtime rejects before reading secrets. Native Mastra snapshots retain the original delegated
+task and workspace/system context. This boundary does not change native workflow
+snapshot formats or create another execution owner.
+
+Production tests: `delegated-persona-snapshot.integration.spec.ts` disposes the
+original owner, discovers the stored approval/question after registry edits or
+removal, resumes through the public entry point, and checks one effect plus child
+and parent output. It also rejects when the admitted tools are no longer available at all.
+`recursive-worker.integration.spec.ts` removes the live Worker before depth-2/3
+resume and asserts that real admission receives expanded tool IDs, with no `*`.
+`agent-stream-init-and-memory.integration.test.ts` proves fixed remediation reaches
+the real HTTP response while unrelated initializer failures remain redacted.
+`delegated-conversation-host.integration.test.ts` verifies stored configuration is
+read only through the authorized root/turn path. Idle-child wake is separate
+BST-1723 acceptance.
+
+The stored step budget must be a valid admitted value under this build's host
+ceiling. Current admission cannot write a value above that ceiling. A future host
+limit reduction must coordinate native snapshots and durable root/child counters;
+clamping only this parser would not prove the running workflow uses the new limit.
+Read-only `resolveToolAction` runs before profile reconstruction and again before
+native decision admission. The second authorization intentionally rechecks current
+ownership rather than caching authority across model/tool construction.
+
 ### Native child workspace reads and checkpoint undo (BST-1726)
 
 The native tool execution thread, not the parent tool-factory closure, owns

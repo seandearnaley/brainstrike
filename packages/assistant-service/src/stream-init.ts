@@ -29,7 +29,7 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { PgliteMastraMemoryResult } from '@brainstrike/agent/pglite-mastra-memory';
-import type { McpHostPort } from '@brainstrike/assistant-contract';
+import { AdmittedChildConfigurationError, type McpHostPort } from '@brainstrike/assistant-contract';
 import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
 import {
@@ -178,6 +178,7 @@ async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(a
   messages: AgentMessage[];
   runtime: RuntimeData;
   memoryOptions: InitialStreamMemoryOptions;
+  resolvePersonaApiKey: AgentStreamProviderApiKeyReader;
   toolApprovalAction: AssistantToolApprovalAction | undefined;
   toolResumeAction: AssistantToolResumeAction | undefined;
 }): Promise<AsyncIterable<StreamChunk>> {
@@ -186,6 +187,7 @@ async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(a
     messages,
     runtime,
     memoryOptions,
+    resolvePersonaApiKey,
     toolApprovalAction,
     toolResumeAction,
   } = args;
@@ -194,12 +196,17 @@ async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(a
     return streamMastraToolApprovalAction(toolApprovalAction, {
       ...memoryOptions,
       requireToolApproval: true,
+      resolvePersonaApiKey,
       runtime,
     });
   }
   if (toolResumeAction) {
     capabilities.runPersistence.recordContinuationRunTreatment?.(runtime);
-    return streamMastraToolResumeAction(toolResumeAction, { ...memoryOptions, runtime });
+    return streamMastraToolResumeAction(toolResumeAction, {
+      ...memoryOptions,
+      resolvePersonaApiKey,
+      runtime,
+    });
   }
   // Prepend the turn's `@file` references (referenced-files), then any explicit
   // `:skill[name]` activations, then the opt-in self-improvement signal, then
@@ -343,6 +350,13 @@ function buildAgentStreamInitializationFailure<K extends AgentStreamCapabilityKi
   stage: AgentStreamInitializationStage,
   deps: AgentStreamHelperDeps<K>
 ): AgentStreamFailure {
+  if (error instanceof AdmittedChildConfigurationError) {
+    return {
+      ok: false,
+      payload: { code: error.reason, error: error.code, message: error.message },
+      status: 409,
+    };
+  }
   const secretReadErrorPayload = getSecretReadErrorPayload(error);
   if (secretReadErrorPayload) {
     return {
@@ -1056,6 +1070,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       deps,
       memoryOptions,
       messages: upsGate.messages,
+      resolvePersonaApiKey: resolveProviderApiKey,
       runtime,
       toolApprovalAction,
       toolResumeAction,

@@ -198,6 +198,15 @@ describe('delegationDescriptionForPersona', () => {
     expect(delegationDescriptionForPersona(persona(4))).toContain('at most 4 steps');
   });
 
+  it('does not promise a reserved summary for a one-step persona', () => {
+    const description = delegationDescriptionForPersona(persona(1));
+    expect(description).toContain('at most 1 step —');
+    expect(description).not.toContain('reserved');
+    expect(delegationDescriptionForPersona(persona(2))).toContain(
+      '2 steps, one of which is reserved'
+    );
+  });
+
   it('covers USER-defined personas, whose frontmatter never mentions a cap', () => {
     // A user persona's description comes straight from its markdown frontmatter,
     // so it can never disclose its own budget. Hardcoding the sentence in the

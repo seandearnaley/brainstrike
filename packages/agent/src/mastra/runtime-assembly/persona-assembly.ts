@@ -18,6 +18,7 @@ import type { RuntimeData } from '../../types';
 import { buildPersonaSubAgents, type DelegatedExecutionOptions } from '../build-persona-subagents';
 import type { DelegationPersonaSummary } from '../default-instructions';
 import type { DelegatedConversationBinding } from '../delegated-conversation-binding';
+import { personasAtDelegationDepth } from '../delegated-persona-snapshots';
 import type { DelegatedSystemContextSource } from '../delegated-system-context';
 import type { PermissionToolGateSnapshot } from '../permission-tool-gate';
 import { shouldEnablePersonas } from '../subagent-delegation';
@@ -59,6 +60,7 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
  */
 export async function resolvePersonaRuntimeParts(params: {
   delegatedExecutionOptions?: DelegatedExecutionOptions;
+  delegatedPersonaSnapshots?: readonly AssistantPersonaDefinition[] | undefined;
   conversationBinding?: DelegatedConversationBinding | undefined;
   guardedTools: ToolsInput;
   getDelegatedSystemContext?: DelegatedSystemContextSource | undefined;
@@ -81,11 +83,16 @@ export async function resolvePersonaRuntimeParts(params: {
   toolOutputObserver?: ModelOutputProjectionObserver;
   turnPersistenceProcessor?: (InputProcessor & OutputProcessor) | undefined;
 }): Promise<PersonaRuntimeParts> {
-  if (params.planModeActive || !shouldEnablePersonas(params.provider, params.personas)) {
+  const personas = personasAtDelegationDepth(
+    params.personas ?? [],
+    params.delegatedPersonaSnapshots
+  );
+  if (params.planModeActive || !shouldEnablePersonas(params.provider, personas)) {
     return EMPTY_PERSONA_RUNTIME_PARTS;
   }
   const personaBuild = await buildPersonaSubAgents({
     delegatedExecutionOptions: params.delegatedExecutionOptions,
+    delegatedPersonaSnapshots: params.delegatedPersonaSnapshots,
     memory: params.memory,
     ...(params.conversationBinding ? { conversationBinding: params.conversationBinding } : {}),
     ...(params.settleChildToolOutputs

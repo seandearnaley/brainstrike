@@ -109,6 +109,7 @@ it.for([
           throw new Error('Native child was not bound');
         }
         scopes.splice(0, scopes.length, {
+          configuration: child.configuration,
           identity,
           ...(child.originalToolCall ? { originalToolCall: child.originalToolCall } : {}),
           resourceId: child.childResourceId,

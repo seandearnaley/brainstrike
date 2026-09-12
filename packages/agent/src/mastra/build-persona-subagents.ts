@@ -15,6 +15,7 @@
  */
 
 import {
+  AdmittedChildConfigurationError,
   DELEGATION_LIMITS,
   deriveEffectiveInputBudget,
   NATIVE_TOOL_ID,
@@ -36,6 +37,7 @@ import {
 } from '../stream/tool-output-limits';
 import type { RuntimeData } from '../types';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
+import { personasAtDelegationDepth } from './delegated-persona-snapshots';
 import {
   createDelegatedSystemContextProcessor,
   type DelegatedSystemContextSource,
@@ -83,6 +85,7 @@ export type DelegatedExecutionOptions = Pick<
 export interface BuildPersonaSubAgentsParams {
   readonly conversationBinding?: DelegatedConversationBinding;
   readonly delegatedExecutionOptions?: DelegatedExecutionOptions | undefined;
+  readonly delegatedPersonaSnapshots?: readonly AssistantPersonaDefinition[] | undefined;
   readonly depth?: number;
   readonly getDelegatedSystemContext?: DelegatedSystemContextSource;
   /** Parent's post-guard, post-lifecycle-hook tool map (keyed by sanitized id), RAW — not yet
@@ -650,6 +653,16 @@ async function createConfiguredChild({
   });
 }
 
+function assertAdmittedPersonaRegistered(
+  params: BuildPersonaSubAgentsParams,
+  personasById: ReadonlyMap<string, AssistantPersonaDefinition>
+): void {
+  const admittedPersona = params.delegatedPersonaSnapshots?.[(params.depth ?? 1) - 1];
+  if (admittedPersona && !personasById.has(admittedPersona.id)) {
+    throw new AdmittedChildConfigurationError('model-or-tools-unavailable');
+  }
+}
+
 export async function buildPersonaSubAgents(
   params: BuildPersonaSubAgentsParams
 ): Promise<PersonaSubAgentBuildResult> {
@@ -663,7 +676,11 @@ export async function buildPersonaSubAgents(
   const delegationToolPersonas = new Map<string, string>();
   const personasById = new Map<string, AssistantPersonaDefinition>();
 
-  for (const persona of params.personas) {
+  for (const persona of personasAtDelegationDepth(
+    params.personas,
+    params.delegatedPersonaSnapshots,
+    params.depth
+  )) {
     // Scope validation precedes permission opt-outs: legacy personas stay
     // read-only, while worker declarations can only narrow the host catalog.
     assertPersonaToolScope(persona);
@@ -753,9 +770,12 @@ export async function buildPersonaSubAgents(
       keptOriginalNames.includes(NATIVE_TOOL_ID.readToolOutputArtifact)
     );
     delegationToolPersonas.set(`agent-${persona.id}`, persona.id);
-    personasById.set(persona.id, persona);
+    // This map is the admission source of truth. Snapshot the effective catalog,
+    // including wildcard expansion, before later registry/permission changes.
+    personasById.set(persona.id, { ...persona, allowedToolIds: keptOriginalNames });
   }
 
+  assertAdmittedPersonaRegistered(params, personasById);
   const subAgents = Object.fromEntries(await Promise.all(childBuilders.map((build) => build())));
   return {
     artifactReaderDelegationTools: Array.from(artifactReaderCapabilities)

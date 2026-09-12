@@ -72,6 +72,7 @@ import {
   validateToolResumeAction,
 } from './attempt-legs';
 import { projectBackgroundStream } from './background-stream';
+import { withDelegatedPersonaSnapshots } from './delegated-persona-snapshots';
 import { createDelegatedStreamProjection } from './delegated-stream-projection';
 import { captureDelegatedSystemContext } from './delegated-system-context';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
@@ -1412,7 +1413,8 @@ export async function streamMastraToolApprovalAction(
     });
   }
 
-  const runtimeData = options.runtime;
+  const resumeOptions = await withDelegatedPersonaSnapshots(action, options);
+  const runtimeData = resumeOptions.runtime;
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
   let preserveExecuteBackedWebSearch = false;
   if (providerSupportsNativeWebSearch(runtimeResolution.provider)) {
@@ -1421,7 +1423,7 @@ export async function streamMastraToolApprovalAction(
     // this immutable resumed leg must keep the execute-backed web-search tool.
     const { runtime: discoveryRuntime } = await initializeMastraRuntime(
       withRuntimeDerivedStreamOptions({
-        ...options,
+        ...resumeOptions,
         modelOverride: createListingOnlyModel(),
       }),
       runtimeResolution
@@ -1441,7 +1443,7 @@ export async function streamMastraToolApprovalAction(
   // the native tools on resume (see withRuntimeDerivedStreamOptions).
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
     {
-      ...withRuntimeDerivedStreamOptions(options),
+      ...withRuntimeDerivedStreamOptions(resumeOptions),
       hydrateToolDiscoveryFromMemory: true,
       // The durable run suspended against the execute-backed tool. A session
       // grant changes authorization for this leg, not the stored invocation's
@@ -1487,10 +1489,11 @@ export async function streamMastraToolResumeAction(
     });
   }
 
-  const runtimeData = options.runtime;
+  const resumeOptions = await withDelegatedPersonaSnapshots(action, options);
+  const runtimeData = resumeOptions.runtime;
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
-    { ...withRuntimeDerivedStreamOptions(options), hydrateToolDiscoveryFromMemory: true },
+    { ...withRuntimeDerivedStreamOptions(resumeOptions), hydrateToolDiscoveryFromMemory: true },
     runtimeResolution
   );
 

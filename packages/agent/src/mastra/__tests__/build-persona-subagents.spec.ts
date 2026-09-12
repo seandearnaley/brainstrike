@@ -319,6 +319,28 @@ describe('worker tool admission', () => {
       catalog.tools.load_tool.execute?.({ toolName: 'linear_get_issue' }, { observe: noopObserve })
     ).resolves.toMatchObject({ success: true });
   });
+  it('captures the effective wildcard catalog for admission and does not widen it on resume', async () => {
+    const initial = await buildPersonaSubAgents(workerOptions());
+    const admitted = assertDefined(initial.personasById.get('worker'), 'Missing admitted worker');
+    expect(admitted.allowedToolIds).not.toContain('*');
+    expect(admitted.allowedToolIds).not.toContain('brainstrike.manageTaskList');
+    const options = workerOptions();
+    options.guardedTools['new_write'] = makeTool('new_write');
+    options.toolNameMap.set('new_write', 'new.write');
+    const resumed = await buildPersonaSubAgents({
+      ...options,
+      delegatedPersonaSnapshots: [admitted],
+    });
+    expect(resumed.personasById.get('worker')?.allowedToolIds).toEqual(admitted.allowedToolIds);
+    expect(resumed.personasById.get('worker')?.allowedToolIds).not.toContain('new.write');
+    const child = assertDefined(resumed.subAgents['worker'], 'Expected resumed worker');
+    const catalog = await workerCatalog(child);
+    expect(catalog.tools).not.toHaveProperty('linear_get_issue');
+    await expect(
+      catalog.tools.load_tool.execute?.({ toolName: 'linear_get_issue' }, { observe: noopObserve })
+    ).resolves.toMatchObject({ success: true });
+  });
+
   it('excludes the parent task list from a wildcard worker', async () => {
     const result = await buildPersonaSubAgents(workerOptions());
     const child = assertDefined(result.subAgents['worker'], 'Expected wildcard worker');
@@ -372,7 +394,7 @@ describe('buildPersonaSubAgents', () => {
 
     const child = assertDefined(result.subAgents['explore'], 'Expected explore subagent');
     expect(result.delegationToolPersonas.get('agent-explore')).toBe('explore');
-    expect(result.personasById.get('explore')).toBe(explorePersona);
+    expect(result.personasById.get('explore')).toEqual(explorePersona);
     expect(child.hasOwnMemory()).toBe(false);
     expect(await child.listConfiguredOutputProcessors()).toEqual([
       expect.objectContaining({ id: 'brainstrike-response-boundaries' }),
