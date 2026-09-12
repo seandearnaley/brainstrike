@@ -44,7 +44,9 @@ export default defineConfig({
     pool: 'forks',
     // The base setup file is @testing-library/jest-dom wiring, which has no
     // meaning (and no DOM to attach to) in this lane.
-    setupFiles: [],
+    // Deliberately no DOM/unit setup here; the event-loop watchdog still applies
+    // because this lane hosts real PGlite.
+    setupFiles: ['@brainstrike/test-utils/vitest.event-loop-watchdog.setup'],
     // A real migrate() + PGlite boot is well past vitest's 5s default.
     testTimeout: 60_000,
   },

@@ -23,6 +23,16 @@
 // It is NOT a retry, timeout increase or suppression: the failure still fails,
 // it just fails in `stallMs` with a name instead of in 30 minutes without one.
 //
+// Outcome by pool: in a `forks` lane the killed process is the child worker, the
+// vitest main process survives, and `LostTestFileReporter` fails the run naming
+// the lost file. In a `threads` lane the vitest worker is itself a thread of the
+// vitest process, so SIGKILL takes the whole run: the single stderr line above
+// is the only attribution. Both end the hang in `stallMs` with a name.
+//
+// Debugging opt-out: a paused debugger blocks the loop on purpose, so the
+// watchdog does not start when the process was launched with `--inspect*`
+// (execArgv or NODE_OPTIONS); it says so once on stderr.
+//
 // A plain `.mjs` at the package root (like `vitest-lost-file-reporter.mjs`):
 // setup files load in the vitest worker before any package build, so this
 // must not depend on `dist/`.
@@ -65,9 +75,23 @@ setInterval(() => {
 }, workerData.pollMs);
 `;
 
+function assertPositiveInteger(value, label) {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(
+      `${label} must be a positive integer of milliseconds, got ${JSON.stringify(value)}.`
+    );
+  }
+  return value;
+}
+
+function isInspectorAttached() {
+  const flags = [...process.execArgv, ...(process.env['NODE_OPTIONS'] ?? '').split(/\s+/)];
+  return flags.some((flag) => flag.startsWith('--inspect'));
+}
+
 function resolveStallMs(explicit) {
-  if (typeof explicit === 'number') {
-    return explicit;
+  if (explicit !== undefined) {
+    return assertPositiveInteger(explicit, 'stallMs');
   }
   const raw = process.env[STALL_ENV];
   if (raw === undefined || raw === '') {
@@ -99,7 +123,19 @@ export function startEventLoopWatchdog(options = {}) {
     return existing;
   }
   const stallMs = resolveStallMs(options.stallMs);
-  const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  const heartbeatMs = assertPositiveInteger(
+    options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS,
+    'heartbeatMs'
+  );
+  if (isInspectorAttached()) {
+    writeSync(
+      2,
+      '[vitest-event-loop-watchdog] inspector attached; watchdog not started for this process.\n'
+    );
+    const inert = { setLabel: () => {}, stop: () => {} };
+    globalThis[REGISTRY] = inert;
+    return inert;
+  }
   if (heartbeatMs >= stallMs) {
     throw new Error(`heartbeatMs (${heartbeatMs}) must be shorter than stallMs (${stallMs}).`);
   }

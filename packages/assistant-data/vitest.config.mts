@@ -28,8 +28,8 @@ export default defineConfig({
     pool: 'threads',
     reporters: ['default', new LostTestFileReporter()],
     setupFiles: [
-      '@brainstrike/test-utils/vitest.setup',
       '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
+      '@brainstrike/test-utils/vitest.setup',
     ],
     testTimeout: 30_000,
     unstubGlobals: true,

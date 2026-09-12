@@ -128,8 +128,8 @@ export default defineConfig({
           name: 'unit',
           pool: 'forks',
           setupFiles: [
-            './vitest.setup.ts',
             '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
+            './vitest.setup.ts',
           ],
           testTimeout: 10_000,
         },
