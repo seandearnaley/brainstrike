@@ -1161,6 +1161,16 @@ step; fix the owner. Settled rulings, each with a paired test:
 - The forced-exit log names the step still awaiting completion and its elapsed
   time (`shutdown-step-tracker.ts`). That record is the only actionable fact a
   CI runner leaves behind, so it is a product log, not temporary instrumentation.
+- `before-quit` delays Electron's normal window closing while app cleanup runs.
+  The first tracked step therefore closes and joins ordinary renderer windows
+  with `BrowserWindow.close()` / `closed`, while their IPC dependencies still
+  exist (`close-desktop-renderers.ts`). Hidden chunking/embedding/LLM windows
+  stay alive for their owning stop commands. Normal close preserves unload and
+  window-state hooks; macOS activation cannot recreate a producer during this
+  drain. Already-admitted database work then drains through the existing
+  scheduler before database closure. The existing app-launch smoke test keeps
+  real renderer DB/chunking requests active across quit and rejects late
+  post-disposal IPC errors, with the unchanged 5s owned-process deadline.
 - Shutdown retires embedding-backfill admission FIRST
   (`cancelAllDesktopEmbeddingBackfills()` before any host step), and a backfill
   that arrives after `markDesktopShuttingDown()` is refused before it touches
