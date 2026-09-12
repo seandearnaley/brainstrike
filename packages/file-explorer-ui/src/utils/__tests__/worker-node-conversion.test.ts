@@ -33,6 +33,30 @@ const createMockFileHandle = (name: string): FileSystemFileHandle =>
   }) as FileSystemFileHandle;
 
 describe('worker-node-conversion', () => {
+  it('retains native descriptor identity when a worker tree is rehydrated', () => {
+    const node: IFileNode = {
+      depth: 1,
+      handle: {
+        kind: 'file',
+        name: 'file.ts',
+        path: '/root/file.ts',
+        platform: 'electron',
+        rootId: 'mounted-root',
+      },
+      name: 'file.ts',
+      path: '/root/file.ts',
+      rootFolderId: 'selection-root',
+      selectionState: 'unchecked',
+      type: 'file',
+    };
+
+    const handles = buildHandleMap([node]);
+    const [rehydrated] = rehydrateTree(toWorkerFileNodes([node]), handles);
+
+    expect(rehydrated?.handle).toBe(node.handle);
+    expect(rehydrated?.handle).toMatchObject({ rootId: 'mounted-root' });
+  });
+
   describe('toWorkerFileNode', () => {
     it('should convert a basic file node', () => {
       const fileNode: IFileNode = {

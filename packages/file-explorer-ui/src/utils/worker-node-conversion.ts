@@ -65,7 +65,7 @@ export function toWorkerFileNodes(nodes: IFileNode[]): WorkerFileNode[] {
 }
 
 /** Type for the handle stored in the handle map */
-type FileSystemHandle = FileSystemFileHandle | FileSystemDirectoryHandle;
+type FileSystemHandle = IFileNode['handle'];
 
 /**
  * Convert a WorkerFileNode back to an IFileNode by rehydrating handles from the map.
