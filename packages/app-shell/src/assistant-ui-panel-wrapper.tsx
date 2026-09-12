@@ -36,7 +36,6 @@ import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metad
 import {
   createPgliteAssistantThreadRepository,
   hasDurableAssistantUsageCapability,
-  resolveAssistantMemoryResourceId,
   useAssistantThreadStore,
 } from '@brainstrike/assistant-data';
 import {
@@ -133,7 +132,7 @@ import { useAssistantRootHistoryAdapter } from './use-assistant-root-history-ada
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useAssistantThreadTitleSync } from './use-assistant-thread-title-sync';
-import { useDelegatedPanelBinding } from './use-delegated-conversation-root';
+import { useAssistantPanelThreadScope } from './use-delegated-conversation-root';
 import { useFileMentions } from './use-file-mentions';
 import { useHookTrustScope } from './use-hook-trust-scope';
 import { useObservationalMemoryRow } from './use-om-segment-row';
@@ -149,7 +148,6 @@ export interface AssistantUiPanelWrapperProps {
   providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
 }
-const EMPTY_MEMORY_THREADS = [] as const;
 
 declare global {
   interface Window {
@@ -714,23 +712,16 @@ export function AssistantUiPanelWrapper({
     () => (db ? createPgliteAssistantThreadRepository(db) : null),
     [db]
   );
-  const selectedThreadByResourceId = useAssistantThreadStore(
-    (state) => state.selectedThreadByResourceId
-  );
-  const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
-  const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
-  const refreshResourceThreads = useAssistantThreadStore((state) => state.refreshResourceThreads);
-  const memoryResourceId = resolveAssistantMemoryResourceId(memoryResourceIdOverride);
-  const memoryThreads = useAssistantThreadStore(
-    (state) => state.threadsByResourceId[memoryResourceId] ?? EMPTY_MEMORY_THREADS
-  );
-  const selectedMemoryThreadId = memoryThreadId ?? selectedThreadByResourceId[memoryResourceId];
-  const delegatedPanelBinding = useDelegatedPanelBinding(
+  const {
+    delegatedPanelBinding,
+    ensureResourceThreads,
+    memoryLoadState,
     memoryResourceId,
+    memoryThreads,
+    refreshResourceThreads,
+    resourceThreadsReady,
     selectedMemoryThreadId,
-    currentModel
-  );
-  const resourceThreadsReady = loadStateByResourceId[memoryResourceId]?.status === 'ready';
+  } = useAssistantPanelThreadScope(memoryResourceIdOverride, memoryThreadId, currentModel);
   const refreshThreadsAfterRun = useAssistantThreadTitleSync({
     enabled: Boolean(db && !dbInitializing && resourceThreadsReady),
     refreshResourceThreads,
@@ -770,7 +761,6 @@ export function AssistantUiPanelWrapper({
     },
     [recordComposerDraft, selectedMemoryThreadId]
   );
-  const memoryLoadState = loadStateByResourceId[memoryResourceId] ?? { status: 'idle' as const };
   const desktopAssistantBackendAvailable = hasDesktopAssistantBackend();
   const hostedMemoryBackendAvailable = resolveHostedMemoryBackendAvailable({
     desktopAssistantBackendAvailable,
