@@ -5,6 +5,7 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
+import type { ThreadSearchRepository } from '@brainstrike/db';
 import type { ForgePrCacheEntry } from '@brainstrike/types';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -80,6 +81,7 @@ const {
     deleteFailureThreadId: null as string | null,
     forgePrError: null as Error | null,
     forgePrRows: [] as Record<string, unknown>[],
+    getNavigationTitles: vi.fn<ThreadSearchRepository['getNavigationTitles']>(),
     initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
     initializing: false,
     metadataFailureMessage: 'Metadata update failed in PGlite.',
@@ -128,8 +130,8 @@ function parseMetadataObject(value: unknown): Record<string, unknown> {
 }
 
 vi.mock('@brainstrike/db', () => ({
-  // Inert search doubles: these suites never type a query, so the search
-  // controller only constructs the service and (on delete) clears index rows.
+  // Search returns no matches; the real controller still resolves the title
+  // batch and clears index rows when threads are deleted.
   createThreadSearchService: () => ({
     searchThreads: () =>
       Promise.resolve({
@@ -144,6 +146,7 @@ vi.mock('@brainstrike/db', () => ({
       }),
   }),
   ThreadSearchRepository: class {
+    readonly getNavigationTitles = dbMocks.getNavigationTitles;
     deleteThreads(): Promise<void> {
       return Promise.resolve();
     }
@@ -193,8 +196,8 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
 vi.mock('@brainstrike/db/react', () => ({
-  // Inert search doubles: these suites never type a query, so the search
-  // controller only constructs the service and (on delete) clears index rows.
+  // Search returns no matches; the real controller still resolves the title
+  // batch and clears index rows when threads are deleted.
   createThreadSearchService: () => ({
     searchThreads: () =>
       Promise.resolve({
@@ -210,6 +213,7 @@ vi.mock('@brainstrike/db/react', () => ({
   }),
   makeLiveQueryKey: (...parts: readonly unknown[]) => JSON.stringify(parts),
   ThreadSearchRepository: class {
+    readonly getNavigationTitles = dbMocks.getNavigationTitles;
     deleteThreads(): Promise<void> {
       return Promise.resolve();
     }
@@ -375,6 +379,7 @@ beforeEach(() => {
     path: '/tmp/workspace-a',
   };
   dbMocks.database = { exec: mockDb.exec, query: mockDb.query };
+  dbMocks.getNavigationTitles.mockReset().mockResolvedValue([]);
   dbMocks.activeRunQueryEnabled = [];
   dbMocks.activeRunError = null;
   dbMocks.activeRunRows = [];
@@ -844,6 +849,10 @@ describe('ThreadsPanel', () => {
       expect(screen.queryByTestId('threads-visible-count')).not.toBeInTheDocument();
     });
     expect(screen.queryByRole('button', { name: /visible threads?$/ })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(dbMocks.getNavigationTitles).toHaveBeenCalledWith(WORKSPACE_MEMORY_RESOURCE_ID, []);
+    });
+    expect(useThreadSearchStore.getState().status).toBe('results');
     expect(screen.getByRole('button', { name: 'New thread' })).toBeVisible();
   });
 
