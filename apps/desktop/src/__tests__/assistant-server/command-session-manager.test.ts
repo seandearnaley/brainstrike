@@ -663,7 +663,7 @@ describe('command session manager', () => {
       try {
         await (scope === 'root' ? manager.disposeRoot('root-a') : manager.dispose());
         await expect(acquireWorkspaceMutationLease(root, 'files')).rejects.toThrow(
-          'Stop that session'
+          'must wait for that process to exit'
         );
         process.emitExit(0);
         const release = await acquireWorkspaceMutationLease(root, 'files');

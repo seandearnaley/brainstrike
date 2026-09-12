@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { guardToolExecution } from '@brainstrike/agent';
 import { expect, it, vi } from 'vitest';
-import { guardToolExecution } from '../../../../../packages/agent/src/tools/guard-tool-execution';
 import {
   configureDesktopCommandSessionManager,
   createCommandSessionManager,
@@ -136,7 +136,7 @@ it('keeps delegated PTY ownership through exit, rejects overlapping edits visibl
     });
     await expect(
       runWriteWorkspaceFile({ content: 'not-applied', path: '/result.txt' }, runtime)
-    ).rejects.toThrow('Stop that session');
+    ).rejects.toThrow('must wait for that process to exit');
     await expect(readFile(path.join(root, 'result.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
     await joinDesktopDelegatedCancellation(
       { query: async () => ({ rows: [] }) },
@@ -202,15 +202,18 @@ it('cancels a queued native mutation without applying it while a disjoint root r
   try {
     running = runExecuteCommand(
       {
-        command: `node -e 'console.log("LEASE_READY"); setInterval(() => {}, 1000)'`,
+        command: `node -e 'console.error("OWNER_DIAGNOSTIC"); console.log("LEASE_READY"); setInterval(() => {}, 1000)'`,
         timeoutMs: 3000,
       },
       runtime,
       {
         signal: processStop.signal,
         stream: (part) => {
+          if (part.stream !== 'stdout') {
+            return;
+          }
           output += part.chunk;
-          if (part.stream === 'stdout' && output.trim() === 'LEASE_READY') {
+          if (output.trim() === 'LEASE_READY') {
             started.resolve();
           }
         },
@@ -386,11 +389,11 @@ it('preserves actionable workspace conflicts and queued expiry through the actua
   );
   try {
     await expect(guardedWrite.execute()).resolves.toMatchObject({
-      error: { message: expect.stringContaining('Stop that session') },
+      error: { message: expect.stringContaining('must wait for that process to exit') },
       ok: false,
     });
     await expect(guardedSession.execute()).resolves.toMatchObject({
-      error: { message: expect.stringContaining('Stop that session') },
+      error: { message: expect.stringContaining('must wait for that process to exit') },
       ok: false,
     });
     expect(manager.list('root')).toEqual([]);
@@ -404,7 +407,9 @@ it('preserves actionable workspace conflicts and queued expiry through the actua
     });
     await expect(guardedSkill.execute()).resolves.toMatchObject({
       error: {
-        message: expect.stringContaining('waiting for workspace ownership; it was not run'),
+        message: expect.stringContaining(
+          'skill-script runtime and workspace ownership exceeded the 20ms timeout; the script was not run.'
+        ),
       },
       ok: false,
     });

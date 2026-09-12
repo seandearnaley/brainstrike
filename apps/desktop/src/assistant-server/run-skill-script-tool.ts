@@ -186,11 +186,21 @@ export async function runSkillScript(
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const startedAt = Date.now();
   const executionSignal = createRuntimeResolveSignal(timeoutMs, options?.signal);
+  const preparationTimeoutMessage = `Preparing the "${input.runtime}" skill-script runtime and workspace ownership exceeded the ${timeoutMs}ms timeout; the script was not run.`;
   const runtime = await resolveRuntime(
     input.runtime,
     options?.resolvePythonExecutable,
     executionSignal
-  );
+  ).catch((error: unknown) => {
+    if (executionSignal.aborted) {
+      throw new ToolInputError(
+        options?.signal?.aborted
+          ? 'The skill script was aborted before execution.'
+          : preparationTimeoutMessage
+      );
+    }
+    throw error;
+  });
   let spawned = false;
   const outcome = await withWorkspaceMutationLease(
     rootPath,
@@ -200,9 +210,7 @@ export async function runSkillScript(
       if (remainingTimeoutMs <= 0) {
         // Runtime resolution and workspace admission share the same budget.
         // Never spawn after that budget has expired.
-        throw new ToolInputError(
-          `Preparing the "${input.runtime}" skill-script runtime and workspace ownership exceeded the ${timeoutMs}ms timeout; the script was not run.`
-        );
+        throw new ToolInputError(preparationTimeoutMessage);
       }
       spawned = true;
       return runDetachedProcess({
@@ -221,7 +229,7 @@ export async function runSkillScript(
       throw new ToolInputError(
         options?.signal?.aborted
           ? 'The skill script was aborted before execution.'
-          : 'The skill script timed out while waiting for workspace ownership; it was not run.'
+          : preparationTimeoutMessage
       );
     }
     throw error;

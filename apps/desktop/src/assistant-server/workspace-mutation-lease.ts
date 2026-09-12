@@ -28,7 +28,7 @@ function drain(): void {
       request.removeAbortListener();
       request.reject(
         new ToolInputError(
-          `Workspace is held by delegated command session "${session.sessionId}". Stop that session before editing or starting another writer.`
+          `Workspace is held by delegated command session "${session.sessionId}". Edits and other writers must wait for that process to exit.`
         )
       );
       continue;

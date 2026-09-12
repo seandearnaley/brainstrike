@@ -21,7 +21,9 @@ export function registerDesktopDelegatedCancellation(
   };
 }
 
-/** Called after durable revocation, so a later leg cannot admit the stopped invocation. */
+/** Receives only targets returned by revokeDelegatedConversationAdmission after
+ * its owner/root-scoped DB update. The query below authorizes registered host
+ * controls; its run IDs are not the already-authorized child thread IDs. */
 export async function joinDesktopDelegatedCancellation(
   database: DelegatedConversationDatabase,
   scope: DelegatedConversationScope,

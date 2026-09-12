@@ -296,6 +296,33 @@ describe('brainstrike.runSkillScript', () => {
     expect(Date.now() - startedAt).toBeLessThan(30_000);
   });
 
+  it('names preparation expiry when runtime resolution returns after its deadline', async () => {
+    const fixture = await createFixture();
+    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+      resolvePythonExecutable: (signal) =>
+        new Promise<string>((resolve) => {
+          if (!signal) {
+            throw new Error('Missing runtime preparation deadline');
+          }
+          signal.addEventListener('abort', () => resolve(process.execPath), { once: true });
+        }),
+      skillScriptResolver: fixture.resolver,
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
+    await expect(
+      executeTool({
+        cwd: '.',
+        root: 'root-a',
+        runtime: 'python3',
+        scriptPath: 'scripts/inspect.mjs',
+        skillName: 'site-design',
+        timeoutMs: 20,
+      })
+    ).rejects.toThrow(
+      'Preparing the "python3" skill-script runtime and workspace ownership exceeded the 20ms timeout; the script was not run.'
+    );
+  });
+
   it('rejects absolute and traversal working directories in the strict schema', async () => {
     const fixture = await createFixture();
     const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
