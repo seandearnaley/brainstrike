@@ -347,7 +347,10 @@ Guarding tests, `apps/desktop/src/__tests__/assistant-server/git-inventory.integ
   not an inventory error'` (asserts `snapshot.errors` is `[]`).
 
 Fabricated admin fixtures publish their complete `worktrees` directory with an
-atomic rename, including Git's `locked` marker. They never expose an incomplete
+atomic rename, including Git's `locked` marker. The helper asserts that its
+repository has no existing worktree admin directory; these three attack cases
+each own a fresh repository. Publishing only an entry after creating an empty
+parent would expose that parent to Git's empty-directory pruning. They never expose an incomplete
 entry to background Git maintenance. The symlink attack runs real
 `git worktree prune --expire=now` before inventory and still asserts canonical
 outside-root containment and unvalidated trust; locking does not grant trust.
