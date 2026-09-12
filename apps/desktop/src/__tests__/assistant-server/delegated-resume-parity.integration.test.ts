@@ -255,11 +255,14 @@ describe('native approval resume child transcript parity', () => {
     const adapter = new BrainstrikeDataStreamRuntimeAdapter({
       api: 'http://assistant.test',
       onDelegatedConversation: (update) => {
-        children.set(update.identity.childRuntimeRunId, {
-          baseline: 'baseline' in update ? update.baseline : undefined,
-          message: update.message,
-          messageId: update.messageId,
-        });
+        children.set(
+          update.continuation ? update.continuation.nativeRunId : update.identity.childRuntimeRunId,
+          {
+            baseline: 'baseline' in update ? update.baseline : undefined,
+            message: update.message,
+            messageId: update.messageId,
+          }
+        );
       },
     });
     for await (const _message of adapter.resume(

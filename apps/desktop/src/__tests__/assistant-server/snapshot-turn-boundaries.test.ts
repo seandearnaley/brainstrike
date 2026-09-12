@@ -514,6 +514,33 @@ describe('observeTurnPauseChunks', () => {
     expect(seen).toEqual(chunks);
   });
 
+  it.each(['tool-approval-required', 'tool-suspend-required'] as const)(
+    'keeps the managed turn paused for an exact continuation %s',
+    async (type) => {
+      const state: LegPauseState = { paused: false };
+      const chunk: StreamChunk = {
+        chunk:
+          type === 'tool-approval-required'
+            ? { args: {}, runId: 'native-child', toolCallId: 'leaf', toolName: 'read', type }
+            : {
+                resumeSchema: {},
+                runId: 'native-child',
+                suspendPayload: {},
+                toolCallId: 'leaf',
+                toolName: 'brainstrike.askUser',
+                type,
+              },
+        continuationId: 'followup',
+        messageId: 'new-message',
+        nativeRunId: 'native-child',
+        threadId: 'child',
+        type: 'child-continuation-chunk',
+      };
+      expect(await drain([chunk], state)).toEqual([chunk]);
+      expect(state.paused).toBe(true);
+    }
+  );
+
   it('flags a RESUMABLE tool-suspend-required pause but NOT a resumeSupported:false one', async () => {
     const resumable: LegPauseState = { paused: false };
     await drain([{ type: 'tool-suspend-required' } as unknown as StreamChunk], resumable);

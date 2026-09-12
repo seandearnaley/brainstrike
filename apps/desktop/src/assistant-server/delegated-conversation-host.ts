@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type {
+  ChildContinuationHostPort,
   DelegatedConversationBinding,
   DelegatedConversationIdentity,
   DelegatedFollowupControl,
@@ -24,6 +25,7 @@ import {
 } from '@brainstrike/assistant-contract/run-usage';
 import {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+  createDelegatedContinuationRepository,
   createDelegatedConversationRepository,
   type DelegatedConversationColor,
   type DelegatedConversationDatabase,
@@ -35,6 +37,8 @@ import {
 } from '@brainstrike/db';
 import { z } from 'zod';
 import { assertDelegatedConversationAdmission } from './delegated-cancellation-admission';
+import { createDesktopDelegatedContinuationHost } from './delegated-continuation-host';
+
 import { delegatedHostRunId } from './delegated-host-run-id';
 import { createDelegatedStepBudget } from './delegated-step-budget';
 import {
@@ -72,6 +76,7 @@ function toolActionKey(
   return JSON.stringify([
     action.runId,
     action.toolCallId,
+    action.continuationId,
     action.delegation?.toolCallId,
     action.delegation?.path.map((edge) => [
       edge.parentRuntimeRunId,
@@ -80,6 +85,28 @@ function toolActionKey(
       edge.personaId,
     ]),
   ]);
+}
+
+async function resolveActionParentThreadId(
+  database: DelegatedConversationDatabase,
+  scope: z.infer<typeof hostScopeSchema>,
+  action: Parameters<NonNullable<DelegatedConversationBinding['resolveToolAction']>>[0]
+): Promise<string> {
+  if (!action.continuationId) {
+    return scope.rootThreadId;
+  }
+  const continuation = await createDelegatedConversationRepository(database).getContinuation(
+    scope,
+    action.continuationId
+  );
+  if (
+    !continuation ||
+    continuation.nativeRunId !== action.runId ||
+    continuation.turnMessageId !== scope.turnMessageId
+  ) {
+    throw new DelegatedConversationIdentityError('continuation-ancestry-mismatch');
+  }
+  return continuation.threadId;
 }
 
 const DISPLAY_IDENTITIES = [
@@ -118,6 +145,7 @@ export function createDesktopDelegatedConversationHost(
   captureWorkspaceStart?: (threadId: string) => Promise<void>
 ): {
   budget: DelegatedBudgetPort;
+  continuation: ChildContinuationHostPort;
   sendFollowup(
     scope: DelegatedConversationScope,
     threadId: string,
@@ -295,6 +323,20 @@ export function createDesktopDelegatedConversationHost(
       claims.add(id);
       claimedActionKey = toolActionKey(action);
     },
+    continuation: createDesktopDelegatedContinuationHost(
+      database,
+      hostRunId,
+      readScope,
+      captureHistory,
+      async (input) => {
+        await host.resolveToolAction({
+          continuationId: input.id,
+          runId: input.nativeRunId,
+          toolCallId: input.toolCallId,
+          ...(input.delegation ? { delegation: input.delegation } : {}),
+        });
+      }
+    ),
     async finishToolActions() {
       for (const id of claims) {
         const result = await database.query(
@@ -395,7 +437,18 @@ export function createDesktopDelegatedConversationHost(
       );
     },
     async prepareToolAction(action) {
-      if (claims.size !== 1 || claimedActionKey !== toolActionKey(action)) {
+      if (action.continuationId) {
+        const scope = await readScope();
+        await createDelegatedContinuationRepository(database, scope, hostRunId).assertDecisionClaim(
+          {
+            id: action.continuationId,
+            kind: 'tool-approval',
+            nativeRunId: action.runId,
+            toolCallId: action.toolCallId,
+            ...(action.delegation ? { delegation: action.delegation } : {}),
+          }
+        );
+      } else if (claims.size !== 1 || claimedActionKey !== toolActionKey(action)) {
         throw new DelegatedConversationIdentityError('history-requires-admission');
       }
       // Publish the boundary only when every ancestor read succeeds. A failed
@@ -463,7 +516,7 @@ export function createDesktopDelegatedConversationHost(
         throw new DelegatedConversationIdentityError('tool-action-leaf-identity-required');
       }
       const result: DelegatedToolActionScope[] = [];
-      let parentThreadId = scope.rootThreadId;
+      let parentThreadId = await resolveActionParentThreadId(database, scope, action);
       for (const edge of action.delegation.path) {
         const invocation = await repository.getInvocation(scope, edge);
         assertActionInvocation(invocation, edge, parentThreadId, scope.turnMessageId);
@@ -479,6 +532,13 @@ export function createDesktopDelegatedConversationHost(
           threadId: child.threadId,
         });
         parentThreadId = child.threadId;
+      }
+      if (action.continuationId) {
+        await assertDelegatedConversationAdmission(
+          database,
+          scope,
+          result.map((child) => child.threadId)
+        );
       }
       return result;
     },

@@ -1,4 +1,5 @@
 import {
+  CHILD_CONTINUATION_DATA_NAME,
   DELEGATED_CONVERSATION_DATA_NAME,
   type DelegatedConversationBaseline,
   type DelegatedConversationStreamData,
@@ -16,12 +17,38 @@ import { deferMessageFinishUntilFlush } from './defer-message-finish';
 
 const logger = createLogger('DelegatedConversationReceiver');
 
-export interface DelegatedConversationUpdate {
+export interface ChildContinuationIdentity {
+  readonly continuationId: string;
+  readonly nativeRunId: string;
+  readonly threadId: string;
+}
+export type ChildConversationOwner =
+  | {
+      readonly identity: DelegatedRunIdentity;
+      readonly continuation?: never;
+      readonly continuationId?: string;
+    }
+  | { readonly identity?: never; readonly continuation: ChildContinuationIdentity };
+
+export type DelegatedConversationUpdate = ChildConversationOwner & {
   readonly baseline?: DelegatedConversationBaseline;
-  readonly identity: DelegatedRunIdentity;
   readonly message: AssistantMessage;
   /** Latest observed native row, independent of the invocation's decoder lifetime. */
   readonly messageId: string;
+};
+
+type ChildEnvelope = ChildConversationOwner & Omit<DelegatedConversationStreamData, 'identity'>;
+
+export function childConversationOwnerKey(owner: ChildConversationOwner): string {
+  return owner.continuation
+    ? JSON.stringify(['continuation', owner.continuation.continuationId])
+    : JSON.stringify([
+        'delegation',
+        owner.identity.parentRuntimeRunId,
+        owner.identity.parentToolCallId,
+        owner.identity.childRuntimeRunId,
+        owner.continuationId,
+      ]);
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -29,9 +56,12 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isNonemptyString = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
 
-function readEnvelope(value: unknown): DelegatedConversationStreamData {
+function readDelegatedEnvelope(value: unknown): DelegatedConversationStreamData {
   if (!(isRecord(value) && isRecord(value['identity']))) {
     throw new Error('Invalid delegated conversation identity.');
+  }
+  if (value['continuationId'] !== undefined && !isNonemptyString(value['continuationId'])) {
+    throw new Error('Invalid delegated continuation anchor.');
   }
   const identity = value['identity'];
   if (
@@ -56,20 +86,67 @@ function readEnvelope(value: unknown): DelegatedConversationStreamData {
   return value as unknown as DelegatedConversationStreamData;
 }
 
-function readDelegatedEnvelopeData(chunk: AssistantStreamChunk): unknown[] {
-  if (chunk.type === 'data') {
-    return chunk.data.flatMap((item) =>
-      isRecord(item) && item['name'] === DELEGATED_CONVERSATION_DATA_NAME ? [item['data']] : []
-    );
-  }
+function readContinuationEnvelope(value: unknown): ChildEnvelope {
   if (
-    chunk.type === 'part-start' &&
-    chunk.part.type === 'data' &&
-    chunk.part.name === DELEGATED_CONVERSATION_DATA_NAME
+    !(
+      isRecord(value) &&
+      ['continuationId', 'nativeRunId', 'threadId', 'messageId'].every((key) =>
+        isNonemptyString(value[key])
+      ) &&
+      Array.isArray(value['frames']) &&
+      value['frames'].length > 0 &&
+      value['frames'].every(
+        (item: unknown) =>
+          isRecord(item) &&
+          typeof item['code'] === 'string' &&
+          /^[a-z0-9-]+$/.test(item['code']) &&
+          Object.hasOwn(item, 'value')
+      )
+    )
   ) {
-    return [chunk.part.data];
+    throw new Error('Invalid child continuation envelope.');
   }
-  return [];
+  if (Object.hasOwn(value, 'identity')) {
+    throw new Error('A child continuation cannot contain a delegated identity.');
+  }
+  const baseline =
+    value['baseline'] === undefined
+      ? undefined
+      : delegatedConversationBaselineSchema.parse(value['baseline']);
+  if (baseline && baseline.threadId !== value['threadId']) {
+    throw new Error('Child continuation history belongs to another thread.');
+  }
+  return {
+    continuation: {
+      continuationId: value['continuationId'] as string,
+      nativeRunId: value['nativeRunId'] as string,
+      threadId: value['threadId'] as string,
+    },
+    frames: value['frames'] as DelegatedConversationStreamData['frames'],
+    messageId: value['messageId'] as string,
+    ...(baseline ? { baseline } : {}),
+  };
+}
+
+function readChildEnvelopes(chunk: AssistantStreamChunk): ChildEnvelope[] {
+  const entries =
+    chunk.type === 'data'
+      ? chunk.data
+      : chunk.type === 'part-start' && chunk.part.type === 'data'
+        ? [chunk.part]
+        : [];
+  return entries.flatMap<ChildEnvelope>((item) => {
+    if (!isRecord(item)) {
+      return [];
+    }
+    if (item['name'] === DELEGATED_CONVERSATION_DATA_NAME) {
+      return [readDelegatedEnvelope(item['data'])];
+    }
+    if (item['name'] === CHILD_CONTINUATION_DATA_NAME) {
+      return [readContinuationEnvelope(item['data'])];
+    }
+    return [];
+  });
 }
 
 /** Ephemeral decoder state only. Native memory remains the transcript writer. */
@@ -87,7 +164,7 @@ class ChildReceiver {
   private readonly nested: DelegatedConversationTap;
 
   constructor(
-    readonly identity: DelegatedRunIdentity,
+    readonly owner: ChildConversationOwner,
     messageId: string,
     onUpdate: (update: DelegatedConversationUpdate) => void,
     private readonly abortSignal: AbortSignal
@@ -122,7 +199,7 @@ class ChildReceiver {
                   : message;
               onUpdate({
                 ...(this.baseline ? { baseline: this.baseline } : {}),
-                identity: this.identity,
+                ...this.owner,
                 message: snapshot,
                 messageId: this.messageId,
               });
@@ -137,11 +214,23 @@ class ChildReceiver {
       });
   }
 
-  async receive(envelope: DelegatedConversationStreamData): Promise<void> {
+  async receive(envelope: ChildEnvelope): Promise<void> {
     if (this.closed) {
       throw new Error('Delegated conversation emitted frames after its terminal.');
     }
-    if (envelope.identity.personaId !== this.identity.personaId) {
+    if (this.owner.continuation) {
+      if (
+        !envelope.continuation ||
+        envelope.continuation.nativeRunId !== this.owner.continuation.nativeRunId ||
+        envelope.continuation.threadId !== this.owner.continuation.threadId
+      ) {
+        throw new Error('Child continuation changed its native conversation identity.');
+      }
+    } else if (
+      !envelope.identity ||
+      envelope.identity.personaId !== this.owner.identity.personaId ||
+      envelope.continuationId !== this.owner.continuationId
+    ) {
       throw new Error('Delegated conversation changed persona within one invocation.');
     }
     if (envelope.baseline !== undefined) {
@@ -251,6 +340,37 @@ export function createDelegatedConversationTap(
       }
     }
   };
+  const receiveEnvelope = async (envelope: ChildEnvelope): Promise<void> => {
+    const key = childConversationOwnerKey(envelope);
+    let child = children.get(key);
+    if (!child) {
+      const opening = envelope.frames[0];
+      if (
+        opening?.code !== 'f' ||
+        !isRecord(opening.value) ||
+        opening.value['messageId'] !== envelope.messageId
+      ) {
+        throw new Error('Delegated replay requires its matching native opening frame.');
+      }
+      child = new ChildReceiver(
+        envelope.continuation
+          ? { continuation: envelope.continuation }
+          : {
+              identity: envelope.identity,
+              ...(envelope.continuationId ? { continuationId: envelope.continuationId } : {}),
+            },
+        envelope.messageId,
+        (update) => {
+          if (!abortSignal.aborted) {
+            onUpdate(update);
+          }
+        },
+        abortSignal
+      );
+      children.set(key, child);
+    }
+    await child.receive(envelope);
+  };
   const stream = new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
     async flush() {
       const unfinished = [...children.values()].some((child) => !child.isClosed);
@@ -264,39 +384,9 @@ export function createDelegatedConversationTap(
         controller.enqueue(chunk);
         return;
       }
-      const data = readDelegatedEnvelopeData(chunk);
-      if (data.length === 0) {
-        controller.enqueue(chunk);
-        return;
-      }
       try {
-        for (const value of data) {
-          const envelope = readEnvelope(value);
-          const { childRuntimeRunId, parentRuntimeRunId, parentToolCallId } = envelope.identity;
-          const key = JSON.stringify([parentRuntimeRunId, parentToolCallId, childRuntimeRunId]);
-          let child = children.get(key);
-          if (!child) {
-            const opening = envelope.frames[0];
-            if (
-              opening?.code !== 'f' ||
-              !isRecord(opening.value) ||
-              opening.value['messageId'] !== envelope.messageId
-            ) {
-              throw new Error('Delegated replay requires its matching native opening frame.');
-            }
-            child = new ChildReceiver(
-              envelope.identity,
-              envelope.messageId,
-              (update) => {
-                if (!abortSignal.aborted) {
-                  onUpdate(update);
-                }
-              },
-              abortSignal
-            );
-            children.set(key, child);
-          }
-          await child.receive(envelope);
+        for (const envelope of readChildEnvelopes(chunk)) {
+          await receiveEnvelope(envelope);
         }
       } catch (error) {
         await settleAfterFailure();

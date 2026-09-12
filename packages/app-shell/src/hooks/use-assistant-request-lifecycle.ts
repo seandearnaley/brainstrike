@@ -182,7 +182,11 @@ interface UseAssistantRequestLifecycleResult {
    * after a long silent gap still reaches the server.
    */
   readonly getActiveSteerableRunId: () => string | null;
-  readonly prepareRequestData: (abortSignal?: AbortSignal) => Promise<Record<string, unknown>>;
+  readonly prepareRequestData: (
+    abortSignal?: AbortSignal,
+    turnAnchorMessageId?: string | null,
+    runConfig?: unknown
+  ) => Promise<Record<string, unknown>>;
   readonly renewActiveAssistantForegroundActivity: () => void;
 }
 
@@ -317,7 +321,8 @@ export function useAssistantRequestLifecycle({
   const prepareRequestData = useCallback(
     async (
       abortSignal?: AbortSignal,
-      turnAnchorMessageId?: string | null
+      turnAnchorMessageId?: string | null,
+      runConfig?: unknown
     ): Promise<Record<string, unknown>> => {
       const preparationSignal = resolveRequestPreparationSignal(abortSignal);
       preparationSignal.throwIfAborted();
@@ -343,6 +348,7 @@ export function useAssistantRequestLifecycle({
         modelSettings,
         providerOptions,
         resolvedModelName,
+        runConfig,
         selectedMemoryThreadId,
         selectedProvider,
         turnMessageId: turnAnchorMessageId ?? null,

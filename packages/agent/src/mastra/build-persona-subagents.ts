@@ -29,7 +29,7 @@ import {
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
 import { Agent, type AgentExecutionOptions, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
-import type { MastraMemory } from '@mastra/core/memory';
+import { type MastraMemory, parseMemoryRequestContext } from '@mastra/core/memory';
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import {
   resolveToolResultBudgetForModel,
@@ -40,6 +40,7 @@ import type { DelegatedConversationBinding } from './delegated-conversation-bind
 import { personasAtDelegationDepth } from './delegated-persona-snapshots';
 import {
   createDelegatedSystemContextProcessor,
+  createRootDelegatedContextProcessor,
   type DelegatedSystemContextSource,
   readDelegatedHistoryScope,
 } from './delegated-system-context';
@@ -83,7 +84,11 @@ export type DelegatedExecutionOptions = Pick<
 > & { workQueue?: DelegatedWorkQueue };
 
 export interface BuildPersonaSubAgentsParams {
+  readonly continuationChildScope?:
+    | { readonly resourceId: string; readonly threadId: string }
+    | undefined;
   readonly conversationBinding?: DelegatedConversationBinding;
+  readonly delegatedDepthOffset?: number | undefined;
   readonly delegatedExecutionOptions?: DelegatedExecutionOptions | undefined;
   readonly delegatedPersonaSnapshots?: readonly AssistantPersonaDefinition[] | undefined;
   readonly depth?: number;
@@ -340,14 +345,36 @@ function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
   inputProcessors?: InputProcessor[];
   outputProcessors?: OutputProcessor[];
 } {
+  const existingChild = (params.depth ?? 1) === 1 ? params.continuationChildScope : undefined;
   const inputProcessors: InputProcessor[] = [];
+  if (existingChild) {
+    inputProcessors.push({
+      id: 'brainstrike-continuation-child-scope',
+      processInput({ requestContext, messages }) {
+        const native = parseMemoryRequestContext(requestContext);
+        if (
+          native?.resourceId !== existingChild.resourceId ||
+          native.thread?.id !== existingChild.threadId
+        ) {
+          throw new Error('Continuation native scope differs from durable host admission.');
+        }
+        return messages;
+      },
+    });
+  }
+  if (existingChild) {
+    const context = createRootDelegatedContextProcessor(params.getDelegatedSystemContext, true);
+    if (context) {
+      inputProcessors.push(context);
+    }
+  }
   if (params.getDelegatedSystemContext || params.hasStorage) {
     inputProcessors.push(createDelegatedSystemContextProcessor(params.getDelegatedSystemContext));
   }
-  if (params.conversationBinding) {
+  if (!existingChild && params.conversationBinding) {
     inputProcessors.push(params.conversationBinding.inputProcessor);
   }
-  if (params.turnPersistenceProcessor) {
+  if (!existingChild && params.turnPersistenceProcessor) {
     inputProcessors.push(params.turnPersistenceProcessor);
   }
   return {
@@ -356,7 +383,9 @@ function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
     // The boundary and optional persistence processors preserve memory defaults.
     outputProcessors: [
       createResponseBoundaryProcessor(),
-      ...(params.turnPersistenceProcessor ? [params.turnPersistenceProcessor] : []),
+      ...(!existingChild && params.turnPersistenceProcessor
+        ? [params.turnPersistenceProcessor]
+        : []),
     ],
   };
 }
@@ -549,7 +578,7 @@ async function createConfiguredChild({
     ...(params.memory ? { memory: params.memory } : {}),
     ...(params.conversationBinding?.budget &&
     params.delegatedExecutionOptions &&
-    depth < DELEGATION_LIMITS.maxDepth
+    depth + (params.delegatedDepthOffset ?? 0) < DELEGATION_LIMITS.maxDepth
       ? {
           agents: async () => {
             descendants ??= buildPersonaSubAgents({

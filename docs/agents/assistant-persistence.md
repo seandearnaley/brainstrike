@@ -3618,7 +3618,10 @@ Production evidence: `background-worker-stream.integration.spec.ts`,
 `delegated-live-wire.spec.ts`, `delegated-conversation-receiver.test.ts`,
 `delegated-conversation-runtime.test.tsx`, and the active child composer case in
 `delegated-child-control.desktop.test.ts` (live send, parent result, reload with no
-additional model request). Idle child continuation is separate acceptance.
+additional model request). Idle input uses the separate managed continuation contract
+in assistant-subagents.md: a fresh root host run owns a durable continuation receipt,
+a distinct native child message ID and exact decision routing. The original
+delegation invocation remains immutable.
 
 Active child input retains the same request ID after an unconfirmed acknowledgement,
 even if the user edits the draft. Replacing that request requires the explicit

@@ -155,6 +155,27 @@ describe('turn anchor threading (BST-1163)', () => {
     ) as typeof fetch;
   }
 
+  it('forwards the current run configuration before preparing the persisted host run', async () => {
+    scriptedFetch();
+    const runConfig = {
+      custom: {
+        brainstrikeChildFollowup: { id: 'child-input', text: 'Continue', threadId: 'child' },
+      },
+    };
+    let received: unknown;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      body: async (_signal, context) => {
+        received = context?.runConfig;
+        return { data: {} };
+      },
+    });
+    for await (const _message of adapter.run(runOptions({ runConfig }))) {
+      /* consume real transport */
+    }
+    expect(received).toBe(runConfig);
+  });
+
   it('passes the last REAL user message id to the body provider — never an approval action echo', async () => {
     scriptedFetch();
     let receivedAnchor: unknown = 'unset';

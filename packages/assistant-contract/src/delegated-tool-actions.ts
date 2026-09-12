@@ -78,6 +78,12 @@ export function isDelegatedToolActionIdentity(
 
 /** Validate optional delegation without accepting inherited or partial identity. */
 export function hasValidDelegatedToolActionTarget(value: Record<string, unknown>): boolean {
+  if (
+    'continuationId' in value &&
+    !(Object.hasOwn(value, 'continuationId') && isIdentifier(value['continuationId']))
+  ) {
+    return false;
+  }
   if (!('delegation' in value)) {
     return true;
   }
@@ -92,6 +98,7 @@ export function hasValidDelegatedToolActionTarget(value: Record<string, unknown>
 }
 
 interface ToolActionCoordinates {
+  readonly continuationId?: string;
   readonly delegation?: DelegatedToolActionIdentity;
   readonly runId: string;
   readonly toolCallId: string;
@@ -100,13 +107,18 @@ interface ToolActionCoordinates {
 /** Shared by root/child notices; the native parent owns the resume transport. */
 export function getToolActionTarget(request: ToolActionCoordinates): ToolActionCoordinates {
   if (!request.delegation) {
-    return { runId: request.runId, toolCallId: request.toolCallId };
+    return {
+      ...(request.continuationId ? { continuationId: request.continuationId } : {}),
+      runId: request.runId,
+      toolCallId: request.toolCallId,
+    };
   }
   const root = request.delegation.path[0];
   if (!root) {
     throw new Error('Delegated tool decision is missing its parent.');
   }
   return {
+    ...(request.continuationId ? { continuationId: request.continuationId } : {}),
     delegation: request.delegation,
     runId: root.parentRuntimeRunId,
     toolCallId: root.parentToolCallId,
@@ -118,7 +130,9 @@ export function getToolActionIdentityKey(request: ToolActionCoordinates): string
   return JSON.stringify(
     delegation
       ? [delegation.path.at(-1)?.childRuntimeRunId, delegation.toolCallId]
-      : [request.runId, request.toolCallId]
+      : request.continuationId
+        ? [request.continuationId, request.runId, request.toolCallId]
+        : [request.runId, request.toolCallId]
   );
 }
 
@@ -127,7 +141,11 @@ export function isMatchingToolAction(value: unknown, request: ToolActionCoordina
     return false;
   }
   const target = getToolActionTarget(request);
-  if (value['runId'] !== target.runId || value['toolCallId'] !== target.toolCallId) {
+  if (
+    value['continuationId'] !== target.continuationId ||
+    value['runId'] !== target.runId ||
+    value['toolCallId'] !== target.toolCallId
+  ) {
     return false;
   }
   const delegation = value['delegation'];
@@ -165,7 +183,7 @@ export function hasValidDelegatedDecisionState(value: Record<string, unknown>): 
   return (
     Object.hasOwn(value, 'decisionState') &&
     isDelegatedToolDecisionState(value['decisionState']) &&
-    isDelegatedToolActionIdentity(value['delegation']) &&
+    (isDelegatedToolActionIdentity(value['delegation']) || isIdentifier(value['continuationId'])) &&
     hasValidDelegatedToolActionTarget(value)
   );
 }

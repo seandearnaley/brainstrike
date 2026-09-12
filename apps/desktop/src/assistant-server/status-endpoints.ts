@@ -3,6 +3,7 @@ import {
   buildNativeToolRiskMap,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   hasRegisteredSuspendResumeUi,
+  listSuspendedChildContinuation,
   listSuspendedMastraRuns,
   type RediscoveredToolApproval,
   type RediscoveredToolSuspend,
@@ -20,7 +21,10 @@ import { respondJson } from '@brainstrike/assistant-service/http';
 import { getDatabase } from '../db-main';
 import { getProviderAuthEngine } from '../provider-auth/provider-auth-runtime';
 import { createDesktopDelegatedSuspensionResolver } from './delegated-conversation-host';
-import { readDelegatedDecisionStates } from './delegated-decision-discovery';
+import {
+  readDelegatedDecisionStates,
+  readPendingChildContinuations,
+} from './delegated-decision-discovery';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { getDesktopMastraMemory } from './mastra-memory';
 import {
@@ -288,6 +292,30 @@ export async function handleVerifyProviderRequest(
  * `provider: 'ollama'` below is a keyless placeholder that satisfies runtime
  * config; it is never used to construct a model.
  */
+async function includeContinuationPauses(
+  database: Parameters<typeof readPendingChildContinuations>[0],
+  scope: Parameters<typeof readPendingChildContinuations>[1],
+  storage: Parameters<typeof listSuspendedChildContinuation>[1]['storage'],
+  original: Awaited<ReturnType<typeof listSuspendedMastraRuns>>
+): Promise<Awaited<ReturnType<typeof listSuspendedMastraRuns>>> {
+  const continuations = await readPendingChildContinuations(database, scope);
+  if (continuations.length === 0) {
+    return original;
+  }
+  const result = { approvals: [...original.approvals], suspends: [...original.suspends] };
+  for (const continuation of continuations) {
+    const pending = await listSuspendedChildContinuation(continuation, {
+      resolveInvocation: createDesktopDelegatedSuspensionResolver(database, scope),
+      storage,
+    });
+    result.approvals.push(...pending.approvals);
+    result.suspends.push(...pending.suspends);
+  }
+  result.approvals.sort((a, b) => Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt));
+  result.suspends.sort((a, b) => Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt));
+  return result;
+}
+
 export async function handleSuspendedRunsRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -320,7 +348,7 @@ export async function handleSuspendedRunsRequest(
       return;
     }
 
-    const discovery = await listSuspendedMastraRuns(
+    const rootDiscovery = await listSuspendedMastraRuns(
       { resourceId, threadId },
       {
         backgroundTaskScope: { resourceId, threadId },
@@ -336,6 +364,13 @@ export async function handleSuspendedRunsRequest(
         runtime: { memory: { resourceId, threadId }, provider: 'ollama' },
         storage: memoryResult.storage,
       }
+    );
+
+    const discovery = await includeContinuationPauses(
+      await getDatabase(),
+      { ownerResourceId: resourceId, rootThreadId: threadId },
+      memoryResult.storage,
+      rootDiscovery
     );
 
     // BST-1084: rediscovered suspend() pauses ride the same response. An
@@ -366,7 +401,7 @@ export async function handleSuspendedRunsRequest(
       });
     }
     const delegatedPauses = [...discovery.approvals, ...cappedSuspends].filter(
-      (pause) => pause.delegation !== undefined
+      (pause) => pause.delegation !== undefined || pause.continuationId !== undefined
     );
     // A failed durable-state read must stay visible: an empty map would make
     // an already-admitted decision appear actionable again.
@@ -381,9 +416,10 @@ export async function handleSuspendedRunsRequest(
     const staleThresholdMs = resolveApprovalStaleMs();
     const now = Date.now();
     const approvals: RediscoveredToolApproval[] = discovery.approvals.map((approval) => {
-      const decisionState = approval.delegation
-        ? decisionStates.get(getToolActionIdentityKey(approval))
-        : undefined;
+      const decisionState =
+        approval.delegation || approval.continuationId
+          ? decisionStates.get(getToolActionIdentityKey(approval))
+          : undefined;
       // Discovery returns the ORIGINAL dotted tool name (the agent maps the
       // stored sanitized id back — see listSuspendedMastraRuns), so this lookup
       // hits for every known native tool.
@@ -409,6 +445,7 @@ export async function handleSuspendedRunsRequest(
           : undefined;
       return {
         ...(approval.delegation ? { delegation: approval.delegation } : {}),
+        ...(approval.continuationId ? { continuationId: approval.continuationId } : {}),
         ...(decisionState === undefined ? {} : { decisionState }),
         runId: approval.runId,
         stale: now - Date.parse(approval.suspendedAt) > staleThresholdMs,
@@ -422,9 +459,10 @@ export async function handleSuspendedRunsRequest(
     });
 
     const suspends: RediscoveredToolSuspend[] = cappedSuspends.map((pause) => {
-      const decisionState = pause.delegation
-        ? decisionStates.get(getToolActionIdentityKey(pause))
-        : undefined;
+      const decisionState =
+        pause.delegation || pause.continuationId
+          ? decisionStates.get(getToolActionIdentityKey(pause))
+          : undefined;
       const resumable = hasRegisteredSuspendResumeUi(pause.toolName);
       if (!resumable) {
         logger.warn('Rediscovered suspend pause has no registered resume UI in this build', {
@@ -435,6 +473,7 @@ export async function handleSuspendedRunsRequest(
       }
       return {
         ...(pause.delegation ? { delegation: pause.delegation } : {}),
+        ...(pause.continuationId ? { continuationId: pause.continuationId } : {}),
         ...(decisionState === undefined ? {} : { decisionState }),
         runId: pause.runId,
         stale: now - Date.parse(pause.suspendedAt) > staleThresholdMs,

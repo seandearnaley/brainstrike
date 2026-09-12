@@ -240,6 +240,11 @@
       "types": "./dist/delegated-conversation-stream.d.ts",
       "import": "./dist/delegated-conversation-stream.js",
       "require": "./dist/delegated-conversation-stream.js"
+    },
+    "./child-followup": {
+      "types": "./dist/child-followup.d.ts",
+      "import": "./dist/child-followup.js",
+      "require": "./dist/child-followup.js"
     }
   },
   "files": [

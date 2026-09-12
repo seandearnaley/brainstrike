@@ -214,6 +214,10 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     await db.exec(
       'DROP TABLE brainstrike_delegated_tool_decisions; DROP TABLE brainstrike_delegated_invocations'
     );
+    await db.exec('ALTER TABLE brainstrike_assistant_run_usage DROP COLUMN continuation_id');
+    await db.exec(
+      'DROP TABLE brainstrike_delegated_continuation_decisions; DROP TABLE brainstrike_delegated_continuations'
+    );
     await db.exec('DROP TABLE brainstrike_assistant_run_events');
     await db.exec('DROP TABLE brainstrike_delegation_step_reservations');
     await db.exec('DROP TABLE brainstrike_assistant_thread_runs');

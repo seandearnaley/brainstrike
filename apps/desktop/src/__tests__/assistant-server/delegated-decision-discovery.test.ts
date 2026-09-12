@@ -53,7 +53,7 @@ describe('delegated decision rediscovery HTTP contract', () => {
           { ...pause, suspendPayload: { question: 'Continue?' }, toolName: 'brainstrike.askUser' },
         ],
       });
-      mockDesktopDatabase.query.mockResolvedValue({
+      mockDesktopDatabase.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValue({
         rows: [
           {
             childRuntimeRunId: 'child-run',
@@ -69,7 +69,7 @@ describe('delegated decision rediscovery HTTP contract', () => {
         url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
       });
       expect(response.status).toBe(200);
-      expect(mockDesktopDatabase.query).toHaveBeenCalledExactlyOnceWith(
+      expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
         expect.stringContaining(
           'WHERE decision.owner_resource_id = $1 AND decision.root_thread_id = $2'
         ),
@@ -124,7 +124,7 @@ it('reads decision state only for the newest returned suspends', async () => {
     url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
   });
   expect(response.status).toBe(200);
-  expect(mockDesktopDatabase.query).toHaveBeenCalledExactlyOnceWith(
+  expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
     expect.stringContaining('brainstrike_delegated_tool_decisions'),
     [
       'workspace-a',
@@ -142,16 +142,19 @@ it('reads decision state only for the newest returned suspends', async () => {
   );
 });
 
-it('does not acquire a decision database when only ordinary pauses were discovered', async () => {
+it('enumerates continuation receipts without reading leaf claims for ordinary pauses', async () => {
   const { delegation: _delegation, ...pause } = delegatedPause(0);
   mockListSuspendedMastraRuns.mockResolvedValue({ approvals: [pause], suspends: [] });
-  mockGetDatabase.mockRejectedValue(new Error('Decision database unavailable'));
   const response = await runRequest({
     method: 'GET',
     url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
   });
   expect(response.status).toBe(200);
-  expect(mockGetDatabase).not.toHaveBeenCalled();
+  expect(mockGetDatabase).toHaveBeenCalled();
+  expect(mockDesktopDatabase.query).toHaveBeenCalledExactlyOnceWith(
+    expect.stringContaining('brainstrike_delegated_continuations'),
+    ['workspace-a', 'thread-1']
+  );
 });
 
 it.each(['query failure', 'unknown saved state'])(
@@ -161,7 +164,7 @@ it.each(['query failure', 'unknown saved state'])(
     if (failure === 'query failure') {
       mockDesktopDatabase.query.mockRejectedValue(new Error('Cannot read decisions'));
     } else {
-      mockDesktopDatabase.query.mockResolvedValue({
+      mockDesktopDatabase.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValue({
         rows: [
           {
             childRuntimeRunId: 'child-0',

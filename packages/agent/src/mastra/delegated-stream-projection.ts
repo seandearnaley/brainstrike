@@ -64,6 +64,17 @@ function projectHumanInput<State>(
   part: unknown,
   children: ReadonlyMap<string, ChildStreamState<State>>
 ): StreamChunkDelegatedConversation[] {
+  const data = readMastraStreamPartValue(part, 'data');
+  if (data && typeof data === 'object') {
+    const metadata: unknown = Reflect.get(data, 'metadata');
+    if (
+      metadata &&
+      typeof metadata === 'object' &&
+      typeof Reflect.get(metadata, 'brainstrikeChildContinuation') === 'string'
+    ) {
+      return [];
+    }
+  }
   const input = z
     .object({
       contents: z.string(),

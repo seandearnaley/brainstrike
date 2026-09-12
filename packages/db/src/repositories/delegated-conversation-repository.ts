@@ -4,6 +4,11 @@ import {
   sanitizeAssistantRunEventMetadata,
 } from '@brainstrike/assistant-contract';
 import type { DelegatedRunIdentity } from '@brainstrike/assistant-contract/delegated-conversation-stream';
+import {
+  type DelegatedContinuation,
+  readDelegatedContinuation,
+} from './delegated-continuation-repository.js';
+import { AUTHORIZED_DELEGATED_GRAPH as AUTHORIZED_GRAPH } from './delegated-graph-sql.js';
 
 /**
  * Host-owned graph over native Mastra conversations. Write inputs come from
@@ -98,6 +103,10 @@ export interface DelegatedConversationRepository {
     scope: DelegatedConversationScope,
     threadId: string
   ): Promise<DelegatedConversationNode | null>;
+  getContinuation(
+    scope: DelegatedConversationScope,
+    id: string
+  ): Promise<DelegatedContinuation | null>;
   getInvocation(
     scope: DelegatedConversationScope,
     key: DelegatedInvocationKey
@@ -273,19 +282,6 @@ function readOriginalToolCall(value: unknown): DelegatedOriginalToolCall {
 }
 
 const TABLE = 'brainstrike_delegated_conversations';
-// Walk outward from the authorized root. Checking only the requested node
-// would leave grandchildren accessible after an intermediate scope changed.
-const AUTHORIZED_GRAPH = `WITH RECURSIVE owned_nodes AS (
-  SELECT node.* FROM ${TABLE} node
-  JOIN mastra_threads native ON native.id = node.thread_id AND native."resourceId" = node.resource_id
-  WHERE node.owner_resource_id = $1 AND node.thread_id = $2
-    AND node.root_thread_id = $2 AND node.parent_thread_id IS NULL
-  UNION ALL
-  SELECT node.* FROM ${TABLE} node
-  JOIN owned_nodes parent ON node.parent_thread_id = parent.thread_id
-  JOIN mastra_threads native ON native.id = node.thread_id AND native."resourceId" = node.resource_id
-  WHERE node.owner_resource_id = $1 AND node.root_thread_id = $2
-)`;
 
 export function createDelegatedConversationRepository(
   database: DelegatedConversationDatabase
@@ -453,7 +449,6 @@ export function createDelegatedConversationRepository(
       }
       return readInvocation(result.rows[0]);
     },
-
     async get(
       scope: DelegatedConversationScope,
       threadId: string
@@ -464,6 +459,11 @@ export function createDelegatedConversationRepository(
         [...scopeParameters(scope), requireString(threadId)]
       );
       return result.rows.length === 0 ? null : readNode(result.rows[0]);
+    },
+
+    async getContinuation(scope, id) {
+      await requireOwner(scope);
+      return readDelegatedContinuation(database, scope, id);
     },
     async getInvocation(
       scope: DelegatedConversationScope,

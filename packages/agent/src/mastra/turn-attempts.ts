@@ -30,7 +30,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
-import type { Agent, AgentMemoryOption, MastraDBMessage } from '@mastra/core/agent';
+import type { Agent, AgentMemoryOption, AgentSignal, MastraDBMessage } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
 import type { StreamStalledError } from '../stream/with-inactivity-timeout';
 import { ToolCallInputStreamingTimeoutError } from '../stream/with-tool-call-input-timeout';
@@ -67,6 +67,11 @@ const logger = createLogger('MastraAgent');
 export interface StreamIterationParams {
   memory?: MastraMemory;
   messages: AgentMessage[];
+  nativeWake?: {
+    readonly signal: AgentSignal;
+    readonly maxSteps?: number;
+    readonly onWake: (nativeRunId: string) => Promise<void>;
+  };
   requireToolApproval?: boolean;
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;

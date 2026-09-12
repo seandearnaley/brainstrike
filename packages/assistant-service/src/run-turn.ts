@@ -33,6 +33,7 @@ import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
 } from '@brainstrike/assistant-contract';
+import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type { RunPersistencePort, StreamInitializer } from './ports.js';
 import { acquireThreadRunOwnership } from './thread-run-ownership.js';
 import type { AgentStreamFailure } from './types.js';
@@ -46,6 +47,7 @@ export interface RunAssistantTurnParams {
    * drops functions — a custom_fetch closure would vanish silently).
    */
   readonly authInput?: ProviderAuthInput | undefined;
+  readonly childFollowupAction?: AssistantChildFollowupAction;
   readonly executionSignal: AbortSignal;
   readonly initializeStream: StreamInitializer;
   readonly messages: AgentMessage[];
@@ -118,6 +120,7 @@ async function runOwnedAssistantTurn(
     sessions,
     runId,
     runtimeData,
+    childFollowupAction,
     toolApprovalAction,
     toolResumeAction,
   } = params;
@@ -125,6 +128,7 @@ async function runOwnedAssistantTurn(
   const streamResult = await initializeStream({
     apiKey,
     authInput,
+    childFollowupAction,
     messages,
     runId,
     runtimeData,

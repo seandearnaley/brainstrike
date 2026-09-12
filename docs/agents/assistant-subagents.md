@@ -1633,6 +1633,60 @@ it does not silently substitute built-ins for a successful user-profile scan.
 No credentials enter the IPC response and no new state is persisted. Existing
 subagent-personas factory-reset registration remains authoritative.
 
+### Managed idle-child input (BST-1723)
+
+A user follow-up to an idle child starts a fresh managed root host leg and wakes
+that exact stored child with Mastra's public `createMessageSignal` / `sendSignal`
+API. The renderer supplies only the selected child, stable input ID and text;
+the host authorizes the actual resource/root/ancestry and claims a separate
+continuation receipt. It never changes the original invocation or manufactures
+parent tool-call coordinates. The receipt is claimed before native wake and binds
+the accepted native run before the first continuation envelope acknowledges input.
+A repeated admitted input ID never starts work again, including after an uncertain
+acknowledgement or restart. Different text under that ID is a conflict.
+
+The selected child retains its admitted persona and step cap. Direct child legs
+must preserve the child's default budget and worker processors: root per-call
+`inputProcessors` replace those defaults in Mastra. The existing-child scope
+processor checks the exact authorized native memory identity; original delegation
+birth and aborted-delegation processors apply only to new descendants. The shared
+direct-turn runner owns the existing child's cancellation and aborted persistence.
+Actual depth is added to recursive availability checks, so waking a grandchild
+cannot reset its depth allowance. Every model step still charges the real child
+identity against the managed turn's durable budget.
+Fresh child input runs the ordinary workspace/reference/skill context injectors
+against that input. Only trusted system context crosses to the child. The selected
+child's default context processor also retains that context in native RequestContext,
+so a descendant first created after a resumed decision receives the same authority.
+
+Live frames use the shared conversation mapper with `brainstrike.child-continuation`
+metadata, not fake parent invocation keys. The host assigns the new child assistant
+message ID before native execution and supplies it to Mastra's public ID generator;
+live projection and reloaded native messages therefore share identity. Parent and
+child assistant IDs remain distinct. Exact approval/question decisions carry the
+continuation ID; descendants additionally retain their observed delegation path.
+A child pause keeps the managed turn open, and each resumed host leg reuses the
+receipt's original turn anchor rather than allocating another budget.
+The first direct envelope in each host leg carries its history baseline exactly
+once. Reload discovers pending decisions with an inert native agent at the admitted
+persona and exact stored child thread/run, then authorizes any descendant path;
+it does not require the current persona registry or execute a model to inspect it.
+
+Completed child output reaches the managed root model through a public native
+notification signal and the normal root stream/persistence path. This is an
+actual model response, not a synthetic assistant message or another transcript
+writer. Approval/question pauses and cancellation do not wake that root model.
+Binding failure aborts and joins native stream consumption before runtime disposal;
+all terminal paths settle the receipt and preserve cleanup failures. Restart does
+not automatically replay either the child input or the parent notification.
+
+`child-continuation.integration.spec.ts` exercises real Mastra/PGlite wake, saved
+child history, exact approve/decline/question/plan controls, cancellation, failed
+binding settlement, durable child step charging, depth limits and root notification
+consumption. Host/repository tests cover the separate authorization, duplicate,
+turn-link, replay/reset and atomic claim boundaries; UI production-path evidence
+is required alongside these native tests before delivery is complete.
+
 ### Admitted persona configuration on decision resume (BST-1727)
 
 An admitted child's stored `configuration` contains its persona instructions,
@@ -1679,8 +1733,8 @@ resume and asserts that real admission receives expanded tool IDs, with no `*`.
 `agent-stream-init-and-memory.integration.test.ts` proves fixed remediation reaches
 the real HTTP response while unrelated initializer failures remain redacted.
 `delegated-conversation-host.integration.test.ts` verifies stored configuration is
-read only through the authorized root/turn path. Idle-child wake is separate
-BST-1723 acceptance.
+read only through the authorized root/turn path. Idle-child wake uses the managed
+continuation boundary above.
 
 The stored step budget must be a valid admitted value under this build's host
 ceiling. Current admission cannot write a value above that ceiling. A future host

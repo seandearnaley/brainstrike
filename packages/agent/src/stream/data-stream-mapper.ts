@@ -3,6 +3,10 @@ import {
   type OpenAiReasoningEffort,
   type ProviderId,
 } from '@brainstrike/assistant-contract';
+import {
+  CHILD_CONTINUATION_DATA_NAME,
+  type ChildContinuationStreamData,
+} from '@brainstrike/assistant-contract/child-followup';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
 import {
   CHILD_USER_MESSAGE_DATA_NAME,
@@ -23,6 +27,7 @@ import { createLogger } from '@brainstrike/logging';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
+  StreamChunkChildContinuation,
   StreamChunkChildRunUsage,
   StreamChunkContextBreakdown,
   StreamChunkDelegatedConversation,
@@ -427,6 +432,9 @@ export class DataStreamMapper {
         yield encoded;
         return;
       }
+      case 'child-continuation-chunk':
+        yield* this.handleChildContinuation(chunk);
+        return;
       case 'delegated-conversation-chunk':
         yield* this.handleDelegatedConversation(chunk);
         return;
@@ -485,6 +493,36 @@ export class DataStreamMapper {
     }
   }
 
+  private *handleChildContinuation(chunk: StreamChunkChildContinuation): Generator<EncodedChunk> {
+    const key = JSON.stringify(['continuation', chunk.continuationId, chunk.nativeRunId]);
+    let mapper = this.delegatedMappers.get(key);
+    const frames: EncodedChunk[] = [];
+    if (!mapper) {
+      mapper = new DataStreamMapper(chunk.messageId);
+      this.delegatedMappers.set(key, mapper);
+      frames.push(...mapper.initialChunks());
+    }
+    frames.push(...mapper.handleChunk(chunk.chunk));
+    if (chunk.chunk.type === 'message-finish' || chunk.chunk.type === 'finish') {
+      this.delegatedMappers.delete(key);
+    }
+    if (frames.length === 0) {
+      return;
+    }
+    const data: ChildContinuationStreamData = {
+      continuationId: chunk.continuationId,
+      frames,
+      messageId: chunk.messageId,
+      nativeRunId: chunk.nativeRunId,
+      threadId: chunk.threadId,
+      ...(chunk.baseline ? { baseline: chunk.baseline } : {}),
+    };
+    yield {
+      code: DataStreamCode.data,
+      value: [{ data: toJsonSafe(data), name: CHILD_CONTINUATION_DATA_NAME }],
+    };
+  }
+
   private *handleDelegatedConversation(
     chunk: StreamChunkDelegatedConversation
   ): Generator<EncodedChunk> {
@@ -514,6 +552,7 @@ export class DataStreamMapper {
       return;
     }
     const data: DelegatedConversationStreamData = {
+      ...(chunk.continuationId ? { continuationId: chunk.continuationId } : {}),
       frames,
       ...(chunk.baseline ? { baseline: chunk.baseline } : {}),
       identity: chunk.identity,

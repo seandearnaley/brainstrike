@@ -3,6 +3,29 @@ import { createDelegatedConversationStore } from '../delegated-conversation-stor
 import { delegatedUpdate as update } from './helpers/delegated-conversation-fixtures';
 
 describe('host-owned delegated conversations', () => {
+  it('replaces a completed invocation with a fresh admitted continuation and ignores its late snapshots', () => {
+    const store = createDelegatedConversationStore('root');
+    const original = update('child');
+    store.publish(original);
+    store.publish(update('sibling'));
+    const sibling = store.getConversation('sibling');
+    const { identity: _identity, ...snapshot } = update('child', 'fresh-host', 'Follow-up');
+    const continuation = {
+      ...snapshot,
+      continuation: {
+        continuationId: 'input-1',
+        nativeRunId: 'fresh-native',
+        threadId: 'child',
+      },
+    };
+    expect(store.publish(continuation)).toBe(true);
+    expect(store.getConversation('child')?.update).toBe(continuation);
+    expect(store.publish(original)).toBe(false);
+    expect(store.getConversation('sibling')).toBe(sibling);
+    expect(() =>
+      store.publish({ ...continuation, baseline: { ...continuation.baseline!, threadId: 'other' } })
+    ).toThrow(/thread|identity/i);
+  });
   it('retires stopped publications before reload without rejecting a later admitted leg', () => {
     const store = createDelegatedConversationStore('root');
     store.publish(update('a'));
