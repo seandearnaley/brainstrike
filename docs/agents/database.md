@@ -171,6 +171,15 @@ up to one coarse bucket after its individual event crosses the strict duration-
 sample cutoff. A nonzero count with zero retained percentile inputs at that
 boundary is therefore expected.
 
+## MANAGED-CACHE BATCH ADMISSION
+
+Managed-cache batch admission counts every SQL bind before opening a transaction.
+Imports bind one value per import column; replacements additionally bind one
+embedding-set id outside their per-record VALUES list. Keep the batch limit and
+the actual emitted parameter array aligned when adding columns. The current
+replacement boundary is 6,553 rows (65,531 parameters); 6,554 rows must reject
+before any mutation. Paired coverage: `packages/db/__tests__/managed-cache-batch-parameter-limit.test.ts`.
+
 ## DATABASE WORK SCHEDULER FAIRNESS
 
 `DatabaseWorkScheduler` is the single-process admission boundary around each
