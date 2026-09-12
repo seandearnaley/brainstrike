@@ -36,6 +36,7 @@ import {
   type ScaledToolResultBudget,
 } from '../stream/tool-output-limits';
 import type { RuntimeData } from '../types';
+import { createChildInputContextProcessor } from './child-input-context';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { personasAtDelegationDepth } from './delegated-persona-snapshots';
 import {
@@ -369,7 +370,10 @@ function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
     }
   }
   if (params.getDelegatedSystemContext || params.hasStorage) {
-    inputProcessors.push(createDelegatedSystemContextProcessor(params.getDelegatedSystemContext));
+    inputProcessors.push(
+      createDelegatedSystemContextProcessor(params.getDelegatedSystemContext),
+      createChildInputContextProcessor()
+    );
   }
   if (!existingChild && params.conversationBinding) {
     inputProcessors.push(params.conversationBinding.inputProcessor);

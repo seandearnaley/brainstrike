@@ -1,9 +1,10 @@
+import { assistantChildSignalContentsSchema } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
 
 const logger = createLogger('MastraAgent');
 const childInput = z.object({
-  contents: z.string(),
+  contents: assistantChildSignalContentsSchema,
   createdAt: z.iso.datetime(),
   id: z.string().min(1),
   metadata: z.object({ brainstrikeChildContinuation: z.string().trim().min(1) }),

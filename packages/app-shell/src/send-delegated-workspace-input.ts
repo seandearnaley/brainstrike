@@ -1,3 +1,4 @@
+import type { AssistantChildInput } from '@brainstrike/assistant-contract';
 import { resolveAssistantAuthHeaders } from '@brainstrike/assistant-data';
 import type { DelegatedConversationNode } from '@brainstrike/db';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
@@ -5,7 +6,7 @@ import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 export async function sendDelegatedWorkspaceInput(
   node: DelegatedConversationNode,
   hostRunId: string,
-  input: { readonly id: string; readonly text: string },
+  input: AssistantChildInput,
   signal: AbortSignal
 ): Promise<void> {
   const [baseUrl, headers] = await Promise.all([

@@ -15,20 +15,21 @@ import {
 import {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
   createDelegatedConversationRepository,
-  migrate,
   readAssistantHistoryMessages,
   ThreadSearchRepository,
   ThreadSearchService,
   wasmLoader,
 } from '@brainstrike/db';
-import type { DbHandle } from '@brainstrike/db/react';
-import { FileExplorerProvider } from '@brainstrike/file-explorer-ui/shell';
+import { type DbHandle, DbProvider, usePGliteDatabase } from '@brainstrike/db/react';
+import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
+import { FileExplorerProvider, FileSystemProvider } from '@brainstrike/file-explorer-ui/shell';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { TooltipProvider } from '@brainstrike/ui';
+import { ThemeProvider, TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useEffect } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
@@ -42,9 +43,12 @@ import { threadWorkspaceNavigation } from '../thread-workspace/live-thread-works
 import { ThreadsPanelSearch } from '../threads-panel-search';
 import { useDelegatedConversationRoot } from '../use-delegated-conversation-root';
 
-let workspaceStorage: MemoryStorageAdapter;
 let database: Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
 let node: ChildNode;
+let workspace: ReturnType<typeof render>;
+let databaseClosed: Promise<void>;
+let storageAdapter: MemoryStorageAdapter;
+let fileSystemAdapter: MockFileSystemAdapter;
 let rootThreadId: string;
 const append = vi.fn();
 let activeRoot: DelegatedConversationRoot | undefined;
@@ -54,6 +58,32 @@ const identity = {
   parentToolCallId: 'child-call',
   personaId: 'explore',
 };
+
+// Mount the same workspace providers as AppLayout. The shared child composer
+// resolves mentions and slash actions through these providers even before typing.
+function WorkspaceProviders({ children }: { children: ReactNode }) {
+  return (
+    <DbProvider dbPath="memory://">
+      <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+        <ThemeProvider defaultTheme="light" storageAdapter={storageAdapter}>
+          <TooltipProvider>
+            <FileExplorerProvider
+              fileSystemAdapter={fileSystemAdapter}
+              storageAdapter={storageAdapter}
+            >
+              <FileSystemProvider>{children}</FileSystemProvider>
+            </FileExplorerProvider>
+          </TooltipProvider>
+        </ThemeProvider>
+      </AdaptersProvider>
+    </DbProvider>
+  );
+}
+
+function DatabaseReady() {
+  const db = usePGliteDatabase();
+  return db ? <span data-testid="database-ready" /> : null;
+}
 
 function OwningRoot() {
   const root = useDelegatedConversationRoot('owner', rootThreadId);
@@ -67,9 +97,32 @@ function OwningRoot() {
 }
 
 beforeEach(async () => {
-  workspaceStorage = new MemoryStorageAdapter();
-  database = await wasmLoader.createPGlite('memory://');
-  await migrate(database);
+  const createClient = wasmLoader.createPGliteClient.bind(wasmLoader);
+  const closed = Promise.withResolvers<void>();
+  databaseClosed = closed.promise;
+  vi.spyOn(wasmLoader, 'createPGliteClient').mockImplementationOnce(async (path) => {
+    const client = await createClient(path);
+    database = client as typeof database;
+    const close = client.close.bind(client);
+    vi.spyOn(client, 'close').mockImplementation(async () => {
+      try {
+        await close();
+        closed.resolve();
+      } catch (error) {
+        closed.reject(error);
+        throw error;
+      }
+    });
+    return client;
+  });
+  storageAdapter = new MemoryStorageAdapter();
+  fileSystemAdapter = new MockFileSystemAdapter();
+  workspace = render(
+    <WorkspaceProviders>
+      <DatabaseReady />
+    </WorkspaceProviders>
+  );
+  await screen.findByTestId('database-ready');
   const history = createPgliteAssistantThreadRepository(database as DbHandle);
   const root = await history.createThread('owner');
   const child = await history.createThread('native-child');
@@ -128,7 +181,8 @@ afterEach(async () => {
   Reflect.deleteProperty(window, 'assistant');
   vi.unstubAllGlobals();
   vi.clearAllMocks();
-  await database.close();
+  await databaseClosed;
+  vi.restoreAllMocks();
 });
 
 describe('child view after renderer restart', () => {
@@ -239,14 +293,12 @@ describe('child view after renderer restart', () => {
         </>
       );
     }
-    render(
-      <FileExplorerProvider storageAdapter={workspaceStorage}>
-        <TooltipProvider>
-          <DelegatedConversationRootsProvider>
-            <Workspace />
-          </DelegatedConversationRootsProvider>
-        </TooltipProvider>
-      </FileExplorerProvider>
+    workspace.rerender(
+      <WorkspaceProviders>
+        <DelegatedConversationRootsProvider>
+          <Workspace />
+        </DelegatedConversationRootsProvider>
+      </WorkspaceProviders>
     );
     const user = userEvent.setup();
     await screen.findByText('Maple');
@@ -319,15 +371,13 @@ describe('child view after renderer restart', () => {
         '2026-09-10T02:00:00.000Z',
       ]
     );
-    render(
-      <FileExplorerProvider storageAdapter={workspaceStorage}>
-        <TooltipProvider>
-          <DelegatedConversationRootsProvider>
-            <OwningRoot />
-            <ChildView db={database as DbHandle} node={node} />
-          </DelegatedConversationRootsProvider>
-        </TooltipProvider>
-      </FileExplorerProvider>
+    workspace.rerender(
+      <WorkspaceProviders>
+        <DelegatedConversationRootsProvider>
+          <OwningRoot />
+          <ChildView db={database as DbHandle} node={node} />
+        </DelegatedConversationRootsProvider>
+      </WorkspaceProviders>
     );
     await screen.findByText('Persisted native child transcript.');
     const publish = (hostRunId: string, text: string) => {
@@ -371,15 +421,13 @@ describe('child view after renderer restart', () => {
       'fetch',
       vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
     );
-    render(
-      <FileExplorerProvider storageAdapter={workspaceStorage}>
-        <TooltipProvider>
-          <DelegatedConversationRootsProvider>
-            <OwningRoot />
-            <ChildView db={database as DbHandle} node={node} />
-          </DelegatedConversationRootsProvider>
-        </TooltipProvider>
-      </FileExplorerProvider>
+    workspace.rerender(
+      <WorkspaceProviders>
+        <DelegatedConversationRootsProvider>
+          <OwningRoot />
+          <ChildView db={database as DbHandle} node={node} />
+        </DelegatedConversationRootsProvider>
+      </WorkspaceProviders>
     );
     await screen.findByText('Persisted native child transcript.');
     act(() => {
@@ -408,15 +456,13 @@ describe('child view after renderer restart', () => {
         })
     );
     vi.stubGlobal('fetch', fetch);
-    render(
-      <FileExplorerProvider storageAdapter={workspaceStorage}>
-        <TooltipProvider>
-          <DelegatedConversationRootsProvider>
-            <OwningRoot />
-            <ChildView db={database as DbHandle} node={node} />
-          </DelegatedConversationRootsProvider>
-        </TooltipProvider>
-      </FileExplorerProvider>
+    workspace.rerender(
+      <WorkspaceProviders>
+        <DelegatedConversationRootsProvider>
+          <OwningRoot />
+          <ChildView db={database as DbHandle} node={node} />
+        </DelegatedConversationRootsProvider>
+      </WorkspaceProviders>
     );
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     const messages = await readAssistantHistoryMessages(database, node.threadId, node.resourceId, {
@@ -453,15 +499,13 @@ describe('child view after renderer restart', () => {
       'fetch',
       vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
     );
-    render(
-      <FileExplorerProvider storageAdapter={workspaceStorage}>
-        <TooltipProvider>
-          <DelegatedConversationRootsProvider>
-            <OwningRoot />
-            <ChildView db={database as DbHandle} node={node} />
-          </DelegatedConversationRootsProvider>
-        </TooltipProvider>
-      </FileExplorerProvider>
+    workspace.rerender(
+      <WorkspaceProviders>
+        <DelegatedConversationRootsProvider>
+          <OwningRoot />
+          <ChildView db={database as DbHandle} node={node} />
+        </DelegatedConversationRootsProvider>
+      </WorkspaceProviders>
     );
     const trail = await screen.findByRole('navigation', { name: 'Conversation ancestry' });
     expect(within(trail).getByRole('button', { name: 'Main conversation' })).toBeVisible();
@@ -474,15 +518,13 @@ describe('child view after renderer restart', () => {
       'fetch',
       vi.fn(async () => new Response('Unavailable', { status: 503 }))
     );
-    render(
-      <FileExplorerProvider storageAdapter={workspaceStorage}>
-        <TooltipProvider>
-          <DelegatedConversationRootsProvider>
-            <OwningRoot />
-            <ChildView db={database as DbHandle} node={node} />
-          </DelegatedConversationRootsProvider>
-        </TooltipProvider>
-      </FileExplorerProvider>
+    workspace.rerender(
+      <WorkspaceProviders>
+        <DelegatedConversationRootsProvider>
+          <OwningRoot />
+          <ChildView db={database as DbHandle} node={node} />
+        </DelegatedConversationRootsProvider>
+      </WorkspaceProviders>
     );
     expect(await screen.findByText('Persisted native child transcript.')).toBeVisible();
     expect(await screen.findByText('Pending decisions could not be restored')).toBeVisible();
@@ -524,15 +566,13 @@ describe('child view after renderer restart', () => {
       });
     });
     vi.stubGlobal('fetch', fetch);
-    render(
-      <FileExplorerProvider storageAdapter={workspaceStorage}>
-        <TooltipProvider>
-          <DelegatedConversationRootsProvider>
-            <OwningRoot />
-            <ChildView db={database as DbHandle} node={node} />
-          </DelegatedConversationRootsProvider>
-        </TooltipProvider>
-      </FileExplorerProvider>
+    workspace.rerender(
+      <WorkspaceProviders>
+        <DelegatedConversationRootsProvider>
+          <OwningRoot />
+          <ChildView db={database as DbHandle} node={node} />
+        </DelegatedConversationRootsProvider>
+      </WorkspaceProviders>
     );
 
     expect(await screen.findByRole('heading', { name: 'Saved read result' })).toBeVisible();
@@ -588,15 +628,13 @@ describe('child view after renderer restart', () => {
         });
       });
       vi.stubGlobal('fetch', fetch);
-      render(
-        <FileExplorerProvider storageAdapter={workspaceStorage}>
-          <TooltipProvider>
-            <DelegatedConversationRootsProvider>
-              <OwningRoot />
-              <ChildView db={database as DbHandle} node={node} />
-            </DelegatedConversationRootsProvider>
-          </TooltipProvider>
-        </FileExplorerProvider>
+      workspace.rerender(
+        <WorkspaceProviders>
+          <DelegatedConversationRootsProvider>
+            <OwningRoot />
+            <ChildView db={database as DbHandle} node={node} />
+          </DelegatedConversationRootsProvider>
+        </WorkspaceProviders>
       );
       expect(await screen.findByText('Persisted native child transcript.')).toBeVisible();
       expect(append).not.toHaveBeenCalled();

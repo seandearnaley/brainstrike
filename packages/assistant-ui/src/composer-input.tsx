@@ -1,6 +1,6 @@
 import { ComposerPrimitive, ThreadPrimitive, useAui, useAuiState } from '@assistant-ui/react';
 import { ArrowUpIcon, ClipboardListIcon, ImageIcon, SquareIcon } from 'lucide-react';
-import { type ClipboardEvent, type ReactNode, useId } from 'react';
+import { type ClipboardEvent, type KeyboardEvent, type ReactNode, useId } from 'react';
 import { useActiveConversationInput } from './active-conversation-input-context';
 import { collectImageFilesFromClipboard } from './attachment-adapter';
 import { useBudgetSendGate } from './budget-guardrail-control';
@@ -74,7 +74,9 @@ const ComposerInputRow = ({
   // whenever this gate is closed. The Cancel (Stop) button deliberately
   // ignores the gate — stopping an in-flight run must always be possible.
   const activeInput = useActiveConversationInput();
-  const hasDraft = useAuiState((state) => state.composer.text.trim().length > 0);
+  const hasDraft = useAuiState(
+    (state) => state.composer.text.trim().length > 0 || state.composer.attachments.length > 0
+  );
   const budgetSendBlocked = useBudgetSendGate();
   const inputId = useId();
   const sendDisabled = isComposerDisabled || budgetSendBlocked || activeInput?.canSend === false;
@@ -88,19 +90,7 @@ const ComposerInputRow = ({
         className="aui-composer-input"
         disabled={isComposerDisabled || budgetSendBlocked}
         id={inputId}
-        onKeyDown={(event) => {
-          if (
-            activeInput &&
-            event.key === 'Enter' &&
-            !event.shiftKey &&
-            !event.nativeEvent.isComposing
-          ) {
-            event.preventDefault();
-            if (!sendDisabled) {
-              void activeInput.send();
-            }
-          }
-        }}
+        onKeyDown={(event) => sendActiveDraftOnEnter(event, activeInput, sendDisabled, hasDraft)}
         placeholder="Ask BrainStrike anything..."
         rows={1}
       />
@@ -232,6 +222,23 @@ const ComposerInputRow = ({
     </InputFrame>
   );
 };
+
+/** The child receipt path owns Enter instead of the ordinary root append action. */
+function sendActiveDraftOnEnter(
+  event: KeyboardEvent<HTMLTextAreaElement>,
+  input: ReturnType<typeof useActiveConversationInput>,
+  disabled: boolean,
+  hasDraft: boolean
+): void {
+  if (!input || event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
+    return;
+  }
+  event.preventDefault();
+  if (disabled || !hasDraft) {
+    return;
+  }
+  void input.send();
+}
 
 const PlainInputFrame = ({ children }: { children: ReactNode; disabled: boolean }) => (
   <div className="bs-composer-input-frame">{children}</div>

@@ -1,7 +1,17 @@
 import { createHash } from 'node:crypto';
-import { ChildInputNotDeliveredError } from '@brainstrike/assistant-contract';
+import {
+  assistantChildInputContents,
+  ChildInputNotDeliveredError,
+  normalizeAssistantChildInput,
+  serializeAssistantChildInput,
+} from '@brainstrike/assistant-contract';
 import { type Agent, createMessageSignal, signalToMastraDBMessage } from '@mastra/core/agent';
 import { z } from 'zod';
+import {
+  CHILD_INPUT_CONTEXT_KEY,
+  type PrepareChildInputContext,
+  validateChildInputContext,
+} from './child-input-context';
 import type {
   DelegatedFollowupControl,
   DelegatedFollowupInput,
@@ -9,6 +19,7 @@ import type {
 } from './delegated-conversation-binding';
 
 const receiptSchema = z.object({
+  payload: z.string().optional(),
   runId: z.string(),
   state: z.enum(['pending', 'delivered']),
   text: z.string(),
@@ -24,12 +35,26 @@ async function assertFollowupAdmission(assertAdmission: () => Promise<void>): Pr
   }
 }
 
+function matchesReceiptInput(
+  receipt: z.output<typeof receiptSchema>,
+  input: DelegatedFollowupInput
+): boolean {
+  if (receipt.payload !== undefined) {
+    return receipt.payload === serializeAssistantChildInput(input);
+  }
+  // Legacy receipts carried text only; omitted images never count as a match.
+  return receipt.text === input.text && !input.attachments?.length;
+}
+
 async function deliver(
   child: Agent,
   target: DelegatedFollowupTarget,
-  input: DelegatedFollowupInput,
-  assertAdmission: () => Promise<void>
+  rawInput: DelegatedFollowupInput,
+  assertAdmission: () => Promise<void>,
+  prepareContext?: PrepareChildInputContext
 ): Promise<void> {
+  const input = normalizeAssistantChildInput(rawInput);
+  const payload = serializeAssistantChildInput(input);
   const memory = await child.getMemory();
   const store = await memory?.storage.getStore('memory');
   if (!(memory && store)) {
@@ -45,7 +70,7 @@ async function deliver(
       throw new Error('This child follow-up request belongs to a different conversation.');
     }
     const receipt = receiptSchema.parse(saved.content.metadata?.['brainstrikeFollowup']);
-    if (receipt.runId !== target.runId || receipt.text !== input.text) {
+    if (receipt.runId !== target.runId || !matchesReceiptInput(receipt, input)) {
       throw new Error('This child follow-up request already has different content or ownership.');
     }
     if (receipt.state === 'delivered') {
@@ -72,14 +97,22 @@ async function deliver(
   }
   // Check after queued work and asynchronous receipt lookup, not at HTTP admission alone.
   await assertFollowupAdmission(assertAdmission);
+  const context = prepareContext ? validateChildInputContext(await prepareContext()) : undefined;
+  await assertFollowupAdmission(assertAdmission);
   const signal = createMessageSignal(
-    { contents: input.text, metadata: { brainstrikeDelegatedInput: target.identity } },
+    {
+      contents: assistantChildInputContents(input),
+      metadata: {
+        brainstrikeDelegatedInput: target.identity,
+        ...(context ? { [CHILD_INPUT_CONTEXT_KEY]: context } : {}),
+      },
+    },
     { id }
   );
   const message = signalToMastraDBMessage(signal, target);
   const metadata = {
     ...message.content.metadata,
-    brainstrikeFollowup: { runId: target.runId, state: 'pending', text: input.text },
+    brainstrikeFollowup: { payload, runId: target.runId, state: 'pending', text: input.text },
   };
   await memory.saveMessages({
     messages: [{ ...message, content: { ...message.content, metadata } }],
@@ -139,14 +172,16 @@ export function createDelegatedFollowupControl(
   agents: Readonly<Record<string, Agent>>
 ): DelegatedFollowupControl {
   const queues = new Map<string, Promise<void>>();
-  return async (target, input, assertAdmission) => {
+  return async (target, input, assertAdmission, prepareContext) => {
     const child = agents[target.personaId];
     if (!child) {
       throw new Error('The selected child has no native persona execution owner.');
     }
     const key = JSON.stringify([target.resourceId, target.threadId]);
     const previous = queues.get(key) ?? Promise.resolve();
-    const pending = previous.then(() => deliver(child, target, input, assertAdmission));
+    const pending = previous.then(() =>
+      deliver(child, target, input, assertAdmission, prepareContext)
+    );
     // Failed input must not permanently poison later explicit requests.
     const settled = pending.then(
       () => {},

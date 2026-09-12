@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { isDelegatedToolDecisionActionable } from '../delegated-tool-actions.js';
 import { isAssistantToolApprovalAction, isRediscoveredToolApproval } from '../tool-approval.js';
 import { isAssistantToolResumeAction, isRediscoveredToolSuspend } from '../tool-suspend.js';
 
@@ -27,6 +28,13 @@ const approval = {
 };
 
 describe('delegated tool action wire identity', () => {
+  it('treats only an undecided pause as actionable, independent of advisory staleness', () => {
+    expect(isDelegatedToolDecisionActionable(undefined)).toBe(true);
+    for (const state of ['claimed', 'consumed', 'interrupted', 'cancelled'] as const) {
+      expect(isDelegatedToolDecisionActionable(state)).toBe(false);
+    }
+  });
+
   it('carries the exact leaf call through both continuation transports', () => {
     expect(isAssistantToolApprovalAction(approval)).toBe(true);
     expect(

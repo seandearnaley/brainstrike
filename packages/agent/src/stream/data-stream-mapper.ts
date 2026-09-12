@@ -419,7 +419,12 @@ export class DataStreamMapper {
         const encoded = {
           code: DataStreamCode.auiDataPart,
           value: {
-            data: { createdAt: chunk.createdAt, id: chunk.id, text: chunk.text },
+            data: {
+              ...(chunk.attachments ? { attachments: chunk.attachments } : {}),
+              createdAt: chunk.createdAt,
+              id: chunk.id,
+              text: chunk.text,
+            },
             name: CHILD_USER_MESSAGE_DATA_NAME,
           },
         };

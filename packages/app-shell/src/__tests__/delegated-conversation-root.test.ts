@@ -27,11 +27,38 @@ describe('owning root registration', () => {
     const signal = new AbortController().signal;
     const accepted = vi.fn();
     const delivery = root
-      .sendFollowup('child', { id: 'input-1', text: 'Continue' }, signal)
+      .sendFollowup(
+        'child',
+        {
+          attachments: [
+            { data: 'data:image/png;base64,AQID', mediaType: 'image/png', type: 'file' },
+          ],
+          id: 'input-1',
+          text: '',
+        },
+        signal
+      )
       .then(accepted);
     await Promise.resolve();
     expect(accepted).not.toHaveBeenCalled();
     expect(append).toHaveBeenCalledOnce();
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: [{ text: '', type: 'text' }],
+        runConfig: {
+          custom: {
+            brainstrikeChildFollowup: {
+              attachments: [
+                { data: 'data:image/png;base64,AQID', mediaType: 'image/png', type: 'file' },
+              ],
+              id: 'input-1',
+              text: '',
+              threadId: 'child',
+            },
+          },
+        },
+      })
+    );
     const { identity: _identity, ...snapshot } = delegatedUpdate('child', 'new-host');
     root.onDelegatedConversation({
       ...snapshot,
