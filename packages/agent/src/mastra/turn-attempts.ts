@@ -193,13 +193,8 @@ export async function settleNativeStream(
   const settlementAbort = new Error('Native stream settlement started.');
   streamAbortContext.abort(settlementAbort);
   let recorded = false;
+  let recordedUnexpected = false;
   const recordConsumptionError = (error: unknown): void => {
-    // One failure, one record: a callee that both reports through `onError`
-    // and rejects must not be counted twice.
-    if (recorded) {
-      return;
-    }
-    recorded = true;
     // The abort is the expected way an abandoned stream ends — as the abort
     // reason itself, one `cause` hop away, or as an `AbortError` (which also
     // buckets an unrelated inner abort, a tool's own fetch for instance, as
@@ -212,6 +207,15 @@ export async function settleNativeStream(
       error === settlementAbort ||
       (error instanceof Error &&
         (error.name === 'AbortError' || error.cause === reason || error.cause === settlementAbort));
+    // One failure, one record: a callee that both reports through `onError`
+    // and rejects is counted once — but a genuine failure that surfaces AFTER
+    // the expected abort record must still reach warn, so the latch only
+    // suppresses repeats of what has already been said.
+    if (recorded && (expectedEnding || recordedUnexpected)) {
+      return;
+    }
+    recorded = true;
+    recordedUnexpected ||= !expectedEnding;
     const record = {
       code: 'mastra_native_stream_settled_with_error',
       error: error instanceof Error ? error.message : String(error),
@@ -353,10 +357,12 @@ declare const RESOLVED_MEMORY_OPTION: unique symbol;
 /**
  * An `AgentMemoryOption` that `resolveMemoryOption` built: its `options`
  * carry `readOnly: true` whenever the merged thread config is read-only (a
- * writable memory leaves the caller's options untouched), so consumers may
- * read that field as the effective policy. The brand keeps a hand-built
- * option from reaching the abort seam, where an unstamped `readOnly` would
- * fail open.
+ * writable memory leaves the caller's options untouched, so a caller-supplied
+ * `readOnly: true` stays as it was). Consumers may therefore read
+ * `options?.readOnly === true` as "writes are off" — it is never false when
+ * the merged policy is read-only — and the brand keeps a hand-built option
+ * from reaching the abort seam, where an unstamped `readOnly` would fail
+ * open.
  */
 export type ResolvedAgentMemoryOption = AgentMemoryOption & {
   readonly [RESOLVED_MEMORY_OPTION]: true;

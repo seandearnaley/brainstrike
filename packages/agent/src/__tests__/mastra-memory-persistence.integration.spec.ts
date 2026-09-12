@@ -39,7 +39,7 @@ import type {
   LanguageModelV4Prompt,
 } from '@ai-sdk/provider';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite-pgvector';
 import type { AgentMemoryOption } from '@mastra/core/agent';
@@ -854,6 +854,7 @@ describe('mastra memory persistence through the live stream path', () => {
     // aborted turn would warn.
     const logRecords: LogRecord[] = [];
     const removeLogListener = addLogListener((record) => logRecords.push(record));
+    setLogLevel(LogLevel.DEBUG);
 
     try {
       await runTurnWithMemory({
@@ -913,6 +914,12 @@ describe('mastra memory persistence through the live stream path', () => {
             (argument as { code?: unknown }).code === 'mastra_native_stream_settled_with_error'
         )
       );
+      // Measured: on a real watchdog abort Mastra's consumption ends CLEANLY —
+      // the base stream closes without delivering an error — so the join
+      // records nothing at all here (the classification shapes are pinned in
+      // native-stream-settle.spec.ts). What this case guards is that the real
+      // ending is never reported as a failure, and that the join never timed
+      // out; "settles Mastra snapshot cleanup…" below proves the join runs.
       expect(settleRecords.map((record) => record.level)).not.toContain(LogLevel.WARN);
       expect(
         logRecords.some((record) =>
@@ -925,6 +932,7 @@ describe('mastra memory persistence through the live stream path', () => {
       ).toBe(false);
     } finally {
       removeLogListener();
+      setLogLevel(LogLevel.INFO);
       if (previousToolTimeout === undefined) {
         Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
       } else {
@@ -1044,7 +1052,8 @@ describe('mastra memory persistence through the live stream path', () => {
       const inFlightAtTurnEnd = cleanup.inFlight;
       // Give a cleanup statement that was still TO BE ISSUED a window to show
       // up; with the join in place none can, because Mastra's pipeline has
-      // already closed.
+      // already closed. 50 ms is a floor for that observation, not a proof:
+      // the strict evidence is `inFlightAtTurnEnd` and the snapshot SELECT.
       await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
       expect(inFlightAtTurnEnd).toBe(0);

@@ -31,8 +31,12 @@ describe('settleNativeStream', () => {
     expect(abortedWhenConsumed).toBe(true);
   });
 
-  it('treats an error one cause hop from the abort reason as the expected ending', async () => {
+  it('treats an error one cause hop from a PRE-EXISTING abort reason, or any AbortError, as the expected ending', async () => {
+    // The production shape: the watchdog aborted first with its own reason,
+    // and Mastra hands back a wrapper of that reason.
+    const watchdogReason = new Error('stream stalled');
     const context = createStreamAbortContext(undefined);
+    context.abort(watchdogReason);
     const records: LogRecord[] = [];
     const remove = addLogListener((record) => records.push(record));
     setLogLevel(LogLevel.DEBUG);
@@ -40,7 +44,39 @@ describe('settleNativeStream', () => {
       await settleNativeStream(
         {
           consumeStream: async (options) =>
-            options?.onError?.(new Error('wrapped', { cause: context.signal.reason })),
+            options?.onError?.(new Error('wrapped', { cause: watchdogReason })),
+        },
+        context
+      );
+      const abortError = new Error('The operation was aborted');
+      abortError.name = 'AbortError';
+      await settleNativeStream(
+        { consumeStream: async (options) => options?.onError?.(abortError) },
+        createStreamAbortContext(undefined)
+      );
+    } finally {
+      remove();
+      setLogLevel(LogLevel.INFO);
+    }
+    const settled = recordsWithCode(records, 'mastra_native_stream_settled_with_error');
+    expect(settled.map((record) => record.level)).toEqual([LogLevel.DEBUG, LogLevel.DEBUG]);
+    expect(settled[0]?.args).toContainEqual(expect.objectContaining({ wasAlreadyAborted: true }));
+    expect(settled[1]?.args).toContainEqual(expect.objectContaining({ wasAlreadyAborted: false }));
+  });
+
+  it('still warns for a genuine failure that surfaces after the expected abort record', async () => {
+    const context = createStreamAbortContext(undefined);
+    const records: LogRecord[] = [];
+    const remove = addLogListener((record) => records.push(record));
+    setLogLevel(LogLevel.DEBUG);
+    try {
+      await settleNativeStream(
+        {
+          consumeStream: async (options) => {
+            options?.onError?.(context.signal.reason as unknown);
+            options?.onError?.(new Error('deleteRunSnapshots failed after the abort'));
+            options?.onError?.(new Error('a second failure is a repeat, not a new record'));
+          },
         },
         context
       );
@@ -49,7 +85,8 @@ describe('settleNativeStream', () => {
       setLogLevel(LogLevel.INFO);
     }
     const settled = recordsWithCode(records, 'mastra_native_stream_settled_with_error');
-    expect(settled.map((record) => record.level)).toEqual([LogLevel.DEBUG]);
+    expect(settled.map((record) => record.level)).toEqual([LogLevel.DEBUG, LogLevel.WARN]);
+    expect(JSON.stringify(settled)).toContain('deleteRunSnapshots failed after the abort');
   });
 
   it('records the consumption error at debug when the stream ended by our abort', async () => {
