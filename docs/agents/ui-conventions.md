@@ -857,7 +857,7 @@ never carries the state.
 - Listing rows never mounts child transcripts; only explicitly activated workspace tabs do, using the existing keep-alive/close semantics.
 - Read receipts belong to the ephemeral root store, so virtual row unmount does not invent unread activity.
 - Reload derives pending decisions from the existing authoritative discovery path; opening/closing/reopening never starts a model.
-- Archive/delete remain the native root-scoped persistence operations and closed/reopened child tabs reauthorize before reading history.
+- Closing a child tab is reversible and reauthorizes before reading history on reopen. Native thread deletion permanently removes the selected subtree and saved conversation data. Neither root nor child threads currently offer an archive operation.
 - Free-form steering remains BST-1723 acceptance, not claimed by this slice.
 
 Paired acceptance: `delegated-workspace-reload.desktop.test.ts`, `delegated-worker-write.desktop.test.ts`, `delegated-sidebar-lifecycle.test.tsx`, `delegated-sidebar-rows.test.ts`, `delegated-conversation-ancestry.test.ts`, and `delegated-conversation-store.test.ts`.

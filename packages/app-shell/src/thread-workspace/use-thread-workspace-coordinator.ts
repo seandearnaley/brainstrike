@@ -3,8 +3,9 @@ import type {
   WorkspaceSnapshotEditor,
   WorkspaceSnapshotV1,
 } from '@brainstrike/assistant-data';
+import { ThreadWorkspaceUnavailableError } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useEffectEvent, useRef, useSyncExternalStore } from 'react';
 import type { ThreadWorkspaceNavigation } from './thread-workspace-navigation';
 import {
   applyWorkspaceSnapshot,
@@ -331,6 +332,21 @@ export function useThreadWorkspaceCoordinator({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const switchIntentRef = useRef(0);
   const facadeRef = useRef(facade);
+  const handlePersistError = useEffectEvent((threadId: string, error: unknown, message: string) => {
+    if (error instanceof ThreadWorkspaceUnavailableError) {
+      cacheRef.current.delete(threadId);
+      // Deletion cancels an outgoing save; a still-active owner failure
+      // remains visible, as do all database/serialization failures below.
+      if (activeThreadId !== threadId) {
+        return;
+      }
+      navigation?.failed(resourceId, threadId, error);
+    }
+    logger.error(message, {
+      error: error instanceof Error ? error.message : String(error),
+      threadId,
+    });
+  });
   // FIRST effect on purpose: later effects in this hook read facadeRef, and
   // same-commit effect order is declaration order.
   useEffect(() => {
@@ -347,10 +363,7 @@ export function useThreadWorkspaceCoordinator({
       const snapshot = captureWorkspaceSnapshot(facadeRef.current);
       cacheRef.current.set(activeThreadId, snapshot);
       repository.setThreadWorkspace(activeThreadId, resourceId, snapshot).catch((error) => {
-        logger.error('Failed to persist thread workspace snapshot', {
-          error: error instanceof Error ? error.message : String(error),
-          threadId: activeThreadId,
-        });
+        handlePersistError(activeThreadId, error, 'Failed to persist thread workspace snapshot');
       });
     };
     let previousAppIds = [...facadeRef.current.getOpenAppIds()];
@@ -498,10 +511,7 @@ export function useThreadWorkspaceCoordinator({
       const outgoing = captureWorkspaceSnapshot(facadeRef.current);
       cacheRef.current.set(previous, outgoing);
       repository.setThreadWorkspace(previous, resourceId, outgoing).catch((error) => {
-        logger.error('Failed to persist outgoing thread workspace snapshot', {
-          error: error instanceof Error ? error.message : String(error),
-          threadId: previous,
-        });
+        handlePersistError(previous, error, 'Failed to persist outgoing thread workspace snapshot');
       });
     }
 
@@ -537,10 +547,11 @@ export function useThreadWorkspaceCoordinator({
           cacheRef.current.set(activeThreadId, merged);
           hydrate(merged);
           repository?.setThreadWorkspace(activeThreadId, resourceId, merged).catch((error) => {
-            logger.error('Failed to persist live edits after workspace hydration', {
-              error: error instanceof Error ? error.message : String(error),
-              threadId: activeThreadId,
-            });
+            handlePersistError(
+              activeThreadId,
+              error,
+              'Failed to persist live edits after workspace hydration'
+            );
           });
           return;
         }
@@ -582,10 +593,11 @@ export function useThreadWorkspaceCoordinator({
         const inherited = captureWorkspaceSnapshot(facadeRef.current);
         cacheRef.current.set(activeThreadId, inherited);
         repository.setThreadWorkspace(activeThreadId, resourceId, inherited).catch((error) => {
-          logger.error('Failed to persist inherited thread workspace snapshot', {
-            error: error instanceof Error ? error.message : String(error),
-            threadId: activeThreadId,
-          });
+          handlePersistError(
+            activeThreadId,
+            error,
+            'Failed to persist inherited thread workspace snapshot'
+          );
         });
       })
       .catch((error) => {
@@ -601,10 +613,11 @@ export function useThreadWorkspaceCoordinator({
             repository
               .setThreadWorkspace(activeThreadId, resourceId, pending)
               .catch((saveError) => {
-                logger.error('Failed to persist live edits after workspace hydration failure', {
-                  error: saveError instanceof Error ? saveError.message : String(saveError),
-                  threadId: activeThreadId,
-                });
+                handlePersistError(
+                  activeThreadId,
+                  saveError,
+                  'Failed to persist live edits after workspace hydration failure'
+                );
               });
           }
         }

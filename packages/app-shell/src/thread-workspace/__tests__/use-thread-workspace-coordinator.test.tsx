@@ -1,5 +1,8 @@
 import type { ThreadWorkspaceRepository, WorkspaceSnapshotV1 } from '@brainstrike/assistant-data';
-import { EMPTY_WORKSPACE_SNAPSHOT } from '@brainstrike/assistant-data';
+import {
+  EMPTY_WORKSPACE_SNAPSHOT,
+  ThreadWorkspaceUnavailableError,
+} from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThreadWorkspaceNavigation } from '../thread-workspace-navigation';
@@ -328,6 +331,26 @@ describe('useThreadWorkspaceCoordinator', () => {
     expect(harness.repository.setThreadWorkspace).toHaveBeenCalledTimes(1);
     expect(harness.rows.get('thread-a')?.explorer.scrollTop).toBe(120);
     expect(harness.rows.get('thread-a')?.editors['ka']).toEqual({ mode: 'source', scrollTop: 45 });
+  });
+
+  it('evicts an outgoing snapshot rejected after its native thread was deleted', async () => {
+    const harness = createHarness();
+    harness.rows.set('thread-b', SNAPSHOT_B);
+    const { rerender } = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    const outgoing = Promise.withResolvers<void>();
+    vi.mocked(harness.repository.setThreadWorkspace).mockImplementationOnce(() => outgoing.promise);
+    rerender({ activeThreadId: 'thread-b', openThreadIds: ['thread-b'] });
+    await waitFor(() => expect(harness.state.tabs).toEqual(SNAPSHOT_B.fileTabs.tabs));
+    harness.rows.delete('thread-a');
+    await act(async () => outgoing.reject(new ThreadWorkspaceUnavailableError('thread-a')));
+    vi.mocked(harness.repository.getThreadWorkspace).mockClear();
+    // Even an obsolete restored address must read storage again, never hydrate
+    // the outgoing snapshot cached immediately before the rejected save.
+    rerender({ activeThreadId: 'thread-a', openThreadIds: ['thread-a', 'thread-b'] });
+    await waitFor(() =>
+      expect(harness.repository.getThreadWorkspace).toHaveBeenCalledWith('thread-a')
+    );
   });
 
   it('on switch: flushes outgoing synchronously, hydrates incoming from the repository', async () => {

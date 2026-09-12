@@ -358,11 +358,12 @@ export class PgliteMemoryStore extends MemoryStorage {
         `DELETE FROM ${MASTRA_MEMORY_TABLES.messages} WHERE thread_id = ANY($1::text[])`,
         [threadIds]
       );
-      for (const { table, threadColumn } of THREAD_DELETE_SIDECAR_TABLES) {
+      for (const { table, threadColumns } of THREAD_DELETE_SIDECAR_TABLES) {
         if (present.has(table)) {
-          await tx.query(`DELETE FROM ${table} WHERE ${threadColumn} = ANY($1::text[])`, [
-            threadIds,
-          ]);
+          await tx.query(
+            `DELETE FROM ${table} WHERE ${threadColumns.map((column) => `${column} = ANY($1::text[])`).join(' OR ')}`,
+            [threadIds]
+          );
         }
       }
       const deleted = await tx.query<{ id: string; resourceId: string | null }>(

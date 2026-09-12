@@ -1063,7 +1063,7 @@ function ThreadRowDisplay({
       {pendingDelete ? (
         <div className="mt-2 mb-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
           <p className="text-[11px] text-destructive">
-            Delete this thread and its Mastra memory rows permanently?
+            Delete this thread, its delegated children, and saved conversation data permanently?
           </p>
           {deleteError ? <p className="mt-1 text-[11px] text-destructive">{deleteError}</p> : null}
           <div className="mt-2 flex justify-end gap-2">
@@ -3130,8 +3130,8 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     if (groupsRepository && placementsByThreadId[threadId]) {
       await removeThreadPlacement(groupsRepository, threadId);
     }
-    // Search-index rows for a deleted thread are inert (query-time join by
-    // id) and swept by the sync GC, but clear them eagerly like placements.
+    // Native repositories atomically clear the entire delegated subtree.
+    // Also clear requested IDs for adapters without that native cascade.
     if (threadSearchRepository) {
       await threadSearchRepository.deleteThreads([threadId]);
     }

@@ -871,5 +871,23 @@ describe('desktop delegated conversation authority', () => {
     );
     expect(children.map((child) => child.threadId).sort()).toEqual(['child', 'sibling']);
     expect(new Set(children.map((child) => child.displayName)).size).toBe(2);
+    for (const child of children) {
+      expect(child.configuration).toEqual(identity.configuration);
+      expect(child.displayName).toMatch(/^[A-Z][a-z]+-[0-9a-f]{6}$/u);
+      expect(child.color).toBeTruthy();
+    }
+    // New host/repository instances must restore the same persisted identities,
+    // not issue a new callsign or derive the UI label from the shared persona.
+    const restoredHost = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await restoredHost.persist(identity);
+    await restoredHost.persist({
+      ...identity,
+      childResourceId: 'native-sibling-owner',
+      childThreadId: 'sibling',
+      parentToolCallId: 'sibling-call',
+    });
+    expect(
+      await createDelegatedConversationRepository(database).listChildren(scope, 'root')
+    ).toEqual(children);
   });
 });
