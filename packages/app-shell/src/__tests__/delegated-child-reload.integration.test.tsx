@@ -24,6 +24,7 @@ import {
 } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import type { FileExplorerState } from '@brainstrike/types';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -31,6 +32,18 @@ import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
+
+// The child header reads the bound workspace's display name from the explorer
+// store (app-layout.tsx mounts the child view under FileExplorerProvider).
+// This integration test exercises reload/host semantics, not the explorer, so
+// the selector sees an empty descriptor map and the header shows the root id.
+vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/file-explorer-ui/shell')>()),
+  useFileExplorerStoreSelector: <T,>(
+    selector: (state: Pick<FileExplorerState, 'rootDescriptors'>) => T
+  ): T => selector({ rootDescriptors: {} }),
+}));
+
 import { ChildView } from '../delegated-workspace-child-view';
 import { type ChildNode, loadDelegatedWorkspaceNode } from '../delegated-workspace-node';
 import { delegatedWorkspaceTabId } from '../delegated-workspace-tab';
