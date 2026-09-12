@@ -97,6 +97,12 @@ describe('vitest event-loop watchdog', () => {
     expect(impossible.code).toBe(1);
     expect(impossible.stderr).toContain('must be shorter than stallMs');
 
+    const impossibleWhileDebugging = await probe('startEventLoopWatchdog({ heartbeatMs: 1000 });', {
+      NODE_OPTIONS: '--inspect=0',
+    });
+    expect(impossibleWhileDebugging.code).toBe(1);
+    expect(impossibleWhileDebugging.stderr).toContain('must be shorter than stallMs');
+
     const invalid = await probe('startEventLoopWatchdog({ stallMs: Number.NaN });');
     expect(invalid.code).toBe(1);
     expect(invalid.stderr).toContain('stallMs must be a positive integer');
@@ -113,7 +119,7 @@ describe('vitest event-loop watchdog', () => {
       );
       return file;
     };
-    const vitest = (config: string, files: string[]): Promise<ProbeResult> =>
+    const runVitest = (config: string, files: string[]): Promise<ProbeResult> =>
       run(
         [vitestBin, 'run', '--root', dir, '--config', config, '--no-file-parallelism', ...files],
         {
@@ -134,7 +140,7 @@ describe('vitest event-loop watchdog', () => {
 
       // Isolated forks: every file is a fresh process with a fresh watchdog.
       const isolatedForks = configFor('forks.config.mjs', "pool: 'forks'");
-      const green = await vitest(isolatedForks, ['a.test.mjs', 'b.test.mjs']);
+      const green = await runVitest(isolatedForks, ['a.test.mjs', 'b.test.mjs']);
       expect(green.stderr).not.toContain('event loop blocked');
       expect(green.code, `${green.stdout}\n${green.stderr}`).toBe(0);
 
@@ -143,12 +149,12 @@ describe('vitest event-loop watchdog', () => {
       // neither start a second watchdog nor kill the healthy worker across the
       // `afterAll` → 'between test files' → `beforeEach` label handoff.
       const reusedForks = configFor('reused.config.mjs', "isolate: false, pool: 'forks'");
-      const reused = await vitest(reusedForks, ['a.test.mjs', 'b.test.mjs']);
+      const reused = await runVitest(reusedForks, ['a.test.mjs', 'b.test.mjs']);
       expect(reused.stderr).not.toContain('event loop blocked');
       expect(reused.code, `${reused.stdout}\n${reused.stderr}`).toBe(0);
 
       // Forks lane: the child dies, the vitest process survives and fails.
-      const red = await vitest(isolatedForks, ['c.test.mjs']);
+      const red = await runVitest(isolatedForks, ['c.test.mjs']);
       expect(red.stderr).toContain('event loop blocked');
       expect(red.stderr).toContain('c.test.mjs › spins like PGlite');
       expect(red.code).not.toBe(0);
@@ -157,7 +163,7 @@ describe('vitest event-loop watchdog', () => {
       // Threads lane: the vitest worker is a thread of the vitest process, so
       // the kill takes the whole run; the stderr line is still the attribution.
       const threads = configFor('threads.config.mjs', "pool: 'threads'");
-      const redThreads = await vitest(threads, ['c.test.mjs']);
+      const redThreads = await runVitest(threads, ['c.test.mjs']);
       expect(redThreads.stderr).toContain('event loop blocked');
       expect(redThreads.stderr).toContain('c.test.mjs › spins like PGlite');
       expect(redThreads.code).not.toBe(0);

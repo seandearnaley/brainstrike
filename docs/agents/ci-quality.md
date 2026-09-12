@@ -1675,8 +1675,9 @@ mismatch` in `$palloc`), so the worker spins at 100% CPU with its event loop
 blocked. (The trap that reached that loop was the BST-1320 close race — a
 Mastra statement floating into `close()` — not a Node or V8 defect; see
 `docs/agents/assistant-persistence.md`. The watchdog stays because any blocked
-loop, whatever reaches it, must fail by name.) `testTimeout` is a timer in that loop and never fires, the worker never
-reports, turbo prints nothing, and the job is cancelled at its 30-minute limit
+loop, whatever reaches it, must fail by name.) `testTimeout` is a timer in
+that loop and never fires, the worker never reports, turbo prints nothing,
+and the job is cancelled at its 30-minute limit
 with no verdict (`Unit (rest)`, run 34653237231, PR #3141).
 
 Every lane that hosts real PGlite (`agent`, `app-shell`, `assistant-data`,
@@ -1694,8 +1695,12 @@ harmless because a slow-but-async test keeps heartbeating and only a genuinely
 blocked loop can reach the stall) of silence the watchdog writes one stderr
 line naming the test and SIGKILLs the worker. The lane list is enforced:
 `scripts/verify-event-loop-watchdog.mjs` (paired test in `scripts/__tests__`,
-run by `pnpm test:scripts` in the Static job) loads each listed config and
-requires the setup to be the FIRST effective `setupFiles` entry — a new
+run by `pnpm test:scripts` in the Static job) loads all 16 listed configs,
+including the actual `test:integration` configs independently of their base,
+and requires the setup to be the FIRST effective `setupFiles` entry (or the
+sole string value). Override/reordering fixtures prove that an integration
+config cannot remove the inherited watchdog. Load failures are reported by
+config path alongside every other failing lane. A new
 PGlite-hosting lane is added to that list, and a second-position or missing
 entry fails Static rather than silently reintroducing the hang.
 

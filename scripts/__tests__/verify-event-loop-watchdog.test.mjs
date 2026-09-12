@@ -6,7 +6,8 @@
 // The real-repo case is the enforcement: every PGlite-hosting lane leads its
 // setupFiles with the watchdog.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -24,8 +25,9 @@ import {
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** A miniature workspace: `<root>/packages/<name>/vitest.config.mts` per entry. */
-function makeWorkspace(configsByPackage) {
+function makeWorkspace(t, configsByPackage) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'bst1221-watchdog-guard-'));
+  t.after(() => rmSync(root, { force: true, recursive: true }));
   for (const [packageName, contents] of Object.entries(configsByPackage)) {
     const dir = path.join(root, 'packages', packageName);
     mkdirSync(dir, { recursive: true });
@@ -48,15 +50,15 @@ async function missingIn(root, lanes) {
   return (await findLanesMissingWatchdog(root, lanes)).map((lane) => lane.config);
 }
 
-test('MONEY TEST: the watchdog listed SECOND is REJECTED', async () => {
-  const root = makeWorkspace({ late: SECOND });
+test('MONEY TEST: the watchdog listed SECOND is REJECTED', async (t) => {
+  const root = makeWorkspace(t, { late: SECOND });
   assert.deepEqual(await missingIn(root, [{ config: 'packages/late/vitest.config.mts' }]), [
     'packages/late/vitest.config.mts',
   ]);
 });
 
-test('a lane that omits the watchdog is REJECTED', async () => {
-  const root = makeWorkspace({ bare: ABSENT, none: NO_SETUP });
+test('a lane that omits the watchdog is REJECTED', async (t) => {
+  const root = makeWorkspace(t, { bare: ABSENT, none: NO_SETUP });
   assert.deepEqual(
     await missingIn(root, [
       { config: 'packages/bare/vitest.config.mts' },
@@ -66,15 +68,15 @@ test('a lane that omits the watchdog is REJECTED', async () => {
   );
 });
 
-test('a comment mentioning the setup is REJECTED', async () => {
-  const root = makeWorkspace({ prose: COMMENTED });
+test('a comment mentioning the setup is REJECTED', async (t) => {
+  const root = makeWorkspace(t, { prose: COMMENTED });
   assert.deepEqual(await missingIn(root, [{ config: 'packages/prose/vitest.config.mts' }]), [
     'packages/prose/vitest.config.mts',
   ]);
 });
 
-test('a lane whose config file is missing is REJECTED, not skipped', async () => {
-  const root = makeWorkspace({ present: FIRST });
+test('a lane whose config file is missing is REJECTED, not skipped', async (t) => {
+  const root = makeWorkspace(t, { present: FIRST });
   const missing = await findLanesMissingWatchdog(root, [
     { config: 'packages/present/vitest.config.mts' },
     { config: 'packages/gone/vitest.config.mts' },
@@ -85,13 +87,13 @@ test('a lane whose config file is missing is REJECTED, not skipped', async () =>
   );
 });
 
-test('CONTROL: the watchdog listed FIRST passes', async () => {
-  const root = makeWorkspace({ good: FIRST });
+test('CONTROL: the watchdog listed FIRST passes', async (t) => {
+  const root = makeWorkspace(t, { good: FIRST });
   assert.deepEqual(await missingIn(root, [{ config: 'packages/good/vitest.config.mts' }]), []);
 });
 
-test('an inline project is checked by name, and a missing project name throws', async () => {
-  const root = makeWorkspace({ multi: PROJECTS });
+test('an inline project is checked by name, and a missing project name throws', async (t) => {
+  const root = makeWorkspace(t, { multi: PROJECTS });
   const configPath = path.join(root, 'packages/multi/vitest.config.mts');
   assert.deepEqual(await loadEffectiveSetupFiles(configPath, 'unit'), [WATCHDOG_SETUP_ID]);
   assert.deepEqual(
@@ -108,11 +110,101 @@ test('an inline project is checked by name, and a missing project name throws', 
   );
 });
 
-test('leadsWithWatchdog rejects non-arrays and non-leading positions', () => {
+test('leadsWithWatchdog accepts valid string or array setup and rejects non-leading positions', () => {
   assert.equal(leadsWithWatchdog(undefined), false);
-  assert.equal(leadsWithWatchdog(WATCHDOG_SETUP_ID), false);
+  assert.equal(leadsWithWatchdog(WATCHDOG_SETUP_ID), true);
+  assert.equal(leadsWithWatchdog('./other.setup.mjs'), false);
   assert.equal(leadsWithWatchdog(['./a', WATCHDOG_SETUP_ID]), false);
   assert.equal(leadsWithWatchdog([WATCHDOG_SETUP_ID]), true);
+});
+
+test('CONTROL: a scalar setupFiles value loads and passes', async (t) => {
+  const root = makeWorkspace(t, {
+    scalar: `export default { test: { setupFiles: '${WATCHDOG_SETUP_ID}' } };`,
+  });
+  assert.deepEqual(await missingIn(root, [{ config: 'packages/scalar/vitest.config.mts' }]), []);
+});
+
+const INTEGRATION_PACKAGES = [
+  'apps/desktop',
+  'packages/agent',
+  'packages/app-shell',
+  'packages/assistant-data',
+  'packages/embeddings',
+  'packages/file-import',
+];
+
+for (const packagePath of INTEGRATION_PACKAGES) {
+  test(`the runnable ${packagePath} integration config cannot override inherited setup`, async (t) => {
+    const root = makeWorkspace(t, {});
+    const dir = path.join(root, packagePath);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'vitest.config.mts'), FIRST);
+    const integrationConfig = `${packagePath}/vitest.integration.config.mts`;
+    const lanes = PGLITE_LANES.filter((lane) => path.dirname(lane.config) === packagePath);
+    for (const setup of [[], ['./other.setup.mjs', WATCHDOG_SETUP_ID]]) {
+      writeFileSync(
+        path.join(root, integrationConfig),
+        `
+        import base from './vitest.config.mts';
+        export default { ...base, test: { ...base.test, setupFiles: ${JSON.stringify(setup)} } };
+      `
+      );
+      assert.deepEqual(await missingIn(root, lanes), [integrationConfig]);
+    }
+    writeFileSync(
+      path.join(root, integrationConfig),
+      `
+      import base from './vitest.config.mts';
+      export default { ...base, test: { ...base.test, include: ['**/*.integration.test.ts'] } };
+    `
+    );
+    assert.deepEqual(await missingIn(root, lanes), []);
+  });
+}
+
+test('a config load failure names the lane and still reports other broken lanes', async (t) => {
+  const root = makeWorkspace(t, {
+    broken: "throw new Error('fixture dependency unavailable'); export default {};",
+    late: SECOND,
+  });
+  const missing = await findLanesMissingWatchdog(root, [
+    { config: 'packages/broken/vitest.config.mts' },
+    { config: 'packages/late/vitest.config.mts' },
+  ]);
+  assert.equal(missing.length, 2);
+  assert.equal(missing[0].config, 'packages/broken/vitest.config.mts');
+  assert.match(missing[0].reason, /config failed to load:.*fixture dependency unavailable/);
+  assert.equal(missing[1].config, 'packages/late/vitest.config.mts');
+});
+
+test('main returns the failed verdict without changing the caller exit code', async (t) => {
+  const root = makeWorkspace(t, {});
+  const originalExitCode = process.exitCode;
+  t.after(() => {
+    process.exitCode = originalExitCode;
+  });
+  const result = await main({ repoRoot: root });
+  assert.equal(process.exitCode, originalExitCode);
+  assert.equal(result.exitCode, 1);
+  assert.match(result.message, /config file does not exist/);
+  assert.match(result.message, /Put this as the FIRST entry/);
+});
+
+test('the actual CLI reports failing lanes and exits nonzero', (t) => {
+  const root = makeWorkspace(t, {});
+  const dir = path.join(root, 'scripts');
+  mkdirSync(dir);
+  const script = path.join(dir, 'verify-event-loop-watchdog.mjs');
+  copyFileSync(path.join(REPO_ROOT, 'scripts/verify-event-loop-watchdog.mjs'), script);
+  symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(root, 'node_modules'), 'dir');
+  const result = spawnSync(process.execPath, [script], { encoding: 'utf8' });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /packages\/assistant-data\/vitest.integration.config.mts/);
+  assert.match(result.stderr, /config file does not exist/);
+  assert.match(result.stderr, /Put this as the FIRST entry/);
 });
 
 test('refuses a lane list below the floor rather than reporting a vacuous pass', async () => {

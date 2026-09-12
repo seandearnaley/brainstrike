@@ -96,7 +96,10 @@ function isInspectorAttached() {
   const flags = [...process.execArgv, ...(process.env['NODE_OPTIONS'] ?? '').split(/\s+/)];
   return flags.some(
     (flag) =>
-      flag === '--inspect' || flag.startsWith('--inspect=') || flag.startsWith('--inspect-brk')
+      flag === '--inspect' ||
+      flag.startsWith('--inspect=') ||
+      flag === '--inspect-brk' ||
+      flag.startsWith('--inspect-brk=')
   );
 }
 

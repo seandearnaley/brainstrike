@@ -29,23 +29,31 @@ export const WATCHDOG_SETUP_ID = '@brainstrike/test-utils/vitest.event-loop-watc
  */
 export const PGLITE_LANES = Object.freeze([
   { config: 'apps/desktop/vitest.config.mts' },
+  { config: 'apps/desktop/vitest.integration.config.mts' },
   { config: 'packages/agent/vitest.config.mts' },
+  { config: 'packages/agent/vitest.integration.config.mts' },
   { config: 'packages/app-shell/vitest.config.mts' },
+  { config: 'packages/app-shell/vitest.integration.config.mts' },
   { config: 'packages/assistant-data/vitest.config.mts' },
+  { config: 'packages/assistant-data/vitest.integration.config.mts' },
   { config: 'packages/assistant-service/vitest.config.mts' },
   { config: 'packages/db/vitest.config.mts', project: 'unit' },
   { config: 'packages/db-explorer/vitest.config.mts' },
   { config: 'packages/db-explorer/vitest.integration.config.mts' },
   { config: 'packages/embeddings/vitest.config.mts' },
+  { config: 'packages/embeddings/vitest.integration.config.mts' },
   { config: 'packages/file-import/vitest.config.mts' },
+  { config: 'packages/file-import/vitest.integration.config.mts' },
 ]);
 
 /** A shrunken lane list means the contract was edited, not that fewer lanes host PGlite. */
-export const MIN_LANES = 10;
+export const MIN_LANES = 16;
 
 /** True only when the watchdog setup is the FIRST effective setup file. */
 export function leadsWithWatchdog(setupFiles) {
-  return Array.isArray(setupFiles) && setupFiles[0] === WATCHDOG_SETUP_ID;
+  return typeof setupFiles === 'string'
+    ? setupFiles === WATCHDOG_SETUP_ID
+    : Array.isArray(setupFiles) && setupFiles[0] === WATCHDOG_SETUP_ID;
 }
 
 /** The `setupFiles` vitest would use for this config (or one of its inline projects). */
@@ -81,8 +89,11 @@ function describeSetupFiles(setupFiles) {
   if (setupFiles === undefined) {
     return 'no setupFiles';
   }
+  if (typeof setupFiles === 'string') {
+    return `setupFiles omits the watchdog: ${JSON.stringify(setupFiles)}`;
+  }
   if (!Array.isArray(setupFiles)) {
-    return `setupFiles is ${typeof setupFiles}, not an array`;
+    return `setupFiles is ${typeof setupFiles}, not a string or array`;
   }
   const position = setupFiles.indexOf(WATCHDOG_SETUP_ID);
   if (position === -1) {
@@ -100,9 +111,16 @@ export async function findLanesMissingWatchdog(repoRoot, lanes) {
       missing.push({ ...lane, reason: 'config file does not exist' });
       continue;
     }
-    const setupFiles = await loadEffectiveSetupFiles(configPath, lane.project);
-    if (!leadsWithWatchdog(setupFiles)) {
-      missing.push({ ...lane, reason: describeSetupFiles(setupFiles) });
+    try {
+      const setupFiles = await loadEffectiveSetupFiles(configPath, lane.project);
+      if (!leadsWithWatchdog(setupFiles)) {
+        missing.push({ ...lane, reason: describeSetupFiles(setupFiles) });
+      }
+    } catch (error) {
+      missing.push({
+        ...lane,
+        reason: `config failed to load: ${error instanceof Error ? error.message : String(error)}`,
+      });
     }
   }
   return missing;
@@ -122,23 +140,27 @@ export async function main({ repoRoot = REPO_ROOT, lanes = PGLITE_LANES } = {}) 
   }
   const missing = await findLanesMissingWatchdog(repoRoot, lanes);
   if (missing.length > 0) {
-    process.exitCode = 1;
-    process.stderr.write(
-      `verify-event-loop-watchdog: ${missing.length} PGlite-hosting lane(s) do not list the ` +
+    return {
+      exitCode: 1,
+      message:
+        `verify-event-loop-watchdog: ${missing.length} PGlite-hosting lane(s) do not list the ` +
         'event-loop watchdog setup FIRST, so a blocked worker there hangs silently for the ' +
         'whole job instead of being killed and named (BST-1221):\n' +
         `${missing.map((lane) => `  - ${laneLabel(lane)}: ${lane.reason}`).join('\n')}\n\n` +
         "Put this as the FIRST entry of that lane's `setupFiles`:\n" +
-        `  '${WATCHDOG_SETUP_ID}',\n`
-    );
-    return;
+        `  '${WATCHDOG_SETUP_ID}',\n`,
+    };
   }
-  process.stdout.write(
-    `verify-event-loop-watchdog: OK (${lanes.length} PGlite-hosting lanes lead their setupFiles ` +
-      'with the event-loop watchdog)\n'
-  );
+  return {
+    exitCode: 0,
+    message:
+      `verify-event-loop-watchdog: OK (${lanes.length} PGlite-hosting lanes lead their setupFiles ` +
+      'with the event-loop watchdog)\n',
+  };
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  await main();
+if (import.meta.main) {
+  const result = await main();
+  (result.exitCode === 0 ? process.stdout : process.stderr).write(result.message);
+  process.exitCode = result.exitCode;
 }
