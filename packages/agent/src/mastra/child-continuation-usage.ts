@@ -2,7 +2,7 @@ import { parseMemoryRequestContext } from '@mastra/core/memory';
 import type { OutputProcessor } from '@mastra/core/processors';
 import type { ChildContinuationHostPort } from './child-continuation-host-port';
 
-export interface ChildContinuationScope {
+export interface ChildContinuationRuntimeScope {
   readonly resourceId: string;
   readonly threadId: string;
   readonly usageProcessor?: ContinuationUsageProcessor;
@@ -16,7 +16,7 @@ export type ContinuationUsageProcessor = OutputProcessor & {
 export function createContinuationUsageProcessor(
   host: ChildContinuationHostPort,
   id: string,
-  scope: ChildContinuationScope
+  scope: ChildContinuationRuntimeScope
 ): ContinuationUsageProcessor {
   let reported = false;
   let inputTokens = 0;

@@ -8,7 +8,10 @@ import { afterEach, expect, it } from 'vitest';
 import { DelegatedConversationToolbar } from '../delegated-conversation-toolbar';
 
 afterEach(cleanup);
-function insights(threadId = 'child'): DelegatedConversationInsights {
+function insights(
+  threadId = 'child',
+  allowedToolIds: readonly string[] = ['brainstrike.readWorkspaceFile']
+): DelegatedConversationInsights {
   const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
   if (!worker) {
     throw new Error('Missing canonical Worker');
@@ -16,7 +19,7 @@ function insights(threadId = 'child'): DelegatedConversationInsights {
   return {
     configuration: {
       maxSteps: 8,
-      persona: { ...worker, allowedToolIds: ['brainstrike.readWorkspaceFile'] },
+      persona: { ...worker, allowedToolIds },
     },
     depth: 1,
     directUsage: null,
@@ -106,7 +109,7 @@ it('surfaces load and legacy configuration failures without replacing them with 
 
 it('shows the latest admitted child execution settings and tools, not a later root selection', async () => {
   const user = userEvent.setup();
-  const value = insights();
+  const value = insights('child', ['brainstrike.grepSearch', 'brainstrike.readWorkspaceFile']);
   const latestExecutionConfiguration = {
     execution: {
       model: 'gpt-5.6-sol',
@@ -133,5 +136,22 @@ it('shows the latest admitted child execution settings and tools, not a later ro
   expect(screen.getByText('Effort high')).toBeVisible();
   expect(screen.getByText('Up to 777 output tokens')).toBeVisible();
   expect(screen.getByText(/execute: deny/)).toBeVisible();
+  await user.click(screen.getByText('2 admitted tools'));
+  expect(screen.getByText('grepSearch')).toBeVisible();
+  expect(screen.getByText('readWorkspaceFile')).toBeVisible();
   expect(screen.queryByText('unknown-custom-model')).not.toBeInTheDocument();
+});
+
+it('surfaces an invalid latest execution receipt without reducing the admitted maximum', () => {
+  render(
+    <DelegatedConversationToolbar
+      insights={{
+        status: 'ready',
+        value: { ...insights(), latestExecutionConfiguration: { execution: {} } },
+      }}
+      isRunning={false}
+    />
+  );
+  expect(screen.getByRole('alert')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Child details' })).not.toBeInTheDocument();
 });

@@ -225,9 +225,10 @@ export function DelegatedConversationToolbar({
   let persona: AssistantPersonaDefinition;
   let execution: ChildExecutionConfiguration | undefined;
   try {
-    const admitted = insights.value.latestExecutionConfiguration ?? insights.value.configuration;
-    persona = readAdmittedPersonaConfiguration(admitted);
-    const captured = admittedPersonaConfigurationSchema.parse(admitted).execution;
+    persona = readAdmittedPersonaConfiguration(insights.value.configuration);
+    const latestExecution =
+      insights.value.latestExecutionConfiguration ?? insights.value.configuration;
+    const captured = admittedPersonaConfigurationSchema.parse(latestExecution).execution;
     execution = captured ? readChildExecutionConfiguration(captured) : undefined;
   } catch (error) {
     return (

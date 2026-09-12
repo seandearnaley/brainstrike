@@ -137,22 +137,29 @@ function CapableChildPanel({
     isRunning
   );
   return (
-    <DelegatedConversationPanel
-      {...props}
-      panelProps={{
-        ...props.panelProps,
-        ...controls.panelProps,
-        attachmentsAvailability,
-        composerDraftCommand: command,
-        fileMentions,
-        onComposerDraftCommandApplied: onCommandApplied,
-        onComposerTextChange: onTextChange,
-        onFileMentionQueryChange: setQuery,
-        prepareActiveInput: controls.prepareInput,
-        slashCommands,
-      }}
-      prepareBranchInput={controls.prepareInput}
-    />
+    <>
+      {controls.error ? (
+        <p className="px-2 text-destructive text-xs" role="alert">
+          {controls.error}
+        </p>
+      ) : null}
+      <DelegatedConversationPanel
+        {...props}
+        panelProps={{
+          ...props.panelProps,
+          ...controls.panelProps,
+          attachmentsAvailability,
+          composerDraftCommand: command,
+          fileMentions,
+          onComposerDraftCommandApplied: onCommandApplied,
+          onComposerTextChange: onTextChange,
+          onFileMentionQueryChange: setQuery,
+          prepareActiveInput: controls.prepareInput,
+          slashCommands,
+        }}
+        prepareBranchInput={controls.prepareInput}
+      />
+    </>
   );
 }
 

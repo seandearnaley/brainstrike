@@ -84,7 +84,6 @@ When changing this flow, update this section and the paired tests in `packages/d
 
 ---
 
-
 ## WORKSPACE INSTRUCTIONS CONTEXT (AGENTS.md / AGENT.md / CLAUDE.md)
 
 Each mounted workspace root's top-level instructions file is auto-injected into
@@ -1727,7 +1726,6 @@ section and its paired tests.
 The canonical [persona Settings host-check contract](assistant-subagents.md#persona-settings-host-checks-bst-1727) covers validated scan results, model/tool availability, and request-dependent scope.
 
 
-
 ### Persona edits and admitted child decisions (BST-1727)
 
 User persona scans resolve the profile for a fresh delegation. Once a child is
@@ -1777,7 +1775,6 @@ A child's explicit bound root also wins over the currently focused folder on
 non-Git workspaces. Disconnecting that root is a visible error; neither a new
 folder focus nor unavailable worktree capability authorizes switching roots.
 The same integration file proves both actual filesystem destinations.
-
 
 The native executor passes a durable execution thread separately from the
 read-state scope; a DB-less scope sentinel never becomes checkpoint ownership.

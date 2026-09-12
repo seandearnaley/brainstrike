@@ -199,6 +199,10 @@ test('restores distinct child tabs and native transcripts without executing a ru
     .toBe(true);
   await cedarViewport.evaluate((element) => element.scrollTo({ behavior: 'instant', top: 0 }));
   await expect.poll(() => cedarViewport.evaluate((element) => element.scrollTop)).toBe(0);
+  // Wait for the scroll owner to record that Cedar is reading history before
+  // hiding its kept-alive panel. A DOM scrollTop write precedes its scroll
+  // event; switching tabs before that event leaves the follow state pinned.
+  await expect(cedarPanel.getByTestId('assistant-scroll-to-bottom')).toBeEnabled();
   await cedar.focus();
   await cedar.press('ArrowRight');
   await expect(flint).toBeFocused();
@@ -220,12 +224,14 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(childPanel.getByText('Instructions for Cedar', { exact: true })).toBeVisible();
   await expect(
     childPanel.getByRole('button', { includeHidden: true, name: 'Regenerate response' })
-  ).toHaveCount(0);
+  ).toHaveCount(1);
+  await childPanel.getByText('Instructions for Cedar', { exact: true }).hover();
   await expect(
     childPanel.getByRole('button', { includeHidden: true, name: 'Edit message' })
-  ).toHaveCount(0);
-  // Idle children accept their own draft; opening or editing it must not run
-  // a model or change the parent's composer. Delivery is covered separately.
+  ).toHaveCount(1);
+  // Reloaded idle children expose their branch controls and accept their own
+  // draft. Merely restoring the controls or editing the draft must not run a
+  // model or change the parent's composer. Delivery is covered separately.
   const childInput = childPanel.getByRole('textbox', { name: 'Message input' });
   await expect(childInput).toBeEnabled();
   await childInput.fill('UNSENT_CHILD_DRAFT_1724');

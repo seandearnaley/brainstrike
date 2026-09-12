@@ -52,6 +52,47 @@ const hostScopeSchema = z.object({
   turnMessageId: identityString,
 });
 
+async function readRequiredBranchHistory(
+  database: DelegatedConversationDatabase,
+  threadId: string,
+  resourceId: string,
+  requiredMessageIds: readonly string[]
+): Promise<Awaited<ReturnType<typeof readAssistantHistoryMessages>>> {
+  const required = new Set(requiredMessageIds);
+  const captured = new Map<
+    string,
+    Awaited<ReturnType<typeof readAssistantHistoryMessages>>[number]
+  >();
+  let page = await readAssistantHistoryMessages(database, threadId, resourceId, {
+    limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+  });
+  while (required.size > 0) {
+    for (const message of page) {
+      if (required.delete(message.id)) {
+        captured.set(message.id, message);
+      }
+    }
+    if (required.size === 0) {
+      break;
+    }
+    const cursor = page[0]?.id;
+    if (!cursor) {
+      throw new DelegatedConversationIdentityError('continuation-branch-history-incomplete');
+    }
+    page = await readAssistantHistoryMessages(database, threadId, resourceId, {
+      beforeMessageId: cursor,
+      limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    });
+  }
+  return requiredMessageIds.map((id) => {
+    const message = captured.get(id);
+    if (!message) {
+      throw new DelegatedConversationIdentityError('continuation-branch-history-incomplete');
+    }
+    return message;
+  });
+}
+
 function assertActionInvocation(
   invocation: DelegatedInvocation | null,
   edge: DelegatedRunIdentity,
@@ -206,12 +247,14 @@ export function createDesktopDelegatedConversationHost(
     threadId: string,
     resourceId: string,
     initial: boolean,
-    completeHistory = false
+    requiredMessageIds?: readonly string[]
   ): Promise<DelegatedConversationBaseline> => {
     const [messages, runEvents] = await Promise.all([
-      readAssistantHistoryMessages(database, threadId, resourceId, {
-        ...(completeHistory ? {} : { limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT }),
-      }),
+      requiredMessageIds
+        ? readRequiredBranchHistory(database, threadId, resourceId, requiredMessageIds)
+        : readAssistantHistoryMessages(database, threadId, resourceId, {
+            limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+          }),
       readAssistantHistoryRunEvents(database, threadId, resourceId, {
         limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
       }),

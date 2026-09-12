@@ -38,7 +38,7 @@ import {
 } from './anthropic-instruction-cache';
 import { requireBackgroundResultDelivery } from './background-result-delivery';
 import type { DelegatedExecutionOptions } from './build-persona-subagents';
-import type { ChildContinuationScope } from './child-continuation-usage';
+import type { ChildContinuationRuntimeScope } from './child-continuation-usage';
 import { captureRuntimeChildExecution } from './child-run-configuration';
 import {
   buildContextBudgetNote,
@@ -99,7 +99,7 @@ export interface MastraAgentRuntimeOptions {
   /** Host-admitted settings for the exact resumed child, never renderer authority. */
   childExecutionConfiguration?: import('@brainstrike/assistant-contract').ChildExecutionConfiguration;
   /** Actual ancestor depth retained when an existing child becomes the managed native root. */
-  continuationChildScope?: ChildContinuationScope | undefined;
+  continuationChildScope?: ChildContinuationRuntimeScope | undefined;
   /** Host-owned native identity persistence; never serialized through RuntimeData. */
   conversationBinding?: DelegatedConversationBinding | undefined;
   delegatedDepthOffset?: number | undefined;

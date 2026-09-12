@@ -1,5 +1,3 @@
-import type { ChildContinuationScope } from './child-continuation-usage';
-import { createDelegatedStepUsageProcessor } from './delegated-step-usage';
 /**
  * Persona → child-`Agent` factory (subagent personas, T2).
  *
@@ -39,10 +37,12 @@ import {
   type ScaledToolResultBudget,
 } from '../stream/tool-output-limits';
 import type { RuntimeData } from '../types';
+import type { ChildContinuationRuntimeScope } from './child-continuation-usage';
 import { createChildInputContextProcessor } from './child-input-context';
 import { executionForPersona } from './child-run-configuration';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { personasAtDelegationDepth } from './delegated-persona-snapshots';
+import { createDelegatedStepUsageProcessor } from './delegated-step-usage';
 import {
   createDelegatedSystemContextProcessor,
   createRootDelegatedContextProcessor,
@@ -92,7 +92,7 @@ export interface BuildPersonaSubAgentsParams {
   readonly childExecutionConfiguration?:
     | import('@brainstrike/assistant-contract').ChildExecutionConfiguration
     | undefined;
-  readonly continuationChildScope?: ChildContinuationScope | undefined;
+  readonly continuationChildScope?: ChildContinuationRuntimeScope | undefined;
   readonly conversationBinding?: DelegatedConversationBinding;
   readonly delegatedDepthOffset?: number | undefined;
   readonly delegatedExecutionOptions?: DelegatedExecutionOptions | undefined;

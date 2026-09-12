@@ -317,9 +317,7 @@ async function* projectContinuation(
     for await (const raw of stream) {
       const usage = usageProcessor.readUsage();
       const chunk =
-        usage && (raw.type === 'finish' || raw.type === 'message-finish')
-          ? { ...raw, usage: { ...raw.usage, ...usage } }
-          : raw;
+        usage && (raw.type === 'finish' || raw.type === 'message-finish') ? { ...raw, usage } : raw;
       yield await projectContinuationChunk(chunk, host, id, nativeRunId, binding, state);
     }
     if (signal?.aborted) {

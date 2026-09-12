@@ -922,7 +922,7 @@ it.each(['retry', 'edit'] as const)(
     );
     const bound = await host.bindContinuation({ id: input.id, nativeRunId: 'branch-native' });
     expect(bound.baseline.headId).toBe(kind === 'retry' ? 'branch-0' : 'branch-1');
-    expect(bound.baseline.messages).toHaveLength(4);
+    expect(bound.baseline.messages).toHaveLength(kind === 'retry' ? 1 : 2);
     const parents = await database.query(
       'SELECT message_id,parent_id FROM brainstrike_assistant_message_parents ORDER BY message_id'
     );

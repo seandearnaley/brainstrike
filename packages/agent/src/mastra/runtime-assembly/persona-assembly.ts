@@ -16,7 +16,7 @@ import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import type { RuntimeData } from '../../types';
 import { buildPersonaSubAgents, type DelegatedExecutionOptions } from '../build-persona-subagents';
-import type { ChildContinuationScope } from '../child-continuation-usage';
+import type { ChildContinuationRuntimeScope } from '../child-continuation-usage';
 import type { DelegationPersonaSummary } from '../default-instructions';
 import type { DelegatedConversationBinding } from '../delegated-conversation-binding';
 import { personasAtDelegationDepth } from '../delegated-persona-snapshots';
@@ -63,7 +63,7 @@ export async function resolvePersonaRuntimeParts(params: {
   childExecutionConfiguration?:
     | import('@brainstrike/assistant-contract').ChildExecutionConfiguration
     | undefined;
-  continuationChildScope?: ChildContinuationScope | undefined;
+  continuationChildScope?: ChildContinuationRuntimeScope | undefined;
   delegatedDepthOffset?: number | undefined;
   delegatedExecutionOptions?: DelegatedExecutionOptions;
   delegatedPersonaSnapshots?: readonly AssistantPersonaDefinition[] | undefined;

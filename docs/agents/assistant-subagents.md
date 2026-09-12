@@ -79,7 +79,6 @@ Mastra returns the tool error to the supervisor so it can respond. Disabled
 delegation does not validate unused child context. Permission `allow`/YOLO permits
 worker effects without a new prompt; `ask` requires the exact durable child decision.
 
-
 Workers reuse permission filtering, output-artifact settlement, model projections,
 canonical catalog search/loading, skill injection, provider history compatibility,
 token limiting and error processors. Each child discovery catalog contains only
@@ -757,7 +756,6 @@ A real native child-tool failure retains its native chunk identity and is covere
 by the production-stream guard test. With no `bindRun` capability, the guard is
 absent and the stream loop adds no authorization promise/microtask per chunk.
 
-
 ### Durable delegated usage (BST-1718)
 
 Bound completion reports carry the public Mastra parent run/tool call and child
@@ -803,15 +801,15 @@ engine to verify durable identity/usage. This is host integration evidence, not
 packaged Electron E2E or a process-restart guarantee. The separate graph/host,
 branch deletion, contract and stream-ordering tests cover rejection and replay.
 
-
 Lifecycle stays in the existing `brainstrike_assistant_run_events` journal.
 Native delegation start/finish/failure events now carry `parentRuntimeRunId`
 alongside `parentToolCallId`, so the host run/root ownership plus this key joins
 the exact invocation, including repeated tool-call names in different runs.
 Legacy events lacking the key are not fabricated into child lifecycle history.
 The desktop production-loop test verifies this durable terminal correlation.
-Root archive is presentation state on the existing root, not a second copied
-child flag; child navigation must inherit root visibility (BST-1725). There is
+Neither root nor child conversations currently expose an archive action.
+Child navigation inherits root filter/folder visibility (BST-1725); closing a
+child tab remains reversible and does not delete or stop its work. There is
 no automatic invocation retention sweep. Host-run retention must preserve
 resumable invocations or explicitly remove the complete branch. Dedicated child
 transcript statuses, approval presentation and lifecycle controls remain in
@@ -1182,7 +1180,6 @@ remaining BST-1720 production entry, question/plan, interrupted-state UI and
 end-to-end acceptance is green. This foundation does not enable mutation tools
 or unrestricted recursive workers.
 
-
 ### Durable delegated decision recovery display (BST-1720)
 
 The suspended-runs endpoint annotates each rediscovered native leaf with its
@@ -1195,7 +1192,9 @@ only reads admission records and never creates a pause from them.
 The existing approval, question and plan cards retain their original content
 and show the admission status with controls locked. Unknown present states
 fail wire validation and render an unavailable status if encountered directly
-in a card. Staleness without admission state remains advisory. Status refresh
+in a card. Only a pause without a durable decision is actionable; claimed,
+consumed, interrupted and cancelled pauses never mark sidebar attention, and
+staleness without admission state remains advisory. Status refresh
 uses the existing thread reload; no polling or auto-resume is introduced.
 The server's durable admission check remains authoritative if a claim races
 this read. Missing/ambiguous native snapshots still use the visible discovery
@@ -1558,7 +1557,6 @@ Delegation cards resolve durable names and colors through the owning workspace r
 
 A child-open request made before the workspace repository is available fails visibly and clears its session intent. Boot hydration still restores the saved root, but cannot replay that rejected child-open request; the user may explicitly open the child after storage is ready. The shared coordinator test covers this boundary.
 
-
 ### Background worker execution and pending controls (BST-1723)
 
 Desktop run-scoped memory supplies `backgroundTaskScope` through assistant-service
@@ -1647,7 +1645,6 @@ it does not silently substitute built-ins for a successful user-profile scan.
 No credentials enter the IPC response and no new state is persisted. Existing
 subagent-personas factory-reset registration remains authoritative.
 
-
 ### Managed idle-child input (BST-1723)
 
 A user follow-up to an idle child starts a fresh managed root host leg and wakes
@@ -1672,7 +1669,6 @@ nor a repeated input/decision may execute an effect again.
 `idle-grandchild-restart.integration.test.ts` proves depth-two continuation and
 sibling Stop isolation through three distinct processes, real native storage,
 parent outcome delivery, and unchanged original invocation identities.
-
 
 The selected child retains its admitted persona and step cap. Direct child legs
 must preserve the child's default budget and worker processors: root per-call
@@ -1908,6 +1904,7 @@ finish values cannot duplicate earlier spend. Stopping an already paused child
 therefore retains its reported model usage. Missing provider counts do not create
 a fabricated usage row. The three-process sibling fixture checks 1/1 on each
 paused child and 1/1 on the surviving child's resumed leg, both live and durable.
+
 ### Settings inventory and reset release proof (BST-1727/BST-1728)
 
 `delegated-factory-reset.desktop.test.ts` toggles Settings' master delegation

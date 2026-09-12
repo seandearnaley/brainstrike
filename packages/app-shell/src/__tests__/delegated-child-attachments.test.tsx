@@ -17,9 +17,18 @@ vi.mock('@brainstrike/assistant-data', async (original) => ({
 }));
 vi.mock('../use-file-mentions', () => ({ useFileMentions: () => ({ fileMentions: undefined }) }));
 vi.mock('../use-assistant-slash-commands', () => ({ useAssistantSlashCommands: () => undefined }));
+const providerDiscovery = vi.hoisted(() => ({ error: undefined as string | undefined }));
+vi.mock('../hooks/use-configured-assistant-providers', () => ({
+  useConfiguredAssistantProviders: () => ({
+    discoveryError: providerDiscovery.error,
+    discoveryState: providerDiscovery.error ? 'error' : 'ready',
+    providers: ['openai'],
+  }),
+}));
 const originalRegistry = useModelRegistryStore.getState();
 afterEach(() => {
   cleanup();
+  providerDiscovery.error = undefined;
   useModelRegistryStore.setState(originalRegistry, true);
 });
 const model = (id: string, vision: boolean): DbModel => ({
@@ -93,3 +102,39 @@ it.each([
     }
   }
 );
+
+it('surfaces provider discovery failure beside the child composer', () => {
+  providerDiscovery.error = 'Provider discovery failed: OS keychain is locked';
+  useModelRegistryStore.setState({ models: [model('text', false)] });
+  const persona = BUILT_IN_PERSONAS[0];
+  if (!persona) {
+    throw new Error('Missing canonical persona');
+  }
+  render(
+    <TooltipProvider>
+      <DelegatedChildConversationPanel
+        allowIdleInput
+        inheritedModel="openai::text"
+        insights={{
+          status: 'ready',
+          value: {
+            configuration: { maxSteps: 8, persona },
+            depth: 1,
+            directUsage: null,
+            latestExecutionConfiguration: null,
+            latestRun: null,
+            subtreeUsage: null,
+            threadId: 'child',
+          },
+        }}
+        label="Child"
+        onNew={async () => {}}
+        onSendActiveInput={async () => {}}
+        persistedHistory={{ messages: [] }}
+        store={createDelegatedConversationStore('root')}
+        threadId="child"
+      />
+    </TooltipProvider>
+  );
+  expect(screen.getByRole('alert')).toHaveTextContent('OS keychain is locked');
+});
