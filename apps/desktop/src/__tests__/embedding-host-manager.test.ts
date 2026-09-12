@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 interface EmbeddingLifecycleStatus {
   active: boolean;
+  commandId?: string;
   lastError: string | null;
   runtimeId: string;
   runtimeKind?: 'embedding-host';
@@ -321,26 +322,39 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     });
   });
 
-  it('disposes a starting host without waiting for an unregistered renderer stop listener', async () => {
+  it.each([false, true])('drains a registered startup (%s)', async (registered) => {
     currentLifecycleStatus.state = 'starting';
     const manager = new EmbeddingHostManager();
+    if (registered) {
+      manager.acceptStatusReport(mockHostWindow.webContents.id, {
+        ...currentLifecycleStatus,
+        runtimeKind: 'embedding-host',
+      });
+    }
     await manager.dispose();
-    expect(mockHostWindow.webContents.send).not.toHaveBeenCalled();
-    expect(lifecycleState.waitForStatus).not.toHaveBeenCalled();
+    expect(mockHostWindow.webContents.send).toHaveBeenCalledTimes(registered ? 1 : 0);
+    expect(lifecycleState.waitForStatus).toHaveBeenCalledTimes(registered ? 1 : 0);
     expect(lifecycleState.dispose).toHaveBeenCalledOnce();
     expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
   });
 
   it('captures the runtime id and exposes renderer stop failure after teardown', async () => {
-    lifecycleState.waitForStatus.mockResolvedValueOnce({
-      active: false,
+    const status = {
+      ...currentLifecycleStatus,
       lastError: 'Renderer could not stop its worker',
-      runtimeId: 'embedding-host-runtime',
-      state: 'error',
-    });
+      state: 'error' as const,
+    };
+    lifecycleState.waitForStatus.mockResolvedValueOnce(status);
     const manager = new EmbeddingHostManager();
 
     await expect(manager.stop()).rejects.toThrow('Renderer could not stop its worker');
+
+    const sent = mockHostWindow.webContents.send.mock.calls.at(-1)?.[1] as { requestId: string };
+    const predicate = lifecycleState.waitForStatus.mock.calls[0]?.[0];
+    expect(predicate?.(status)).toBe(false);
+    expect(predicate?.({ ...status, commandId: 'different-command' })).toBe(false);
+    expect(predicate?.({ ...status, commandId: sent.requestId })).toBe(true);
+    expect(predicate?.({ ...status, commandId: sent.requestId, state: 'stopped' })).toBe(true);
 
     expect(mockHostWindow.webContents.send).toHaveBeenCalledWith(
       'embedding-host:command',

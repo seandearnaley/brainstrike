@@ -79,9 +79,13 @@ test('Settings disables actual delegation tools and factory reset removes delega
   );
   Object.assign(process.env, environment);
   const failures: unknown[] = [];
+  const hostErrors: string[] = [];
   let page: Page | undefined;
   try {
     page = await electron.ensureWindow();
+    (await electron.ensureContext()).app
+      .process()
+      .stderr?.on('data', (chunk: Buffer) => hostErrors.push(chunk.toString()));
     await ensureMockWorkspaceOpen(page);
     await configureAssistantProvider(page, {
       compositeModelKey: 'openrouter::openai/gpt-5.4',
@@ -133,7 +137,11 @@ test('Settings disables actual delegation tools and factory reset removes delega
       'true'
     );
     expect(await readFile(sentinel, 'utf8')).toBe('USER_WORKSPACE_MUST_SURVIVE_RESET\n');
-    page = (await electron.restart()).window;
+    const restarted = await electron.restart();
+    page = restarted.window;
+    restarted.app
+      .process()
+      .stderr?.on('data', (chunk: Buffer) => hostErrors.push(chunk.toString()));
     await waitForDatabaseReady(page);
     expect(Object.values(await readDelegatedResetState(page, seed)).flat()).toEqual([]);
     await expect(page.getByRole('tab', { exact: true, name: 'Reset Cedar' })).toHaveCount(0);
@@ -198,6 +206,11 @@ test('Settings disables actual delegation tools and factory reset removes delega
   }
   if (disposed) {
     await rm(workspace, { recursive: true });
+  }
+  try {
+    expect(hostErrors.join('')).not.toContain('Error occurred in handler for');
+  } catch (error) {
+    failures.push(error);
   }
   if (failures.length > 0) {
     throw new AggregateError(failures, 'Delegated reset release verification failed');

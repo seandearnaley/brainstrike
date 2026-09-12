@@ -36,6 +36,10 @@ import {
   type EmbeddingHostStatus,
   type EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
+import {
+  createEmbeddingHostStatus,
+  type EmbeddingHostStatusOptions,
+} from './embedding-host-status';
 import { startEmbeddingTelemetryReporter } from './embedding-telemetry-reporter';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
@@ -138,33 +142,10 @@ function createQueryEmbeddingRequestParseErrorReport(
   };
 }
 
-function createEmbeddingHostStatus(
-  runtimeId: string,
-  state: EmbeddingHostStatus['state'],
-  options?: {
-    active?: boolean;
-    embeddingRuntime?: EmbeddingHostRuntimeMetadata | null;
-    lastError?: string | null;
-  }
-): EmbeddingHostStatus {
-  return {
-    active: options?.active ?? false,
-    lastError: options?.lastError ?? null,
-    runtimeId,
-    runtimeKind: 'embedding-host',
-    state,
-    ...(options?.embeddingRuntime ? { embeddingRuntime: options.embeddingRuntime } : {}),
-  };
-}
-
 function reportEmbeddingHostRuntimeStatus(
   runtimeIdRef: MutableRefObject<string>,
   state: EmbeddingHostStatus['state'],
-  options?: {
-    active?: boolean;
-    embeddingRuntime?: EmbeddingHostRuntimeMetadata | null;
-    lastError?: string | null;
-  }
+  options?: EmbeddingHostStatusOptions
 ): void {
   reportStatus(createEmbeddingHostStatus(runtimeIdRef.current, state, options));
 }
@@ -172,11 +153,7 @@ function reportEmbeddingHostRuntimeStatus(
 function reportEmbeddingHostRuntimeStatusForRuntimeId(
   runtimeId: string,
   state: EmbeddingHostStatus['state'],
-  options?: {
-    active?: boolean;
-    embeddingRuntime?: EmbeddingHostRuntimeMetadata | null;
-    lastError?: string | null;
-  }
+  options?: EmbeddingHostStatusOptions
 ): void {
   reportStatus(createEmbeddingHostStatus(runtimeId, state, options));
 }
@@ -592,6 +569,7 @@ interface StartEmbeddingHostWorkerOptions {
   readonly fatalErrorRef: MutableRefObject<string | null>;
   readonly gate: ForegroundEmbeddingGate;
   readonly isDisposed: () => boolean;
+  readonly isStopping: () => boolean;
   readonly onFatalError: (error: Error) => void;
   readonly onWorkerActivityChange: (active: boolean) => void;
   readonly runtimeIdRef: MutableRefObject<string>;
@@ -607,6 +585,7 @@ async function startEmbeddingHostWorkerRuntime({
   fatalErrorRef,
   gate,
   isDisposed,
+  isStopping,
   onFatalError,
   onWorkerActivityChange,
   runtimeIdRef,
@@ -643,6 +622,9 @@ async function startEmbeddingHostWorkerRuntime({
         if (backendMismatchError) {
           fatalErrorRef.current = backendMismatchError;
         }
+        if (isStopping()) {
+          return;
+        }
         reportEmbeddingHostRuntimeStatus(runtimeIdRef, backendMismatchError ? 'error' : 'running', {
           active: backendMismatchError ? false : activeRef.current,
           embeddingRuntime: embeddingRuntimeRef.current,
@@ -665,6 +647,9 @@ async function startEmbeddingHostWorkerRuntime({
       return;
     }
     controllerRef.current = controller;
+    if (isStopping()) {
+      return;
+    }
     const fatalError = fatalErrorRef.current;
     reportEmbeddingHostRuntimeStatus(runtimeIdRef, fatalError ? 'error' : 'running', {
       active: fatalError ? false : activeRef.current,
@@ -678,9 +663,11 @@ async function startEmbeddingHostWorkerRuntime({
       runtimeId: runtimeIdRef.current,
     });
     fatalErrorRef.current = message;
-    reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
-      lastError: message,
-    });
+    if (!isStopping()) {
+      reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+        lastError: message,
+      });
+    }
   } finally {
     startingRef.current = false;
   }
@@ -692,6 +679,7 @@ export function EmbeddingHostRuntime(): null {
   const embeddingRuntimeRef = useRef<EmbeddingHostRuntimeMetadata | null>(null);
   const fatalErrorRef = useRef<string | null>(null);
   const startingRef = useRef(false);
+  const startPromiseRef = useRef<Promise<void> | null>(null);
   const activeRef = useRef(false);
   const runtimeIdRef = useRef<string>(resolveEmbeddingHostRuntimeId());
   const stopPromiseRef = useRef<Promise<void> | null>(null);
@@ -729,8 +717,15 @@ export function EmbeddingHostRuntime(): null {
       },
     });
 
-    const startWorker = async (): Promise<void> =>
-      startEmbeddingHostWorkerRuntime({
+    const startWorker = async (): Promise<void> => {
+      // Join Stop before registering a new start, so Stop never waits on itself.
+      if (stopPromiseRef.current) {
+        await stopPromiseRef.current;
+      }
+      if (startPromiseRef.current) {
+        return startPromiseRef.current;
+      }
+      const started = startEmbeddingHostWorkerRuntime({
         activeRef,
         controllerRef,
         db,
@@ -738,12 +733,22 @@ export function EmbeddingHostRuntime(): null {
         fatalErrorRef,
         gate: gateRef.current,
         isDisposed: () => disposed,
+        isStopping: () => stopPromiseRef.current !== null,
         onFatalError,
         onWorkerActivityChange,
         runtimeIdRef,
         startingRef,
         stopPromiseRef,
       });
+      startPromiseRef.current = started;
+      try {
+        await started;
+      } finally {
+        if (startPromiseRef.current === started) {
+          startPromiseRef.current = null;
+        }
+      }
+    };
 
     const stopWorker = (
       reason:
@@ -764,6 +769,9 @@ export function EmbeddingHostRuntime(): null {
           reportRuntimeId,
           runtimeId: runtimeIdRef.current,
         });
+        if (startPromiseRef.current) {
+          await startPromiseRef.current;
+        }
         const controller = controllerRef.current;
         controllerRef.current = null;
         fatalErrorRef.current = null;
@@ -881,7 +889,25 @@ export function EmbeddingHostRuntime(): null {
         return;
       }
       if (nextCommand.payload.action === 'stop') {
-        void stopWorker('command-stop');
+        void stopWorker('command-stop').then(
+          () => {
+            if (!disposed) {
+              reportEmbeddingHostRuntimeStatusForRuntimeId(nextCommand.runtimeId, 'stopped', {
+                commandId: nextCommand.requestId,
+                embeddingRuntime: embeddingRuntimeRef.current,
+              });
+            }
+          },
+          (error: unknown) => {
+            logger.error('Embedding host Stop failed', { error, requestId: nextCommand.requestId });
+            if (!disposed) {
+              reportEmbeddingHostRuntimeStatusForRuntimeId(nextCommand.runtimeId, 'error', {
+                commandId: nextCommand.requestId,
+                lastError: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+        );
         return;
       }
       if (nextCommand.payload.action === 'reset') {

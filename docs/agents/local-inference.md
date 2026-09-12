@@ -440,6 +440,17 @@ Embedding runtime telemetry (BST-402):
   A validated request-scoped worker error is
   terminal: the workerpool adapter emits it for diagnostics, cancels the RPC, and rejects
   the task even if the worker later tries to return vectors.
+  Embedding-host Stop joins any pending startup before acknowledging `stopped`.
+  A startup that finishes during Stop yields its controller to that stop owner;
+  startup failures remain logged but cannot publish a competing terminal status
+  for an operation Stop is still draining. New starts await the tracked stop, and
+  no stop acknowledgement leaves a late-starting worker behind.
+  Stop terminal reports echo the existing control request ID. Main matches that
+  ID, so a queued startup error or prior stop cannot settle another command;
+  an actual stop failure reports the same identity and fails visibly.
+  A trusted status report also proves the renderer registered its control listener.
+  Disposal cooperatively drains that renderer even while worker startup is pending;
+  only a startup that has never reported readiness is destroyed without an ack.
   Controlled host restarts publish a metadata-free `starting`
   transition and retain the latest valid snapshot, while terminal `stopped` and `error`
   states clear it. The

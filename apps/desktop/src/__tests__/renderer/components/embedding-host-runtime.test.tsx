@@ -632,6 +632,64 @@ describe('EmbeddingHostRuntime', () => {
     );
   });
 
+  it.each(['started', 'failed'] as const)(
+    'joins in-flight startup before acknowledging Stop (%s)',
+    async (outcome) => {
+      storeState.hasHydrated = true;
+      const starting = Promise.withResolvers<{ stop: typeof stopMock }>();
+      startEmbeddingWorkerMock.mockReturnValue(starting.promise);
+      const view = render(<EmbeddingHostRuntime />);
+      await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce());
+      reportStatusMock.mockClear();
+      const command = createEmbeddingHostCommand('stop', 'test-runtime');
+      await act(async () => {
+        commandListenerRef.current?.(command);
+      });
+      expect(reportStatusMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'stopped' })
+      );
+      await act(async () => {
+        if (outcome === 'started') {
+          starting.resolve({ stop: stopMock });
+        } else {
+          starting.reject(new Error('Startup device is unavailable'));
+        }
+      });
+      await waitFor(() =>
+        expect(reportStatusMock).toHaveBeenLastCalledWith(
+          expect.objectContaining({ commandId: command.requestId, state: 'stopped' })
+        )
+      );
+      expect(reportStatusMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'running' })
+      );
+      expect(reportStatusMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'error' })
+      );
+      expect(stopMock).toHaveBeenCalledTimes(outcome === 'started' ? 1 : 0);
+      view.unmount();
+    }
+  );
+
+  it('acknowledges the exact failed Stop instead of leaving main waiting', async () => {
+    storeState.hasHydrated = true;
+    const view = render(<EmbeddingHostRuntime />);
+    await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce());
+    stopMock.mockRejectedValueOnce(new Error('Worker drain failed'));
+    const command = createEmbeddingHostCommand('stop', 'test-runtime');
+    await act(async () => commandListenerRef.current?.(command));
+    await waitFor(() =>
+      expect(reportStatusMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          commandId: command.requestId,
+          lastError: 'Worker drain failed',
+          state: 'error',
+        })
+      )
+    );
+    view.unmount();
+  });
+
   it('does not report stopped status again after unmount cleanup finishes', async () => {
     storeState.hasHydrated = true;
     let resolveStop: (() => void) | null = null;
