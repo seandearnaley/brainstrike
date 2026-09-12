@@ -62,6 +62,8 @@ export interface ModelProviderTurnRecord {
 /** Parsed provider request available to parent/child test script routing. */
 export interface ModelProviderRequest {
   readonly messages: readonly unknown[];
+  /** Actual parsed wire payload for generation-setting assertions. */
+  readonly requestBody: unknown;
   readonly requestIndex: number;
   readonly toolNames: readonly string[];
 }
@@ -80,6 +82,7 @@ export interface ModelProviderShim {
 
 interface ChatCompletionsRequestBody {
   readonly messages?: unknown[];
+  readonly requestBody?: unknown;
   readonly stream?: boolean;
   readonly tools?: unknown[];
 }
@@ -106,6 +109,7 @@ async function readJsonBody(request: IncomingMessage): Promise<ChatCompletionsRe
     throw new Error('Model provider shim expected a JSON object request body.');
   }
   return {
+    requestBody: parsed,
     ...(Array.isArray(parsed['messages']) ? { messages: parsed['messages'] } : {}),
     ...(Array.isArray(parsed['tools']) ? { tools: parsed['tools'] } : {}),
     ...(typeof parsed['stream'] === 'boolean' ? { stream: parsed['stream'] } : {}),
@@ -341,12 +345,13 @@ export async function startModelProviderShim(
     }
 
     void readJsonBody(request)
-      .then(async ({ messages, stream, tools }) => {
+      .then(async ({ messages, stream, tools, requestBody }) => {
         const toolResultCount = countToolResultMessages(messages);
         const selectedScript =
           typeof script === 'function'
             ? script({
                 messages: messages ?? [],
+                requestBody,
                 requestIndex: requestOrdinal,
                 toolNames: (tools ?? []).flatMap((tool) =>
                   isRecord(tool) &&

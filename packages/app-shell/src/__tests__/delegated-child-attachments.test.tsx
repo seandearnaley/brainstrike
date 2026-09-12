@@ -64,6 +64,7 @@ it.each([
               },
               depth: 1,
               directUsage: null,
+              latestExecutionConfiguration: null,
               latestRun: {
                 model: previous,
                 modelSettings: null,

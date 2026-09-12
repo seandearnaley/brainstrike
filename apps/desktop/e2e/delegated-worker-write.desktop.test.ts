@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { TestInfo } from '@playwright/test';
+import type { Locator, TestInfo } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import type { ElectronHarness } from './fixtures/electron-harness';
 import { HomePage } from './page-objects/home-page';
@@ -25,38 +25,63 @@ async function waitForOwnedExit(process: ChildProcess | undefined): Promise<void
 test('worker Approve controls a reloaded disposable workspace write @smoke', async ({
   electron,
 }, testInfo) => {
-  await assertWorkerWrite(electron, testInfo, 'Approve');
+  await assertWorkerWrite(electron, testInfo, { decision: 'Approve' });
 });
 test('worker Decline controls a reloaded disposable workspace write @smoke', async ({
   electron,
 }, testInfo) => {
-  await assertWorkerWrite(electron, testInfo, 'Decline');
+  await assertWorkerWrite(electron, testInfo, { decision: 'Decline' });
 });
 
 test('recursive worker reloads its leaf approval and returns the result through three levels @smoke', async ({
   electron,
 }, testInfo) => {
-  await assertWorkerWrite(electron, testInfo, 'Approve', 3);
+  await assertWorkerWrite(electron, testInfo, { decision: 'Approve', depth: 3 });
 });
 
 test('background worker survives a host restart with its pending approval and writes once @smoke', async ({
   electron,
 }, testInfo) => {
-  await assertWorkerWrite(electron, testInfo, 'Approve', 1, true);
+  await assertWorkerWrite(electron, testInfo, { decision: 'Approve', restartHost: true });
 });
 
 test('stops a reloaded pending child and preserves parent interaction @smoke', async ({
   electron,
 }, testInfo) => {
-  await assertWorkerWrite(electron, testInfo, 'Stop');
+  await assertWorkerWrite(electron, testInfo, { decision: 'Stop' });
 });
+
+test('worker attributes an allowed write without a preceding human pause @smoke', async ({
+  electron,
+}, testInfo) => {
+  await assertWorkerWrite(electron, testInfo, { autoApprove: true, decision: 'Approve' });
+});
+
+async function ensureActivityExpanded(region: Locator): Promise<void> {
+  const expand = region.getByRole('button', { exact: true, name: 'Expand activity' });
+  const collapse = region.getByRole('button', { exact: true, name: 'Collapse activity' });
+  await expect(expand.or(collapse)).toBeVisible();
+  if (await expand.count()) {
+    await expand.click();
+    return;
+  }
+  await expect(collapse).toBeVisible();
+}
 
 async function assertWorkerWrite(
   electron: ElectronHarness,
   testInfo: TestInfo,
-  decision: 'Approve' | 'Decline' | 'Stop',
-  depth = 1,
-  restartHost = false
+  {
+    decision,
+    depth = 1,
+    restartHost = false,
+    autoApprove = false,
+  }: {
+    readonly decision: 'Approve' | 'Decline' | 'Stop';
+    readonly depth?: number;
+    readonly restartHost?: boolean;
+    readonly autoApprove?: boolean;
+  }
 ): Promise<void> {
   const failures: unknown[] = [];
   let ownedProcess: ChildProcess | undefined;
@@ -160,7 +185,9 @@ async function assertWorkerWrite(
       });
       await new HomePage(window).openSettings();
       await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
-      await window.getByTestId('permission-policy-edit').selectOption('ask');
+      await window
+        .getByTestId('permission-policy-edit')
+        .selectOption(autoApprove ? 'allow' : 'ask');
       await window
         .getByRole('combobox', { exact: true, name: 'Read permission' })
         .selectOption('allow');
@@ -178,10 +205,12 @@ async function assertWorkerWrite(
         'agent-worker'
       );
       const approvalName = 'Approve brainstrike.writeWorkspaceFile';
-      await expect(
-        root.getByText('Parent continues useful work while Worker is pending.', { exact: true })
-      ).toBeVisible();
-      await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      if (!autoApprove) {
+        await expect(
+          root.getByText('Parent continues useful work while Worker is pending.', { exact: true })
+        ).toBeVisible();
+        await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      }
       await root.getByRole('button', { exact: true, name: 'Expand activity' }).click();
       await root.getByRole('button', { name: /Open .* conversation/ }).click();
       const selectedTab = window
@@ -211,32 +240,34 @@ async function assertWorkerWrite(
       }
       const childName = (await selectedTab.innerText()).trim();
       let child = window.getByRole('region', { exact: true, name: childName });
-      await expect(child.getByRole('button', { exact: true, name: approvalName })).toBeVisible();
-      const pendingRequests = provider.requestCount();
-      if (restartHost) {
-        const oldProcessId = (await electron.ensureContext()).app.process().pid;
-        const stoppedProcess = ownedProcess;
-        const [, restarted] = await Promise.all([
-          waitForOwnedExit(stoppedProcess),
-          electron.restart(),
-        ]);
-        expect(stoppedProcess?.exitCode).toBe(0);
-        ownedProcess = restarted.app.process();
-        expect(restarted.app.process().pid).not.toBe(oldProcessId);
-        window = restarted.window;
-        root = window.getByTestId('chat-panel');
-        child = window.getByRole('region', { exact: true, name: childName });
-      } else {
-        await window.reload();
+      if (!autoApprove) {
+        await expect(child.getByRole('button', { exact: true, name: approvalName })).toBeVisible();
+        const pendingRequests = provider.requestCount();
+        if (restartHost) {
+          const oldProcessId = (await electron.ensureContext()).app.process().pid;
+          const stoppedProcess = ownedProcess;
+          const [, restarted] = await Promise.all([
+            waitForOwnedExit(stoppedProcess),
+            electron.restart(),
+          ]);
+          expect(stoppedProcess?.exitCode).toBe(0);
+          ownedProcess = restarted.app.process();
+          expect(restarted.app.process().pid).not.toBe(oldProcessId);
+          window = restarted.window;
+          root = window.getByTestId('chat-panel');
+          child = window.getByRole('region', { exact: true, name: childName });
+        } else {
+          await window.reload();
+        }
+        await configureAssistantProvider(window, {
+          compositeModelKey: 'openrouter::openai/gpt-5.4',
+          provider: 'openrouter',
+        });
+        await ensureAssistantShellVisible(window);
+        await expect(child.getByRole('button', { exact: true, name: approvalName })).toBeVisible();
+        expect(provider.requestCount()).toBe(pendingRequests);
+        await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
       }
-      await configureAssistantProvider(window, {
-        compositeModelKey: 'openrouter::openai/gpt-5.4',
-        provider: 'openrouter',
-      });
-      await ensureAssistantShellVisible(window);
-      await expect(child.getByRole('button', { exact: true, name: approvalName })).toBeVisible();
-      expect(provider.requestCount()).toBe(pendingRequests);
-      await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
       if (decision === 'Stop') {
         await child.getByRole('button', { exact: true, name: 'Stop' }).click();
         await expect(
@@ -287,9 +318,14 @@ async function assertWorkerWrite(
         expect(provider.requestCount()).toBe(afterStop);
         await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
       } else {
-        await child
-          .getByRole('button', { exact: true, name: `${decision} brainstrike.writeWorkspaceFile` })
-          .click();
+        if (!autoApprove) {
+          await child
+            .getByRole('button', {
+              exact: true,
+              name: `${decision} brainstrike.writeWorkspaceFile`,
+            })
+            .click();
+        }
         await expect(child.getByText(childResult, { exact: true })).toBeVisible();
         await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
         expect(observed).toEqual({
@@ -302,6 +338,38 @@ async function assertWorkerWrite(
             .transcript()
             .filter((entry) => entry.decision === 'tool:brainstrike_writeWorkspaceFile')
         ).toHaveLength(1);
+        const checkpoints = await window.evaluate(async () => {
+          const api = (
+            globalThis as typeof globalThis & {
+              electronAPI?: {
+                db?: {
+                  query?: (
+                    sql: string
+                  ) => Promise<{ rows: Array<{ childName: string | null; owned: boolean }> }>;
+                };
+              };
+            }
+          ).electronAPI;
+          if (!api?.db?.query) {
+            throw new Error('Native database bridge unavailable');
+          }
+          return (
+            await api.db.query(`SELECT child.display_name AS "childName",
+          (run.thread_id = checkpoint.thread_id AND run.resource_id = checkpoint.resource_id) AS owned
+          FROM brainstrike_assistant_edit_checkpoints checkpoint
+          JOIN brainstrike_assistant_thread_runs run ON run.id = checkpoint.run_id
+          LEFT JOIN brainstrike_delegated_conversations child ON child.thread_id = checkpoint.thread_id
+          WHERE checkpoint.path = 'worker-output.txt'`)
+          ).rows;
+        });
+        expect(checkpoints).toEqual(decision === 'Approve' ? [{ childName, owned: true }] : []);
+        if (autoApprove) {
+          await expect(window.getByTestId('child-workspace-mode')).toContainText(
+            path.basename(workspace)
+          );
+          await ensureActivityExpanded(child);
+          await expect(child.getByTestId('checkpoint-revert')).toBeVisible();
+        }
         const completedRequests = provider.requestCount();
         let writtenMtime: number | undefined;
         if (decision === 'Approve') {
@@ -389,6 +457,27 @@ async function assertWorkerWrite(
           ).toBeVisible();
           expect(provider.requestCount()).toBe(afterSecond);
           expect((await stat(outputPath)).mtimeMs).toBe(writtenMtime);
+        }
+        if (autoApprove) {
+          await ensureActivityExpanded(root);
+          await root.getByRole('button', { name: /Open .* conversation/ }).click();
+          await expect(selectedTab).toHaveText(childName);
+          await expect(child.getByText(childResult, { exact: true })).toBeVisible();
+          await ensureActivityExpanded(child);
+          const requestsBeforeRestore = provider.requestCount();
+          const userPath = path.join(workspace, 'user-note.txt');
+          await writeFile(userPath, 'Independent user edit\n');
+          await child.getByTestId('checkpoint-revert').click();
+          await child.getByRole('button', { exact: true, name: 'Confirm restore' }).click();
+          await expect(child.getByTestId('checkpoint-reverted')).toBeVisible();
+          await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+          expect(await readFile(userPath, 'utf8')).toBe('Independent user edit\n');
+          await window.reload();
+          await ensureAssistantShellVisible(window);
+          await expect(child.getByText(childResult, { exact: true })).toBeVisible();
+          await ensureActivityExpanded(child);
+          await expect(child.getByTestId('checkpoint-reverted')).toBeVisible();
+          expect(provider.requestCount()).toBe(requestsBeforeRestore);
         }
       }
       await window.screenshot({

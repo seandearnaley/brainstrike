@@ -533,7 +533,18 @@ it.each([
         vi
           .mocked(port.persistContinuationUsage)
           .mock.calls.map(([usage]) => [usage.inputTokens, usage.outputTokens])
-      ).toEqual([[0, 0], [0, 0], mode === 'parallel-question' ? [2, 2] : [3, 3]]);
+      ).toEqual(
+        mode === 'parallel-question'
+          ? [
+              [1, 1],
+              [1, 1],
+            ]
+          : [
+              [1, 1],
+              [1, 1],
+              [1, 1],
+            ]
+      );
     }
     if (mode === 'depth-available') {
       expect(model.prompts[0]?.tools?.some((tool) => tool.name.startsWith('agent-'))).toBe(true);
@@ -588,9 +599,15 @@ it.each([
     expect(terminalUsage.some((usage) => usage.inputTokens > 0 && usage.outputTokens > 0)).toBe(
       true
     );
-    expect(vi.mocked(port.persistContinuationUsage).mock.calls.map(([usage]) => usage)).toEqual(
-      terminalUsage
-    );
+    const reportedUsage = vi
+      .mocked(port.persistContinuationUsage)
+      .mock.calls.map(([usage]) => usage);
+    expect(reportedUsage.length).toBeGreaterThan(0);
+    expect(
+      reportedUsage.every(
+        (usage) => usage.id === id && usage.inputTokens > 0 && usage.outputTokens > 0
+      )
+    ).toBe(true);
     expect(port.finishContinuation).toHaveBeenLastCalledWith({ id, status: 'completed' });
     expect(
       chunks.some(

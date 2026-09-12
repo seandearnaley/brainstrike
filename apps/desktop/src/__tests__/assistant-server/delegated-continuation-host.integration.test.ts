@@ -583,12 +583,25 @@ it.each(['complete', 'approval'] as const)(
         }),
       },
     };
-    const stream = await streamMastraChildFollowup(input, options);
+    const stream = await streamMastraChildFollowup(
+      {
+        ...input,
+        nextRun: {
+          modelSettings: { maxOutputTokens: 777 },
+          providerOptions: { openai: { reasoningEffort: 'high' } },
+        },
+      },
+      options
+    );
     const chunks = [];
     for await (const chunk of stream) {
       chunks.push(chunk);
     }
     expect(chunks.some((chunk) => chunk.type === 'child-continuation-chunk')).toBe(true);
+    expect(model.prompts[0]).toMatchObject({
+      maxOutputTokens: 777,
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    });
     const response = createStatelessAssistantDataStreamResponse(
       (async function* () {
         yield* chunks;
@@ -685,13 +698,26 @@ it.each(['complete', 'approval'] as const)(
         {
           ...options,
           ...resumedBacking,
-          runtime: { ...options.runtime, assistantMessageId: 'resumed-parent-outcome' },
+          runtime: {
+            ...options.runtime,
+            assistantMessageId: 'resumed-parent-outcome',
+            modelSettings: { maxOutputTokens: 42 },
+            providerOptions: { openai: { reasoningEffort: 'low' } },
+          },
         }
       );
       for await (const chunk of resumed) {
         chunks.push(chunk);
       }
       expect(effect).toHaveBeenCalledOnce();
+      expect(model.prompts[1]).toMatchObject({
+        maxOutputTokens: 777,
+        providerOptions: { openai: { reasoningEffort: 'high' } },
+      });
+      expect(model.prompts.at(-1)).toMatchObject({
+        maxOutputTokens: 42,
+        providerOptions: { openai: { reasoningEffort: 'low' } },
+      });
       const afterResume = await runDiscoveryRequest({
         method: 'GET',
         url: '/assistant/suspended-runs?resourceId=owner&threadId=root',
@@ -734,8 +760,8 @@ it.each(['complete', 'approval'] as const)(
     ).toEqual(
       mode === 'approval'
         ? [
-            { input_tokens: 2, output_tokens: 2, run_id: 'resume-host' },
-            { input_tokens: 0, output_tokens: 0, run_id: 'wake-host' },
+            { input_tokens: 1, output_tokens: 1, run_id: 'resume-host' },
+            { input_tokens: 1, output_tokens: 1, run_id: 'wake-host' },
           ]
         : [{ input_tokens: 1, output_tokens: 1, run_id: 'wake-host' }]
     );

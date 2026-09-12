@@ -3,6 +3,8 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { migration135DelegatedContinuations } from '../src/migrations/135-delegated-continuations.js';
 import { migration136DelegatedInputPayload } from '../src/migrations/136-delegated-input-payload.js';
+import { migration137ChildExecutionConfiguration } from '../src/migrations/137-child-execution-configuration.js';
+import { migration138IndependentChildContinuationPauses } from '../src/migrations/138-independent-child-continuation-pauses.js';
 import { createEnginePglite } from '../src/pglite-factory.js';
 import { createDelegatedContinuationRepository } from '../src/repositories/delegated-continuation-repository.js';
 import { createDelegatedConversationRepository } from '../src/repositories/delegated-conversation-repository.js';
@@ -274,9 +276,10 @@ it('registers all new receipts for reset and upgrades/replays the actual product
     throw new Error('Expected SQL migration');
   }
   await database.exec(migration135DelegatedContinuations.down);
-  await database.query('DELETE FROM __drizzle_migrations WHERE hash IN ($1, $2)', [
+  await database.query('DELETE FROM __drizzle_migrations WHERE hash IN ($1, $2, $3)', [
     migration135DelegatedContinuations.ledgerKey,
     migration136DelegatedInputPayload.ledgerKey,
+    migration137ChildExecutionConfiguration.ledgerKey,
   ]);
   await runMigrations(database);
   await runMigrations(database);
@@ -509,3 +512,104 @@ it('refuses text-payload rollback when it would change the admitted content iden
     ).rows
   ).toEqual([{ input_payload: payload, input_text: input.text }]);
 });
+
+it('freezes next-run execution configuration per receipt without changing the original child or later decisions', async () => {
+  const nextConfiguration = {
+    ...configuration,
+    execution: {
+      model: 'gpt-5.6-sol',
+      modelSettings: { maxOutputTokens: 777 },
+      planMode: false,
+      provider: 'openai',
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    },
+  };
+  const admitted = await repo().prepare(input, nextConfiguration);
+  expect(admitted.configuration).toEqual(nextConfiguration);
+  const original = await database.query(
+    "SELECT configuration FROM brainstrike_delegated_conversations WHERE thread_id='child'"
+  );
+  expect(original.rows).toEqual([{ configuration }]);
+  await repo().bind(input.id, 'wake-native');
+  await repo().finish(input.id, 'awaiting-approval');
+  const snapshot = await database.dumpDataDir('none');
+  await database.close();
+  database = await createEnginePglite({ loadDataDir: snapshot });
+  expect((await repo().read(input.id)).configuration).toEqual(nextConfiguration);
+  expect((await repo().resolveDecision(decision)).configuration).toEqual(nextConfiguration);
+});
+
+it('upgrades and replays execution snapshots without fabricating legacy settings or dropping admitted controls', async () => {
+  const down = migration137ChildExecutionConfiguration.down;
+  if (typeof down !== 'string') {
+    throw new Error('Expected SQL migration');
+  }
+  await database.exec(down);
+  await database.query('DELETE FROM __drizzle_migrations WHERE hash=$1', [
+    migration137ChildExecutionConfiguration.ledgerKey,
+  ]);
+  await database.query(`INSERT INTO brainstrike_delegated_continuations (id,owner_resource_id,root_thread_id,thread_id,host_run_id,active_host_run_id,turn_message_id,input_text,state)
+    VALUES ('legacy','owner','root','child','wake-host','wake-host','new-user','Legacy','completed')`);
+  await runMigrations(database);
+  await runMigrations(database);
+  expect((await repo().read('legacy')).configuration).toEqual(configuration);
+  await repo().prepare(input, {
+    ...configuration,
+    execution: { model: 'test', planMode: true, provider: 'openai' },
+  });
+  await expect(database.exec(down)).rejects.toThrow(
+    'Cannot discard admitted child run configurations'
+  );
+});
+it('upgrades and replays independent paused child ownership without permitting overlapping execution', async () => {
+  await database.exec(migration138IndependentChildContinuationPauses.down);
+  await repo().prepare(input);
+  await repo().bind(input.id, 'wake-native');
+  await repo().finish(input.id, 'awaiting-approval');
+  const original = (await database.query('SELECT * FROM brainstrike_delegated_continuations')).rows;
+  const sibling = { ...input, id: 'leaf-input', threadId: 'leaf' };
+  await expect(repo().prepare(sibling)).rejects.toThrow();
+  await database.exec(migration138IndependentChildContinuationPauses.up);
+  await database.exec(migration138IndependentChildContinuationPauses.up);
+  expect((await database.query('SELECT * FROM brainstrike_delegated_continuations')).rows).toEqual(
+    original
+  );
+  await expect(repo().prepare({ ...input, id: 'same-child' })).rejects.toThrow();
+  await repo().prepare(sibling);
+  await repo().bind(sibling.id, 'leaf-native');
+  await expect(repo().claimDecision(decision)).rejects.toThrow();
+  expect(
+    (await database.query('SELECT * FROM brainstrike_delegated_continuation_decisions')).rows
+  ).toHaveLength(0);
+  await repo().finish(sibling.id, 'awaiting-approval');
+  await repo().claimDecision(decision);
+  await expect(
+    repo().claimDecision({ ...decision, id: sibling.id, nativeRunId: 'leaf-native' })
+  ).rejects.toThrow();
+  await repo().finishDecision(decision);
+  await repo().finish(input.id, 'completed');
+  await repo().claimDecision({ ...decision, id: sibling.id, nativeRunId: 'leaf-native' });
+});
+
+it.each(['running', 'cancelling'])(
+  'keeps a pending child decision untouched while ordinary root work is %s',
+  async (status) => {
+    await repo().prepare(input);
+    await repo().bind(input.id, 'wake-native');
+    await repo().finish(input.id, 'awaiting-approval');
+    await database.query(
+      `INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id)
+    VALUES ('parent-work','owner','root','openai','test','desktop',$1,NOW(),NOW(),NOW(),'parent-message')`,
+      [status]
+    );
+    await expect(repo().claimDecision(decision)).rejects.toThrow();
+    expect(
+      (await database.query('SELECT * FROM brainstrike_delegated_continuation_decisions')).rows
+    ).toHaveLength(0);
+    expect(await repo().resolveDecision(decision)).toMatchObject({ state: 'awaiting-approval' });
+    await database.query(
+      "UPDATE brainstrike_assistant_thread_runs SET status='completed' WHERE id='parent-work'"
+    );
+    await repo().claimDecision(decision);
+  }
+);

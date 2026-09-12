@@ -609,7 +609,11 @@ server / thread_runs rows). Capability-gated, not `isElectron()`.
   `run*WorkspaceFile` functions (`assistant-tools.ts`), so the before-read →
   mutate → journal write is atomic against concurrent same-file edits.
   `toolCallId` comes from Mastra's 2nd `execute` arg; identity
-  (runId/threadId/resourceId) from `runtimeData.memory`. Capture is GATED on
+  (runId/threadId/resourceId) from `runtimeData.memory` for the root. Native
+  delegated calls use their execution thread and the authorized durable invocation
+  to resolve the child resource and current host-leg run; the tool factory's
+  parent closure never owns a child checkpoint. Read timestamps and paged-read
+  cursors use that same execution-thread scope. Capture is GATED on
   an active memory context and is NON-FATAL (debug on DB-absent, error on
   DB-throw) — the tool result contract is never changed.
 - **Storage = IDENTITY ONLY (the T4 demotion):** op, paths, before/after
@@ -1737,3 +1741,107 @@ profile. Cross-provider credentials are resolved from the host on resume and
 never written into the profile snapshot. No new persona store/reset registration
 is added. Implementation and production evidence live in assistant-subagents.md's
 admitted configuration section.
+
+### Delegated workspace checkpoint ownership (BST-1726)
+
+The child input processor awaits its existing host admission, including a
+turn-start shadow snapshot before first execution. Child resume/recovery retains
+that baseline; recovery before execution finishes any roots whose capture was
+interrupted. A legacy child with an existing run but no baseline remains
+unrestorable; capture failure records the existing failed-capture sentinel. No
+new content journal or persistence store is introduced.
+
+The child header identifies the shared workspace and the per-path file-write
+serialization mode. No isolated worktree or automatic merge is implied.
+The shared child view provides the existing checkpoint context for its child
+thread and refreshes it on terminal host updates. Revert uses the ordinary
+conflict-checked IPC operation and survives reopening/reload. It restores only
+the selected journaled paths; independent user files remain untouched.
+
+Paired proofs: `assistant-tools-write-staleness.integration.test.ts` uses real
+sibling workspace tools and temporary Git repositories,
+`delegated-workspace-snapshot.integration.test.ts` covers baseline recovery and
+failed/legacy captures, and `delegated-worker-write.desktop.test.ts` opens the
+real child, restores its created file, and reloads without replaying the worker.
+
+Child file-mutation callbacks retain Mastra's per-execution `abortSignal` as well
+as the host-leg signal. After waiting for the canonical path lock and reading
+before-state, they check both immediately before write/replace/delete/rename.
+Stopping one child cannot start its queued mutation when the lock is released.
+A filesystem operation already started still settles its existing checkpoint
+and index attribution; Stop does not roll back completed edits. The real path-lock
+cases in `assistant-tools-write-staleness.integration.test.ts` cover all four
+mutations, preserved completed bytes, and an unaffected sibling.
+
+A child's explicit bound root also wins over the currently focused folder on
+non-Git workspaces. Disconnecting that root is a visible error; neither a new
+folder focus nor unavailable worktree capability authorizes switching roots.
+The same integration file proves both actual filesystem destinations.
+
+
+The native executor passes a durable execution thread separately from the
+read-state scope; a DB-less scope sentinel never becomes checkpoint ownership.
+Tool input cannot choose that identity: strict native schemas reject extra
+identity fields and the common execution reader reads only the second, host-owned
+context argument. Initial and approval-resumed writes are paired integration
+cases, with a distinct host-leg checkpoint run for each. Already stopped native
+mutations reject before acquiring a path lock; the post-lock check remains
+necessary when cancellation arrives while waiting.
+
+All live desktop initial, approval and suspension-resume requests share the
+`handleAssistantPost` initializer and its snapshot dependencies; background work
+and active child input retain that runtime. Snapshot Git failure records a
+failed-capture sentinel. Admission does not swallow ledger/database failures: a
+child must not begin work after its baseline ownership could not be established.
+Post-effect checkpoint recording retains its existing error-reporting contract.
+
+Child workspace breadcrumbs require the same FileExplorerProvider as AppLayout.
+The live/reloaded child tests mount that provider rather than replacing its
+selector. A disconnected bound root displays an explicit unavailable-folder
+label, never an opaque root identifier or a replacement workspace.
+
+### Managed opaque workspace effects (BST-1726)
+
+Finite native shell and skill processes acquire an exclusive lease on their
+canonical declared workspace root until actual process settlement. Queueing and
+execution share the existing call deadline; an expired waiter never spawns. Native file
+mutations acquire a shared workspace lease around their existing ordered
+per-file locks, including staleness/capture/write/checkpoint/index settlement.
+Overlapping parent/child root paths conflict; disjoint roots and disjoint file
+mutations without an opaque owner retain concurrency. Queued cancellation
+refuses execution before any effect. Skill runtime resolution plus lease wait
+continues to share its original timeout budget. Expiry names both runtime preparation
+and workspace ownership, including a resolver that settles only after the budget.
+Admission expiry and cancellation
+produce trusted model-visible no-execution errors; a session conflict preserves
+the owning session ID and process-exit requirement through the ordinary tool guard.
+
+A long-lived **delegated** command session retains its exclusive lease until
+PTY exit. A conflicting managed edit/process fails visibly with the session ID
+and the requirement to wait for process exit before editing; it is never queued indefinitely
+or silently applied later. This is a stop/edit/restart workflow when the child
+chooses a persistent process. The existing Command sessions surface can stop
+the named session, and selected child Stop joins the sessions owned by those
+host-observed native child identities before acknowledging completion. That
+ownership lives in the existing process manager, not a parallel registry.
+Lease release follows actual exit; a failed stop cannot release uncertain work.
+A root/global disposal timeout retains the exit observer even after inventory
+removal, so a later actual exit releases ownership without exposing live work. The
+conflict message does not direct the user to a control that has already retired.
+
+Ordinary root/user command sessions retain their existing dev-server/edit flow;
+this lease does not claim to serialize arbitrary user-owned background servers
+or external processes. Shell cwd checks remain the existing containment rule,
+not a sandbox: command bodies are unrestricted after permission. Remote MCP
+servers own their own filesystem scope and cancellation semantics; arbitrary
+tool input or metadata never establishes client-side workspace confinement.
+The real HTTP MCP worker fixture proves an approved server-owned disposable
+file effect once, preserves dirty/sibling files, refuses replay, and prevents
+execution when the pending worker is stopped before dispatch.
+
+Native delegated thread IDs may exceed a filesystem/ref component length at
+three levels of recursion. Snapshot ownership retains the exact native ID in
+the existing ledger and commit metadata; the Git lineage key is bounded as
+documented in changeset-diff.md. Never increase root directory validation limits
+or truncate native identity to make a recursive child snapshot fit. Real delegated
+capture/recovery and selected-path restore preserve independent user/sibling files.

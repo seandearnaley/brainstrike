@@ -4,6 +4,7 @@ import {
   ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
   validateImageAttachmentPart,
 } from './assistant-attachments.js';
+import { childNextRunSchema } from './child-execution-configuration.js';
 
 /** Matches native Mastra FilePart; the root composer currently supports images. */
 export const assistantChildAttachmentSchema = z
@@ -43,6 +44,7 @@ export const assistantChildInputSchema = z
   .strictObject({
     attachments: assistantChildAttachmentsSchema.optional(),
     id: z.string().trim().min(1).max(512),
+    nextRun: childNextRunSchema.optional(),
     text: z.string().trim().max(32_000),
   })
   .refine((input) => input.text.length > 0 || Boolean(input.attachments?.length), {
@@ -70,7 +72,7 @@ export function assistantChildInputContents(
 
 /** Fixed field order for complete-content receipt identity, independent of object insertion order. */
 export function serializeAssistantChildInput(
-  input: Pick<AssistantChildInput, 'text' | 'attachments'>
+  input: Pick<AssistantChildInput, 'text' | 'attachments' | 'nextRun'>
 ): string {
   return JSON.stringify({
     attachments: (input.attachments ?? []).map((part) => ({
@@ -80,6 +82,7 @@ export function serializeAssistantChildInput(
       ...(part.filename === undefined ? {} : { filename: part.filename }),
     })),
     text: input.text,
+    ...(input.nextRun ? { nextRun: childNextRunSchema.parse(input.nextRun) } : {}),
   });
 }
 

@@ -2,6 +2,7 @@ import type { ChildContinuationHostPort } from '@brainstrike/agent';
 import type { DelegatedConversationBaseline } from '@brainstrike/assistant-contract';
 import {
   createDelegatedContinuationRepository,
+  createDelegatedConversationRepository,
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
   type DelegatedConversationScope,
@@ -99,14 +100,19 @@ export function createDesktopDelegatedContinuationHost(
     async persistContinuationUsage(input) {
       await (await repository()).recordUsage(input.id, input);
     },
-    async prepareContinuation(input) {
+    async prepareContinuation(input, configure) {
       if (!database.transaction) {
         throw new Error('Continuation admission requires a database transaction.');
       }
       const scope = await readScope();
       const node = await database.transaction(async (tx) => {
+        const child = await createDelegatedConversationRepository(tx).get(scope, input.threadId);
+        if (!child) {
+          throw new DelegatedConversationIdentityError('continuation-input-not-admitted');
+        }
         const claimed = await createDelegatedContinuationRepository(tx, scope, hostRunId).prepare(
-          input
+          input,
+          configure?.(child.configuration)
         );
         await reserveDelegatedInvocation(
           tx,

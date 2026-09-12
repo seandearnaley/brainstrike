@@ -66,3 +66,22 @@ describe('bound delegation usage ordering', () => {
     expect(capture.drain()).toHaveLength(1);
   });
 });
+
+it('releases exact published model usage before a pause, coalesces cumulative duplicates and keeps siblings held', () => {
+  const capture = createDelegationUsageCapture(new Map(), { model: 'test', provider: 'openai' });
+  const own = { delegation, inputTokens: 1, outputTokens: 2, personaId: 'explore' };
+  capture.onChildUsage({ ...own, delegation: { ...delegation, parentToolCallId: 'sibling' } });
+  capture.onPublishedChildUsage(own);
+  expect(capture.drain({ runId: 'parent-run', type: 'tool-output' })).toMatchObject([
+    { value: { delegation, inputTokens: 1, outputTokens: 2 } },
+  ]);
+  capture.onChildUsage(own);
+  expect(capture.drain({ runId: 'parent-run', type: 'tool-output' })).toEqual([]);
+  capture.onPublishedChildUsage({ ...own, inputTokens: 3, outputTokens: 4 });
+  expect(capture.drain({ runId: 'parent-run', type: 'tool-output' })).toMatchObject([
+    { value: { delegation, inputTokens: 3, outputTokens: 4 } },
+  ]);
+  expect(capture.drain()).toMatchObject([
+    { value: { delegation: { parentToolCallId: 'sibling' } } },
+  ]);
+});

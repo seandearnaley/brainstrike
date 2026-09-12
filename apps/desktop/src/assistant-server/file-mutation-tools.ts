@@ -60,6 +60,7 @@ import {
   readStateScope,
   recordOwnWriteObservation,
 } from './workspace-file-staleness';
+import { withWorkspaceMutationLease } from './workspace-mutation-lease';
 import { resolveWorkspaceLeafMutationPath } from './workspace-path-resolution';
 import { resolveWorkspaceRoot } from './workspace-roots';
 import { readWorkspaceTextFile } from './workspace-text-file-reader';
@@ -141,10 +142,38 @@ async function collectEditDiagnostics(args: {
   }
 }
 
+/** Stop prevents a queued mutation from starting. Once a filesystem mutation
+ * starts, its normal checkpoint/index settlement must finish before releasing
+ * the lock; cancellation must not erase or leave completed work unattributed. */
+function assertFileMutationActive(
+  runtimeData: RuntimeData | undefined,
+  signal: AbortSignal | undefined
+): void {
+  runtimeData?.signal?.throwIfAborted();
+  signal?.throwIfAborted();
+}
+
+function workspaceFileLock(rootPath: string, key: string, signal: AbortSignal | undefined) {
+  return <T>(task: () => Promise<T>): Promise<T> =>
+    withWorkspaceMutationLease(rootPath, 'files', () => withFileLock(key, task), signal);
+}
+
+function workspaceRenameLock(
+  rootPath: string,
+  from: string,
+  to: string,
+  signal: AbortSignal | undefined
+) {
+  return <T>(task: () => Promise<T>): Promise<T> =>
+    withWorkspaceMutationLease(rootPath, 'files', () => withTwoFileLocks(from, to, task), signal);
+}
+
 export async function runWriteWorkspaceFile(
   input: WriteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
-  toolCallId?: string
+  toolCallId?: string,
+  executionThreadId?: string,
+  signal?: AbortSignal
 ): Promise<{
   rootName: string;
   rootId: string;
@@ -153,6 +182,8 @@ export async function runWriteWorkspaceFile(
   created: boolean;
   lsp?: EditDiagnosticsResult;
 }> {
+  assertFileMutationActive(runtimeData, signal);
+  const threadScope = executionThreadId ?? readStateScope(runtimeData);
   // Cheap bounded size check FIRST (PR #2352 review): an over-limit payload
   // is rejected before it pays for the gutter guard's `split('\n')` pass —
   // both are pure pre-lock validations, so the ordering only affects how
@@ -177,8 +208,13 @@ export async function runWriteWorkspaceFile(
   // RAG row stale relative to disk. `triggerEditedFileReindex` is already
   // non-fatal (it catches+logs internally), so it never extends the lock's
   // failure surface.
-  const scope = readStateScope(runtimeData);
-  const { created } = await withFileLock(resolved.absolutePath, async () => {
+  const scope = threadScope;
+  const commit = workspaceFileLock(
+    resolved.canonicalRootPath,
+    resolved.absolutePath,
+    signal ?? runtimeData?.signal
+  );
+  const { created } = await commit(async () => {
     // Staleness compare INSIDE the lock (report R8): if this scope observed the
     // file at a different mtime than disk carries now, someone else edited it
     // since — refuse instead of overwriting their work. New/unobserved files
@@ -192,6 +228,7 @@ export async function runWriteWorkspaceFile(
     // ledger INSIDE the lock so no concurrent same-file edit can slip newer
     // bytes between capture and write.
     const beforeState = await captureBeforeState(resolved.absolutePath);
+    assertFileMutationActive(runtimeData, signal);
     const writeResult = await writeContainedFileBytes({
       buffer,
       requestedPath: input.path,
@@ -218,6 +255,7 @@ export async function runWriteWorkspaceFile(
       afterExisted: true,
       afterHash: sha256Hex(buffer),
       before: beforeStateToCapture(beforeState),
+      executionThreadId,
       op: 'write',
       path: resolved.workspacePath,
       rootId: root.rootId,
@@ -249,7 +287,9 @@ export async function runWriteWorkspaceFile(
 export async function runStringReplaceWorkspaceFile(
   input: StringReplaceWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
-  toolCallId?: string
+  toolCallId?: string,
+  executionThreadId?: string,
+  signal?: AbortSignal
 ): Promise<{
   rootName: string;
   rootId: string;
@@ -259,6 +299,8 @@ export async function runStringReplaceWorkspaceFile(
   replaced: true;
   lsp?: EditDiagnosticsResult;
 }> {
+  assertFileMutationActive(runtimeData, signal);
+  const threadScope = executionThreadId ?? readStateScope(runtimeData);
   assertNoReadWorkspaceFileGutters(input.newStr);
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   // Resolve the write path up front so we can lock on the canonical absolute
@@ -270,8 +312,13 @@ export async function runStringReplaceWorkspaceFile(
   // a concurrent edit (another stringReplace, or a writeWorkspaceFile) to the
   // SAME file cannot interleave and drop an update or stale the RAG row. Edits to
   // different files still run in parallel.
-  const scope = readStateScope(runtimeData);
-  const result = await withFileLock(resolved.absolutePath, async () => {
+  const scope = threadScope;
+  const commit = workspaceFileLock(
+    resolved.canonicalRootPath,
+    resolved.absolutePath,
+    signal ?? runtimeData?.signal
+  );
+  const result = await commit(async () => {
     // Read through the SAME checked read path the read tools use (isFile, 2 MB
     // byte cap, NUL-byte binary probe, realpath-both-sides containment), so the
     // edit inherits PR-2.1's path-escape protection on the read side too.
@@ -317,6 +364,7 @@ export async function runStringReplaceWorkspaceFile(
       );
     }
 
+    assertFileMutationActive(runtimeData, signal);
     await writeContainedFileBytes({ buffer, requestedPath: input.path, resolved });
     resetEditFailureStreak(scope, root.rootId, resolved.workspacePath);
     // Our own write is the scope's freshest observation — a follow-up edit in
@@ -336,6 +384,7 @@ export async function runStringReplaceWorkspaceFile(
         beforeSize: beforeBuffer.byteLength,
         captureStatus: 'ok',
       },
+      executionThreadId,
       op: 'string_replace',
       path: resolved.workspacePath,
       rootId: root.rootId,
@@ -409,13 +458,17 @@ export function withTwoFileLocks<T>(
 export async function runDeleteWorkspaceFile(
   input: DeleteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
-  toolCallId?: string
+  toolCallId?: string,
+  executionThreadId?: string,
+  signal?: AbortSignal
 ): Promise<{
   ok: true;
   path: string;
   rootName: string;
   indexInvalidated: boolean;
 }> {
+  assertFileMutationActive(runtimeData, signal);
+  const threadScope = executionThreadId ?? readStateScope(runtimeData);
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   // Same path hardening as the write tools: clamps "..", contains symlinked
   // ancestors, and rejects the workspace root itself. A LIVE symlink whose target
@@ -432,7 +485,12 @@ export async function runDeleteWorkspaceFile(
     input.path
   );
 
-  return withFileLock(mutationPath, async () => {
+  const commit = workspaceFileLock(
+    resolved.canonicalRootPath,
+    mutationPath,
+    signal ?? runtimeData?.signal
+  );
+  return commit(async () => {
     let leafStats: import('node:fs').Stats;
     try {
       leafStats = await fsPromises.lstat(mutationPath);
@@ -454,10 +512,11 @@ export async function runDeleteWorkspaceFile(
     // Capture the before-identity for the attribution ledger BEFORE
     // unlinking; the undo recreates the file from the turn-start snapshot.
     const beforeState = await captureBeforeState(mutationPath);
+    assertFileMutationActive(runtimeData, signal);
     await fsPromises.unlink(mutationPath);
     // Drop the staleness observation with the file so a later re-creation at
     // this path is treated as new, not compared against a ghost.
-    forgetKnownFile(readStateScope(runtimeData), mutationPath);
+    forgetKnownFile(threadScope, mutationPath);
     const { invalidated } = await triggerFileDeletionInvalidation({
       rootId: root.rootId,
       runtimeData,
@@ -467,6 +526,7 @@ export async function runDeleteWorkspaceFile(
       afterExisted: false,
       afterHash: null,
       before: beforeStateToCapture(beforeState),
+      executionThreadId,
       op: 'delete',
       path: resolved.workspacePath,
       rootId: root.rootId,
@@ -487,7 +547,9 @@ export async function runDeleteWorkspaceFile(
 export async function runRenameWorkspaceFile(
   input: RenameWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
-  toolCallId?: string
+  toolCallId?: string,
+  executionThreadId?: string,
+  signal?: AbortSignal
 ): Promise<{
   ok: true;
   fromPath: string;
@@ -495,6 +557,8 @@ export async function runRenameWorkspaceFile(
   rootName: string;
   indexInvalidated: boolean;
 }> {
+  assertFileMutationActive(runtimeData, signal);
+  const threadScope = executionThreadId ?? readStateScope(runtimeData);
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   const fromResolved = await resolveWorkspaceWritePath(root.path, input.fromPath);
   const toResolved = await resolveWorkspaceWritePath(root.path, input.toPath);
@@ -523,7 +587,13 @@ export async function runRenameWorkspaceFile(
 
   // Lock BOTH paths (sorted order → deadlock-free) so a concurrent edit or rename
   // touching either path cannot interleave with this move.
-  return withTwoFileLocks(fromMutationPath, toResolved.absolutePath, async () => {
+  const commit = workspaceRenameLock(
+    fromResolved.canonicalRootPath,
+    fromMutationPath,
+    toResolved.absolutePath,
+    signal ?? runtimeData?.signal
+  );
+  return commit(async () => {
     let fromStats: import('node:fs').Stats;
     try {
       fromStats = await fsPromises.lstat(fromMutationPath);
@@ -551,6 +621,7 @@ export async function runRenameWorkspaceFile(
       requestedFromPath: input.fromPath,
       runtimeData,
       targetAbsolutePath: fromResolved.absolutePath,
+      threadScope,
     });
 
     // Destination must NOT already exist (no overwrite in v1). lstat so a symlink
@@ -570,6 +641,8 @@ export async function runRenameWorkspaceFile(
       );
     }
 
+    // Directory creation is also a workspace effect: honor Stop before it starts.
+    assertFileMutationActive(runtimeData, signal);
     // Create any missing destination parent directories one component at a time,
     // rejecting symlinked intermediates (a plain mkdir -p would traverse them).
     await ensureContainedDirectory(
@@ -577,6 +650,7 @@ export async function runRenameWorkspaceFile(
       path.dirname(toResolved.absolutePath)
     );
 
+    assertFileMutationActive(runtimeData, signal);
     await fsPromises.rename(fromMutationPath, toResolved.absolutePath);
 
     // Move the observation with the file. Regular file: the source path is
@@ -585,9 +659,9 @@ export async function runRenameWorkspaceFile(
     // target file and its (realpath-keyed) observation stay valid, and the
     // destination stat would follow the link (or throw on a dangling one), so
     // no destination record is made.
-    forgetKnownFile(readStateScope(runtimeData), fromMutationPath);
+    forgetKnownFile(threadScope, fromMutationPath);
     if (!sourceIsSymlink) {
-      await recordOwnWriteObservation(readStateScope(runtimeData), toResolved.absolutePath);
+      await recordOwnWriteObservation(threadScope, toResolved.absolutePath);
     }
 
     // Index coherence: invalidate the SOURCE rows immediately (the differentiator
@@ -629,6 +703,7 @@ export async function runRenameWorkspaceFile(
         beforeSize: null,
         captureStatus: 'rename',
       },
+      executionThreadId,
       fromPath: fromResolved.workspacePath,
       op: 'rename',
       path: toResolved.workspacePath,

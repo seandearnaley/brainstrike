@@ -735,7 +735,19 @@ async function handleAssistantPost(
         const result = await initializeAgentStream({
           apiKey: core.apiKey,
           authInput: core.authInput,
-          capabilities: desktopAgentStreamCapabilities,
+          // Initial, approval and suspension-resume requests all enter this
+          // initializer; background work and active input retain its memory.
+          capabilities: {
+            ...desktopAgentStreamCapabilities,
+            memory: {
+              ...desktopAgentStreamCapabilities.memory,
+              create: (settings, memoryRunId, sink, data, dependencies) =>
+                getDesktopMastraMemory(settings, memoryRunId, sink, data, {
+                  ...dependencies,
+                  snapshots: options.snapshots ?? undefined,
+                }),
+            },
+          },
           compactionOverlayLookup,
           getDatabase,
           logger,

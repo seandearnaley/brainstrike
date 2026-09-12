@@ -1,6 +1,10 @@
 import {
+  admittedPersonaConfigurationSchema,
+  type ChildExecutionConfiguration,
   DELEGATION_LIMITS,
   readAdmittedPersonaConfiguration,
+  readChildExecutionConfiguration,
+  resolvePermissionDecision,
 } from '@brainstrike/assistant-contract';
 import {
   type AssistantPersonaDefinition,
@@ -31,11 +35,50 @@ function modelPricing(provider: string, model: string) {
   );
   return definition?.type === 'llm' ? definition.pricing : undefined;
 }
+function capturedEffort(execution: ChildExecutionConfiguration): string {
+  const options = execution.providerOptions;
+  switch (execution.provider) {
+    case 'openai':
+      return options?.openai?.reasoningEffort ?? 'Provider default';
+    case 'openrouter':
+      return options?.openrouter?.reasoning?.enabled === false
+        ? 'none'
+        : (options?.openrouter?.reasoning?.effort ?? 'Provider default');
+    case 'anthropic':
+      return options?.anthropic?.thinking?.type === 'disabled'
+        ? 'none'
+        : (options?.anthropic?.effort ?? 'Provider default');
+    case 'bedrock':
+      return options?.bedrock?.reasoningConfig?.type === 'disabled'
+        ? 'none'
+        : (options?.bedrock?.reasoningConfig?.maxReasoningEffort ?? 'Provider default');
+    case 'google':
+      return options?.google?.thinkingConfig?.thinkingBudget === 0
+        ? 'none'
+        : (options?.google?.thinkingConfig?.thinkingLevel ?? 'Provider default');
+    default:
+      return 'Provider default';
+  }
+}
+
+function formatPermissionPolicy(
+  snapshot: NonNullable<ChildExecutionConfiguration['permissionPolicy']>
+): string {
+  return (['read', 'edit', 'execute', 'mcp'] as const)
+    .map(
+      (riskCategory) =>
+        `${riskCategory}: ${resolvePermissionDecision({ ...snapshot, riskCategory, sessionGrants: new Set(snapshot.sessionGrants) })}`
+    )
+    .join(' · ');
+}
+
 function LoadedDetails({
   value,
   isRunning,
   persona,
+  execution,
 }: {
+  readonly execution: ChildExecutionConfiguration | undefined;
   readonly persona: AssistantPersonaDefinition;
   readonly value: DelegatedConversationInsights;
   readonly isRunning: boolean;
@@ -43,8 +86,8 @@ function LoadedDetails({
   const scope = personaScope(persona);
   const direct = resolveCumulativeUsageDisplay(value.directUsage, modelPricing);
   const inclusive = resolveCumulativeUsageDisplay(value.subtreeUsage, modelPricing);
-  const model = value.latestRun?.model ?? persona.model?.modelId;
-  const provider = value.latestRun?.provider ?? persona.model?.provider;
+  const model = execution?.model ?? value.latestRun?.model ?? persona.model?.modelId;
+  const provider = execution?.provider ?? value.latestRun?.provider ?? persona.model?.provider;
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -70,7 +113,22 @@ function LoadedDetails({
           <p className="font-medium">Admitted child configuration</p>
           <p>{model ?? 'Model not recorded'}</p>
           {provider ? <p className="text-muted-foreground">{provider}</p> : null}
-          <p>Effort not recorded</p>
+          {execution ? (
+            <>
+              <p>Effort {capturedEffort(execution)}</p>
+              <p>{execution.planMode ? 'Plan mode' : 'Agent mode'}</p>
+              {execution.modelSettings?.maxOutputTokens ? (
+                <p>
+                  Up to {execution.modelSettings.maxOutputTokens.toLocaleString()} output tokens
+                </p>
+              ) : null}
+              {execution.permissionPolicy ? (
+                <p>Permission ceiling: {formatPermissionPolicy(execution.permissionPolicy)}</p>
+              ) : null}
+            </>
+          ) : (
+            <p>Effort not recorded</p>
+          )}
           <p>Up to {effectiveChildStepBudget(persona)} steps</p>
           <p>
             Level {value.depth} of {DELEGATION_LIMITS.maxDepth}
@@ -140,8 +198,12 @@ export function DelegatedConversationToolbar({
   // This is a presentation boundary for legacy persisted profiles. A malformed
   // profile remains inspectable in history, but can never masquerade as Worker.
   let persona: AssistantPersonaDefinition;
+  let execution: ChildExecutionConfiguration | undefined;
   try {
-    persona = readAdmittedPersonaConfiguration(insights.value.configuration);
+    const admitted = insights.value.latestExecutionConfiguration ?? insights.value.configuration;
+    persona = readAdmittedPersonaConfiguration(admitted);
+    const captured = admittedPersonaConfigurationSchema.parse(admitted).execution;
+    execution = captured ? readChildExecutionConfiguration(captured) : undefined;
   } catch (error) {
     return (
       <p className="px-2 text-destructive text-xs" role="alert">
@@ -151,6 +213,7 @@ export function DelegatedConversationToolbar({
   }
   return (
     <LoadedDetails
+      execution={execution}
       isRunning={isRunning}
       key={insights.value.threadId}
       persona={persona}

@@ -15,6 +15,7 @@ import {
   type BackgroundTaskScope,
   MAX_BACKGROUND_TASK_TIMEOUT_MS,
 } from '../pglite-mastra-memory/background-store';
+import { isListingOnlyModel } from '../providers/listing-only-model';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import {
   createProviderCallWarningSink,
@@ -37,6 +38,8 @@ import {
 } from './anthropic-instruction-cache';
 import { requireBackgroundResultDelivery } from './background-result-delivery';
 import type { DelegatedExecutionOptions } from './build-persona-subagents';
+import type { ChildContinuationScope } from './child-continuation-usage';
+import { captureRuntimeChildExecution } from './child-run-configuration';
 import {
   buildContextBudgetNote,
   buildCurrentDateNote,
@@ -93,11 +96,17 @@ export interface MastraAgentRuntimeOptions {
   authInput?: ProviderAuthInput;
   /** Host-owned durable background scope; never client RuntimeData. */
   backgroundTaskScope?: BackgroundTaskScope;
+  /** Host-admitted settings for the exact resumed child, never renderer authority. */
+  childExecutionConfiguration?: import('@brainstrike/assistant-contract').ChildExecutionConfiguration;
   /** Actual ancestor depth retained when an existing child becomes the managed native root. */
-  continuationChildScope?: { readonly resourceId: string; readonly threadId: string } | undefined;
+  continuationChildScope?: ChildContinuationScope | undefined;
   /** Host-owned native identity persistence; never serialized through RuntimeData. */
   conversationBinding?: DelegatedConversationBinding | undefined;
   delegatedDepthOffset?: number | undefined;
+  delegatedExecutionSnapshots?: readonly (
+    | import('@brainstrike/assistant-contract').ChildExecutionConfiguration
+    | undefined
+  )[];
   /** Host-authorized admission profiles, indexed by delegation depth for a resumed path. */
   delegatedPersonaSnapshots?: readonly AssistantPersonaDefinition[];
   /** @internal Initial host system context; native child snapshots own resumption. */
@@ -565,6 +574,17 @@ function assertBackgroundScope(options: MastraAgentRuntimeOptions): void {
   }
 }
 
+function continuationPersonaTools(
+  options: MastraAgentRuntimeOptions,
+  planModeActive: boolean,
+  artifactSettledTools: ToolsInput,
+  hookedTools: ToolsInput
+): ToolsInput {
+  // Resuming an existing child in plan mode retains only the plan-filtered
+  // tools; new delegations continue using the ordinary persona admission path.
+  return options.continuationChildScope && planModeActive ? artifactSettledTools : hookedTools;
+}
+
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
@@ -753,10 +773,20 @@ export async function createMastraAgentRuntime(
     personasById,
     subAgents,
   } = await resolvePersonaRuntimeParts({
+    childExecutionConfiguration: captureRuntimeChildExecution(
+      sanitizedRuntime,
+      normalizedProvider,
+      modelName,
+      planModeActive,
+      permissionSnapshot,
+      options.childExecutionConfiguration,
+      isListingOnlyModel(languageModel)
+    ),
     continuationChildScope: options.continuationChildScope,
     conversationBinding: options.conversationBinding,
     delegatedDepthOffset: options.delegatedDepthOffset,
     delegatedExecutionOptions,
+    delegatedExecutionSnapshots: options.delegatedExecutionSnapshots,
     delegatedPersonaSnapshots: options.delegatedPersonaSnapshots,
     getDelegatedSystemContext: options.getDelegatedSystemContext,
     // BST-1206 review (P2): a persona that pins its OWN model must project
@@ -766,7 +796,12 @@ export async function createMastraAgentRuntime(
     // `applyToolModelOutputProjections` themselves, per persona, choosing the
     // pinned model's own resolved budget when one is pinned and the parent's
     // `resolvedToolResultBudget` otherwise (see build-persona-subagents.ts).
-    guardedTools: hookedTools,
+    guardedTools: continuationPersonaTools(
+      options,
+      planModeActive,
+      artifactSettledTools,
+      hookedTools
+    ),
     hasStorage: Boolean(storage),
     hydrateToolDiscoveryFromMemory,
     languageModel: observedLanguageModel,
@@ -782,6 +817,7 @@ export async function createMastraAgentRuntime(
       // The parent's FULL auth input (not just its key string), so a
       // same-provider pin reuses custom_fetch/aws auth intact (BST-1352).
       auth: runtimeResolution.authInput,
+      inheritedModel: { model: observedLanguageModel, name: modelName },
       instantiate: (provider, auth, pinnedModelName, runtime) =>
         observeProviderCallWarnings(
           instantiateLanguageModel(provider, auth, pinnedModelName, runtime),

@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { createMastraAgentRuntime } from '../mastra/agent-runtime';
 import {
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
@@ -122,6 +123,79 @@ it('rejects a revoked host tool before resuming an admitted child', async () => 
       )
     ).rejects.toThrow('current model or host permissions');
     expect(fixture.effect).not.toHaveBeenCalled();
+  } finally {
+    fixture.release.resolve();
+    await fixture.runtime.dispose();
+    await fixture.database.close();
+  }
+});
+
+it('captures the first native child execution and resumes that exact model and effort after root changes', async () => {
+  const fixture = await createBackgroundFixture(true);
+  try {
+    await fixture.runtime.dispose();
+    fixture.runtimeData = {
+      ...fixture.runtimeData,
+      modelSettings: { maxOutputTokens: 777 },
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    };
+    fixture.runtime = await createMastraAgentRuntime({
+      ...fixture.discoveryOptions,
+      model: 'gpt-5.4',
+      runtime: fixture.runtimeData,
+    });
+    await suspend(fixture);
+    const pending = await listSuspendedMastraRuns(fixture.scope, fixture.discoveryOptions);
+    const target = pending.approvals[0];
+    if (!target?.delegation) {
+      throw new Error('Expected first child approval');
+    }
+    const address = {
+      delegation: target.delegation,
+      runId: target.runId,
+      toolCallId: target.toolCallId,
+    };
+    const scopes = await fixture.discoveryOptions.conversationBinding?.resolveToolAction?.(address);
+    expect(scopes?.[0]?.configuration).toMatchObject({
+      execution: {
+        model: 'gpt-5.4',
+        modelSettings: { maxOutputTokens: 777 },
+        planMode: false,
+        provider: 'openai',
+        providerOptions: { openai: { reasoningEffort: 'high' } },
+      },
+    });
+    expect(fixture.model.prompts[1]).toMatchObject({
+      maxOutputTokens: 777,
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    });
+    const resumeIndex = fixture.model.prompts.length;
+    const resumed = await streamMastraToolApprovalAction(
+      { ...address, action: 'approve' },
+      {
+        ...fixture.discoveryOptions,
+        model: 'gpt-5.4',
+        runtime: {
+          ...fixture.runtimeData,
+          model: 'gpt-5.4',
+          modelSettings: { maxOutputTokens: 42 },
+          providerOptions: { openai: { reasoningEffort: 'low' } },
+        },
+      }
+    );
+    for await (const _chunk of resumed) {
+      /* drain native owner */
+    }
+    expect(fixture.effect).toHaveBeenCalledOnce();
+    const resumedCalls = fixture.model.prompts.slice(resumeIndex);
+    expect(resumedCalls[0]).toMatchObject({
+      maxOutputTokens: 777,
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    });
+    expect(resumedCalls.at(-1)).toMatchObject({
+      maxOutputTokens: 42,
+      providerOptions: { openai: { reasoningEffort: 'low' } },
+    });
   } finally {
     fixture.release.resolve();
     await fixture.runtime.dispose();

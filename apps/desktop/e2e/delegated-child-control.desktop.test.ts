@@ -18,7 +18,8 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-child-control-'));
   await writeFile(path.join(workspace, 'evidence.txt'), 'CHILD_EVIDENCE_1720');
   const observed = { childRead: false, parentResult: false };
-  const provider = await startModelProviderShim(({ messages }) => {
+  const executedConfigurations: { isParent: boolean; body: unknown }[] = [];
+  const provider = await startModelProviderShim(({ messages, toolNames, requestBody }) => {
     // Children now advertise delegation too; identify the actual root task.
     const isParent = JSON.stringify(
       messages
@@ -29,6 +30,9 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
         .at(-1)
     ).includes('Delegate to Explorer to read evidence.txt.');
     const history = JSON.stringify(messages);
+    if (toolNames.length > 0) {
+      executedConfigurations.push({ body: requestBody, isParent });
+    }
     if (isParent && history.includes('CHILD_READ_COMPLETE_1720')) {
       observed.parentResult = true;
     }
@@ -71,6 +75,9 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       .selectOption('ask');
     await ensureAssistantShellVisible(window);
     const root = window.getByTestId('chat-panel');
+    await root.getByTestId('composer-effort-trigger').click();
+    await window.getByRole('slider', { name: 'Reasoning effort' }).press('End');
+    await window.keyboard.press('Escape');
     await root
       .getByRole('textbox', { name: 'Message input' })
       .fill('Delegate to Explorer to read evidence.txt.');
@@ -91,10 +98,19 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     await expect(
       child.getByRole('button', { exact: true, name: 'Approve brainstrike.readWorkspaceFile' })
     ).toBeVisible();
+    const firstChild = executedConfigurations.find((entry) => !entry.isParent);
+    expect(firstChild?.body).toMatchObject({
+      model: 'openai/gpt-5.4',
+      reasoning: { effort: 'xhigh' },
+    });
+    // Change the parent's actual model control while its child decision is pending.
+    await root.getByTestId('composer-model-menu-trigger').click();
+    await window.getByRole('menuitemradio', { name: /GPT-5\.6 Terra.*Most capable/u }).click();
+    await expect(root.getByTestId('composer-model-menu-trigger')).toContainText('GPT-5.6 Terra');
     const pausedRequests = provider.requestCount();
     await window.reload();
     await configureAssistantProvider(window, {
-      compositeModelKey: 'openrouter::openai/gpt-5.4',
+      compositeModelKey: 'openrouter::openai/gpt-5.6-terra',
       provider: 'openrouter',
     });
     await ensureAssistantShellVisible(window);
@@ -108,6 +124,15 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     await expect(child.getByText('CHILD_READ_COMPLETE_1720', { exact: true })).toBeVisible();
     await expect(root.getByText('PARENT_RECEIVED_CHILD_1720', { exact: true })).toBeVisible();
     expect(observed).toEqual({ childRead: true, parentResult: true });
+    const childExecutions = executedConfigurations.filter((entry) => !entry.isParent);
+    expect(childExecutions).toHaveLength(2);
+    expect(childExecutions[1]?.body).toMatchObject({
+      model: 'openai/gpt-5.4',
+      reasoning: { effort: 'xhigh' },
+    });
+    expect(executedConfigurations.filter((entry) => entry.isParent).at(-1)?.body).toMatchObject({
+      model: 'openai/gpt-5.6-terra',
+    });
     await expect(child.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
     const completedRequests = provider.requestCount();
     const closeChild = window.getByRole('button', {
@@ -187,6 +212,7 @@ test('sends human input to the active child and reloads its rich conversation', 
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let childCalls = 0;
+  const childGenerationRequests: unknown[] = [];
   let receivedInput = false;
   let receivedImage = false;
   let receivedFileContext = false;
@@ -195,7 +221,7 @@ test('sends human input to the active child and reloads its rich conversation', 
     'base64'
   );
   const imageMarker = imageBytes.toString('base64');
-  const provider = await startModelProviderShim(({ messages, toolNames }) => {
+  const provider = await startModelProviderShim(({ messages, toolNames, requestBody }) => {
     if (toolNames.length === 0) {
       return { finalText: 'Child input task' };
     }
@@ -231,6 +257,7 @@ test('sends human input to the active child and reloads its rich conversation', 
       };
     }
     childCalls += 1;
+    childGenerationRequests.push(requestBody);
     if (childCalls === 1) {
       entered.resolve();
     }
@@ -333,6 +360,10 @@ test('sends human input to the active child and reloads its rich conversation', 
     await expect(child.getByText('CHILD_FOLLOWUP_RECEIVED', { exact: true })).toBeVisible();
     expect(provider.requestCount()).toBe(completedRequests);
     await expect(input).toBeEnabled();
+    await child.getByTestId('composer-effort-trigger').click();
+    await window.getByRole('slider', { name: 'Reasoning effort' }).press('End');
+    await window.keyboard.press('Escape');
+    await expect(child.getByTestId('composer-effort-trigger')).toContainText('Extra');
     const idleChooser = window.waitForEvent('filechooser');
     await child.getByRole('button', { exact: true, name: 'Attach image' }).click();
     await (await idleChooser).setFiles({
@@ -348,6 +379,7 @@ test('sends human input to the active child and reloads its rich conversation', 
     ).toBeVisible();
     await expect(root.getByText('PARENT_IDLE_CONTINUATION_OUTCOME', { exact: true })).toBeVisible();
     expect(childCalls).toBe(3);
+    expect(childGenerationRequests[2]).toMatchObject({ reasoning: { effort: 'xhigh' } });
     const continuedRequests = provider.requestCount();
     await window.reload();
     await ensureAssistantShellVisible(window);
@@ -362,6 +394,9 @@ test('sends human input to the active child and reloads its rich conversation', 
       .getByRole('combobox', { exact: true, name: 'Read permission' })
       .selectOption('ask');
     await ensureAssistantShellVisible(window);
+    await child.getByTestId('composer-effort-trigger').click();
+    await window.getByRole('slider', { name: 'Reasoning effort' }).press('End');
+    await window.keyboard.press('Escape');
     await input.fill('HUMAN_IDLE_APPROVAL_1723');
     await child.getByRole('button', { exact: true, name: 'Send' }).click();
     const approve = child.getByRole('button', {
@@ -370,6 +405,11 @@ test('sends human input to the active child and reloads its rich conversation', 
     });
     await expect(approve).toBeVisible();
     expect(childCalls).toBe(4);
+    expect(childGenerationRequests[3]).toMatchObject({ reasoning: { effort: 'xhigh' } });
+    // A draft for a future child run must not mutate the suspended invocation.
+    await child.getByTestId('composer-effort-trigger').click();
+    await window.getByRole('slider', { name: 'Reasoning effort' }).press('Home');
+    await window.keyboard.press('Escape');
     const suspendedRequests = provider.requestCount();
     await window.reload();
     await ensureAssistantShellVisible(window);
@@ -379,6 +419,7 @@ test('sends human input to the active child and reloads its rich conversation', 
     await expect(child.getByText('CHILD_IDLE_APPROVAL_COMPLETE', { exact: true })).toBeVisible();
     await expect(root.getByText('PARENT_IDLE_APPROVAL_OUTCOME', { exact: true })).toBeVisible();
     expect(childCalls).toBe(5);
+    expect(childGenerationRequests[4]).toMatchObject({ reasoning: { effort: 'xhigh' } });
     const approvedRequests = provider.requestCount();
     await window.reload();
     await ensureAssistantShellVisible(window);

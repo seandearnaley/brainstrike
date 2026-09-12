@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createDelegatedStreamProjection } from '../mastra/delegated-stream-projection';
 import type { ConversationStreamChunk } from '../types';
 
@@ -171,4 +171,55 @@ describe('delegated stream terminal ownership', () => {
     ]);
     expect(projection?.finalize(() => [terminal])).toEqual([]);
   });
+});
+
+it('requires exactly one published native child for unwrapped processor usage data', async () => {
+  const onUsage = vi.fn();
+  const projection = createDelegatedStreamProjection({
+    authorize: async () => ({ threadId: 'child' }),
+    createState: () => ({}),
+    mapPart: async () => ({ chunks: [], finished: false }),
+    onUsage,
+    personas: new Map([['agent-explore', 'explore']]),
+  });
+  if (!projection) {
+    throw new Error('Missing projection');
+  }
+  const usage = {
+    data: { inputTokens: 2, outputTokens: 3, resourceId: 'child-resource', threadId: 'child' },
+    type: 'data-brainstrike-delegated-step-usage',
+  };
+  await expect(projection.project(usage, new Map())).rejects.toThrow('unique published');
+  await projection.project(part, new Map());
+  await projection.project(usage, new Map());
+  expect(onUsage).toHaveBeenCalledExactlyOnceWith({
+    delegation: {
+      parentRuntimeRunId: 'parent-run',
+      parentToolCallId: 'call',
+      resourceId: 'child-resource',
+      threadId: 'child',
+    },
+    inputTokens: 2,
+    outputTokens: 3,
+    personaId: 'explore',
+  });
+  await expect(
+    projection.project({ ...usage, data: { ...usage.data, threadId: 'foreign' } }, new Map())
+  ).rejects.toThrow('unique published');
+  await expect(
+    projection.project({ ...usage, data: { ...usage.data, inputTokens: -1 } }, new Map())
+  ).rejects.toThrow();
+  await projection.project(
+    {
+      ...part,
+      payload: {
+        ...part.payload,
+        output: { ...part.payload.output, runId: 'other-child-run' },
+        toolCallId: 'other-call',
+      },
+    },
+    new Map()
+  );
+  await expect(projection.project(usage, new Map())).rejects.toThrow('unique published');
+  expect(onUsage).toHaveBeenCalledTimes(1);
 });

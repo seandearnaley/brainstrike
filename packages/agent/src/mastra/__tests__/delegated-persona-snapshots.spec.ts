@@ -152,3 +152,62 @@ describe('admitted persona restoration', () => {
     expect(JSON.stringify(configuration)).not.toContain('current-host-key');
   });
 });
+
+it('keeps separate executed models and generation settings for the same persona at each admitted depth', async () => {
+  const first = {
+    model: 'gpt-5.4',
+    planMode: false,
+    provider: 'openai',
+    providerOptions: { openai: { reasoningEffort: 'high' } },
+  };
+  const second = {
+    model: 'claude-sonnet-4-6',
+    planMode: false,
+    provider: 'anthropic',
+    providerOptions: { anthropic: { effort: 'low' } },
+  };
+  const scopedBinding = {
+    ...binding({ maxSteps: 3, persona }),
+    resolveToolAction: async () =>
+      [first, second].map((execution, index) => ({
+        configuration: { execution, maxSteps: 3, persona },
+        identity,
+        resourceId: 'owner',
+        threadId: `child-${index}`,
+      })),
+  };
+  const resolvePersonaApiKey = vi.fn(async () => 'owned-current-secret');
+  const restored = await withDelegatedPersonaSnapshots(
+    {
+      ...action,
+      delegation: {
+        ...action.delegation,
+        path: [identity, { ...identity, parentToolCallId: 'second-call' }],
+      },
+    },
+    {
+      conversationBinding: scopedBinding,
+      resolvePersonaApiKey,
+      runtime: { model: 'gpt-5.6-sol', provider: 'openai' },
+    }
+  );
+  expect(restored.delegatedExecutionSnapshots).toEqual([first, second]);
+  expect(restored.delegatedPersonaSnapshots?.map((entry) => entry.model)).toEqual([
+    { modelId: first.model, provider: first.provider },
+    { modelId: second.model, provider: second.provider },
+  ]);
+  expect(resolvePersonaApiKey).toHaveBeenCalledWith('anthropic');
+});
+
+it('keeps invalid execution snapshots behind the fixed public configuration error', async () => {
+  await expect(
+    withDelegatedPersonaSnapshots(action, {
+      conversationBinding: binding({
+        execution: { model: 'private-value', planMode: false, provider: 'unknown-provider' },
+        maxSteps: 3,
+        persona,
+      }),
+      runtime: { model: 'gpt-5.4', provider: 'openai' },
+    })
+  ).rejects.toThrow('The admitted child configuration is missing or unsupported.');
+});

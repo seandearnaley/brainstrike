@@ -639,6 +639,7 @@ export {
   SAFE_FILE_TREE_ERRORS,
 } from './tools/file-tree-tool';
 export { withFileLock } from './tools/file-write-lock';
+export { guardToolExecution } from './tools/guard-tool-execution';
 export {
   type AgentHookRunner,
   HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
@@ -660,6 +661,7 @@ export {
   SAFE_QUEUE_STATUS_ERRORS,
   type VectorQueueSnapshot,
 } from './tools/queue-status-tool';
+export { readToolExecutionThreadId } from './tools/read-tool-call-id';
 export {
   computeExecutionContextFingerprint,
   resolveRunPythonExecutionContext,

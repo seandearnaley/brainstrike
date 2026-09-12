@@ -701,6 +701,7 @@ export function mapGenericToolEvent(
 export interface DelegationUsageCapture {
   drain: (part?: unknown) => StreamChunk[];
   onChildUsage: (report: SubagentChildUsageReport) => void;
+  onPublishedChildUsage: (report: SubagentChildUsageReport) => void;
 }
 
 export function createDelegationUsageCapture(
@@ -708,6 +709,65 @@ export function createDelegationUsageCapture(
   runtimeData: RuntimeData | undefined
 ): DelegationUsageCapture {
   const pending: Extract<StreamChunk, { type: 'child-run-usage' }>[] = [];
+  const published = new Set<string>();
+  const reported = new Map<string, { inputTokens: number; outputTokens: number }>();
+  const usageKey = (identity: SubagentChildUsageReport['delegation']) =>
+    JSON.stringify(
+      identity && [
+        identity.parentRuntimeRunId,
+        identity.parentToolCallId,
+        identity.resourceId,
+        identity.threadId,
+      ]
+    );
+  const enqueue = (incoming: SubagentChildUsageReport) => {
+    let report = incoming;
+    if (report.delegation) {
+      const key = JSON.stringify([usageKey(report.delegation), report.personaId]);
+      const previous = reported.get(key);
+      if (
+        previous &&
+        report.inputTokens <= previous.inputTokens &&
+        report.outputTokens <= previous.outputTokens
+      ) {
+        return;
+      }
+      report = {
+        ...report,
+        inputTokens: Math.max(previous?.inputTokens ?? 0, report.inputTokens),
+        outputTokens: Math.max(previous?.outputTokens ?? 0, report.outputTokens),
+      };
+      reported.set(key, report);
+    }
+    const pin = personasById.get(report.personaId)?.model;
+    const model = pin?.modelId ?? runtimeData?.model;
+    const provider = pin?.provider ?? runtimeData?.provider;
+    const existing = pending.find(
+      (chunk) =>
+        report.delegation && usageKey(chunk.value.delegation) === usageKey(report.delegation)
+    );
+    if (existing) {
+      existing.value = {
+        ...existing.value,
+        inputTokens: Math.max(existing.value.inputTokens, report.inputTokens),
+        outputTokens: Math.max(existing.value.outputTokens, report.outputTokens),
+      };
+      return;
+    }
+    pending.push({
+      type: 'child-run-usage',
+      value: {
+        ...(report.delegation ? { delegation: report.delegation } : {}),
+        estimated: false,
+        inputTokens: report.inputTokens,
+        ...(model ? { model } : {}),
+        outputTokens: report.outputTokens,
+        personaId: report.personaId,
+        ...(provider ? { provider } : {}),
+        source: 'subagent',
+      },
+    });
+  };
   return {
     drain: (part) => {
       if (pending.length === 0) {
@@ -728,7 +788,11 @@ export function createDelegationUsageCapture(
           event.type === 'finish' ||
           ((event.type === 'tool-result' || event.type === 'tool-error') &&
             readMastraStreamPartString(event.payload, 'toolCallId') === identity?.parentToolCallId);
-        if (!identity || (terminal && event.runId === identity.parentRuntimeRunId)) {
+        if (
+          !identity ||
+          published.has(usageKey(identity)) ||
+          (terminal && event.runId === identity.parentRuntimeRunId)
+        ) {
           ready.push(chunk);
           pending.splice(index, 1);
         } else {
@@ -737,23 +801,13 @@ export function createDelegationUsageCapture(
       }
       return ready;
     },
-    onChildUsage: (report) => {
-      const pin = personasById.get(report.personaId)?.model;
-      const model = pin?.modelId ?? runtimeData?.model;
-      const provider = pin?.provider ?? runtimeData?.provider;
-      pending.push({
-        type: 'child-run-usage',
-        value: {
-          ...(report.delegation ? { delegation: report.delegation } : {}),
-          estimated: false,
-          inputTokens: report.inputTokens,
-          ...(model ? { model } : {}),
-          outputTokens: report.outputTokens,
-          personaId: report.personaId,
-          ...(provider ? { provider } : {}),
-          source: 'subagent',
-        },
-      });
+    onChildUsage: enqueue,
+    onPublishedChildUsage(report) {
+      if (!report.delegation) {
+        throw new Error('Published usage has no bound delegation.');
+      }
+      published.add(usageKey(report.delegation));
+      enqueue(report);
     },
   };
 }

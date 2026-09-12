@@ -1,4 +1,5 @@
 import { type AssistantRuntime, AssistantRuntimeProvider } from '@assistant-ui/react';
+import type { AssistantChildInput } from '@brainstrike/assistant-contract';
 import { cn } from '@brainstrike/ui';
 import type { ComponentProps, ReactElement } from 'react';
 import { ActiveConversationInputProvider } from './active-conversation-input';
@@ -20,6 +21,7 @@ export type AssistantConversationPanelProps = Partial<
   > & {
     readonly allowIdleInput?: boolean;
     readonly onSendActiveInput?: SendActiveConversationInput | undefined;
+    readonly prepareActiveInput?: ((input: AssistantChildInput) => AssistantChildInput) | undefined;
     readonly className?: string;
     readonly label: string;
     /** Owned by the host; viewing or closing this panel never starts or stops a run. */
@@ -34,6 +36,7 @@ export function AssistantConversationPanel({
   className,
   allowIdleInput = false,
   onSendActiveInput,
+  prepareActiveInput,
   label,
   runtime,
   threadKey,
@@ -62,6 +65,7 @@ export function AssistantConversationPanel({
           <ActiveConversationInputProvider
             allowIdleInput={allowIdleInput}
             onSend={onSendActiveInput}
+            prepare={prepareActiveInput}
           >
             <PlanModeExitProvider onExit={props.planMode?.onExit}>
               <RewindProvider value={null}>

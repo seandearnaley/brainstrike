@@ -4,10 +4,12 @@ import '@testing-library/jest-dom/vitest';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { SubagentConversationNavigationContext } from '@brainstrike/assistant-ui';
 import type { DelegatedConversationNode } from '@brainstrike/db';
+import { FileExplorerProvider } from '@brainstrike/file-explorer-ui/shell';
 import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -30,6 +32,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => ({
   createDelegatedConversationRepository: () => ({ get: mocks.get }),
   readDelegatedConversationInsights: mocks.insights,
 }));
+const workspaceStorage = new MemoryStorageAdapter();
 const address = { ownerResourceId: 'owner', rootThreadId: 'root', threadId: 'child' };
 const node: DelegatedConversationNode = {
   ...address,
@@ -111,7 +114,7 @@ describe('delegated workspace app registration', () => {
   });
 
   it('opens the real child panel, closes it without execution, and reopens host output received while closed', async () => {
-    mocks.get.mockResolvedValue(node);
+    mocks.get.mockResolvedValue({ ...node, workspaceRootId: 'private-root-id' });
     mocks.insights.mockResolvedValue({
       configuration: {
         maxSteps: 6,
@@ -171,11 +174,13 @@ describe('delegated workspace app registration', () => {
       );
     }
     render(
-      <TooltipProvider>
-        <DelegatedConversationRootsProvider>
-          <Harness />
-        </DelegatedConversationRootsProvider>
-      </TooltipProvider>
+      <FileExplorerProvider storageAdapter={workspaceStorage}>
+        <TooltipProvider>
+          <DelegatedConversationRootsProvider>
+            <Harness />
+          </DelegatedConversationRootsProvider>
+        </TooltipProvider>
+      </FileExplorerProvider>
     );
     act(() => {
       publish?.('First live child transcript.');
@@ -183,6 +188,10 @@ describe('delegated workspace app registration', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Open Cedar' }));
     expect(await screen.findByText('First live child transcript.')).toBeVisible();
+    expect(screen.getByTestId('child-workspace-mode')).toHaveTextContent(
+      'Shared workspace: bound folder is no longer open'
+    );
+    expect(screen.getByTestId('child-workspace-mode')).not.toHaveTextContent('private-root-id');
     await user.click(screen.getByRole('button', { name: 'Close Cedar' }));
     expect(screen.queryByText('First live child transcript.')).not.toBeInTheDocument();
     act(() => {

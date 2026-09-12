@@ -59,7 +59,10 @@ export interface ChildContinuationHostPort {
     readonly model?: string;
     readonly provider?: string;
   }): Promise<void>;
-  prepareContinuation(input: AssistantChildFollowupAction): Promise<ChildContinuationScope>;
+  prepareContinuation(
+    input: AssistantChildFollowupAction,
+    configure?: (admittedConfiguration: unknown) => unknown
+  ): Promise<ChildContinuationScope>;
   releaseUnexecutedContinuationDecision(input: ChildContinuationDecision): Promise<void>;
   resolveContinuationDecision(
     input: ChildContinuationDecision

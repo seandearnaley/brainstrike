@@ -1454,3 +1454,17 @@ The column is covered by the existing invocation deletion/reset paths; upgrade,
 replay and full-engine dump/reload preserve existing invocation identities.
 Revoking admission alone never acknowledges Stop: the control host must still
 join the selected native executors and workflow cleanup before reporting success.
+
+
+### Independent paused child continuations (BST-1723)
+
+Migration 138 splits continuation admission ownership: the root unique index
+covers only claimed/running receipts, while a second root/child index covers
+claimed/running/awaiting-approval/awaiting-input receipts. Pending sibling
+decisions do not block one another's admission. Decision claims still require
+the receipt's original turn and a current owned root host with no other
+running/cancelling root leg. These checks also cover ordinary parent execution,
+which has no continuation row. Failed concurrent claims roll back the decision
+insert together with the receipt transition. Existing receipts survive upgrade
+and replay unchanged; the existing continuation table reset/delete ownership
+covers both indexes without another persistent store.

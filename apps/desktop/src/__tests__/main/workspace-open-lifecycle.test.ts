@@ -424,6 +424,7 @@ describe('main workspace-open lifecycle', () => {
     vi.resetModules();
     vi.clearAllMocks();
     mockWindowInstances = [];
+    isDesktopShuttingDownMock.mockReturnValue(false);
     mockApp.isPackaged = false;
     getDatabaseMock.mockResolvedValue({});
     existsSyncMock.mockReturnValue(true);
@@ -532,6 +533,53 @@ describe('main workspace-open lifecycle', () => {
       origin: 'second-instance',
       path: '/work/second-instance-repo',
     });
+  });
+
+  it('does not enqueue or show a second-instance request after renderer shutdown begins', async () => {
+    await import('../../main');
+    await vi.waitFor(() => expect(mockWindowInstances).toHaveLength(1));
+    const window = latestWindow();
+    sendReadyPing(window);
+    window.show.mockClear();
+    window.webContents.send.mockClear();
+    isDesktopShuttingDownMock.mockReturnValue(true);
+    const secondInstanceHandler = findHandler<
+      (event: unknown, argv: string[], workingDirectory: string) => void
+    >(mockApp.on, 'second-instance');
+    secondInstanceHandler({}, ['/electron', '/mock/app', '/work/late-repo'], '/cwd');
+    expect(window.webContents.send).not.toHaveBeenCalled();
+    expect(window.show).not.toHaveBeenCalled();
+  });
+
+  it('does not recreate a window on activate after renderer shutdown begins', async () => {
+    await import('../../main');
+    await vi.waitFor(() => expect(mockWindowInstances).toHaveLength(1));
+    latestWindow().webContents.isDestroyed.mockReturnValue(true);
+    isDesktopShuttingDownMock.mockReturnValue(true);
+    const activateRegistrations = mockApp.on.mock.calls.filter((args) => args[0] === 'activate');
+    expect(activateRegistrations).toHaveLength(2);
+
+    const activateHandler = findLastHandler<() => Promise<void>>(mockApp.on, 'activate');
+    await activateHandler();
+
+    expect(mockWindowInstances).toHaveLength(1);
+  });
+
+  it('does not deliver an open-file request after renderer shutdown begins', async () => {
+    await import('../../main');
+    await vi.waitFor(() => expect(mockWindowInstances).toHaveLength(1));
+    const window = latestWindow();
+    sendReadyPing(window);
+    window.webContents.send.mockClear();
+    isDesktopShuttingDownMock.mockReturnValue(true);
+    const handler = findHandler<(event: { preventDefault: () => void }, p: string) => void>(
+      mockApp.on,
+      'open-file'
+    );
+    const preventDefault = vi.fn();
+    handler({ preventDefault }, '/work/late-repo');
+    expect(preventDefault).toHaveBeenCalledExactlyOnceWith();
+    expect(window.webContents.send).not.toHaveBeenCalled();
   });
 
   it('enqueues and delivers a launch-argv folder exactly once', async () => {

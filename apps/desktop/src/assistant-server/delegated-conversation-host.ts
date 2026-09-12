@@ -38,6 +38,7 @@ import {
 import { z } from 'zod';
 import { assertDelegatedConversationAdmission } from './delegated-cancellation-admission';
 import { createDesktopDelegatedContinuationHost } from './delegated-continuation-host';
+import { delegatedHostRunId } from './delegated-host-run-id';
 import { createDelegatedStepBudget } from './delegated-step-budget';
 import {
   assertDelegationRootRunning,
@@ -143,7 +144,8 @@ export function createDesktopDelegatedConversationHost(
   prepareInputContext?: (
     input: DelegatedFollowupInput,
     configuration: unknown
-  ) => Promise<{ role: 'system'; content: string }[]>
+  ) => Promise<{ role: 'system'; content: string }[]>,
+  captureWorkspaceStart?: (threadId: string) => Promise<void>
 ): {
   budget: DelegatedBudgetPort;
   continuation: ChildContinuationHostPort;
@@ -391,21 +393,13 @@ export function createDesktopDelegatedConversationHost(
           threadId: identity.childThreadId,
         });
       });
+      await captureWorkspaceStart?.(identity.childThreadId);
     },
     async persistEvent(identity, messageId, event, sequence) {
       const scope = await readScope();
       identityString.parse(messageId);
       // Opaque host-leg identity, never parsed for ancestry or authorization.
-      const childRunId = `delegated-run-${createHash('sha256')
-        .update(
-          JSON.stringify([
-            hostRunId,
-            identity.parentRuntimeRunId,
-            identity.parentToolCallId,
-            identity.childRuntimeRunId,
-          ])
-        )
-        .digest('hex')}`;
+      const childRunId = delegatedHostRunId(hostRunId, identity);
       const persisted = {
         ...event,
         metadata:

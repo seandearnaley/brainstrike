@@ -80,6 +80,7 @@ import {
 } from './child-continuation';
 import { readChildContinuationUserMessage } from './child-continuation-user-message';
 import { withDelegatedPersonaSnapshots } from './delegated-persona-snapshots';
+import { DELEGATED_STEP_USAGE_PART } from './delegated-step-usage';
 import { createDelegatedStreamProjection } from './delegated-stream-projection';
 import { captureDelegatedSystemContext } from './delegated-system-context';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
@@ -459,6 +460,9 @@ export async function processMastraStreamPart(
   }
 
   switch (p.type) {
+    // The delegated projection has already validated and metered this published child.
+    case DELEGATED_STEP_USAGE_PART:
+      return { chunks: [], finished: false };
     case 'data-signal':
       // Native notifications are persisted as model context. Their actual model
       // response follows on this stream; they are not an extra user/assistant row.
@@ -1078,11 +1082,13 @@ function readMastraReasoningPartKind(part: unknown): 'content' | 'marker' | unde
 }
 
 export function createAttemptDelegatedProjection({
+  delegationUsage,
   runtime,
   runtimeData,
   lifecycleState,
   sanitizedNameMap,
 }: {
+  delegationUsage?: DelegationUsageCapture | undefined;
   runtime: Pick<
     MastraAgentRuntime,
     'conversationBinding' | 'personasById' | 'delegationToolPersonas' | 'askTools'
@@ -1134,6 +1140,7 @@ export function createAttemptDelegatedProjection({
         finished: result.finished,
       };
     },
+    onUsage: delegationUsage?.onPublishedChildUsage,
     personas: runtime.delegationToolPersonas,
   });
   const settle = () =>
@@ -1200,6 +1207,7 @@ export async function* streamAttemptChunks({
   const toolNames = new Map<string, string>();
 
   const delegatedProjection = createAttemptDelegatedProjection({
+    delegationUsage,
     lifecycleState,
     runtime,
     runtimeData,
@@ -1324,6 +1332,7 @@ export async function* streamAttemptChunks({
     }
   } catch (error) {
     streamFailure = error;
+    yield* drainDelegationUsageChunks(delegationUsage);
     // The provider can report stream-start warnings and then fail before
     // Mastra yields any mapped part. Preserve those facts before propagating
     // the original stream failure, including cancellation/watchdog paths.

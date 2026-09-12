@@ -1,6 +1,8 @@
 import {
   AdmittedChildConfigurationError,
+  admittedPersonaConfigurationSchema,
   readAdmittedPersonaConfiguration,
+  readChildExecutionConfiguration,
 } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { MastraAgentRuntimeOptions } from './agent-runtime';
@@ -51,8 +53,37 @@ export async function withDelegatedPersonaSnapshots(
   action: ToolAction,
   options: MastraAgentRuntimeOptions
 ): Promise<MastraAgentRuntimeOptions> {
-  const snapshots = await readDelegatedPersonaSnapshots(action, options.conversationBinding);
-  return withAdmittedPersonaSnapshots(snapshots, options);
+  if (!action.delegation) {
+    return options;
+  }
+  const binding = options.conversationBinding;
+  if (!binding?.resolveToolAction) {
+    throw new AdmittedChildConfigurationError('host-capability-unavailable');
+  }
+  const scopes = await binding.resolveToolAction(action);
+  if (scopes.length !== action.delegation.path.length || scopes.length === 0) {
+    throw new AdmittedChildConfigurationError('ancestry-incomplete');
+  }
+  // Validate the public error boundary before reading extended generation facts.
+  const profiles = scopes.map((scope, index) =>
+    readAdmittedPersonaConfiguration(scope.configuration, action.delegation?.path[index]?.personaId)
+  );
+  const executions = scopes.map((scope) => {
+    const configuration = admittedPersonaConfigurationSchema.parse(scope.configuration);
+    return configuration.execution
+      ? readChildExecutionConfiguration(configuration.execution)
+      : undefined;
+  });
+  const snapshots = profiles.map((persona, index) => {
+    const execution = executions[index];
+    return execution
+      ? { ...persona, model: { modelId: execution.model, provider: execution.provider } }
+      : persona;
+  });
+  return withAdmittedPersonaSnapshots(snapshots, {
+    ...options,
+    delegatedExecutionSnapshots: executions,
+  });
 }
 
 export async function withAdmittedPersonaSnapshots(

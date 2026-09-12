@@ -35,8 +35,10 @@ import { createDesktopDelegatedConversationHost } from './delegated-conversation
 import { registerDesktopDelegatedCancellation } from './delegated-execution-controls';
 import { registerDesktopDelegatedFollowup } from './delegated-followup-controls';
 import { createDesktopDelegatedInputContext } from './delegated-input-context';
+import { captureDelegatedWorkspaceStart } from './delegated-workspace-snapshot';
 import { resolveProviderApiKey } from './provider-credentials';
 import { createRunCriticalDatabase } from './run-critical-database';
+import type { TurnBoundarySnapshotDeps } from './snapshot-turn-boundaries';
 
 export type DesktopMastraMemoryResult =
   import('@brainstrike/assistant-service/stream-init').AgentStreamMemoryResult;
@@ -75,6 +77,7 @@ export class DesktopMemoryCredentialMissingError extends Error {
 /** Host services memory construction can use (injected from the server options). */
 interface DesktopMemoryDependencies {
   readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  readonly snapshots?: TurnBoundarySnapshotDeps | undefined;
 }
 
 export async function getDesktopMastraMemory(
@@ -223,7 +226,8 @@ async function createDesktopMastraMemoryFromCacheState({
     semanticRecallEmbeddingTarget,
   });
   if (runId) {
-    const database = createRunCriticalDatabase(await getDatabase(), { eventSink, runId });
+    const activeDatabase = await getDatabase();
+    const database = createRunCriticalDatabase(activeDatabase, { eventSink, runId });
     // Run-scoped memory instances intentionally bypass the shared cache so the
     // per-run event sink cannot leak observability events across concurrent runs.
     const memory = await createPgliteMastraMemory({
@@ -243,10 +247,19 @@ async function createDesktopMastraMemoryFromCacheState({
       ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
       runId,
     });
+    // Snapshot storage uses the captured full database owner; runtime queries
+    // keep the managed run context wrapper.
     const host = createDesktopDelegatedConversationHost(
       database,
       runId,
-      createDesktopDelegatedInputContext(runtimeData)
+      createDesktopDelegatedInputContext(runtimeData),
+      async (threadId) =>
+        captureDelegatedWorkspaceStart(
+          activeDatabase,
+          threadId,
+          runtimeData,
+          memoryDependencies?.snapshots
+        )
     );
     return {
       ...memory,
