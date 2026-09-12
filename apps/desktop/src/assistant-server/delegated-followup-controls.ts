@@ -1,4 +1,5 @@
 import type { DelegatedFollowupInput } from '@brainstrike/agent';
+import { ChildInputNotDeliveredError } from '@brainstrike/assistant-contract';
 import type { DelegatedConversationScope } from '@brainstrike/db';
 
 type Control = (
@@ -28,7 +29,9 @@ export async function sendDesktopDelegatedFollowup(
 ): Promise<void> {
   const control = controls.get(hostRunId);
   if (!control) {
-    throw new Error('The child execution owner is unavailable. Input was not replayed.');
+    throw new ChildInputNotDeliveredError(
+      'The child execution owner is unavailable. Input was not replayed.'
+    );
   }
   await control(scope, threadId, input);
 }

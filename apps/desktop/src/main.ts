@@ -671,7 +671,7 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     const steps = shutdownSteps.completed();
     logger.info('Graceful shutdown completed', {
       steps,
-      totalMs: steps.reduce((total, step) => total + step.elapsedMs, 0),
+      stepsMs: steps.reduce((total, step) => total + step.elapsedMs, 0),
       trigger,
     });
   })().finally(() => {

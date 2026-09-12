@@ -53,9 +53,9 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
         ) => Promise<EmbeddingLifecycleStatus>
       >(async () => ({
         active: false,
-        lastError: 'boom',
+        lastError: null,
         runtimeId: 'embedding-host-runtime',
-        state: 'error',
+        state: 'stopped',
       })),
     },
     mockHostWindow: hostWindow,
@@ -118,11 +118,15 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     currentLifecycleStatus.runtimeId = 'embedding-host-runtime';
     currentLifecycleStatus.runtimeKind = 'embedding-host';
     currentLifecycleStatus.state = 'running';
-    lifecycleState.waitForStatus.mockResolvedValue({
-      active: false,
-      lastError: 'boom',
-      runtimeId: 'embedding-host-runtime',
-      state: 'error',
+    lifecycleState.waitForStatus.mockImplementation(async () => {
+      const status: EmbeddingLifecycleStatus = {
+        active: false,
+        lastError: null,
+        runtimeId: 'embedding-host-runtime',
+        state: 'stopped',
+      };
+      lifecycleState.setStatus(status);
+      return status;
     });
     mockHostWindow.isDestroyed.mockReturnValue(false);
     mockHostWindow.webContents.send.mockReset();
@@ -327,10 +331,16 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
   });
 
-  it('captures the runtime id once and tears down on error status during stop', async () => {
+  it('captures the runtime id and exposes renderer stop failure after teardown', async () => {
+    lifecycleState.waitForStatus.mockResolvedValueOnce({
+      active: false,
+      lastError: 'Renderer could not stop its worker',
+      runtimeId: 'embedding-host-runtime',
+      state: 'error',
+    });
     const manager = new EmbeddingHostManager();
 
-    await manager.stop();
+    await expect(manager.stop()).rejects.toThrow('Renderer could not stop its worker');
 
     expect(mockHostWindow.webContents.send).toHaveBeenCalledWith(
       'embedding-host:command',
@@ -338,10 +348,15 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
         runtimeId: 'embedding-host-runtime',
       })
     );
-    expect(lifecycleState.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 10_000);
+    expect(lifecycleState.waitForStatus).toHaveBeenCalledExactlyOnceWith(
+      expect.any(Function),
+      10_000
+    );
     expect(lifecycleState.destroyHostWindow).toHaveBeenCalledTimes(1);
     expect(lifecycleState.clearHostWindow).toHaveBeenCalledTimes(1);
-    expect(lifecycleState.setStatus).toHaveBeenCalled();
+    expect(lifecycleState.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ runtimeId: 'embedding-host-runtime', state: 'stopped' })
+    );
   });
 
   it('reset returns to running without destroying the host window when the renderer restarts cleanly', async () => {
@@ -933,7 +948,10 @@ describe('EmbeddingHostManager teardown ownership', () => {
 
     const disposing = manager.dispose();
     await Promise.resolve();
-    expect(lifecycleState.waitForStatus).toHaveBeenCalledOnce();
+    expect(lifecycleState.waitForStatus).toHaveBeenCalledExactlyOnceWith(
+      expect.any(Function),
+      3000
+    );
 
     // A backfill arriving mid-teardown must not restart (replace) the host that
     // stop() is waiting on; that orphaned the stop wait for its full timeout.
@@ -949,6 +967,19 @@ describe('EmbeddingHostManager teardown ownership', () => {
       state: 'stopped',
     });
     await disposing;
+    expect(lifecycleState.waitForStatus).toHaveBeenCalledOnce();
     expect(lifecycleState.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('preserves a failed host stop while still destroying the owned renderer', async () => {
+    lifecycleState.getHostWindow.mockReturnValue(mockHostWindow);
+    currentLifecycleStatus.state = 'running';
+    mockHostWindow.isDestroyed.mockReturnValue(false);
+    const failure = new Error('Renderer stop deadline exceeded');
+    lifecycleState.waitForStatus.mockRejectedValueOnce(failure);
+    const manager = new EmbeddingHostManager();
+    await expect(manager.dispose()).rejects.toBe(failure);
+    expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
+    expect(lifecycleState.dispose).toHaveBeenCalled();
   });
 });

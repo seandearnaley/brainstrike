@@ -14,6 +14,13 @@ async function listen(server: http.Server): Promise<number> {
 }
 
 describe('closeHttpServerForShutdown', () => {
+  it('keeps repeated shutdown idempotent after the listener has closed', async () => {
+    const server = http.createServer();
+    await listen(server);
+    await closeHttpServerForShutdown(server);
+    await expect(closeHttpServerForShutdown(server)).resolves.toBeUndefined();
+  });
+
   it('resolves while a streaming response is still open', async () => {
     const server = http.createServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -26,13 +33,22 @@ describe('closeHttpServerForShutdown', () => {
     await once(response, 'data');
 
     const startedAt = Date.now();
-    const outcome = await Promise.race([
-      closeHttpServerForShutdown(server).then(() => 'closed' as const),
-      new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 1500)),
-    ]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const outcome = await Promise.race([
+        closeHttpServerForShutdown(server).then(() => 'closed' as const),
+        new Promise<'timed-out'>((resolve) => {
+          timer = setTimeout(() => resolve('timed-out'), 1500);
+        }),
+      ]);
 
-    expect(outcome).toBe('closed');
-    expect(Date.now() - startedAt).toBeLessThan(1500);
-    request.destroy();
+      expect(outcome).toBe('closed');
+      expect(Date.now() - startedAt).toBeLessThan(1500);
+    } finally {
+      clearTimeout(timer);
+      request.destroy();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

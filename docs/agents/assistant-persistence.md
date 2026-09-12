@@ -3581,7 +3581,13 @@ the previously observed exact invocation identity. A child human-input marker
 splits only that child's shared runtime into assistant/user/assistant rows. Native
 memory remains the durable transcript writer; the child composer never launches a
 second runtime, queues a root turn or reconstructs a background task on disconnect.
-The child input endpoint rejects missing/retired host owners explicitly. Reload
+The child input endpoint returns definitive non-delivery (409) for a missing or
+retired host owner. Rejected serialized admission checks also become definitive
+non-delivery with their original cause once any saved signal has been removed.
+Failed signal cleanup preserves both rejection and cleanup errors and remains an
+explicit 503; it cannot claim that rejected text is absent from future recall.
+Initial foreign-owner/scope checks remain 404 and uncertain acceptance remains 503.
+Reload
 preserves the receipt in user-message custom metadata: pending input shows an
 unconfirmed-delivery notice, while delivered input shows its accepted state.
 Neither state dispatches work from hydration. Human input retains the native

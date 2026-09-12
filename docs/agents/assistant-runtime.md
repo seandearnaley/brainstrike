@@ -4215,5 +4215,8 @@ input receipt contract in assistant-persistence.md for interruption semantics.
 Follow-up admission is rechecked inside the per-child delivery queue after native
 receipt lookup and again after signal persistence, immediately before native
 enqueue. If durable Stop revoked admission in either await, no signal is sent;
-a persisted but never-enqueued signal is removed. Native and actual PGlite host
+a persisted but never-enqueued signal is removed. Both admission rejection and
+native discard preserve the original non-delivery error alongside any failed
+memory deletion; cleanup failure never overwrites the rejection or becomes success.
+Native and actual PGlite host
 fixtures pin both timing windows and preserve the tool execution Stop barrier.

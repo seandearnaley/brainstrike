@@ -36,6 +36,10 @@ const MAX_PENDING_QUERY_EMBEDDING_REQUESTS = 8;
 const POWER_SAVE_BLOCKER_IDLE_GRACE_MS = 5000;
 const EMBEDDING_HOST_STATUS_IDLE_GRACE_MS = 5000;
 
+// Leave time for the remaining owners inside main's five-second shutdown budget.
+const EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS = 3000;
+const EMBEDDING_HOST_STOP_TIMEOUT_MS = 10_000;
+
 export interface EmbeddingHostManagerOptions {
   readonly platform?: NodeJS.Platform;
 }
@@ -155,7 +159,7 @@ export class EmbeddingHostManager {
     return this.stopHost();
   }
 
-  private async stopHost(): Promise<EmbeddingHostStatus> {
+  private async stopHost(timeoutMs = EMBEDDING_HOST_STOP_TIMEOUT_MS): Promise<EmbeddingHostStatus> {
     this.rejectPendingQueryEmbeddingRequests(
       'Embedding host stopped while query embedding requests were in flight.'
     );
@@ -185,20 +189,17 @@ export class EmbeddingHostManager {
     try {
       const status = await this.lifecycle.waitForStatus(
         (nextStatus) => nextStatus.state === 'stopped' || nextStatus.state === 'error',
-        10_000
+        timeoutMs
       );
       if (status.state === 'error') {
-        this.lifecycle.destroyHostWindow();
-        this.lifecycle.clearHostWindow();
-        this.lifecycle.setStatus(createStoppedEmbeddingHostStatus(runtimeId));
-        return this.getStatus();
+        throw new Error(status.lastError ?? 'Embedding renderer reported a failed stop.');
       }
       return status;
-    } catch {
+    } catch (error) {
       this.lifecycle.destroyHostWindow();
       this.lifecycle.clearHostWindow();
-      this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
-      return this.getStatus();
+      this.lifecycle.setStatus(createStoppedEmbeddingHostStatus(runtimeId));
+      throw error;
     }
   }
 
@@ -316,7 +317,7 @@ export class EmbeddingHostManager {
       // Before running, the renderer may not have installed its command listener.
       // Lifecycle disposal cancels startup waiters and destroys the owned window.
       if (this.lifecycle.getStatus().state !== 'starting') {
-        await this.stopHost();
+        await this.stopHost(EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS);
       }
     } finally {
       this.disposed = true;
