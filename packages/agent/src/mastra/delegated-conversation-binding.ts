@@ -9,6 +9,7 @@ import { parseMemoryRequestContext } from '@mastra/core/memory';
 import type { InputProcessor } from '@mastra/core/processors';
 import type { ToolHooks } from '@mastra/core/tools';
 import { readToolCallId, readToolExecutionThreadId } from '../tools/read-tool-call-id';
+import type { ChildContinuationHostPort } from './child-continuation-host-port';
 import type { DelegatedRunIdentity } from './delegated-run-publication';
 
 /** Observed native identities; the host separately supplies and verifies root ownership. */
@@ -70,10 +71,12 @@ export interface DelegatedConversationBinding {
   readonly budget?: DelegatedBudgetPort;
   /** Atomic admission after native snapshot validation, held through runtime disposal. */
   readonly claimToolAction?: (action: {
+    readonly continuationId?: string;
     readonly delegation?: DelegatedToolActionIdentity;
     readonly runId: string;
     readonly toolCallId: string;
   }) => Promise<void>;
+  readonly continuation?: ChildContinuationHostPort;
   /** Releases only claims acquired by this binding; consumed leaf ids remain durable. */
   readonly finishToolActions?: () => Promise<void>;
   readonly getAbortSignal?: (
@@ -96,6 +99,7 @@ export interface DelegatedConversationBinding {
   >;
   /** Read-only authorization of a decision path against the original host-owned graph. */
   readonly resolveToolAction?: (action: {
+    readonly continuationId?: string;
     readonly delegation?: DelegatedToolActionIdentity;
     readonly runId: string;
     readonly toolCallId: string;

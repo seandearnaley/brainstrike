@@ -10,6 +10,8 @@ import { useMemo, useSyncExternalStore } from 'react';
 import type { DelegatedConversationStore } from './delegated-conversation-store';
 
 export interface DelegatedConversationPanelProps {
+  readonly allowIdleInput?: boolean;
+
   readonly extendHistoryForSearch?: boolean;
   readonly label: string;
   readonly onCancel?: () => Promise<void>;
@@ -27,6 +29,7 @@ export interface DelegatedConversationPanelProps {
 /** A view of the host's child, never a second model or transcript writer. */
 export function DelegatedConversationPanel({
   label,
+  allowIdleInput = false,
   onNew,
   onCancel,
   onSendActiveInput,
@@ -68,8 +71,12 @@ export function DelegatedConversationPanel({
   return (
     <AssistantConversationPanel
       {...panelProps}
+      allowIdleInput={allowIdleInput}
       hideDefaultCancel={Boolean(onCancel)}
-      isComposerDisabled={!onSendActiveInput || snapshot?.update.message.status.type !== 'running'}
+      isComposerDisabled={
+        !onSendActiveInput ||
+        (!allowIdleInput && snapshot?.update.message.status.type !== 'running')
+      }
       label={label}
       onSendActiveInput={onSendActiveInput}
       runtime={runtime}

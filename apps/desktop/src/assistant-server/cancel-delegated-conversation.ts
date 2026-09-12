@@ -9,6 +9,7 @@ import {
   completeDelegatedConversationCancellation,
   revokeDelegatedConversationAdmission,
 } from './delegated-cancellation-admission';
+import { cancelDelegatedContinuations } from './delegated-continuation-cancellation';
 import { joinDesktopDelegatedCancellation } from './delegated-execution-controls';
 import { readRequestBody } from './http';
 import { desktopAssistantServerLogger as logger } from './logger';
@@ -39,6 +40,12 @@ export async function handleDelegatedCancelRequest(
   try {
     const database = await getDatabase();
     const targets = await revokeDelegatedConversationAdmission(
+      database,
+      action,
+      action.threadId,
+      action.scope === 'subtree'
+    );
+    await cancelDelegatedContinuations(
       database,
       action,
       action.threadId,

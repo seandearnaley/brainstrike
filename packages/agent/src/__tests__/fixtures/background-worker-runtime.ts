@@ -54,7 +54,7 @@ interface BackgroundFixture {
 export async function createBackgroundFixture(
   requireApproval = false,
   signal?: AbortSignal,
-  question: boolean | 'then-plan' = false,
+  question: boolean | 'then-plan' | 'available' = false,
   background?: boolean
 ): Promise<BackgroundFixture> {
   const database = await createEnginePglite();
@@ -110,7 +110,7 @@ export async function createBackgroundFixture(
           : 'PARENT_USEFUL_PROGRESS'
       );
     }
-    if (question && !hasToolResult(options, 'brainstrike_askUser')) {
+    if (question && question !== 'available' && !hasToolResult(options, 'brainstrike_askUser')) {
       return toolCallParts('brainstrike_askUser', 'background-question', {
         question: 'Which evidence should I inspect?',
       });

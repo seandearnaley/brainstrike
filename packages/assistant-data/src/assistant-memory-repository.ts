@@ -54,6 +54,7 @@ import {
   type AssistantHistoryMessage,
   type AssistantThreadMessageListOptions,
   type AssistantThreadRunEventListOptions,
+  createDelegatedConversationRepository,
   readAssistantHistoryMessages,
   readAssistantHistoryRunEvents,
 } from '@brainstrike/db';
@@ -188,6 +189,8 @@ export interface AssistantThreadRunRecord {
 }
 
 export interface CreateAssistantThreadRunInput {
+  /** Resolve the original turn from the owned durable continuation before insertion. */
+  readonly childContinuation?: { readonly id: string; readonly nativeRunId: string };
   readonly completedAt?: Date | null;
   readonly error?: string | null;
   readonly id: string;
@@ -3001,6 +3004,23 @@ export function createPgliteAssistantThreadRepository(
     },
     async createThreadRun(input: CreateAssistantThreadRunInput): Promise<AssistantThreadRunRecord> {
       await initialize();
+      let turnMessageId = input.turnMessageId ?? null;
+      if (input.childContinuation) {
+        const receipt = await createDelegatedConversationRepository(database).getContinuation(
+          { ownerResourceId: input.resourceId, rootThreadId: input.threadId },
+          input.childContinuation.id
+        );
+        if (
+          !receipt ||
+          receipt.nativeRunId !== input.childContinuation.nativeRunId ||
+          !['awaiting-approval', 'awaiting-input'].includes(receipt.state)
+        ) {
+          throw new Error(
+            'Child continuation decision is no longer pending or does not belong to this root.'
+          );
+        }
+        turnMessageId = receipt.turnMessageId;
+      }
       const now = new Date();
       const startedAt = input.startedAt ?? now;
       const completedAt = input.completedAt ?? null;
@@ -3016,7 +3036,7 @@ export function createPgliteAssistantThreadRepository(
         startedAt,
         status: input.status ?? 'running',
         threadId: input.threadId,
-        turnMessageId: input.turnMessageId ?? null,
+        turnMessageId,
         updatedAt: now,
         ...(input.modelSettings ? { modelSettings: { ...input.modelSettings } } : {}),
         ...(input.providerOptions ? { providerOptions: { ...input.providerOptions } } : {}),

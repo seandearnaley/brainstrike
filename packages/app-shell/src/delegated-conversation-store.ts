@@ -18,13 +18,40 @@ export interface DelegatedConversationStore {
   readonly rootThreadId: string;
   subscribe(listener: () => void): () => void;
 }
-const identityKey = ({ identity }: DelegatedConversationUpdate): string =>
-  JSON.stringify([
-    identity.parentRuntimeRunId,
-    identity.parentToolCallId,
-    identity.childRuntimeRunId,
-    identity.personaId,
-  ]);
+const identityKey = (update: DelegatedConversationUpdate): string =>
+  update.continuation
+    ? JSON.stringify(['continuation', update.continuation.continuationId])
+    : JSON.stringify([
+        'delegation',
+        update.identity.parentRuntimeRunId,
+        update.identity.parentToolCallId,
+        update.identity.childRuntimeRunId,
+        update.identity.personaId,
+        update.continuationId,
+      ]);
+
+function assertStableBinding(
+  update: DelegatedConversationUpdate,
+  previous: DelegatedConversationSnapshot | undefined,
+  bound: { readonly threadId: string; readonly nativeRunId: string } | undefined,
+  key: string,
+  threadId: string,
+  hostRunId: string,
+  nativeRunId: string
+): void {
+  if (bound && (bound.threadId !== threadId || bound.nativeRunId !== nativeRunId)) {
+    throw new Error('Delegated conversation identity changed.');
+  }
+  if (!previous || identityKey(previous.update) === key) {
+    return;
+  }
+  if (
+    !(update.continuation || update.continuationId) ||
+    previous.update.baseline?.hostRunId === hostRunId
+  ) {
+    throw new Error('Delegated conversation identity changed.');
+  }
+}
 
 /** Ephemeral host state: closing a view neither discards output nor cancels work. */
 export function createDelegatedConversationStore(rootThreadId: string): DelegatedConversationStore {
@@ -34,7 +61,10 @@ export function createDelegatedConversationStore(rootThreadId: string): Delegate
   let values = new Map<string, DelegatedConversationSnapshot>();
   const seen = new Map<string, DelegatedConversationSnapshot>();
   const retiredLegs = new Map<string, Set<string>>();
-  const threadByInvocation = new Map<string, string>();
+  const threadByInvocation = new Map<
+    string,
+    { readonly threadId: string; readonly nativeRunId: string }
+  >();
   const listeners = new Set<() => void>();
   const notify = (): void => {
     for (const listener of listeners) {
@@ -84,21 +114,29 @@ export function createDelegatedConversationStore(rootThreadId: string): Delegate
       if (baseline.threadId === rootThreadId) {
         throw new Error('A child cannot replace its root conversation.');
       }
+      if (update.continuation && update.continuation.threadId !== baseline.threadId) {
+        throw new Error('Child continuation history belongs to another thread.');
+      }
       const previous = values.get(baseline.threadId);
       const key = identityKey(update);
-      const boundThread = threadByInvocation.get(key);
-      if (
-        (previous && identityKey(previous.update) !== key) ||
-        (boundThread && boundThread !== baseline.threadId)
-      ) {
-        throw new Error('Delegated conversation identity changed.');
-      }
+      const bound = threadByInvocation.get(key);
+      const nativeRunId = update.continuation
+        ? update.continuation.nativeRunId
+        : update.identity.childRuntimeRunId;
       const retired = retiredLegs.get(baseline.threadId) ?? new Set<string>();
-      // Reconnection replays the current leg as complete snapshots. A callback
-      // from a superseded leg cannot replace a newer admitted continuation.
+      // A prior invocation may finish after a fresh continuation was admitted.
       if (retired.has(baseline.hostRunId)) {
         return false;
       }
+      assertStableBinding(
+        update,
+        previous,
+        bound,
+        key,
+        baseline.threadId,
+        baseline.hostRunId,
+        nativeRunId
+      );
       const history =
         previous?.update.baseline === baseline
           ? previous.history
@@ -108,7 +146,7 @@ export function createDelegatedConversationStore(rootThreadId: string): Delegate
         retired.add(previousHost);
       }
       retiredLegs.set(baseline.threadId, retired);
-      threadByInvocation.set(key, baseline.threadId);
+      threadByInvocation.set(key, { nativeRunId, threadId: baseline.threadId });
       values = new Map(values).set(baseline.threadId, { history, update });
       notify();
       return true;

@@ -5,7 +5,7 @@
  * without any in-memory stream handle — so it works after a process
  * restart / renderer reload given only the thread context (BST-1084/D1).
  *
- * `listSuspendedMastraRuns` is the sole public entry point (re-exported from
+ * `listSuspendedMastraRuns` and `listSuspendedChildContinuation` are public (re-exported from
  * `packages/agent/src/index.ts`); `resolveDiscoveredApprovalToolName` is also
  * exported because `attempt-legs.ts`'s `readResumedApprovalToolCall` needs
  * the same registered-to-original tool-name mapping.
@@ -15,7 +15,8 @@
 import type { DelegatedToolActionIdentity } from '@brainstrike/assistant-contract';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
-import type { Agent } from '@mastra/core/agent';
+import { Agent } from '@mastra/core/agent';
+import { Mastra } from '@mastra/core/mastra';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import type { MastraAgentRuntimeOptions } from './agent-runtime';
@@ -32,6 +33,7 @@ const logger = createLogger('MastraAgent');
 
 export interface DiscoveredSuspendedApproval {
   readonly args?: unknown;
+  readonly continuationId?: string;
   readonly delegation?: DelegatedToolActionIdentity;
   readonly runId: string;
   /** ISO-8601 instant the run suspended (AgentRun.suspendedAt). */
@@ -49,6 +51,7 @@ export interface DiscoveredSuspendedApproval {
  * mapped exactly like approvals.
  */
 export interface DiscoveredSuspendedPause {
+  readonly continuationId?: string;
   readonly delegation?: DelegatedToolActionIdentity;
   readonly runId: string;
   readonly suspendedAt: string;
@@ -347,5 +350,74 @@ export async function listSuspendedMastraRuns(
     return { approvals, suspends };
   } finally {
     await runtime.dispose();
+  }
+}
+
+/** Read one host-authorized existing child without loading tools or executing a model. */
+export async function listSuspendedChildContinuation(
+  input: {
+    readonly continuationId: string;
+    readonly nativeRunId: string;
+    readonly threadId: string;
+    readonly resourceId: string;
+    readonly personaId: string;
+  },
+  options: {
+    readonly storage: MastraCompositeStore;
+    readonly resolveInvocation: DelegatedSuspensionResolver;
+  }
+): Promise<ListSuspendedRunsResult> {
+  const agent = new Agent({
+    id: input.personaId,
+    instructions: 'Read suspended workflow metadata only.',
+    model: createListingOnlyModel(),
+    name: input.personaId,
+  });
+  const mastra = new Mastra({
+    agents: { discovery: agent },
+    logger: false,
+    storage: options.storage,
+  });
+  try {
+    const { runs } = await agent.listSuspendedRuns({
+      resourceId: input.resourceId,
+      threadId: input.threadId,
+    });
+    const run = runs.find((candidate) => candidate.runId === input.nativeRunId);
+    if (
+      run?.toolCalls.length !== 1 ||
+      !run.toolCalls[0]?.toolCallId ||
+      !run.toolCalls[0]?.toolName
+    ) {
+      throw new Error('Pending continuation has no exact native decision snapshot.');
+    }
+    const result = await classifySuspendedToolCalls([run], new Map(), async (runId, toolCall) => {
+      const resolved = await discoverDelegatedToolPause({
+        resolveInvocation: options.resolveInvocation,
+        rootThreadId: input.threadId,
+        runId,
+        storage: options.storage,
+        toolCall,
+      });
+      if (!resolved && toolCall.toolName?.startsWith('agent-')) {
+        throw new Error('Continuation descendant decision has no authorized native ancestry.');
+      }
+      return resolved;
+    });
+    if (result.approvals.length + result.suspends.length !== 1) {
+      throw new Error('Pending continuation decision could not be classified exactly.');
+    }
+    return {
+      approvals: result.approvals.map((entry) => ({
+        ...entry,
+        continuationId: input.continuationId,
+      })),
+      suspends: result.suspends.map((entry) => ({
+        ...entry,
+        continuationId: input.continuationId,
+      })),
+    };
+  } finally {
+    await mastra.shutdown();
   }
 }

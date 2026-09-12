@@ -63,32 +63,40 @@ export async function readDelegatedPersonaSnapshots(
   if (scopes.length !== action.delegation.path.length || scopes.length === 0) {
     throw new AdmittedChildConfigurationError('ancestry-incomplete');
   }
-  return scopes.map((scope, index) => {
-    const parsed = configurationSchema.safeParse(scope.configuration);
-    if (!parsed.success) {
-      throw new AdmittedChildConfigurationError('invalid-configuration');
-    }
-    if (parsed.data.persona.id !== action.delegation?.path[index]?.personaId) {
-      throw new AdmittedChildConfigurationError('identity-mismatch');
-    }
-    if (parsed.data.persona.allowedToolIds.includes('*')) {
-      throw new AdmittedChildConfigurationError('catalog-unknown');
-    }
-    const { mode, model, source, ...definition } = parsed.data.persona;
-    const persona: AssistantPersonaDefinition = {
-      ...definition,
-      maxSteps: parsed.data.maxSteps,
-      ...(mode ? { mode } : {}),
-      ...(model ? { model } : {}),
-      ...(source ? { source } : {}),
-    };
-    try {
-      assertPersonaToolScope(persona);
-    } catch (cause) {
-      throw new AdmittedChildConfigurationError('permission-scope-invalid', { cause });
-    }
-    return persona;
-  });
+  return scopes.map((scope, index) =>
+    readAdmittedPersonaConfiguration(scope.configuration, action.delegation?.path[index]?.personaId)
+  );
+}
+
+/** Parse the immutable host-authorized profile for decisions and explicit child wakes. */
+export function readAdmittedPersonaConfiguration(
+  configuration: unknown,
+  expectedPersonaId?: string
+): AssistantPersonaDefinition {
+  const parsed = configurationSchema.safeParse(configuration);
+  if (!parsed.success) {
+    throw new AdmittedChildConfigurationError('invalid-configuration');
+  }
+  if (expectedPersonaId !== undefined && parsed.data.persona.id !== expectedPersonaId) {
+    throw new AdmittedChildConfigurationError('identity-mismatch');
+  }
+  if (parsed.data.persona.allowedToolIds.includes('*')) {
+    throw new AdmittedChildConfigurationError('catalog-unknown');
+  }
+  const { mode, model, source, ...definition } = parsed.data.persona;
+  const persona: AssistantPersonaDefinition = {
+    ...definition,
+    maxSteps: parsed.data.maxSteps,
+    ...(mode ? { mode } : {}),
+    ...(model ? { model } : {}),
+    ...(source ? { source } : {}),
+  };
+  try {
+    assertPersonaToolScope(persona);
+  } catch (cause) {
+    throw new AdmittedChildConfigurationError('permission-scope-invalid', { cause });
+  }
+  return persona;
 }
 
 /** The same persona id may have a different admitted configuration at each depth. */
@@ -112,6 +120,13 @@ export async function withDelegatedPersonaSnapshots(
   options: MastraAgentRuntimeOptions
 ): Promise<MastraAgentRuntimeOptions> {
   const snapshots = await readDelegatedPersonaSnapshots(action, options.conversationBinding);
+  return withAdmittedPersonaSnapshots(snapshots, options);
+}
+
+export async function withAdmittedPersonaSnapshots(
+  snapshots: readonly AssistantPersonaDefinition[],
+  options: MastraAgentRuntimeOptions
+): Promise<MastraAgentRuntimeOptions> {
   if (snapshots.length === 0) {
     return options;
   }

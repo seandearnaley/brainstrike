@@ -48,7 +48,11 @@ export {
   DebugBundleProvider,
   useDebugBundleContext,
 } from './debug-bundle-context';
-export type { DelegatedConversationUpdate } from './delegated-conversation-receiver';
+export type {
+  ChildContinuationIdentity,
+  ChildConversationOwner,
+  DelegatedConversationUpdate,
+} from './delegated-conversation-receiver';
 export {
   type EditCheckpointContextValue,
   EditCheckpointProvider,

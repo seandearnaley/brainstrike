@@ -76,7 +76,7 @@ export function useDelegatedConversationRuntime({
   }
   const message = update?.message;
   const hostRunId = update?.baseline?.hostRunId;
-  const childRunId = update?.identity.childRuntimeRunId;
+  const childRunId = update?.continuation?.nativeRunId ?? update?.identity?.childRuntimeRunId;
   if (message && !hostRunId) {
     throw new Error('A live child view requires its history baseline.');
   }

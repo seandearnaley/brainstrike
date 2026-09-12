@@ -93,8 +93,11 @@ export interface MastraAgentRuntimeOptions {
   authInput?: ProviderAuthInput;
   /** Host-owned durable background scope; never client RuntimeData. */
   backgroundTaskScope?: BackgroundTaskScope;
+  /** Actual ancestor depth retained when an existing child becomes the managed native root. */
+  continuationChildScope?: { readonly resourceId: string; readonly threadId: string } | undefined;
   /** Host-owned native identity persistence; never serialized through RuntimeData. */
   conversationBinding?: DelegatedConversationBinding | undefined;
+  delegatedDepthOffset?: number | undefined;
   /** Host-authorized admission profiles, indexed by delegation depth for a resumed path. */
   delegatedPersonaSnapshots?: readonly AssistantPersonaDefinition[];
   /** @internal Initial host system context; native child snapshots own resumption. */
@@ -184,6 +187,8 @@ export interface MastraAgentRuntime {
   /** Fail-loud completion check for the client-provided persisted assistant id. */
   assertAssistantMessageIdPersisted?: () => void;
   backgroundTaskManager?: BackgroundTaskManager | undefined;
+  /** Direct child legs retain the child's native default processors and admitted step cap. */
+  childExecution?: { readonly maxSteps: number };
   conversationBinding?: DelegatedConversationBinding | undefined;
   delegatedExecutionOptions?: DelegatedExecutionOptions;
   delegatedTurnPersistence?: DelegatedTurnPersistence | undefined;
@@ -748,7 +753,9 @@ export async function createMastraAgentRuntime(
     personasById,
     subAgents,
   } = await resolvePersonaRuntimeParts({
+    continuationChildScope: options.continuationChildScope,
     conversationBinding: options.conversationBinding,
+    delegatedDepthOffset: options.delegatedDepthOffset,
     delegatedExecutionOptions,
     delegatedPersonaSnapshots: options.delegatedPersonaSnapshots,
     getDelegatedSystemContext: options.getDelegatedSystemContext,

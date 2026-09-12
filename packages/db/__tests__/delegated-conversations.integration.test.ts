@@ -2,6 +2,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { migration128DelegatedInvocationUsage } from '../src/migrations/128-delegated-invocation-usage';
+import { migration135DelegatedContinuations } from '../src/migrations/135-delegated-continuations';
 import { createEnginePglite } from '../src/pglite-factory.js';
 import {
   createDelegatedConversationRepository,
@@ -258,12 +259,16 @@ describe('durable delegated conversation graph (BST-1718)', () => {
     if (typeof migration128DelegatedInvocationUsage.down !== 'string') {
       throw new Error('Expected SQL migration');
     }
+    if (typeof migration135DelegatedContinuations.down !== 'string') {
+      throw new Error('Expected SQL migration');
+    }
+    await database.exec(migration135DelegatedContinuations.down);
     await database.exec(migration128DelegatedInvocationUsage.down);
     await database.exec(
       'DROP TABLE brainstrike_delegated_tool_decisions; DROP TABLE brainstrike_delegated_invocations; DROP TABLE brainstrike_delegated_conversations'
     );
     await database.query(
-      "DELETE FROM __drizzle_migrations WHERE hash IN ('custom-126-delegated-conversations', 'custom-127-delegated-invocations', 'custom-128-delegated-invocation-usage', 'custom-131-delegated-tool-decisions')"
+      "DELETE FROM __drizzle_migrations WHERE hash IN ('custom-126-delegated-conversations', 'custom-127-delegated-invocations', 'custom-128-delegated-invocation-usage', 'custom-131-delegated-tool-decisions', 'custom-135-delegated-continuations')"
     );
     const nativeBefore = await database.query('SELECT * FROM mastra_threads ORDER BY id');
     const first = await runMigrations(database);
@@ -277,7 +282,7 @@ describe('durable delegated conversation graph (BST-1718)', () => {
       (await database.query('SELECT original_tool_call FROM brainstrike_delegated_invocations'))
         .rows
     ).toEqual([]);
-    expect(first.appliedMigrations).toHaveLength(4);
+    expect(first.appliedMigrations).toHaveLength(5);
     const repository = createDelegatedConversationRepository(database);
     expect(await repository.get(scope, 'child')).toBeNull();
     expect((await database.query('SELECT * FROM mastra_threads ORDER BY id')).rows).toEqual(

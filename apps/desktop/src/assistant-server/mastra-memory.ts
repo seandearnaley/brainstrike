@@ -262,6 +262,7 @@ async function createDesktopMastraMemoryFromCacheState({
         bindRun: host.bindRun,
         budget: host.budget,
         claimToolAction: host.claimToolAction,
+        continuation: host.continuation,
         finishToolActions: host.finishToolActions,
         prepareToolAction: host.prepareToolAction,
         registerCancellation: (control) => registerDesktopDelegatedCancellation(runId, control),

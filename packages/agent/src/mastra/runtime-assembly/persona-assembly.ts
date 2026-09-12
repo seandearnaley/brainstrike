@@ -59,6 +59,8 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
  * map here would bake the wrong budget into every pinned persona's tools.
  */
 export async function resolvePersonaRuntimeParts(params: {
+  continuationChildScope?: { readonly resourceId: string; readonly threadId: string } | undefined;
+  delegatedDepthOffset?: number | undefined;
   delegatedExecutionOptions?: DelegatedExecutionOptions;
   delegatedPersonaSnapshots?: readonly AssistantPersonaDefinition[] | undefined;
   conversationBinding?: DelegatedConversationBinding | undefined;
@@ -91,6 +93,8 @@ export async function resolvePersonaRuntimeParts(params: {
     return EMPTY_PERSONA_RUNTIME_PARTS;
   }
   const personaBuild = await buildPersonaSubAgents({
+    continuationChildScope: params.continuationChildScope,
+    delegatedDepthOffset: params.delegatedDepthOffset,
     delegatedExecutionOptions: params.delegatedExecutionOptions,
     delegatedPersonaSnapshots: params.delegatedPersonaSnapshots,
     memory: params.memory,

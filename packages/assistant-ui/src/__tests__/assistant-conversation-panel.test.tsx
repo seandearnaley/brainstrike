@@ -36,9 +36,11 @@ function Conversation({
   onSendActiveInput,
   attachments = false,
   composerDisabled = false,
+  allowIdleInput = false,
 }: {
   attachments?: boolean;
   composerDisabled?: boolean;
+  allowIdleInput?: boolean;
   id: string;
   messages: readonly ThreadMessageLike[];
   onNew: ExternalStoreAdapter<ThreadMessageLike>['onNew'];
@@ -61,6 +63,7 @@ function Conversation({
   return (
     <AssistantConversationPanel
       {...(attachments ? { attachmentsAvailability: { state: 'enabled' as const } } : {})}
+      allowIdleInput={allowIdleInput}
       isComposerDisabled={composerDisabled}
       label={id}
       onSendActiveInput={onSendActiveInput}
@@ -114,6 +117,35 @@ describe('shared conversation panel', () => {
       ).toHaveAttribute('role', 'status');
     }
   );
+
+  it('sends idle child input through the owned receipt path and never ordinary onNew', async () => {
+    const accepted = Promise.withResolvers<void>();
+    const send = vi.fn(() => accepted.promise);
+    const onNew = vi.fn(async () => {});
+    render(
+      <TooltipProvider>
+        <Conversation
+          allowIdleInput
+          id="Cedar"
+          messages={[message('Finished')]}
+          onNew={onNew}
+          onSendActiveInput={send}
+        />
+      </TooltipProvider>
+    );
+    await userEvent.type(screen.getByRole('textbox'), 'Continue the child');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByText('Sending to child…');
+    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.any(String), text: 'Continue the child' }),
+      expect.any(AbortSignal)
+    );
+    expect(onNew).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox')).toHaveValue('Continue the child');
+    accepted.resolve();
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue(''));
+  });
 
   it('sends an active child draft once, retains failed input, and retries the same request id explicitly', async () => {
     const onNew = vi.fn(async () => {});
@@ -310,6 +342,8 @@ describe('shared conversation panel', () => {
       );
       const file = new File(['image'], 'receipt.png', { type: 'image/png' });
       expect(fireEvent.paste(input, { clipboardData: { files: [file] } })).toBe(true);
+      await act(async () => {});
+      expect(screen.queryByText('receipt.png')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
       await user.click(screen.getByRole('button', { name: 'Discard draft' }));
       expect(input).toHaveValue('');
@@ -388,6 +422,38 @@ describe('shared conversation panel', () => {
     expect(screen.queryByTestId('child-input-delivery')).not.toBeInTheDocument();
     expect(send).toHaveBeenCalledOnce();
     expect(onNew).not.toHaveBeenCalled();
+  });
+
+  it('keeps a changed idle draft when the earlier input acknowledgement arrives', async () => {
+    const accepted = Promise.withResolvers<void>();
+    const send = vi.fn(() => accepted.promise);
+    const view = (running: boolean) => (
+      <TooltipProvider>
+        <Conversation
+          allowIdleInput
+          id="Cedar"
+          messages={[message('Child')]}
+          onNew={async () => {}}
+          onSendActiveInput={send}
+          running={running}
+        />
+      </TooltipProvider>
+    );
+    const { rerender } = render(view(true));
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox');
+    await user.type(input, 'Original input');
+    await user.click(screen.getByRole('button', { name: 'Send to child' }));
+    rerender(view(false));
+    await user.clear(input);
+    await user.type(input, 'New unsent draft');
+    await act(async () => {
+      accepted.resolve();
+      await accepted.promise;
+    });
+    expect(input).toHaveValue('New unsent draft');
+    expect(screen.queryByText('Sending to child…')).not.toBeInTheDocument();
+    expect(send).toHaveBeenCalledOnce();
   });
 
   it('requires explicit discard before changed text can replace an unconfirmed request', async () => {

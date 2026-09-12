@@ -18,6 +18,7 @@ export type AssistantConversationPanelProps = Partial<
     AssistantUiPanelProps,
     'openRouterModelMetadataLookup' | 'onProviderSettingsValidationChange'
   > & {
+    readonly allowIdleInput?: boolean;
     readonly onSendActiveInput?: SendActiveConversationInput | undefined;
     readonly className?: string;
     readonly label: string;
@@ -31,6 +32,7 @@ const EMPTY: never[] = [];
 /** The main thread's complete surface, bound to an existing conversation runtime. */
 export function AssistantConversationPanel({
   className,
+  allowIdleInput = false,
   onSendActiveInput,
   label,
   runtime,
@@ -57,7 +59,10 @@ export function AssistantConversationPanel({
         data-thread-key={threadKey}
       >
         <AssistantRuntimeProvider runtime={runtime}>
-          <ActiveConversationInputProvider onSend={onSendActiveInput}>
+          <ActiveConversationInputProvider
+            allowIdleInput={allowIdleInput}
+            onSend={onSendActiveInput}
+          >
             <PlanModeExitProvider onExit={props.planMode?.onExit}>
               <RewindProvider value={null}>
                 <FollowUpQueueOwnershipContext value={false}>

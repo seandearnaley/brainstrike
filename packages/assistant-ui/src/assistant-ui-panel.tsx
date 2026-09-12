@@ -317,7 +317,8 @@ export interface AssistantUiPanelProps
   planModeEnabled?: boolean;
   prepareRequestData?: (
     abortSignal?: AbortSignal,
-    turnAnchorMessageId?: string | null
+    turnAnchorMessageId?: string | null,
+    runConfig?: unknown
   ) => Promise<Record<string, unknown> | undefined>;
   providerGroups?: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
@@ -410,7 +411,8 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
   prepareRequestData?:
     | ((
         abortSignal?: AbortSignal,
-        turnAnchorMessageId?: string | null
+        turnAnchorMessageId?: string | null,
+        runConfig?: unknown
       ) => Promise<Record<string, unknown> | undefined>)
     | undefined;
   providerGroups: ProviderGroupConfig[];
@@ -641,7 +643,8 @@ const DataStreamRuntimeChat = ({
   prepareRequestData?:
     | ((
         abortSignal?: AbortSignal,
-        turnAnchorMessageId?: string | null
+        turnAnchorMessageId?: string | null,
+        runConfig?: unknown
       ) => Promise<Record<string, unknown> | undefined>)
     | undefined;
   /** Pre-request hook: warms the built-in local model (with progress UI) before streaming. */
@@ -681,7 +684,8 @@ const DataStreamRuntimeChat = ({
         // Absent context (a caller predating the BST-1163 signature, incl.
         // direct test invocation) is an honest "no anchor known", never a
         // fabricated id.
-        context?.turnAnchorMessageId ?? null
+        context?.turnAnchorMessageId ?? null,
+        context?.runConfig
       );
       return {
         data: {

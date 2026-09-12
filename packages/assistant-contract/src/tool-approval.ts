@@ -141,6 +141,7 @@ export function isCodeExecutionApprovalContext(
 
 export interface AssistantToolApprovalRequest {
   args?: unknown;
+  continuationId?: string;
   delegation?: DelegatedToolActionIdentity;
   /**
    * Present only for code-execution tools (today: `brainstrike.runPython`);
@@ -259,6 +260,7 @@ export type AssistantToolApprovalDecision = 'approve' | 'decline';
 
 export interface AssistantToolApprovalAction {
   action: AssistantToolApprovalDecision;
+  continuationId?: string;
   delegation?: DelegatedToolActionIdentity;
   runId: string;
   toolCallId: string;
@@ -270,6 +272,7 @@ export type ToolApprovalRunConfigActionReadResult =
   | { readonly invalid: true };
 
 const TOOL_APPROVAL_ACTION_OWN_KEYS = new Set<PropertyKey>([
+  'continuationId',
   'delegation',
   'action',
   'runId',

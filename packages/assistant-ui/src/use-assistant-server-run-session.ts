@@ -35,7 +35,8 @@ interface UseAssistantServerRunSessionOptions {
   readonly prepareRequestData?:
     | ((
         abortSignal?: AbortSignal,
-        turnAnchorMessageId?: string | null
+        turnAnchorMessageId?: string | null,
+        runConfig?: unknown
       ) => Promise<Record<string, unknown> | undefined>)
     | undefined;
   readonly threadKey?: string | undefined;
@@ -50,7 +51,8 @@ interface AssistantServerRunSessionController {
   readonly onResponse: (response: Response) => void;
   readonly prepareRequest: (
     abortSignal?: AbortSignal,
-    turnAnchorMessageId?: string | null
+    turnAnchorMessageId?: string | null,
+    runConfig?: unknown
   ) => Promise<Record<string, unknown> | undefined>;
   readonly prepareRequestWarmup?: ((abortSignal: AbortSignal) => Promise<void>) | undefined;
   readonly replayRetryToken: number;
@@ -205,7 +207,8 @@ export function useAssistantServerRunSession({
   const prepareRequest = useCallback(
     async (
       abortSignal?: AbortSignal,
-      turnAnchorMessageId?: string | null
+      turnAnchorMessageId?: string | null,
+      runConfig?: unknown
     ): Promise<Record<string, unknown> | undefined> => {
       await reconcilePendingCancellation();
       if (preparedRequestRef.current) {
@@ -222,7 +225,11 @@ export function useAssistantServerRunSession({
       }
       const preparationSignal = abortSignal ?? new AbortController().signal;
       preparationSignal.throwIfAborted();
-      const data = await prepareRequestData?.(preparationSignal, turnAnchorMessageId ?? null);
+      const data = await prepareRequestData?.(
+        preparationSignal,
+        turnAnchorMessageId ?? null,
+        runConfig
+      );
       if (preparationSignal.aborted) {
         const reason = preparationSignal.reason;
         const timedOut = reason instanceof AssistantRequestPreparationTimeoutError;

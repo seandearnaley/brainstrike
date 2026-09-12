@@ -57,6 +57,8 @@ const BRAINSTRIKE_RESET_TABLES = [
   'brainstrike_delegation_child_budgets',
   'brainstrike_delegation_budgets',
   'brainstrike_delegated_tool_decisions',
+  'brainstrike_delegated_continuation_decisions',
+  'brainstrike_delegated_continuations',
   'brainstrike_delegated_invocations',
   'brainstrike_delegated_conversations',
   // Durable conversation-compaction ranges (migration 088, BST-1200). Exact

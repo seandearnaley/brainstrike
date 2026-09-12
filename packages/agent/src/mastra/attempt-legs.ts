@@ -23,7 +23,7 @@
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/logging';
-import type { Agent, MastraDBMessage } from '@mastra/core/agent';
+import type { Agent, AgentExecutionOptions, MastraDBMessage } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
 import type { RuntimeData, StreamIterator } from '../types';
 import { attachAbortedTurnMessageList } from './aborted-turn-persistence';
@@ -93,7 +93,7 @@ export async function createStreamIteratorFromRuntime(
         input.carriedLifecycleState,
         false
       ),
-    maxAttempts: runtime.resilienceConfig.streamStallAttempts,
+    maxAttempts: params.nativeWake ? 1 : runtime.resilienceConfig.streamStallAttempts,
     // BST-1602: a run whose MCP server contributed nothing says so. This is the
     // FRESH-TURN seam, which is exactly the scope the rows want — the resume
     // legs call `runTurnAttempts` directly, rebuild the runtime, re-run
@@ -104,6 +104,49 @@ export async function createStreamIteratorFromRuntime(
   });
 }
 
+async function wakeNativeConversation(
+  agent: Agent,
+  wake: NonNullable<StreamIterationParams['nativeWake']>,
+  runtimeData: RuntimeData | undefined,
+  streamOptions: ReturnType<typeof buildStreamOptions>,
+  abort: (reason: Error) => void
+) {
+  const scope = runtimeData?.memory;
+  if (!scope) {
+    throw new Error('Native conversation wake requires its authorized memory scope.');
+  }
+  const accepted = await agent.sendSignal(wake.signal, {
+    ifActive: { behavior: 'discard' },
+    ifIdle: {
+      behavior: 'wake',
+      streamOptions: {
+        ...streamOptions,
+        ...(wake.maxSteps ? { maxSteps: wake.maxSteps } : {}),
+      } as AgentExecutionOptions<undefined>,
+    },
+    resourceId: scope.resourceId,
+    threadId: scope.threadId,
+  }).accepted;
+  if (accepted.action !== 'wake') {
+    throw new Error(`Native conversation wake was not started (${accepted.action}).`);
+  }
+  try {
+    await wake.onWake(accepted.runId);
+  } catch (error) {
+    abort(new Error('Native conversation wake binding failed.', { cause: error }));
+    try {
+      await accepted.output.consumeStream();
+    } catch (settleError) {
+      throw new AggregateError(
+        [error, settleError],
+        'Native conversation wake binding and settlement failed.'
+      );
+    }
+    throw error;
+  }
+  return accepted.output;
+}
+
 async function createInitialTurnAttempt(
   {
     runtime,
@@ -112,6 +155,7 @@ async function createInitialTurnAttempt(
     memory,
     requireToolApproval,
     sanitizedNameMap,
+    nativeWake,
   }: StreamIterationParams,
   continuationMessages: readonly MastraDBMessage[] | undefined,
   carriedLifecycleState?: ToolLifecycleState,
@@ -186,9 +230,17 @@ async function createInitialTurnAttempt(
           ? streamOptions
           : undefined;
 
-    const streamResult = resolvedStreamOptions
-      ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
-      : await runtime.agent.stream(streamInput);
+    const streamResult = nativeWake
+      ? await wakeNativeConversation(
+          runtime.agent,
+          nativeWake,
+          runtimeData,
+          streamOptions,
+          streamAbortContext.abort
+        )
+      : resolvedStreamOptions
+        ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
+        : await runtime.agent.stream(streamInput);
     await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
     logger.info(
       {

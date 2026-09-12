@@ -207,6 +207,12 @@ test('sends human input to the active child and reloads its rich conversation', 
       )
     );
     if (!userMessages.includes('CHILD_ACTIVE_INPUT_TASK')) {
+      if (history.includes('CHILD_IDLE_APPROVAL_COMPLETE')) {
+        return { finalText: 'PARENT_IDLE_APPROVAL_OUTCOME' };
+      }
+      if (history.includes('CHILD_IDLE_CONTINUATION_RECEIVED')) {
+        return { finalText: 'PARENT_IDLE_CONTINUATION_OUTCOME' };
+      }
       if (history.includes('CHILD_FOLLOWUP_RECEIVED')) {
         return { finalText: 'PARENT_FOLLOWUP_OUTCOME' };
       }
@@ -227,6 +233,15 @@ test('sends human input to the active child and reloads its rich conversation', 
     childCalls += 1;
     if (childCalls === 1) {
       entered.resolve();
+    }
+    if (history.includes('HUMAN_IDLE_APPROVAL_1723')) {
+      return {
+        finalText: 'CHILD_IDLE_APPROVAL_COMPLETE',
+        toolCall: { arguments: { path: 'evidence.txt' }, name: 'brainstrike_readWorkspaceFile' },
+      };
+    }
+    if (history.includes('HUMAN_IDLE_CONTINUATION_1723')) {
+      return { finalText: 'CHILD_IDLE_CONTINUATION_RECEIVED' };
     }
     if (history.includes('HUMAN_FOLLOWUP_1723')) {
       receivedInput = true;
@@ -295,6 +310,53 @@ test('sends human input to the active child and reloads its rich conversation', 
     await expect(child.getByText('HUMAN_FOLLOWUP_1723', { exact: true })).toBeVisible();
     await expect(child.getByText('CHILD_FOLLOWUP_RECEIVED', { exact: true })).toBeVisible();
     expect(provider.requestCount()).toBe(completedRequests);
+    await expect(input).toBeEnabled();
+    await input.fill('HUMAN_IDLE_CONTINUATION_1723');
+    await child.getByRole('button', { exact: true, name: 'Send' }).click();
+    await expect(input).toHaveValue('');
+    await expect(child.getByText('HUMAN_IDLE_CONTINUATION_1723', { exact: true })).toBeVisible();
+    await expect(
+      child.getByText('CHILD_IDLE_CONTINUATION_RECEIVED', { exact: true })
+    ).toBeVisible();
+    await expect(root.getByText('PARENT_IDLE_CONTINUATION_OUTCOME', { exact: true })).toBeVisible();
+    expect(childCalls).toBe(3);
+    const continuedRequests = provider.requestCount();
+    await window.reload();
+    await ensureAssistantShellVisible(window);
+    await expect(child.getByText('HUMAN_IDLE_CONTINUATION_1723', { exact: true })).toBeVisible();
+    await expect(
+      child.getByText('CHILD_IDLE_CONTINUATION_RECEIVED', { exact: true })
+    ).toBeVisible();
+    expect(provider.requestCount()).toBe(continuedRequests);
+    await new HomePage(window).openSettings();
+    await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+    await window
+      .getByRole('combobox', { exact: true, name: 'Read permission' })
+      .selectOption('ask');
+    await ensureAssistantShellVisible(window);
+    await input.fill('HUMAN_IDLE_APPROVAL_1723');
+    await child.getByRole('button', { exact: true, name: 'Send' }).click();
+    const approve = child.getByRole('button', {
+      exact: true,
+      name: 'Approve brainstrike.readWorkspaceFile',
+    });
+    await expect(approve).toBeVisible();
+    expect(childCalls).toBe(4);
+    const suspendedRequests = provider.requestCount();
+    await window.reload();
+    await ensureAssistantShellVisible(window);
+    await expect(approve).toBeVisible();
+    expect(provider.requestCount()).toBe(suspendedRequests);
+    await approve.click();
+    await expect(child.getByText('CHILD_IDLE_APPROVAL_COMPLETE', { exact: true })).toBeVisible();
+    await expect(root.getByText('PARENT_IDLE_APPROVAL_OUTCOME', { exact: true })).toBeVisible();
+    expect(childCalls).toBe(5);
+    const approvedRequests = provider.requestCount();
+    await window.reload();
+    await ensureAssistantShellVisible(window);
+    await expect(child.getByText('CHILD_IDLE_APPROVAL_COMPLETE', { exact: true })).toBeVisible();
+    await expect(approve).toHaveCount(0);
+    expect(provider.requestCount()).toBe(approvedRequests);
     await window.screenshot({
       animations: 'disabled',
       path: testInfo.outputPath('child-followup-reloaded.png'),

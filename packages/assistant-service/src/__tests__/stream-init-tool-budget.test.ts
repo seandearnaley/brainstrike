@@ -11,6 +11,7 @@ import { initializeAgentStream, resolveToolBuildBudget } from '../stream-init';
 
 interface CapturedMemoryOptions {
   conversationBinding?: unknown;
+  getDelegatedSystemContext?: () => readonly { role: string; content: string }[];
   toolOutputArtifactInlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
 }
 
@@ -31,6 +32,10 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
   return {
     ...actual,
+    streamMastraChildFollowup: vi.fn((_input: unknown, options: CapturedMemoryOptions) => {
+      streamCapture.memoryOptions = options;
+      return (async function* emptyStream() {})();
+    }),
     toAiSdkStyleStream: vi.fn(
       (
         _messages: unknown,
@@ -87,7 +92,7 @@ describe('resolveToolBuildBudget', () => {
 });
 
 describe('webExtract artifact settlement budget', () => {
-  it.each(['fresh', 'approval', 'resume'] as const)(
+  it.each(['fresh', 'approval', 'resume', 'child-followup'] as const)(
     'threads host memory capabilities through %s initialization',
     async (kind) => {
       streamCapture.memoryOptions = undefined;
@@ -129,7 +134,14 @@ describe('webExtract artifact settlement budget', () => {
           activatedSkills: vi.fn(async (messages) => messages),
           referencedFiles: vi.fn(async (messages) => messages),
           selfImprovementSignal: vi.fn(async (messages) => messages),
-          workspaceInstructions: vi.fn(async (messages) => messages),
+          workspaceInstructions: vi.fn(async (messages) => [
+            {
+              id: 'trusted-workspace',
+              parts: [{ text: 'TRUSTED_WORKSPACE_1723', type: 'text' }],
+              role: 'system',
+            },
+            ...messages,
+          ]),
         },
         hooks: {
           eventToAssistant: vi.fn(),
@@ -174,6 +186,10 @@ describe('webExtract artifact settlement budget', () => {
       const result = await initializeAgentStream({
         apiKey: undefined,
         capabilities,
+        childFollowupAction:
+          kind === 'child-followup'
+            ? { id: 'followup', text: 'Inspect @evidence.md', threadId: 'child' }
+            : undefined,
         getDatabase: vi.fn(async () => ({})),
         logger: {
           error: vi.fn(),
@@ -181,7 +197,16 @@ describe('webExtract artifact settlement budget', () => {
           warn: vi.fn(),
         } as unknown as ScopedLogger,
         mcpConfig: undefined,
-        messages: [],
+        messages:
+          kind === 'child-followup'
+            ? [
+                {
+                  id: 'client-system',
+                  parts: [{ text: 'CLIENT_SUPPLIED_SYSTEM_MUST_NOT_CROSS', type: 'text' }],
+                  role: 'system',
+                },
+              ]
+            : [],
         resolveProviderApiKey: vi.fn(async () => undefined),
         runId: 'run-1',
         runtimeData: {
@@ -196,7 +221,7 @@ describe('webExtract artifact settlement budget', () => {
           kind === 'resume' ? { ...target, resumeData: { answer: 'yes' } } : undefined,
       } as never);
 
-      if (kind !== 'fresh') {
+      if (kind === 'approval' || kind === 'resume') {
         expect(resolveToolAction).toHaveBeenCalledWith(expect.objectContaining(target));
         expect(result).toMatchObject({
           ok: false,
@@ -208,6 +233,22 @@ describe('webExtract artifact settlement budget', () => {
       expect(result).toMatchObject({ ok: true });
       const capturedMemoryOptions = requireCapturedMemoryOptions(streamCapture.memoryOptions);
       expect(capturedMemoryOptions.conversationBinding).toBe(conversationBinding);
+      if (kind === 'child-followup') {
+        expect(capabilities.contextInjectors.referencedFiles).toHaveBeenCalledWith(
+          [
+            {
+              id: 'followup',
+              parts: [{ text: 'Inspect @evidence.md', type: 'text' }],
+              role: 'user',
+            },
+          ],
+          expect.anything(),
+          capabilities.readWorkspaceTextFile
+        );
+        expect(capturedMemoryOptions.getDelegatedSystemContext?.()).toEqual([
+          { content: 'TRUSTED_WORKSPACE_1723', role: 'system' },
+        ]);
+      }
       expect(
         capturedMemoryOptions.toolOutputArtifactInlineMaxSerializedCharsByToolName?.get(
           NATIVE_TOOL_ID.webExtract

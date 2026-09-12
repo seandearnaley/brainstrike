@@ -356,15 +356,13 @@ export function buildStreamOptions(
     toolCallId,
   } = params;
 
-  const loop = buildToolLoopOptions(
-    runtimeData,
-    runtime.toolSearchProcessor,
-    runtime.toolHistoryFilter
-  );
+  const loop = runtime.childExecution
+    ? { maxSteps: runtime.childExecution.maxSteps }
+    : buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter);
   const options: BrainstrikeAgentStreamOptions & { runId?: string; toolCallId?: string } = {
     ...loop,
     ...(runtime.backgroundTaskManager ? { untilIdle: true } : {}),
-    ...(runtime.rootDelegatedContextProcessor
+    ...(!runtime.childExecution && runtime.rootDelegatedContextProcessor
       ? {
           inputProcessors: [runtime.rootDelegatedContextProcessor, ...(loop.inputProcessors ?? [])],
         }

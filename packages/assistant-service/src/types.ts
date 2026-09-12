@@ -5,6 +5,7 @@ import type {
   RuntimeData,
   StreamChunk,
 } from '@brainstrike/agent';
+import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire';
 
 export type AssistantUiMessage = AssistantUiMessageStrict;
@@ -24,6 +25,8 @@ export type AssistantRoute =
   | 'not-found';
 export interface AssistantRequestPayload {
   assistantMessageId?: string;
+  childFollowupAction?: AssistantChildFollowupAction;
+  childFollowupActionInvalid?: boolean;
   data: RuntimeData | undefined;
   rawMessages: AssistantUiMessage[];
   toolApprovalAction?: AssistantToolApprovalAction;

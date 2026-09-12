@@ -9,8 +9,10 @@ import {
 export function ActiveConversationInputProvider({
   children,
   onSend,
+  allowIdleInput = false,
 }: {
   readonly children: ReactNode;
+  readonly allowIdleInput?: boolean;
   readonly onSend?: SendActiveConversationInput | undefined;
 }) {
   const aui = useAui();
@@ -20,9 +22,9 @@ export function ActiveConversationInputProvider({
   const request = useRef<{ id: string; text: string } | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const canSend = Boolean(onSend && running && !busy);
+  const canSend = Boolean(onSend && (running || allowIdleInput) && !busy);
   const send = async () => {
-    if (!(onSend && running) || inFlight.current) {
+    if (!(onSend && canSend) || inFlight.current) {
       return;
     }
     const text = aui.composer().getState().text.trim();
