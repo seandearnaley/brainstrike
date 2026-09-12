@@ -1632,3 +1632,37 @@ running children. A failed scan/check shows a visible error and Retry, retaining
 it does not silently substitute built-ins for a successful user-profile scan.
 No credentials enter the IPC response and no new state is persisted. Existing
 subagent-personas factory-reset registration remains authoritative.
+
+
+### Admitted persona configuration on decision resume (BST-1727)
+
+An admitted child's stored `configuration` contains its persona instructions,
+model pin, mode, effective tool IDs and the invocation's clamped step budget.
+The host returns this immutable configuration only after authorizing the entire
+decision ancestry. Both public approval and question/plan resume entry points
+restore those profiles before constructing discovery or execution Agents.
+Restoration is indexed by depth, so two admitted generations of the same persona
+ID cannot overwrite one another. Registry edits, disable preferences and removal
+apply to fresh root turns; a resumed native leg retains its admitted target
+profile through completion and does not rewrite an already-admitted decision.
+Current host tool availability, permission rules and model credentials still gate
+execution. Missing/invalid snapshots or an unavailable admitted profile fail
+visibly before native resume; another persona or model is never substituted.
+
+Wildcard worker profiles are expanded to their effective admitted tool IDs when
+building the admission map. A later catalog addition cannot broaden that child's
+resume. Older records retaining an unexpanded `*` fail with an explicit request
+to start a new delegation; their original catalog cannot be inferred from today's
+registry. Cross-provider pins reacquire credentials through the trusted host reader,
+including when the live persona file has been deleted; credentials are not stored
+in child configuration. Native Mastra snapshots retain the original delegated
+task and workspace/system context. This boundary does not change native workflow
+snapshot formats or create another execution owner.
+
+Production tests: `delegated-persona-snapshot.integration.spec.ts` disposes the
+original owner, discovers the stored approval/question after registry edits or
+removal, resumes through the public entry point, and checks one effect plus child
+and parent output. It also rejects a removed host tool before execution.
+`delegated-conversation-host.integration.test.ts` verifies stored configuration is
+read only through the authorized root/turn path. Idle-child wake is separate
+BST-1723 acceptance.

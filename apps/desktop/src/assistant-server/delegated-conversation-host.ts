@@ -478,6 +478,7 @@ export function createDesktopDelegatedConversationHost(
           throw new DelegatedConversationIdentityError('tool-action-conversation-missing');
         }
         result.push({
+          configuration: child.configuration,
           identity: edge,
           ...(invocation.originalToolCall ? { originalToolCall: invocation.originalToolCall } : {}),
           resourceId: child.resourceId,

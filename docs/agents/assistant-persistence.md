@@ -3656,3 +3656,14 @@ A delegated search extension is scoped to the host run that owned its history
 read. A newly admitted host baseline replaces that extension, so deleted or
 rewound messages from an earlier read cannot reappear. Compaction alone keeps
 raw messages in durable scrollback; its provider overlay does not delete them.
+
+Admitted child persona configuration is read from the existing delegated
+conversation record when a decision resumes. Reload discovery still uses inert
+identity-only Agents; execution reconstructs each admitted depth's profile before
+reading/resuming native snapshots. Missing or malformed configuration is fatal,
+not permission to use a changed live profile. The effective invocation step budget
+and admitted tool IDs are retained; current host permissions remain a ceiling.
+The native snapshot remains the owner of original task/system context and workflow
+progress. No new persistent store is introduced, so the existing delegated graph
+factory-reset registration remains authoritative. See assistant-subagents.md's
+admitted configuration boundary and its native/host regression tests.

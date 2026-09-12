@@ -178,6 +178,7 @@ async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(a
   messages: AgentMessage[];
   runtime: RuntimeData;
   memoryOptions: InitialStreamMemoryOptions;
+  resolvePersonaApiKey: AgentStreamProviderApiKeyReader;
   toolApprovalAction: AssistantToolApprovalAction | undefined;
   toolResumeAction: AssistantToolResumeAction | undefined;
 }): Promise<AsyncIterable<StreamChunk>> {
@@ -186,6 +187,7 @@ async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(a
     messages,
     runtime,
     memoryOptions,
+    resolvePersonaApiKey,
     toolApprovalAction,
     toolResumeAction,
   } = args;
@@ -194,12 +196,17 @@ async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(a
     return streamMastraToolApprovalAction(toolApprovalAction, {
       ...memoryOptions,
       requireToolApproval: true,
+      resolvePersonaApiKey,
       runtime,
     });
   }
   if (toolResumeAction) {
     capabilities.runPersistence.recordContinuationRunTreatment?.(runtime);
-    return streamMastraToolResumeAction(toolResumeAction, { ...memoryOptions, runtime });
+    return streamMastraToolResumeAction(toolResumeAction, {
+      ...memoryOptions,
+      resolvePersonaApiKey,
+      runtime,
+    });
   }
   // Prepend the turn's `@file` references (referenced-files), then any explicit
   // `:skill[name]` activations, then the opt-in self-improvement signal, then
@@ -1056,6 +1063,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       deps,
       memoryOptions,
       messages: upsGate.messages,
+      resolvePersonaApiKey: resolveProviderApiKey,
       runtime,
       toolApprovalAction,
       toolResumeAction,
