@@ -173,17 +173,10 @@ export function createDesktopDelegatedContinuationHost(
     async resolveContinuationDecision(input) {
       await authorizeDelegation(input);
       const node = await (await repository()).resolveDecision(input);
-      const baseline = await captureHistory(
-        node.threadId,
-        node.resourceId,
-        false,
-        Boolean(node.branch)
-      );
-      const prepared = await prepareDelegatedChildBranch(
-        database,
-        { ...node, messageId: projectionId(node.id) },
-        false
-      );
+      const [baseline, prepared] = await Promise.all([
+        captureHistory(node.threadId, node.resourceId, false, Boolean(node.branch)),
+        prepareDelegatedChildBranch(database, { ...node, messageId: projectionId(node.id) }, false),
+      ]);
       const selectedBaseline = prepared.branch
         ? { ...baseline, headId: prepared.branchMessageIds?.at(-1) ?? null }
         : baseline;

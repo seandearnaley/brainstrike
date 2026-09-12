@@ -151,6 +151,7 @@ function CapableChildPanel({
         prepareActiveInput: controls.prepareInput,
         slashCommands,
       }}
+      prepareBranchInput={controls.prepareInput}
     />
   );
 }

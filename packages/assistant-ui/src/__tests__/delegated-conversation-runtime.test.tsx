@@ -2,7 +2,15 @@
 import { fromThreadMessageLike, type ThreadMessageLike } from '@assistant-ui/react';
 import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
 import { TooltipProvider } from '@brainstrike/ui';
-import { cleanup, render, renderHook, screen, waitFor, within } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   type AssistantMessage,
@@ -63,14 +71,19 @@ const finish: [string, unknown] = [
 function BranchedConversation({
   history,
   onBranch,
+  prepareBranchInput,
 }: {
   readonly history: History;
   readonly onBranch: NonNullable<Parameters<typeof useDelegatedConversationRuntime>[0]['onBranch']>;
+  readonly prepareBranchInput?: NonNullable<
+    Parameters<typeof useDelegatedConversationRuntime>[0]['prepareBranchInput']
+  >;
 }) {
   const runtime = useDelegatedConversationRuntime({
     history,
     onBranch,
     onNew: async () => undefined,
+    ...(prepareBranchInput ? { prepareBranchInput } : {}),
   });
   return (
     <TooltipProvider>
@@ -278,6 +291,62 @@ describe('shared child conversation runtime', () => {
     expect(onBranch.mock.calls[0]?.[0]).toMatchObject({
       branch: { kind: 'retry', messageId: 'answer' },
       text: 'Retry the selected child answer.',
+    });
+  });
+
+  it('reuses the Retry receipt after an uncertain delivery failure', async () => {
+    const history: History = {
+      headId: 'answer',
+      messages: [
+        { message: saved('prompt', 'Inspect the first file', 'user'), parentId: null },
+        { message: saved('answer', 'The first result'), parentId: 'prompt' },
+      ],
+    };
+    const uncertain = Promise.withResolvers<void>();
+    const onBranch = vi
+      .fn<NonNullable<Parameters<typeof BranchedConversation>[0]['onBranch']>>()
+      .mockImplementationOnce(() => uncertain.promise)
+      .mockResolvedValueOnce(undefined);
+    render(<BranchedConversation history={history} onBranch={onBranch} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate response' }));
+    await waitFor(() => expect(onBranch).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate response' }));
+    await waitFor(() => expect(onBranch).toHaveBeenCalledTimes(2));
+
+    expect(onBranch.mock.calls[1]?.[0].id).toBe(onBranch.mock.calls[0]?.[0].id);
+    uncertain.resolve();
+  });
+
+  it('prepares a historical Retry through the child next-run controls', async () => {
+    const history: History = {
+      headId: 'answer',
+      messages: [
+        { message: saved('prompt', 'Inspect the first file', 'user'), parentId: null },
+        { message: saved('answer', 'The first result'), parentId: 'prompt' },
+      ],
+    };
+    const onBranch = vi
+      .fn<NonNullable<Parameters<typeof BranchedConversation>[0]['onBranch']>>()
+      .mockResolvedValue(undefined);
+    const prepareBranchInput = vi.fn((input) => ({
+      ...input,
+      nextRun: { model: { modelId: 'gpt-5.6-terra', provider: 'openai' } },
+    }));
+    render(
+      <BranchedConversation
+        history={history}
+        onBranch={onBranch}
+        prepareBranchInput={prepareBranchInput}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Regenerate response' }));
+    await waitFor(() => expect(onBranch).toHaveBeenCalledOnce());
+    expect(prepareBranchInput).toHaveBeenCalledOnce();
+    expect(onBranch.mock.calls[0]?.[0].nextRun?.model).toEqual({
+      modelId: 'gpt-5.6-terra',
+      provider: 'openai',
     });
   });
 

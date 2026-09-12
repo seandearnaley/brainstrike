@@ -23,6 +23,7 @@ export interface DelegatedConversationPanelProps {
     'runtime' | 'threadKey' | 'label' | 'isComposerDisabled'
   >;
   readonly persistedHistory?: DelegatedConversationRuntimeOptions['history'];
+  readonly prepareBranchInput?: DelegatedConversationRuntimeOptions['prepareBranchInput'];
   readonly store: DelegatedConversationStore;
   readonly threadId: string;
 }
@@ -37,6 +38,7 @@ export function DelegatedConversationPanel({
   onSendActiveInput,
   panelProps,
   persistedHistory,
+  prepareBranchInput,
   extendHistoryForSearch = false,
   store,
   threadId,
@@ -70,6 +72,7 @@ export function DelegatedConversationPanel({
     history,
     onNew,
     ...(onBranch ? { onBranch } : {}),
+    ...(prepareBranchInput ? { prepareBranchInput } : {}),
     ...(snapshot ? { update: snapshot.update } : {}),
   });
   return (

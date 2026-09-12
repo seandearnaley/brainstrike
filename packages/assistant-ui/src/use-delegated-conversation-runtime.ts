@@ -6,13 +6,14 @@ import {
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
 import {
+  type AssistantChildInput,
   type AssistantUiThreadHistoryAdapter,
   CHILD_INPUT_DELIVERY_METADATA_KEY,
   CHILD_USER_MESSAGE_DATA_NAME,
   childUserMessageSchema,
 } from '@brainstrike/assistant-contract';
 import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { captureChildInputDraft } from './active-conversation-input-draft';
 import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
 import type { DelegatedConversationUpdate } from './delegated-conversation-receiver';
@@ -23,6 +24,7 @@ export interface DelegatedConversationRuntimeOptions {
   readonly history: History;
   readonly onBranch?: (input: Omit<AssistantChildFollowupAction, 'threadId'>) => Promise<void>;
   readonly onNew: ExternalStoreAdapter['onNew'];
+  readonly prepareBranchInput?: (input: AssistantChildInput) => AssistantChildInput;
   readonly update?: DelegatedConversationUpdate;
 }
 const convertMessage = (message: ThreadMessageLike): ThreadMessageLike => message;
@@ -82,7 +84,17 @@ export function useDelegatedConversationRuntime({
   update,
   onNew,
   onBranch,
+  prepareBranchInput,
 }: DelegatedConversationRuntimeOptions): AssistantRuntime {
+  const branchReceipts = useRef(
+    new Map<
+      string,
+      {
+        readonly action: Omit<AssistantChildFollowupAction, 'threadId'>;
+        readonly signature: string;
+      }
+    >()
+  );
   const attachments = useMemo(
     () => (attachmentsPresent ? createAssistantImageAttachmentAdapter() : undefined),
     [attachmentsPresent]
@@ -139,6 +151,29 @@ export function useDelegatedConversationRuntime({
       messages: [...history.messages.filter((row) => row !== head), ...replacement],
     };
   }, [history, head, converted, message]);
+  const dispatchBranch = async (
+    input: AssistantChildInput,
+    branch: AssistantChildFollowupAction['branch']
+  ): Promise<void> => {
+    if (!(onBranch && branch)) {
+      throw new Error('Child branching is unavailable.');
+    }
+    const key = JSON.stringify(branch);
+    const signature = JSON.stringify({ attachments: input.attachments ?? [], text: input.text });
+    const existing = branchReceipts.current.get(key);
+    const action =
+      existing?.signature === signature
+        ? existing.action
+        : {
+            ...(prepareBranchInput ? prepareBranchInput(input) : input),
+            branch,
+          };
+    branchReceipts.current.set(key, { action, signature });
+    await onBranch(action);
+    if (branchReceipts.current.get(key)?.action === action) {
+      branchReceipts.current.delete(key);
+    }
+  };
   return useExternalStoreRuntime<ThreadMessageLike>({
     ...(attachments ? { adapters: { attachments } } : {}),
     convertMessage,
@@ -153,12 +188,11 @@ export function useDelegatedConversationRuntime({
             const input = await captureChildInputDraft(
               crypto.randomUUID(),
               message.content
-                .filter((part) => part.type === 'text')
-                .map((part) => part.text)
+                .flatMap((part) => (part.type === 'text' ? [part.text] : []))
                 .join('\n'),
               message.attachments ?? []
             );
-            await onBranch({ ...input, branch: { kind: 'edit', messageId: message.sourceId } });
+            await dispatchBranch(input, { kind: 'edit', messageId: message.sourceId });
           },
           onReload: async (_parentId, config) => {
             if (!config.sourceId) {
@@ -168,11 +202,13 @@ export function useDelegatedConversationRuntime({
               config.sourceId === messageRepository.headId && update
                 ? update.messageId
                 : config.sourceId;
-            await onBranch({
-              branch: { kind: 'retry', messageId },
-              id: crypto.randomUUID(),
-              text: 'Retry the selected child answer.',
-            });
+            await dispatchBranch(
+              {
+                id: crypto.randomUUID(),
+                text: 'Retry the selected child answer.',
+              },
+              { kind: 'retry', messageId }
+            );
           },
         }
       : {}),

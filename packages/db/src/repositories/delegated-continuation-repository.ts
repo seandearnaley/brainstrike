@@ -1,16 +1,14 @@
 import {
+  type AssistantChildFollowupAction,
   type AssistantRunEvent,
+  type ChildBranchSelection,
+  childBranchSelectionSchema,
   type DelegatedToolActionIdentity,
   hasValidDelegatedToolActionTarget,
   normalizeAssistantChildInput,
   sanitizeAssistantRunEventMetadata,
   serializeAssistantChildInput,
 } from '@brainstrike/assistant-contract';
-import {
-  type AssistantChildFollowupAction,
-  type ChildBranchSelection,
-  childBranchSelectionSchema,
-} from '@brainstrike/assistant-contract/child-followup';
 import {
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,

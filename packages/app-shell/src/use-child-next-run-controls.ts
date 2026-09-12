@@ -93,6 +93,7 @@ export function useChildNextRunControls({
   const [disabledTools, setDisabledTools] = useState<readonly string[]>([]);
   const [planMode, setPlanMode] = useState(false);
   const allowedToolIds = persona?.allowedToolIds ?? [];
+  const disabledToolIds = useMemo(() => new Set(disabledTools), [disabledTools]);
   const inherited = persona?.model
     ? `${persona.model.provider}::${persona.model.modelId}`
     : inheritedModel;
@@ -204,8 +205,8 @@ export function useChildNextRunControls({
     selectedProvider: selectedProvider ?? undefined,
     toolMenu: {
       items: allowedToolIds.map((id) => ({
-        disabled: !disabledTools.includes(id) && disabledTools.length === allowedToolIds.length - 1,
-        enabled: !disabledTools.includes(id),
+        disabled: !disabledToolIds.has(id) && disabledTools.length === allowedToolIds.length - 1,
+        enabled: !disabledToolIds.has(id),
         group: 'Admitted child tools',
         id,
         label: id.replace(/^brainstrike\./u, ''),

@@ -72,6 +72,92 @@ function formatPermissionPolicy(
     .join(' · ');
 }
 
+function AdmittedConfigurationDetails({
+  execution,
+  persona,
+  value,
+}: {
+  readonly execution: ChildExecutionConfiguration | undefined;
+  readonly persona: AssistantPersonaDefinition;
+  readonly value: DelegatedConversationInsights;
+}) {
+  const scope = personaScope(persona);
+  const model = execution?.model ?? value.latestRun?.model ?? persona.model?.modelId;
+  const provider = execution?.provider ?? value.latestRun?.provider ?? persona.model?.provider;
+  return (
+    <div className="space-y-1">
+      <p className="font-medium">Admitted child configuration</p>
+      <p>{model ?? 'Model not recorded'}</p>
+      {provider ? <p className="text-muted-foreground">{provider}</p> : null}
+      {execution ? (
+        <>
+          <p>Effort {capturedEffort(execution)}</p>
+          <p>{execution.planMode ? 'Plan mode' : 'Agent mode'}</p>
+          {execution.modelSettings?.maxOutputTokens ? (
+            <p>Up to {execution.modelSettings.maxOutputTokens.toLocaleString()} output tokens</p>
+          ) : null}
+          {execution.permissionPolicy ? (
+            <p>Permission ceiling: {formatPermissionPolicy(execution.permissionPolicy)}</p>
+          ) : null}
+        </>
+      ) : (
+        <p>Effort not recorded</p>
+      )}
+      <p>Up to {effectiveChildStepBudget(persona)} steps</p>
+      <p>
+        Level {value.depth} of {DELEGATION_LIMITS.maxDepth}
+      </p>
+      <p className="text-muted-foreground">
+        Current host permissions still apply. This admitted profile cannot expand them.
+      </p>
+      <details>
+        <summary className="cursor-pointer">
+          {scope.allowedToolIds.length} admitted{' '}
+          {scope.allowedToolIds.length === 1 ? 'tool' : 'tools'}
+        </summary>
+        <ul className="mt-1 max-h-36 overflow-auto break-words text-muted-foreground">
+          {scope.allowedToolIds.map((id) => (
+            <li key={id}>{id.replace(/^brainstrike\./u, '')}</li>
+          ))}
+        </ul>
+      </details>
+    </div>
+  );
+}
+
+function CapturedUsageDetails({
+  isRunning,
+  value,
+}: {
+  readonly isRunning: boolean;
+  readonly value: DelegatedConversationInsights;
+}) {
+  const direct = resolveCumulativeUsageDisplay(value.directUsage, modelPricing);
+  const inclusive = resolveCumulativeUsageDisplay(value.subtreeUsage, modelPricing);
+  return (
+    <div className="space-y-2 border-t pt-2">
+      <p className="font-medium">Captured usage</p>
+      {direct ? (
+        <CumulativeUsageSection cumulativeUsage={direct} label="This child" />
+      ) : (
+        <p>No captured usage yet</p>
+      )}
+      {inclusive ? (
+        <CumulativeUsageSection cumulativeUsage={inclusive} label="Child and descendants" />
+      ) : null}
+      <p className="text-muted-foreground">
+        Includes this child; do not add these totals. Recorded usage only. Deleted conversations are
+        excluded; their usage remains in the root total.
+      </p>
+      {isRunning ? (
+        <p className="text-muted-foreground">
+          Work is running; final usage may not be reported yet.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function LoadedDetails({
   value,
   isRunning,
@@ -84,10 +170,6 @@ function LoadedDetails({
   readonly isRunning: boolean;
 }) {
   const scope = personaScope(persona);
-  const direct = resolveCumulativeUsageDisplay(value.directUsage, modelPricing);
-  const inclusive = resolveCumulativeUsageDisplay(value.subtreeUsage, modelPricing);
-  const model = execution?.model ?? value.latestRun?.model ?? persona.model?.modelId;
-  const provider = execution?.provider ?? value.latestRun?.provider ?? persona.model?.provider;
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -109,65 +191,8 @@ function LoadedDetails({
         aria-label="Child execution details"
         className="w-80 max-w-[calc(100vw-2rem)] space-y-3 text-xs"
       >
-        <div className="space-y-1">
-          <p className="font-medium">Admitted child configuration</p>
-          <p>{model ?? 'Model not recorded'}</p>
-          {provider ? <p className="text-muted-foreground">{provider}</p> : null}
-          {execution ? (
-            <>
-              <p>Effort {capturedEffort(execution)}</p>
-              <p>{execution.planMode ? 'Plan mode' : 'Agent mode'}</p>
-              {execution.modelSettings?.maxOutputTokens ? (
-                <p>
-                  Up to {execution.modelSettings.maxOutputTokens.toLocaleString()} output tokens
-                </p>
-              ) : null}
-              {execution.permissionPolicy ? (
-                <p>Permission ceiling: {formatPermissionPolicy(execution.permissionPolicy)}</p>
-              ) : null}
-            </>
-          ) : (
-            <p>Effort not recorded</p>
-          )}
-          <p>Up to {effectiveChildStepBudget(persona)} steps</p>
-          <p>
-            Level {value.depth} of {DELEGATION_LIMITS.maxDepth}
-          </p>
-          <p className="text-muted-foreground">
-            Current host permissions still apply. This admitted profile cannot expand them.
-          </p>
-          <details>
-            <summary className="cursor-pointer">
-              {scope.allowedToolIds.length} admitted{' '}
-              {scope.allowedToolIds.length === 1 ? 'tool' : 'tools'}
-            </summary>
-            <ul className="mt-1 max-h-36 overflow-auto break-words text-muted-foreground">
-              {scope.allowedToolIds.map((id) => (
-                <li key={id}>{id.replace(/^brainstrike\./u, '')}</li>
-              ))}
-            </ul>
-          </details>
-        </div>
-        <div className="space-y-2 border-t pt-2">
-          <p className="font-medium">Captured usage</p>
-          {direct ? (
-            <CumulativeUsageSection cumulativeUsage={direct} label="This child" />
-          ) : (
-            <p>No captured usage yet</p>
-          )}
-          {inclusive ? (
-            <CumulativeUsageSection cumulativeUsage={inclusive} label="Child and descendants" />
-          ) : null}
-          <p className="text-muted-foreground">
-            Includes this child; do not add these totals. Recorded usage only. Deleted conversations
-            are excluded; their usage remains in the root total.
-          </p>
-          {isRunning ? (
-            <p className="text-muted-foreground">
-              Work is running; final usage may not be reported yet.
-            </p>
-          ) : null}
-        </div>
+        <AdmittedConfigurationDetails execution={execution} persona={persona} value={value} />
+        <CapturedUsageDetails isRunning={isRunning} value={value} />
       </PopoverContent>
     </Popover>
   );

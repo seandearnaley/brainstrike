@@ -1,8 +1,9 @@
+import { DELEGATED_STEP_USAGE_PART } from './delegated-step-usage';
 import { asMastraStreamPart, type MastraStreamPart } from './mastra-chunk-decoding';
 import { readStreamPartUsage, type UsageLike } from './runtime-assembly/usage-metering';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 
-const CHILD_OUTPUT_TYPES = new Set(['data-user-message', 'tool-output']);
+const CHILD_OUTPUT_TYPES = new Set([DELEGATED_STEP_USAGE_PART, 'data-user-message', 'tool-output']);
 
 function addParentUsage(total: UsageLike, part: MastraStreamPart): void {
   const next = readStreamPartUsage(part);
