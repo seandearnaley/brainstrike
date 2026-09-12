@@ -30,8 +30,16 @@ export const claudeReviewToolArgs = Object.freeze([
 const workflowPath = '.github/workflows/claude-code-review.yml';
 const selfPaths = new Set([workflowPath, 'scripts/claude-review.mjs']);
 const shaPattern = /^[a-f0-9]{40}$/;
-const ghCommand = (args) =>
-  execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+// `input` is the child's stdin. Anything that scales with, or quotes, PR content
+// travels there — never as an argument. Node refuses any argv element holding
+// a NUL byte (ERR_INVALID_ARG_VALUE), and a reviewer that faithfully quotes a
+// control character from the diff produces exactly that; see reportReview().
+const ghCommand = (args, { input } = {}) =>
+  execFileSync('gh', args, { encoding: 'utf8', input, maxBuffer: 32 * 1024 * 1024 });
+// Stable, greppable prefix for a publication failure in the job log. The step
+// summary carries the same text, but the summary is not in the log stream and
+// on BST-1743 the log showed only a bare exit code.
+export const PUBLICATION_FAILURE_PREFIX = 'CLAUDE_REVIEW_PUBLICATION_FAILED:';
 const gitHeadCommand = () =>
   execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const statePath = (env) => path.join(env.RUNNER_TEMP, 'claude-review-request.json');
@@ -366,7 +374,7 @@ export function validateReviewResult(raw, request) {
 }
 
 /** The trusted reporter, not the model, owns GitHub publication and coverage state. */
-export function reportReview({ env = process.env, gh = ghCommand } = {}) {
+export function reportReview({ env = process.env, gh = ghCommand, stderr = process.stderr } = {}) {
   const request = JSON.parse(readFileSync(statePath(env), 'utf8'));
   let disposition = request.disposition;
   let reason = request.reason;
@@ -417,18 +425,22 @@ export function reportReview({ env = process.env, gh = ghCommand } = {}) {
       if (body.length > 65_536) {
         throw new Error('Claude review exceeds the GitHub comment body limit.');
       }
-      const commentUrl = gh([
-        'pr',
-        'comment',
-        String(request.number),
-        '--repo',
-        request.repository,
-        '--body',
-        body,
-      ]).trim();
+      // The body reaches gh on stdin (`--body-file -`), never as an argument.
+      // Twice on #3119 a completed, exact-head-validated review was refused at
+      // this line because the reviewer had quoted a NUL byte from the diff and
+      // Node rejects NUL in argv. A pipe carries any byte sequence, so the
+      // reviewer's text is published exactly as written — nothing is stripped
+      // or escaped. Same lesson as the prompt's 128 KiB argv ceiling (BST-1666).
+      const commentUrl = gh(
+        ['pr', 'comment', String(request.number), '--repo', request.repository, '--body-file', '-'],
+        { input: body }
+      ).trim();
       body += `\nPublished disposition: ${commentUrl}\n`;
     } catch (error) {
       disposition = 'incomplete';
+      // Both surfaces: the step summary for a human in the browser, and stderr
+      // so the job log names the cause instead of a bare exit code.
+      stderr.write(`${PUBLICATION_FAILURE_PREFIX} ${error.message}\n`);
       body = `## Claude auto-review did not complete\n\nRequested head: \`${request.head}\`\n\nScope: ${request.scope}\n\nPublication failed: ${error.message}\n\nWorkflow: ${request.runUrl}\n`;
     }
   }
