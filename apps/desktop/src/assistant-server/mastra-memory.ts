@@ -1,4 +1,3 @@
-import { createDesktopDelegatedInputContext } from './delegated-input-context';
 /**
  * Desktop Mastra memory construction (BST-975 slice 5).
  *
@@ -35,6 +34,7 @@ import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
 import { registerDesktopDelegatedCancellation } from './delegated-execution-controls';
 import { registerDesktopDelegatedFollowup } from './delegated-followup-controls';
+import { createDesktopDelegatedInputContext } from './delegated-input-context';
 import { resolveProviderApiKey } from './provider-credentials';
 import { createRunCriticalDatabase } from './run-critical-database';
 

@@ -9,6 +9,7 @@ import type {
   DelegatedConversationRuntimeOptions,
   DelegatedConversationUpdate,
 } from '@brainstrike/assistant-ui';
+import { createStore } from 'zustand/vanilla';
 import { createDelegatedConversationStore } from './delegated-conversation-store';
 import { createDelegatedDecisionDispatcher } from './delegated-decision-dispatcher';
 
@@ -30,6 +31,9 @@ type DecisionMessage = Parameters<DelegatedConversationRuntimeOptions['onNew']>[
 
 export function createDelegatedConversationRoot(rootThreadId: string) {
   const store = createDelegatedConversationStore(rootThreadId);
+  const modelSelection = createStore<{ readonly selectedModel: string | null }>(() => ({
+    selectedModel: null,
+  }));
   let runtime: Registration | undefined;
   const pending = new Set<() => void>();
   const retirePending = () => {
@@ -38,6 +42,7 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
     }
   };
   return {
+    modelSelection,
     onDelegatedConversation(update: DelegatedConversationUpdate): void {
       store.publish(update);
     },

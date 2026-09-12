@@ -40,7 +40,6 @@ export async function clearAcknowledgedChildDraft(
 ): Promise<void> {
   const acknowledgedIds = new Set(attachments.map((item) => item.id));
   const current = aui.composer().getState();
-  const hasNewAttachment = current.attachments.some((item) => !acknowledgedIds.has(item.id));
   const removals: Promise<void>[] = [];
   for (const item of current.attachments) {
     if (acknowledgedIds.has(item.id)) {
@@ -48,7 +47,7 @@ export async function clearAcknowledgedChildDraft(
     }
   }
   await Promise.all(removals);
-  if (!hasNewAttachment && aui.composer().getState().text.trim() === text) {
+  if (aui.composer().getState().text.trim() === text) {
     aui.composer().setText('');
   }
 }

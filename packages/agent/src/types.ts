@@ -3,7 +3,10 @@ import type {
   SharedV2ProviderOptions,
   SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
-import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
+import type {
+  AssistantChildAttachment,
+  RuntimeData as ContractRuntimeData,
+} from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type {
   DelegatedConversationBaseline,
@@ -578,7 +581,7 @@ export interface StreamChunkMessageFinish {
   };
 }
 export interface StreamChunkChildUserMessage {
-  readonly attachments?: readonly import('@brainstrike/assistant-contract').AssistantChildAttachment[];
+  readonly attachments?: readonly AssistantChildAttachment[];
   readonly createdAt: string;
   readonly id: string;
   readonly text: string;

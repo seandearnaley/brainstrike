@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { Attachment } from '@assistant-ui/react';
 import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
 import '@testing-library/jest-dom/vitest';
 import {
@@ -28,6 +29,7 @@ const useAssistantDataUIMock = vi.fn((_dataUI: unknown) => undefined);
 const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
 interface MockAuiState {
   composer: {
+    attachments: readonly Attachment[];
     text: string;
   };
   message: {
@@ -47,7 +49,7 @@ const completedReasoningPart = {
 };
 
 const createMockAuiState = (parts: unknown[]): MockAuiState => ({
-  composer: { text: '' },
+  composer: { attachments: [], text: '' },
   message: { parts },
   thread: { capabilities: { edit: true, reload: true }, messages: [] },
 });

@@ -34,17 +34,16 @@ export function createChildInputContextProcessor(): InputProcessor {
           continue;
         }
         const metadata: unknown = Reflect.get(signal, 'metadata');
-        if (
-          !metadata ||
-          typeof metadata !== 'object' ||
-          !Object.hasOwn(metadata, CHILD_INPUT_CONTEXT_KEY)
-        ) {
-          continue;
-        }
-        messageList.addSystem(
-          validateChildInputContext(Reflect.get(metadata, CHILD_INPUT_CONTEXT_KEY)),
-          CHILD_INPUT_CONTEXT_KEY
-        );
+        const context =
+          metadata &&
+          typeof metadata === 'object' &&
+          Object.hasOwn(metadata, CHILD_INPUT_CONTEXT_KEY)
+            ? validateChildInputContext(Reflect.get(metadata, CHILD_INPUT_CONTEXT_KEY))
+            : [];
+        // A native user input owns this tag even when it carries no context.
+        // addSystem appends, so replace only our tag before applying this input.
+        messageList.clearSystemMessages(CHILD_INPUT_CONTEXT_KEY);
+        messageList.addSystem(context, CHILD_INPUT_CONTEXT_KEY);
         break;
       }
       return messageList;

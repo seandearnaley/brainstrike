@@ -6,7 +6,11 @@ import { readAdmittedPersonaConfiguration } from '@brainstrike/assistant-contrac
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useCallback, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
-import { resolveComposerAttachmentsAvailability } from './assistant-ui-panel-wrapper-runtime';
+import {
+  resolveComposerAttachmentsAvailability,
+  resolveModelNameFromComposite,
+  resolveProviderFromComposite,
+} from './assistant-ui-panel-wrapper-runtime';
 import {
   DelegatedConversationPanel,
   type DelegatedConversationPanelProps,
@@ -17,11 +21,15 @@ import { useFileMentions } from './use-file-mentions';
 
 type Props = DelegatedConversationPanelProps & {
   readonly insights: DelegatedConversationInsightsState;
+  readonly inheritedModel?: string | null;
+  readonly isRunning?: boolean;
 };
 
 function resolveChildAttachments(
   insights: DelegatedConversationInsightsState,
-  models: readonly DbModel[]
+  models: readonly DbModel[],
+  inheritedModel: string | null | undefined,
+  isRunning: boolean
 ) {
   if (insights.status !== 'ready') {
     return {
@@ -34,11 +42,15 @@ function resolveChildAttachments(
   }
   try {
     const persona = readAdmittedPersonaConfiguration(insights.value.configuration);
-    const modelId = insights.value.latestRun?.model ?? persona.model?.modelId;
-    const providerId = insights.value.latestRun?.provider ?? persona.model?.provider;
+    const modelId = isRunning
+      ? insights.value.latestRun?.model
+      : (persona.model?.modelId ?? resolveModelNameFromComposite(inheritedModel));
+    const providerId = isRunning
+      ? insights.value.latestRun?.provider
+      : (persona.model?.provider ?? resolveProviderFromComposite(inheritedModel));
     const model = models.find((item) => item.id === modelId && item.providerId === providerId);
     return resolveComposerAttachmentsAvailability({
-      providerGateAvailable: true,
+      providerGateAvailable: providerId !== 'local',
       selectedModel: model
         ? {
             id: model.id,
@@ -61,7 +73,7 @@ function resolveChildAttachments(
   }
 }
 
-function CapableChildPanel({ insights, ...props }: Props) {
+function CapableChildPanel({ insights, inheritedModel, isRunning = false, ...props }: Props) {
   const [query, setQuery] = useState('');
   const { fileMentions } = useFileMentions(query);
   const slashCommands = useAssistantSlashCommands(props.threadId);
@@ -84,7 +96,12 @@ function CapableChildPanel({ insights, ...props }: Props) {
     },
     [acknowledge, command, props.threadId]
   );
-  const attachmentsAvailability = resolveChildAttachments(insights, models);
+  const attachmentsAvailability = resolveChildAttachments(
+    insights,
+    models,
+    inheritedModel,
+    isRunning
+  );
   return (
     <DelegatedConversationPanel
       {...props}
@@ -105,7 +122,12 @@ function CapableChildPanel({ insights, ...props }: Props) {
 /** Same main composer menus, with commands and receipts bound to the child. */
 export function DelegatedChildConversationPanel(props: Props) {
   if (!hasDurableAssistantUsageCapability()) {
-    const { insights: _insights, ...panel } = props;
+    const {
+      insights: _insights,
+      inheritedModel: _inheritedModel,
+      isRunning: _isRunning,
+      ...panel
+    } = props;
     return <DelegatedConversationPanel {...panel} />;
   }
   return <CapableChildPanel {...props} />;

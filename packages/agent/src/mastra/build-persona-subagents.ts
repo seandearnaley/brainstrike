@@ -1,4 +1,3 @@
-import { createChildInputContextProcessor } from './child-input-context';
 /**
  * Persona → child-`Agent` factory (subagent personas, T2).
  *
@@ -37,6 +36,7 @@ import {
   type ScaledToolResultBudget,
 } from '../stream/tool-output-limits';
 import type { RuntimeData } from '../types';
+import { createChildInputContextProcessor } from './child-input-context';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { personasAtDelegationDepth } from './delegated-persona-snapshots';
 import {
