@@ -156,6 +156,13 @@ export function isDelegatedToolDecisionState(value: unknown): value is Delegated
   );
 }
 
+/** Only a pause without a durable decision remains actionable; staleness is advisory. */
+export function isDelegatedToolDecisionActionable(
+  decisionState: DelegatedToolDecisionState | undefined
+): boolean {
+  return decisionState === undefined;
+}
+
 /** An absent state is resumable; a present unknown state must fail validation. */
 export function hasValidDelegatedDecisionState(value: Record<string, unknown>): boolean {
   // Inherited and explicitly undefined states are present-but-invalid, not absent.

@@ -798,8 +798,9 @@ alongside `parentToolCallId`, so the host run/root ownership plus this key joins
 the exact invocation, including repeated tool-call names in different runs.
 Legacy events lacking the key are not fabricated into child lifecycle history.
 The desktop production-loop test verifies this durable terminal correlation.
-Root archive is presentation state on the existing root, not a second copied
-child flag; child navigation must inherit root visibility (BST-1725). There is
+Neither root nor child conversations currently expose an archive action.
+Child navigation inherits root filter/folder visibility (BST-1725); closing a
+child tab remains reversible and does not delete or stop its work. There is
 no automatic invocation retention sweep. Host-run retention must preserve
 resumable invocations or explicitly remove the complete branch. Dedicated child
 transcript statuses, approval presentation and lifecycle controls remain in
@@ -1183,7 +1184,9 @@ only reads admission records and never creates a pause from them.
 The existing approval, question and plan cards retain their original content
 and show the admission status with controls locked. Unknown present states
 fail wire validation and render an unavailable status if encountered directly
-in a card. Staleness without admission state remains advisory. Status refresh
+in a card. Only a pause without a durable decision is actionable; claimed,
+consumed, interrupted and cancelled pauses never mark sidebar attention, and
+staleness without admission state remains advisory. Status refresh
 uses the existing thread reload; no polling or auto-resume is introduced.
 The server's durable admission check remains authoritative if a claim races
 this read. Missing/ambiguous native snapshots still use the visible discovery

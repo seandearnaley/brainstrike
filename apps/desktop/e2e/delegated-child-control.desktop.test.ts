@@ -102,6 +102,19 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       child.getByRole('button', { exact: true, name: 'Approve brainstrike.readWorkspaceFile' })
     ).toBeVisible();
     expect(provider.requestCount()).toBe(pausedRequests);
+    // The recreated sidebar must recover the same native pending decision without
+    // relying on a live-stream publication from before the renderer reload.
+    const sidebarRoot = window
+      .getByRole('row')
+      .filter({ has: window.getByTestId('thread-row') })
+      .first();
+    await sidebarRoot.getByRole('button', { name: /Expand/u }).click();
+    const pendingSidebarChild = window.getByRole('button', {
+      exact: true,
+      name: `${childName} Needs input`,
+    });
+    await expect(pendingSidebarChild).toBeVisible();
+    expect(provider.requestCount()).toBe(pausedRequests);
     await child
       .getByRole('button', { exact: true, name: 'Approve brainstrike.readWorkspaceFile' })
       .click();
