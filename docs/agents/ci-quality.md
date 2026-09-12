@@ -2252,6 +2252,20 @@ fixture-teardown error. Restart uses the same close/guard path and must surface
 close failures; if close and process health both fail, both errors are retained.
 Do not restore the former warn-and-relaunch behavior.
 
+The interactive delegated-child decision fixture uses
+`runInteractiveChildFixture` to preserve the original scenario failure alongside
+diagnostic and teardown failures. Failure-text extraction or attachment must not
+replace the assertion. Provider close and environment restoration still run
+when Electron disposal fails. Capture the owned process before Playwright
+disposal, observe its exit separately from `app.close()`, and only remove the
+disposable workspace after confirmed exit; a sent signal is not proof of exit.
+If exit cannot be confirmed, retain the workspace and report its path. These
+decision scenarios additionally require a zero exit code, so forced termination
+is a test failure even after the UI assertions pass. The real consumer remains
+`delegated-child-interactive.desktop.test.ts`; injected diagnostic, disposal,
+provider, launch and process-exit failures are covered by
+`interactive-child-fixture.test.ts` (BST-1728).
+
 **A harness-owned app may only be closed through the harness.** Tests that seed
 on-disk userData (`electron-storage.json`) need the app down mid-test so no
 process owns the file; they must call `ElectronHarness.closeForStateSeeding()`,
