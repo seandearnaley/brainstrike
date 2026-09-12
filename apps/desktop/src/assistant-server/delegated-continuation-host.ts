@@ -69,8 +69,10 @@ export function createDesktopDelegatedContinuationHost(
     },
     async finishContinuationDecision(input) {
       const key = decisionKey(input);
+      // Disposal may follow validation failure before claim, or an explicit
+      // unexecuted release. Cleanup only this host's remaining claims.
       if (!claims.has(key)) {
-        throw new DelegatedConversationIdentityError('continuation-decision-claim-lost');
+        return;
       }
       await (await repository()).finishDecision(input);
       claims.delete(key);
@@ -117,7 +119,26 @@ export function createDesktopDelegatedContinuationHost(
         );
         return claimed;
       });
-      baselines.set(node.id, await captureHistory(node.threadId, node.resourceId, false));
+      try {
+        baselines.set(node.id, await captureHistory(node.threadId, node.resourceId, false));
+      } catch (error) {
+        // Admission committed, but no native wake can occur without its baseline.
+        // Release the durable active slot without permitting replay of this receipt.
+        try {
+          await createDelegatedContinuationRepository(database, scope, hostRunId).finish(
+            node.id,
+            'failed',
+            error instanceof Error ? error.message : 'Child history capture failed.',
+            projectionId(node.id)
+          );
+        } catch (settlementError) {
+          throw new AggregateError(
+            [error, settlementError],
+            'Child history capture and receipt settlement failed.'
+          );
+        }
+        throw error;
+      }
       return { ...node, messageId: projectionId(node.id) };
     },
     async releaseUnexecutedContinuationDecision(input) {

@@ -14,6 +14,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { cancelDelegatedContinuations } from '../../assistant-server/delegated-continuation-cancellation';
+import { createDesktopDelegatedContinuationHost } from '../../assistant-server/delegated-continuation-host';
 import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
 import { readDelegatedDecisionStates } from '../../assistant-server/delegated-decision-discovery';
 import {
@@ -80,6 +81,78 @@ beforeEach(async () => {
 afterEach(async () => {
   await database.close();
   databaseHolder.current = undefined;
+});
+
+it('settles a committed receipt when history capture fails and admits a new explicit input', async () => {
+  const failure = new Error('Actual history read failed');
+  const host = createDesktopDelegatedContinuationHost(
+    database,
+    'wake-host',
+    async () => ({ ...scope, turnMessageId: 'new-root-user' }),
+    async () => {
+      throw failure;
+    }
+  );
+  await expect(host.prepareContinuation(input)).rejects.toBe(failure);
+  expect(
+    await createDelegatedConversationRepository(database).getContinuation(scope, input.id)
+  ).toMatchObject({ nativeRunId: null, state: 'failed' });
+  await expect(port().prepareContinuation(input)).rejects.toMatchObject({
+    reason: 'continuation-input-already-admitted',
+  });
+  await expect(
+    port().prepareContinuation({ ...input, id: 'explicit-after-history-error' })
+  ).resolves.toMatchObject({ id: 'explicit-after-history-error' });
+});
+
+it('preserves both history and failed-settlement errors after committed admission', async () => {
+  const historyFailure = new Error('History read failed');
+  const settlementFailure = new Error('Receipt write failed');
+  const transaction = vi.spyOn(database, 'transaction');
+  const host = createDesktopDelegatedContinuationHost(
+    database,
+    'wake-host',
+    async () => ({ ...scope, turnMessageId: 'new-root-user' }),
+    async () => {
+      transaction.mockRejectedValueOnce(settlementFailure);
+      throw historyFailure;
+    }
+  );
+  try {
+    await expect(host.prepareContinuation(input)).rejects.toMatchObject({
+      errors: [historyFailure, settlementFailure],
+      message: 'Child history capture and receipt settlement failed.',
+    });
+  } finally {
+    transaction.mockRestore();
+  }
+});
+
+it('cleanup after an unexecuted decision release leaves its pending receipt actionable', async () => {
+  const host = port();
+  await host.prepareContinuation(input);
+  await host.bindContinuation({ id: input.id, nativeRunId: 'native-wake' });
+  await host.finishContinuation({ id: input.id, status: 'awaiting-approval' });
+  const decision = {
+    id: input.id,
+    kind: 'tool-approval' as const,
+    nativeRunId: 'native-wake',
+    toolCallId: 'leaf',
+  };
+  await host.resolveContinuationDecision(decision);
+  await host.claimContinuationDecision(decision);
+  await host.finishContinuationDecision({ ...decision, toolCallId: 'unowned-leaf' });
+  expect(
+    (await database.query('SELECT state FROM brainstrike_delegated_continuation_decisions')).rows
+  ).toEqual([{ state: 'claimed' }]);
+  await host.releaseUnexecutedContinuationDecision(decision);
+  await expect(host.finishContinuationDecision(decision)).resolves.toBeUndefined();
+  expect(await host.resolveContinuationDecision(decision)).toMatchObject({
+    state: 'awaiting-approval',
+  });
+  expect(
+    (await database.query('SELECT * FROM brainstrike_delegated_continuation_decisions')).rows
+  ).toEqual([]);
 });
 
 it('admits through the real host and reserves the existing durable child/tree budgets before native wake', async () => {
@@ -580,6 +653,28 @@ it.each(['complete', 'approval'] as const)(
         undefined,
         runtime
       );
+      await expect(
+        streamMastraToolApprovalAction(
+          {
+            action: 'approve',
+            continuationId: input.id,
+            runId: pause.nativeRunId,
+            toolCallId: 'stale-leaf',
+          },
+          {
+            ...options,
+            ...resumedBacking,
+            runtime: { ...options.runtime, assistantMessageId: 'stale-parent-outcome' },
+          }
+        )
+      ).rejects.toThrow(
+        /^mastra_agent_stream_failure: Suspended approval snapshot is missing the requested tool call or its arguments\.$/
+      );
+      expect(await graph.getContinuation(scope, input.id)).toMatchObject({
+        state: 'awaiting-approval',
+      });
+      expect(effect).not.toHaveBeenCalled();
+      expect(modelCalls).toBe(callsBeforeDiscovery);
       const resumed = await streamMastraToolApprovalAction(
         {
           action: 'approve',

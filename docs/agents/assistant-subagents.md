@@ -1690,13 +1690,22 @@ step. A multi-call suspended snapshot remains an explicit unsupported/ambiguous
 shape; do not remove its guard based only on parallel model emission.
 
 Completed child output reaches the managed root model through a public native
-notification signal and the normal root stream/persistence path. This is an
+notification signal and the normal root stream/persistence path. The notification
+contains the final completed leg's text; earlier paused-leg text remains in the
+child's durable transcript and is not concatenated into that result. This is an
 actual model response, not a synthetic assistant message or another transcript
 writer. Approval/question pauses and cancellation do not wake that root model.
 Binding failure aborts and joins native stream consumption before runtime disposal;
-all terminal paths settle the receipt and preserve cleanup failures. Failed receipts
+all terminal paths settle the receipt and preserve cleanup failures. If initial
+history capture fails after admission commits, the host settles that receipt as
+failed before returning the error; the same input id cannot replay, while a new
+explicit input can be admitted. A settlement failure preserves both causes in an
+AggregateError. Decision disposal consumes only claims still owned by that host;
+validation before claim or an explicitly released unexecuted claim cannot replace
+the original error with a spurious lost-claim failure. Failed receipts
 retain the visible provider or thrown stream error. Both native `message-finish`
-and legacy `finish` chunks persist cumulative usage for the current host leg.
+and legacy `finish` branches persist cumulative usage for the current host leg;
+the pinned native integration fixture emits `message-finish`.
 Recognized human continuation signals use one decoder in both projection paths;
 malformed signals fail visibly instead of disappearing from child history. Restart does
 not automatically replay either the child input or the parent notification.

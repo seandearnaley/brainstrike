@@ -162,8 +162,8 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
         <DelegatedConversationBreadcrumbs db={db} node={node} />
         <div className="min-h-0 flex-1">
           <DelegatedConversationPanel
-            extendHistoryForSearch={saved?.hostRunId === live?.update.baseline?.hostRunId}
             allowIdleInput={hasDurableAssistantUsageCapability()}
+            extendHistoryForSearch={saved?.hostRunId === live?.update.baseline?.hostRunId}
             label={node.displayName}
             {...(hasDurableAssistantUsageCapability()
               ? {
