@@ -1543,12 +1543,9 @@ describe('agent-stream-init runtime composition and memory', () => {
     'returns actionable admitted-child remediation through the shared HTTP initializer (%s)',
     async (kind) => {
       const { streamMastraToolApprovalAction } = await import('@brainstrike/agent');
-      const { readDelegatedPersonaSnapshots } = await import(
-        '../../../../../packages/agent/src/mastra/delegated-persona-snapshots'
-      );
-      const { createDelegatedConversationBinding } = await import(
-        '../../../../../packages/agent/src/mastra/delegated-conversation-binding'
-      );
+      // Exercise the public package boundary, bypassing only this suite's agent mock.
+      const actualAgent =
+        await vi.importActual<typeof import('@brainstrike/agent')>('@brainstrike/agent');
       const identity = {
         childRuntimeRunId: 'child-run',
         parentRuntimeRunId: 'parent-run',
@@ -1576,12 +1573,18 @@ describe('agent-stream-init runtime composition and memory', () => {
               },
             }
           : undefined;
-      const error = await readDelegatedPersonaSnapshots(action, {
-        ...createDelegatedConversationBinding(async () => {}),
-        resolveToolAction: async () => [
-          { configuration, identity, resourceId: 'child-owner', threadId: 'child' },
-        ],
-      }).catch((failure: unknown) => failure);
+      const error = await actualAgent
+        .streamMastraToolApprovalAction(action, {
+          conversationBinding: {
+            ...actualAgent.createDelegatedConversationBinding(async () => {}),
+            resolveToolAction: async () => [
+              { configuration, identity, resourceId: 'child-owner', threadId: 'child' },
+            ],
+          },
+          storage: mockPgliteMastraStorage as never,
+        })
+        .catch((failure: unknown) => failure);
+      expect(error).toMatchObject({ code: 'admitted_child_configuration_unavailable' });
       vi.mocked(streamMastraToolApprovalAction).mockRejectedValueOnce(error);
       const response = await runRequest({
         body: JSON.stringify({
