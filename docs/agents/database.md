@@ -973,7 +973,7 @@ loop (`execProtocolRawSync`, both `dist/index.js` and `dist/index.cjs`). Stock
 `_pgl_setPGliteExitStatus(-2)` is not the longjmp sentinel it simply loops
 again without advancing its read offset. A genuine WebAssembly trap
 (`RuntimeError: function signature mismatch` in `$palloc`, seen deterministically
-on Node 26.8.2 for some import layouts, `Unit (rest)` run 34653237231) therefore
+when native stream cleanup overlapped database close, `Unit (rest)` run 34653237231) therefore
 spins the caller forever at 100% CPU with its event loop blocked: no timer,
 timeout or reporter can act. Upstream tracks the loop defect as
 electric-sql/pglite#1058; our evidence is on that thread.
@@ -987,6 +987,12 @@ The patched loop, on a non-longjmp trap:
   corrupted must not run more SQL;
 - lets `close()` release the WebAssembly instance and then rethrows the fatal, so
   a trapped instance can never end a test or a session cleanly.
+
+After a fatal trap the protocol loop does not call the WASM ready/flush finalizers,
+which could trap again and replace the original failure. Startup packets are also
+rejected on a poisoned instance; only Terminate remains available for teardown.
+Ordinary PostgreSQL errors still take the unchanged longjmp path and leave the
+instance usable.
 
 `packages/db/__tests__/pglite-fatal-trap-fail-closed.integration.test.ts` pins all
 three with a simulated trap and a healthy control. Before it simulates the

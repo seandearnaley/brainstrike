@@ -1,5 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { wasmLoader } from '../src/wasm-loader.js';
 
 // BST-1221: PGlite 0.5.8's synchronous protocol loop retries _PostgresMainLoopOnce
@@ -9,6 +9,8 @@ import { wasmLoader } from '../src/wasm-loader.js';
 // nothing can run on corrupted memory, and refuse to close cleanly.
 interface TrapCapableModule {
   _PostgresMainLoopOnce: () => void;
+  _PostgresSendReadyForQueryIfNecessary: () => void;
+  _pgl_pq_flush: () => void;
 }
 
 // The probe below drives the real synchronous loop. Without the patch that loop
@@ -81,6 +83,9 @@ describe('PGlite fail-closed behaviour on a WebAssembly trap', () => {
       name: 'PGliteFatalTrapError',
     });
     await expect(db.exec('SELECT 4')).rejects.toMatchObject({ name: 'PGliteFatalTrapError' });
+    expect(() => db.execProtocolRawSync(new Uint8Array([0]))).toThrowError(
+      expect.objectContaining({ name: 'PGliteFatalTrapError' })
+    );
 
     // Teardown still happens (the WASM instance is released) but the close
     // rethrows the fatal so a trapped instance can never end a test cleanly.
@@ -88,8 +93,40 @@ describe('PGlite fail-closed behaviour on a WebAssembly trap', () => {
     expect((db as unknown as { mod?: unknown }).mod).toBeUndefined();
   }, 30_000);
 
+  it('does not run WASM protocol finalizers after a fatal trap', async () => {
+    assertFailClosedPatchApplied();
+    const db = await wasmLoader.createPGlite('memory://fatal-trap-finalizer');
+    const mod = moduleOf(db);
+    const original = {
+      flush: mod._pgl_pq_flush,
+      loop: mod._PostgresMainLoopOnce,
+      ready: mod._PostgresSendReadyForQueryIfNecessary,
+    };
+    const trap = new WebAssembly.RuntimeError('original loop trap');
+    const finalizer = vi.fn(() => {
+      throw new WebAssembly.RuntimeError('corrupted finalizer trap');
+    });
+    mod._PostgresMainLoopOnce = () => {
+      throw trap;
+    };
+    mod._PostgresSendReadyForQueryIfNecessary = finalizer;
+    mod._pgl_pq_flush = finalizer;
+    try {
+      expect(() => db.execProtocolRawSync(new Uint8Array([81, 0, 0, 0, 4]))).toThrowError(
+        expect.objectContaining({ cause: trap, name: 'PGliteFatalTrapError' })
+      );
+      expect(finalizer).not.toHaveBeenCalled();
+    } finally {
+      mod._PostgresMainLoopOnce = original.loop;
+      mod._PostgresSendReadyForQueryIfNecessary = original.ready;
+      mod._pgl_pq_flush = original.flush;
+      await expect(db.close()).rejects.toMatchObject({ name: 'PGliteFatalTrapError' });
+    }
+  });
+
   it('keeps a healthy instance unaffected', async () => {
     const db = await wasmLoader.createPGlite('memory://fatal-trap-control');
+    await expect(db.query('SELECT 1 / 0')).rejects.toMatchObject({ code: '22012' });
     expect((await db.query<{ ok: number }>('SELECT 1 AS ok')).rows[0]?.ok).toBe(1);
     await db.close();
   });
