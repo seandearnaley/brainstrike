@@ -30,7 +30,10 @@
  * See docs/agents/assistant-runtime.md and docs/agents/mastra-boundary.md R6.
  */
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { readAssistantChildSignalContents } from '@brainstrike/assistant-contract';
+import {
+  AdmittedChildConfigurationError,
+  readAssistantChildSignalContents,
+} from '@brainstrike/assistant-contract';
 import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import { SUBAGENT_DELEGATION_TOOL_PREFIX } from '@brainstrike/assistant-contract/personas';
@@ -863,7 +866,7 @@ export async function initializeMastraRuntime(
       code: 'mastra_agent_runtime_init_failed',
       error: err instanceof Error ? err.message : String(err),
     });
-    if (isMastraAgentError(err)) {
+    if (err instanceof AdmittedChildConfigurationError || isMastraAgentError(err)) {
       throw err;
     }
     const errorDetail = err instanceof Error ? err.message : undefined;

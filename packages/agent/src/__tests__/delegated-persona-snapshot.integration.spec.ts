@@ -1,3 +1,4 @@
+import { AdmittedChildConfigurationError } from '@brainstrike/assistant-contract';
 import { expect, it } from 'vitest';
 import {
   streamMastraToolApprovalAction,
@@ -120,7 +121,10 @@ it('rejects a revoked host tool before resuming an admitted child', async () => 
         },
         { ...fixture.discoveryOptions, personas: [], tools: {} }
       )
-    ).rejects.toThrow('current model or host permissions');
+    ).rejects.toMatchObject({
+      constructor: AdmittedChildConfigurationError,
+      reason: 'model-or-tools-unavailable',
+    });
     expect(fixture.effect).not.toHaveBeenCalled();
   } finally {
     fixture.release.resolve();
