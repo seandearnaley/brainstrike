@@ -4533,6 +4533,9 @@ identity or offset differs. The resolver reads through a server-created
 capability closed over resource+thread scope, returns contiguous fatal-UTF-8
 pages with reversible U+0000 encoding, and surfaces malformed, expired,
 wrong-scope, incoherent, non-progress, and storage failures as typed errors.
+Fixed-lifetime artifact fixtures must inject the reader's `now` clock as well as
+the stored expiry; real MCP transport timers remain live. Paired boundary tests
+require reads before expiry and rejection at expiry even if storage reports found.
 Settlement and continuation pages use the same cursor encoder. Desktop
 registers `brainstrike.readToolOutputArtifact` only when that scoped capability
 exists; web and requests without complete memory scope omit it instead of
