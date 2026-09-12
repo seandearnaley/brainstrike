@@ -1,6 +1,5 @@
 import { createThreadWorkspaceRepository } from '@brainstrike/assistant-data';
 import { createFileExplorerStore } from '@brainstrike/file-explorer';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { DelegatedConversationRoot } from '../delegated-conversation-owner';
 import { createLiveWorkspaceFacade } from '../thread-workspace/thread-workspace-live-facade';
 import { useThreadWorkspaceCoordinator } from '../thread-workspace/use-thread-workspace-coordinator';
@@ -23,8 +22,8 @@ import {
   wasmLoader,
 } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
-import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { FileExplorerProvider } from '@brainstrike/file-explorer-ui/shell';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
@@ -241,11 +240,13 @@ describe('child view after renderer restart', () => {
       );
     }
     render(
-      <TooltipProvider>
-        <DelegatedConversationRootsProvider>
-          <Workspace />
-        </DelegatedConversationRootsProvider>
-      </TooltipProvider>
+      <FileExplorerProvider storageAdapter={workspaceStorage}>
+        <TooltipProvider>
+          <DelegatedConversationRootsProvider>
+            <Workspace />
+          </DelegatedConversationRootsProvider>
+        </TooltipProvider>
+      </FileExplorerProvider>
     );
     const user = userEvent.setup();
     await screen.findByText('Maple');
@@ -319,12 +320,14 @@ describe('child view after renderer restart', () => {
       ]
     );
     render(
-      <TooltipProvider>
-        <DelegatedConversationRootsProvider>
-          <OwningRoot />
-          <ChildView db={database as DbHandle} node={node} />
-        </DelegatedConversationRootsProvider>
-      </TooltipProvider>
+      <FileExplorerProvider storageAdapter={workspaceStorage}>
+        <TooltipProvider>
+          <DelegatedConversationRootsProvider>
+            <OwningRoot />
+            <ChildView db={database as DbHandle} node={node} />
+          </DelegatedConversationRootsProvider>
+        </TooltipProvider>
+      </FileExplorerProvider>
     );
     await screen.findByText('Persisted native child transcript.');
     const publish = (hostRunId: string, text: string) => {
@@ -369,12 +372,14 @@ describe('child view after renderer restart', () => {
       vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
     );
     render(
-      <TooltipProvider>
-        <DelegatedConversationRootsProvider>
-          <OwningRoot />
-          <ChildView db={database as DbHandle} node={node} />
-        </DelegatedConversationRootsProvider>
-      </TooltipProvider>
+      <FileExplorerProvider storageAdapter={workspaceStorage}>
+        <TooltipProvider>
+          <DelegatedConversationRootsProvider>
+            <OwningRoot />
+            <ChildView db={database as DbHandle} node={node} />
+          </DelegatedConversationRootsProvider>
+        </TooltipProvider>
+      </FileExplorerProvider>
     );
     await screen.findByText('Persisted native child transcript.');
     act(() => {
