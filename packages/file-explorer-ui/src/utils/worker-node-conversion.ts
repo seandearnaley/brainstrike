@@ -1,7 +1,7 @@
 /**
  * Worker Node Conversion Utilities
  *
- * Helpers for converting between IFileNode (with FileSystemHandle)
+ * Helpers for converting between IFileNode (with FileNodeHandle)
  * and WorkerFileNode (transferable to worker, no handle).
  */
 
@@ -65,7 +65,7 @@ export function toWorkerFileNodes(nodes: IFileNode[]): WorkerFileNode[] {
 }
 
 /** Type for the handle stored in the handle map */
-type FileSystemHandle = IFileNode['handle'];
+type FileNodeHandle = IFileNode['handle'];
 
 /**
  * Convert a WorkerFileNode back to an IFileNode by rehydrating handles from the map.
@@ -73,7 +73,7 @@ type FileSystemHandle = IFileNode['handle'];
  */
 export function rehydrateFileNode(
   workerNode: WorkerFileNode,
-  handleMap: Map<string, FileSystemHandle>
+  handleMap: Map<string, FileNodeHandle>
 ): IFileNode | null {
   const handle = handleMap.get(workerNode.path);
 
@@ -127,7 +127,7 @@ export function rehydrateFileNode(
  */
 export function rehydrateTree(
   workerNodes: WorkerFileNode[],
-  handleMap: Map<string, FileSystemHandle>
+  handleMap: Map<string, FileNodeHandle>
 ): IFileNode[] {
   const results = workerNodes.map((node) => rehydrateFileNode(node, handleMap));
   const validNodes = results.filter((node): node is IFileNode => node !== null);
@@ -151,9 +151,9 @@ export function rehydrateTree(
  */
 export function buildHandleMap(
   nodes: IFileNode[],
-  map: Map<string, FileSystemHandle> = new Map(),
+  map: Map<string, FileNodeHandle> = new Map(),
   isTopLevel = true
-): Map<string, FileSystemHandle> {
+): Map<string, FileNodeHandle> {
   for (const node of nodes) {
     if (node.handle) {
       map.set(node.path, node.handle);
@@ -177,7 +177,7 @@ export function buildHandleMap(
 /**
  * Add handles from newly loaded children to the handle map.
  */
-export function addHandlesToMap(nodes: IFileNode[], map: Map<string, FileSystemHandle>): void {
+export function addHandlesToMap(nodes: IFileNode[], map: Map<string, FileNodeHandle>): void {
   for (const node of nodes) {
     if (node.handle) {
       map.set(node.path, node.handle);
@@ -188,5 +188,5 @@ export function addHandlesToMap(nodes: IFileNode[], map: Map<string, FileSystemH
   }
 }
 
-/** Re-export the FileSystemHandle type for consumers */
-export type { FileSystemHandle };
+/** Re-export the FileNodeHandle type for consumers */
+export type { FileNodeHandle };

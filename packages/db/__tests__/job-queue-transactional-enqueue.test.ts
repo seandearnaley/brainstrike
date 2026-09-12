@@ -14,11 +14,27 @@ describe('JobQueue transactional enqueue', () => {
   beforeEach(async () => {
     db = await createMigratedTestDb();
     transactionCount = 0;
+    let transactionActive = false;
     queryOnlyTransactionDb = {
-      query: db.query.bind(db),
+      query: async <T = unknown>(sql: string, params?: unknown[]) => {
+        if (transactionActive) {
+          throw new Error('Outer connection queried while the transaction callback is active.');
+        }
+        return db.query<T>(sql, params);
+      },
       transaction: async (run) => {
+        if (transactionActive) {
+          throw new Error('Nested transaction opened while the transaction callback is active.');
+        }
         transactionCount += 1;
-        return db.transaction(async (tx) => run({ query: tx.query.bind(tx) }));
+        return db.transaction(async (tx) => {
+          transactionActive = true;
+          try {
+            return await run({ query: tx.query.bind(tx) });
+          } finally {
+            transactionActive = false;
+          }
+        });
       },
     };
   });

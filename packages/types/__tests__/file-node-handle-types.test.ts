@@ -1,6 +1,8 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type { DirectoryHandle, FileHandle, IFileNode } from '../src/file-system.js';
 
+// The package type-check script compiles this file through tsconfig.test.json.
+// Vitest execution alone does not evaluate these compile-time assertions.
 describe('file node handle contracts', () => {
   it('accepts canonical adapter descriptors and browser capabilities', () => {
     expectTypeOf<FileHandle>().toExtend<IFileNode['handle']>();

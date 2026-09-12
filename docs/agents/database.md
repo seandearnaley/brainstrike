@@ -5,11 +5,13 @@
 ## ATOMIC CHUNK AND JOB WRITES
 
 `insertChunksAndEnqueueEmbeddingJobs` inserts chunks and enqueues their jobs
-inside one database transaction. Its callback receives the minimal `IDatabase`
-query surface; do not cast it into a database with nested transaction support.
+inside one database transaction. The callback's `IDatabase` requires `query`
+and makes `transaction` optional: a query-only callback handle is valid, and
+must not be cast into a database that guarantees nested transactions.
 Construct the chunk repository from the outer transactional connection and
 pass the callback's query surface to `insertManyWithTx`. The real-PGlite
-`job-queue-transactional-enqueue.test.ts` pins atomic success and rollback.
+`job-queue-transactional-enqueue.test.ts` pins atomic success and rollback and
+rejects outer-connection queries or nested transactions while the callback is active.
 
 ## QUERY TELEMETRY BOUNDARY
 
