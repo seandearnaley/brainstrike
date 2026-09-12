@@ -15,6 +15,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { cancelDelegatedContinuations } from '../../assistant-server/delegated-continuation-cancellation';
 import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
+import { readDelegatedDecisionStates } from '../../assistant-server/delegated-decision-discovery';
 import {
   getDesktopMastraMemory,
   resetDesktopMastraMemoryCacheForTests,
@@ -376,6 +377,22 @@ it('cancels an idle suspended continuation with a durable terminal event and no 
   expect(
     (
       await database.query(
+        "SELECT metadata FROM brainstrike_assistant_run_events WHERE kind='run.cancelled'"
+      )
+    ).rows
+  ).toEqual([
+    {
+      metadata: {
+        continuationHostRunId: 'wake-host',
+        continuationId: input.id,
+        continuationNativeRunId: 'native-wake',
+        nativeMessageId: bound.messageId,
+      },
+    },
+  ]);
+  expect(
+    (
+      await database.query(
         "SELECT status FROM brainstrike_assistant_thread_runs WHERE thread_id='child'"
       )
     ).rows
@@ -610,6 +627,23 @@ it.each(['complete', 'approval'] as const)(
         )
       ).rows
     ).toHaveLength(1);
+    // Native paused finishes report zero; completed resume reports its accumulated
+    // model usage. Preserve those observed totals, not invented per-step deltas.
+    expect(
+      (
+        await database.query(
+          'SELECT run_id,input_tokens,output_tokens FROM brainstrike_assistant_run_usage WHERE continuation_id=$1 ORDER BY run_id',
+          [input.id]
+        )
+      ).rows
+    ).toEqual(
+      mode === 'approval'
+        ? [
+            { input_tokens: 2, output_tokens: 2, run_id: 'resume-host' },
+            { input_tokens: 0, output_tokens: 0, run_id: 'wake-host' },
+          ]
+        : [{ input_tokens: 1, output_tokens: 1, run_id: 'wake-host' }]
+    );
     const finalHost = mode === 'approval' ? 'resume-host' : 'wake-host';
     await expect(
       createDesktopDelegatedConversationHost(database, finalHost).continuation.prepareContinuation({
@@ -619,3 +653,121 @@ it.each(['complete', 'approval'] as const)(
     ).resolves.toMatchObject({ id: 'next-explicit-input' });
   }
 );
+
+it.each(['failed', 'cancelled', 'completed'] as const)(
+  'settles the projection when native %s arrives without a terminal stream event',
+  async (status) => {
+    const host = port();
+    await host.prepareContinuation(input);
+    const bound = await host.bindContinuation({ id: input.id, nativeRunId: 'native-wake' });
+    await host.persistContinuationEvent({
+      event: {
+        id: 'start-without-finish',
+        kind: 'run.started',
+        label: 'Working',
+        status: 'running',
+        timestamp: new Date().toISOString(),
+      },
+      id: input.id,
+      messageId: bound.messageId,
+      sequence: 0,
+    });
+    await host.finishContinuation({
+      id: input.id,
+      status,
+      ...(status === 'failed' ? { error: 'Native stream failed' } : {}),
+    });
+    expect(
+      (
+        await database.query(
+          'SELECT status, completed_at IS NOT NULL AS settled FROM brainstrike_assistant_thread_runs WHERE id=$1',
+          [bound.messageId]
+        )
+      ).rows
+    ).toEqual([{ settled: true, status }]);
+    await expect(
+      host.prepareContinuation({ ...input, id: 'next-explicit-input' })
+    ).resolves.toMatchObject({ id: 'next-explicit-input' });
+  }
+);
+
+it('keeps cancellation authoritative regardless of database UNION row order', async () => {
+  const host = port();
+  await host.prepareContinuation(input);
+  await host.bindContinuation({ id: input.id, nativeRunId: 'native-wake' });
+  const query = database.query.bind(database);
+  const reversedDatabase = {
+    query: async (sql: string, params?: unknown[]) => {
+      if (sql.includes('SELECT decision.state FROM brainstrike_delegated_continuation_decisions')) {
+        return { rows: [{ state: 'cancelled' }, { state: 'claimed' }] };
+      }
+      return query(sql, params);
+    },
+  };
+  const states = await readDelegatedDecisionStates(reversedDatabase, scope, [
+    { continuationId: input.id, runId: 'native-wake', toolCallId: 'leaf-call' },
+  ]);
+  expect([...states.values()]).toEqual(['cancelled']);
+});
+
+it('retains a crashed decision as interrupted even if its native pause may still be saved', async () => {
+  const host = port();
+  await host.prepareContinuation(input);
+  await host.bindContinuation({ id: input.id, nativeRunId: 'native-wake' });
+  await host.finishContinuation({ id: input.id, status: 'awaiting-approval' });
+  const decision = {
+    id: input.id,
+    kind: 'tool-approval' as const,
+    nativeRunId: 'native-wake',
+    toolCallId: 'leaf-call',
+  };
+  await host.claimContinuationDecision(decision);
+  await reapOrphanedThreadRuns(database, new Date(Date.now() + 60_000));
+  expect(
+    (await database.query('SELECT state FROM brainstrike_delegated_continuation_decisions')).rows
+  ).toEqual([{ state: 'interrupted' }]);
+  expect(
+    (await database.query('SELECT state FROM brainstrike_delegated_continuations')).rows
+  ).toEqual([{ state: 'interrupted' }]);
+  await expect(host.resolveContinuationDecision(decision)).rejects.toThrow();
+  await expect(host.claimContinuationDecision(decision)).rejects.toThrow();
+});
+
+it('does not rewrite a completed native projection when Stop races receipt settlement', async () => {
+  const host = port();
+  await host.prepareContinuation(input);
+  const bound = await host.bindContinuation({ id: input.id, nativeRunId: 'native-wake' });
+  await host.persistContinuationEvent({
+    event: {
+      id: 'finished-before-receipt',
+      kind: 'run.finished',
+      label: 'Finished',
+      status: 'completed',
+      timestamp: new Date().toISOString(),
+    },
+    id: input.id,
+    messageId: bound.messageId,
+    sequence: 0,
+  });
+  await cancelDelegatedContinuations(database, scope, 'child', false);
+  expect(
+    (
+      await database.query('SELECT status FROM brainstrike_assistant_thread_runs WHERE id=$1', [
+        bound.messageId,
+      ])
+    ).rows
+  ).toEqual([{ status: 'completed' }]);
+  expect((await database.query('SELECT kind FROM brainstrike_assistant_run_events')).rows).toEqual([
+    { kind: 'run.finished' },
+  ]);
+});
+
+it('rejects root and foreign continuation Stop before calling any native owner', async () => {
+  await expect(cancelDelegatedContinuations(database, scope, 'root', true)).rejects.toMatchObject({
+    reason: 'continuation-cancel-owner-invalid',
+  });
+  await expect(
+    cancelDelegatedContinuations(database, { ...scope, ownerResourceId: 'foreign' }, 'child', false)
+  ).rejects.toMatchObject({ name: 'DelegatedConversationIdentityError' });
+  expect(cancel).not.toHaveBeenCalled();
+});

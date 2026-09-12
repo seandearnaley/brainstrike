@@ -1655,7 +1655,9 @@ Actual depth is added to recursive availability checks, so waking a grandchild
 cannot reset its depth allowance. Every model step still charges the real child
 identity against the managed turn's durable budget.
 Fresh child input runs the ordinary workspace/reference/skill context injectors
-against that input. Only trusted system context crosses to the child. The selected
+against that input, without copying client-supplied system-role request messages.
+Only host-injected system context crosses to the child, exactly once in the native
+model prompt. The selected
 child's default context processor also retains that context in native RequestContext,
 so a descendant first created after a resumed decision receives the same authority.
 
@@ -1677,7 +1679,11 @@ notification signal and the normal root stream/persistence path. This is an
 actual model response, not a synthetic assistant message or another transcript
 writer. Approval/question pauses and cancellation do not wake that root model.
 Binding failure aborts and joins native stream consumption before runtime disposal;
-all terminal paths settle the receipt and preserve cleanup failures. Restart does
+all terminal paths settle the receipt and preserve cleanup failures. Failed receipts
+retain the visible provider or thrown stream error. Both native `message-finish`
+and legacy `finish` chunks persist cumulative usage for the current host leg.
+Recognized human continuation signals use one decoder in both projection paths;
+malformed signals fail visibly instead of disappearing from child history. Restart does
 not automatically replay either the child input or the parent notification.
 
 `child-continuation.integration.spec.ts` exercises real Mastra/PGlite wake, saved

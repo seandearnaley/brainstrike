@@ -442,7 +442,6 @@ export function createDesktopDelegatedConversationHost(
         await createDelegatedContinuationRepository(database, scope, hostRunId).assertDecisionClaim(
           {
             id: action.continuationId,
-            kind: 'tool-approval',
             nativeRunId: action.runId,
             toolCallId: action.toolCallId,
             ...(action.delegation ? { delegation: action.delegation } : {}),

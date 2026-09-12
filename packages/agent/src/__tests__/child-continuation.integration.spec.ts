@@ -24,9 +24,12 @@ it.each([
   'approve',
   'decline',
   'question',
+  'question-twice',
   'plan',
   'cancel',
   'bind-failure',
+  'mid-stream-failure',
+  'provider-failure',
   'depth-limit',
   'depth-available',
   'nested-approve',
@@ -77,6 +80,7 @@ it.each([
       runEvents: [],
       threadId: scope.threadId,
     };
+    let resumedLeg = 0;
     const port: ChildContinuationHostPort = {
       bindContinuation: vi.fn(async () => {
         if (mode === 'bind-failure') {
@@ -87,7 +91,11 @@ it.each([
       claimContinuationDecision: vi.fn(async () => {}),
       finishContinuation: vi.fn(async () => {}),
       finishContinuationDecision: vi.fn(),
-      persistContinuationEvent: vi.fn(async () => {}),
+      persistContinuationEvent: vi.fn(async () => {
+        if (mode === 'mid-stream-failure') {
+          throw new Error('Continuation event persistence failed');
+        }
+      }),
       persistContinuationUsage: vi.fn(async () => {}),
       prepareContinuation: vi.fn(async () => ({
         depth: mode === 'depth-limit' ? 3 : 1,
@@ -104,7 +112,7 @@ it.each([
         ...scope,
         baseline,
         configuration: scope.configuration,
-        messageId: 'resumed-child-message',
+        messageId: `resumed-child-message-${++resumedLeg}`,
         parentThreadId: fixture.scope.threadId,
       })),
     };
@@ -131,6 +139,9 @@ it.each([
     let step = 0;
     const model = scriptedAgentModel(() => {
       step += 1;
+      if (mode === 'provider-failure') {
+        throw new Error('Provider refused continuation');
+      }
       if (step === 1 && (mode === 'nested-approve' || mode === 'nested-question')) {
         return toolCallParts('agent-explore', 'idle-nested-delegation', {
           _background: { enabled: false },
@@ -151,10 +162,17 @@ it.each([
           question: 'Which nested evidence?',
         });
       }
-      if (step === 1 && (mode === 'question' || mode === 'resume-then-delegate')) {
-        return toolCallParts('brainstrike_askUser', 'idle-question', {
-          question: 'Which evidence?',
-        });
+      if (
+        (step === 1 && (mode === 'question' || mode === 'resume-then-delegate')) ||
+        (mode === 'question-twice' && step <= 2)
+      ) {
+        return toolCallParts(
+          'brainstrike_askUser',
+          step === 2 ? 'idle-second-question' : 'idle-question',
+          {
+            question: 'Which evidence?',
+          }
+        );
       }
       if (step === 1 && mode === 'plan') {
         return toolCallParts('brainstrike_submitPlan', 'idle-plan', {
@@ -242,6 +260,26 @@ it.each([
         chunks.push(chunk);
       }
     })();
+    if (mode === 'mid-stream-failure') {
+      await expect(consumption).rejects.toThrow('Continuation event persistence failed');
+      expect(port.finishContinuation).toHaveBeenLastCalledWith({
+        error: 'Continuation event persistence failed',
+        id,
+        status: 'failed',
+      });
+      expect((await fixture.database.query('SELECT 1 AS settled')).rows).toEqual([{ settled: 1 }]);
+      return;
+    }
+    if (mode === 'provider-failure') {
+      await consumption;
+      expect(port.finishContinuation).toHaveBeenLastCalledWith({
+        error: expect.stringContaining('Provider refused continuation'),
+        id,
+        status: 'failed',
+      });
+      expect(JSON.stringify(model.prompts)).not.toContain('child_continuation_result');
+      return;
+    }
     if (mode === 'cancel') {
       await Promise.race([
         continuationEntered.promise,
@@ -318,6 +356,7 @@ it.each([
     }
     if (
       mode === 'question' ||
+      mode === 'question-twice' ||
       mode === 'plan' ||
       mode === 'nested-question' ||
       mode === 'resume-then-delegate'
@@ -368,13 +407,43 @@ it.each([
         kind: 'tool-resume',
         nativeRunId: pause.nativeRunId,
         toolCallId:
-          mode === 'question' || mode === 'resume-then-delegate'
+          mode === 'question' || mode === 'question-twice' || mode === 'resume-then-delegate'
             ? 'idle-question'
             : mode === 'nested-question'
               ? 'idle-nested-delegation'
               : 'idle-plan',
         ...(pause.chunk.delegation ? { delegation: pause.chunk.delegation } : {}),
       });
+    }
+    if (mode === 'question-twice') {
+      const second = chunks.find(
+        (chunk) =>
+          chunk.type === 'child-continuation-chunk' &&
+          chunk.chunk.type === 'tool-suspend-required' &&
+          chunk.chunk.toolCallId === 'idle-second-question'
+      );
+      if (
+        second?.type !== 'child-continuation-chunk' ||
+        second.chunk.type !== 'tool-suspend-required'
+      ) {
+        throw new Error('Second native pause missing');
+      }
+      const resumed = await streamMastraToolResumeAction(
+        { ...getToolActionTarget(second.chunk), resumeData: { answer: 'Second evidence' } },
+        resumeOptions
+      );
+      for await (const chunk of resumed) {
+        chunks.push(chunk);
+      }
+      expect(
+        vi
+          .mocked(port.persistContinuationUsage)
+          .mock.calls.map(([usage]) => [usage.inputTokens, usage.outputTokens])
+      ).toEqual([
+        [0, 0],
+        [0, 0],
+        [3, 3],
+      ]);
     }
     if (mode === 'depth-available') {
       expect(model.prompts[0]?.tools?.some((tool) => tool.name.startsWith('agent-'))).toBe(true);
@@ -412,8 +481,26 @@ it.each([
     expect(JSON.stringify(chunks)).toContain('IDLE_CHILD_FOLLOWUP_RESULT');
     expect(JSON.stringify(chunks)).not.toContain('Trusted delegated context is missing');
     expect(JSON.stringify(model.prompts)).toContain('FOLLOWUP_TEXT');
-    expect(JSON.stringify(model.prompts)).toContain('WORKSPACE_SCOPE_1723');
+    expect(JSON.stringify(model.prompts[0]).match(/WORKSPACE_SCOPE_1723/gu)).toHaveLength(1);
     expect(JSON.stringify(model.prompts)).toContain('CHILD_FINAL_EVIDENCE');
+    const terminalUsage = chunks.flatMap((chunk) =>
+      chunk.type === 'child-continuation-chunk' && chunk.chunk.type === 'message-finish'
+        ? [
+            {
+              id,
+              inputTokens: chunk.chunk.usage.promptTokens,
+              outputTokens: chunk.chunk.usage.completionTokens,
+            },
+          ]
+        : []
+    );
+    expect(terminalUsage.length).toBeGreaterThan(0);
+    expect(terminalUsage.some((usage) => usage.inputTokens > 0 && usage.outputTokens > 0)).toBe(
+      true
+    );
+    expect(vi.mocked(port.persistContinuationUsage).mock.calls.map(([usage]) => usage)).toEqual(
+      terminalUsage
+    );
     expect(port.finishContinuation).toHaveBeenLastCalledWith({ id, status: 'completed' });
     expect(
       chunks.some(

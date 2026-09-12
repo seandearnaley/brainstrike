@@ -110,40 +110,54 @@ export async function readDelegatedDecisionStates(
   return states;
 }
 
+interface PendingChildContinuation {
+  readonly continuationId: string;
+  readonly nativeRunId: string;
+  readonly personaId: string;
+  readonly resourceId: string;
+  readonly threadId: string;
+}
+
 /** Durable candidate enumeration only; the native reader must verify the actual pending pause. */
 export async function readPendingChildContinuations(
   database: DelegatedConversationDatabase,
   scope: { ownerResourceId: string; rootThreadId: string }
-) {
+): Promise<PendingChildContinuation[]> {
   const rows = await database.query(
     "SELECT id FROM brainstrike_delegated_continuations WHERE owner_resource_id=$1 AND root_thread_id=$2 AND state IN ('awaiting-approval','awaiting-input')",
     [scope.ownerResourceId, scope.rootThreadId]
   );
   const graph = createDelegatedConversationRepository(database);
-  const candidates = [];
-  for (const { id } of z.array(z.object({ id: z.string().min(1) })).parse(rows.rows)) {
-    const receipt = await graph.getContinuation(scope, id);
-    if (!receipt) {
-      throw new Error('Pending child continuation no longer has authorized native ancestry.');
-    }
-    if (receipt.state !== 'awaiting-approval' && receipt.state !== 'awaiting-input') {
-      continue;
-    }
-    if (!receipt.nativeRunId) {
-      throw new Error('Pending child continuation is missing its native run.');
-    }
-    const persona = z
-      .object({ persona: z.object({ id: z.string().trim().min(1) }) })
-      .parse(receipt.configuration).persona;
-    candidates.push({
-      continuationId: receipt.id,
-      nativeRunId: receipt.nativeRunId,
-      personaId: persona.id,
-      resourceId: receipt.resourceId,
-      threadId: receipt.threadId,
-    });
-  }
-  return candidates;
+  const candidates = await Promise.all(
+    z
+      .array(z.object({ id: z.string().min(1) }))
+      .parse(rows.rows)
+      .map(async ({ id }): Promise<PendingChildContinuation | null> => {
+        const receipt = await graph.getContinuation(scope, id);
+        if (!receipt) {
+          throw new Error('Pending child continuation no longer has authorized native ancestry.');
+        }
+        if (receipt.state !== 'awaiting-approval' && receipt.state !== 'awaiting-input') {
+          return null;
+        }
+        if (!receipt.nativeRunId) {
+          throw new Error('Pending child continuation is missing its native run.');
+        }
+        const persona = z
+          .object({ persona: z.object({ id: z.string().trim().min(1) }) })
+          .parse(receipt.configuration).persona;
+        return {
+          continuationId: receipt.id,
+          nativeRunId: receipt.nativeRunId,
+          personaId: persona.id,
+          resourceId: receipt.resourceId,
+          threadId: receipt.threadId,
+        };
+      })
+  );
+  return candidates.filter(
+    (candidate): candidate is PendingChildContinuation => candidate !== null
+  );
 }
 
 async function readContinuationDecisionStates(
@@ -191,7 +205,12 @@ async function readContinuationDecisionStates(
         z.object({ state: z.custom<DelegatedToolDecisionState>(isDelegatedToolDecisionState) })
       )
       .parse(result.rows)) {
-      states.set(getToolActionIdentityKey(request), row.state);
+      const key = getToolActionIdentityKey(request);
+      // UNION ALL has no row ordering guarantee. A cancellation fence always
+      // wins over an earlier decision claim, regardless of the query plan.
+      if (states.get(key) !== 'cancelled') {
+        states.set(key, row.state);
+      }
     }
   }
   return states;

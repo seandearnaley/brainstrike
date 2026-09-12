@@ -58,13 +58,14 @@ export function createDesktopDelegatedContinuationHost(
       claims.add(decisionKey(input));
     },
     async finishContinuation(input) {
-      await (await repository()).finish(input.id, input.status, input.error);
-      if (input.status === 'awaiting-approval' || input.status === 'awaiting-input') {
-        await database.query(
-          "UPDATE brainstrike_assistant_thread_runs SET status=$2, updated_at=NOW() WHERE id=$1 AND status='running'",
-          [projectionId(input.id), input.status]
-        );
-      }
+      // Native failure may end consumption without a terminal stream event.
+      // The repository settles this projection atomically with the receipt.
+      await (await repository()).finish(
+        input.id,
+        input.status,
+        input.error,
+        projectionId(input.id)
+      );
     },
     async finishContinuationDecision(input) {
       const key = decisionKey(input);

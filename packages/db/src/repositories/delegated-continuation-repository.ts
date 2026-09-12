@@ -8,7 +8,7 @@ import {
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
   type DelegatedConversationScope,
-} from './delegated-conversation-repository.js';
+} from './delegated-conversation-boundary.js';
 import { AUTHORIZED_DELEGATED_GRAPH } from './delegated-graph-sql.js';
 
 export type DelegatedContinuationState =
@@ -27,7 +27,7 @@ export interface DelegatedContinuationDecision {
   readonly nativeRunId: string;
   readonly toolCallId: string;
 }
-function decisionTarget(input: DelegatedContinuationDecision): {
+function decisionTarget(input: Omit<DelegatedContinuationDecision, 'kind'>): {
   runtimeRunId: string;
   toolCallId: string;
 } {
@@ -55,9 +55,9 @@ function nonblank(value: unknown): string {
   }
   return value;
 }
-function tokenCount(value: number): number {
+function nonNegativeInteger(value: number, field: 'token-count' | 'depth'): number {
   if (!Number.isSafeInteger(value) || value < 0) {
-    throw new DelegatedConversationIdentityError('continuation-invalid-token-count');
+    throw new DelegatedConversationIdentityError(`continuation-invalid-${field}`);
   }
   return value;
 }
@@ -101,7 +101,7 @@ function parse(result: { rows: unknown[] }): DelegatedContinuation {
   }
   return {
     configuration: row['configuration'],
-    depth: tokenCount(Number(row['delegation_depth'])),
+    depth: nonNegativeInteger(Number(row['delegation_depth']), 'depth'),
     id: nonblank(row['id']),
     nativeRunId: row['native_run_id'] === null ? null : nonblank(row['native_run_id']),
     parentThreadId: nonblank(row['parent_thread_id']),
@@ -161,7 +161,7 @@ export function createDelegatedContinuationRepository(
     });
   };
   return {
-    async assertDecisionClaim(input: DelegatedContinuationDecision): Promise<void> {
+    async assertDecisionClaim(input: Omit<DelegatedContinuationDecision, 'kind'>): Promise<void> {
       const target = decisionTarget(input);
       const result = await database.query(
         `${AUTHORIZED} SELECT decision.continuation_id FROM authorized
@@ -229,16 +229,24 @@ export function createDelegatedContinuationRepository(
     async finish(
       id: string,
       state: Exclude<DelegatedContinuationState, 'claimed' | 'running'>,
-      error?: string
+      error?: string,
+      projectionRunId?: string
     ): Promise<void> {
       await changed(
-        `${AUTHORIZED} UPDATE brainstrike_delegated_continuations target
+        `${AUTHORIZED}, settled AS (UPDATE brainstrike_delegated_continuations target
         SET state = $5, error = $6, updated_at = NOW() FROM authorized
         WHERE target.id = authorized.id AND target.active_host_run_id = $3
           AND (target.state IN ('claimed', 'running') OR (target.state = $5 AND target.error IS NOT DISTINCT FROM $6))
           AND ($5 NOT IN ('awaiting-approval', 'awaiting-input') OR target.native_run_id IS NOT NULL)
-        RETURNING target.id`,
-        [...args(id), state, error ?? null]
+        RETURNING target.id), projection AS (
+          UPDATE brainstrike_assistant_thread_runs run SET status=$5,
+            completed_at=CASE WHEN $5 IN ('awaiting-approval','awaiting-input') THEN NULL ELSE COALESCE(run.completed_at,NOW()) END,
+            updated_at=NOW()
+          FROM authorized JOIN settled ON settled.id=authorized.id
+          WHERE run.id=$7 AND run.thread_id=authorized.thread_id AND run.resource_id=authorized.resource_id
+            AND run.status IN ('running','awaiting-approval','awaiting-input') RETURNING run.id
+        ) SELECT id FROM settled`,
+        [...args(id), state, error ?? null, projectionRunId ?? null]
       );
     },
     async finishDecision(input: DelegatedContinuationDecision): Promise<void> {
@@ -366,12 +374,12 @@ export function createDelegatedContinuationRepository(
       id: string,
       input: { inputTokens: number; outputTokens: number; model?: string; provider?: string }
     ): Promise<void> {
-      const inputTokens = tokenCount(input.inputTokens);
-      const outputTokens = tokenCount(input.outputTokens);
+      const inputTokens = nonNegativeInteger(input.inputTokens, 'token-count');
+      const outputTokens = nonNegativeInteger(input.outputTokens, 'token-count');
       await changed(
         `${AUTHORIZED} INSERT INTO brainstrike_assistant_run_usage AS target
         (id,thread_id,run_id,resource_id,model,provider,input_tokens,output_tokens,run_kind,continuation_id)
-        SELECT 'continuation-usage:' || id || ':' || $3,root_thread_id,$3,owner_resource_id,
+        SELECT 'continuation-usage:' || jsonb_build_array(id,$3::text)::text,root_thread_id,$3,owner_resource_id,
           COALESCE($5, configuration #>> '{persona,model,modelId}', model), COALESCE($6, configuration #>> '{persona,model,provider}', provider),
           $7::integer,$8::integer,'subagent',id FROM authorized WHERE native_run_id IS NOT NULL AND active_host_run_id = $3
         ON CONFLICT(continuation_id,run_id) DO UPDATE SET input_tokens = GREATEST(target.input_tokens, EXCLUDED.input_tokens),

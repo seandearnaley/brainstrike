@@ -32,10 +32,10 @@ export async function cancelDelegatedContinuations(
     [scope.ownerResourceId, scope.rootThreadId, threadId, includeDescendants ? 1 : 0]
   );
   const owners = z.array(owner).parse(result.rows);
-  await Promise.all(owners.map(({ hostRunId }) => cancelSteerableRunAndWait(hostRunId)));
   if (owners.length === 0) {
     return;
   }
+  await Promise.all(owners.map(({ hostRunId }) => cancelSteerableRunAndWait(hostRunId)));
   await database.query(
     `WITH selected AS (
       SELECT * FROM jsonb_to_recordset($3::jsonb) AS entry(id text, "hostRunId" text, "projectionId" text)
@@ -52,13 +52,13 @@ export async function cancelDelegatedContinuations(
       JOIN brainstrike_delegated_conversations node ON node.thread_id = settled.thread_id
         AND node.root_thread_id = $2 AND node.owner_resource_id = $1
       WHERE run.id = selected."projectionId" AND run.thread_id = node.thread_id AND run.resource_id = node.resource_id
-        AND run.status IN ('running','completed','awaiting-approval','awaiting-input') RETURNING run.*
+        AND run.status IN ('running','awaiting-approval','awaiting-input') RETURNING run.*
     ) INSERT INTO brainstrike_assistant_run_events
       (id,run_id,resource_id,thread_id,sequence,kind,status,label,metadata,occurred_at,created_at,updated_at)
       SELECT run.id || ':cancelled',run.id,run.resource_id,run.thread_id,
         (SELECT COALESCE(MAX(event.sequence),-1)+1 FROM brainstrike_assistant_run_events event WHERE event.run_id=run.id),
         'run.cancelled','cancelled','Stopped',
-        (SELECT event.metadata FROM brainstrike_assistant_run_events event WHERE event.run_id=run.id ORDER BY event.sequence DESC LIMIT 1),
+        (SELECT jsonb_build_object('continuationId',selected.id,'continuationHostRunId',selected."hostRunId",'continuationNativeRunId',settled.native_run_id,'nativeMessageId',run.id) FROM selected JOIN settled ON settled.id=selected.id WHERE selected."projectionId"=run.id),
         run.completed_at,NOW(),NOW() FROM child_run run ON CONFLICT(id) DO NOTHING`,
     [
       scope.ownerResourceId,

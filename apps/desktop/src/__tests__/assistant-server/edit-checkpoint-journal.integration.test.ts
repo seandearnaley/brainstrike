@@ -258,6 +258,10 @@ describe('listRunRangeCheckpoints', () => {
     await db.query(
       'ALTER TABLE brainstrike_assistant_run_usage DROP CONSTRAINT brainstrike_assistant_run_usage_delegation_fk'
     );
+    // Migration 135 adds continuation receipts and their usage/decision references.
+    await db.query('ALTER TABLE brainstrike_assistant_run_usage DROP COLUMN continuation_id');
+    await db.query('DROP TABLE brainstrike_delegated_continuation_decisions');
+    await db.query('DROP TABLE brainstrike_delegated_continuations');
     await db.query('DROP TABLE brainstrike_delegated_tool_decisions');
     await db.query('DROP TABLE brainstrike_delegated_invocations');
     await db.query('DROP TABLE brainstrike_assistant_run_events');

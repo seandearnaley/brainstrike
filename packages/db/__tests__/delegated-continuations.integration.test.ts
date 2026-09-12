@@ -333,3 +333,56 @@ it('accounts separately for each native resume leg while deduplicating cumulativ
     ).rows
   ).toEqual([{ input: 7, output: 7 }]);
 });
+
+it('attributes delimiter-containing receipt and host pairs without primary-key collisions', async () => {
+  await database.exec(
+    "UPDATE brainstrike_assistant_thread_runs SET status='completed' WHERE id='wake-host'; INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id) VALUES ('c','owner','root','openai','test','desktop','running',NOW(),NOW(),NOW(),'turn-one')"
+  );
+  await repo('c').prepare({ ...input, id: 'a:b' });
+  await repo('c').bind('a:b', 'native-one');
+  await repo('c').recordUsage('a:b', { inputTokens: 1, outputTokens: 2 });
+  await repo('c').finish('a:b', 'completed');
+  await database.exec(
+    "UPDATE brainstrike_assistant_thread_runs SET status='completed' WHERE id='c'; INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id) VALUES ('b:c','owner','root','openai','test','desktop','running',NOW(),NOW(),NOW(),'turn-two')"
+  );
+  await repo('b:c').prepare({ ...input, id: 'a' });
+  await repo('b:c').bind('a', 'native-two');
+  await repo('b:c').recordUsage('a', { inputTokens: 3, outputTokens: 4 });
+  expect(
+    (
+      await database.query(
+        'SELECT continuation_id, run_id, input_tokens FROM brainstrike_assistant_run_usage ORDER BY continuation_id'
+      )
+    ).rows
+  ).toEqual([
+    { continuation_id: 'a', input_tokens: 3, run_id: 'b:c' },
+    { continuation_id: 'a:b', input_tokens: 1, run_id: 'c' },
+  ]);
+});
+
+it('refuses a reused global input identity from another root without disclosing or replacing its receipt', async () => {
+  await repo().prepare(input);
+  const original = (await database.query('SELECT * FROM brainstrike_delegated_continuations')).rows;
+  await database.exec(
+    `INSERT INTO mastra_threads(id,"resourceId",title,metadata,"createdAt","updatedAt") VALUES ('other-child','other-child-resource','Other child','{}',NOW(),NOW())`
+  );
+  const otherScope = { ownerResourceId: 'foreign', rootThreadId: 'other' };
+  const graph = createDelegatedConversationRepository(database);
+  await graph.registerRoot(otherScope);
+  await graph.createChild(otherScope, {
+    color: 'blue',
+    configuration,
+    displayName: 'Other child',
+    parentThreadId: 'other',
+    resourceId: 'other-child-resource',
+    threadId: 'other-child',
+  });
+  const other = createDelegatedContinuationRepository(database, otherScope, 'other-host');
+  await expect(other.prepare({ ...input, threadId: 'other-child' })).rejects.toMatchObject({
+    reason: 'continuation-input-not-admitted',
+  });
+  expect(await graph.getContinuation(otherScope, input.id)).toBeNull();
+  expect((await database.query('SELECT * FROM brainstrike_delegated_continuations')).rows).toEqual(
+    original
+  );
+});

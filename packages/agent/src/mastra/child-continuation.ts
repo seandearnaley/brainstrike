@@ -103,6 +103,7 @@ export async function createChildFollowupStream(
 
 interface ContinuationProjection {
   baselineSent: boolean;
+  failureDetail?: string;
   sequence: number;
   status: ChildContinuationStatus;
   readonly text: string[];
@@ -131,6 +132,10 @@ async function projectContinuationChunk(
     state.text.push(chunk.value);
   }
   if (chunk.type === 'run-event') {
+    if (chunk.event.kind === 'run.failed') {
+      state.status = 'failed';
+      state.failureDetail = chunk.event.detail ?? chunk.event.label;
+    }
     chunk = {
       ...chunk,
       event: {
@@ -149,7 +154,7 @@ async function projectContinuationChunk(
   if (chunk.type === 'message-finish' && chunk.finishReason === 'error') {
     state.status = 'failed';
   }
-  if (chunk.type === 'finish') {
+  if (chunk.type === 'finish' || chunk.type === 'message-finish') {
     await host.persistContinuationUsage({
       id,
       inputTokens: chunk.usage.promptTokens,
@@ -176,9 +181,22 @@ async function settleContinuation(
   failure: unknown
 ): Promise<void> {
   try {
-    await host.finishContinuation({ id, status });
+    await host.finishContinuation({
+      id,
+      status,
+      ...(status === 'failed'
+        ? {
+            error:
+              failure === undefined
+                ? 'Child continuation failed.'
+                : failure instanceof Error
+                  ? failure.message
+                  : String(failure),
+          }
+        : {}),
+    });
   } catch (settleError) {
-    if (failure) {
+    if (failure !== undefined) {
       throw new AggregateError(
         [failure, settleError],
         'Child continuation and receipt settlement failed.'
@@ -218,7 +236,12 @@ async function* projectContinuation(
     failure = error;
     throw error;
   } finally {
-    await settleContinuation(host, id, state.status, failure);
+    await settleContinuation(
+      host,
+      id,
+      state.status,
+      failure === undefined ? state.failureDetail : failure
+    );
   }
   if (state.status === 'completed' && !signal?.aborted) {
     yield* await createRootOutcomeStream(options, id, binding.threadId, state.text.join(''));

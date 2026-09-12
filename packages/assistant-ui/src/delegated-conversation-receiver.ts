@@ -385,6 +385,8 @@ export function createDelegatedConversationTap(
         return;
       }
       try {
+        // Envelopes can be successive frames for the same decoder. Await each
+        // write so its baseline/start is committed before deltas and finish.
         for (const envelope of readChildEnvelopes(chunk)) {
           await receiveEnvelope(envelope);
         }

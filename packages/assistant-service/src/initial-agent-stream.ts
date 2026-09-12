@@ -69,9 +69,10 @@ export async function resolveInitialAgentStream<K extends AgentStreamCapabilityK
   // Instructions are applied LAST so the final front-to-back order is:
   // instructions → signal → skills → referenced files → conversation. All are
   // no-ops (same array identity) when nothing applies.
+  // The fresh child trusts only context produced by these host injectors.
+  // Incoming system-role messages are request data, not host authority.
   const contextMessages: AgentMessage[] = childFollowupAction
     ? [
-        ...messages.filter((message) => message.role === 'system'),
         {
           id: childFollowupAction.id,
           parts: [{ text: childFollowupAction.text, type: 'text' }],
