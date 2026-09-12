@@ -64,6 +64,12 @@ export async function loadEffectiveSetupFiles(configPath, projectName) {
   }
   const test = loaded.config.test;
   if (projectName === undefined) {
+    if (Array.isArray(test?.projects) && test.projects.length > 0) {
+      throw new Error(
+        `verify-event-loop-watchdog: ${configPath} declares projects; name the project ` +
+          'in the lane contract instead of checking top-level setupFiles.'
+      );
+    }
     return test?.setupFiles;
   }
   const projects = test?.projects;
@@ -140,27 +146,21 @@ export async function main({ repoRoot = REPO_ROOT, lanes = PGLITE_LANES } = {}) 
   }
   const missing = await findLanesMissingWatchdog(repoRoot, lanes);
   if (missing.length > 0) {
-    return {
-      exitCode: 1,
-      message:
-        `verify-event-loop-watchdog: ${missing.length} PGlite-hosting lane(s) do not list the ` +
+    throw new Error(
+      `verify-event-loop-watchdog: ${missing.length} PGlite-hosting lane(s) do not list the ` +
         'event-loop watchdog setup FIRST, so a blocked worker there hangs silently for the ' +
         'whole job instead of being killed and named (BST-1221):\n' +
         `${missing.map((lane) => `  - ${laneLabel(lane)}: ${lane.reason}`).join('\n')}\n\n` +
         "Put this as the FIRST entry of that lane's `setupFiles`:\n" +
-        `  '${WATCHDOG_SETUP_ID}',\n`,
-    };
+        `  '${WATCHDOG_SETUP_ID}',\n`
+    );
   }
-  return {
-    exitCode: 0,
-    message:
-      `verify-event-loop-watchdog: OK (${lanes.length} PGlite-hosting lanes lead their setupFiles ` +
-      'with the event-loop watchdog)\n',
-  };
+  return (
+    `verify-event-loop-watchdog: OK (${lanes.length} PGlite-hosting lanes lead their setupFiles ` +
+    'with the event-loop watchdog)\n'
+  );
 }
 
 if (import.meta.main) {
-  const result = await main();
-  (result.exitCode === 0 ? process.stdout : process.stderr).write(result.message);
-  process.exitCode = result.exitCode;
+  process.stdout.write(await main());
 }

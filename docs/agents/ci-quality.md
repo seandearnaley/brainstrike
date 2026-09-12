@@ -1698,8 +1698,10 @@ line naming the test and SIGKILLs the worker. The lane list is enforced:
 run by `pnpm test:scripts` in the Static job) loads all 16 listed configs,
 including the actual `test:integration` configs independently of their base,
 and requires the setup to be the FIRST effective `setupFiles` entry (or the
-sole string value). Override/reordering fixtures prove that an integration
-config cannot remove the inherited watchdog. Load failures are reported by
+sole string value). Override/reordering fixtures prove that the guard rejects an
+integration config that removes the inherited watchdog. A config declaring
+projects requires an explicit project in the lane contract; top-level setup
+cannot stand in for the setup that its project files run. Load failures are reported by
 config path alongside every other failing lane. A new
 PGlite-hosting lane is added to that list, and a second-position or missing
 entry fails Static rather than silently reintroducing the hang.

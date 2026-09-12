@@ -110,6 +110,20 @@ test('an inline project is checked by name, and a missing project name throws', 
   );
 });
 
+test('top-level setup cannot mask an unguarded inline project', async (t) => {
+  const root = makeWorkspace(t, {
+    multi: PROJECTS.replace(
+      'test: { projects:',
+      `test: { setupFiles: ['${WATCHDOG_SETUP_ID}'], projects:`
+    ),
+  });
+  const missing = await findLanesMissingWatchdog(root, [
+    { config: 'packages/multi/vitest.config.mts' },
+  ]);
+  assert.equal(missing.length, 1);
+  assert.match(missing[0].reason, /name the project/);
+});
+
 test('leadsWithWatchdog accepts valid string or array setup and rejects non-leading positions', () => {
   assert.equal(leadsWithWatchdog(undefined), false);
   assert.equal(leadsWithWatchdog(WATCHDOG_SETUP_ID), true);
@@ -135,7 +149,7 @@ const INTEGRATION_PACKAGES = [
 ];
 
 for (const packagePath of INTEGRATION_PACKAGES) {
-  test(`the runnable ${packagePath} integration config cannot override inherited setup`, async (t) => {
+  test(`integration overrides that drop or reorder setup are rejected (${packagePath} shape)`, async (t) => {
     const root = makeWorkspace(t, {});
     const dir = path.join(root, packagePath);
     mkdirSync(dir, { recursive: true });
@@ -178,17 +192,14 @@ test('a config load failure names the lane and still reports other broken lanes'
   assert.equal(missing[1].config, 'packages/late/vitest.config.mts');
 });
 
-test('main returns the failed verdict without changing the caller exit code', async (t) => {
+test('main rejects an unverifiable root without changing the caller exit code', async (t) => {
   const root = makeWorkspace(t, {});
   const originalExitCode = process.exitCode;
   t.after(() => {
     process.exitCode = originalExitCode;
   });
-  const result = await main({ repoRoot: root });
+  await assert.rejects(() => main({ repoRoot: root }), /config file does not exist/);
   assert.equal(process.exitCode, originalExitCode);
-  assert.equal(result.exitCode, 1);
-  assert.match(result.message, /config file does not exist/);
-  assert.match(result.message, /Put this as the FIRST entry/);
 });
 
 test('the actual CLI reports failing lanes and exits nonzero', (t) => {
@@ -214,13 +225,15 @@ test('refuses a lane list below the floor rather than reporting a vacuous pass',
   );
 });
 
-test('MONEY TEST: every PGlite-hosting lane in the real repo leads its setupFiles with the watchdog', async () => {
+test('MONEY TEST: the real repository passes the actual watchdog CLI', () => {
   assert.ok(PGLITE_LANES.length >= MIN_LANES);
-  const missing = await findLanesMissingWatchdog(REPO_ROOT, PGLITE_LANES);
-  assert.deepEqual(
-    missing.map(
-      (lane) => `${lane.config}${lane.project ? ` (${lane.project})` : ''}: ${lane.reason}`
-    ),
-    []
+  const result = spawnSync(
+    process.execPath,
+    [path.join(REPO_ROOT, 'scripts/verify-event-loop-watchdog.mjs')],
+    { encoding: 'utf8' }
   );
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stderr, /verify-event-loop-watchdog: OK/);
+  assert.match(result.stdout, /OK \(16 PGlite-hosting lanes/);
 });
