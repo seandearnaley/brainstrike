@@ -3,7 +3,7 @@
  *
  * Master switch (delegation on/off) + per-persona toggles, persisted in the
  * subagent-personas store and applied server-side per request. Built-in
- * personas always render; user-defined personas load through the
+ * personas are included in every successful host scan; user-defined personas load through the
  * capability-gated `window.assistantPersonas` bridge (desktop main scans
  * `.brainstrike/agents`) — INCLUDING invalid persona files with their
  * parse/validation error, so authors see exactly why a file did not load.
@@ -16,6 +16,7 @@ import {
 } from '@brainstrike/app-state/stores/subagent-personas-store';
 import {
   type AssistantPersonaListItem,
+  type AssistantPersonasListResult,
   BUILT_IN_PERSONAS,
   DELEGATION_LIMITS,
   effectiveChildStepBudget,
@@ -24,6 +25,7 @@ import {
 import { resolveAssistantPersonasBridge } from '@brainstrike/assistant-contract/personas-bridge';
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
@@ -75,7 +77,7 @@ function PersonaScopeLine({ item }: { readonly item: AssistantPersonaListItem })
   // child has no reserved summary turn (`buildChildIterationPolicy`).
   return (
     <p className="text-muted-foreground text-xs" data-testid={`subagent-persona-scope-${item.id}`}>
-      {item.mode === 'worker' ? 'Worker mode' : 'Read-only'} · Up to {steps}{' '}
+      Declared scope: {item.mode === 'worker' ? 'Worker mode' : 'Read-only'} · Up to {steps}{' '}
       {steps === 1 ? 'step' : 'steps'}
       {steps >= 2 ? ' (1 reserved for its summary)' : ''} ·{' '}
       {allTools
@@ -148,6 +150,23 @@ function PersonaRowDetail({
     <>
       <p className="text-muted-foreground text-sm">{item.description}</p>
       <PersonaScopeLine item={item} />
+      {/* An empty checked result deliberately distinguishes no issues from an unchecked row. */}
+      {item.availability ? (
+        <div className="mt-1 space-y-1" data-testid={`subagent-persona-availability-${item.id}`}>
+          {item.availability.status === 'request-dependent' ? null : (
+            <p className="font-medium text-sm">
+              {item.availability.status === 'blocked'
+                ? 'Unavailable until corrected'
+                : 'Check this configuration'}
+            </p>
+          )}
+          {item.availability.issues.map((issue) => (
+            <p className="text-sm text-warning" key={`${issue.code}:${issue.toolId ?? ''}`}>
+              {issue.message}
+            </p>
+          ))}
+        </div>
+      ) : null}
     </>
   );
 }
@@ -188,11 +207,15 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
   const setDelegationEnabled = useSubagentPersonasStore((state) => state.setDelegationEnabled);
   const setPersonaEnabled = useSubagentPersonasStore((state) => state.setPersonaEnabled);
 
-  const [bridgeItems, setBridgeItems] = useState<readonly AssistantPersonaListItem[] | null>(null);
-  const [incompleteDirs, setIncompleteDirs] = useState<
-    readonly { dir: string; reason: 'cap-reached' | 'listing-truncated' }[]
-  >([]);
   const hasBridge = resolveAssistantPersonasBridge() !== null;
+  const [load, setLoad] = useState<{
+    status: 'loading' | 'loaded' | 'failed';
+    result: AssistantPersonasListResult | null;
+  }>(() => ({ result: null, status: hasBridge ? 'loading' : 'loaded' }));
+  const [reloadVersion, setReloadVersion] = useState(0);
+  const loading = load.status === 'loading';
+  const loadFailed = load.status === 'failed';
+  const incompleteDirs = load.result?.incompleteDirs ?? [];
 
   useEffect(() => {
     const bridge = resolveAssistantPersonasBridge();
@@ -204,27 +227,24 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
       .list()
       .then((result) => {
         if (!cancelled) {
-          setBridgeItems(result.personas);
-          setIncompleteDirs(result.incompleteDirs ?? []);
+          setLoad({ result, status: 'loaded' });
         }
       })
       .catch(() => {
-        // The IPC list is presentational; a failure leaves the built-ins
-        // rendered (the store toggles still work) — nothing silent about the
-        // personas themselves, which the server resolves independently.
+        // Keep the last list visible, but never portray a failed refresh as a
+        // successful scan or expose private filesystem/credential error text.
         if (!cancelled) {
-          setBridgeItems(null);
-          setIncompleteDirs([]);
+          setLoad((current) => ({ ...current, status: 'failed' }));
         }
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadVersion]);
 
   // Bridge results include built-ins first; without a bridge fall back to the
   // static built-in list so the panel is meaningful on web too.
-  const items = bridgeItems ?? BUILT_IN_ITEMS;
+  const items = load.result?.personas ?? (hasBridge ? [] : BUILT_IN_ITEMS);
   const disabledSet = new Set(disabledPersonaIds);
 
   return (
@@ -257,6 +277,36 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
         </div>
 
         <DelegationLimits />
+        <p className="text-muted-foreground text-sm">
+          Each profile states its declared scope. Available tools, model access and permissions are
+          checked again for every request. Host checks below do not grant access or promise that
+          every declared tool can run.
+        </p>
+        {hasBridge ? (
+          <div className="space-y-2">
+            {loadFailed ? (
+              <p className="text-destructive text-sm" role="alert">
+                Could not load user personas or check host availability. Retry after checking your
+                workspace and provider settings.
+              </p>
+            ) : null}
+            <Button
+              disabled={loading}
+              onClick={() => {
+                setLoad((current) => ({ ...current, status: 'loading' }));
+                setReloadVersion((version) => version + 1);
+              }}
+              size="sm"
+              variant="outline"
+            >
+              {loading
+                ? 'Checking personas…'
+                : loadFailed
+                  ? 'Retry loading personas'
+                  : 'Refresh personas and host checks'}
+            </Button>
+          </div>
+        ) : null}
 
         {incompleteDirs.length > 0 ? (
           <div className="space-y-1" data-testid="subagent-personas-incomplete">

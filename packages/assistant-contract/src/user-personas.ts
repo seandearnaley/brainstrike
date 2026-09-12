@@ -310,6 +310,25 @@ export function parsePersonaModelPin(value: string): ParsePersonaModelPinResult 
   return { ok: true, pin: { modelId, provider } };
 }
 
+export interface AssistantPersonaAvailabilityIssue {
+  readonly code:
+    | 'credential-missing'
+    | 'credential-unreadable'
+    | 'model-not-listed'
+    | 'model-unsupported'
+    | 'worker-model-unsupported'
+    | 'tool-not-discovered'
+    | 'tool-disabled';
+  readonly message: string;
+  readonly toolId?: string;
+}
+
+/** Static host facts only; the selected model, capabilities and permissions are checked per run. */
+export interface AssistantPersonaAvailability {
+  readonly issues: readonly AssistantPersonaAvailabilityIssue[];
+  readonly status: 'blocked' | 'needs-attention' | 'request-dependent';
+}
+
 /**
  * One persona row as the discovery IPC reports it to the settings panel:
  * built-ins and user personas in one list, INCLUDING invalid user files (with
@@ -325,6 +344,7 @@ export interface AssistantPersonaListItem {
    * the definition the host builds the child from (`personaScope`).
    */
   readonly allowedToolIds?: readonly string[];
+  readonly availability?: AssistantPersonaAvailability;
   readonly description: string;
   /** Why the file failed to load (user personas with status 'invalid'). */
   readonly error?: string;

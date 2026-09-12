@@ -335,3 +335,85 @@ describe('SubagentPersonasSettingsSection', () => {
     expect(screen.getByText(/desktop/i)).toBeInTheDocument();
   });
 });
+
+it('shows an actionable host issue while keeping declared scope distinct', async () => {
+  setBridge({
+    list: async () => ({
+      personas: [
+        {
+          allowedToolIds: ['missing.edit'],
+          availability: {
+            issues: [
+              {
+                code: 'credential-missing',
+                message: 'Add credentials for anthropic in Providers.',
+              },
+            ],
+            status: 'blocked',
+          },
+          description: 'Ships',
+          id: 'shipper',
+          label: 'Shipper',
+          maxSteps: 7,
+          mode: 'worker',
+          source: 'user',
+          status: 'ok',
+        },
+      ],
+    }),
+  });
+  render(<SubagentPersonasSettingsSection />);
+  expect(
+    await screen.findByText('Add credentials for anthropic in Providers.')
+  ).toBeInTheDocument();
+  expect(screen.getByText('Unavailable until corrected')).toBeInTheDocument();
+  expect(screen.getByText(/Declared scope:/)).toBeInTheDocument();
+});
+
+it('reports loading failure and retries the bridge instead of hiding user profiles', async () => {
+  let calls = 0;
+  setBridge({
+    list: async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw new Error('private disk error');
+      }
+      return {
+        personas: [
+          {
+            description: 'Loaded',
+            id: 'restored',
+            label: 'Restored profile',
+            source: 'user',
+            status: 'ok',
+          },
+        ],
+      };
+    },
+  });
+  render(<SubagentPersonasSettingsSection />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not load user personas');
+  expect(screen.queryByText('private disk error')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('subagent-persona-toggle-worker')).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Retry loading personas' }));
+  expect(await screen.findByText('Restored profile')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('keeps refresh disabled while the host scan is pending and enables it after settlement', async () => {
+  const pending = Promise.withResolvers<AssistantPersonasListResult>();
+  let calls = 0;
+  setBridge({
+    list: () => {
+      calls += 1;
+      return pending.promise;
+    },
+  });
+  render(<SubagentPersonasSettingsSection />);
+  const refresh = screen.getByRole('button', { name: /personas/i });
+  expect(refresh).toBeDisabled();
+  await userEvent.click(refresh);
+  expect(calls).toBe(1);
+  pending.resolve({ personas: [] });
+  await waitFor(() => expect(refresh).toBeEnabled());
+});

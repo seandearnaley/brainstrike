@@ -1717,3 +1717,7 @@ When adding a seventh rebuild site or changing this invariant, update this
 section and its paired tests.
 
 ---
+
+### Persona Settings host checks (BST-1727)
+
+The canonical [persona Settings host-check contract](assistant-subagents.md#persona-settings-host-checks-bst-1727) covers validated scan results, model/tool availability, and request-dependent scope.

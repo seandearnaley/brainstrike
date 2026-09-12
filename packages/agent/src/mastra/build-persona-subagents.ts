@@ -23,6 +23,7 @@ import {
   type AssistantPersonaDefinition,
   assertPersonaToolScope,
   delegationDescriptionForPersona,
+  supportsWorkerPersonaProvider,
 } from '@brainstrike/assistant-contract/personas';
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
 import { Agent, type AgentExecutionOptions, type ToolsInput } from '@mastra/core/agent';
@@ -382,11 +383,11 @@ function isWorkerAvailable(
   }
   const provider = persona.model?.provider ?? params.provider;
   const code = canSuspend
-    ? provider === 'local'
-      ? 'subagent_worker_local_model_unavailable'
-      : (persona.model?.modelId ?? params.modelName) && params.localToolIds
+    ? supportsWorkerPersonaProvider(provider)
+      ? (persona.model?.modelId ?? params.modelName) && params.localToolIds
         ? undefined
         : 'subagent_worker_catalog_unavailable'
+      : 'subagent_worker_local_model_unavailable'
     : 'subagent_worker_host_unavailable';
   if (!code) {
     return true;
