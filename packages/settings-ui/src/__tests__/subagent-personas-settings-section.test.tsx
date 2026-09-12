@@ -217,19 +217,39 @@ describe('SubagentPersonasSettingsSection', () => {
               source: 'user',
               status: 'ok',
             },
+            {
+              // Worker mode with a declared read-only list: the mode permits
+              // edit/run tools to be declared, it does not grant them.
+              allowedToolIds: ['brainstrike.readWorkspaceFile'],
+              description: 'Reads one file at a time.',
+              id: 'one-shot',
+              label: 'One shot',
+              maxSteps: 1,
+              mode: 'worker',
+              source: 'user',
+              status: 'ok',
+            },
           ],
         }),
     });
     render(<SubagentPersonasSettingsSection />);
     const shipper = (await screen.findByTestId('subagent-persona-scope-shipper')).textContent;
-    expect(shipper).toContain('Can edit and run');
-    expect(shipper).toContain('Up to 12 steps');
-    expect(shipper).toContain('every tool the host permits');
+    expect(shipper).toContain('Worker mode');
+    expect(shipper).toContain('Up to 12 steps (1 reserved for its summary)');
+    expect(shipper).toContain('every tool the host permits, including edit and run tools');
     const surveyor = screen.getByTestId('subagent-persona-scope-surveyor').textContent;
     expect(surveyor).toContain('Read-only');
     expect(surveyor).toContain('Up to 4 steps');
     expect(surveyor).toContain('3 tools');
     expect(surveyor).toContain('readWorkspaceFile');
+    // Worker mode never promises edit access the declared list does not give,
+    // and a one-step child has no reserved summary turn.
+    const oneShot = screen.getByTestId('subagent-persona-scope-one-shot').textContent;
+    expect(oneShot).toContain('Worker mode');
+    expect(oneShot).toContain('Up to 1 step ·');
+    expect(oneShot).not.toContain('reserved');
+    expect(oneShot).not.toContain('edit');
+    expect(oneShot).toContain('1 tool: readWorkspaceFile');
   });
 
   it("states the built-in personas' scope without the bridge from the same definitions the host enforces", () => {
@@ -240,9 +260,9 @@ describe('SubagentPersonasSettingsSection', () => {
       throw new Error('built-in worker and explore personas must exist');
     }
     const workerScope = screen.getByTestId('subagent-persona-scope-worker').textContent;
-    expect(workerScope).toContain('Can edit and run');
+    expect(workerScope).toContain('Worker mode');
     expect(workerScope).toContain(`Up to ${worker.maxSteps} steps`);
-    expect(workerScope).toContain('every tool the host permits');
+    expect(workerScope).toContain('every tool the host permits, including edit and run tools');
     const exploreScope = screen.getByTestId('subagent-persona-scope-explore').textContent;
     expect(exploreScope).toContain('Read-only');
     expect(exploreScope).toContain(`${explore.allowedToolIds.length} tools`);

@@ -68,12 +68,17 @@ function PersonaScopeLine({ item }: { readonly item: AssistantPersonaListItem })
   const allTools = item.allowedToolIds.length === 1 && item.allowedToolIds[0] === '*';
   const listed = item.allowedToolIds.slice(0, MAX_LISTED_TOOLS).map(displayToolId).join(', ');
   const remaining = item.allowedToolIds.length - MAX_LISTED_TOOLS;
+  // Worker mode only PERMITS edit/run tools to be declared; the declared list
+  // (then host permissions) decides what the child can actually do, so the
+  // label names the mode and the tool clause states the scope. A one-step
+  // child has no reserved summary turn (`buildChildIterationPolicy`).
   return (
     <p className="text-muted-foreground text-xs" data-testid={`subagent-persona-scope-${item.id}`}>
-      {item.mode === 'worker' ? 'Can edit and run' : 'Read-only'} · Up to {steps} steps (1 reserved
-      for its summary) ·{' '}
+      {item.mode === 'worker' ? 'Worker mode' : 'Read-only'} · Up to {steps}{' '}
+      {steps === 1 ? 'step' : 'steps'}
+      {steps >= 2 ? ' (1 reserved for its summary)' : ''} ·{' '}
       {allTools
-        ? 'every tool the host permits'
+        ? `every tool the host permits${item.mode === 'worker' ? ', including edit and run tools' : ''}`
         : `${item.allowedToolIds.length} ${item.allowedToolIds.length === 1 ? 'tool' : 'tools'}: ${listed}${remaining > 0 ? ` and ${remaining} more` : ''}`}
     </p>
   );

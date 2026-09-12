@@ -301,9 +301,12 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   effective `mode` (no explicit mode ⇒ `'read-only'`) — populated by
   `apps/desktop/src/ipc-user-personas-handlers.ts` for built-ins and user
   personas alike, and by the panel's own built-in fallback on web. The panel
-  renders each persona's scope line in plain terms ("Read-only" / "Can edit
-  and run", "Up to N steps (1 reserved for its summary)", the tool count with
-  the first ids or "every tool the host permits") where N is
+  renders each persona's scope line in plain terms ("Read-only" / "Worker
+  mode" — the mode only PERMITS edit/run tools to be declared, the declared
+  list decides — "Up to N steps", with "(1 reserved for its summary)" only
+  when N ≥ 2 because `buildChildIterationPolicy` reserves nothing for a
+  one-step child, then the tool count with the first ids or "every tool the
+  host permits, including edit and run tools" for a worker `*`) where N is
   `effectiveChildStepBudget` — the one helper `delegationDescriptionForPersona`
   also uses, so the number a user reads is the number the model is told and
   the host applies. The tree-wide block ("Limits on every turn") reads
