@@ -20,6 +20,7 @@ export function ActiveConversationInputProvider({
   const request = useRef<{ id: string; text: string } | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const canSend = Boolean(onSend && running && !busy);
   const send = async () => {
     if (!(onSend && running) || inFlight.current) {
       return;
@@ -77,8 +78,8 @@ export function ActiveConversationInputProvider({
   return (
     <ActiveInputContext
       value={
-        onSend && running
-          ? { busy, discard, error, send, stopWaiting: () => cancelWait.current?.() }
+        canSend || busy || error !== undefined
+          ? { busy, canSend, discard, error, send, stopWaiting: () => cancelWait.current?.() }
           : undefined
       }
     >

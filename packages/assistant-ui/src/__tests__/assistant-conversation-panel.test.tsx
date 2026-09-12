@@ -35,8 +35,10 @@ function Conversation({
   onExitPlanMode,
   onSendActiveInput,
   attachments = false,
+  composerDisabled = false,
 }: {
   attachments?: boolean;
+  composerDisabled?: boolean;
   id: string;
   messages: readonly ThreadMessageLike[];
   onNew: ExternalStoreAdapter<ThreadMessageLike>['onNew'];
@@ -59,6 +61,7 @@ function Conversation({
   return (
     <AssistantConversationPanel
       {...(attachments ? { attachmentsAvailability: { state: 'enabled' as const } } : {})}
+      isComposerDisabled={composerDisabled}
       label={id}
       onSendActiveInput={onSendActiveInput}
       runtime={runtime}
@@ -209,6 +212,90 @@ describe('shared conversation panel', () => {
     await user.keyboard('{Enter}');
     await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
     expect(send.mock.calls[0]?.[0]).toEqual(send.mock.calls[1]?.[0]);
+  });
+
+  it.each(['idle', 'owner-removed'] as const)(
+    'keeps unconfirmed input controls reachable when the child becomes %s',
+    async (boundary) => {
+      const accepted = Promise.withResolvers<void>();
+      const send = vi.fn(() => accepted.promise);
+      const onNew = vi.fn(async () => {});
+      const view = (active: boolean) => (
+        <TooltipProvider>
+          <Conversation
+            composerDisabled={!active && boundary === 'owner-removed'}
+            id="Cedar"
+            messages={[message(active ? 'Reading' : 'Completed')]}
+            onNew={onNew}
+            {...(active || boundary === 'idle' ? { onSendActiveInput: send } : {})}
+            running={active || boundary === 'owner-removed'}
+          />
+        </TooltipProvider>
+      );
+      const { rerender } = render(view(true));
+      const user = userEvent.setup();
+      const input = screen.getByRole('textbox', { name: 'Message input' });
+      await user.type(input, 'Possibly delivered');
+      await user.click(screen.getByRole('button', { name: 'Send to child' }));
+      rerender(view(false));
+      if (boundary === 'idle') {
+        expect(input).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      } else {
+        expect(input).toBeDisabled();
+      }
+      expect(screen.getByText('Sending to child…')).toBeVisible();
+      await user.click(screen.getByRole('button', { name: 'Stop waiting' }));
+      expect(screen.getByRole('alert', { name: 'Child input delivery' })).toHaveTextContent(
+        'Delivery is unconfirmed'
+      );
+      expect(input).toHaveValue('Possibly delivered');
+      if (boundary === 'idle') {
+        expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+        await user.click(input);
+        await user.keyboard('{Enter}');
+      }
+      expect(send).toHaveBeenCalledOnce();
+      expect(onNew).not.toHaveBeenCalled();
+      await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+      expect(input).toHaveValue('');
+      expect(screen.queryByRole('alert', { name: 'Child input delivery' })).not.toBeInTheDocument();
+      accepted.resolve();
+      await waitFor(() => expect(screen.queryByText('Sending to child…')).not.toBeInTheDocument());
+      expect(send).toHaveBeenCalledOnce();
+      expect(onNew).not.toHaveBeenCalled();
+    }
+  );
+
+  it('settles a confirmed input after the child stops without replaying it', async () => {
+    const accepted = Promise.withResolvers<void>();
+    const send = vi.fn(() => accepted.promise);
+    const onNew = vi.fn(async () => {});
+    const view = (running: boolean) => (
+      <TooltipProvider>
+        <Conversation
+          composerDisabled={!running}
+          id="Cedar"
+          messages={[message(running ? 'Reading' : 'Completed')]}
+          onNew={onNew}
+          onSendActiveInput={send}
+          running={running}
+        />
+      </TooltipProvider>
+    );
+    const { rerender } = render(view(true));
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'Delivered just before completion');
+    await user.click(screen.getByRole('button', { name: 'Send to child' }));
+    rerender(view(false));
+    expect(screen.getByText('Sending to child…')).toBeVisible();
+    accepted.resolve();
+    await waitFor(() => expect(input).toHaveValue(''));
+    expect(screen.queryByText('Sending to child…')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert', { name: 'Child input delivery' })).not.toBeInTheDocument();
+    expect(send).toHaveBeenCalledOnce();
+    expect(onNew).not.toHaveBeenCalled();
   });
 
   it('requires explicit discard before changed text can replace an unconfirmed request', async () => {

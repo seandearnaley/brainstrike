@@ -8,6 +8,7 @@ import { TooltipProvider } from '@brainstrike/ui';
 import { act, fireEvent, getConfig, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest';
 import { commands, userEvent } from 'vitest/browser';
+import type { SendActiveConversationInput } from '../active-conversation-input-context';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
@@ -193,3 +194,90 @@ test('commits virtual sizing synchronously under reduced motion', async () => {
     sizer.style.height = previous;
   }
 });
+
+function ChildInputReceipt({
+  running,
+  width,
+  send,
+  append,
+}: {
+  readonly running: boolean;
+  readonly width: number;
+  readonly send: SendActiveConversationInput;
+  readonly append: (message: AppendMessage) => Promise<void>;
+}) {
+  const runtime = useExternalStoreRuntime({
+    convertMessage,
+    isRunning: running,
+    messages: messages.slice(0, 2),
+    onNew: append,
+  });
+  return (
+    <TooltipProvider>
+      <div style={{ height: 620, width }}>
+        <AssistantConversationPanel
+          label="Cedar input receipt"
+          onSendActiveInput={send}
+          runtime={runtime}
+          threadKey="child-input-receipt"
+        />
+      </div>
+    </TooltipProvider>
+  );
+}
+
+test.each([390, 900])(
+  'retains pending child input controls after idle without replay at width %s',
+  async (width) => {
+    const accepted = Promise.withResolvers<void>();
+    const send = vi.fn(() => accepted.promise);
+    const append = vi.fn(async (_message: AppendMessage) => {});
+    const view = (running: boolean) => (
+      <ChildInputReceipt append={append} running={running} send={send} width={width} />
+    );
+    const { rerender } = render(view(true));
+    const panel = screen.getByRole('region', { name: 'Cedar input receipt' });
+    const child = within(panel);
+    const input = child.getByRole('textbox', { name: 'Message input' });
+    await act(async () => {
+      await userEvent.fill(input, 'Possibly delivered');
+    });
+    await act(async () => {
+      await userEvent.click(child.getByRole('button', { name: 'Send to child' }));
+    });
+    rerender(view(false));
+    expect(child.getByText('Sending to child…')).toBeVisible();
+    expect(child.getByRole('button', { name: 'Send' })).toBeDisabled();
+    const stop = child.getByRole('button', { name: 'Stop waiting' });
+    const panelBounds = panel.getBoundingClientRect();
+    const stopBounds = stop.getBoundingClientRect();
+    expect(stopBounds.bottom).toBeLessThanOrEqual(panelBounds.bottom + 1);
+    expect(stopBounds.right).toBeLessThanOrEqual(panelBounds.right + 1);
+    await act(async () => {
+      await userEvent.click(stop);
+    });
+    expect(child.getByRole('alert', { name: 'Child input delivery' })).toHaveTextContent(
+      'Delivery is unconfirmed'
+    );
+    expect(input).toHaveValue('Possibly delivered');
+    expect(child.getByRole('button', { name: 'Send' })).toBeDisabled();
+    await act(async () => {
+      await userEvent.click(input);
+    });
+    await act(async () => {
+      await userEvent.keyboard('{Enter}');
+    });
+    expect(send).toHaveBeenCalledOnce();
+    expect(append).not.toHaveBeenCalled();
+    const discard = child.getByRole('button', { name: 'Discard draft' });
+    expect(discard.getBoundingClientRect().bottom).toBeLessThanOrEqual(panelBounds.bottom + 1);
+    await act(async () => {
+      await userEvent.click(discard);
+    });
+    expect(input).toHaveValue('');
+    expect(child.queryByRole('alert', { name: 'Child input delivery' })).not.toBeInTheDocument();
+    await act(async () => accepted.resolve());
+    expect(send).toHaveBeenCalledOnce();
+    expect(append).not.toHaveBeenCalled();
+  }
+);

@@ -3593,4 +3593,9 @@ it does not stop the child or retract an already accepted instruction. The UI
 retains the request ID and reports unconfirmed delivery, ignores a late response
 from the abandoned wait, and permits only an explicit same-ID retry until discard.
 `assistant-conversation-panel.test.tsx` pins changed-draft refusal, late acknowledgement
-isolation, same-ID retry, and attachment-enabled focus preservation.
+isolation, same-ID retry, and attachment-enabled focus preservation. Pending feedback
+and Stop waiting / Discard draft controls survive running-to-idle and transport-owner
+removal without replaying through `onNew`. While the original wait is still active,
+a successful acknowledgement arriving after idle clears only an unchanged draft. The paired compiled-style conversation browser cases prove
+idle Send/Enter remain blocked and the receipt controls stay reachable at narrow and
+wide widths. Provider state remains keyed to the selected conversation identity.

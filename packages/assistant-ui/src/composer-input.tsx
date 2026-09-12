@@ -77,7 +77,7 @@ const ComposerInputRow = ({
   const hasDraft = useAuiState((state) => state.composer.text.trim().length > 0);
   const budgetSendBlocked = useBudgetSendGate();
   const inputId = useId();
-  const sendDisabled = isComposerDisabled || budgetSendBlocked || Boolean(activeInput?.busy);
+  const sendDisabled = isComposerDisabled || budgetSendBlocked || activeInput?.canSend === false;
   const InputFrame =
     attachmentsAvailability?.state === 'enabled' && !isComposerDisabled && !budgetSendBlocked
       ? AttachmentPasteFrame
@@ -202,7 +202,9 @@ const ComposerInputRow = ({
       )}
       {activeInput?.error && (
         <div>
-          <p role="alert">{activeInput.error}</p>
+          <p aria-label="Child input delivery" role="alert">
+            {activeInput.error}
+          </p>
           <button
             className="text-sm underline"
             disabled={activeInput.busy}
