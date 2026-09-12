@@ -1666,6 +1666,49 @@ Do not remove these flags to speed the lane up without first re-measuring peak
 RSS against the runner's 16 GB with the turbo `--concurrency=2` co-lane held
 constant.
 
+#### A worker with a blocked event loop is killed and named (BST-1221)
+
+`LostTestFileReporter` below needs the worker to DIE. The Node 26.8.2 PGlite
+wedge does the opposite: PGlite 0.5.8's synchronous protocol loop retries
+`_PostgresMainLoopOnce` forever after a WASM trap (`function signature
+mismatch` in `$palloc`), so the worker spins at 100% CPU with its event loop
+blocked. `testTimeout` is a timer in that loop and never fires, the worker never
+reports, turbo prints nothing, and the job is cancelled at its 30-minute limit
+with no verdict (`Unit (rest)`, run 34653237231, PR #3141).
+
+Every lane that hosts real PGlite (`agent`, `app-shell`, `assistant-data`,
+`assistant-service`, `db`, `db-explorer` unit and integration, `desktop`,
+`embeddings`, `file-import`) lists
+`@brainstrike/test-utils/vitest.event-loop-watchdog.setup` FIRST in
+`setupFiles` (`packages/test-utils/vitest-event-loop-watchdog.mjs`). First,
+because its heartbeat interval is captured at module evaluation and must be a
+real timer, ahead of any setup that could install fake timers. It runs a
+`worker_threads` watchdog with its own event loop; the main thread heartbeats
+every second, `beforeEach` labels the running test, and after
+`BRAINSTRIKE_VITEST_EVENT_LOOP_STALL_MS` (default 60 s, above every lane's
+`testTimeout`) of silence the watchdog writes one stderr line naming the test
+and SIGKILLs the worker.
+
+Outcome by pool: in a `forks` lane (`agent`, `db`, `embeddings`, `db-explorer`
+integration) the child worker dies, the vitest process survives, and the
+lost-file reporter fails the run naming the file. In a `threads` lane
+(`assistant-data`, `app-shell`, `file-import`, `db-explorer` unit) the vitest
+worker is a thread of the vitest process, so SIGKILL takes the whole run and
+the stderr line is the only attribution. Both replace a silent 30-minute hang
+with a named failure in about a minute. This is not a retry, timeout increase
+or suppression: the wedge still fails the lane.
+
+Debugging: the watchdog does not start when the process was launched with
+`--inspect*` (execArgv or `NODE_OPTIONS`) and says so once on stderr, so
+`vitest --inspect-brk` keeps working on these lanes.
+
+Paired tests: `packages/test-utils/__tests__/vitest-event-loop-watchdog.test.ts`
+(blocked loop killed and labelled; responsive worker exits on its own; inspector
+opt-out; impossible heartbeat budget and non-integer budgets refused) and its
+two-file vitest fixture run proving no spurious kill across files in a reused
+worker and a named kill of a blocking file. Proof against the real wedge is on
+BST-1221.
+
 #### A test file with no verdict fails the lane (BST-1221)
 
 Every package/app `vitest.config.mts` registers `LostTestFileReporter`

@@ -220,7 +220,7 @@ export default defineConfig({
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     pool: 'threads',
     reporters: ['default', new LostTestFileReporter()],
-    setupFiles: ['./vitest.setup.ts'],
+    setupFiles: ['@brainstrike/test-utils/vitest.event-loop-watchdog.setup', './vitest.setup.ts'],
     testTimeout: 30_000,
     unstubGlobals: true,
     // Coverage consolidated at root vitest.config.mts

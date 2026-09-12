@@ -32,7 +32,7 @@ export default defineConfig({
     hookTimeout: 15_000,
     include: ['src/**/__tests__/*.spec.ts'],
     reporters: ['default', new LostTestFileReporter()],
-    setupFiles: ['./vitest.setup.ts'],
+    setupFiles: ['@brainstrike/test-utils/vitest.event-loop-watchdog.setup', './vitest.setup.ts'],
     // Longer timeout for MCP/Mastra integration tests under parallel load
     testTimeout: 30_000,
   },

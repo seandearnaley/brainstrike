@@ -127,7 +127,10 @@ export default defineConfig({
           maxWorkers: process.env['CI'] ? 2 : '50%',
           name: 'unit',
           pool: 'forks',
-          setupFiles: ['./vitest.setup.ts'],
+          setupFiles: [
+            '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
+            './vitest.setup.ts',
+          ],
           testTimeout: 10_000,
         },
       },
