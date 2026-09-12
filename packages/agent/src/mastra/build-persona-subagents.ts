@@ -1,3 +1,4 @@
+import { createChildInputContextProcessor } from './child-input-context';
 /**
  * Persona → child-`Agent` factory (subagent personas, T2).
  *
@@ -369,7 +370,10 @@ function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
     }
   }
   if (params.getDelegatedSystemContext || params.hasStorage) {
-    inputProcessors.push(createDelegatedSystemContextProcessor(params.getDelegatedSystemContext));
+    inputProcessors.push(
+      createDelegatedSystemContextProcessor(params.getDelegatedSystemContext),
+      createChildInputContextProcessor()
+    );
   }
   if (!existingChild && params.conversationBinding) {
     inputProcessors.push(params.conversationBinding.inputProcessor);

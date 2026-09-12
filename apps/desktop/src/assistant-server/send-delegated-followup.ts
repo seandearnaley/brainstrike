@@ -1,5 +1,9 @@
 import type http from 'node:http';
-import { ChildInputNotDeliveredError } from '@brainstrike/assistant-contract';
+import {
+  assistantChildInputSchema,
+  ChildInputNotDeliveredError,
+} from '@brainstrike/assistant-contract';
+import { DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
 import { respondJson } from '@brainstrike/assistant-service/http';
 import { DelegatedConversationIdentityError } from '@brainstrike/db';
 import { z } from 'zod';
@@ -8,12 +12,10 @@ import { readRequestBody } from './http';
 import { desktopAssistantServerLogger as logger } from './logger';
 
 const id = z.string().trim().min(1).max(512);
-const inputSchema = z.strictObject({
+const inputSchema = assistantChildInputSchema.safeExtend({
   hostRunId: id,
-  id,
   ownerResourceId: id,
   rootThreadId: id,
-  text: z.string().trim().min(1).max(32_000),
   threadId: id,
 });
 
@@ -23,11 +25,15 @@ export async function handleDelegatedFollowupRequest(
 ): Promise<void> {
   let input: z.infer<typeof inputSchema>;
   try {
-    input = inputSchema.parse(JSON.parse(await readRequestBody(req, { maxBodyBytes: 140_000 })));
+    input = inputSchema.parse(
+      JSON.parse(
+        await readRequestBody(req, { maxBodyBytes: DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES })
+      )
+    );
   } catch {
     respondJson(res, 400, {
       error: 'invalid_child_input',
-      message: 'Child input requires text and its exact conversation owner.',
+      message: 'Child input requires valid text or images and its exact conversation owner.',
     });
     return;
   }
@@ -37,6 +43,7 @@ export async function handleDelegatedFollowupRequest(
       { ownerResourceId: input.ownerResourceId, rootThreadId: input.rootThreadId },
       input.threadId,
       {
+        ...(input.attachments ? { attachments: input.attachments } : {}),
         id: input.id,
         text: input.text,
       }

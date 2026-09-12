@@ -1,8 +1,11 @@
 import {
+  type AssistantChildInput,
   type AssistantRunEvent,
   type DelegatedToolActionIdentity,
   hasValidDelegatedToolActionTarget,
+  normalizeAssistantChildInput,
   sanitizeAssistantRunEventMetadata,
+  serializeAssistantChildInput,
 } from '@brainstrike/assistant-contract';
 import {
   type DelegatedConversationDatabase,
@@ -264,16 +267,20 @@ export function createDelegatedContinuationRepository(
         ]
       );
     },
-    async prepare(input: {
-      id: string;
-      threadId: string;
-      text: string;
-    }): Promise<DelegatedContinuation> {
+    async prepare(
+      input: AssistantChildInput & { readonly threadId: string }
+    ): Promise<DelegatedContinuation> {
+      const normalized = normalizeAssistantChildInput({
+        id: input.id,
+        text: input.text,
+        ...(input.attachments ? { attachments: input.attachments } : {}),
+      });
+      const payload = serializeAssistantChildInput(normalized);
       const result = await database.query(
         `${AUTHORIZED_DELEGATED_GRAPH}, claimed AS (
         INSERT INTO brainstrike_delegated_continuations
-          (id, owner_resource_id, root_thread_id, thread_id, host_run_id, active_host_run_id, turn_message_id, input_text, state)
-        SELECT $4, $1, $2, child.thread_id, host.id, host.id, host.turn_message_id, $6, 'claimed'
+          (id, owner_resource_id, root_thread_id, thread_id, host_run_id, active_host_run_id, turn_message_id, input_text, input_payload, state)
+        SELECT $4, $1, $2, child.thread_id, host.id, host.id, host.turn_message_id, $6, $7::jsonb, 'claimed'
         FROM owned_nodes child
         JOIN brainstrike_assistant_thread_runs host ON host.id = $3 AND host.thread_id = $2
           AND host.resource_id = $1 AND host.status = 'running'
@@ -298,7 +305,7 @@ export function createDelegatedContinuationRepository(
         ON CONFLICT DO NOTHING RETURNING *)
         SELECT claimed.*, child.resource_id, child.parent_thread_id, child.configuration, child.delegation_depth
         FROM claimed JOIN owned_nodes child ON child.thread_id = claimed.thread_id`,
-        [...args(input.id), nonblank(input.threadId), nonblank(input.text)]
+        [...args(input.id), nonblank(input.threadId), normalized.text, payload]
       );
       if (result.rows.length !== 0) {
         return parse(result);
@@ -306,13 +313,18 @@ export function createDelegatedContinuationRepository(
       // An existing receipt can already have executed despite a lost acknowledgement.
       // Classify that refusal explicitly; it must never be advertised as undelivered.
       const existing = await database.query(
-        `${AUTHORIZED} SELECT input_text, thread_id FROM authorized`,
-        args(input.id)
+        `${AUTHORIZED} SELECT thread_id, (input_payload = $5::jsonb OR (input_payload IS NULL AND input_text = $6 AND $7::boolean)) AS same_input FROM authorized`,
+        [
+          ...args(input.id),
+          payload,
+          normalized.text,
+          normalized.attachments?.length ? 'false' : 'true',
+        ]
       );
-      const receipt = existing.rows[0] as { input_text: unknown; thread_id: unknown } | undefined;
+      const receipt = existing.rows[0] as { same_input: unknown; thread_id: unknown } | undefined;
       if (receipt) {
         throw new DelegatedConversationIdentityError(
-          receipt.input_text === input.text && receipt.thread_id === input.threadId
+          receipt.same_input === true && receipt.thread_id === input.threadId
             ? 'continuation-input-already-admitted'
             : 'continuation-input-id-conflict'
         );

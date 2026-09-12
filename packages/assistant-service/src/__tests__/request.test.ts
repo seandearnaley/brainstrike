@@ -864,6 +864,26 @@ describe('managed idle-child continuation admission', () => {
     expect(result).toMatchObject({ ok: true, request: { childFollowupAction: childFollowup } });
   });
 
+  it('admits image-only child input without adding images to the parent prompt', async () => {
+    const action = {
+      ...childFollowup,
+      attachments: [{ data: 'data:image/png;base64,AQID', mediaType: 'image/png', type: 'file' }],
+      text: '',
+    };
+    const result = await prepare(
+      JSON.stringify({
+        data: { model: 'z-ai/glm-5.3', provider: 'openrouter' },
+        messages: [{ content: [{ text: '', type: 'text' }], role: 'user' }],
+        runConfig: { custom: { brainstrikeChildFollowup: action } },
+      })
+    );
+    expect(result).toMatchObject({ ok: true, request: { childFollowupAction: action } });
+    if (!result.ok) {
+      throw new Error('Image-only child action was rejected');
+    }
+    expect(JSON.stringify(result.request.messages)).not.toContain('data:image');
+  });
+
   it.each([
     { ...childFollowup, threadId: '' },
     { ...childFollowup, resourceId: 'borrowed-owner' },

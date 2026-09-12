@@ -12,10 +12,12 @@ import {
   childUserMessageSchema,
 } from '@brainstrike/assistant-contract';
 import { useMemo } from 'react';
+import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
 import type { DelegatedConversationUpdate } from './delegated-conversation-receiver';
 
 type History = Awaited<ReturnType<AssistantUiThreadHistoryAdapter['load']>>;
 export interface DelegatedConversationRuntimeOptions {
+  readonly attachmentsPresent?: boolean;
   readonly history: History;
   readonly onNew: ExternalStoreAdapter['onNew'];
   readonly update?: DelegatedConversationUpdate;
@@ -45,7 +47,13 @@ function splitChildMessages(
       });
     }
     result.push({
-      content: [{ text: input.text, type: 'text' }],
+      content: [
+        ...(input.text ? [{ text: input.text, type: 'text' as const }] : []),
+        ...(input.attachments ?? []).map((attachment) => ({
+          image: attachment.data,
+          type: 'image' as const,
+        })),
+      ],
       createdAt: new Date(input.createdAt),
       id: input.id,
       metadata: { custom: { [CHILD_INPUT_DELIVERY_METADATA_KEY]: 'delivered' } },
@@ -67,9 +75,14 @@ function splitChildMessages(
 /** Subscribe a view to host-owned output; this runtime never starts a model. */
 export function useDelegatedConversationRuntime({
   history,
+  attachmentsPresent = false,
   update,
   onNew,
 }: DelegatedConversationRuntimeOptions): AssistantRuntime {
+  const attachments = useMemo(
+    () => (attachmentsPresent ? createAssistantImageAttachmentAdapter() : undefined),
+    [attachmentsPresent]
+  );
   const head = history.messages.find(({ message }) => message.id === history.headId);
   if (history.headId && !head) {
     throw new Error('Child history has no matching active head.');
@@ -123,6 +136,7 @@ export function useDelegatedConversationRuntime({
     };
   }, [history, head, converted, message]);
   return useExternalStoreRuntime<ThreadMessageLike>({
+    ...(attachments ? { adapters: { attachments } } : {}),
     convertMessage,
     isRunning,
     messageRepository,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assistantChildAttachmentsSchema } from './child-input.js';
 import { type AssistantRunEvent, isAssistantRunEvent } from './run-events.js';
 
 /** Native execution coordinates; ownership is resolved by the authenticated host. */
@@ -14,6 +15,7 @@ export const childInputDeliveryStateSchema = z.enum(['pending', 'delivered']);
 
 export const CHILD_USER_MESSAGE_DATA_NAME = 'brainstrike.child-user-message';
 export const childUserMessageSchema = z.object({
+  attachments: assistantChildAttachmentsSchema.optional(),
   createdAt: z.iso.datetime(),
   id: z.string().min(1),
   text: z.string(),

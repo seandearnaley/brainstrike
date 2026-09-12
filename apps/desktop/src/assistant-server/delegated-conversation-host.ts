@@ -139,7 +139,11 @@ function createDisplayIdentity(threadId: string): {
  */
 export function createDesktopDelegatedConversationHost(
   database: DelegatedConversationDatabase,
-  hostRunId: string
+  hostRunId: string,
+  prepareInputContext?: (
+    input: DelegatedFollowupInput,
+    configuration: unknown
+  ) => Promise<{ role: 'system'; content: string }[]>
 ): {
   budget: DelegatedBudgetPort;
   continuation: ChildContinuationHostPort;
@@ -561,10 +565,15 @@ export function createDesktopDelegatedConversationHost(
         throw new DelegatedConversationIdentityError('followup-child-owner-unavailable');
       }
       await assertDelegatedConversationAdmission(database, scope, [threadId]);
-      await control(target, input, async () => {
-        await assertDelegationRootRunning(database, scope, hostRunId);
-        await assertDelegatedConversationAdmission(database, scope, [threadId]);
-      });
+      await control(
+        target,
+        input,
+        async () => {
+          await assertDelegationRootRunning(database, scope, hostRunId);
+          await assertDelegatedConversationAdmission(database, scope, [threadId]);
+        },
+        prepareInputContext ? () => prepareInputContext(input, node.configuration) : undefined
+      );
     },
   };
   return host;

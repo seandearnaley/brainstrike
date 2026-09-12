@@ -578,6 +578,7 @@ export interface StreamChunkMessageFinish {
   };
 }
 export interface StreamChunkChildUserMessage {
+  readonly attachments?: readonly import('@brainstrike/assistant-contract').AssistantChildAttachment[];
   readonly createdAt: string;
   readonly id: string;
   readonly text: string;

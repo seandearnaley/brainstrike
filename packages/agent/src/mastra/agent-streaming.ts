@@ -30,6 +30,7 @@
  * See docs/agents/assistant-runtime.md and docs/agents/mastra-boundary.md R6.
  */
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import { readAssistantChildSignalContents } from '@brainstrike/assistant-contract';
 import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import { SUBAGENT_DELEGATION_TOOL_PREFIX } from '@brainstrike/assistant-contract/personas';
@@ -473,7 +474,7 @@ export async function processMastraStreamPart(
           {
             createdAt: continuation.createdAt,
             id: continuation.id,
-            text: continuation.contents,
+            ...readAssistantChildSignalContents(continuation.contents),
             type: 'child-user-message',
           },
         ],

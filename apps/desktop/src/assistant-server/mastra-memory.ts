@@ -1,3 +1,4 @@
+import { createDesktopDelegatedInputContext } from './delegated-input-context';
 /**
  * Desktop Mastra memory construction (BST-975 slice 5).
  *
@@ -242,7 +243,11 @@ async function createDesktopMastraMemoryFromCacheState({
       ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
       runId,
     });
-    const host = createDesktopDelegatedConversationHost(database, runId);
+    const host = createDesktopDelegatedConversationHost(
+      database,
+      runId,
+      createDesktopDelegatedInputContext(runtimeData)
+    );
     return {
       ...memory,
       conversationBinding: {

@@ -1,10 +1,8 @@
+import type { AssistantChildInput } from '@brainstrike/assistant-contract';
 import { createContext, use } from 'react';
 
 export type SendActiveConversationInput = (
-  input: {
-    readonly id: string;
-    readonly text: string;
-  },
+  input: AssistantChildInput,
   signal: AbortSignal
 ) => Promise<void>;
 interface ActiveInputControl {

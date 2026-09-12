@@ -24,13 +24,9 @@ import type {
   OmMeterState,
 } from './context-usage-meter';
 import type { ThreadTokenUsage } from './context-usage-store';
+import { formatCompact } from './format-compact-token-count';
 
 const logger = createLogger('ContextUsagePopover');
-
-/** Strip the trailing " tokens" suffix from formatTokenCount output for compact display. */
-export function formatCompact(count: number): string {
-  return formatTokenCount(count).replace(' tokens', '');
-}
 
 /** Resolve a cost estimate to its display string (never $0 for unavailable). */
 function costLabel(cost: CostEstimate): string {
@@ -50,8 +46,9 @@ const SOURCE_LABELS: Record<AssistantRunUsageKind, string> = {
   subagent: 'Subagents',
 };
 
-interface ThreadTotalSectionProps {
+export interface CumulativeUsageSectionProps {
   cumulativeUsage: CumulativeUsageDisplay;
+  readonly label?: string;
   /** In-flight run's billed step usage (live tick), not yet in the durable rows. */
   liveRunUsage?: ThreadTokenUsage | undefined;
 }
@@ -63,7 +60,11 @@ interface ThreadTotalSectionProps {
  * added on top of the durable figure and visibly marked, never silently
  * blended into a "final" number.
  */
-const ThreadTotalSection = ({ cumulativeUsage, liveRunUsage }: ThreadTotalSectionProps) => {
+export const CumulativeUsageSection = ({
+  cumulativeUsage,
+  liveRunUsage,
+  label = 'Thread total',
+}: CumulativeUsageSectionProps) => {
   const liveTokens = liveRunUsage ? liveRunUsage.inputTokens + liveRunUsage.outputTokens : 0;
   const totalTokens = cumulativeUsage.totalTokens + liveTokens;
   const inputTokens = cumulativeUsage.inputTokens + (liveRunUsage?.inputTokens ?? 0);
@@ -74,7 +75,7 @@ const ThreadTotalSection = ({ cumulativeUsage, liveRunUsage }: ThreadTotalSectio
     <div className="flex flex-col gap-0.5" data-testid="context-usage-thread-total">
       <p className="flex items-center justify-between gap-2 font-medium tabular-nums">
         <span data-testid="context-usage-thread-total-tokens">
-          Thread total · {formatTokenCount(totalTokens)}
+          {label} · {formatTokenCount(totalTokens)}
           {liveTokens > 0 ? ' (live)' : ''}
         </span>
         <span className="text-muted-foreground" data-testid="context-usage-cost">
@@ -123,7 +124,7 @@ const ThreadTotalSection = ({ cumulativeUsage, liveRunUsage }: ThreadTotalSectio
   );
 };
 
-ThreadTotalSection.displayName = 'ThreadTotalSection';
+CumulativeUsageSection.displayName = 'CumulativeUsageSection';
 
 /** Actionable copy per awaiting-observer reason — a pause must say why. */
 function awaitingObserverNote(reason: OmAwaitingObserverReason): string {
@@ -626,7 +627,7 @@ export const ContextUsagePopoverContent = ({
           Only shown when hydrated from the DB (desktop). */}
       {cumulativeUsage && (
         <>
-          <ThreadTotalSection cumulativeUsage={cumulativeUsage} liveRunUsage={liveRunUsage} />
+          <CumulativeUsageSection cumulativeUsage={cumulativeUsage} liveRunUsage={liveRunUsage} />
           <div aria-hidden="true" className="my-1 border-border/60 border-t" />
         </>
       )}

@@ -1,3 +1,4 @@
+import type { AssistantChildInput } from '@brainstrike/assistant-contract';
 import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
@@ -10,8 +11,9 @@ import { createDelegatedConversationRepository } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { use, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { DelegatedChildConversationPanel } from './delegated-child-conversation-panel';
 import { DelegatedConversationBreadcrumbs } from './delegated-conversation-breadcrumbs';
-import { DelegatedConversationPanel } from './delegated-conversation-panel';
+import { DelegatedConversationToolbar } from './delegated-conversation-toolbar';
 import { createDelegatedWorkspaceDiscovery } from './delegated-workspace-discovery';
 import { DelegatedWorkspaceNavigation } from './delegated-workspace-navigation';
 import type { ChildNode } from './delegated-workspace-node';
@@ -20,6 +22,7 @@ import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { resolveDelegatedWorkspaceDecision } from './resolve-delegated-workspace-identity';
 import { sendDelegatedWorkspaceInput } from './send-delegated-workspace-input';
 import { useThreadSearchStore } from './thread-search-store';
+import { useDelegatedConversationInsights } from './use-delegated-conversation-insights';
 import { RootsContext, useDelegatedConversationRoot } from './use-delegated-conversation-root';
 export function Failure({ error }: { readonly error: Error }) {
   return (
@@ -43,6 +46,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
     () => root?.store.getConversation(node.threadId),
     () => root?.store.getConversation(node.threadId)
   );
+  const insights = useDelegatedConversationInsights({ db, node, update: live?.update });
   useEffect(() => {
     const markVisibleRead = () => {
       const { selection } = useWorkspaceTabSelectionStore.getState();
@@ -161,16 +165,22 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       <div className="flex h-full min-h-0 flex-col">
         <DelegatedConversationBreadcrumbs db={db} node={node} />
         <div className="min-h-0 flex-1">
-          <DelegatedConversationPanel
+          <DelegatedChildConversationPanel
             allowIdleInput={hasDurableAssistantUsageCapability()}
             extendHistoryForSearch={saved?.hostRunId === live?.update.baseline?.hostRunId}
+            insights={insights}
             label={node.displayName}
+            panelProps={{
+              workspaceBar: (
+                <DelegatedConversationToolbar
+                  insights={insights}
+                  isRunning={live?.update.message.status.type === 'running'}
+                />
+              ),
+            }}
             {...(hasDurableAssistantUsageCapability()
               ? {
-                  onSendActiveInput: (
-                    input: { readonly id: string; readonly text: string },
-                    signal: AbortSignal
-                  ) => {
+                  onSendActiveInput: (input: AssistantChildInput, signal: AbortSignal) => {
                     const current = root.store.getConversation(node.threadId);
                     if (current?.update.message.status.type !== 'running') {
                       return root.sendFollowup(node.threadId, input, signal);
