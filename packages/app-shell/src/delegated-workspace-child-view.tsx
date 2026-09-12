@@ -67,7 +67,10 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       : null;
   const [loadedSearchRequest, setLoadedSearchRequest] = useState<number>();
   const [refresh, setRefresh] = useState(0);
-  const [saved, setSaved] = useState<{ readonly history: History } | { readonly error: Error }>();
+  const [saved, setSaved] = useState<
+    | { readonly history: History; readonly hostRunId: string | undefined }
+    | { readonly error: Error }
+  >();
   useEffect(() => {
     if (!root || (!searchTarget && root.store.getConversation(node.threadId))) {
       return;
@@ -80,6 +83,11 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
     }
     let active = true;
     const controller = new AbortController();
+    // A search extension belongs to the host leg observed when its read began.
+    // A later admitted baseline may intentionally exclude deleted/rewound rows.
+    const hostRunId = searchTarget
+      ? root.store.getConversation(node.threadId)?.update.baseline?.hostRunId
+      : undefined;
     const adapter = createAssistantThreadHistoryAdapter({
       ...(hasDurableAssistantUsageCapability()
         ? {
@@ -99,7 +107,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
     adapter.load().then(
       (history) => {
         if (active) {
-          setSaved({ history });
+          setSaved({ history, hostRunId });
           setLoadedSearchRequest(searchTarget?.requestId);
         }
       },
@@ -154,7 +162,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
         <DelegatedConversationBreadcrumbs db={db} node={node} />
         <div className="min-h-0 flex-1">
           <DelegatedConversationPanel
-            extendHistoryForSearch={loadedSearchRequest !== undefined}
+            extendHistoryForSearch={saved?.hostRunId === live?.update.baseline?.hostRunId}
             label={node.displayName}
             {...(hasDurableAssistantUsageCapability() && live?.update.baseline?.hostRunId
               ? {

@@ -3633,3 +3633,8 @@ non-overlapping groups; the host owns its head and overlapping group content,
 while their native source IDs are unioned for exact match focus. Ordinary live
 children do not run this search-only merge. Title labels are resolved in one
 owned-graph query per result set. No arbitrary depth cap hides valid old hits.
+
+A delegated search extension is scoped to the host run that owned its history
+read. A newly admitted host baseline replaces that extension, so deleted or
+rewound messages from an earlier read cannot reappear. Compaction alone keeps
+raw messages in durable scrollback; its provider overlay does not delete them.

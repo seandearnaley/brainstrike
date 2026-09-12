@@ -275,6 +275,89 @@ describe('child view after renderer restart', () => {
     expect(append).not.toHaveBeenCalled();
   });
 
+  it('does not resurrect an earlier search read when a new host baseline excludes its deleted message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
+    );
+    await database.query(
+      "UPDATE mastra_messages SET \"createdAt\" = '2026-09-10T00:00:00.000Z' WHERE id = 'saved-child'"
+    );
+    const prompt = {
+      content: 'Later prompt.',
+      createdAt: '2026-09-10T01:00:00.000Z',
+      id: 'later-prompt',
+      role: 'user',
+    };
+    await database.query(
+      'INSERT INTO mastra_messages (id, thread_id, "resourceId", role, type, content, "createdAt") VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [
+        prompt.id,
+        node.threadId,
+        node.resourceId,
+        prompt.role,
+        'text',
+        JSON.stringify(prompt.content),
+        prompt.createdAt,
+      ]
+    );
+    await database.query(
+      'INSERT INTO mastra_messages (id, thread_id, "resourceId", role, type, content, "createdAt") VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [
+        'later-answer',
+        node.threadId,
+        node.resourceId,
+        'assistant',
+        'v2',
+        JSON.stringify({ format: 2, parts: [{ text: 'Later durable answer.', type: 'text' }] }),
+        '2026-09-10T02:00:00.000Z',
+      ]
+    );
+    render(
+      <TooltipProvider>
+        <DelegatedConversationRootsProvider>
+          <OwningRoot />
+          <ChildView db={database as DbHandle} node={node} />
+        </DelegatedConversationRootsProvider>
+      </TooltipProvider>
+    );
+    await screen.findByText('Persisted native child transcript.');
+    const publish = (hostRunId: string, text: string) => {
+      const update = delegatedUpdate(node.threadId, hostRunId, text);
+      if (!update.baseline) {
+        throw new Error('Missing baseline');
+      }
+      activeRoot?.onDelegatedConversation({
+        ...update,
+        baseline: { ...update.baseline, messages: [prompt] },
+      });
+    };
+    const nativeRows = await readAssistantHistoryMessages(database, node.threadId, node.resourceId);
+    expect(nativeRows.map((row) => row.id)).toEqual([
+      'saved-child',
+      'later-prompt',
+      'later-answer',
+    ]);
+    act(() => publish('before-rewind', 'Before rewind.'));
+    act(() => {
+      const state = useThreadSearchStore.getState();
+      state.setNavigationTarget({
+        messageId: 'saved-child',
+        ownerResourceId: 'owner',
+        requestId: state.beginNavigation(),
+        threadId: node.threadId,
+      });
+    });
+    await screen.findByText('Persisted native child transcript.');
+    // Native history really changed. This is not compaction, which deliberately
+    // retains raw messages in scrollback and only overlays the provider prompt.
+    await database.query('DELETE FROM mastra_messages WHERE id = $1', ['saved-child']);
+    act(() => publish('after-rewind', 'After rewind.'));
+    await screen.findByText('After rewind.');
+    expect(screen.queryByText('Persisted native child transcript.')).not.toBeInTheDocument();
+    expect(append).not.toHaveBeenCalled();
+  });
+
   it('reports an unreachable search target while keeping the child open and allowing a new target', async () => {
     vi.stubGlobal(
       'fetch',

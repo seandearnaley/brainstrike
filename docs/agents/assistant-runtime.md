@@ -4230,5 +4230,6 @@ fixtures pin both timing windows and preserve the tool execution Stop barrier.
 Explicit search focus has a two-second failure boundary if the requested row
 never enters the shared renderer. A failed focus reports through the navigation
 alert and disconnects its observer; it does not crash or unmount the transcript.
-Targets taller than the viewport align their start rather than centering it above
-the visible frame. The static and virtual tiers retain their existing scroll owners.
+In the static tier, targets taller than the viewport align their start rather
+than centering it above the visible frame. The virtual tier retains its existing
+center alignment through the virtualizer; both tiers keep their own scroll owners.
