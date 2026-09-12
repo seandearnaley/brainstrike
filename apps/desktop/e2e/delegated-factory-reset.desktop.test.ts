@@ -81,6 +81,16 @@ test('Settings disables actual delegation tools and factory reset removes delega
   Object.assign(process.env, environment);
   const failures: unknown[] = [];
   const hostErrors: string[] = [];
+  const attachProviderCatalogs = async (): Promise<void> => {
+    try {
+      await testInfo.attach('delegation-provider-catalogs', {
+        body: JSON.stringify(Object.fromEntries(catalogs), null, 2),
+        contentType: 'application/json',
+      });
+    } catch (error) {
+      failures.push(error);
+    }
+  };
   let page: Page | undefined;
   try {
     (await electron.ensureContext()).app
@@ -167,10 +177,7 @@ test('Settings disables actual delegation tools and factory reset removes delega
     });
     await sendInventoryProbe(page, RESTORED_PROBE);
     expect(catalogs.get(RESTORED_PROBE)).toContain('agent-worker');
-    await testInfo.attach('delegation-provider-catalogs', {
-      body: JSON.stringify(Object.fromEntries(catalogs), null, 2),
-      contentType: 'application/json',
-    });
+    await attachProviderCatalogs();
   } catch (error) {
     failures.push(error);
     if (page && !page.isClosed()) {
@@ -187,10 +194,7 @@ test('Settings disables actual delegation tools and factory reset removes delega
         failures.push(captureError);
       }
     }
-    await testInfo.attach('delegation-provider-catalogs', {
-      body: JSON.stringify(Object.fromEntries(catalogs), null, 2),
-      contentType: 'application/json',
-    });
+    await attachProviderCatalogs();
   }
   let disposed = false;
   for (const cleanup of [
