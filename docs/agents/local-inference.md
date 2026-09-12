@@ -750,7 +750,8 @@ Do not send Stop and wait for its acknowledgement in that state. The existing
 lifecycle disposal destroys the owned window and rejects startup/status waiters;
 a running host still uses its normal worker Stop protocol with a 3s acknowledgement
 bound inside the application's unchanged 5s shutdown deadline. Missing acknowledgement
-destroys the owned renderer and remains a reported stop failure. Manager/lifecycle
+or an explicit renderer error destroys the owned renderer and remains a reported
+stop failure. Manager/lifecycle
 unit tests and the delegated worker's real restart test cover this boundary;
 the latter requires both Electron processes to exit cleanly with code zero.
 

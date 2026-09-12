@@ -191,10 +191,7 @@ export class EmbeddingHostManager {
         EMBEDDING_HOST_STOP_TIMEOUT_MS
       );
       if (status.state === 'error') {
-        this.lifecycle.destroyHostWindow();
-        this.lifecycle.clearHostWindow();
-        this.lifecycle.setStatus(createStoppedEmbeddingHostStatus(runtimeId));
-        return this.getStatus();
+        throw new Error(status.lastError ?? 'Embedding renderer reported a failed stop.');
       }
       return status;
     } catch (error) {

@@ -1173,9 +1173,9 @@ step; fix the owner. Settled rulings, each with a paired test:
   of replacing its window (`renderer-host-lifecycle.test.ts`). Replacing the
   window mid-stop used to orphan the stop wait and let a timed-out stop destroy
   the replacement. Host Stop now waits at most 3s (`EMBEDDING_HOST_STOP_TIMEOUT_MS`),
-  below the unchanged 5s application deadline. Timeout still destroys the owned
-  renderer and retires its lifecycle, but rejects so the shutdown tracker records
-  the failure instead of reporting a successful stop.
+  below the unchanged 5s application deadline. Timeout or an explicit renderer
+  error still destroys the owned renderer and retires its lifecycle, but rejects
+  so the shutdown tracker records the failure instead of reporting a successful stop.
 - The embedding worker wakes for `stop()` while awaiting a background permit,
   idle backoff, inter-batch delay, claim-size retry, or error backoff via a stop
   signal (`embedding-worker-stop-idle.integration.test.ts`). A stopped permit
