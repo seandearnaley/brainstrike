@@ -12,6 +12,7 @@ import {
   childInputDeliveryStateSchema,
   getToolActionIdentityKey,
   isGuardedToolError,
+  NATIVE_MESSAGE_IDS_METADATA_KEY,
   SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME,
   type SuspendedRunDiscoveryError,
 } from '@brainstrike/assistant-contract';
@@ -2086,7 +2087,10 @@ function appendAssistantGroupMessage(args: {
       createdAt: firstRow.createdAt,
       id: messageId,
       metadata: {
-        custom: readHistoryCustomMetadata(lastRow.content),
+        custom: {
+          ...readHistoryCustomMetadata(lastRow.content),
+          [NATIVE_MESSAGE_IDS_METADATA_KEY]: args.group.rows.map((row) => row.id),
+        },
         steps: [],
         // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
         unstable_annotations: [],
@@ -3555,11 +3559,49 @@ export function createPgliteAssistantThreadRepository(
   return repository;
 }
 
+async function loadHistoryThroughSearchTarget(
+  repository: AssistantThreadRepository,
+  threadId: string,
+  resourceId: string,
+  targetMessageId?: string,
+  signal?: AbortSignal
+): Promise<readonly AssistantHistoryMessage[]> {
+  signal?.throwIfAborted();
+  let messages = await repository.listMessages(threadId, resourceId, {
+    limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    ...(targetMessageId ? { targetMessageId } : {}),
+  });
+  if (!targetMessageId) {
+    return messages;
+  }
+  // Explicit search navigation pages backwards; ordinary hydration remains bounded.
+  while (!messages.some((message) => message.id === targetMessageId)) {
+    signal?.throwIfAborted();
+    const first = messages[0];
+    if (!first) {
+      throw new Error('The selected message is no longer available in this conversation.');
+    }
+    const older = await repository.listMessages(threadId, resourceId, {
+      beforeMessageId: first.id,
+      limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+      ...(targetMessageId ? { targetMessageId } : {}),
+    });
+    if (older.length === 0) {
+      throw new Error('The selected message is no longer available in this conversation.');
+    }
+    messages = [...older, ...messages];
+  }
+  signal?.throwIfAborted();
+  return messages;
+}
+
 export function createAssistantThreadHistoryAdapter({
   discoverSuspendedRuns,
   repository,
   resourceId,
   threadId,
+  targetMessageId,
+  signal,
 }: {
   /**
    * Desktop-only capability: rediscover approvals AND suspend() pauses
@@ -3568,6 +3610,9 @@ export function createAssistantThreadHistoryAdapter({
    * where its absence means "no suspended pauses" and hydration is
    * byte-identical to today.
    */
+  /** Explicit search navigation only; ordinary hydration retains its 80-row bound. */
+  readonly targetMessageId?: string;
+  readonly signal?: AbortSignal;
   readonly discoverSuspendedRuns?: SuspendedRunDiscovery;
   readonly repository: AssistantThreadRepository;
   readonly resourceId: string;
@@ -3683,9 +3728,7 @@ export function createAssistantThreadHistoryAdapter({
       // deadline and explicit recovery errors (assistant-suspended-approvals.ts);
       // endpoint/auth resolution retains its bridge-owned lifecycle.
       const [messages, runEvents, discovery] = await Promise.all([
-        repository.listMessages(threadId, resourceId, {
-          limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
-        }),
+        loadHistoryThroughSearchTarget(repository, threadId, resourceId, targetMessageId, signal),
         repository.listThreadRunEvents(threadId, resourceId, {
           limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
         }),

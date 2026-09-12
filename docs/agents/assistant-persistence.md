@@ -3174,6 +3174,8 @@ Where state lives (do not relitigate):
   everything else as plain text (persisted content is never HTML), with
   aria-activedescendant keyboard nav. While searching, the tree is hidden
   (not unmounted) so disclosure/selection state survives dismissal.
+- Delegated search scope (BST-1725): lexical, semantic, title and embedding-coverage reads walk the durable child graph from native roots owned by the requested resource. Every child edge checks owner/root identity and the native resource, including intermediate ancestors. Child native resource IDs remain unchanged; search does not broaden ordinary memory authorization. Activation rechecks the selected native message and rejects tombstoned/deleted/foreign hits visibly.
+- Explicit child search navigation uses the ordinary history mapper with an exclusive `(createdAt, id)` cursor. Each older-page read is capped at 80 and scoped to the same native thread/resource; ordinary opening still loads only the latest 80. A cancelled or superseded navigation stops paging. Hydrated assistant groups retain `brainstrikeNativeMessageIds` so raw search IDs select their actual rendered group. Older context supplements the host baseline; the host keeps its current head and live decision state. Navigation intent lives in the existing factory-reset-registered session search store, never in a new persistent store.
 - Cleanup: panel thread deletion clears index rows eagerly (like
   placements); missed paths self-heal via sync GC. Factory reset clears
   `brainstrike_thread_message_index` + `_state` on BOTH the desktop
@@ -3182,9 +3184,10 @@ Where state lives (do not relitigate):
   registers in `register-factory-reset-session-stores.ts`.
 
 Paired tests: `migration-067-thread-search-index.test.ts`,
-`search-thread-message-index.test.ts`, `search-thread-search-service.test.ts`
+`search-thread-message-index.test.ts`, `delegated-thread-search.test.ts`, `search-thread-search-service.test.ts`
 (packages/db); `thread-search-store.test.ts`, `thread-search-embedding.test.ts`,
-`use-thread-search-controller.test.ts`, `threads-panel-search.test.tsx`
+`use-thread-search-controller.test.ts`, `threads-panel-search.test.tsx`,
+`delegated-child-reload.integration.test.tsx`
 (packages/app-shell).
 
 ## ASSISTANT THREAD TABS
@@ -3622,3 +3625,21 @@ controls reachable at narrow and wide widths. Attachment paste uses the same
 admission gate without remounting the input frame or losing focus. A selected
 conversation-key switch remounts provider state, isolating its retained receipt
 and any late acknowledgement from the new conversation.
+
+### Search navigation correction boundaries (BST-1725)
+
+Targeted history pages recheck that the selected native message remains visible
+in the same thread/resource before each 80-row read. Deleted or tombstoned hits
+end navigation visibly; they do not replace an otherwise usable child transcript
+with a history failure. Legacy null message resources use the native thread's
+resource consistently at search admission, cursor lookup and hydration. Foreign
+explicit resources remain rejected. Extended search history adds only older
+non-overlapping groups; the host owns its head and overlapping group content,
+while their native source IDs are unioned for exact match focus. Ordinary live
+children do not run this search-only merge. Title labels are resolved in one
+owned-graph query per result set. No arbitrary depth cap hides valid old hits.
+
+A delegated search extension is scoped to the host run that owned its history
+read. A newly admitted host baseline replaces that extension, so deleted or
+rewound messages from an earlier read cannot reappear. Compaction alone keeps
+raw messages in durable scrollback; its provider overlay does not delete them.

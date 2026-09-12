@@ -851,7 +851,9 @@ never carries the state.
 
 - Navigation slice: child cards/tab titles use durable callsigns, with persona role kept separate.
 - Breadcrumbs follow validated native owner/root/parent bindings; returning focuses the originating delegation button while mounted, otherwise the canonical destination tab.
-- Root thread filters/search/sort and folders choose the visible roots; child rows remain beneath those roots in durable creation order, never independently selected/reparented by root bulk actions.
+- Root thread filters/sort and folders choose the visible roots; child rows remain beneath those roots in durable creation order, never independently selected/reparented by root bulk actions.
+- Search includes owned descendants, with one keyboard-selectable option per matched message. Activation revalidates native ancestry and message ownership, activates the owning root through the saved-workspace coordinator, then opens the singleton child tab. Child titles use the durable callsign.
+- An older child search match explicitly pages native history backwards in 80-row pages; default hydration stays at 80. The shared transcript focuses the rendered message containing the exact native hit, including coalesced assistant snapshots. Search never appends a message or restarts work.
 - Child disclosure is lazy in the shared virtual TreeTable, fifty children initially with explicit Show more.
 - Closing a disclosure releases its descendant subscriptions and reopening revalidates metadata.
 - Listing rows never mounts child transcripts; only explicitly activated workspace tabs do, using the existing keep-alive/close semantics.

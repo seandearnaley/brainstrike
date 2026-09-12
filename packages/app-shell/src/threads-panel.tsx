@@ -141,6 +141,8 @@ import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
 import { useDelegatedSidebar } from './use-delegated-sidebar';
 import { type ThreadPanelSelection, useThreadPanelSelection } from './use-thread-panel-selection';
 import { useThreadSearchController } from './use-thread-search-controller';
+import { useThreadSearchResultNavigation } from './use-thread-search-result-navigation';
+import { useThreadSearchTitles } from './use-thread-search-titles';
 
 // Stable fallback so `threads` keeps referential identity across renders when
 // the resource has no entry yet (the membership/view useMemos depend on it).
@@ -3087,6 +3089,8 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     repository: threadSearchRepository,
     resourceId,
   });
+  const searchResultTitles = useThreadSearchTitles(threadSearchRepository, resourceId);
+  const selectSearchResult = useThreadSearchResultNavigation(threadSearchRepository, resourceId);
   const searchActive = useThreadSearchStore((state) => state.status !== 'idle');
   // The count and the select-visible toggle describe the treegrid. Withdraw
   // them whenever something else stands in for it — a state card, or search
@@ -3335,8 +3339,9 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
       <ThreadsPanelSearch
         groupNameByThreadId={groupNameByThreadId}
         onRetry={retrySearch}
-        onSelectThread={handleSelectThread}
+        onSelectThread={selectSearchResult}
         threadsById={threadsById}
+        titlesByThreadId={searchResultTitles}
       />
 
       {groupActionError ? (

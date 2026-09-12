@@ -2042,6 +2042,8 @@ module pair — `assistant-thread-messages.tsx` (`ThreadMessagesRegion`,
 re-exported from assistant-ui-panel.tsx. The panel only composes them and
 hands over the message components.
 
+Explicit message navigation is supplied by `ThreadMessageNavigationContext`, scoped to one conversation. `ThreadMessagesRegion` waits for loaded history, resolves raw native IDs through the mapper's source-ID metadata, and focuses the corresponding message root. Static navigation calls the existing follow engine's `scrollToMessage` (which disengages following); virtual navigation uses the existing TanStack instance's `scrollToIndex`. Both use an instant opening position and `focus({ preventScroll: true })`, so browser focus is not another scroll owner. A mounted-range observer waits for an offscreen virtual row; no timer or polling loop is involved. The browser virtualization contract covers exact focus and geometry at 40 and 600 rows with the compiled styles, then verifies appending does not repin the reader.
+
 - **Jump-to-latest** (`ThreadScrollToBottom`) is the follow engine's button
   (`ThreadStaticScrollToBottom`): DISABLED
   while at bottom, scroll + re-engage when clicked; we style it
@@ -4224,3 +4226,10 @@ native discard preserve the original non-delivery error alongside any failed
 memory deletion; cleanup failure never overwrites the rejection or becomes success.
 Native and actual PGlite host
 fixtures pin both timing windows and preserve the tool execution Stop barrier.
+
+Explicit search focus has a two-second failure boundary if the requested row
+never enters the shared renderer. A failed focus reports through the navigation
+alert and disconnects its observer; it does not crash or unmount the transcript.
+In the static tier, targets taller than the viewport align their start rather
+than centering it above the visible frame. The virtual tier retains its existing
+center alignment through the virtualizer; both tiers keep their own scroll owners.

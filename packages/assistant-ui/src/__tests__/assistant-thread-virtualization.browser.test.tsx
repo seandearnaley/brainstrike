@@ -6,6 +6,10 @@ import {
   useAuiState,
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
+import {
+  type ThreadMessageNavigation,
+  ThreadMessageNavigationContext,
+} from '../thread-message-navigation';
 import '@testing-library/jest-dom/vitest';
 import { act, fireEvent, getConfig, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
@@ -64,6 +68,7 @@ const convertMessage = (message: HarnessMessage): ThreadMessageLike => ({
  * and a content-driven height (so "the last message grew" is a real reflow).
  */
 const StandInMessage = ({ className }: { className: string }) => {
+  const messageId = useAuiState((s) => s.message.id);
   const text = useAuiState((s) => {
     const [part] = s.message.content;
     return part?.type === 'text' ? part.text : '';
@@ -72,12 +77,14 @@ const StandInMessage = ({ className }: { className: string }) => {
   return (
     <div
       className={className}
+      data-message-id={messageId}
       data-message-text={text}
       data-testid="thread-message"
       style={{
         flexShrink: 0,
         height: text.startsWith(GROWN_PREFIX) ? GROWN_MESSAGE_HEIGHT_PX : MESSAGE_HEIGHT_PX,
       }}
+      tabIndex={-1}
     />
   );
 };
@@ -92,7 +99,13 @@ const STAND_IN_COMPONENTS = {
 
 const noopNew = (_message: AppendMessage): Promise<void> => Promise.resolve();
 
-function ThreadHarness({ messages }: { messages: readonly HarnessMessage[] }) {
+function ThreadHarness({
+  messages,
+  navigation,
+}: {
+  messages: readonly HarnessMessage[];
+  navigation?: ThreadMessageNavigation;
+}) {
   const runtime = useExternalStoreRuntime({
     convertMessage,
     messages,
@@ -112,7 +125,9 @@ function ThreadHarness({ messages }: { messages: readonly HarnessMessage[] }) {
               width: 420,
             }}
           >
-            <ThreadMessagesRegion components={STAND_IN_COMPONENTS} />
+            <ThreadMessageNavigationContext value={navigation ?? null}>
+              <ThreadMessagesRegion components={STAND_IN_COMPONENTS} />
+            </ThreadMessageNavigationContext>
           </div>
         </div>
       </ThreadScrollFollowProvider>
@@ -668,4 +683,54 @@ test('reattaches vendor layout after a virtual to static to virtual round trip',
     fireEvent.scroll(viewport);
   });
   expect(button).toBeEnabled();
+});
+
+describe('explicit message navigation uses the active transcript scroll owner', () => {
+  test('settles an absent target visibly instead of keeping an observer alive forever', async () => {
+    const onComplete = vi.fn();
+    render(
+      <ThreadHarness
+        messages={makeMessages(40)}
+        navigation={{ messageId: 'deleted', onComplete, requestId: 2 }}
+      />
+    );
+    await waitFor(
+      () =>
+        expect(onComplete).toHaveBeenCalledWith(
+          'The matched message is not in the loaded conversation history.'
+        ),
+      { timeout: 3000 }
+    );
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+  test.each([40, 600])(
+    'focuses the exact old message among %i rows and leaves follow disengaged',
+    async (count) => {
+      const messages = makeMessages(count);
+      const { rerender } = render(<ThreadHarness messages={messages} />);
+      const viewport = screen.getByTestId('assistant-ui-viewport');
+      await waitFor(() => expect(viewport.clientHeight).toBeGreaterThan(0));
+      const errors = vi.spyOn(console, 'error');
+      onTestFinished(() => errors.mockRestore());
+      const onComplete = vi.fn();
+      const navigation = { messageId: 'm4', onComplete, requestId: 1 };
+      rerender(<ThreadHarness messages={messages} navigation={navigation} />);
+      await waitFor(() =>
+        expect(document.activeElement?.getAttribute('data-message-id')).toBe('m4')
+      );
+      await waitFor(() => {
+        const row = document.activeElement?.getBoundingClientRect();
+        const frame = viewport.getBoundingClientRect();
+        expect(row?.top).toBeGreaterThanOrEqual(frame.top);
+        expect(row?.bottom).toBeLessThanOrEqual(frame.bottom);
+      });
+      expect(onComplete).toHaveBeenCalledWith();
+      expect(errors.mock.calls.flat().join(' ')).not.toContain('flushSync was called');
+      rerender(<ThreadHarness messages={makeMessages(count + 1)} />);
+      await waitFor(() =>
+        expect(screen.getByTestId('assistant-scroll-to-bottom')).not.toBeDisabled()
+      );
+      expect(document.activeElement?.getAttribute('data-message-id')).toBe('m4');
+    }
+  );
 });

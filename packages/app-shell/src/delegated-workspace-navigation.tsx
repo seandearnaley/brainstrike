@@ -12,6 +12,7 @@ import { ASSISTANT_THREAD_COLOR_PRESENTATION } from './assistant-thread-presenta
 import type { DelegatedConversationRoot } from './delegated-conversation-owner';
 import { loadDelegatedWorkspaceNode } from './delegated-workspace-node';
 import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
+import { ThreadSearchMessageNavigation } from './thread-search-message-navigation';
 import { useDelegatedConversationRoot } from './use-delegated-conversation-root';
 
 const origins = new WeakMap<
@@ -25,8 +26,10 @@ export function DelegatedWorkspaceNavigation({
   ownerResourceId,
   rootThreadId,
   currentThreadId,
+  isSearchHistoryLoading,
 }: {
   readonly children: ReactNode;
+  readonly isSearchHistoryLoading?: boolean;
   readonly currentThreadId?: string;
   readonly ownerResourceId: string;
   readonly rootThreadId: string | undefined;
@@ -116,7 +119,13 @@ export function DelegatedWorkspaceNavigation({
     <SubagentConversationNavigationContext value={root ? open : null}>
       <SubagentConversationPresentationContext value={db && root ? presentation : null}>
         <SubagentInvocationResolverContext value={db && root ? resolveInvocation : null}>
-          {children}
+          <ThreadSearchMessageNavigation
+            isLoading={isSearchHistoryLoading ?? false}
+            ownerResourceId={ownerResourceId}
+            threadId={currentThreadId ?? rootThreadId}
+          >
+            {children}
+          </ThreadSearchMessageNavigation>
         </SubagentInvocationResolverContext>
       </SubagentConversationPresentationContext>
     </SubagentConversationNavigationContext>

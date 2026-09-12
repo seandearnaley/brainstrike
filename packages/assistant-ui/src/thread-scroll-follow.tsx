@@ -63,6 +63,8 @@ export interface ThreadScrollFollow {
    * decides the motion.
    */
   readonly scrollToBottom: () => void;
+  /** Explicit message navigation disengages follow without notifying re-pin callers. */
+  readonly scrollToMessage: (target: HTMLElement) => void;
   /** Subscribe to pinned-state changes (for `useSyncExternalStore`). */
   readonly subscribe: (listener: () => void) => () => void;
 }
@@ -338,6 +340,22 @@ function createThreadScrollFollow(): ThreadScrollFollow {
       if (element) {
         write(element);
       }
+    },
+    scrollToMessage: (target) => {
+      if (!element?.contains(target)) {
+        throw new Error('The requested message is outside this conversation viewport.');
+      }
+      pendingFollow = false;
+      unechoedWriteTop = null;
+      setIsAtBottom(false);
+      element.scrollTo({
+        behavior: 'instant',
+        top:
+          element.scrollTop +
+          target.getBoundingClientRect().top -
+          element.getBoundingClientRect().top -
+          Math.max(0, (element.clientHeight - target.clientHeight) / 2),
+      });
     },
     subscribe: (listener) => {
       stateListeners.add(listener);

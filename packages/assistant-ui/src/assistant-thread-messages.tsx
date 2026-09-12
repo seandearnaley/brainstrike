@@ -12,6 +12,7 @@ import { ArrowDownIcon } from 'lucide-react';
 import {
   type ComponentProps,
   type ReactNode,
+  type RefObject,
   useCallback,
   useLayoutEffect,
   useRef,
@@ -19,6 +20,7 @@ import {
 } from 'react';
 import { AssistantThreadStateProvider } from './assistant-thread-state-context';
 import { useThreadFollowIsAtBottom, useThreadScrollFollow } from './thread-scroll-follow';
+import { useThreadMessageNavigation } from './use-thread-message-navigation';
 
 /**
  * TWO-TIER THREAD RENDERER (BST-897)
@@ -229,6 +231,20 @@ export interface ThreadMessagesRegionProps {
   readonly threadKey?: string | undefined;
 }
 
+/** Measure the notice above the virtual list only when its content or tier changes. */
+const useThreadListScrollMargin = (
+  listRef: RefObject<HTMLDivElement | null>,
+  disabledReason: ReactNode,
+  tier: ThreadRenderTier
+): number => {
+  const [scrollMargin, setScrollMargin] = useState(0);
+  useLayoutEffect(() => {
+    const next = listRef.current?.offsetTop ?? 0;
+    setScrollMargin((current) => (current === next ? current : next));
+  }, [disabledReason, listRef, tier]);
+  return scrollMargin;
+};
+
 /**
  * The thread's scroll region: the scroller, the message list for the active
  * tier, and the floating jump-to-latest button as a sibling of the scroller.
@@ -298,14 +314,7 @@ export const ThreadMessagesRegion = ({
     }
   }, [follow, threadKey, tier]);
 
-  // Anything rendered ABOVE the virtual list inside the scroller (the disabled
-  // notice) offsets every item; `scrollMargin` is how the virtualizer accounts
-  // for it. Measured only when that content changes, never per scroll frame.
-  const [scrollMargin, setScrollMargin] = useState(0);
-  useLayoutEffect(() => {
-    const next = listRef.current?.offsetTop ?? 0;
-    setScrollMargin((current) => (current === next ? current : next));
-  }, [disabledReason, tier]);
+  const scrollMargin = useThreadListScrollMargin(listRef, disabledReason, tier);
 
   /**
    * The React Compiler skips memoizing this component because `useVirtualizer`
@@ -422,6 +431,18 @@ export const ThreadMessagesRegion = ({
       virtualizer.scrollToEnd({ behavior: 'instant' });
     }
   }, [isAtBottom, messageCount, threadKey, tier, virtualizer]);
+
+  const scrollToMatch = useCallback(
+    (index: number, element?: HTMLElement) => {
+      if (tier === 'virtual') {
+        virtualizer.scrollToIndex(index, { align: 'center', behavior: 'instant' });
+      } else if (element) {
+        follow.scrollToMessage(element);
+      }
+    },
+    [follow, tier, virtualizer]
+  );
+  useThreadMessageNavigation({ isVirtual: tier === 'virtual', scrollToMatch, viewportRef });
 
   return (
     /**

@@ -19,6 +19,7 @@ import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { resolveDelegatedWorkspaceDecision } from './resolve-delegated-workspace-identity';
 import { sendDelegatedWorkspaceInput } from './send-delegated-workspace-input';
+import { useThreadSearchStore } from './thread-search-store';
 import { RootsContext, useDelegatedConversationRoot } from './use-delegated-conversation-root';
 export function Failure({ error }: { readonly error: Error }) {
   return (
@@ -57,13 +58,36 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       unsubscribeActivity?.();
     };
   }, [root, node]);
+  const hasLive = Boolean(live);
+  const navigationTarget = useThreadSearchStore((state) => state.navigationTarget);
+  const searchTarget =
+    navigationTarget?.ownerResourceId === node.ownerResourceId &&
+    navigationTarget.threadId === node.threadId
+      ? navigationTarget
+      : null;
+  const [loadedSearchRequest, setLoadedSearchRequest] = useState<number>();
   const [refresh, setRefresh] = useState(0);
-  const [saved, setSaved] = useState<{ readonly history: History } | { readonly error: Error }>();
+  const [saved, setSaved] = useState<
+    | { readonly history: History; readonly hostRunId: string | undefined }
+    | { readonly error: Error }
+  >();
   useEffect(() => {
-    if (!root || root.store.getConversation(node.threadId)) {
+    if (!root || (!searchTarget && root.store.getConversation(node.threadId))) {
+      return;
+    }
+    if (
+      loadedSearchRequest !== undefined &&
+      (!searchTarget || searchTarget.requestId === loadedSearchRequest)
+    ) {
       return;
     }
     let active = true;
+    const controller = new AbortController();
+    // A search extension belongs to the host leg observed when its read began.
+    // A later admitted baseline may intentionally exclude deleted/rewound rows.
+    const hostRunId = searchTarget
+      ? root.store.getConversation(node.threadId)?.update.baseline?.hostRunId
+      : undefined;
     const adapter = createAssistantThreadHistoryAdapter({
       ...(hasDurableAssistantUsageCapability()
         ? {
@@ -76,24 +100,35 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
         : {}),
       repository: createPgliteAssistantThreadRepository(db),
       resourceId: node.resourceId,
+      signal: controller.signal,
       threadId: node.threadId,
+      ...(searchTarget ? { targetMessageId: searchTarget.messageId } : {}),
     });
     adapter.load().then(
       (history) => {
         if (active) {
-          setSaved({ history });
+          setSaved({ history, hostRunId });
+          setLoadedSearchRequest(searchTarget?.requestId);
         }
       },
       (error: unknown) => {
         if (active) {
-          setSaved({ error: asError(error) });
+          if (searchTarget) {
+            useThreadSearchStore
+              .getState()
+              .finishNavigation(searchTarget.requestId, asError(error).message);
+            setLoadedSearchRequest(undefined);
+          } else {
+            setSaved({ error: asError(error) });
+          }
         }
       }
     );
     return () => {
       active = false;
+      controller.abort();
     };
-  }, [db, node, repository, root, refresh, live]);
+  }, [db, node, repository, root, refresh, hasLive, searchTarget, loadedSearchRequest]);
   if (!roots) {
     return <Failure error={new Error('The child workspace has no owning root registry.')} />;
   }
@@ -117,6 +152,9 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
   return (
     <DelegatedWorkspaceNavigation
       currentThreadId={node.threadId}
+      isSearchHistoryLoading={Boolean(
+        searchTarget && loadedSearchRequest !== searchTarget.requestId
+      )}
       ownerResourceId={node.ownerResourceId}
       rootThreadId={node.rootThreadId}
     >
@@ -124,6 +162,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
         <DelegatedConversationBreadcrumbs db={db} node={node} />
         <div className="min-h-0 flex-1">
           <DelegatedConversationPanel
+            extendHistoryForSearch={saved?.hostRunId === live?.update.baseline?.hostRunId}
             label={node.displayName}
             {...(hasDurableAssistantUsageCapability() && live?.update.baseline?.hostRunId
               ? {
@@ -172,6 +211,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
                     }
                     root.store.invalidate(node.threadId);
                     setSaved(undefined);
+                    setLoadedSearchRequest(undefined);
                     setRefresh((value) => value + 1);
                   },
                 }
