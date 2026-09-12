@@ -340,6 +340,15 @@ it.each([
     );
     const middle = identities.find((entry) => entry.parentToolCallId === 'child-worker');
     expect(identities).toHaveLength(depth);
+    for (const admitted of identities) {
+      // The real native delegation hook passes this exact object to host.persist.
+      // A raw wildcard here would make every newly admitted Worker unresumable.
+      expect(admitted.configuration).toEqual({
+        maxSteps: expect.any(Number),
+        persona: { ...worker, allowedToolIds: ['brainstrike.writeWorkspaceFile'] },
+      });
+      expect(JSON.stringify(admitted.configuration)).not.toContain('"*"');
+    }
     expect(child?.parentThreadId).toBe('recursive-root');
     expect(leaf?.parentThreadId).toBe(depth === 3 ? middle?.childThreadId : child?.childThreadId);
     expect(leaf?.childThreadId).not.toBe(child?.childThreadId);
@@ -362,7 +371,9 @@ it.each([
     const resumed = await drain(
       await streamMastraToolApprovalAction(
         { action: 'approve', ...target, toolName: pending.toolName },
-        options
+        // Every generation must rebuild from its admitted snapshot. Removing
+        // the live Worker exposes a lost snapshot at the lazy depth+1 call.
+        { ...options, personas: [] }
       )
     );
     expect(reserveStep).toHaveBeenCalled();

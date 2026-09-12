@@ -3657,6 +3657,8 @@ read. A newly admitted host baseline replaces that extension, so deleted or
 rewound messages from an earlier read cannot reappear. Compaction alone keeps
 raw messages in durable scrollback; its provider overlay does not delete them.
 
+### Admitted child persona configuration on resume (BST-1727)
+
 Admitted child persona configuration is read from the existing delegated
 conversation record when a decision resumes. Reload discovery still uses inert
 identity-only Agents; execution reconstructs each admitted depth's profile before
@@ -3667,3 +3669,10 @@ The native snapshot remains the owner of original task/system context and workfl
 progress. No new persistent store is introduced, so the existing delegated graph
 factory-reset registration remains authoritative. See assistant-subagents.md's
 admitted configuration boundary and its native/host regression tests.
+
+Compatibility: old children with missing/unsupported configuration or an unexpanded
+wildcard catalog cannot reconstruct their admitted permissions. Their pending
+native snapshot is retained and never replayed; the HTTP 409 response instructs
+the user to start a new delegation. A mismatched persona identity receives a
+distinct integrity error. Only fixed classified messages cross the HTTP boundary,
+never stored instructions or provider/credential error text.

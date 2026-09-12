@@ -15,6 +15,7 @@
  */
 
 import {
+  AdmittedChildConfigurationError,
   DELEGATION_LIMITS,
   deriveEffectiveInputBudget,
   NATIVE_TOOL_ID,
@@ -658,9 +659,7 @@ function assertAdmittedPersonaRegistered(
 ): void {
   const admittedPersona = params.delegatedPersonaSnapshots?.[(params.depth ?? 1) - 1];
   if (admittedPersona && !personasById.has(admittedPersona.id)) {
-    throw new Error(
-      `The admitted child '${admittedPersona.id}' cannot resume with the current model or host permissions.`
-    );
+    throw new AdmittedChildConfigurationError('model-or-tools-unavailable');
   }
 }
 
@@ -771,6 +770,8 @@ export async function buildPersonaSubAgents(
       keptOriginalNames.includes(NATIVE_TOOL_ID.readToolOutputArtifact)
     );
     delegationToolPersonas.set(`agent-${persona.id}`, persona.id);
+    // This map is the admission source of truth. Snapshot the effective catalog,
+    // including wildcard expansion, before later registry/permission changes.
     personasById.set(persona.id, { ...persona, allowedToolIds: keptOriginalNames });
   }
 

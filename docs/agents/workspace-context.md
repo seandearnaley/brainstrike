@@ -1723,6 +1723,7 @@ section and its paired tests.
 The canonical [persona Settings host-check contract](assistant-subagents.md#persona-settings-host-checks-bst-1727) covers validated scan results, model/tool availability, and request-dependent scope.
 
 
+
 ## Persona edits and admitted child decisions (BST-1727)
 
 User persona scans resolve the profile for a fresh delegation. Once a child is

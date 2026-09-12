@@ -53,6 +53,46 @@ describe('admitted persona restoration', () => {
     );
   });
 
+  it.each([
+    { ...persona, format: 'unrecognized' },
+    { ...persona, model: { modelId: 'model', provider: 'unrecognized' } },
+    { ...persona, allowedToolIds: [] },
+  ])('refuses an unsupported or incomplete admitted persona %#', async (stored) => {
+    await expect(
+      readDelegatedPersonaSnapshots(action, binding({ maxSteps: 3, persona: stored }))
+    ).rejects.toThrow('Start a new delegation');
+  });
+
+  it('keeps replacement order and does not manufacture an empty credential map', async () => {
+    const sibling = { ...persona, id: 'sibling' };
+    expect(personasAtDelegationDepth([persona, sibling], [{ ...persona, maxSteps: 2 }])).toEqual([
+      { ...persona, maxSteps: 2 },
+      sibling,
+    ]);
+    const restored = await withDelegatedPersonaSnapshots(action, {
+      conversationBinding: binding({ maxSteps: 3, persona }),
+      runtime: { model: 'gpt-5.4', provider: 'openai' },
+    });
+    expect(restored.runtime).not.toHaveProperty('personaProviderApiKeys');
+  });
+
+  it('requires root runtime before reading a credential that could not be applied', async () => {
+    const resolvePersonaApiKey = vi.fn(async () => 'unused-secret');
+    await expect(
+      withDelegatedPersonaSnapshots(action, {
+        conversationBinding: binding({
+          maxSteps: 3,
+          persona: {
+            ...persona,
+            model: { modelId: 'claude-sonnet-4-6', provider: 'anthropic' },
+          },
+        }),
+        resolvePersonaApiKey,
+      })
+    ).rejects.toThrow('root runtime');
+    expect(resolvePersonaApiKey).not.toHaveBeenCalled();
+  });
+
   it('refuses a legacy wildcard snapshot instead of widening it to the current catalog', async () => {
     await expect(
       readDelegatedPersonaSnapshots(

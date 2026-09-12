@@ -1539,6 +1539,69 @@ describe('agent-stream-init runtime composition and memory', () => {
     expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
   });
 
+  it.each(['legacy-catalog', 'missing-configuration'])(
+    'returns actionable admitted-child remediation through the shared HTTP initializer (%s)',
+    async (kind) => {
+      const { streamMastraToolApprovalAction } = await import('@brainstrike/agent');
+      const { readDelegatedPersonaSnapshots } = await import(
+        '../../../../../packages/agent/src/mastra/delegated-persona-snapshots'
+      );
+      const { createDelegatedConversationBinding } = await import(
+        '../../../../../packages/agent/src/mastra/delegated-conversation-binding'
+      );
+      const identity = {
+        childRuntimeRunId: 'child-run',
+        parentRuntimeRunId: 'parent-run',
+        parentToolCallId: 'parent-call',
+        personaId: 'worker',
+      };
+      const action = {
+        action: 'approve' as const,
+        delegation: { path: [identity], toolCallId: 'leaf-call' },
+        runId: 'parent-run',
+        toolCallId: 'parent-call',
+      };
+      const configuration =
+        kind === 'legacy-catalog'
+          ? {
+              maxSteps: 3,
+              persona: {
+                allowedToolIds: ['*'],
+                description: 'Work',
+                id: 'worker',
+                instructions: 'Original workspace-private instructions',
+                label: 'Worker',
+                maxSteps: 3,
+                mode: 'worker',
+              },
+            }
+          : undefined;
+      const error = await readDelegatedPersonaSnapshots(action, {
+        ...createDelegatedConversationBinding(async () => {}),
+        resolveToolAction: async () => [
+          { configuration, identity, resourceId: 'child-owner', threadId: 'child' },
+        ],
+      }).catch((failure: unknown) => failure);
+      vi.mocked(streamMastraToolApprovalAction).mockRejectedValueOnce(error);
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: { memory: { resourceId: 'workspace-a', threadId: 'thread-1' }, provider: 'openai' },
+          messages: [],
+          runConfig: { custom: { brainstrikeToolApproval: action } },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+      expect(response.status).toBe(409);
+      expect(JSON.parse(response.body)).toMatchObject({
+        error: 'admitted_child_configuration_unavailable',
+        message: expect.stringContaining('Start a new delegation'),
+      });
+      expect(response.body).not.toContain('workspace-private');
+    }
+  );
+
   it('should handle stream initialization failure', async () => {
     const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
 
