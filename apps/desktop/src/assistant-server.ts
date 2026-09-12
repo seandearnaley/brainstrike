@@ -399,7 +399,7 @@ export async function handleAssistantRequest(
       options.snapshots
         ? createTurnBoundaryController({
             resolveDatabase: resolveEditCheckpointDatabase,
-            snapshots: options.snapshots ?? undefined,
+            snapshots: options.snapshots,
           })
         : undefined
     );
@@ -536,7 +536,7 @@ function resolveTurnBoundariesForRun(
   }
   return createTurnBoundaryController({
     resolveDatabase: resolveEditCheckpointDatabase,
-    snapshots: options.snapshots ?? undefined,
+    snapshots: options.snapshots,
   });
 }
 
@@ -733,6 +733,8 @@ async function handleAssistantPost(
         const result = await initializeAgentStream({
           apiKey: core.apiKey,
           authInput: core.authInput,
+          // Initial, approval and suspension-resume requests all enter this
+          // initializer; background work and active input retain its memory.
           capabilities: {
             ...desktopAgentStreamCapabilities,
             memory: {

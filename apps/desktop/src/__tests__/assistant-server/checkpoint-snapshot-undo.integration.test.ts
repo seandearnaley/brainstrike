@@ -609,7 +609,7 @@ describe('undoCheckpointRun', () => {
     expect(result.outcomes[0]).toMatchObject({ code: 'conflict', ok: false });
     expect(await readOrNull('a.txt')).toBe('Later sibling edit');
     const rows = await db.query(
-      'SELECT reverted_at FROM brainstrike_assistant_edit_checkpoints WHERE id IN ($1, $2)',
+      'SELECT reverted_at FROM brainstrike_assistant_edit_checkpoints WHERE id IN ($1, $2) ORDER BY id',
       [child.id, sibling.id]
     );
     expect(rows.rows).toEqual([{ reverted_at: null }, { reverted_at: null }]);

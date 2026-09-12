@@ -245,6 +245,8 @@ async function createDesktopMastraMemoryFromCacheState({
       ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
       runId,
     });
+    // SnapshotRepository needs the full desktop handle; native memory uses the
+    // run-critical wrapper so its query scheduling keeps the owning run context.
     const host = createDesktopDelegatedConversationHost(database, runId, async (threadId) =>
       captureDelegatedWorkspaceStart(
         await getDatabase(),

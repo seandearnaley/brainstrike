@@ -1761,3 +1761,25 @@ A child's explicit bound root also wins over the currently focused folder on
 non-Git workspaces. Disconnecting that root is a visible error; neither a new
 folder focus nor unavailable worktree capability authorizes switching roots.
 The same integration file proves both actual filesystem destinations.
+
+
+The native executor passes a durable execution thread separately from the
+read-state scope; a DB-less scope sentinel never becomes checkpoint ownership.
+Tool input cannot choose that identity: strict native schemas reject extra
+identity fields and the common execution reader reads only the second, host-owned
+context argument. Initial and approval-resumed writes are paired integration
+cases, with a distinct host-leg checkpoint run for each. Already stopped native
+mutations reject before acquiring a path lock; the post-lock check remains
+necessary when cancellation arrives while waiting.
+
+All live desktop initial, approval and suspension-resume requests share the
+`handleAssistantPost` initializer and its snapshot dependencies; background work
+and active child input retain that runtime. Snapshot Git failure records a
+failed-capture sentinel. Admission does not swallow ledger/database failures: a
+child must not begin work after its baseline ownership could not be established.
+Post-effect checkpoint recording retains its existing error-reporting contract.
+
+Child workspace breadcrumbs require the same FileExplorerProvider as AppLayout.
+The live/reloaded child tests mount that provider rather than replacing its
+selector. A disconnected bound root displays an explicit unavailable-folder
+label, never an opaque root identifier or a replacement workspace.

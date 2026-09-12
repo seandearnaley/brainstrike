@@ -24,7 +24,8 @@ import {
 } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import type { FileExplorerState } from '@brainstrike/types';
+import { FileExplorerProvider } from '@brainstrike/file-explorer-ui/shell';
+import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -33,16 +34,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
 
-// The child header reads the bound workspace's display name from the explorer
-// store (app-layout.tsx mounts the child view under FileExplorerProvider).
-// This integration test exercises reload/host semantics, not the explorer, so
-// the selector sees an empty descriptor map and the header shows the root id.
-vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/file-explorer-ui/shell')>()),
-  useFileExplorerStoreSelector: <T,>(
-    selector: (state: Pick<FileExplorerState, 'rootDescriptors'>) => T
-  ): T => selector({ rootDescriptors: {} }),
-}));
+const workspaceStorage = new MemoryStorageAdapter();
 
 import { ChildView } from '../delegated-workspace-child-view';
 import { type ChildNode, loadDelegatedWorkspaceNode } from '../delegated-workspace-node';
@@ -412,12 +404,14 @@ describe('child view after renderer restart', () => {
     );
     vi.stubGlobal('fetch', fetch);
     render(
-      <TooltipProvider>
-        <DelegatedConversationRootsProvider>
-          <OwningRoot />
-          <ChildView db={database as DbHandle} node={node} />
-        </DelegatedConversationRootsProvider>
-      </TooltipProvider>
+      <FileExplorerProvider storageAdapter={workspaceStorage}>
+        <TooltipProvider>
+          <DelegatedConversationRootsProvider>
+            <OwningRoot />
+            <ChildView db={database as DbHandle} node={node} />
+          </DelegatedConversationRootsProvider>
+        </TooltipProvider>
+      </FileExplorerProvider>
     );
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     const messages = await readAssistantHistoryMessages(database, node.threadId, node.resourceId, {
@@ -455,12 +449,14 @@ describe('child view after renderer restart', () => {
       vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
     );
     render(
-      <TooltipProvider>
-        <DelegatedConversationRootsProvider>
-          <OwningRoot />
-          <ChildView db={database as DbHandle} node={node} />
-        </DelegatedConversationRootsProvider>
-      </TooltipProvider>
+      <FileExplorerProvider storageAdapter={workspaceStorage}>
+        <TooltipProvider>
+          <DelegatedConversationRootsProvider>
+            <OwningRoot />
+            <ChildView db={database as DbHandle} node={node} />
+          </DelegatedConversationRootsProvider>
+        </TooltipProvider>
+      </FileExplorerProvider>
     );
     const trail = await screen.findByRole('navigation', { name: 'Conversation ancestry' });
     expect(within(trail).getByRole('button', { name: 'Main conversation' })).toBeVisible();
@@ -474,12 +470,14 @@ describe('child view after renderer restart', () => {
       vi.fn(async () => new Response('Unavailable', { status: 503 }))
     );
     render(
-      <TooltipProvider>
-        <DelegatedConversationRootsProvider>
-          <OwningRoot />
-          <ChildView db={database as DbHandle} node={node} />
-        </DelegatedConversationRootsProvider>
-      </TooltipProvider>
+      <FileExplorerProvider storageAdapter={workspaceStorage}>
+        <TooltipProvider>
+          <DelegatedConversationRootsProvider>
+            <OwningRoot />
+            <ChildView db={database as DbHandle} node={node} />
+          </DelegatedConversationRootsProvider>
+        </TooltipProvider>
+      </FileExplorerProvider>
     );
     expect(await screen.findByText('Persisted native child transcript.')).toBeVisible();
     expect(await screen.findByText('Pending decisions could not be restored')).toBeVisible();
@@ -522,12 +520,14 @@ describe('child view after renderer restart', () => {
     });
     vi.stubGlobal('fetch', fetch);
     render(
-      <TooltipProvider>
-        <DelegatedConversationRootsProvider>
-          <OwningRoot />
-          <ChildView db={database as DbHandle} node={node} />
-        </DelegatedConversationRootsProvider>
-      </TooltipProvider>
+      <FileExplorerProvider storageAdapter={workspaceStorage}>
+        <TooltipProvider>
+          <DelegatedConversationRootsProvider>
+            <OwningRoot />
+            <ChildView db={database as DbHandle} node={node} />
+          </DelegatedConversationRootsProvider>
+        </TooltipProvider>
+      </FileExplorerProvider>
     );
 
     expect(await screen.findByRole('heading', { name: 'Saved read result' })).toBeVisible();
@@ -584,12 +584,14 @@ describe('child view after renderer restart', () => {
       });
       vi.stubGlobal('fetch', fetch);
       render(
-        <TooltipProvider>
-          <DelegatedConversationRootsProvider>
-            <OwningRoot />
-            <ChildView db={database as DbHandle} node={node} />
-          </DelegatedConversationRootsProvider>
-        </TooltipProvider>
+        <FileExplorerProvider storageAdapter={workspaceStorage}>
+          <TooltipProvider>
+            <DelegatedConversationRootsProvider>
+              <OwningRoot />
+              <ChildView db={database as DbHandle} node={node} />
+            </DelegatedConversationRootsProvider>
+          </TooltipProvider>
+        </FileExplorerProvider>
       );
       expect(await screen.findByText('Persisted native child transcript.')).toBeVisible();
       expect(append).not.toHaveBeenCalled();

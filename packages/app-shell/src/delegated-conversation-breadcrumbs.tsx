@@ -95,7 +95,7 @@ export function DelegatedConversationBreadcrumbs({
       </div>
       <p className="text-muted-foreground text-xs" data-testid="child-workspace-mode">
         {node.workspaceRootId
-          ? `Shared workspace: ${workspace?.displayName ?? node.workspaceRootId}`
+          ? `Shared workspace: ${workspace?.displayName ?? 'bound folder is no longer open'}`
           : 'Shared workspace: tools select an open folder'}
         <span className="block">
           File edits are serialized per path. Changes stay in this workspace.

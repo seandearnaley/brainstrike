@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { TestInfo } from '@playwright/test';
+import type { Locator, TestInfo } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import type { ElectronHarness } from './fixtures/electron-harness';
 import { HomePage } from './page-objects/home-page';
@@ -25,45 +25,63 @@ async function waitForOwnedExit(process: ChildProcess | undefined): Promise<void
 test('worker Approve controls a reloaded disposable workspace write @smoke', async ({
   electron,
 }, testInfo) => {
-  await assertWorkerWrite(electron, testInfo, 'Approve');
+  await assertWorkerWrite(electron, testInfo, { decision: 'Approve' });
 });
 test('worker Decline controls a reloaded disposable workspace write @smoke', async ({
   electron,
 }, testInfo) => {
-  await assertWorkerWrite(electron, testInfo, 'Decline');
+  await assertWorkerWrite(electron, testInfo, { decision: 'Decline' });
 });
 
 test('recursive worker reloads its leaf approval and returns the result through three levels @smoke', async ({
   electron,
 }, testInfo) => {
-  await assertWorkerWrite(electron, testInfo, 'Approve', 3);
+  await assertWorkerWrite(electron, testInfo, { decision: 'Approve', depth: 3 });
 });
 
 test('background worker survives a host restart with its pending approval and writes once @smoke', async ({
   electron,
 }, testInfo) => {
-  await assertWorkerWrite(electron, testInfo, 'Approve', 1, true);
+  await assertWorkerWrite(electron, testInfo, { decision: 'Approve', restartHost: true });
 });
 
 test('stops a reloaded pending child and preserves parent interaction @smoke', async ({
   electron,
 }, testInfo) => {
-  await assertWorkerWrite(electron, testInfo, 'Stop');
+  await assertWorkerWrite(electron, testInfo, { decision: 'Stop' });
 });
 
 test('worker attributes an allowed write without a preceding human pause @smoke', async ({
   electron,
 }, testInfo) => {
-  await assertWorkerWrite(electron, testInfo, 'Approve', 1, false, true);
+  await assertWorkerWrite(electron, testInfo, { autoApprove: true, decision: 'Approve' });
 });
+
+async function ensureActivityExpanded(region: Locator): Promise<void> {
+  const expand = region.getByRole('button', { exact: true, name: 'Expand activity' });
+  if (await expand.count()) {
+    await expand.click();
+    return;
+  }
+  await expect(
+    region.getByRole('button', { exact: true, name: 'Collapse activity' })
+  ).toBeVisible();
+}
 
 async function assertWorkerWrite(
   electron: ElectronHarness,
   testInfo: TestInfo,
-  decision: 'Approve' | 'Decline' | 'Stop',
-  depth = 1,
-  restartHost = false,
-  autoApprove = false
+  {
+    decision,
+    depth = 1,
+    restartHost = false,
+    autoApprove = false,
+  }: {
+    readonly decision: 'Approve' | 'Decline' | 'Stop';
+    readonly depth?: number;
+    readonly restartHost?: boolean;
+    readonly autoApprove?: boolean;
+  }
 ): Promise<void> {
   const failures: unknown[] = [];
   let ownedProcess: ChildProcess | undefined;
@@ -349,10 +367,7 @@ async function assertWorkerWrite(
           await expect(window.getByTestId('child-workspace-mode')).toContainText(
             path.basename(workspace)
           );
-          const expand = child.getByRole('button', { exact: true, name: 'Expand activity' });
-          if (await expand.count()) {
-            await expand.click();
-          }
+          await ensureActivityExpanded(child);
           await expect(child.getByTestId('checkpoint-revert')).toBeVisible();
         }
         const completedRequests = provider.requestCount();
@@ -444,17 +459,11 @@ async function assertWorkerWrite(
           expect((await stat(outputPath)).mtimeMs).toBe(writtenMtime);
         }
         if (autoApprove) {
-          const parentExpand = root.getByRole('button', { exact: true, name: 'Expand activity' });
-          if (await parentExpand.count()) {
-            await parentExpand.click();
-          }
+          await ensureActivityExpanded(root);
           await root.getByRole('button', { name: /Open .* conversation/ }).click();
           await expect(selectedTab).toHaveText(childName);
           await expect(child.getByText(childResult, { exact: true })).toBeVisible();
-          const childExpand = child.getByRole('button', { exact: true, name: 'Expand activity' });
-          if (await childExpand.count()) {
-            await childExpand.click();
-          }
+          await ensureActivityExpanded(child);
           const userPath = path.join(workspace, 'user-note.txt');
           await writeFile(userPath, 'Independent user edit\n');
           await child.getByTestId('checkpoint-revert').click();
@@ -465,13 +474,7 @@ async function assertWorkerWrite(
           await window.reload();
           await ensureAssistantShellVisible(window);
           await expect(child.getByText(childResult, { exact: true })).toBeVisible();
-          const restoredExpand = child.getByRole('button', {
-            exact: true,
-            name: 'Expand activity',
-          });
-          if (await restoredExpand.count()) {
-            await restoredExpand.click();
-          }
+          await ensureActivityExpanded(child);
           await expect(child.getByTestId('checkpoint-reverted')).toBeVisible();
           expect(provider.requestCount()).toBe(completedRequests);
         }

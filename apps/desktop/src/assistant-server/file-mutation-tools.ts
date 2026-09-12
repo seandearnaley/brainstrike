@@ -156,7 +156,7 @@ export async function runWriteWorkspaceFile(
   input: WriteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
   toolCallId?: string,
-  threadScope = readStateScope(runtimeData),
+  executionThreadId?: string,
   signal?: AbortSignal
 ): Promise<{
   rootName: string;
@@ -166,6 +166,8 @@ export async function runWriteWorkspaceFile(
   created: boolean;
   lsp?: EditDiagnosticsResult;
 }> {
+  assertFileMutationActive(runtimeData, signal);
+  const threadScope = executionThreadId ?? readStateScope(runtimeData);
   // Cheap bounded size check FIRST (PR #2352 review): an over-limit payload
   // is rejected before it pays for the gutter guard's `split('\n')` pass —
   // both are pure pre-lock validations, so the ordering only affects how
@@ -232,7 +234,7 @@ export async function runWriteWorkspaceFile(
       afterExisted: true,
       afterHash: sha256Hex(buffer),
       before: beforeStateToCapture(beforeState),
-      executionThreadId: threadScope,
+      executionThreadId,
       op: 'write',
       path: resolved.workspacePath,
       rootId: root.rootId,
@@ -265,7 +267,7 @@ export async function runStringReplaceWorkspaceFile(
   input: StringReplaceWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
   toolCallId?: string,
-  threadScope = readStateScope(runtimeData),
+  executionThreadId?: string,
   signal?: AbortSignal
 ): Promise<{
   rootName: string;
@@ -276,6 +278,8 @@ export async function runStringReplaceWorkspaceFile(
   replaced: true;
   lsp?: EditDiagnosticsResult;
 }> {
+  assertFileMutationActive(runtimeData, signal);
+  const threadScope = executionThreadId ?? readStateScope(runtimeData);
   assertNoReadWorkspaceFileGutters(input.newStr);
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   // Resolve the write path up front so we can lock on the canonical absolute
@@ -354,7 +358,7 @@ export async function runStringReplaceWorkspaceFile(
         beforeSize: beforeBuffer.byteLength,
         captureStatus: 'ok',
       },
-      executionThreadId: threadScope,
+      executionThreadId,
       op: 'string_replace',
       path: resolved.workspacePath,
       rootId: root.rootId,
@@ -429,7 +433,7 @@ export async function runDeleteWorkspaceFile(
   input: DeleteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
   toolCallId?: string,
-  threadScope = readStateScope(runtimeData),
+  executionThreadId?: string,
   signal?: AbortSignal
 ): Promise<{
   ok: true;
@@ -437,6 +441,8 @@ export async function runDeleteWorkspaceFile(
   rootName: string;
   indexInvalidated: boolean;
 }> {
+  assertFileMutationActive(runtimeData, signal);
+  const threadScope = executionThreadId ?? readStateScope(runtimeData);
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   // Same path hardening as the write tools: clamps "..", contains symlinked
   // ancestors, and rejects the workspace root itself. A LIVE symlink whose target
@@ -489,7 +495,7 @@ export async function runDeleteWorkspaceFile(
       afterExisted: false,
       afterHash: null,
       before: beforeStateToCapture(beforeState),
-      executionThreadId: threadScope,
+      executionThreadId,
       op: 'delete',
       path: resolved.workspacePath,
       rootId: root.rootId,
@@ -511,7 +517,7 @@ export async function runRenameWorkspaceFile(
   input: RenameWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
   toolCallId?: string,
-  threadScope = readStateScope(runtimeData),
+  executionThreadId?: string,
   signal?: AbortSignal
 ): Promise<{
   ok: true;
@@ -520,6 +526,8 @@ export async function runRenameWorkspaceFile(
   rootName: string;
   indexInvalidated: boolean;
 }> {
+  assertFileMutationActive(runtimeData, signal);
+  const threadScope = executionThreadId ?? readStateScope(runtimeData);
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   const fromResolved = await resolveWorkspaceWritePath(root.path, input.fromPath);
   const toResolved = await resolveWorkspaceWritePath(root.path, input.toPath);
@@ -656,7 +664,7 @@ export async function runRenameWorkspaceFile(
         beforeSize: null,
         captureStatus: 'rename',
       },
-      executionThreadId: threadScope,
+      executionThreadId,
       fromPath: fromResolved.workspacePath,
       op: 'rename',
       path: toResolved.workspacePath,
