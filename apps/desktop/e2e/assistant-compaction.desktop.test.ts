@@ -52,7 +52,8 @@ test.describe('assistant compaction summary (desktop)', () => {
 
     await window.getByRole('button', { exact: true, name: seeded.title }).click();
 
-    const card = window.getByTestId('compaction-summary-card');
+    const activeChat = window.getByTestId('chat-panel').filter({ visible: true });
+    const card = activeChat.getByTestId('compaction-summary-card');
     await expect(card).toBeVisible({ timeout: E2E_TIMEOUTS.messageVisibility });
     await expect(card).toContainText('Conversation compacted');
     await expect(card).toContainText('AI-generated summary');
@@ -93,12 +94,24 @@ test.describe('assistant compaction summary (desktop)', () => {
       },
       messages: [{ content: [{ text: FOLLOW_UP_PROMPT }], role: 'user' }],
     });
+    expect(JSON.stringify(requests[0])).not.toContain(seeded.summaryText);
+    // The page-local mock disappears on reload. Observe real requests through
+    // hydration so an accidental replay cannot escape the mock's old counter.
+    const reloadedAssistantPosts: string[] = [];
+    window.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname.includes('/assistant')) {
+        reloadedAssistantPosts.push(request.url());
+      }
+    });
     // Verify the complete durable summary remains available after the new turn.
     await window.reload();
     await mockFileSystemOperations(window);
     await ensureMockWorkspaceOpen(window);
     await waitForAssistantChat(window);
     await window.getByRole('button', { exact: true, name: seeded.title }).click();
-    await expect(window.getByTestId('compaction-summary-card')).toContainText(seeded.summaryText);
+    await expect(activeChat.getByTestId('compaction-summary-card')).toContainText(
+      seeded.summaryText
+    );
+    expect(reloadedAssistantPosts).toEqual([]);
   });
 });
