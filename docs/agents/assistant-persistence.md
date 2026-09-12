@@ -1571,15 +1571,20 @@ emission — that is engine territory):
   to include descendant native threads and their sidecars. It validates the
   complete live ancestry and descendants before selecting any deletion target;
   a changed owner/resource rejects the whole command. Parent/sibling threads
-  outside a selected subtree survive. Artifact bytes match either root read ownership
-  or native execution identity; both thread-search index/state tables and saved
-  workspaces are deleted in the same cascade. Run/event rows cascade through native
-  foreign keys. Numeric usage remains historical spend, not saved transcript data.
-  Queued workspace saves require the still-existing exact native owner. Rejected
-  outgoing saves evict the snapshot cache; a still-active navigation reports the
-  unavailable owner. Other write failures remain errors.
-  Overlapping bulk requests emit each tombstone once. The desktop `delegated-thread-deletion.integration.test.ts`
-  exercises all three real-PGlite paths, including rejected deletions.
+  outside a selected subtree survive. Artifact bytes match either root read
+  ownership or native execution identity; both thread-search index/state tables
+  and saved workspaces are deleted in the same cascade. Run/event rows cascade
+  through native foreign keys. Numeric usage remains historical spend, not
+  saved transcript data. Queued workspace saves require the still-existing
+  exact native owner. Rejected outgoing saves evict the snapshot cache; a
+  still-active save failure reaches navigation with its exact resource/thread
+  identity. It invalidates only that owner's readiness and reports a matching
+  pending navigation error. A late rejection from an unmounted coordinator
+  cannot invalidate a different owner's ready workspace or pending navigation.
+  Other write failures remain errors. Overlapping bulk
+  requests emit each tombstone once. The desktop
+  `delegated-thread-deletion.integration.test.ts` exercises all three real-PGlite
+  paths, including rejected deletions.
 - **Reset:** registered in the reset registry — the op-log is cleared with
   the mind it describes on all three clear paths.
 

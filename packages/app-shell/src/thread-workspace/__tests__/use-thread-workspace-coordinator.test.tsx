@@ -333,6 +333,50 @@ describe('useThreadWorkspaceCoordinator', () => {
     expect(harness.rows.get('thread-a')?.editors['ka']).toEqual({ mode: 'source', scrollTop: 45 });
   });
 
+  it('reports the exact active owner when a workspace save is rejected', async () => {
+    const harness = createHarness();
+    render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    const failed = vi.spyOn(harness.navigation, 'failed');
+    const pending = Promise.withResolvers<void>();
+    vi.mocked(harness.repository.setThreadWorkspace).mockImplementationOnce(() => pending.promise);
+    act(() => {
+      harness.state.openAppIds = ['changes'];
+      harness.notify();
+    });
+    const error = new ThreadWorkspaceUnavailableError('thread-a');
+    await act(async () => pending.reject(error));
+    expect(failed).toHaveBeenCalledExactlyOnceWith('brainstrike:workspace', 'thread-a', error);
+  });
+
+  it('preserves the replacement coordinator readiness when an unmounted owner save rejects', async () => {
+    const harness = createHarness();
+    harness.rows.set('thread-b', SNAPSHOT_B);
+    const old = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    const outgoing = Promise.withResolvers<void>();
+    vi.mocked(harness.repository.setThreadWorkspace).mockImplementationOnce(() => outgoing.promise);
+    act(() => {
+      harness.state.openAppIds = ['changes'];
+      harness.notify();
+    });
+    old.unmount();
+    render(harness, 'thread-b');
+    await waitFor(() => expect(harness.state.tabs).toEqual(SNAPSHOT_B.fileTabs.tabs));
+    // New owner's edits are still within its ordinary debounce window.
+    act(() => {
+      harness.state.tabs = [{ compositeKey: 'pending', path: 'pending.ts' }];
+      harness.notify();
+    });
+    await act(async () => outgoing.reject(new ThreadWorkspaceUnavailableError('thread-a')));
+    act(() => {
+      harness.navigation.open('brainstrike:workspace', 'thread-b', 'child-b');
+      expect(harness.navigation.hasPending('brainstrike:workspace', 'thread-b')).toBe(false);
+    });
+    expect(harness.state.openAppIds).toContain('child-b');
+    expect(harness.state.tabs).toEqual([{ compositeKey: 'pending', path: 'pending.ts' }]);
+  });
+
   it('evicts an outgoing snapshot rejected after its native thread was deleted', async () => {
     const harness = createHarness();
     harness.rows.set('thread-b', SNAPSHOT_B);
