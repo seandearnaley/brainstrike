@@ -164,10 +164,12 @@ describe('createFileTreeSelectionStore', () => {
       type: 'directory',
     };
     const store = createFileTreeSelectionStore(inputs(new Set(), { folderId }));
+    const pathDerivations = vi.spyOn(fileTreeWorker, 'isDescendantPath');
     expect(store.getNodeState(childRow).checkboxState).toBe(false);
     expect(store.getNodeState(siblingRow).checkboxState).toBe(false);
     expect(store.getNodeState(directoryRow).checkboxState).toBe(false);
-    const pathDerivations = vi.spyOn(fileTreeWorker, 'isDescendantPath');
+    expect(pathDerivations).toHaveBeenCalledTimes(3);
+    pathDerivations.mockClear();
 
     store.setInputs(
       inputs(new Set([encodeFileSelection(folderId, '/src/index.ts')]), { folderId })

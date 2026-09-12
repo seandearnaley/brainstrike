@@ -1,3 +1,4 @@
+import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/file-explorer/selection';
 import {
   createEmptySelectionModel,
   type FileExplorerState,
@@ -138,6 +139,29 @@ describe('optimized file tree selection counts', () => {
         path: '/workspace/project/src/other.ts',
       })
     ).toBe(false);
+  });
+
+  it.each([
+    ['/workspace/project', '/workspace/project/src/index.ts'],
+    ['C:\\repo', 'C:\\repo\\src\\index.ts'],
+  ])('matches canonical selection membership for %s aliases', (currentFolderId, path) => {
+    const node = { path };
+    const candidates = getWorkspaceSelectionPathCandidates(currentFolderId, path);
+    const selections = [
+      new Set<string>(),
+      new Set([encodeFileSelection('other-root', path)]),
+      new Set([encodeFileSelection(currentFolderId, `${path}/`)]),
+      ...candidates.map((candidate) => new Set([encodeFileSelection(currentFolderId, candidate)])),
+    ];
+
+    // Keep one node through every selection revision to cover the cached path
+    // as well as its first read. The core predicate is the membership oracle.
+    for (const selected of selections) {
+      const expected = candidates.some((candidate) =>
+        isPathSelectedInFolder(selected, currentFolderId, candidate)
+      );
+      expect(isWorkspaceNodeSelected(selected, currentFolderId, node)).toBe(expected);
+    }
   });
 
   it('collects paths from a nested tree', () => {

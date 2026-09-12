@@ -137,9 +137,11 @@ interface NodeSelectionKeys {
   path: string;
 }
 
-// A node owns at most one small alias projection. Weak keys release removed or
-// reloaded nodes without retaining an ever-growing path cache. Membership is
-// deliberately never cached: selection updates must be visible immediately.
+// Callers pass the stable node from the source tree or normalized materializer,
+// never a fresh { path } wrapper. Each live node retains one projection to trade
+// modest retained memory for less repeated allocation; a changed folder replaces
+// that slot rather than accumulating scopes. Weak keys release removed/reloaded
+// nodes. Membership is never cached: selection updates stay visible immediately.
 const nodeSelectionKeys = new WeakMap<Pick<IFileNode, 'path'>, NodeSelectionKeys>();
 
 export function isWorkspaceNodeSelected(

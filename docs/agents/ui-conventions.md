@@ -324,7 +324,11 @@ Windowing and performance:
   child traversal (`optimized-file-tree-selection-store.test.ts`). Its WeakMap
   retains at most one projection per live node and replaces that projection
   when its folder or path changes; removed and reloaded nodes do not accumulate
-  in a strong path cache. Each read still checks the current selection Set.
+  in a strong path cache. Callers must pass the stable source/materialized node
+  identity. Retaining its small key array for the node's lifetime is an
+  intentional memory trade for avoiding repeated allocation. Each read still
+  checks the current selection Set; parity with the core
+  `isPathSelectedInFolder` predicate is pinned in the selection-counts tests.
   Never cache checkbox membership in the alias projection or change the path
   candidates used by deselection. The 10,000-node operation-count regression
   pins that selection changes do not repeat unchanged nodes' path preparation.
