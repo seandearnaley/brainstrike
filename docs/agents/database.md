@@ -964,6 +964,36 @@ Tests that deliberately construct bare or partial-extension engines remain
 fixtures; migration fixtures must still load the full extension set (see
 `drizzle-migrate.test.ts` / `drizzle-job-queue-compatibility.test.ts`).
 
+### A WebAssembly trap poisons the PGlite instance — it never spins (BST-1221)
+
+`patches/@electric-sql__pglite@0.5.8.patch` (registered in `pnpm-workspace.yaml`
+`patchedDependencies`) changes one thing in PGlite 0.5.8's synchronous protocol
+loop (`execProtocolRawSync`, both `dist/index.js` and `dist/index.cjs`). Stock
+0.5.8 catches any throw from `_PostgresMainLoopOnce()`, and if
+`_pgl_setPGliteExitStatus(-2)` is not the longjmp sentinel it simply loops
+again without advancing its read offset. A genuine WebAssembly trap
+(`RuntimeError: function signature mismatch` in `$palloc`, seen deterministically
+on Node 26.8.2 for some import layouts, `Unit (rest)` run 34653237231) therefore
+spins the caller forever at 100% CPU with its event loop blocked: no timer,
+timeout or reporter can act. Upstream tracks the loop defect as
+electric-sql/pglite#1058; our evidence is on that thread.
+
+The patched loop, on a non-longjmp trap:
+
+- throws a `PGliteFatalTrapError` (message names the exit status, `cause` is the
+  original trap) from the call that trapped;
+- marks the instance poisoned: every later protocol call rejects with a
+  `PGliteFatalTrapError` whose `cause` is that fatal, because memory a trap has
+  corrupted must not run more SQL;
+- lets `close()` release the WebAssembly instance and then rethrows the fatal, so
+  a trapped instance can never end a test or a session cleanly.
+
+`packages/db/__tests__/pglite-fatal-trap-fail-closed.integration.test.ts` pins all
+three with a simulated trap and a healthy control. This is deliberately not a
+retry, a fallback or a timeout: the failure stays a failure, named and
+immediate. Do not extend the patch beyond the loop; when a PGlite release
+terminates the loop itself, drop the patch and keep the test.
+
 ### CLOSING a PGlite: drain first — an overlapping statement wedges it forever
 
 `PGlite.close()` (verified on the pinned 0.5.5) deactivates the WASM backend
