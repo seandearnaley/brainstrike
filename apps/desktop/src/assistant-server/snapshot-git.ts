@@ -44,7 +44,6 @@
  * pins EVERY spawn's cwd to the root — never run shadow-git commands through
  * any other channel with a different cwd.
  */
-
 import { type ExecFileException, execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
@@ -234,7 +233,8 @@ export function snapshotRefForThread(threadId: string): string {
   if (
     IDENTIFIER_PATTERN.test(threadId) &&
     !threadId.includes('..') &&
-    !threadId.endsWith('.lock')
+    !threadId.endsWith('.lock') &&
+    !threadId.endsWith('.')
   ) {
     return `${LEGACY_SNAPSHOT_REF_PREFIX}${threadId}`;
   }

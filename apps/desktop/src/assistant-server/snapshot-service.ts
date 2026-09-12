@@ -949,14 +949,13 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
       .filter((line) => line.length > 0)
       .map((line) => {
         const separator = line.indexOf('\0');
-        const refname = line.slice(0, separator);
         if (separator < 0) {
           throw new SnapshotGitError(
             'git-command-failed',
             'Snapshot ref inventory has no metadata separator'
           );
         }
-        return readSnapshotRefIdentity(refname, line.slice(separator + 1));
+        return readSnapshotRefIdentity(line.slice(0, separator), line.slice(separator + 1));
       });
   }
 
