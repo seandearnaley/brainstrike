@@ -452,6 +452,12 @@ Embedding runtime telemetry (BST-402):
   Stop terminal reports echo the existing control request ID. Main matches that
   ID, so a queued startup error or prior stop cannot settle another command;
   an actual stop failure reports the same identity and fails visibly.
+  Reset drain failures also echo their exact request ID under the original runtime
+  ID: main accepts that owned failure while awaiting the proposed next runtime,
+  preserves the original error, and destroys the failed owner before any new start.
+  An unrelated old-runtime error cannot settle reset. Closing or destroying an
+  owned host rejects its pending lifecycle waits immediately with an explicit
+  window-closed error; disappearance is not a fabricated successful Stop ack.
   The shared vector UI projects out only the host's `commandId` acknowledgement
   when storing desktop status (initial read, subscription, start/reset/stop).
   Host acknowledgement matching retains the field; unknown UI status extensions

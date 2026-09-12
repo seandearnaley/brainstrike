@@ -881,7 +881,13 @@ export function EmbeddingHostRuntime(): null {
           throw new Error('Embedding host reset requires a fresh nextRuntimeId.');
         }
         void resetWorker(nextCommand.payload.nextRuntimeId).catch((error: unknown) => {
-          reportLifecycleFailure('Embedding host reset failed', error);
+          logger.error('Embedding host reset failed', { error, requestId: nextCommand.requestId });
+          if (!disposed) {
+            reportEmbeddingHostRuntimeStatusForRuntimeId(runtimeIdRef.current, 'error', {
+              commandId: nextCommand.requestId,
+              lastError: error instanceof Error ? error.message : String(error),
+            });
+          }
         });
       }
     });
