@@ -188,6 +188,66 @@ describe('SubagentPersonasSettingsSection', () => {
     expect(warnings.closest('fieldset')).toBeNull();
   });
 
+  it("states each persona's mode, step budget and tool scope from the bridge, in plain terms", async () => {
+    setBridge({
+      list: () =>
+        Promise.resolve({
+          personas: [
+            {
+              allowedToolIds: ['*'],
+              description: 'Ships the deliverable.',
+              id: 'shipper',
+              label: 'Shipper',
+              maxSteps: 12,
+              mode: 'worker',
+              source: 'user',
+              status: 'ok',
+            },
+            {
+              allowedToolIds: [
+                'brainstrike.readWorkspaceFile',
+                'brainstrike.grepSearch',
+                'brainstrike.globWorkspace',
+              ],
+              description: 'Surveys the tree.',
+              id: 'surveyor',
+              label: 'Surveyor',
+              maxSteps: 4,
+              mode: 'read-only',
+              source: 'user',
+              status: 'ok',
+            },
+          ],
+        }),
+    });
+    render(<SubagentPersonasSettingsSection />);
+    const shipper = (await screen.findByTestId('subagent-persona-scope-shipper')).textContent;
+    expect(shipper).toContain('Can edit and run');
+    expect(shipper).toContain('Up to 12 steps');
+    expect(shipper).toContain('every tool the host permits');
+    const surveyor = screen.getByTestId('subagent-persona-scope-surveyor').textContent;
+    expect(surveyor).toContain('Read-only');
+    expect(surveyor).toContain('Up to 4 steps');
+    expect(surveyor).toContain('3 tools');
+    expect(surveyor).toContain('readWorkspaceFile');
+  });
+
+  it("states the built-in personas' scope without the bridge from the same definitions the host enforces", () => {
+    render(<SubagentPersonasSettingsSection />);
+    const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
+    const explore = BUILT_IN_PERSONAS.find((persona) => persona.id === 'explore');
+    if (!(worker && explore)) {
+      throw new Error('built-in worker and explore personas must exist');
+    }
+    const workerScope = screen.getByTestId('subagent-persona-scope-worker').textContent;
+    expect(workerScope).toContain('Can edit and run');
+    expect(workerScope).toContain(`Up to ${worker.maxSteps} steps`);
+    expect(workerScope).toContain('every tool the host permits');
+    const exploreScope = screen.getByTestId('subagent-persona-scope-explore').textContent;
+    expect(exploreScope).toContain('Read-only');
+    expect(exploreScope).toContain(`${explore.allowedToolIds.length} tools`);
+  });
+
   it('without the bridge, shows the desktop-only note for user personas', () => {
     render(<SubagentPersonasSettingsSection />);
     expect(screen.getByText(/desktop/i)).toBeInTheDocument();

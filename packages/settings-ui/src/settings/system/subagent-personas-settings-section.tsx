@@ -14,7 +14,13 @@ import {
   subagentPersonasSelectors,
   useSubagentPersonasStore,
 } from '@brainstrike/app-state/stores/subagent-personas-store';
-import { type AssistantPersonaListItem, BUILT_IN_PERSONAS } from '@brainstrike/assistant-contract';
+import {
+  type AssistantPersonaListItem,
+  BUILT_IN_PERSONAS,
+  DELEGATION_LIMITS,
+  effectiveChildStepBudget,
+  personaScope,
+} from '@brainstrike/assistant-contract';
 import { resolveAssistantPersonasBridge } from '@brainstrike/assistant-contract/personas-bridge';
 import {
   Badge,
@@ -33,9 +39,67 @@ const BUILT_IN_ITEMS: readonly AssistantPersonaListItem[] = BUILT_IN_PERSONAS.ma
   description: persona.description,
   id: persona.id,
   label: persona.label,
+  ...personaScope(persona),
   source: 'built-in',
   status: 'ok',
 }));
+
+const NUMBER = new Intl.NumberFormat('en-US');
+const TOOL_ID_PREFIX = 'brainstrike.';
+const MAX_LISTED_TOOLS = 6;
+
+/** A tool id as the user sees it in the tools settings: without the host prefix. */
+function displayToolId(toolId: string): string {
+  return toolId.startsWith(TOOL_ID_PREFIX) ? toolId.slice(TOOL_ID_PREFIX.length) : toolId;
+}
+
+/**
+ * The scope a loadable persona runs with, in plain terms, from the same facts
+ * the host enforces: effective mode, the HOST-CAPPED step budget
+ * (`effectiveChildStepBudget`, the number the model is told), and the declared
+ * capability set. Absent facts (an older bridge) render nothing rather than a
+ * guess.
+ */
+function PersonaScopeLine({ item }: { readonly item: AssistantPersonaListItem }) {
+  if (item.mode === undefined || item.maxSteps === undefined || item.allowedToolIds === undefined) {
+    return null;
+  }
+  const steps = effectiveChildStepBudget({ maxSteps: item.maxSteps });
+  const allTools = item.allowedToolIds.length === 1 && item.allowedToolIds[0] === '*';
+  const listed = item.allowedToolIds.slice(0, MAX_LISTED_TOOLS).map(displayToolId).join(', ');
+  const remaining = item.allowedToolIds.length - MAX_LISTED_TOOLS;
+  return (
+    <p className="text-muted-foreground text-xs" data-testid={`subagent-persona-scope-${item.id}`}>
+      {item.mode === 'worker' ? 'Can edit and run' : 'Read-only'} · Up to {steps} steps (1 reserved
+      for its summary) ·{' '}
+      {allTools
+        ? 'every tool the host permits'
+        : `${item.allowedToolIds.length} ${item.allowedToolIds.length === 1 ? 'tool' : 'tools'}: ${listed}${remaining > 0 ? ` and ${remaining} more` : ''}`}
+    </p>
+  );
+}
+
+/**
+ * The tree-wide limits the host enforces on every root turn, stated from
+ * `DELEGATION_LIMITS` itself so the panel can never drift from enforcement
+ * (a mocked-constant test pins this).
+ */
+function DelegationLimits() {
+  return (
+    <div className="space-y-1" data-testid="subagent-delegation-limits">
+      <p className="font-medium text-sm">Limits on every turn</p>
+      <p className="text-muted-foreground text-sm">
+        Subagents can delegate to other subagents up to {DELEGATION_LIMITS.maxDepth} levels deep,
+        with at most {DELEGATION_LIMITS.maxInvocations} delegations per turn and{' '}
+        {DELEGATION_LIMITS.maxConcurrentWork} subagents working at once. Each subagent runs at most{' '}
+        {DELEGATION_LIMITS.maxChildSteps} steps and may produce up to{' '}
+        {NUMBER.format(DELEGATION_LIMITS.maxChildOutputTokens)} output tokens;{' '}
+        {NUMBER.format(DELEGATION_LIMITS.maxTreeOutputTokens)} output tokens is the ceiling for all
+        subagents in one turn. Personas cannot raise these limits; the host enforces them.
+      </p>
+    </div>
+  );
+}
 
 /**
  * The row's second line: the error for a broken file, the shadowing
@@ -71,7 +135,12 @@ function PersonaRowDetail({
       </p>
     );
   }
-  return <p className="text-muted-foreground text-sm">{item.description}</p>;
+  return (
+    <>
+      <p className="text-muted-foreground text-sm">{item.description}</p>
+      <PersonaScopeLine item={item} />
+    </>
+  );
 }
 
 function PersonaRow(props: {
@@ -154,9 +223,10 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
       <CardHeader>
         <CardTitle>Subagents</CardTitle>
         <CardDescription>
-          The assistant can delegate focused, read-only tasks to subagent personas. Add your own
-          personas as markdown files in <code>.brainstrike/agents/</code> (workspace or home
-          directory).
+          The assistant can delegate focused tasks to subagent personas: read-only ones survey and
+          analyse, and worker personas can edit and run within the tools and permissions the host
+          allows. Add your own personas as markdown files in <code>.brainstrike/agents/</code>{' '}
+          (workspace or home directory).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -176,6 +246,8 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
             onCheckedChange={(value) => setDelegationEnabled(value === true)}
           />
         </div>
+
+        <DelegationLimits />
 
         {incompleteDirs.length > 0 ? (
           <div className="space-y-1" data-testid="subagent-personas-incomplete">

@@ -294,6 +294,26 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   broken agents dir must not take down chat. Settings UI:
   `packages/settings-ui/src/settings/system/subagent-personas-settings-section.tsx`;
   the store is factory-reset-registered in `packages/app-state/src/factory-reset.ts`.
+- **Settings states what the host enforces (BST-1727):** every loadable list
+  item (`AssistantPersonaListItem`, status `'ok'`) carries `personaScope`
+  of the SAME definition the child is built from — `allowedToolIds`
+  (`['*']` = every tool the host permits), declared `maxSteps`, and the
+  effective `mode` (no explicit mode ⇒ `'read-only'`) — populated by
+  `apps/desktop/src/ipc-user-personas-handlers.ts` for built-ins and user
+  personas alike, and by the panel's own built-in fallback on web. The panel
+  renders each persona's scope line in plain terms ("Read-only" / "Can edit
+  and run", "Up to N steps (1 reserved for its summary)", the tool count with
+  the first ids or "every tool the host permits") where N is
+  `effectiveChildStepBudget` — the one helper `delegationDescriptionForPersona`
+  also uses, so the number a user reads is the number the model is told and
+  the host applies. The tree-wide block ("Limits on every turn") reads
+  `DELEGATION_LIMITS` directly. Paired tests:
+  `subagent-personas-delegation-limits.test.tsx` mocks the constant and the
+  helper with values no build uses, so a panel that repeats the arithmetic or
+  types the numbers fails; `ipc-user-personas-handlers.test.ts` pins the scope
+  fields on built-in and user items; `personas.test.ts` pins the helper
+  against the model-facing description. An older bridge that omits the fields
+  renders no scope line rather than a guess.
 - **Model pinning (v2):** a persona with `model: provider::modelId` builds its
   child on THAT model via `resolvePinnedModel`
   (`packages/agent/src/mastra/persona-pinned-model.ts`): same-provider pins

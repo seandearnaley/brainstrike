@@ -70,6 +70,44 @@ describe('listUserPersonas', () => {
     expect(userRow?.absPath).toBe(`${HOME}/.brainstrike/agents/sec.md`);
   });
 
+  it("carries each loadable persona's mode, step budget and tool scope so Settings states what the host enforces", async () => {
+    const result = await listUserPersonas({
+      fs: makeFs({
+        [`${HOME}/.brainstrike/agents`]: {
+          'shipper.md': '---\ndescription: ships\nmode: worker\nmaxSteps: 12\n---\nBody.',
+          'surveyor.md':
+            '---\ndescription: surveys\ntools:\n  - readWorkspaceFile\n  - grepSearch\n---\nBody.',
+        },
+      }),
+      getDatabase: () => Promise.resolve(null),
+      homedir: () => HOME,
+    });
+    const byId = new Map(result.personas.map((row) => [row.id, row]));
+    const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
+    expect(byId.get('worker')).toMatchObject({
+      allowedToolIds: ['*'],
+      maxSteps: worker?.maxSteps,
+      mode: 'worker',
+    });
+    const explore = BUILT_IN_PERSONAS.find((persona) => persona.id === 'explore');
+    expect(byId.get('explore')).toMatchObject({
+      allowedToolIds: explore?.allowedToolIds,
+      maxSteps: explore?.maxSteps,
+      mode: 'read-only',
+    });
+    expect(byId.get('shipper')).toMatchObject({
+      allowedToolIds: ['*'],
+      maxSteps: 12,
+      mode: 'worker',
+      status: 'ok',
+    });
+    expect(byId.get('surveyor')).toMatchObject({
+      allowedToolIds: ['brainstrike.readWorkspaceFile', 'brainstrike.grepSearch'],
+      mode: 'read-only',
+      status: 'ok',
+    });
+  });
+
   it('includes invalid user persona files with their error', async () => {
     const result = await listUserPersonas({
       fs: makeFs({

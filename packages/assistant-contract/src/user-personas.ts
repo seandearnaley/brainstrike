@@ -319,11 +319,21 @@ export function parsePersonaModelPin(value: string): ParsePersonaModelPinResult 
 export interface AssistantPersonaListItem {
   /** Absolute file path (user personas only). */
   readonly absPath?: string;
+  /**
+   * Declared capability set for a loadable persona (status 'ok'): exact tool
+   * ids, or the sole `'*'` meaning every tool the host permits. Taken from
+   * the definition the host builds the child from (`personaScope`).
+   */
+  readonly allowedToolIds?: readonly string[];
   readonly description: string;
   /** Why the file failed to load (user personas with status 'invalid'). */
   readonly error?: string;
   readonly id: string;
   readonly label: string;
+  /** Declared step budget (status 'ok'); Settings shows the host-capped value. */
+  readonly maxSteps?: number;
+  /** Effective mode (status 'ok'): a persona without an explicit mode is read-only. */
+  readonly mode?: AssistantPersonaMode;
   /** Serialized `provider::modelId` pin, for display. */
   readonly modelPin?: string;
   /** The file that KEPT this id, for status 'shadowed'. Shaped like
