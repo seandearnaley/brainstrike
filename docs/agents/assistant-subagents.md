@@ -1908,6 +1908,17 @@ finish values cannot duplicate earlier spend. Stopping an already paused child
 therefore retains its reported model usage. Missing provider counts do not create
 a fabricated usage row. The three-process sibling fixture checks 1/1 on each
 paused child and 1/1 on the surviving child's resumed leg, both live and durable.
+### Settings inventory and reset release proof (BST-1727/BST-1728)
+
+`delegated-factory-reset.desktop.test.ts` toggles Settings' master delegation
+switch and observes the next real native Mastra request at the external model
+provider boundary. Enabled requests advertise `agent-worker`; disabled requests
+advertise no `agent-*` tools while retaining ordinary tool discovery. After
+Settings factory reset and process restart, the default switch and an actual
+subsequent worker-capable inventory return. The existing provider shim supplies
+model text only; the app's assistant endpoint, request preference propagation,
+persona resolution and tool catalog construction run unmodified. This case does
+not execute a delegated workspace effect; the worker fixtures own that proof.
 
 ### Native child workspace reads and checkpoint undo (BST-1726)
 

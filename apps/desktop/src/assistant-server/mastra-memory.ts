@@ -1,7 +1,7 @@
 /**
  * Desktop Mastra memory construction (BST-975 slice 5).
  *
- * ORDER-SENSITIVE ATOM: the two cache Maps, DESKTOP_MEMORY_CACHE_LIMIT, their
+ * ORDER-SENSITIVE ATOM: each database owner's two cache Maps, DESKTOP_MEMORY_CACHE_LIMIT, their
  * insertion-order (FIFO) evictors, and resetDesktopMastraMemoryCacheForTests
  * moved here together — splitting the maps from the evictors or the reset
  * silently breaks eviction pairing and cross-test isolation (BST-975 seam map).
@@ -29,7 +29,7 @@ import {
   type RuntimeMemoryOptions,
 } from '@brainstrike/assistant-service/memory-model-targets';
 import type { DesktopMemoryFeature } from '@brainstrike/assistant-service/types';
-import { getDatabase } from '../db-main';
+import { type DesktopDatabase, getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
 import { registerDesktopDelegatedCancellation } from './delegated-execution-controls';
@@ -49,8 +49,24 @@ const DESKTOP_MEMORY_CACHE_LIMIT = 16;
 // keys. Pending keychain resolutions are keyed by unresolved descriptors so
 // concurrent desktop requests dedupe before the concrete cache key exists.
 // Each map is independently bounded to the same small desktop cache limit.
-const desktopMastraMemoryPromises = new Map<string, DesktopMastraMemoryPromise>();
-const desktopMastraMemoryResolutionPromises = new Map<string, DesktopMastraMemoryPromise>();
+interface DesktopMastraMemoryCache {
+  readonly memories: Map<string, DesktopMastraMemoryPromise>;
+  readonly resolutions: Map<string, DesktopMastraMemoryPromise>;
+}
+
+// Reset/reinitialization replaces the database owner. Pending resolutions stay
+// attached to that owner and cannot repopulate the replacement owner's cache.
+let desktopMastraMemoryCaches = new WeakMap<DesktopDatabase, DesktopMastraMemoryCache>();
+
+function getDesktopMastraMemoryCache(database: DesktopDatabase): DesktopMastraMemoryCache {
+  const existing = desktopMastraMemoryCaches.get(database);
+  if (existing) {
+    return existing;
+  }
+  const cache: DesktopMastraMemoryCache = { memories: new Map(), resolutions: new Map() };
+  desktopMastraMemoryCaches.set(database, cache);
+  return cache;
+}
 
 interface DesktopMastraMemoryCacheState {
   readonly cachedPromise?: DesktopMastraMemoryPromise | undefined;
@@ -87,8 +103,11 @@ export async function getDesktopMastraMemory(
   runtimeData?: RuntimeData | undefined,
   memoryDependencies?: DesktopMemoryDependencies | undefined
 ): Promise<DesktopMastraMemoryResult> {
+  const database = await getDatabase();
+  const cache = getDesktopMastraMemoryCache(database);
   const memoryOptions = runtimeData?.memory?.memoryOptions;
   const cacheState = createDesktopMastraMemoryCacheState({
+    cache,
     memoryOptions,
     memorySettings,
     runId,
@@ -108,12 +127,14 @@ export async function getDesktopMastraMemory(
         cacheState.semanticRecallEmbeddingResolution
       ),
     });
-    const pendingResolution = desktopMastraMemoryResolutionPromises.get(resolutionKey);
+    const pendingResolution = cache.resolutions.get(resolutionKey);
     if (pendingResolution) {
       return pendingResolution;
     }
     const pendingMemory = createDesktopMastraMemoryFromCacheState({
+      cache,
       cacheState,
+      database,
       eventSink,
       memoryDependencies,
       memoryOptions,
@@ -121,17 +142,19 @@ export async function getDesktopMastraMemory(
       runId,
       runtimeData,
     });
-    evictOldestDesktopMastraMemoryResolutionPromise();
-    desktopMastraMemoryResolutionPromises.set(resolutionKey, pendingMemory);
+    evictOldestDesktopMastraMemoryResolutionPromise(cache);
+    cache.resolutions.set(resolutionKey, pendingMemory);
     void pendingMemory.then(
-      () => cleanupDesktopMastraMemoryResolutionPromise(resolutionKey, pendingMemory),
-      () => cleanupDesktopMastraMemoryResolutionPromise(resolutionKey, pendingMemory)
+      () => cleanupDesktopMastraMemoryResolutionPromise(cache, resolutionKey, pendingMemory),
+      () => cleanupDesktopMastraMemoryResolutionPromise(cache, resolutionKey, pendingMemory)
     );
     return pendingMemory;
   }
 
   return createDesktopMastraMemoryFromCacheState({
+    cache,
     cacheState,
+    database,
     eventSink,
     memoryDependencies,
     memoryOptions,
@@ -142,10 +165,12 @@ export async function getDesktopMastraMemory(
 }
 
 function createDesktopMastraMemoryCacheState({
+  cache,
   memoryOptions,
   memorySettings,
   runId,
 }: {
+  readonly cache: DesktopMastraMemoryCache;
   readonly memoryOptions: RuntimeMemoryOptions | undefined;
   readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
   readonly runId: string | undefined;
@@ -180,7 +205,7 @@ function createDesktopMastraMemoryCacheState({
     ),
   });
   return {
-    cachedPromise: desktopMastraMemoryPromises.get(cacheKey),
+    cachedPromise: cache.memories.get(cacheKey),
     observationalMemoryResolution,
     semanticRecallEmbeddingResolution,
   };
@@ -194,6 +219,8 @@ function needsAsyncDesktopMemoryResolution(cacheState: DesktopMastraMemoryCacheS
 }
 
 async function createDesktopMastraMemoryFromCacheState({
+  cache,
+  database,
   cacheState,
   eventSink,
   memoryDependencies,
@@ -202,6 +229,8 @@ async function createDesktopMastraMemoryFromCacheState({
   runId,
   runtimeData,
 }: {
+  readonly cache: DesktopMastraMemoryCache;
+  readonly database: DesktopDatabase;
   readonly cacheState: DesktopMastraMemoryCacheState;
   readonly eventSink: ((event: AssistantRunEvent) => void) | undefined;
   readonly memoryDependencies: DesktopMemoryDependencies | undefined;
@@ -226,8 +255,7 @@ async function createDesktopMastraMemoryFromCacheState({
     semanticRecallEmbeddingTarget,
   });
   if (runId) {
-    const activeDatabase = await getDatabase();
-    const database = createRunCriticalDatabase(activeDatabase, { eventSink, runId });
+    const runDatabase = createRunCriticalDatabase(database, { eventSink, runId });
     // Run-scoped memory instances intentionally bypass the shared cache so the
     // per-run event sink cannot leak observability events across concurrent runs.
     const memory = await createPgliteMastraMemory({
@@ -239,7 +267,7 @@ async function createDesktopMastraMemoryFromCacheState({
             },
           }
         : {}),
-      database,
+      database: runDatabase,
       ...(embedder ? { embedder } : {}),
       ...(eventSink ? { eventSink } : {}),
       ...(memoryOptions ? { memoryOptions } : {}),
@@ -255,7 +283,7 @@ async function createDesktopMastraMemoryFromCacheState({
       createDesktopDelegatedInputContext(runtimeData),
       async (threadId) =>
         captureDelegatedWorkspaceStart(
-          activeDatabase,
+          database,
           threadId,
           runtimeData,
           memoryDependencies?.snapshots
@@ -287,25 +315,22 @@ async function createDesktopMastraMemoryFromCacheState({
     observationalMemoryTarget,
     semanticRecallEmbeddingTarget,
   });
-  const cachedPromise = desktopMastraMemoryPromises.get(cacheKey);
+  const cachedPromise = cache.memories.get(cacheKey);
   if (cachedPromise) {
     return cachedPromise;
   }
-  const memoryPromise = (async () => {
-    const database = await getDatabase();
-    return createPgliteMastraMemory({
-      database,
-      ...(embedder ? { embedder } : {}),
-      ...(memoryOptions ? { memoryOptions } : {}),
-      ...(memorySettings ? { memorySettings } : {}),
-      ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
-    });
-  })();
-  evictOldestDesktopMastraMemoryPromise();
-  desktopMastraMemoryPromises.set(cacheKey, memoryPromise);
+  const memoryPromise = createPgliteMastraMemory({
+    database,
+    ...(embedder ? { embedder } : {}),
+    ...(memoryOptions ? { memoryOptions } : {}),
+    ...(memorySettings ? { memorySettings } : {}),
+    ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
+  });
+  evictOldestDesktopMastraMemoryPromise(cache);
+  cache.memories.set(cacheKey, memoryPromise);
   memoryPromise.catch(() => {
-    if (desktopMastraMemoryPromises.get(cacheKey) === memoryPromise) {
-      desktopMastraMemoryPromises.delete(cacheKey);
+    if (cache.memories.get(cacheKey) === memoryPromise) {
+      cache.memories.delete(cacheKey);
     }
   });
   return memoryPromise;
@@ -583,31 +608,32 @@ function buildDesktopMastraMemoryResolutionKey({
 }
 
 function cleanupDesktopMastraMemoryResolutionPromise(
+  cache: DesktopMastraMemoryCache,
   resolutionKey: string,
   pendingMemory: DesktopMastraMemoryPromise
 ): void {
-  if (desktopMastraMemoryResolutionPromises.get(resolutionKey) === pendingMemory) {
-    desktopMastraMemoryResolutionPromises.delete(resolutionKey);
+  if (cache.resolutions.get(resolutionKey) === pendingMemory) {
+    cache.resolutions.delete(resolutionKey);
   }
 }
 
-function evictOldestDesktopMastraMemoryPromise(): void {
-  if (desktopMastraMemoryPromises.size < DESKTOP_MEMORY_CACHE_LIMIT) {
+function evictOldestDesktopMastraMemoryPromise(cache: DesktopMastraMemoryCache): void {
+  if (cache.memories.size < DESKTOP_MEMORY_CACHE_LIMIT) {
     return;
   }
-  const oldestKey = desktopMastraMemoryPromises.keys().next().value;
+  const oldestKey = cache.memories.keys().next().value;
   if (typeof oldestKey === 'string') {
-    desktopMastraMemoryPromises.delete(oldestKey);
+    cache.memories.delete(oldestKey);
   }
 }
 
-function evictOldestDesktopMastraMemoryResolutionPromise(): void {
-  if (desktopMastraMemoryResolutionPromises.size < DESKTOP_MEMORY_CACHE_LIMIT) {
+function evictOldestDesktopMastraMemoryResolutionPromise(cache: DesktopMastraMemoryCache): void {
+  if (cache.resolutions.size < DESKTOP_MEMORY_CACHE_LIMIT) {
     return;
   }
-  const oldestKey = desktopMastraMemoryResolutionPromises.keys().next().value;
+  const oldestKey = cache.resolutions.keys().next().value;
   if (typeof oldestKey === 'string') {
-    desktopMastraMemoryResolutionPromises.delete(oldestKey);
+    cache.resolutions.delete(oldestKey);
   }
 }
 
@@ -636,8 +662,7 @@ function sortJsonValue(value: unknown): unknown {
 }
 
 export function resetDesktopMastraMemoryCacheForTests(): void {
-  desktopMastraMemoryPromises.clear();
-  desktopMastraMemoryResolutionPromises.clear();
+  desktopMastraMemoryCaches = new WeakMap();
 }
 
 export async function getDesktopMastraMemoryForTests(

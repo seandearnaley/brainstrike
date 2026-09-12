@@ -47,6 +47,8 @@ export interface EmbeddingHostManagerOptions {
 export class EmbeddingHostManager {
   private disposed = false;
   private disposing = false;
+  private reportedRuntimeId: string | null = null;
+  private pendingReset: { requestId: string; runtimeId: string } | null = null;
   private readonly lifecycle: RendererHostLifecycle<EmbeddingHostStatus>;
   private readonly powerSaveBlockerEnabled: boolean;
   private pendingInactiveStatusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -181,14 +183,14 @@ export class EmbeddingHostManager {
     this.clearPendingInactiveStatus();
     const { runtimeId } = this.getStatus();
 
-    window.webContents.send(
-      EMBEDDING_HOST_COMMAND_EVENT,
-      createEmbeddingHostCommand('stop', runtimeId)
-    );
+    const command = createEmbeddingHostCommand('stop', runtimeId);
+    window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, command);
 
     try {
       const status = await this.lifecycle.waitForStatus(
-        (nextStatus) => nextStatus.state === 'stopped' || nextStatus.state === 'error',
+        (nextStatus) =>
+          nextStatus.commandId === command.requestId &&
+          (nextStatus.state === 'stopped' || nextStatus.state === 'error'),
         timeoutMs
       );
       if (status.state === 'error') {
@@ -215,6 +217,8 @@ export class EmbeddingHostManager {
     const currentRuntimeId = this.getStatus().runtimeId;
     const nextRuntimeId = createRuntimeId('embedding-host');
     this.controlState = 'resetting';
+    const command = createEmbeddingHostCommand('reset', currentRuntimeId, nextRuntimeId);
+    this.pendingReset = command;
 
     this.lifecycle.setStatus(
       EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
@@ -226,17 +230,23 @@ export class EmbeddingHostManager {
     );
     this.clearPendingInactiveStatus();
 
-    window.webContents.send(
-      EMBEDDING_HOST_COMMAND_EVENT,
-      createEmbeddingHostCommand('reset', currentRuntimeId, nextRuntimeId)
-    );
+    window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, command);
     try {
-      return await this.lifecycle.waitForStatus(
-        (status) =>
-          status.runtimeId === nextRuntimeId &&
-          (status.state === 'running' || status.state === 'error'),
+      const status = await this.lifecycle.waitForStatus(
+        (nextStatus) =>
+          (nextStatus.runtimeId === nextRuntimeId &&
+            (nextStatus.state === 'running' || nextStatus.state === 'error')) ||
+          (nextStatus.runtimeId === currentRuntimeId &&
+            nextStatus.commandId === command.requestId &&
+            nextStatus.state === 'error'),
         HOST_READY_TIMEOUT_MS
       );
+      if (status.state === 'error') {
+        // A failed drain or replacement startup retires this renderer before any new start.
+        this.lifecycle.destroyHostWindow();
+        this.lifecycle.setStatus(status);
+      }
+      return status;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.lifecycle.setStatus(
@@ -249,6 +259,9 @@ export class EmbeddingHostManager {
       );
       return this.getStatus();
     } finally {
+      if (this.pendingReset === command) {
+        this.pendingReset = null;
+      }
       this.controlState = null;
     }
   }
@@ -314,9 +327,10 @@ export class EmbeddingHostManager {
     // stop() is waiting on, orphaning that wait for its whole timeout.
     this.disposing = true;
     try {
-      // Before running, the renderer may not have installed its command listener.
-      // Lifecycle disposal cancels startup waiters and destroys the owned window.
-      if (this.lifecycle.getStatus().state !== 'starting') {
+      // A trusted renderer status is emitted only after its control listener is
+      // registered; a still-loading page cannot acknowledge Stop yet.
+      const status = this.lifecycle.getStatus();
+      if (status.state !== 'starting' || this.reportedRuntimeId === status.runtimeId) {
         await this.stopHost(EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS);
       }
     } finally {
@@ -350,11 +364,18 @@ export class EmbeddingHostManager {
     });
     const nextStatus: EmbeddingHostStatus = {
       ...baseStatus,
+      ...(report.commandId ? { commandId: report.commandId } : {}),
       ...(report.embeddingRuntime ? { embeddingRuntime: report.embeddingRuntime } : {}),
     };
+    // Keep this exact identity test aligned with reset()'s old-runtime waiter clause.
+    const isPendingResetFailure =
+      nextStatus.state === 'error' &&
+      this.pendingReset?.requestId === nextStatus.commandId &&
+      this.pendingReset?.runtimeId === nextStatus.runtimeId;
     if (
       currentStatus.runtimeId !== EMBEDDING_HOST_STOPPED_RUNTIME_ID &&
-      currentStatus.runtimeId !== nextStatus.runtimeId
+      currentStatus.runtimeId !== nextStatus.runtimeId &&
+      !isPendingResetFailure
     ) {
       logger.debug('Ignored stale embedding host status report from superseded runtime', {
         currentRuntimeId: currentStatus.runtimeId,
@@ -364,6 +385,8 @@ export class EmbeddingHostManager {
       });
       return;
     }
+
+    this.reportedRuntimeId = report.runtimeId;
 
     if (nextStatus.state !== 'running' || nextStatus.active) {
       this.clearPendingInactiveStatus();
