@@ -1,6 +1,6 @@
 import { once } from 'node:events';
 // Keep foreground decisions covered explicitly; delegated-worker-write covers background mode.
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
@@ -178,10 +178,23 @@ test('sends human input to the active child and reloads its rich conversation', 
 }, testInfo) => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-child-input-'));
   await writeFile(path.join(workspace, 'evidence.txt'), 'FOLLOWUP_FILE_EVIDENCE');
+  await writeFile(path.join(workspace, 'context.txt'), 'CHILD_MENTION_CONTEXT_1724');
+  await mkdir(path.join(workspace, '.brainstrike', 'commands'), { recursive: true });
+  await writeFile(
+    path.join(workspace, '.brainstrike', 'commands', 'child-evidence.md'),
+    'HUMAN_FOLLOWUP_1723\n\n@context.txt'
+  );
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let childCalls = 0;
   let receivedInput = false;
+  let receivedImage = false;
+  let receivedFileContext = false;
+  const imageBytes = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgaGAAAAEEAIFw9selAAAAAElFTkSuQmCC',
+    'base64'
+  );
+  const imageMarker = imageBytes.toString('base64');
   const provider = await startModelProviderShim(({ messages, toolNames }) => {
     if (toolNames.length === 0) {
       return { finalText: 'Child input task' };
@@ -227,11 +240,20 @@ test('sends human input to the active child and reloads its rich conversation', 
         toolCall: { arguments: { path: 'evidence.txt' }, name: 'brainstrike_readWorkspaceFile' },
       };
     }
-    if (history.includes('HUMAN_IDLE_CONTINUATION_1723')) {
+    if (childCalls === 3 && history.includes(imageMarker)) {
       return { finalText: 'CHILD_IDLE_CONTINUATION_RECEIVED' };
     }
     if (history.includes('HUMAN_FOLLOWUP_1723')) {
       receivedInput = true;
+      receivedImage = history.includes(imageMarker);
+      receivedFileContext = messages.some(
+        (message) =>
+          message &&
+          typeof message === 'object' &&
+          'role' in message &&
+          message.role === 'system' &&
+          JSON.stringify(message).includes('CHILD_MENTION_CONTEXT_1724')
+      );
       return { finalText: 'CHILD_FOLLOWUP_RECEIVED' };
     }
     return {
@@ -282,7 +304,17 @@ test('sends human input to the active child and reloads its rich conversation', 
     const child = window.getByRole('region', { exact: true, name: childName });
     const input = child.getByRole('textbox', { name: 'Message input' });
     await expect(input).toBeEnabled();
-    await input.fill('HUMAN_FOLLOWUP_1723');
+    await input.fill('/child-evidence');
+    await child.getByRole('option', { exact: true, name: 'child-evidence' }).click();
+    await expect(input).toHaveValue(/HUMAN_FOLLOWUP_1723/u);
+    await expect(input).toHaveValue(/:file\[context.txt\]/u);
+    const activeChooser = window.waitForEvent('filechooser');
+    await child.getByRole('button', { exact: true, name: 'Attach image' }).click();
+    await (await activeChooser).setFiles({
+      buffer: imageBytes,
+      mimeType: 'image/png',
+      name: 'evidence.png',
+    });
     await child.getByRole('button', { exact: true, name: 'Send to child' }).click();
     await expect(input).toHaveValue('');
     release.resolve();
@@ -290,6 +322,9 @@ test('sends human input to the active child and reloads its rich conversation', 
     await expect(child.getByText('CHILD_FOLLOWUP_RECEIVED', { exact: true })).toBeVisible();
     await expect(root.getByText('PARENT_FOLLOWUP_OUTCOME', { exact: true })).toBeVisible();
     expect(receivedInput).toBe(true);
+    expect(receivedImage).toBe(true);
+    expect(receivedFileContext).toBe(true);
+    await expect(child.locator('img[src^="data:image/png"]')).toHaveCount(1);
     expect(childCalls).toBe(2);
     const completedRequests = provider.requestCount();
     await window.reload();
@@ -298,10 +333,16 @@ test('sends human input to the active child and reloads its rich conversation', 
     await expect(child.getByText('CHILD_FOLLOWUP_RECEIVED', { exact: true })).toBeVisible();
     expect(provider.requestCount()).toBe(completedRequests);
     await expect(input).toBeEnabled();
-    await input.fill('HUMAN_IDLE_CONTINUATION_1723');
+    const idleChooser = window.waitForEvent('filechooser');
+    await child.getByRole('button', { exact: true, name: 'Attach image' }).click();
+    await (await idleChooser).setFiles({
+      buffer: imageBytes,
+      mimeType: 'image/png',
+      name: 'idle-evidence.png',
+    });
     await child.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(input).toHaveValue('');
-    await expect(child.getByText('HUMAN_IDLE_CONTINUATION_1723', { exact: true })).toBeVisible();
+    await expect(child.locator('img[src^="data:image/png"]')).toHaveCount(2);
     await expect(
       child.getByText('CHILD_IDLE_CONTINUATION_RECEIVED', { exact: true })
     ).toBeVisible();
@@ -310,7 +351,7 @@ test('sends human input to the active child and reloads its rich conversation', 
     const continuedRequests = provider.requestCount();
     await window.reload();
     await ensureAssistantShellVisible(window);
-    await expect(child.getByText('HUMAN_IDLE_CONTINUATION_1723', { exact: true })).toBeVisible();
+    await expect(child.locator('img[src^="data:image/png"]')).toHaveCount(2);
     await expect(
       child.getByText('CHILD_IDLE_CONTINUATION_RECEIVED', { exact: true })
     ).toBeVisible();

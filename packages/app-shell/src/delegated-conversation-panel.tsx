@@ -64,6 +64,7 @@ export function DelegatedConversationPanel({
     throw new Error('The child conversation has no host-owned transcript.');
   }
   const runtime = useDelegatedConversationRuntime({
+    attachmentsPresent: panelProps?.attachmentsAvailability !== undefined,
     history,
     onNew,
     ...(snapshot ? { update: snapshot.update } : {}),

@@ -1,7 +1,9 @@
 import type { DelegatedConversationBaseline } from '@brainstrike/assistant-contract';
 import {
+  assistantChildSignalContentsSchema,
   type DelegatedToolActionIdentity,
   isDelegatedToolActionIdentity,
+  readAssistantChildSignalContents,
 } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
 import type { ConversationStreamChunk, StreamChunkDelegatedConversation } from '../types';
@@ -71,7 +73,7 @@ function projectHumanInput<State>(
   }
   const input = z
     .object({
-      contents: z.string(),
+      contents: assistantChildSignalContentsSchema,
       createdAt: z.iso.datetime(),
       id: z.string().min(1),
       metadata: z.object({
@@ -101,7 +103,7 @@ function projectHumanInput<State>(
       chunk: {
         createdAt: input.createdAt,
         id: input.id,
-        text: input.contents,
+        ...readAssistantChildSignalContents(input.contents),
         type: 'child-user-message',
       },
       identity: child.identity,

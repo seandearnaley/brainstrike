@@ -1,4 +1,5 @@
 import type {
+  AssistantChildInput,
   DelegatedBudgetPort,
   DelegatedConversationBaseline,
   DelegatedOriginalToolCall,
@@ -10,6 +11,7 @@ import type { InputProcessor } from '@mastra/core/processors';
 import type { ToolHooks } from '@mastra/core/tools';
 import { readToolCallId, readToolExecutionThreadId } from '../tools/read-tool-call-id';
 import type { ChildContinuationHostPort } from './child-continuation-host-port';
+import type { PrepareChildInputContext } from './child-input-context';
 import type { DelegatedRunIdentity } from './delegated-run-publication';
 
 /** Observed native identities; the host separately supplies and verifies root ownership. */
@@ -50,14 +52,12 @@ export interface DelegatedFollowupTarget {
   readonly runId: string;
   readonly threadId: string;
 }
-export interface DelegatedFollowupInput {
-  readonly id: string;
-  readonly text: string;
-}
+export type DelegatedFollowupInput = AssistantChildInput;
 export type DelegatedFollowupControl = (
   target: DelegatedFollowupTarget,
   input: DelegatedFollowupInput,
-  assertAdmission: () => Promise<void>
+  assertAdmission: () => Promise<void>,
+  prepareContext?: PrepareChildInputContext
 ) => Promise<void>;
 
 export interface DelegatedConversationBinding {
