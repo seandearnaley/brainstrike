@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -31,14 +31,21 @@ it.each([false, true])(
         configFile: false,
         logLevel: 'silent',
         root,
-        worker: { format: 'es', plugins: () => (preserve ? [preserveWorkerEntryPlugin()] : []) },
+        worker: {
+          format: 'es',
+          plugins: () => (preserve ? [preserveWorkerEntryPlugin()] : []),
+          rollupOptions: {
+            output: {
+              chunkFileNames: 'assets/chunk-[name]-[hash].js',
+              entryFileNames: 'assets/worker-entry.js',
+            },
+          },
+        },
       });
       const assets = join(root, 'dist/assets');
-      const worker = (await readdir(assets)).find((name) => name.startsWith('worker-'));
-      if (!worker) {
-        throw new Error('Build emitted no worker entry');
-      }
-      const url = `${pathToFileURL(join(assets, worker)).href}#managed-id=one`;
+      const worker = join(assets, 'worker-entry.js');
+      await access(worker);
+      const url = `${pathToFileURL(worker).href}#managed-id=one`;
       const run = () =>
         execFileSync(
           process.execPath,
