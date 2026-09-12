@@ -603,12 +603,25 @@ export type ConversationStreamChunk =
 export interface StreamChunkDelegatedConversation {
   readonly baseline?: DelegatedConversationBaseline;
   readonly chunk: ConversationStreamChunk;
+  readonly continuationId?: string;
   readonly identity: DelegatedRunIdentity;
   readonly messageId: string;
   readonly partId?: string;
   readonly type: 'delegated-conversation-chunk';
 }
 
-export type StreamChunk = ConversationStreamChunk | StreamChunkDelegatedConversation;
+export interface StreamChunkChildContinuation {
+  readonly baseline?: DelegatedConversationBaseline;
+  readonly chunk: ConversationStreamChunk;
+  readonly continuationId: string;
+  readonly messageId: string;
+  readonly nativeRunId: string;
+  readonly threadId: string;
+  readonly type: 'child-continuation-chunk';
+}
+export type StreamChunk =
+  | ConversationStreamChunk
+  | StreamChunkDelegatedConversation
+  | StreamChunkChildContinuation;
 
 export type StreamIterator = AsyncIterable<StreamChunk>;

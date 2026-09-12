@@ -61,6 +61,8 @@ const PRESENT_RELATIONS = [
   'brainstrike_delegation_child_budgets',
   'brainstrike_delegation_budgets',
   'brainstrike_delegated_tool_decisions',
+  'brainstrike_delegated_continuation_decisions',
+  'brainstrike_delegated_continuations',
   'brainstrike_delegated_invocations',
   'brainstrike_delegated_conversations',
   'prompt_items',

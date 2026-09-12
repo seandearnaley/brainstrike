@@ -163,14 +163,19 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
         <div className="min-h-0 flex-1">
           <DelegatedConversationPanel
             extendHistoryForSearch={saved?.hostRunId === live?.update.baseline?.hostRunId}
+            allowIdleInput={hasDurableAssistantUsageCapability()}
             label={node.displayName}
-            {...(hasDurableAssistantUsageCapability() && live?.update.baseline?.hostRunId
+            {...(hasDurableAssistantUsageCapability()
               ? {
                   onSendActiveInput: (
                     input: { readonly id: string; readonly text: string },
                     signal: AbortSignal
                   ) => {
-                    const hostRunId = live.update.baseline?.hostRunId;
+                    const current = root.store.getConversation(node.threadId);
+                    if (current?.update.message.status.type !== 'running') {
+                      return root.sendFollowup(node.threadId, input, signal);
+                    }
+                    const hostRunId = current.update.baseline?.hostRunId;
                     if (!hostRunId) {
                       throw new Error('Child input has no active host owner.');
                     }

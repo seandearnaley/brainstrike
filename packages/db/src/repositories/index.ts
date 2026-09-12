@@ -1,4 +1,5 @@
 export * from './assistant-history-repository.js';
+export * from './delegated-continuation-repository.js';
 // Interfaces
 
 // Re-export preset types from @brainstrike/types for convenience

@@ -105,9 +105,10 @@ export async function* observeTurnPauseChunks(
   state: LegPauseState
 ): AsyncIterable<StreamChunk> {
   for await (const chunk of stream) {
-    if (chunk.type === 'tool-approval-required') {
+    const decision = chunk.type === 'child-continuation-chunk' ? chunk.chunk : chunk;
+    if (decision.type === 'tool-approval-required') {
       state.paused = true;
-    } else if (chunk.type === 'tool-suspend-required' && chunk.resumeSupported !== false) {
+    } else if (decision.type === 'tool-suspend-required' && decision.resumeSupported !== false) {
       state.paused = true;
     }
     yield chunk;

@@ -70,7 +70,8 @@ type CompletePreparedRequest = (
  */
 type PrepareRequestData = (
   abortSignal?: AbortSignal,
-  turnAnchorMessageId?: string | null
+  turnAnchorMessageId?: string | null,
+  runConfig?: unknown
 ) => Promise<Record<string, unknown>>;
 
 export interface UseAssistantUsageLedgerInput {
@@ -174,9 +175,9 @@ export function useAssistantUsageLedger({
   // assistant run while another run is in progress'), so a live sum that is
   // genuinely this thread's own in-flight accumulation cannot exist here.
   const prepareRequestAndResetLiveUsage = useCallback<PrepareRequestData>(
-    (abortSignal, turnAnchorMessageId) => {
+    (abortSignal, turnAnchorMessageId, runConfig) => {
       clearThreadLiveRunUsage();
-      return prepareRequestData(abortSignal, turnAnchorMessageId);
+      return prepareRequestData(abortSignal, turnAnchorMessageId, runConfig);
     },
     [clearThreadLiveRunUsage, prepareRequestData]
   );

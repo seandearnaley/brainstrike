@@ -208,6 +208,8 @@ async function purgeTablesTx(tx: { query: (sql: string) => Promise<unknown> }): 
   await clearRelationIfPresent(tx, 'brainstrike_delegation_child_budgets');
   await clearRelationIfPresent(tx, 'brainstrike_delegation_budgets');
   await clearRelationIfPresent(tx, 'brainstrike_delegated_tool_decisions');
+  await clearRelationIfPresent(tx, 'brainstrike_delegated_continuation_decisions');
+  await clearRelationIfPresent(tx, 'brainstrike_delegated_continuations');
   await clearRelationIfPresent(tx, 'brainstrike_delegated_invocations');
   await clearRelationIfPresent(tx, 'brainstrike_delegated_conversations');
   await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_groups');
@@ -508,6 +510,8 @@ export function createPgliteDirectTransport(
       await clearRelationIfPresent(tx, 'brainstrike_delegation_child_budgets');
       await clearRelationIfPresent(tx, 'brainstrike_delegation_budgets');
       await clearRelationIfPresent(tx, 'brainstrike_delegated_tool_decisions');
+      await clearRelationIfPresent(tx, 'brainstrike_delegated_continuation_decisions');
+      await clearRelationIfPresent(tx, 'brainstrike_delegated_continuations');
       await clearRelationIfPresent(tx, 'brainstrike_delegated_invocations');
       await clearRelationIfPresent(tx, 'brainstrike_delegated_conversations');
       await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_groups');

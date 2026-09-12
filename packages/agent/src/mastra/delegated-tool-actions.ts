@@ -9,6 +9,7 @@ import type {
 } from './delegated-conversation-binding';
 
 interface ToolActionTarget {
+  readonly continuationId?: string;
   readonly delegation?: DelegatedToolActionIdentity;
   readonly runId: string;
   readonly toolCallId: string;
@@ -65,6 +66,9 @@ export async function assertDelegatedToolActionPending(input: {
   (AgentRunToolCall & { readonly originalToolCall?: DelegatedOriginalToolCall }) | undefined
 > {
   const { action, binding } = input;
+  if (action.continuationId && !action.delegation) {
+    return;
+  }
   if (!binding?.resolveToolAction) {
     if (action.delegation) {
       throw new Error('Delegated tool decisions require host-owned ancestry verification.');
@@ -100,12 +104,61 @@ export async function assertDelegatedToolActionPending(input: {
   return { ...leaf, ...(originalToolCall ? { originalToolCall } : {}) };
 }
 
+async function claimContinuationToolAction(
+  action: ToolActionTarget,
+  binding: DelegatedConversationBinding | undefined,
+  native: { readonly agent: SnapshotAgent; readonly requiresApproval: boolean }
+): Promise<void> {
+  const host = binding?.continuation;
+  if (!(host && action.continuationId)) {
+    throw new Error('Child continuation decision requires durable host admission.');
+  }
+  const decision = {
+    ...(action.delegation ? { delegation: action.delegation } : {}),
+    id: action.continuationId,
+    kind: native.requiresApproval ? ('tool-approval' as const) : ('tool-resume' as const),
+    nativeRunId: action.runId,
+    toolCallId: action.toolCallId,
+  };
+  const scope = await host.resolveContinuationDecision(decision);
+  await host.claimContinuationDecision(decision);
+  try {
+    if (action.delegation) {
+      await assertDelegatedToolActionPending({ action, binding, ...native });
+      await binding?.prepareToolAction?.(action);
+      return;
+    }
+    const { runs } = await native.agent.listSuspendedRuns({
+      resourceId: scope.resourceId,
+      threadId: scope.threadId,
+    });
+    const run = runs.find((entry) => entry.runId === action.runId);
+    const call = run?.toolCalls.find((entry) => entry.toolCallId === action.toolCallId);
+    if (!call || call.requiresApproval !== native.requiresApproval || run?.toolCalls.length !== 1) {
+      throw new Error('Child continuation decision is stale or ambiguous.');
+    }
+  } catch (error) {
+    try {
+      await host.releaseUnexecutedContinuationDecision(decision);
+    } catch (releaseError) {
+      throw new AggregateError(
+        [error, releaseError],
+        'Child continuation validation and release failed.'
+      );
+    }
+    throw error;
+  }
+}
+
 /** Hold host admission until this runtime settles; validation alone is not atomic. */
 export async function claimDelegatedToolAction(
   action: ToolActionTarget,
   binding: DelegatedConversationBinding | undefined,
   native: { readonly agent: SnapshotAgent; readonly requiresApproval: boolean }
 ): Promise<void> {
+  if (action.continuationId) {
+    return await claimContinuationToolAction(action, binding, native);
+  }
   if (!action.delegation) {
     return;
   }

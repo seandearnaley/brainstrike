@@ -177,6 +177,7 @@ export {
 } from './mastra/agent-runtime';
 export {
   streamMastraAgent,
+  streamMastraChildFollowup,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
 } from './mastra/agent-streaming';
@@ -188,6 +189,13 @@ export {
   buildPersonaSubAgents,
   type PersonaSubAgentBuildResult,
 } from './mastra/build-persona-subagents';
+export type {
+  ChildContinuationBaseline,
+  ChildContinuationDecision,
+  ChildContinuationHostPort,
+  ChildContinuationScope,
+  ChildContinuationStatus,
+} from './mastra/child-continuation-host-port';
 export {
   buildCompactionOverlayInputProcessor,
   CompactionOverlayProcessor,
@@ -218,6 +226,7 @@ export {
 } from './mastra/delegated-conversation-binding';
 export type { DelegatedRunIdentity } from './mastra/delegated-run-publication';
 export type { DelegatedSuspensionResolver } from './mastra/delegated-suspension-discovery';
+export { captureDelegatedSystemContext } from './mastra/delegated-system-context';
 export {
   clipGrepProjectionLine,
   formatGrepContentHeader,
@@ -265,6 +274,7 @@ export {
   type DiscoveredSuspendedApproval,
   type DiscoveredSuspendedPause,
   type ListSuspendedRunsResult,
+  listSuspendedChildContinuation,
   listSuspendedMastraRuns,
 } from './mastra/suspended-run-discovery';
 export type { ToolCallTelemetryMetadata } from './mastra/tool-call-telemetry';

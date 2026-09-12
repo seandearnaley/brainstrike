@@ -897,6 +897,8 @@ export function registerDatabaseIpcHandlers(
             await clearOptionalRelation(tx, 'brainstrike_delegation_child_budgets');
             await clearOptionalRelation(tx, 'brainstrike_delegation_budgets');
             await clearOptionalRelation(tx, 'brainstrike_delegated_tool_decisions');
+            await clearOptionalRelation(tx, 'brainstrike_delegated_continuation_decisions');
+            await clearOptionalRelation(tx, 'brainstrike_delegated_continuations');
             await clearOptionalRelation(tx, 'brainstrike_delegated_invocations');
             await clearOptionalRelation(tx, 'brainstrike_delegated_conversations');
             await clearOptionalRelation(tx, 'brainstrike_assistant_thread_groups');

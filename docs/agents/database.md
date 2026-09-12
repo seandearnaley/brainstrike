@@ -366,6 +366,57 @@ loaded in a new engine, and production-ledger upgrade/replay. The desktop host
 uses this graph together with invocation identity, lifecycle correlation and
 usage attribution below.
 
+### Human continuation admission (BST-1723)
+
+Migration 135 adds `brainstrike_delegated_continuations` and its exact leaf
+`brainstrike_delegated_continuation_decisions` claims. A human wake reuses the
+existing authorized native child/resource and immutable profile but has a new
+request receipt, managed root host leg, and native run. It never invents a
+parent tool call or rewrites the original delegation invocation. The shared
+outward graph walk checks every native resource and reports the actual depth.
+Read-only `getContinuation(scope, id)` discovery needs no execution host ID.
+There is currently no persisted conversation archive field; worktree archive
+is a separate contract and must not be mistaken for conversation ownership.
+
+Admission and the existing durable tree/child budget reservation share one
+transaction. Duplicate input IDs and overlapping active root admissions fail;
+ambiguous crash receipts never automatically resend user input. An existing
+identical receipt fails with `continuation-input-already-admitted`; changing
+its child/text fails with `continuation-input-id-conflict`. Neither means the
+input was undelivered. Only a fresh admission refusal reports
+`continuation-input-not-admitted`. The startup
+reaper marks dead claimed/running receipts interrupted, while a persisted
+approval/question remains pending for an explicit exact native decision.
+Decision resumes retain the receipt’s originating turn and its existing budget;
+the database refuses a claim from a managed host attached to another turn.
+Managed run creation resolves that saved turn before inserting a resume host;
+a new child input instead anchors its stable request ID. Decision claims retain
+the outer native continuation run but consume the exact leaf native run/tool
+call, so sibling leaves with identical tool-call IDs remain distinct. Nested
+paths start at the continuation child, never the original root invocation;
+only the current host may release an unexecuted claim. A claimed resume settles
+the previous paused projection header; releasing before execution restores it. Cancellation
+fences native binding/resume before joining the existing managed host owner;
+a failed join remains a failed Stop, never successful cancellation. A new
+explicit message after Stop is eligible for admission; old approval events on
+cancelled/failed child runs no longer represent live pending decisions.
+
+Ordinary child run headers/events retain rich history. Metadata carries the
+continuation ID and native run separately from the display message ID. Usage
+uses the existing root-attributed table, one row per continuation/current host
+leg; cumulative redelivery within a leg takes maxima and separate resume legs
+remain additive. Its nullable continuation FK uses `ON DELETE SET NULL` so
+child deletion retains spent root tokens. Both receipt tables cascade from the
+native graph and are registered in every reset path; reset clears usage too.
+Suspended-run HTTP discovery enumerates owned pending receipts even if the
+original root has no native pause. Each candidate is reauthorized through the
+graph, then an inert native reader verifies its exact saved pending decision;
+receipt rows alone never manufacture a resumable control. Responses preserve
+the continuation anchor and annotate durable leaf claim/cancellation state.
+Real DB and desktop-host continuation integration tests cover transactional
+admission, dumped-engine reconstruction, exact decisions, cancellation join,
+usage, child deletion, and production-ledger upgrade/replay.
+
 ### Native invocation identity (BST-1718)
 
 Migration 127 adds `brainstrike_delegated_invocations`. Its immutable key is
@@ -380,8 +431,9 @@ Mastra mints its own run ids, and approval/suspension creates new host legs.
 invocation before recording the native child run. This applies to both the
 initial bind and duplicate/resume authorization; a mismatch never changes the
 record. The method records the observed native child run once; exact duplicate
-delivery is idempotent and a different child run is rejected. A follow-up gets a
-new invocation key and child run while retaining its conversation. Reads and
+delivery is idempotent and a different child run is rejected. A subsequent native delegation gets a
+new invocation key and child run while retaining its conversation. Human idle
+wakes use the separate continuation admission described above. Reads and
 run binding revalidate the whole native ancestry and the original host row's
 owner/root/turn. Desktop passes its current host leg into the same SQL mutation,
 which rechecks the current owner/root/turn atomically; a stale preliminary scope

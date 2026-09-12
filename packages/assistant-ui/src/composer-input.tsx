@@ -151,15 +151,31 @@ const ComposerInputRow = ({
           </button>
         ) : null}
         <ThreadPrimitive.If running={false}>
-          <ComposerPrimitive.Send
-            aria-label="Send"
-            className="aui-button aui-button-primary aui-composer-send"
-            data-testid="assistant-composer-send"
-            disabled={sendDisabled}
-            title="Send"
-          >
-            <ArrowUpIcon className="size-4" />
-          </ComposerPrimitive.Send>
+          {activeInput ? (
+            <button
+              aria-label="Send"
+              className="aui-button aui-button-primary aui-composer-send"
+              data-testid="assistant-composer-send"
+              disabled={sendDisabled || !hasDraft}
+              onClick={() => {
+                void activeInput.send();
+              }}
+              title="Send"
+              type="button"
+            >
+              <ArrowUpIcon className="size-4" />
+            </button>
+          ) : (
+            <ComposerPrimitive.Send
+              aria-label="Send"
+              className="aui-button aui-button-primary aui-composer-send"
+              data-testid="assistant-composer-send"
+              disabled={sendDisabled}
+              title="Send"
+            >
+              <ArrowUpIcon className="size-4" />
+            </ComposerPrimitive.Send>
+          )}
         </ThreadPrimitive.If>
         <ThreadPrimitive.If running>
           {activeInput ? (

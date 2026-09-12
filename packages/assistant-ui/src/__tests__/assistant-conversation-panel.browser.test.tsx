@@ -263,8 +263,8 @@ test.each([390, 900])(
   'retains pending child input controls after idle without replay at width %s',
   async (width) => {
     const previousViewport = { height: window.innerHeight, width: window.innerWidth };
-    await page.viewport(width, 800);
     onTestFinished(() => page.viewport(previousViewport.width, previousViewport.height));
+    await page.viewport(width, 800);
     expect(window.innerWidth).toBe(width);
     const accepted = Promise.withResolvers<void>();
     let transportSettled = false;

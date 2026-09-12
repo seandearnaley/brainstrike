@@ -846,3 +846,61 @@ describe('createProviderApiKeyReader adapter (BST-1352 migration shim)', () => {
     expect(shaped.message).not.toContain('secret-refresh-token');
   });
 });
+
+describe('managed idle-child continuation admission', () => {
+  const childFollowup = {
+    id: 'child-request',
+    text: 'Continue the existing work',
+    threadId: 'owned-child',
+  };
+  it('prepares a typed child followup without manufacturing another root user prompt', async () => {
+    const result = await prepare(
+      JSON.stringify({
+        data: { memory: { resourceId: 'owner', threadId: 'root' }, provider: 'openai' },
+        messages: [],
+        runConfig: { custom: { brainstrikeChildFollowup: childFollowup } },
+      })
+    );
+    expect(result).toMatchObject({ ok: true, request: { childFollowupAction: childFollowup } });
+  });
+
+  it.each([
+    { ...childFollowup, threadId: '' },
+    { ...childFollowup, resourceId: 'borrowed-owner' },
+    { ...childFollowup, text: '' },
+  ])(
+    'rejects invalid child continuation identity or caller-supplied authority %#',
+    async (action) => {
+      const result = await prepare(
+        JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [],
+          runConfig: { custom: { brainstrikeChildFollowup: action } },
+        })
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        rejection: { payload: { error: 'invalid_child_followup_action' }, status: 400 },
+      });
+    }
+  );
+
+  it('rejects mixed child input and pending decision actions', async () => {
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'openai' },
+        messages: [],
+        runConfig: {
+          custom: {
+            brainstrikeChildFollowup: childFollowup,
+            brainstrikeToolApproval: { action: 'approve', runId: 'run', toolCallId: 'call' },
+          },
+        },
+      })
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      rejection: { payload: { error: 'conflicting_tool_continuation_actions' }, status: 400 },
+    });
+  });
+});

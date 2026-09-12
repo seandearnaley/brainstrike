@@ -31,6 +31,7 @@ import {
   resolveReasoningVisible,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
+import { readChildFollowupRunConfigAction } from '@brainstrike/assistant-contract/child-followup';
 import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
 import {
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
@@ -48,10 +49,12 @@ import {
   type ProviderModelDefinition,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import { readToolApprovalRunConfigAction } from '@brainstrike/assistant-contract/tool-approval';
 import {
   getNativeToolDescription,
   getToolSchemaDisplay,
 } from '@brainstrike/assistant-contract/tool-metadata';
+import { readToolResumeRunConfigAction } from '@brainstrike/assistant-contract/tool-suspend';
 import type {
   AssistantThreadMetadata,
   AssistantThreadRepository,
@@ -450,6 +453,7 @@ export function resolveHostedMemoryBackendAvailable(args: {
 }
 
 export function createAssistantThreadRunPromise(args: {
+  runConfig?: unknown;
   assistantThreadRepository: AssistantThreadRepository | null;
   memoryResourceId: string | undefined;
   modelSettings: RuntimeData['modelSettings'] | undefined;
@@ -472,6 +476,29 @@ export function createAssistantThreadRunPromise(args: {
     throw new Error('Assistant run records require a selected provider and model.');
   }
 
+  const followup = readChildFollowupRunConfigAction(args.runConfig);
+  const approval = readToolApprovalRunConfigAction(args.runConfig);
+  const resume = readToolResumeRunConfigAction(args.runConfig);
+  if (
+    (followup && 'invalid' in followup) ||
+    (approval && 'invalid' in approval) ||
+    (resume && 'invalid' in resume) ||
+    [followup, approval, resume].filter(Boolean).length > 1
+  ) {
+    throw new Error(
+      'Assistant run preparation received conflicting or invalid child control input.'
+    );
+  }
+  const decision =
+    approval && 'action' in approval
+      ? approval.action
+      : resume && 'action' in resume
+        ? resume.action
+        : undefined;
+  const childContinuation = decision?.continuationId
+    ? { id: decision.continuationId, nativeRunId: decision.runId }
+    : undefined;
+  const turnMessageId = followup && 'action' in followup ? followup.action.id : args.turnMessageId;
   const providerDefinition = getProviderDefinition(args.selectedProvider);
   const runId = createThreadRunId();
   return args.assistantThreadRepository
@@ -482,7 +509,8 @@ export function createAssistantThreadRunPromise(args: {
       resourceId: args.memoryResourceId,
       runtimeKind: toAssistantThreadRuntimeKind(providerDefinition.runtime),
       threadId: args.selectedMemoryThreadId,
-      turnMessageId: args.turnMessageId,
+      turnMessageId,
+      ...(childContinuation ? { childContinuation } : {}),
       ...(args.modelSettings ? { modelSettings: { ...args.modelSettings } } : {}),
       ...(args.providerOptions ? { providerOptions: { ...args.providerOptions } } : {}),
     })

@@ -6,6 +6,7 @@ import {
 } from '@brainstrike/assistant-service/steering';
 import { z } from 'zod';
 import { getDatabase } from '../db-main';
+import { cancelDelegatedContinuations } from './delegated-continuation-cancellation';
 import { createDesktopDelegatedSuspensionResolver } from './delegated-conversation-host';
 import { getDesktopMastraMemory } from './mastra-memory';
 import type { TurnBoundaryController } from './snapshot-turn-boundaries';
@@ -26,6 +27,17 @@ async function hasWaitingTurnWork(
 ): Promise<boolean> {
   if (!scope.turnMessageId) {
     return false;
+  }
+  const continuations = await database.query(
+    `SELECT continuation.id FROM brainstrike_delegated_continuations continuation
+    JOIN brainstrike_assistant_thread_runs active ON active.id = continuation.active_host_run_id
+    WHERE continuation.owner_resource_id = $1 AND continuation.root_thread_id = $2
+      AND active.turn_message_id = $3 AND active.resource_id = $1 AND active.thread_id = $2
+      AND continuation.state IN ('claimed','running','awaiting-approval','awaiting-input') LIMIT 1`,
+    [scope.resourceId, scope.threadId, scope.turnMessageId]
+  );
+  if (continuations.rows.length > 0) {
+    return true;
   }
   const invocations = await database.query(
     `SELECT DISTINCT invocation.parent_runtime_run_id AS "runId"
@@ -162,6 +174,26 @@ export async function cancelDesktopAssistantRun(
     .array(z.object({ id: z.string() }))
     .parse(cancelled.rows)
     .map((row) => row.id);
+  const continuations = await database.query(
+    `SELECT DISTINCT thread_id AS "threadId" FROM brainstrike_delegated_continuations
+    WHERE owner_resource_id = $1 AND root_thread_id = $2
+      AND active_host_run_id IN (SELECT jsonb_array_elements_text($3::jsonb))
+      AND state IN ('claimed','running','awaiting-approval','awaiting-input')`,
+    [scope.resourceId, scope.threadId, JSON.stringify(ids)]
+  );
+  const continuationThreads = z
+    .array(z.object({ threadId: z.string().min(1) }))
+    .parse(continuations.rows);
+  await Promise.all(
+    continuationThreads.map(({ threadId }) =>
+      cancelDelegatedContinuations(
+        database,
+        { ownerResourceId: scope.resourceId, rootThreadId: scope.threadId },
+        threadId,
+        true
+      )
+    )
+  );
   await Promise.all(ids.map((id) => cancelSteerableRunAndWait(id)));
   await cancelWaitingTurnTasks(database, scope);
   // Teardown may follow a terminal write. Always finalize after actual owners

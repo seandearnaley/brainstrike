@@ -620,7 +620,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
             return {
               ...result,
               chunks: result.chunks.map((chunk) => {
-                if (chunk.type === 'delegated-conversation-chunk') {
+                if (
+                  chunk.type === 'delegated-conversation-chunk' ||
+                  chunk.type === 'child-continuation-chunk'
+                ) {
                   throw new Error('Child projection cannot contain an already-scoped chunk.');
                 }
                 return chunk;
@@ -651,7 +654,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       expect(
         pausedProjection?.finalize((state) =>
           makeDelegatedStreamTermination(state, false).map((chunk) => {
-            if (chunk.type === 'delegated-conversation-chunk') {
+            if (
+              chunk.type === 'delegated-conversation-chunk' ||
+              chunk.type === 'child-continuation-chunk'
+            ) {
               throw new Error('Child terminal cannot contain an already-scoped chunk.');
             }
             return chunk;

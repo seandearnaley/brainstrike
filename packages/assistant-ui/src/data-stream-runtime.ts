@@ -173,6 +173,8 @@ function abortReason(signal: AbortSignal): unknown {
 
 /** Per-run context handed to a function-form `body` provider. */
 export interface PrepareRequestBodyContext {
+  /** Forwarded unchanged so durable run admission can resolve child continuation turns. */
+  readonly runConfig?: unknown;
   /**
    * The id of the turn's triggering user message — the last REAL user message
    * in the thread, with approval/suspend action echoes excluded (they are UI
@@ -1333,7 +1335,7 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         this.options,
         abortSignal,
         requestPreparationTimeoutMs,
-        { turnAnchorMessageId: resolveTurnAnchorMessageId(messages) }
+        { runConfig, turnAnchorMessageId: resolveTurnAnchorMessageId(messages) }
       );
       const bodyValue = rawBodyValue as Record<string, unknown> | undefined;
       assertSupportedAssistantUiRequestContext(

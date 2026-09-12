@@ -30,6 +30,7 @@
  * See docs/agents/assistant-runtime.md and docs/agents/mastra-boundary.md R6.
  */
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import { SUBAGENT_DELEGATION_TOOL_PREFIX } from '@brainstrike/assistant-contract/personas';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
@@ -38,6 +39,7 @@ import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
 import type { MastraMemory } from '@mastra/core/memory';
 import type { ChunkType } from '@mastra/core/stream';
+import { z } from 'zod';
 import { isContextOverflowProviderErrorCode } from '../provider-error-metadata';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import {
@@ -72,6 +74,10 @@ import {
   validateToolResumeAction,
 } from './attempt-legs';
 import { projectBackgroundStream } from './background-stream';
+import {
+  createChildContinuationDecisionStream,
+  createChildFollowupStream,
+} from './child-continuation';
 import { withDelegatedPersonaSnapshots } from './delegated-persona-snapshots';
 import { createDelegatedStreamProjection } from './delegated-stream-projection';
 import { captureDelegatedSystemContext } from './delegated-system-context';
@@ -121,6 +127,7 @@ import {
 } from './stream-termination';
 import { ensureMastraThreadTitleGeneration } from './thread-title-generation';
 import { makeApprovalRequiredChunks, makeToolSuspendRequiredChunks } from './tool-approval-chunks';
+import { readMastraStreamPartValue } from './tool-event-mapper';
 import {
   COMPLETED_FINISH_REASONS,
   type DelegationUsageCapture,
@@ -451,9 +458,35 @@ export async function processMastraStreamPart(
   }
 
   switch (p.type) {
-    case 'data-user-message':
-      // The delegated projection owns this human row, never the parent assistant.
+    case 'data-signal':
+      // Native notifications are persisted as model context. Their actual model
+      // response follows on this stream; they are not an extra user/assistant row.
       return { chunks: [], finished: false };
+    case 'data-user-message': {
+      const data = readMastraStreamPartValue(p, 'data');
+      const continuation = z
+        .object({
+          contents: z.string(),
+          createdAt: z.iso.datetime(),
+          id: z.string().min(1),
+          metadata: z.object({ brainstrikeChildContinuation: z.string().min(1) }),
+        })
+        .safeParse(data);
+      if (!continuation.success) {
+        return { chunks: [], finished: false };
+      }
+      return {
+        chunks: [
+          {
+            createdAt: continuation.data.createdAt,
+            id: continuation.data.id,
+            text: continuation.data.contents,
+            type: 'child-user-message',
+          },
+        ],
+        finished: false,
+      };
+    }
     case 'start':
       return {
         chunks: [
@@ -1096,7 +1129,10 @@ export function createAttemptDelegatedProjection({
       );
       return {
         chunks: result.chunks.map((chunk) => {
-          if (chunk.type === 'delegated-conversation-chunk') {
+          if (
+            chunk.type === 'delegated-conversation-chunk' ||
+            chunk.type === 'child-continuation-chunk'
+          ) {
             throw new Error('Child projection cannot contain an already-scoped chunk.');
           }
           return chunk;
@@ -1109,7 +1145,10 @@ export function createAttemptDelegatedProjection({
   const settle = () =>
     delegatedProjection?.finalize((state) =>
       makeDelegatedStreamTermination(state, Boolean(runtimeData?.signal?.aborted)).map((chunk) => {
-        if (chunk.type === 'delegated-conversation-chunk') {
+        if (
+          chunk.type === 'delegated-conversation-chunk' ||
+          chunk.type === 'child-continuation-chunk'
+        ) {
           throw new Error('A child terminal cannot contain an already-scoped chunk.');
         }
         return chunk;
@@ -1118,7 +1157,7 @@ export function createAttemptDelegatedProjection({
 
   return {
     decorate: (chunk) =>
-      chunk.type === 'delegated-conversation-chunk'
+      chunk.type === 'delegated-conversation-chunk' || chunk.type === 'child-continuation-chunk'
         ? chunk
         : (delegatedProjection?.decorate(chunk) ?? chunk),
     preparePart: (part) => delegatedProjection?.preparePart(part) ?? part,
@@ -1413,6 +1452,9 @@ export async function streamMastraToolApprovalAction(
     });
   }
 
+  if (action.continuationId) {
+    return createChildContinuationDecisionStream(action, withRuntimeDerivedStreamOptions(options));
+  }
   const resumeOptions = await withDelegatedPersonaSnapshots(action, options);
   const runtimeData = resumeOptions.runtime;
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
@@ -1489,6 +1531,9 @@ export async function streamMastraToolResumeAction(
     });
   }
 
+  if (action.continuationId) {
+    return createChildContinuationDecisionStream(action, withRuntimeDerivedStreamOptions(options));
+  }
   const resumeOptions = await withDelegatedPersonaSnapshots(action, options);
   const runtimeData = resumeOptions.runtime;
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
@@ -1504,4 +1549,11 @@ export async function streamMastraToolResumeAction(
     runtimeData: runtimeResolution.runtime,
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
+}
+
+export function streamMastraChildFollowup(
+  input: AssistantChildFollowupAction,
+  options: MastraAgentRuntimeOptions
+): Promise<StreamIterator> {
+  return createChildFollowupStream(input, withRuntimeDerivedStreamOptions(options));
 }

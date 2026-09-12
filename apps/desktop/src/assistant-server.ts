@@ -627,6 +627,7 @@ async function handleAssistantPost(
     messages,
     runtimeData,
     apiKey,
+    childFollowupAction,
     toolApprovalAction,
     toolResumeAction,
   } = prepared.request;
@@ -718,6 +719,7 @@ async function handleAssistantPost(
       apiKey,
       assistantMessageId,
       authInput,
+      ...(childFollowupAction ? { childFollowupAction } : {}),
       executionSignal: executionAbortController.signal,
       initializeStream: async (core) => {
         // runAssistantTurn admits this root only after its previous owner settles.
@@ -749,6 +751,7 @@ async function handleAssistantPost(
                 },
               }
             : {}),
+          childFollowupAction: core.childFollowupAction,
           mcpHost: getDesktopMcpHostRuntime().host,
           mcpTaskTracking: getDesktopMcpHostRuntime().taskHost,
           messages: core.messages,
