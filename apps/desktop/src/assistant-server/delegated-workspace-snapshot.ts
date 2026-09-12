@@ -16,11 +16,12 @@ export async function captureDelegatedWorkspaceStart(
     return;
   }
   const repository = snapshots.createRepository(database);
-  const capturedRoots = new Set(
-    (await repository.snapshotsForThread(threadId))
-      .filter((row) => row.kind === 'turn-start')
-      .map((row) => row.rootId)
-  );
+  const capturedRoots = new Set<string>();
+  for (const row of await repository.snapshotsForThread(threadId)) {
+    if (row.kind === 'turn-start') {
+      capturedRoots.add(row.rootId);
+    }
+  }
   // A pre-existing child without a baseline must remain honestly unrestorable.
   // Never manufacture a turn-start snapshot after that child has executed.
   const runs = await database.query(
