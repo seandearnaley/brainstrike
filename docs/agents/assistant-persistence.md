@@ -266,9 +266,16 @@ last assistant message as an upsert of Mastra's own id, so the marker is the
 last thing the model reads. Saving first puts the marker on the completed
 tool-work row while Mastra's later partial-text rows order after it (measured
 2026-09-12). By the time the join runs the attempt's abort context is disposed,
-so the stream's abort is the expected ending and a consumption error is
-recorded (`mastra_native_stream_settled_with_error`, debug) rather than thrown
-a second time — the chunk path already surfaced any real failure. The spec case
+so the stream's abort is the expected ending and is recorded at debug
+(`mastra_native_stream_settled_with_error`); a failure that surfaces only
+during settlement — a failing snapshot DELETE, a persistence error in Mastra's
+cancel write, or a `consumeStream` that rejects outright — is recorded at warn
+under the same code, never thrown a second time. The expected ending is the
+abort reason itself, an error one `cause` hop from it, or any error named
+`AbortError` — a deliberate widening: an unrelated inner abort (a tool's own
+`fetch`, say) is bucketed as expected and lands at debug, so abort-shaped
+failures do not reach warn. One failure is recorded once, but a genuine
+failure that surfaces after the abort record still reaches warn. The spec case
 "settles Mastra snapshot cleanup before a watchdog-aborted turn ends" holds each
 cleanup statement open and asserts the turn cannot end while one is pending or
 still to be issued; removing the join makes it fail. The join also made the
