@@ -1,4 +1,5 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { fileNodeToDirectoryHandle } from '@brainstrike/file-system/file-node-handles';
 import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
@@ -307,16 +308,7 @@ export function useFileTree(
         if (entry.type === 'directory') {
           const node = context.processDirectory(entry, relativePath, handle, context.rootFolderId);
 
-          const entryHandle = entry.handle as Partial<DirectoryHandle> | undefined;
-          const rootId = entryHandle?.rootId ?? handle.rootId;
-          const dirHandle: DirectoryHandle = {
-            _internal: entry.handle,
-            kind: 'directory',
-            name: entry.name,
-            path: node.path,
-            platform: handle.platform,
-            ...(rootId === undefined ? {} : { rootId }),
-          };
+          const dirHandle = fileNodeToDirectoryHandle({ ...entry, path: node.path }, handle.rootId);
 
           // Defer reading until the stack pop; failures handled centrally
           if (node.children) {

@@ -7,6 +7,7 @@
  * Generic tree operations are imported from @brainstrike/utils.
  */
 
+import { fileNodeToDirectoryHandle } from '@brainstrike/file-system/file-node-handles';
 import {
   findNodeByPath as findNodeByPathGeneric,
   isLoading as isLoadingGeneric,
@@ -46,49 +47,6 @@ export interface LazyLoadOptions {
  */
 function defaultSortFileNodes(nodes: IFileNode[]): IFileNode[] {
   return sortTreeNodes(nodes);
-}
-
-/**
- * Detect platform from a native handle
- */
-function detectPlatform(handle: unknown): 'web' | 'electron' {
-  // Check if it's already a DirectoryHandle with platform info
-  if (handle && typeof handle === 'object' && 'platform' in handle) {
-    return (handle as { platform: string }).platform === 'electron' ? 'electron' : 'web';
-  }
-  // Check for web FileSystemDirectoryHandle (has entries() method)
-  if (handle && typeof handle === 'object' && 'entries' in handle) {
-    return 'web';
-  }
-  // Assume electron otherwise
-  return 'electron';
-}
-
-/**
- * Build a DirectoryHandle from an IFileNode
- */
-function buildDirectoryHandle(
-  node: IFileNode,
-  parentRootId: DirectoryHandle['rootId']
-): DirectoryHandle {
-  // IFileNode.handle is a required field (never optional in the type), so a
-  // directory node without one is a malformed input, not a legitimate shape
-  // to tolerate — silently defaulting `platform` via detectPlatform(undefined)
-  // would produce a plausible-but-wrong handle instead of surfacing the bug.
-  // Per NO SILENT FALLBACKS: throw loudly instead of degrading quietly.
-  if (node.handle === undefined) {
-    throw new Error(`Directory node is missing its native handle: ${node.path}`);
-  }
-  const nodeHandle = node.handle as Partial<DirectoryHandle>;
-  const rootId = nodeHandle.rootId ?? parentRootId;
-  return {
-    _internal: node.handle,
-    kind: 'directory',
-    name: node.name,
-    path: node.path,
-    platform: detectPlatform(node.handle),
-    ...(rootId === undefined ? {} : { rootId }),
-  };
 }
 
 /**
@@ -188,7 +146,7 @@ export async function loadDirectoryChildren(
   abortSignal?.throwIfAborted();
 
   // Build DirectoryHandle from the node
-  const handle = buildDirectoryHandle(parentNode, options.parentRootId);
+  const handle = fileNodeToDirectoryHandle(parentNode, options.parentRootId);
 
   // Read immediate children only
   let children: IFileNode[];
@@ -348,7 +306,7 @@ export async function loadDirectoryChildrenStreaming(
 
   abortSignal?.throwIfAborted();
 
-  const handle = buildDirectoryHandle(parentNode, options.parentRootId);
+  const handle = fileNodeToDirectoryHandle(parentNode, options.parentRootId);
   const depth = parentNode.depth + 1;
   const rootFolderId = parentNode.rootFolderId;
 

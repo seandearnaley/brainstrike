@@ -7,6 +7,7 @@
  */
 
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import { fileNodeToDirectoryHandle } from '@brainstrike/file-system/file-node-handles';
 import type { DepthProgress, IFileNode, StreamMeta } from '@brainstrike/types';
 import { calculatePathDepth } from '@brainstrike/utils';
 import { isAbortError } from '@brainstrike/utils/error-utils';
@@ -369,20 +370,7 @@ export async function walkDirectoryParallel(
     finalPath: string,
     parentHandle: DirectoryHandle
   ): DirectoryHandle {
-    const entryHandle = entry.handle as Partial<DirectoryHandle> | undefined;
-    const childPath =
-      typeof entryHandle?.path === 'string' && entryHandle.path.length > 0
-        ? entryHandle.path
-        : finalPath;
-    const rootId = entryHandle?.rootId ?? parentHandle.rootId;
-    return {
-      _internal: entry.handle,
-      kind: 'directory',
-      name: entry.name,
-      path: childPath,
-      platform: entryHandle?.platform ?? parentHandle.platform,
-      ...(rootId === undefined ? {} : { rootId }),
-    };
+    return fileNodeToDirectoryHandle({ ...entry, path: finalPath }, parentHandle.rootId);
   }
 
   /**

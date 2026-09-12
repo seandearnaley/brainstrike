@@ -267,10 +267,14 @@ describe('processDirectoryEntry', () => {
 
   it('should create correct directory handle for children', async () => {
     const directoryHandle = createMockDirectoryHandle('electron');
-    const entryHandle = {
+    const nativePayload = { nativePath: '/native/mydir' };
+    const entryHandle: DirectoryHandle = {
+      _internal: nativePayload,
       kind: 'directory',
       name: 'mydir',
-    } as unknown as FileSystemDirectoryHandle;
+      path: '/native/mydir',
+      platform: 'electron',
+    };
     const entry: IFileNode = {
       ...createMockDirectoryEntry('mydir', 'mydir'),
       handle: entryHandle,
@@ -294,7 +298,39 @@ describe('processDirectoryEntry', () => {
     expect(calledWith.name).toBe('mydir');
     expect(calledWith.kind).toBe('directory');
     expect(calledWith.platform).toBe('electron');
-    expect(calledWith._internal).toBe(entryHandle);
+    expect(calledWith.path).toBe('/native/mydir');
+    expect(calledWith._internal).toBe(nativePayload);
+  });
+
+  it('preserves a canonical web directory capability when requesting child traversal', async () => {
+    const rawDirectory = { kind: 'directory', name: 'canonical-dir' };
+    const descriptor: DirectoryHandle = {
+      _internal: rawDirectory,
+      kind: 'directory',
+      name: 'canonical-dir',
+      path: 'root/canonical-dir',
+      platform: 'web',
+      rootId: 'child-root',
+    };
+    const entry: IFileNode = {
+      ...createMockDirectoryEntry('display-dir', 'display-dir'),
+      handle: descriptor,
+    };
+    const rootHandle = createMockDirectoryHandle('web');
+    const readTree = vi.fn().mockResolvedValue([]);
+
+    await processDirectoryEntry(
+      entry,
+      'display-dir',
+      { ...rootHandle, rootId: 'parent-root' },
+      rootHandle,
+      'selection-root',
+      readTree,
+      (nodes) => nodes
+    );
+
+    expect(readTree).toHaveBeenCalledWith(descriptor, rootHandle, 'display-dir', false, undefined);
+    expect(readTree.mock.calls[0]?.[0]._internal).toBe(rawDirectory);
   });
 
   it('preserves a durable rootId stamped on a child handle', async () => {

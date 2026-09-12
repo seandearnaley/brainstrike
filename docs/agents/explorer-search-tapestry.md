@@ -456,6 +456,15 @@ there rather than hiding entries after the adapter has already read them.
   capability in `_internal` and inherits the root's durable identity. Do not
   disguise descriptors as browser capabilities with double casts. Shared type
   assertions and `workspace-collection-sync-scan.test.ts` cover both forms.
+  File reads and directory traversal normalize node handles through
+  `@brainstrike/file-system/file-node-handles`: wrap raw browser capabilities
+  once, preserve a descriptor's `_internal`, platform, canonical I/O path and
+  durable root identity, and inherit a parent root only when the child is
+  unstamped. Retain durable root stamps carried by raw browser capabilities as
+  well. File-tree and token-indexing maps extract a canonical web
+  descriptor's raw capability through their existing capability guard. The
+  real-web-adapter processor, shared-loader and lazy-expansion regressions plus
+  `file-node-handles.test.ts` pin these boundaries.
 - **Chunking re-dispatch is bounded per service session (BST-1229).** A
   hash-unchanged managed-cache row with no `chunks_processed_at` stamp may be
   re-dispatched at most three times. The service-owned in-memory tracker keys

@@ -1,7 +1,7 @@
 import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
-import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import type { FileSystemAdapter } from '@brainstrike/file-system';
 import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brainstrike/file-system';
-import type { Platform } from '@brainstrike/platform-utils';
+import { fileNodeToFileHandle } from '@brainstrike/file-system/file-node-handles';
 import type { IFileNode } from '@brainstrike/types';
 import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
 import { fileContent, getKnownFileSize } from '@brainstrike/utils/file-content';
@@ -42,35 +42,6 @@ function getConfiguredMaxFileSize(): number {
   return configuredMaxFileSize;
 }
 
-function getCanonicalFileHandlePath(fileNode: IFileNode): string {
-  const handlePath = (fileNode.handle as unknown as { path?: unknown }).path;
-  if (typeof handlePath === 'string' && handlePath.length > 0) {
-    return handlePath;
-  }
-  return fileNode.path;
-}
-
-function buildFileHandle(fileNode: IFileNode, fileSystemAdapter: FileSystemAdapter): FileHandle {
-  const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
-  const platform: Platform = fileSystemAdapter.platform ?? handlePlatform ?? 'web';
-
-  const fileHandle: FileHandle = {
-    _internal: fileNode.handle,
-    kind: 'file',
-    name: fileNode.name,
-    path: getCanonicalFileHandlePath(fileNode),
-    platform,
-    rootFolderId: fileNode.rootFolderId,
-  };
-
-  const knownFileSize = getKnownFileSize(fileNode.size);
-  if (knownFileSize !== null) {
-    fileHandle.size = knownFileSize;
-  }
-
-  return fileHandle;
-}
-
 function createAbortError(): Error {
   const error = new Error('The file content read was aborted.');
   error.name = 'AbortError';
@@ -106,7 +77,7 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
     throwIfAborted(options?.abortSignal);
     const fileReadRequests: FileReadRequest[] = requests.map((req) => ({
       compositeKey: req.compositeKey,
-      handle: buildFileHandle(req.fileNode, req.fileSystemAdapter),
+      handle: fileNodeToFileHandle(req.fileNode),
       path: req.fileNode.path,
     }));
 
@@ -161,7 +132,7 @@ export class DirectFileContentProcessor implements FileContentProcessor {
       );
     }
 
-    const fileHandle = buildFileHandle(fileNode, fileSystemAdapter);
+    const fileHandle = fileNodeToFileHandle(fileNode);
 
     const content = await fileSystemAdapter.readFile(fileHandle);
     const extension = fileExplorer.getFileExtension(fileNode.path);

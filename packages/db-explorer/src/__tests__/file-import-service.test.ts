@@ -74,7 +74,8 @@ vi.mock('@brainstrike/file-explorer/selection', () => ({
   decodeFileSelection: mockDecodeFileSelection,
 }));
 
-vi.mock('@brainstrike/utils/file-content', () => ({
+vi.mock('@brainstrike/utils/file-content', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/utils/file-content')>()),
   fileContent: {
     isBinaryExtension: mockIsBinaryExtension,
     isTextContent: mockIsTextContent,
@@ -330,7 +331,14 @@ describe('useFileImportService', () => {
     it('should import files from file tree when no cached content', async () => {
       const mockFileNode: IFileNode = {
         depth: 0,
-        handle: { platform: 'web' } as unknown as FileSystemFileHandle,
+        handle: {
+          _internal: { getFile: vi.fn(), kind: 'file', name: 'test.txt' },
+          kind: 'file',
+          name: 'test.txt',
+          path: '/canonical/test.txt',
+          platform: 'web',
+          rootId: 'durable-root',
+        },
         name: 'test.txt',
         path: '/test/path',
         rootFolderId: 'test-folder',
@@ -348,7 +356,14 @@ describe('useFileImportService', () => {
         await result.current.importFiles(new Set(['test-folder:/test/path']), [mockFileNode], {});
       });
 
-      expect(mockReadFile).toHaveBeenCalled();
+      expect(mockReadFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          _internal: 'platform' in mockFileNode.handle ? mockFileNode.handle._internal : undefined,
+          path: '/canonical/test.txt',
+          platform: 'web',
+          rootId: 'durable-root',
+        })
+      );
       expect(mockBulkImport).toHaveBeenCalledWith(
         [
           expect.objectContaining({
@@ -365,7 +380,14 @@ describe('useFileImportService', () => {
     it('should handle file read errors', async () => {
       const mockFileNode: IFileNode = {
         depth: 0,
-        handle: { platform: 'web' } as unknown as FileSystemFileHandle,
+        handle: {
+          _internal: { getFile: vi.fn(), kind: 'file', name: 'test.txt' },
+          kind: 'file',
+          name: 'test.txt',
+          path: '/canonical/test.txt',
+          platform: 'web',
+          rootId: 'durable-root',
+        },
         name: 'test.txt',
         path: '/test/path',
         rootFolderId: 'test-folder',
