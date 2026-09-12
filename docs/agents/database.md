@@ -2,6 +2,15 @@
 
 > Extracted from AGENTS.md (2026-07-12). Read before adding migrations, models, PGlite construction sites, or touching browser bootstrap. Keep updated with the code.
 
+## ATOMIC CHUNK AND JOB WRITES
+
+`insertChunksAndEnqueueEmbeddingJobs` inserts chunks and enqueues their jobs
+inside one database transaction. Its callback receives the minimal `IDatabase`
+query surface; do not cast it into a database with nested transaction support.
+Construct the chunk repository from the outer transactional connection and
+pass the callback's query surface to `insertManyWithTx`. The real-PGlite
+`job-queue-transactional-enqueue.test.ts` pins atomic success and rollback.
+
 ## QUERY TELEMETRY BOUNDARY
 
 Database performance instrumentation uses the typed, memory-only collector in

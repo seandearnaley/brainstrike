@@ -4712,6 +4712,62 @@ describe('WorkspaceCollectionSyncProvider', () => {
     });
   });
 
+  it.each([undefined, null, 42, {}, { getStatus: 'not callable' }])(
+    'reports unavailable debug host capabilities without an unchecked bridge type: %j',
+    async (bridge) => {
+      readFullTreeWithOptionsMock.mockResolvedValue([]);
+      vi.stubGlobal('chunkingHost', bridge);
+      try {
+        render(
+          <WorkspaceCollectionSyncProvider>
+            <div data-testid="child" />
+          </WorkspaceCollectionSyncProvider>
+        );
+
+        const snapshot = await window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?.snapshot();
+        expect(snapshot?.chunkingHostStatus).toEqual({
+          available: false,
+          reason: 'chunkingHost bridge unavailable',
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
+  );
+
+  it('preserves the debug host receiver and surfaces rejected status reads', async () => {
+    readFullTreeWithOptionsMock.mockResolvedValue([]);
+    const chunkingHost = {
+      getStatus() {
+        return Promise.resolve(this.status);
+      },
+      status: { state: 'ready' },
+    };
+    vi.stubGlobal('chunkingHost', chunkingHost);
+    vi.stubGlobal('embeddingHost', {
+      getStatus: () => Promise.reject(new Error('Host disconnected')),
+    });
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      const snapshot = await window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?.snapshot();
+      expect(snapshot?.chunkingHostStatus).toEqual({
+        available: true,
+        status: chunkingHost.status,
+      });
+      expect(snapshot?.embeddingHostStatus).toMatchObject({
+        available: false,
+        reason: 'Host disconnected',
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('includes chunked records and chunk stats grouped by root and embedding set in debug snapshots', async () => {
     readFullTreeWithOptionsMock.mockResolvedValue([]);
     const queryMock = vi.fn(async (sql: string, _params?: unknown[], _options?: unknown) => {

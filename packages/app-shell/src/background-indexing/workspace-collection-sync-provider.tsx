@@ -2052,19 +2052,23 @@ export function WorkspaceCollectionSyncProvider({
   }, [fileSystemAdapter, indexingPolicyPreset, rootDirectoryHandle, rootDirectoryHandles]);
 
   const readDebugHostStatus = useCallback(async (bridgeName: 'chunkingHost' | 'embeddingHost') => {
-    const bridge = (window as unknown as Record<typeof bridgeName, unknown>)[bridgeName] as
-      | { getStatus?: () => Promise<unknown> }
-      | undefined;
-    if (typeof bridge?.getStatus !== 'function') {
+    const bridge: unknown = Reflect.get(window, bridgeName);
+    if (
+      !bridge ||
+      typeof bridge !== 'object' ||
+      !('getStatus' in bridge) ||
+      typeof bridge.getStatus !== 'function'
+    ) {
       return {
         available: false,
         reason: `${bridgeName} bridge unavailable`,
       };
     }
     try {
+      const status: unknown = await bridge.getStatus();
       return {
         available: true,
-        status: await bridge.getStatus(),
+        status,
       };
     } catch (error) {
       return {
