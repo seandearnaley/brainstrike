@@ -8,6 +8,7 @@ import {
   resolveAssistantAuthHeaders,
 } from '@brainstrike/assistant-data';
 import {
+  DebugBundleProvider,
   type DelegatedConversationRuntimeOptions,
   EditCheckpointProvider,
 } from '@brainstrike/assistant-ui';
@@ -24,6 +25,7 @@ import { DelegatedWorkspaceNavigation } from './delegated-workspace-navigation';
 import type { ChildNode } from './delegated-workspace-node';
 import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
+import { useDebugBundleBinding } from './hooks/use-debug-bundle';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { resolveDelegatedWorkspaceDecision } from './resolve-delegated-workspace-identity';
 import { sendDelegatedWorkspaceInput } from './send-delegated-workspace-input';
@@ -234,6 +236,7 @@ function ReadyChildView({
 }
 
 export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: ChildNode }) {
+  const debugBundle = useDebugBundleBinding(node.threadId);
   const roots = use(RootsContext);
   const repository = useMemo(() => createDelegatedConversationRepository(db), [db]);
   const root = useDelegatedConversationRoot(node.ownerResourceId, node.rootThreadId);
@@ -364,21 +367,23 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
   }
   const loaded = saved && 'history' in saved ? saved : undefined;
   return (
-    <ReadyChildView
-      checkpoints={checkpoints}
-      db={db}
-      inheritedSettings={inheritedSettings}
-      insights={insights}
-      live={live}
-      loaded={loaded}
-      loadedSearchRequest={loadedSearchRequest}
-      node={node}
-      repository={repository}
-      root={root}
-      searchTarget={searchTarget}
-      setLoadedSearchRequest={setLoadedSearchRequest}
-      setRefresh={setRefresh}
-      setSaved={setSaved}
-    />
+    <DebugBundleProvider value={debugBundle}>
+      <ReadyChildView
+        checkpoints={checkpoints}
+        db={db}
+        inheritedSettings={inheritedSettings}
+        insights={insights}
+        live={live}
+        loaded={loaded}
+        loadedSearchRequest={loadedSearchRequest}
+        node={node}
+        repository={repository}
+        root={root}
+        searchTarget={searchTarget}
+        setLoadedSearchRequest={setLoadedSearchRequest}
+        setRefresh={setRefresh}
+        setSaved={setSaved}
+      />
+    </DebugBundleProvider>
   );
 }

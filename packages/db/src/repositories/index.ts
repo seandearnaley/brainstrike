@@ -124,6 +124,7 @@ export {
 } from './prompt-item-repository.js';
 // Factory functions
 export { createFileRecordRepository, isPGlite } from './repository-factory.js';
+export * from './thread-debug-snapshot.js';
 export { ThreadSearchRepository } from './thread-search-repository.js';
 export {
   type PurgeExpiredToolOutputArtifactsOptions,

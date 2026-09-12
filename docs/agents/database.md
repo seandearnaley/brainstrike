@@ -1396,6 +1396,16 @@ host admission, immutable input and reset coverage tests protect these rules.
 
 ## Shared assistant history readers
 
+`repositories/thread-debug-snapshot.ts` is a local user-initiated export reader.
+It reuses the canonical delegated graph and captures all selected-subtree
+sections in one statement snapshot, with no schema writes or row caps. Child
+usage is selected by exact invocation/continuation attribution and full tool
+artifacts by `execution_thread_id`. Invalid selected ancestry rejects; unrelated
+threads and unauthorized descendants are excluded. Its explicit section
+inventory is part of the export contract: schema additions to those relations
+must be reviewed for export privacy. See `platform-contracts.md` for formatting,
+redaction and the paired real-PGlite tests.
+
 `repositories/assistant-history-repository.ts` owns the ordinary message/event
 queries and row conversion used by renderer hydration and delegated pre-resume
 baselines. It requires a migrated handle and performs no DDL. Keep rewind

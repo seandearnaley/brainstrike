@@ -4,6 +4,8 @@ import type { DebugBundleDatabase } from '../diagnostics/debug-bundle';
 import { useDebugBundleBinding } from '../hooks/use-debug-bundle';
 
 const useOptionalPGliteDatabaseMock = vi.hoisted(() => vi.fn());
+const buildThreadPackMock = vi.hoisted(() => vi.fn().mockResolvedValue('{}'));
+vi.mock('../diagnostics/thread-debug-pack', () => ({ buildThreadDebugPack: buildThreadPackMock }));
 
 vi.mock('@brainstrike/db', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -35,6 +37,18 @@ function makeStubDb(): DebugBundleDatabase {
 }
 
 describe('useDebugBundleBinding', () => {
+  it('binds full exports to the current selected thread after navigation', async () => {
+    const db = makeStubDb();
+    useOptionalPGliteDatabaseMock.mockReturnValue(db);
+    const { result, rerender } = renderHook(({ threadId }) => useDebugBundleBinding(threadId), {
+      initialProps: { threadId: 'root' },
+    });
+    await result.current?.buildThreadPack?.();
+    expect(buildThreadPackMock).toHaveBeenLastCalledWith(db, 'root');
+    rerender({ threadId: 'child' });
+    await result.current?.buildThreadPack?.();
+    expect(buildThreadPackMock).toHaveBeenLastCalledWith(db, 'child');
+  });
   it('is null without a db handle', () => {
     useOptionalPGliteDatabaseMock.mockReturnValue(null);
     const { result } = renderHook(() => useDebugBundleBinding('thread-1'));

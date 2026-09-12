@@ -1724,7 +1724,42 @@ paths — desktop `db-ipc.ts` `OptionalRelationTable` list
 `pglite-direct-transport.ts`'s reset table lists. Both currently include
 `brainstrike_diagnostic_events`.
 
-**Debug bundle**: `packages/app-shell/src/diagnostics/debug-bundle.ts`
+**Full thread debug pack**: persisted root and child conversations expose
+`Debug pack` → `Download debug pack` through the shared conversation renderer.
+The expanded control names included content before download. This explicit local
+export includes conversation/file content, tool arguments/results, captured
+settings, approvals and diagnostics; it never uploads. Review the JSON locally
+before sharing. This is the feature-specific content opt-in under
+`docs/diagnostics-privacy-contract.md`, not new background telemetry.
+
+`readThreadDebugSnapshot` in `packages/db` resolves the native thread and
+revalidates the canonical authorized delegated graph. A single SQL statement
+captures the selected subtree's retained messages/branch edges, runs, events,
+errors, usage, diagnostics, verdicts, projection rewrites, delegation budgets,
+invocations, decisions, continuations and complete
+stored tool artifacts. Child usage follows exact invocation/continuation
+attribution; artifacts follow `execution_thread_id`. No status filter, row window
+or output elision applies. Missing/deleted threads, invalid selected ancestry
+and read failures fail the download visibly. Unauthorized descendants are excluded.
+
+`packages/app-shell/src/diagnostics/thread-debug-pack.ts` emits versioned JSON
+with section counts, snapshot time, active run IDs, correlation instructions
+and explicit evidence limitations. Retention/deletion, already-shortened stored
+projections and unsaved active transcripts cannot be reconstructed. Empty
+sections never claim that nothing happened. Artifact bytes are decoded before
+key-name and value-shape secret redaction. Value scanning precedes JSON
+serialization so multiline secrets remain detectable and JSON remains valid.
+Collection/decoding/save errors produce no partial success. The UI uses the
+existing `downloadBlobFile` route and regenerates on each click. Child panels
+inject their own thread binding. No new persistence is introduced.
+
+Paired proofs: `thread-debug-snapshot.integration.test.ts` (real migrated
+PGlite, prior-cap overflow, ownership, child approvals/usage/artifacts),
+`thread-debug-pack.test.ts` (full output and redaction),
+`thread-debug-pack-button.test.tsx` and `thread-debug-pack.browser.test.tsx`
+(successful conversation, download failure and shared renderer at two widths).
+
+**Failure debug bundle**: `packages/app-shell/src/diagnostics/debug-bundle.ts`
 (collector `collectThreadDebugBundleData` + pure formatter
 `formatThreadDebugBundle`, convenience wrapper `buildThreadDebugBundle`),
 consumed through the `DebugBundleProvider` seam

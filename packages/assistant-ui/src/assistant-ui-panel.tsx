@@ -62,6 +62,7 @@ import { ComposerModelMenu, modelIdFromCompositeKey } from './composer-model-men
 import { CopyDebugBundleButton } from './copy-debug-bundle-button';
 import { RewindComposerBridge } from './message-rewind-action';
 import { MetadataProviders } from './openrouter-model-metadata-context';
+import { ThreadDebugPackButton } from './thread-debug-pack-button';
 import { UserMessage } from './user-message';
 
 export type { ComposerAttachmentsAvailability } from './composer-input';
@@ -891,6 +892,7 @@ export const ChatThreadUI = ({
       <ThreadScrollFollowProvider>
         <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex h-full min-h-0 flex-col">
           <AssistantDataRendererRegistration />
+          <ThreadDebugPackButton key={threadKey} />
           <ComposerDraftCommandBridge
             composerDraftCommand={composerDraftCommand}
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
