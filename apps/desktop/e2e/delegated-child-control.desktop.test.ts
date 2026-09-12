@@ -105,6 +105,12 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     });
     // Change the parent's actual model control while its child decision is pending.
     await root.getByTestId('composer-model-menu-trigger').click();
+    const moreModels = window.getByTestId('composer-more-models-trigger');
+    await moreModels.focus();
+    await moreModels.press('ArrowRight');
+    const openRouterModels = window.getByRole('menuitem', { name: /OpenRouter/u });
+    await openRouterModels.focus();
+    await openRouterModels.press('ArrowRight');
     await window.getByRole('menuitemradio', { name: /GPT-5\.6 Terra.*Most capable/u }).click();
     await expect(root.getByTestId('composer-model-menu-trigger')).toContainText('GPT-5.6 Terra');
     const pausedRequests = provider.requestCount();
