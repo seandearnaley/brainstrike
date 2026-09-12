@@ -107,12 +107,55 @@ export function delegationDescriptionForPersona(
   persona: Pick<AssistantPersonaDefinition, 'description' | 'maxSteps'>
 ): string {
   return (
-    `${persona.description} Runs at most ${Math.min(persona.maxSteps, DELEGATION_LIMITS.maxChildSteps)} steps, one of which is reserved ` +
+    `${persona.description} Runs at most ${effectiveChildStepBudget(persona)} steps, one of which is reserved ` +
     'for its summary — scope the task to that budget and split anything larger across several ' +
     `delegations. The root turn permits at most ${DELEGATION_LIMITS.maxDepth} descendant levels, ` +
     `${DELEGATION_LIMITS.maxInvocations} invocations, ${DELEGATION_LIMITS.maxConcurrentWork} active work operations, ` +
     `${DELEGATION_LIMITS.maxChildOutputTokens} output tokens per child and ${DELEGATION_LIMITS.maxTreeOutputTokens} across descendants.`
   );
+}
+
+/**
+ * The step budget the host ENFORCES for a persona: its declared `maxSteps`
+ * capped by the tree-wide ceiling. Every surface that states a budget — the
+ * model-facing delegation description above and Settings → Subagents — derives
+ * it from here, so the number a user reads and the number the host applies
+ * cannot disagree (BST-1727).
+ */
+export function effectiveChildStepBudget(
+  persona: Pick<AssistantPersonaDefinition, 'maxSteps'>
+): number {
+  return Math.min(persona.maxSteps, DELEGATION_LIMITS.maxChildSteps);
+}
+
+/** The effective mode: a persona without an explicit mode is read-only. */
+export function personaMode(
+  persona: Pick<AssistantPersonaDefinition, 'mode'>
+): AssistantPersonaMode {
+  return persona.mode ?? 'read-only';
+}
+
+/**
+ * The facts Settings states about a loadable persona, taken from the SAME
+ * definition the host builds the child from: declared capability set (`['*']`
+ * = the host catalog permitted by the persona's mode), declared step budget,
+ * and effective mode. Tool ids are copied so later changes to the source
+ * definition cannot mutate a captured scope.
+ */
+export interface AssistantPersonaScope {
+  readonly allowedToolIds: readonly string[];
+  readonly maxSteps: number;
+  readonly mode: AssistantPersonaMode;
+}
+
+export function personaScope(
+  persona: Pick<AssistantPersonaDefinition, 'allowedToolIds' | 'maxSteps' | 'mode'>
+): AssistantPersonaScope {
+  return {
+    allowedToolIds: [...persona.allowedToolIds],
+    maxSteps: persona.maxSteps,
+    mode: personaMode(persona),
+  };
 }
 
 export function delegationToolNameForPersona(id: AssistantPersonaId): string {

@@ -13,6 +13,8 @@ import {
 import {
   type AssistantPersonasListResult,
   BUILT_IN_PERSONAS,
+  buildUserPersona,
+  personaScope,
 } from '@brainstrike/assistant-contract';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -186,6 +188,146 @@ describe('SubagentPersonasSettingsSection', () => {
     expect(warnings).toHaveTextContent(/scan limit reached/i);
     expect(warnings.querySelector('.text-destructive')).toBeNull();
     expect(warnings.closest('fieldset')).toBeNull();
+  });
+
+  it("states each persona's mode, step budget and tool scope from the bridge, in plain terms", async () => {
+    setBridge({
+      list: () =>
+        Promise.resolve({
+          personas: [
+            {
+              allowedToolIds: ['*'],
+              description: 'Ships the deliverable.',
+              id: 'shipper',
+              label: 'Shipper',
+              maxSteps: 12,
+              mode: 'worker',
+              source: 'user',
+              status: 'ok',
+            },
+            {
+              allowedToolIds: [
+                'brainstrike.readWorkspaceFile',
+                'brainstrike.grepSearch',
+                'brainstrike.globWorkspace',
+              ],
+              description: 'Surveys the tree.',
+              id: 'surveyor',
+              label: 'Surveyor',
+              maxSteps: 4,
+              mode: 'read-only',
+              source: 'user',
+              status: 'ok',
+            },
+            {
+              // Worker mode with a declared read-only list: the mode permits
+              // edit/run tools to be declared, it does not grant them.
+              allowedToolIds: ['brainstrike.readWorkspaceFile'],
+              description: 'Reads one file at a time.',
+              id: 'one-shot',
+              label: 'One shot',
+              maxSteps: 1,
+              mode: 'worker',
+              source: 'user',
+              status: 'ok',
+            },
+          ],
+        }),
+    });
+    render(<SubagentPersonasSettingsSection />);
+    const shipper = (await screen.findByTestId('subagent-persona-scope-shipper')).textContent;
+    expect(shipper).toContain('Worker mode');
+    expect(shipper).toContain('Up to 12 steps (1 reserved for its summary)');
+    expect(shipper).toContain('every tool the host permits, including edit and run tools');
+    const surveyor = screen.getByTestId('subagent-persona-scope-surveyor').textContent;
+    expect(surveyor).toContain('Read-only');
+    expect(surveyor).toContain('Up to 4 steps');
+    expect(surveyor).toContain('3 tools');
+    expect(surveyor).toContain('readWorkspaceFile');
+    expect(surveyor).not.toContain('brainstrike.');
+    // Worker mode never promises edit access the declared list does not give,
+    // and a one-step child has no reserved summary turn.
+    const oneShot = screen.getByTestId('subagent-persona-scope-one-shot').textContent;
+    expect(oneShot).toContain('Worker mode');
+    expect(oneShot).toContain('Up to 1 step ·');
+    expect(oneShot).not.toContain('reserved');
+    expect(oneShot).not.toContain('edit');
+    expect(oneShot).toContain('1 tool: readWorkspaceFile');
+  });
+
+  it('shows a description-only profile as its curated read-only scope', async () => {
+    const parsed = buildUserPersona({
+      content: '---\ndescription: Surveys the workspace.\n---\nReturn the relevant facts.',
+      fileName: 'minimal.md',
+    });
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+    const persona = parsed.persona;
+    setBridge({
+      list: () =>
+        Promise.resolve({
+          personas: [
+            {
+              ...personaScope(persona),
+              description: persona.description,
+              id: persona.id,
+              label: persona.label,
+              source: 'user',
+              status: 'ok',
+            },
+          ],
+        }),
+    });
+    render(<SubagentPersonasSettingsSection />);
+    const scope = await screen.findByTestId('subagent-persona-scope-minimal');
+    expect(scope).toHaveTextContent('Read-only');
+    expect(scope).toHaveTextContent('7 tools:');
+    expect(scope).toHaveTextContent('readWorkspaceFile');
+    expect(scope).not.toHaveTextContent('every tool');
+    expect(scope).not.toHaveTextContent('edit and run');
+  });
+
+  it('limits a read-only wildcard from a bridge to read-only host tools', async () => {
+    // Current persona files reject read-only wildcards; the bridge contract
+    // can still represent one, and its description must not widen its mode.
+    setBridge({
+      list: () =>
+        Promise.resolve({
+          personas: [
+            {
+              allowedToolIds: ['*'],
+              description: 'Reads the host catalog.',
+              id: 'reader',
+              label: 'Reader',
+              maxSteps: 4,
+              mode: 'read-only',
+              source: 'user',
+              status: 'ok',
+            },
+          ],
+        }),
+    });
+    render(<SubagentPersonasSettingsSection />);
+    const scope = await screen.findByTestId('subagent-persona-scope-reader');
+    expect(scope).toHaveTextContent('every read-only tool the host permits');
+    expect(scope).not.toHaveTextContent('edit and run');
+  });
+
+  it("states the built-in personas' scope without the bridge from the same definitions the host enforces", () => {
+    render(<SubagentPersonasSettingsSection />);
+    const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
+    const explore = BUILT_IN_PERSONAS.find((persona) => persona.id === 'explore');
+    if (!(worker && explore)) {
+      throw new Error('built-in worker and explore personas must exist');
+    }
+    const workerScope = screen.getByTestId('subagent-persona-scope-worker').textContent;
+    expect(workerScope).toContain('Worker mode');
+    expect(workerScope).toContain(`Up to ${worker.maxSteps} steps`);
+    expect(workerScope).toContain('every tool the host permits, including edit and run tools');
+    const exploreScope = screen.getByTestId('subagent-persona-scope-explore').textContent;
+    expect(exploreScope).toContain('Read-only');
+    expect(exploreScope).toContain(`${explore.allowedToolIds.length} tools`);
   });
 
   it('without the bridge, shows the desktop-only note for user personas', () => {

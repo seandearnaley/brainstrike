@@ -10,6 +10,7 @@ import {
   type AssistantPersonaListItem,
   type AssistantPersonasListResult,
   BUILT_IN_PERSONAS,
+  personaScope,
 } from '@brainstrike/assistant-contract';
 import { createNodeFsScanDeps } from './assistant-server/node-fs-scan-deps';
 import {
@@ -56,6 +57,7 @@ function toListItem(entry: UserPersonaScanEntry): AssistantPersonaListItem {
     label: entry.persona.label,
     source: 'user',
     status: 'ok',
+    ...personaScope(entry.persona),
     ...(pin ? { modelPin: `${pin.provider}::${pin.modelId}` } : {}),
     ...(entry.sourceRootId ? { sourceRootId: entry.sourceRootId } : {}),
   };
@@ -68,6 +70,7 @@ export async function listUserPersonas(
     description: persona.description,
     id: persona.id,
     label: persona.label,
+    ...personaScope(persona),
     source: 'built-in',
     status: 'ok',
   }));
