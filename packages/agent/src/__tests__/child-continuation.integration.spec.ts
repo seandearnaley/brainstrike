@@ -22,6 +22,8 @@ import { createBackgroundFixture } from './fixtures/background-worker-runtime';
 it.each([
   'complete',
   'approve',
+  'parallel-approve',
+  'parallel-question',
   'decline',
   'question',
   'question-twice',
@@ -136,9 +138,28 @@ it.each([
       outputTokens: 2048,
       synthesis: false,
     }));
+    const parallelEffect = vi.fn(async ({ pattern }: { pattern: string }) => ({
+      matches: [pattern],
+    }));
     let step = 0;
     const model = scriptedAgentModel(() => {
       step += 1;
+      if (mode === 'parallel-approve' && step === 1) {
+        const first = toolCallParts('brainstrike_grepSearch', 'idle-leaf', { pattern: 'FIRST' });
+        const second = toolCallParts('brainstrike_grepSearch', 'idle-second-leaf', {
+          pattern: 'SECOND',
+        });
+        return [...first.slice(0, -1), ...second.slice(1)];
+      }
+      if (mode === 'parallel-question' && step === 1) {
+        const first = toolCallParts('brainstrike_askUser', 'idle-question', {
+          question: 'First evidence?',
+        });
+        const second = toolCallParts('brainstrike_askUser', 'idle-second-question', {
+          question: 'Second evidence?',
+        });
+        return [...first.slice(0, -1), ...second.slice(1)];
+      }
       if (mode === 'provider-failure') {
         throw new Error('Provider refused continuation');
       }
@@ -208,7 +229,10 @@ it.each([
             execute: 'deny' as const,
             mcp: 'deny' as const,
             read:
-              mode === 'approve' || mode === 'decline' || mode === 'nested-approve'
+              mode === 'approve' ||
+              mode === 'parallel-approve' ||
+              mode === 'decline' ||
+              mode === 'nested-approve'
                 ? ('ask' as const)
                 : ('allow' as const),
           },
@@ -217,13 +241,13 @@ it.each([
         },
         signal: controller.signal,
       },
-      ...(mode === 'cancel'
+      ...(mode === 'cancel' || mode === 'parallel-approve'
         ? {
             tools: {
               ...fixture.discoveryOptions.tools,
               'brainstrike.grepSearch': createTool({
                 description: 'Read evidence',
-                execute: cancelledEffect,
+                execute: mode === 'cancel' ? cancelledEffect : parallelEffect,
                 id: 'brainstrike.grepSearch',
                 inputSchema: z.object({ pattern: z.string() }),
               }),
@@ -299,7 +323,12 @@ it.each([
       expect(port.finishContinuation).toHaveBeenLastCalledWith({ id, status: 'cancelled' });
       return;
     }
-    if (mode === 'approve' || mode === 'decline' || mode === 'nested-approve') {
+    if (
+      mode === 'approve' ||
+      mode === 'parallel-approve' ||
+      mode === 'decline' ||
+      mode === 'nested-approve'
+    ) {
       const pause = chunks.find(
         (chunk) =>
           chunk.type === 'child-continuation-chunk' && chunk.chunk.type === 'tool-approval-required'
@@ -330,6 +359,10 @@ it.each([
           storage: fixture.backing.storage,
         }
       );
+      if (mode === 'parallel-approve') {
+        expect(discovered.approvals.map((entry) => entry.toolCallId)).toEqual(['idle-leaf']);
+        expect(parallelEffect).not.toHaveBeenCalled();
+      }
       const pending = discovered.approvals[0];
       if (!pending) {
         throw new Error('Saved continuation approval missing');
@@ -346,6 +379,43 @@ it.each([
       for await (const chunk of resumed) {
         chunks.push(chunk);
       }
+      if (mode === 'parallel-approve') {
+        expect(parallelEffect).toHaveBeenCalledTimes(1);
+        expect(parallelEffect.mock.calls[0]?.[0]).toEqual(
+          expect.objectContaining({ pattern: 'FIRST' })
+        );
+        const secondDiscovery = await listSuspendedChildContinuation(
+          {
+            continuationId: id,
+            nativeRunId: pause.nativeRunId,
+            personaId: original.personaId,
+            resourceId: scope.resourceId,
+            threadId: scope.threadId,
+          },
+          {
+            resolveInvocation: fixture.discoveryOptions.delegatedSuspensionDiscovery,
+            storage: fixture.backing.storage,
+          }
+        );
+        expect(secondDiscovery.approvals.map((entry) => entry.toolCallId)).toEqual([
+          'idle-second-leaf',
+        ]);
+        const secondPending = secondDiscovery.approvals[0];
+        if (!secondPending) {
+          throw new Error('Second parallel continuation approval missing');
+        }
+        const secondResume = await streamMastraToolApprovalAction(
+          { action: 'approve', ...getToolActionTarget(secondPending) },
+          resumeOptions
+        );
+        for await (const chunk of secondResume) {
+          chunks.push(chunk);
+        }
+        expect(parallelEffect).toHaveBeenCalledTimes(2);
+        expect(parallelEffect.mock.calls[1]?.[0]).toEqual(
+          expect.objectContaining({ pattern: 'SECOND' })
+        );
+      }
       expect(port.claimContinuationDecision).toHaveBeenCalledWith({
         id,
         kind: 'tool-approval',
@@ -357,6 +427,7 @@ it.each([
     if (
       mode === 'question' ||
       mode === 'question-twice' ||
+      mode === 'parallel-question' ||
       mode === 'plan' ||
       mode === 'nested-question' ||
       mode === 'resume-then-delegate'
@@ -386,6 +457,7 @@ it.each([
           storage: fixture.backing.storage,
         }
       );
+      expect(discovered.suspends).toHaveLength(1);
       const pending = discovered.suspends[0];
       if (!pending) {
         throw new Error('Saved continuation question missing');
@@ -407,7 +479,10 @@ it.each([
         kind: 'tool-resume',
         nativeRunId: pause.nativeRunId,
         toolCallId:
-          mode === 'question' || mode === 'question-twice' || mode === 'resume-then-delegate'
+          mode === 'question' ||
+          mode === 'question-twice' ||
+          mode === 'parallel-question' ||
+          mode === 'resume-then-delegate'
             ? 'idle-question'
             : mode === 'nested-question'
               ? 'idle-nested-delegation'
@@ -415,7 +490,7 @@ it.each([
         ...(pause.chunk.delegation ? { delegation: pause.chunk.delegation } : {}),
       });
     }
-    if (mode === 'question-twice') {
+    if (mode === 'question-twice' || mode === 'parallel-question') {
       const second = chunks.find(
         (chunk) =>
           chunk.type === 'child-continuation-chunk' &&
@@ -428,8 +503,27 @@ it.each([
       ) {
         throw new Error('Second native pause missing');
       }
+      const secondDiscovery = await listSuspendedChildContinuation(
+        {
+          continuationId: id,
+          nativeRunId: second.nativeRunId,
+          personaId: original.personaId,
+          resourceId: scope.resourceId,
+          threadId: scope.threadId,
+        },
+        {
+          resolveInvocation: fixture.discoveryOptions.delegatedSuspensionDiscovery,
+          storage: fixture.backing.storage,
+        }
+      );
+      expect(secondDiscovery.suspends).toHaveLength(1);
+      const secondPending = secondDiscovery.suspends[0];
+      if (!secondPending) {
+        throw new Error('Saved second native question missing');
+      }
+      expect(getToolActionTarget(secondPending)).toEqual(getToolActionTarget(second.chunk));
       const resumed = await streamMastraToolResumeAction(
-        { ...getToolActionTarget(second.chunk), resumeData: { answer: 'Second evidence' } },
+        { ...getToolActionTarget(secondPending), resumeData: { answer: 'Second evidence' } },
         resumeOptions
       );
       for await (const chunk of resumed) {
@@ -439,11 +533,7 @@ it.each([
         vi
           .mocked(port.persistContinuationUsage)
           .mock.calls.map(([usage]) => [usage.inputTokens, usage.outputTokens])
-      ).toEqual([
-        [0, 0],
-        [0, 0],
-        [3, 3],
-      ]);
+      ).toEqual([[0, 0], [0, 0], mode === 'parallel-question' ? [2, 2] : [3, 3]]);
     }
     if (mode === 'depth-available') {
       expect(model.prompts[0]?.tools?.some((tool) => tool.name.startsWith('agent-'))).toBe(true);
