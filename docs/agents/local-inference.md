@@ -445,9 +445,17 @@ Embedding runtime telemetry (BST-402):
   startup failures remain logged but cannot publish a competing terminal status
   for an operation Stop is still draining. New starts await the tracked stop, and
   no stop acknowledgement leaves a late-starting worker behind.
+  A database-owner change joins the previous worker's Stop. A failed join reports
+  an error and does not start the replacement worker. Effect disposal logs its
+  rejection, and reset reports its failure; neither leaves a detached rejected
+  lifecycle promise.
   Stop terminal reports echo the existing control request ID. Main matches that
   ID, so a queued startup error or prior stop cannot settle another command;
   an actual stop failure reports the same identity and fails visibly.
+  The shared vector UI projects out only the host's `commandId` acknowledgement
+  when storing desktop status (initial read, subscription, start/reset/stop).
+  Host acknowledgement matching retains the field; unknown UI status extensions
+  still fail canonical validation, and embedding metadata remains intact.
   A trusted status report also proves the renderer registered its control listener.
   Disposal cooperatively drains that renderer even while worker startup is pending;
   only a startup that has never reported readiness is destroyed without an ack.

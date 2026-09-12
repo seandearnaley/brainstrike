@@ -314,14 +314,13 @@ async function createDesktopMastraMemoryFromCacheState({
   if (cachedPromise) {
     return cachedPromise;
   }
-  const memoryPromise = (async () =>
-    createPgliteMastraMemory({
-      database,
-      ...(embedder ? { embedder } : {}),
-      ...(memoryOptions ? { memoryOptions } : {}),
-      ...(memorySettings ? { memorySettings } : {}),
-      ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
-    }))();
+  const memoryPromise = createPgliteMastraMemory({
+    database,
+    ...(embedder ? { embedder } : {}),
+    ...(memoryOptions ? { memoryOptions } : {}),
+    ...(memorySettings ? { memorySettings } : {}),
+    ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
+  });
   evictOldestDesktopMastraMemoryPromise(cache);
   cache.memories.set(cacheKey, memoryPromise);
   memoryPromise.catch(() => {

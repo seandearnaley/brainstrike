@@ -871,7 +871,11 @@ cannot fork a competing utility process against the replacement profile. An
 explicit manager `close()` remains reusable by `reinitializeDatabase()`.
 Desktop Mastra memory's two bounded caches are scoped to the actual database
 object: completed memory and pending credential resolutions from the old owner
-cannot become the replacement owner's storage. The paired manager tests and
+cannot become the replacement owner's storage. Database object identity is the
+cache invalidation key; both reinitialization and default-manager retirement
+create a fresh client. Run-scoped memory also pins its original owner before
+credential resolution; a retired owner's operations fail visibly rather than
+writing into the replacement profile. The paired manager tests and
 `mastra-memory-database-owner.integration.test.ts` pin retirement, same-owner
 reuse, and identical native thread IDs isolated across two real databases.
 

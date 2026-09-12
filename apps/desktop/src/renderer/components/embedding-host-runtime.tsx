@@ -37,6 +37,11 @@ import {
   type EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
 import {
+  createEmbeddingHostLifecycleFailureHandler,
+  createQueryEmbeddingRequestParseErrorReport,
+  runEmbeddingHostCleanupStep,
+} from './embedding-host-lifecycle';
+import {
   createEmbeddingHostStatus,
   type EmbeddingHostStatusOptions,
 } from './embedding-host-status';
@@ -109,39 +114,6 @@ function reportQueryEmbeddingResponse(response: EmbeddingHostQueryEmbeddingRespo
   getEmbeddingHostBridge()?.reportQueryEmbeddingResponse?.(response);
 }
 
-function getEnvelopeStringField(value: unknown, field: 'requestId' | 'runtimeId'): string | null {
-  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
-    return null;
-  }
-  const candidate = (value as Record<string, unknown>)[field];
-  return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate.trim() : null;
-}
-
-function createQueryEmbeddingRequestParseErrorReport(
-  rawRequest: unknown,
-  error: unknown
-): EmbeddingHostQueryEmbeddingResponseReport | null {
-  const requestId = getEnvelopeStringField(rawRequest, 'requestId');
-  const runtimeId = getEnvelopeStringField(rawRequest, 'runtimeId');
-  if (!(requestId && runtimeId)) {
-    return null;
-  }
-  return {
-    channel: 'query-embedding-error',
-    payload: {
-      message:
-        error instanceof Error && error.message.trim().length > 0
-          ? error.message
-          : 'Invalid embedding host query embedding request.',
-      name: error instanceof Error && error.name.trim().length > 0 ? error.name : 'Error',
-      ...(error instanceof Error && typeof error.stack === 'string' ? { stack: error.stack } : {}),
-    },
-    requestId,
-    runtimeId,
-    type: 'error',
-  };
-}
-
 function reportEmbeddingHostRuntimeStatus(
   runtimeIdRef: MutableRefObject<string>,
   state: EmbeddingHostStatus['state'],
@@ -211,25 +183,6 @@ function createFatalErrorHandler(
       lastError: message,
     });
   };
-}
-
-function runEmbeddingHostCleanupStep(
-  runtimeIdRef: MutableRefObject<string>,
-  label:
-    | 'Embedding host command cleanup failed'
-    | 'Embedding host query embedding cleanup failed'
-    | 'Embedding host power cleanup failed'
-    | 'Embedding host telemetry cleanup failed',
-  cleanup: () => void
-): void {
-  try {
-    cleanup();
-  } catch (error) {
-    logger.error(label, {
-      error: error instanceof Error ? error.message : String(error),
-      runtimeId: runtimeIdRef.current,
-    });
-  }
 }
 
 interface DbModelRow {
@@ -717,6 +670,19 @@ export function EmbeddingHostRuntime(): null {
       },
     });
 
+    const reportLifecycleFailure = createEmbeddingHostLifecycleFailureHandler(
+      runtimeIdRef,
+      () => disposed,
+      (message) => {
+        fatalErrorRef.current = message;
+        activeRef.current = false;
+        reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+          embeddingRuntime: embeddingRuntimeRef.current,
+          lastError: message,
+        });
+      }
+    );
+
     const startWorker = async (): Promise<void> => {
       // Join Stop before registering a new start, so Stop never waits on itself.
       if (stopPromiseRef.current) {
@@ -914,7 +880,9 @@ export function EmbeddingHostRuntime(): null {
         if (nextCommand.payload.nextRuntimeId === runtimeIdRef.current) {
           throw new Error('Embedding host reset requires a fresh nextRuntimeId.');
         }
-        void resetWorker(nextCommand.payload.nextRuntimeId);
+        void resetWorker(nextCommand.payload.nextRuntimeId).catch((error: unknown) => {
+          reportLifecycleFailure('Embedding host reset failed', error);
+        });
       }
     });
 
@@ -963,7 +931,9 @@ export function EmbeddingHostRuntime(): null {
       channel?.postMessage(state);
     });
 
-    void startWorker();
+    void startWorker().catch((error: unknown) => {
+      reportLifecycleFailure('Embedding host startup could not join the previous worker', error);
+    });
 
     return () => {
       disposed = true;
@@ -994,7 +964,9 @@ export function EmbeddingHostRuntime(): null {
           runtimeId: runtimeIdRef.current,
         });
       }
-      void stopWorker('dispose');
+      void stopWorker('dispose').catch((error: unknown) => {
+        reportLifecycleFailure('Embedding host disposal failed', error);
+      });
     };
   }, [db]);
 

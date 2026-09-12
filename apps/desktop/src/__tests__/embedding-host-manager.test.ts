@@ -322,7 +322,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     });
   });
 
-  it.each([false, true])('drains a registered startup (%s)', async (registered) => {
+  it.each([false, true])('drains startup if registered: %s', async (registered) => {
     currentLifecycleStatus.state = 'starting';
     const manager = new EmbeddingHostManager();
     if (registered) {

@@ -27,18 +27,6 @@ async function sendInventoryProbe(page: Page, marker: string): Promise<void> {
   await expect(panel.getByText(`${marker} complete`, { exact: true })).toBeVisible();
 }
 
-async function confirmReset(page: Page, confirmed: boolean): Promise<void> {
-  // Exercise the product's existing native-confirm branch exactly once.
-  await page.evaluate((confirmed) => {
-    const original = window.confirm;
-    window.confirm = () => {
-      window.confirm = original;
-      return confirmed;
-    };
-  }, confirmed);
-  await page.getByTestId('factory-reset-button').click();
-}
-
 const ENABLED_PROBE = 'RESET_RELEASE_ENABLED';
 const DISABLED_PROBE = 'RESET_RELEASE_DISABLED';
 const RESTORED_PROBE = 'RESET_RELEASE_RESTORED';
@@ -46,6 +34,18 @@ const RESTORED_PROBE = 'RESET_RELEASE_RESTORED';
 test('Settings disables actual delegation tools and factory reset removes delegated state @destructive @desktop-ipc-reset', async ({
   electron,
 }, testInfo) => {
+  async function confirmReset(page: Page, confirmed: boolean): Promise<void> {
+    // Exercise the product's existing native-confirm branch exactly once.
+    await page.evaluate((confirmed) => {
+      const original = window.confirm;
+      window.confirm = () => {
+        window.confirm = original;
+        return confirmed;
+      };
+    }, confirmed);
+    await page.getByTestId('factory-reset-button').click();
+  }
+
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-delegated-reset-'));
   const sentinel = path.join(workspace, 'keep-user-workspace.txt');
   await writeFile(sentinel, 'USER_WORKSPACE_MUST_SURVIVE_RESET\n');
@@ -57,6 +57,9 @@ test('Settings disables actual delegation tools and factory reset removes delega
     const currentUser = messages.findLast(
       (value) => value && typeof value === 'object' && 'role' in value && value.role === 'user'
     );
+    if (!currentUser) {
+      throw new Error('Reset inventory probe requires a native user message.');
+    }
     const current = JSON.stringify(currentUser);
     const marker = [ENABLED_PROBE, DISABLED_PROBE, RESTORED_PROBE].find((value) =>
       current.includes(value)
@@ -64,9 +67,7 @@ test('Settings disables actual delegation tools and factory reset removes delega
     if (!marker) {
       throw new Error('Unexpected native provider probe');
     }
-    if (toolNames.length > 0) {
-      catalogs.set(marker, [...toolNames]);
-    }
+    catalogs.set(marker, [...toolNames]);
     return { finalText: `${marker} complete` };
   });
   const environment = {
@@ -82,10 +83,10 @@ test('Settings disables actual delegation tools and factory reset removes delega
   const hostErrors: string[] = [];
   let page: Page | undefined;
   try {
-    page = await electron.ensureWindow();
     (await electron.ensureContext()).app
       .process()
       .stderr?.on('data', (chunk: Buffer) => hostErrors.push(chunk.toString()));
+    page = await electron.ensureWindow();
     await ensureMockWorkspaceOpen(page);
     await configureAssistantProvider(page, {
       compositeModelKey: 'openrouter::openai/gpt-5.4',
@@ -116,7 +117,7 @@ test('Settings disables actual delegation tools and factory reset removes delega
     await new HomePage(page).openSettings();
     await new SettingsPage(page).openCategory(/Factory Reset/i, 'factory-reset');
     const beforeCancel = await readDelegatedResetState(page, seed);
-    expect(Object.values(beforeCancel).every((rows) => rows.length > 0)).toBe(true);
+    expect(Object.entries(beforeCancel).filter(([, rows]) => rows.length === 0)).toEqual([]);
     await confirmReset(page, false);
     expect(await readDelegatedResetState(page, seed)).toEqual(beforeCancel);
     await openSubagents(page);
@@ -129,7 +130,11 @@ test('Settings disables actual delegation tools and factory reset removes delega
     await confirmReset(page, true);
     await reloaded;
     await waitForDatabaseReady(page);
-    expect(Object.values(await readDelegatedResetState(page, seed)).flat()).toEqual([]);
+    expect(
+      Object.entries(await readDelegatedResetState(page, seed)).filter(
+        ([, rows]) => rows.length > 0
+      )
+    ).toEqual([]);
     await expect(page.getByRole('tab', { exact: true, name: 'Reset Cedar' })).toHaveCount(0);
     await openSubagents(page);
     await expect(page.getByTestId('subagent-delegation-toggle')).toHaveAttribute(
@@ -143,7 +148,11 @@ test('Settings disables actual delegation tools and factory reset removes delega
       .process()
       .stderr?.on('data', (chunk: Buffer) => hostErrors.push(chunk.toString()));
     await waitForDatabaseReady(page);
-    expect(Object.values(await readDelegatedResetState(page, seed)).flat()).toEqual([]);
+    expect(
+      Object.entries(await readDelegatedResetState(page, seed)).filter(
+        ([, rows]) => rows.length > 0
+      )
+    ).toEqual([]);
     await expect(page.getByRole('tab', { exact: true, name: 'Reset Cedar' })).toHaveCount(0);
     await openSubagents(page);
     await expect(page.getByTestId('subagent-delegation-toggle')).toHaveAttribute(
@@ -205,10 +214,17 @@ test('Settings disables actual delegation tools and factory reset removes delega
     }
   }
   if (disposed) {
-    await rm(workspace, { recursive: true });
+    try {
+      await rm(workspace, { force: true, recursive: true });
+    } catch (error) {
+      failures.push(error);
+    }
   }
   try {
     expect(hostErrors.join('')).not.toContain('Error occurred in handler for');
+    expect(hostErrors.join('')).not.toContain(
+      'Runtime status must not include non-canonical status field'
+    );
   } catch (error) {
     failures.push(error);
   }

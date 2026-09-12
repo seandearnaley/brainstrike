@@ -78,3 +78,47 @@ it('allows an explicitly closed manager to initialize a replacement host', async
   await expect(replacement).resolves.toBeDefined();
   expect(forkMock).toHaveBeenCalledTimes(2);
 });
+
+async function waitForLastRequest(kind: string): Promise<PostedMessage> {
+  await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe(kind));
+  const request = latestProcess().messages.at(-1);
+  if (!request) {
+    throw new Error('Expected the utility host request.');
+  }
+  return request;
+}
+
+it('replaces the production db-main client identity across reinitialization and owner retirement', async () => {
+  const { getDatabase, reinitializeDatabase } = await import('../../db-main');
+  const { closeDbHostManager } = await import('../../db-host-manager');
+  const firstPromise = getDatabase();
+  const firstInit = await waitForLastRequest('init');
+  latestProcess().reply(firstInit, { initialized: true });
+  const first = await firstPromise;
+  expect(await getDatabase()).toBe(first);
+
+  const replacementPromise = reinitializeDatabase();
+  const close = await waitForLastRequest('close');
+  latestProcess().reply(close, { closed: true });
+  const replacementInit = await waitForLastRequest('init');
+  latestProcess().reply(replacementInit, { initialized: true });
+  const replacement = await replacementPromise;
+  expect(replacement).not.toBe(first);
+  expect(await getDatabase()).toBe(replacement);
+
+  const retired = closeDbHostManager();
+  const retirementClose = await waitForLastRequest('close');
+  latestProcess().reply(retirementClose, { closed: true });
+  await retired;
+  const afterRetirementPromise = getDatabase();
+  const afterRetirementInit = await waitForLastRequest('init');
+  latestProcess().reply(afterRetirementInit, { initialized: true });
+  const afterRetirement = await afterRetirementPromise;
+  expect(afterRetirement).not.toBe(replacement);
+  expect(afterRetirement).not.toBe(first);
+  await expect(replacement.query('SELECT 1')).rejects.toThrow('retired');
+  const cleanup = closeDbHostManager();
+  const cleanupClose = await waitForLastRequest('close');
+  latestProcess().reply(cleanupClose, { closed: true });
+  await cleanup;
+});

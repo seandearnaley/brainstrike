@@ -671,24 +671,32 @@ describe('EmbeddingHostRuntime', () => {
     }
   );
 
-  it('acknowledges the exact failed Stop instead of leaving main waiting', async () => {
-    storeState.hasHydrated = true;
-    const view = render(<EmbeddingHostRuntime />);
-    await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce());
-    stopMock.mockRejectedValueOnce(new Error('Worker drain failed'));
-    const command = createEmbeddingHostCommand('stop', 'test-runtime');
-    await act(async () => commandListenerRef.current?.(command));
-    await waitFor(() =>
-      expect(reportStatusMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          commandId: command.requestId,
-          lastError: 'Worker drain failed',
-          state: 'error',
-        })
-      )
-    );
-    view.unmount();
-  });
+  it.each(['stop', 'reset'] as const)(
+    'reports a failed %s without starting a replacement worker',
+    async (action) => {
+      storeState.hasHydrated = true;
+      const view = render(<EmbeddingHostRuntime />);
+      await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce());
+      stopMock.mockRejectedValueOnce(new Error('Worker drain failed'));
+      const command =
+        action === 'stop'
+          ? createEmbeddingHostCommand('stop', 'test-runtime')
+          : createEmbeddingHostCommand('reset', 'test-runtime', 'replacement-runtime');
+      await act(async () => commandListenerRef.current?.(command));
+      await waitFor(() =>
+        expect(reportStatusMock).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            ...(action === 'stop' ? { commandId: command.requestId } : {}),
+            lastError: 'Worker drain failed',
+            runtimeId: 'test-runtime',
+            state: 'error',
+          })
+        )
+      );
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+      view.unmount();
+    }
+  );
 
   it('does not report stopped status again after unmount cleanup finishes', async () => {
     storeState.hasHydrated = true;
@@ -720,39 +728,38 @@ describe('EmbeddingHostRuntime', () => {
     expect(stoppedReports).toHaveLength(0);
   });
 
-  it('waits for an in-flight stop before restarting on db changes', async () => {
-    storeState.hasHydrated = true;
-    const nextDbHandle = { query: vi.fn() };
-    let resolveStop: (() => void) | null = null;
-    stopMock.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveStop = resolve;
-        })
-    );
-
-    const view = render(<EmbeddingHostRuntime />);
-
-    await waitFor(() => {
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
-    });
-
-    currentDbRef.current = nextDbHandle;
-    view.rerender(<EmbeddingHostRuntime />);
-
-    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
-
-    const finishStop = resolveStop as (() => void) | null;
-    if (!finishStop) {
-      throw new Error('Expected embedding host stop to be pending.');
+  it.each(['stopped', 'failed'] as const)(
+    'joins the old database worker Stop before replacement (%s)',
+    async (outcome) => {
+      storeState.hasHydrated = true;
+      const stopping = Promise.withResolvers<void>();
+      stopMock.mockReturnValueOnce(stopping.promise);
+      const view = render(<EmbeddingHostRuntime />);
+      await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce());
+      reportStatusMock.mockClear();
+      currentDbRef.current = { query: vi.fn() };
+      view.rerender(<EmbeddingHostRuntime />);
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+      await act(async () => {
+        if (outcome === 'stopped') {
+          stopping.resolve();
+        } else {
+          stopping.reject(new Error('Old database worker drain failed'));
+        }
+      });
+      await waitFor(() =>
+        expect(reportStatusMock).toHaveBeenLastCalledWith(
+          expect.objectContaining(
+            outcome === 'stopped'
+              ? { state: 'running' }
+              : { lastError: 'Old database worker drain failed', state: 'error' }
+          )
+        )
+      );
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(outcome === 'stopped' ? 2 : 1);
+      view.unmount();
     }
-    finishStop();
-
-    await waitFor(() => {
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
-    });
-    expect(stopMock).toHaveBeenCalledTimes(1);
-  });
+  );
 
   it('continues cleanup if bridge teardown callbacks throw', async () => {
     storeState.hasHydrated = true;

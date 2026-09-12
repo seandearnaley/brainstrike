@@ -74,11 +74,20 @@ export interface EmbeddingRuntimeController {
 
 interface EmbeddingHostStatus {
   readonly active: boolean;
+  readonly commandId?: string;
   readonly embeddingRuntime?: EmbeddingHostRuntimeMetadata;
   readonly lastError: string | null;
   readonly runtimeId: string;
   readonly runtimeKind: 'embedding-host';
   readonly state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+}
+
+/** Stop correlation belongs to the host protocol, not the canonical UI status.
+ * Keep every other field so the status store still rejects unknown extensions. */
+function projectDesktopRuntimeStatus(status: EmbeddingHostStatus): EmbeddingRuntimeStatus {
+  const runtimeStatus = { ...status };
+  Reflect.deleteProperty(runtimeStatus, 'commandId');
+  return runtimeStatus;
 }
 
 interface EmbeddingHostApi {
@@ -300,14 +309,14 @@ export function useEmbeddingRuntimeController(
       if (disposed) {
         return;
       }
-      statusStoreRef.current.setStatus(status);
+      statusStoreRef.current.setStatus(projectDesktopRuntimeStatus(status));
     });
 
     const cleanupStatus = desktopHost.onStatus((status) => {
       if (disposed) {
         return;
       }
-      statusStoreRef.current.setStatus(status);
+      statusStoreRef.current.setStatus(projectDesktopRuntimeStatus(status));
     });
 
     const cleanupBackfill = desktopHost.onBackfillProgress?.((progress) => {
@@ -341,7 +350,7 @@ export function useEmbeddingRuntimeController(
         throw new Error('Desktop embedding host bridge is unavailable.');
       }
       const status = await desktopHost.ensureStarted();
-      return statusStoreRef.current.setStatus(status);
+      return statusStoreRef.current.setStatus(projectDesktopRuntimeStatus(status));
     };
 
     const ensureLocalStarted = async (): Promise<EmbeddingRuntimeStatus> => {
@@ -480,7 +489,7 @@ export function useEmbeddingRuntimeController(
       getStatus: async () => {
         if (desktopHost) {
           const status = await desktopHost.getStatus();
-          return statusStoreRef.current.setStatus(status);
+          return statusStoreRef.current.setStatus(projectDesktopRuntimeStatus(status));
         }
         return statusStoreRef.current.getStatus();
       },
@@ -494,7 +503,7 @@ export function useEmbeddingRuntimeController(
       reset: async () => {
         if (desktopHost) {
           const status = await desktopHost.reset();
-          return statusStoreRef.current.setStatus(status);
+          return statusStoreRef.current.setStatus(projectDesktopRuntimeStatus(status));
         }
         if (localWorkerControllerRef.current) {
           await localWorkerControllerRef.current.stop();
@@ -513,7 +522,7 @@ export function useEmbeddingRuntimeController(
       stop: async () => {
         if (desktopHost) {
           const status = await desktopHost.stop();
-          return statusStoreRef.current.setStatus(status);
+          return statusStoreRef.current.setStatus(projectDesktopRuntimeStatus(status));
         }
         if (localWorkerControllerRef.current) {
           await localWorkerControllerRef.current.stop();
