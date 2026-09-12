@@ -1017,8 +1017,13 @@ describe('mastra memory persistence through the live stream path', () => {
         userMessageId: 'user-watchdog-cleanup-join',
       });
       turnEnded = true;
+      const inFlightAtTurnEnd = cleanup.inFlight;
+      // Give a cleanup statement that was still TO BE ISSUED a window to show
+      // up; with the join in place none can, because Mastra's pipeline has
+      // already closed.
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
-      expect(cleanup.inFlight).toBe(0);
+      expect(inFlightAtTurnEnd).toBe(0);
       expect(cleanup.issuedAfterTurnEnded).toBe(0);
       expect(cleanup.completed).toBeGreaterThan(0);
       const snapshots = await database.query<{ run_id: string }>(
