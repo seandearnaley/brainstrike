@@ -5,6 +5,7 @@
 
 import { BUILT_IN_PERSONAS } from '@brainstrike/assistant-contract';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { inspectPersonaAvailability } from '../../assistant-server/persona-availability';
 import { __resetUserPersonaWarningsForTests } from '../../assistant-server/user-personas-loader';
 import { listUserPersonas } from '../../ipc-user-personas-handlers';
 
@@ -180,4 +181,128 @@ describe('listUserPersonas', () => {
     });
     expect(result.personas).toHaveLength(BUILT_IN_PERSONAS.length);
   });
+});
+
+describe('host availability through the Settings list entry point', () => {
+  it('surfaces missing credentials, missing tools and unknown model pins without changing profile identity', async () => {
+    const result = await listUserPersonas({
+      fs: makeFs({
+        [`${HOME}/.brainstrike/agents`]: {
+          'shipper.md':
+            '---\ndescription: ships\nmode: worker\nmodel: anthropic::missing-model\ntools: missing.edit, readWorkspaceFile\n---\nBody.',
+        },
+      }),
+      getDatabase: async () => null,
+      homedir: () => HOME,
+      inspectAvailability: (persona) =>
+        inspectPersonaAvailability(persona, {
+          mcpTools: new Map(),
+          models: [],
+          readCredential: async () => undefined,
+        }),
+    });
+    const row = result.personas.find((item) => item.id === 'shipper');
+    expect(row).toMatchObject({
+      availability: {
+        issues: expect.arrayContaining([
+          expect.objectContaining({ code: 'credential-missing' }),
+          expect.objectContaining({ code: 'model-not-listed' }),
+          expect.objectContaining({ code: 'tool-not-discovered', toolId: 'missing.edit' }),
+        ]),
+        status: 'blocked',
+      },
+      id: 'shipper',
+      modelPin: 'anthropic::missing-model',
+      status: 'ok',
+    });
+    expect(row?.allowedToolIds).toEqual(['missing.edit', 'brainstrike.readWorkspaceFile']);
+  });
+
+  it('keeps per-request checks explicit even when host prerequisites pass', async () => {
+    const persona = BUILT_IN_PERSONAS.find((entry) => entry.id === 'worker');
+    if (!persona) {
+      throw new Error('Missing built-in worker');
+    }
+    await expect(
+      inspectPersonaAvailability(persona, {
+        mcpTools: new Map(),
+        models: [],
+        readCredential: async () => undefined,
+      })
+    ).resolves.toEqual({ issues: [], status: 'request-dependent' });
+  });
+});
+
+it('reports an unavailable local worker using the same provider capability rule as runtime', async () => {
+  const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
+  if (!worker) {
+    throw new Error('Missing worker');
+  }
+  const result = await inspectPersonaAvailability(
+    { ...worker, model: { modelId: 'local-model', provider: 'local' } },
+    {
+      mcpTools: new Map(),
+      models: [{ id: 'local-model', providerId: 'local' }],
+      readCredential: async () => {
+        throw new Error('Keyless provider must not read credentials');
+      },
+    }
+  );
+  expect(result).toMatchObject({
+    issues: [{ code: 'worker-model-unsupported' }],
+    status: 'blocked',
+  });
+});
+
+it('distinguishes disabled and missing tools without treating declared tools as effective access', async () => {
+  const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
+  if (!worker) {
+    throw new Error('Missing worker');
+  }
+  const result = await inspectPersonaAvailability(
+    { ...worker, allowedToolIds: ['server.enabled', 'server.disabled', 'server.missing'] },
+    {
+      mcpTools: new Map([
+        ['server.enabled', true],
+        ['server.disabled', false],
+      ]),
+      models: [],
+      readCredential: async () => undefined,
+    }
+  );
+  expect(result).toEqual({
+    issues: [
+      expect.objectContaining({ code: 'tool-disabled', toolId: 'server.disabled' }),
+      expect.objectContaining({ code: 'tool-not-discovered', toolId: 'server.missing' }),
+    ],
+    status: 'needs-attention',
+  });
+});
+
+it('does not expose credential errors or claim an unlisted model is definitively invalid', async () => {
+  const builtin = BUILT_IN_PERSONAS[0];
+  if (!builtin) {
+    throw new Error('Missing built-in');
+  }
+  const persona = { ...builtin, model: { modelId: 'custom-id', provider: 'openai' } };
+  const inputs = {
+    mcpTools: new Map<string, boolean>(),
+    models: [],
+    readCredential: async () => ({ key: 'secret', type: 'api_key' as const }),
+  };
+  expect(await inspectPersonaAvailability(persona, inputs)).toMatchObject({
+    issues: [{ code: 'model-not-listed' }],
+    status: 'needs-attention',
+  });
+  const unavailable = await inspectPersonaAvailability(persona, {
+    ...inputs,
+    readCredential: async () => {
+      throw new Error('secret key path');
+    },
+  });
+  expect(unavailable).toMatchObject({
+    issues: expect.arrayContaining([expect.objectContaining({ code: 'credential-unreadable' })]),
+    status: 'blocked',
+  });
+  expect(JSON.stringify(unavailable)).not.toContain('secret');
 });

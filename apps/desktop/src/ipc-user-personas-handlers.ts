@@ -7,6 +7,8 @@
 
 import { homedir } from 'node:os';
 import {
+  type AssistantPersonaAvailability,
+  type AssistantPersonaDefinition,
   type AssistantPersonaListItem,
   type AssistantPersonasListResult,
   BUILT_IN_PERSONAS,
@@ -20,7 +22,11 @@ import {
 import { resolveScanRoots, type UserCommandsListDeps } from './ipc-user-commands-handlers';
 
 /** Same deps shape as the commands list handler (fs + DB + homedir). */
-export type UserPersonasListDeps = UserCommandsListDeps;
+export interface UserPersonasListDeps extends UserCommandsListDeps {
+  readonly inspectAvailability?: (
+    persona: AssistantPersonaDefinition
+  ) => Promise<AssistantPersonaAvailability>;
+}
 
 function toListItem(entry: UserPersonaScanEntry): AssistantPersonaListItem {
   if (entry.status === 'shadowed') {
@@ -76,10 +82,24 @@ export async function listUserPersonas(
   }));
   const roots = await resolveScanRoots(deps.getDatabase);
   const scan = scanUserPersonas({ homeDir: deps.homedir(), roots }, deps.fs);
+  const definitions = new Map(
+    [...BUILT_IN_PERSONAS, ...scan.personas].map((persona) => [persona.id, persona])
+  );
   // Shadowed files ride `entries` like every other outcome (the skill-scan
   // convention), so nothing needs a separate list to stay visible.
   return {
-    personas: [...builtIns, ...scan.entries.map(toListItem)],
+    personas: await Promise.all(
+      [...builtIns, ...scan.entries.map(toListItem)].map(async (item) => {
+        if (item.status !== 'ok' || !deps.inspectAvailability) {
+          return item;
+        }
+        const persona = definitions.get(item.id);
+        if (!persona) {
+          throw new Error('A loadable persona has no validated definition.');
+        }
+        return { ...item, availability: await deps.inspectAvailability(persona) };
+      })
+    ),
     ...(scan.incompleteDirs.length > 0 ? { incompleteDirs: [...scan.incompleteDirs] } : {}),
   };
 }
@@ -92,13 +112,47 @@ export function createUserPersonasListHandler(): () => Promise<AssistantPersonas
   return async () => {
     const filesystem = createNodeFsScanDeps();
     try {
+      const [
+        { getDatabase },
+        { mcpToolRegistry },
+        { resolveProviderCredential },
+        { inspectPersonaAvailability },
+      ] = await Promise.all([
+        import('./db-main'),
+        import('@brainstrike/agent'),
+        import('./assistant-server/provider-credentials'),
+        import('./assistant-server/persona-availability'),
+      ]);
+      const database = await getDatabase();
+      if (!database) {
+        throw new Error('Persona availability requires the host model catalog.');
+      }
+      const { rows: models } = await database.query<{ id: string; providerId: string }>(
+        'SELECT id, provider_id AS "providerId" FROM models'
+      );
+      const mcpTools = new Map(
+        Object.values(mcpToolRegistry.getAllTools())
+          .flat()
+          .map((tool) => [tool.id, tool.enabled])
+      );
+      const credentials = new Map<string, ReturnType<typeof resolveProviderCredential>>();
       return await listUserPersonas({
         fs: filesystem,
-        getDatabase: async () => {
-          const { getDatabase } = await import('./db-main');
-          return getDatabase();
-        },
+        getDatabase: async () => database,
         homedir,
+        inspectAvailability: (persona) =>
+          inspectPersonaAvailability(persona, {
+            mcpTools,
+            models,
+            readCredential: (provider) => {
+              let credential = credentials.get(provider);
+              if (!credential) {
+                credential = resolveProviderCredential(provider);
+                credentials.set(provider, credential);
+              }
+              return credential;
+            },
+          }),
       });
     } finally {
       filesystem.dispose();

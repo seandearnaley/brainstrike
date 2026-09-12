@@ -1,3 +1,4 @@
+import { supportsWorkerPersonaProvider } from '@brainstrike/assistant-contract/personas';
 /**
  * Persona → child-`Agent` factory (subagent personas, T2).
  *
@@ -382,11 +383,11 @@ function isWorkerAvailable(
   }
   const provider = persona.model?.provider ?? params.provider;
   const code = canSuspend
-    ? provider === 'local'
-      ? 'subagent_worker_local_model_unavailable'
-      : (persona.model?.modelId ?? params.modelName) && params.localToolIds
+    ? supportsWorkerPersonaProvider(provider)
+      ? (persona.model?.modelId ?? params.modelName) && params.localToolIds
         ? undefined
         : 'subagent_worker_catalog_unavailable'
+      : 'subagent_worker_local_model_unavailable'
     : 'subagent_worker_host_unavailable';
   if (!code) {
     return true;

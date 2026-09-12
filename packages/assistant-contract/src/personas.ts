@@ -320,3 +320,8 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
     mode: 'worker',
   }),
 ];
+
+/** The embedded local model does not expose the discovery required by Worker mode. */
+export function supportsWorkerPersonaProvider(provider: string | undefined): boolean {
+  return provider !== 'local';
+}
