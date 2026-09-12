@@ -55,7 +55,9 @@ const DESKTOP_SMOKE_COMMAND = [
   '--workers=1',
   '--retries=0',
   '--max-failures=1',
-  '--global-timeout=720000',
+  // 43 smoke cases measure 11.8 to 12.3 min on main and PR heads (Test
+  // 34646256371, 34659815421); 720 s expired with cases still unrun.
+  '--global-timeout=900000',
   '--grep="@smoke"',
 ].join(' ');
 const DESKTOP_TOOLS_NIGHTLY_COMMAND = [
