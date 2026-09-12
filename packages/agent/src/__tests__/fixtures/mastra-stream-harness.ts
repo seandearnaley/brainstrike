@@ -358,10 +358,19 @@ function createMockMastraOutput(parts: readonly unknown[] = streamParts) {
     },
   });
   return {
+    // The mock delivers every part from `start`, so its consumption has nothing
+    // left to join; the method exists because the runtime settles every native
+    // stream through it (`settleNativeStream`) and a result without it is a
+    // runtime failure, not a quiet skip.
+    consumeStream: async () => {},
     fullStream: stream,
     getFullOutput: () => completeStream(),
     ...(mockMessageList ? { messageList: mockMessageList } : {}),
-  } as { fullStream: ReadableStream<unknown>; getFullOutput: () => Promise<unknown> };
+  } as {
+    consumeStream: () => Promise<void>;
+    fullStream: ReadableStream<unknown>;
+    getFullOutput: () => Promise<unknown>;
+  };
 }
 
 interface RunEventChunk {

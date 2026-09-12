@@ -698,7 +698,11 @@ race's SOURCE identified below — core's unawaited post-run `DELETE FROM
 mastra_workflow_snapshot` — is gone in core 1.64: `deleteRunSnapshots()` is
 awaited before `safeClose(controller)` on every terminal path of the agentic
 loop (timeout, failed, non-suspended, success), so that statement can no longer
-be in flight when a caller closes after consuming the stream. (2) Mastra >= 1.62
+be in flight when a caller closes after consuming the stream **to its end**. A
+caller that abandons the stream early (watchdog abort, Stop) still races it —
+traced 2026-09-12 under BST-1221 — so every Brainstrike attempt joins
+`consumeStream()` at its cleanup boundary (`settleNativeStream`, contract in
+`docs/agents/assistant-persistence.md`). (2) Mastra >= 1.62
 adds `Memory.settled()` ("Resolve once all background work this memory started
 has finished… Callers that own the storage connection should await this before
 closing it"); in `@mastra/memory` it joins the observational-memory engine's
