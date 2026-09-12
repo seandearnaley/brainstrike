@@ -17,11 +17,13 @@ import {
 export function ActiveConversationInputProvider({
   children,
   onSend,
+  prepare,
   allowIdleInput = false,
 }: {
   readonly children: ReactNode;
   readonly allowIdleInput?: boolean;
   readonly onSend?: SendActiveConversationInput | undefined;
+  readonly prepare?: ((input: AssistantChildInput) => AssistantChildInput) | undefined;
 }) {
   const aui = useAui();
   const running = useAuiState((state) => state.thread.isRunning);
@@ -63,14 +65,17 @@ export function ActiveConversationInputProvider({
         controller.signal.throwIfAborted();
         if (
           request.current &&
-          serializeAssistantChildInput(request.current) !== serializeAssistantChildInput(input)
+          serializeAssistantChildInput({ ...request.current, nextRun: undefined }) !==
+            serializeAssistantChildInput(input)
         ) {
           throw new Error(
             'The earlier input is unconfirmed. Inspect the child and use Discard draft before composing a new input.'
           );
         }
-        request.current = input;
-        await onSend(input, controller.signal);
+        // Admission settings belong to the receipt, not the live controls. An
+        // unconfirmed retry reuses the complete original request exactly.
+        request.current ??= prepare ? prepare(input) : input;
+        await onSend(request.current, controller.signal);
       };
       await Promise.race([deliver(), interrupted.promise]);
       await clearAcknowledgedChildDraft(aui, text, attachments);

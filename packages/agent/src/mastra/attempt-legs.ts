@@ -147,6 +147,23 @@ async function wakeNativeConversation(
   return accepted.output;
 }
 
+async function bindStartedNativeBranch(
+  stream: { readonly runId: string; consumeStream(): Promise<unknown> },
+  onNativeStart: StreamIterationParams['onNativeStart'],
+  abort: (reason: Error) => void
+): Promise<void> {
+  if (!onNativeStart) {
+    return;
+  }
+  try {
+    await onNativeStart(stream.runId);
+  } catch (error) {
+    abort(new Error('Native child branch binding failed.', { cause: error }));
+    await stream.consumeStream();
+    throw error;
+  }
+}
+
 async function createInitialTurnAttempt(
   {
     runtime,
@@ -156,6 +173,7 @@ async function createInitialTurnAttempt(
     requireToolApproval,
     sanitizedNameMap,
     nativeWake,
+    onNativeStart,
   }: StreamIterationParams,
   continuationMessages: readonly MastraDBMessage[] | undefined,
   carriedLifecycleState?: ToolLifecycleState,
@@ -241,6 +259,7 @@ async function createInitialTurnAttempt(
       : resolvedStreamOptions
         ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
         : await runtime.agent.stream(streamInput);
+    await bindStartedNativeBranch(streamResult, onNativeStart, streamAbortContext.abort);
     await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
     logger.info(
       {

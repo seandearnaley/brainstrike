@@ -45,7 +45,6 @@ import {
   BudgetGuardrailProvider,
   DebugBundleProvider,
   EditCheckpointProvider,
-  hasDesktopLlmHost,
   RunVerdictProvider,
   type ToolApprovalGrantHandlers,
   ToolApprovalGrantProvider,
@@ -68,6 +67,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
 import { subscribeAssistantToolUpdates } from './assistant-panel/tool-update-subscriptions';
+import {
+  hasDesktopRuntimeBridge,
+  useAssistantExecutionControls,
+} from './assistant-panel/use-assistant-execution-controls';
 import { useAssistantUsageLedger } from './assistant-panel/use-assistant-usage-ledger';
 import { useModelSelectionReconcile } from './assistant-panel/use-model-selection-reconcile';
 import { webBodyLimitProps } from './assistant-request-body-limit';
@@ -157,25 +160,6 @@ declare global {
         }
       | undefined;
   }
-}
-
-function hasDesktopRuntimeBridge(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  const desktopWindow = window as Window & {
-    desktopLifecycle?: unknown;
-  };
-  return (
-    typeof desktopWindow.desktopLifecycle === 'object' && desktopWindow.desktopLifecycle !== null
-  );
-}
-
-function hasDesktopAssistantBackend(): boolean {
-  // Single source of truth for "durable assistant usage is recorded here"
-  // (shared with the cost panel's read-side gate) — see
-  // assistant-durable-usage-capability.ts.
-  return hasDurableAssistantUsageCapability();
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
@@ -713,6 +697,15 @@ export function AssistantUiPanelWrapper({
     [db]
   );
   const {
+    desktopAssistantBackendAvailable,
+    localChatTransport,
+    planMode,
+    planModeAvailable,
+    planModeEnabledPref,
+    setPlanModeEnabled,
+    togglePlanMode,
+  } = useAssistantExecutionControls(selectedProvider);
+  const {
     delegatedPanelBinding,
     ensureResourceThreads,
     memoryLoadState,
@@ -721,7 +714,13 @@ export function AssistantUiPanelWrapper({
     refreshResourceThreads,
     resourceThreadsReady,
     selectedMemoryThreadId,
-  } = useAssistantPanelThreadScope(memoryResourceIdOverride, memoryThreadId, currentModel);
+  } = useAssistantPanelThreadScope(
+    memoryResourceIdOverride,
+    memoryThreadId,
+    currentModel,
+    effectiveProviderSettings,
+    planMode
+  );
   const refreshThreadsAfterRun = useAssistantThreadTitleSync({
     enabled: Boolean(db && !dbInitializing && resourceThreadsReady),
     refreshResourceThreads,
@@ -761,7 +760,6 @@ export function AssistantUiPanelWrapper({
     },
     [recordComposerDraft, selectedMemoryThreadId]
   );
-  const desktopAssistantBackendAvailable = hasDesktopAssistantBackend();
   const hostedMemoryBackendAvailable = resolveHostedMemoryBackendAvailable({
     desktopAssistantBackendAvailable,
     selectedProvider,
@@ -808,13 +806,6 @@ export function AssistantUiPanelWrapper({
       storedObservationalMemorySettings,
     ]
   );
-  // Desktop routes built-in local chat through the assistant server (real
-  // Mastra loop with persistence/run events; inference proxied to the hidden
-  // llm-host). Web has neither bridge and keeps the in-renderer local runtime.
-  const localChatTransport: 'data-stream' | 'local-runtime' =
-    hasDesktopRuntimeBridge() && desktopAssistantBackendAvailable && hasDesktopLlmHost()
-      ? 'data-stream'
-      : 'local-runtime';
   // Permission enforcement (OPT-IN) is deliberately NOT read during render.
   // `prepareRequestData` (hooks/use-assistant-request-lifecycle.ts) is the SOLE
   // producer of `permissionPolicyRequest`: it reads the live store at
@@ -854,17 +845,6 @@ export function AssistantUiPanelWrapper({
     );
   }, [localChatTransport, hookApprovalsByRootId, mountedTrustRootIds]);
 
-  // Plan mode (OPT-IN, persisted). Desktop-hosted-first: only the data-stream
-  // transport reaches the assistant server that enforces the plan-mode tool gate
-  // (web's in-renderer local runtime has no server). Presence-means-on downstream.
-  const planModeEnabledPref = useAssistantPreferencesStore((state) => state.planModeEnabled);
-  const togglePlanMode = useAssistantPreferencesStore((state) => state.togglePlanMode);
-  const setPlanModeEnabled = useAssistantPreferencesStore((state) => state.setPlanModeEnabled);
-  // Plan mode is never offered for the built-in local provider (its server gate
-  // ignores planMode — see O3), so the composer toggle is hidden there rather
-  // than silently no-opping.
-  const planModeAvailable = localChatTransport === 'data-stream' && selectedProvider !== 'local';
-  const planMode = planModeEnabledPref && planModeAvailable;
   // Image attachments: every HOSTED provider routes through the data-stream
   // server path (desktop assistant server AND the web /api/assistant route
   // share the same image-aware conversion), so only the text-only built-in

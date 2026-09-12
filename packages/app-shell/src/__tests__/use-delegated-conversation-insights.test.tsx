@@ -22,6 +22,7 @@ const value = (threadId: string): DelegatedConversationInsights => ({
   configuration: {},
   depth: 1,
   directUsage: null,
+  latestExecutionConfiguration: null,
   latestRun: null,
   subtreeUsage: null,
   threadId,

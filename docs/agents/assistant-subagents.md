@@ -79,7 +79,6 @@ Mastra returns the tool error to the supervisor so it can respond. Disabled
 delegation does not validate unused child context. Permission `allow`/YOLO permits
 worker effects without a new prompt; `ask` requires the exact durable child decision.
 
-
 Workers reuse permission filtering, output-artifact settlement, model projections,
 canonical catalog search/loading, skill injection, provider history compatibility,
 token limiting and error processors. Each child discovery catalog contains only
@@ -757,7 +756,6 @@ A real native child-tool failure retains its native chunk identity and is covere
 by the production-stream guard test. With no `bindRun` capability, the guard is
 absent and the stream loop adds no authorization promise/microtask per chunk.
 
-
 ### Durable delegated usage (BST-1718)
 
 Bound completion reports carry the public Mastra parent run/tool call and child
@@ -766,13 +764,25 @@ the authorized, published invocation and its original host leg. Migration 128
 adds a nullable invocation join to the existing usage table; historical rows are
 left unattributed. Duplicate reports and cumulative resumed totals update one
 row with monotonic token maxima, never additive replay. Model/provider cannot
-change on that row. Recreated native approval/decline tests prove the completed
-child's usage is cumulative across its two model steps and absent at the pause;
-this is not intermediate provider billing coverage while a child is paused.
+change on that row. The public output-step processor reports actual model usage
+before tools can pause or be cancelled. Installed Mastra supplies prior completed
+`steps` separately from current `usage`; their sum is the cumulative invocation
+total, including across approval resumes. Missing counts do not fabricate rows.
+Metering uses a `transient: true` custom data part, so it cannot replace the native
+assistant message or alter its tool output, text, or parent outcome. The public
+native data-part path forwards these frames without delegation wrapper metadata;
+the projection requires one already published active child thread and derives
+its observed parent identity before the durable writer rechecks resource ownership.
+The real desktop runtime tests preserve 1/1 tokens on pause/Stop and 2/2 after an
+approved second model response, with artifact hydration and completed parent
+outcomes verified through the same native boundary.
 
 The completion hook can run ahead of a slow stream consumer. Bound reports stay
 queued until the matching parent result/error or finish, after native child
-publication has authorized its run. Empty queues return before decoding a part.
+publication has authorized its run. In-stream progress reports can drain only
+after that same published child identity is validated. Completion and progress
+reports coalesce by invocation and never replay unchanged cumulative totals.
+Empty queues return before decoding a part.
 Final draining still requires the durable binding at the writer; missing/changed identity or a failed write propagates
 before the transient usage refresh. The writer uses the existing run-critical
 foreground scheduler and its narrowly diagnosed saturated-host recovery. An
@@ -790,7 +800,6 @@ scripted. It forces a fast child ahead of the consumer and reconstructs a PGlite
 engine to verify durable identity/usage. This is host integration evidence, not
 packaged Electron E2E or a process-restart guarantee. The separate graph/host,
 branch deletion, contract and stream-ordering tests cover rejection and replay.
-
 
 Lifecycle stays in the existing `brainstrike_assistant_run_events` journal.
 Native delegation start/finish/failure events now carry `parentRuntimeRunId`
@@ -1171,7 +1180,6 @@ remaining BST-1720 production entry, question/plan, interrupted-state UI and
 end-to-end acceptance is green. This foundation does not enable mutation tools
 or unrestricted recursive workers.
 
-
 ### Durable delegated decision recovery display (BST-1720)
 
 The suspended-runs endpoint annotates each rediscovered native leaf with its
@@ -1549,7 +1557,6 @@ Delegation cards resolve durable names and colors through the owning workspace r
 
 A child-open request made before the workspace repository is available fails visibly and clears its session intent. Boot hydration still restores the saved root, but cannot replay that rejected child-open request; the user may explicitly open the child after storage is ready. The shared coordinator test covers this boundary.
 
-
 ### Background worker execution and pending controls (BST-1723)
 
 Desktop run-scoped memory supplies `backgroundTaskScope` through assistant-service
@@ -1623,7 +1630,8 @@ Settings → Subagents refreshes the ordinary validated workspace/global persona
 scan and shows host preflight facts from the existing model catalog, typed
 credential reader and MCP tool registry. Missing/unreadable required credentials,
 catalogued non-language models, providers without LLM capability, and the built-in
-local model's unsupported Worker discovery are blockers. The local-worker rule is shared with actual agent admission. An unlisted model pin
+local model's unsupported Worker discovery are blockers. The local-worker rule
+is shared with actual agent admission. An unlisted model pin
 or missing/disabled MCP tool is actionable attention, not a claim that a custom
 model is invalid or that the entire persona is unavailable. Native capabilities,
 selected parent model, durable child controls and permission policy remain
@@ -1631,7 +1639,8 @@ per-request checks; a passing preflight never promises effective access.
 
 Declared scope remains visible beside these facts. Refresh rereads profile edits
 and host facts with one scan in flight, without executing a model or changing
-running children. A failed scan/check shows a visible error and Retry, retaining any previous list as such;
+running children. A failed scan/check shows a visible error and Retry, retaining
+any previous list as such;
 it does not silently substitute built-ins for a successful user-profile scan.
 No credentials enter the IPC response and no new state is persisted. Existing
 subagent-personas factory-reset registration remains authoritative.
@@ -1648,6 +1657,18 @@ parent tool-call coordinates. The receipt is claimed before native wake and bind
 the accepted native run before the first continuation envelope acknowledges input.
 A repeated admitted input ID never starts work again, including after an uncertain
 acknowledgement or restart. Different text or image content under that ID is a conflict.
+
+A pending decision owns its selected child, not the root's execution slot. Multiple
+idle children can therefore retain independent approvals/questions, including
+same-persona siblings with identical leaf tool-call IDs. Only one receipt may be
+claimed/running under a root, and only one active receipt may own each child.
+Both fresh input and decision consumption also reject another running/cancelling
+managed root leg, including ordinary parent input. Stopping one paused child
+preserves its sibling's exact pending receipt across host restart; neither restart
+nor a repeated input/decision may execute an effect again.
+`idle-grandchild-restart.integration.test.ts` proves depth-two continuation and
+sibling Stop isolation through three distinct processes, real native storage,
+parent outcome delivery, and unchanged original invocation identities.
 
 The selected child retains its admitted persona and step cap. Direct child legs
 must preserve the child's default budget and worker processors: root per-call
@@ -1706,9 +1727,9 @@ explicit input can be admitted. A settlement failure preserves both causes in an
 AggregateError. Decision disposal consumes only claims still owned by that host;
 validation before claim or an explicitly released unexecuted claim cannot replace
 the original error with a spurious lost-claim failure. Failed receipts
-retain the visible provider or thrown stream error. Both native `message-finish`
-and legacy `finish` branches persist cumulative usage for the current host leg;
-the pinned native integration fixture emits `message-finish`.
+retain the visible provider or thrown stream error. Completed model responses
+persist provider usage before a tool can suspend, as described below; terminal
+chunks project that same current-leg usage.
 Recognized human continuation signals use one decoder in both projection paths;
 malformed signals fail visibly instead of disappearing from child history. Restart does
 not automatically replay either the child input or the parent notification.
@@ -1753,7 +1774,8 @@ registry. Cross-provider pins reacquire credentials through the trusted host rea
 including when the live persona file has been deleted; credentials are not stored
 in child configuration. `assistant-service/stream-init.ts` is the sole production
 caller of the two public resume functions and injects that reader for both.
-Restoration without an authenticated root runtime rejects before reading secrets. Native Mastra snapshots retain the original delegated
+Restoration without an authenticated root runtime rejects before reading
+secrets. Native Mastra snapshots retain the original delegated
 task and workspace/system context. This boundary does not change native workflow
 snapshot formats or create another execution owner.
 
@@ -1796,8 +1818,10 @@ actual child run model/provider and tree depth. It uses the same admitted-profil
 parser as native resume; an invalid legacy profile remains an explicit error,
 never a different persona. The displayed tool list is the admitted maximum, still
 subject to current host permissions. A missing captured effort value is displayed
-as not recorded; it is not inferred from the parent's current selector. This
-read-only surface does not implement next-run overrides.
+as not recorded; it is not inferred from the parent's current selector. Continuation
+receipts with an execution snapshot display their actual model, generation effort,
+output limit, plan state and permission policy. The latest authorized receipt is
+read separately from the original admitted maximum.
 
 Direct captured usage and inclusive child-plus-descendant usage reuse the main
 conversation's cumulative usage component and pricing resolver. Inclusive totals
@@ -1808,6 +1832,48 @@ child usage rows are stored under the root thread. It does not sum the root's
 entire bill into each child. Only retained conversation attribution is shown;
 ordinary root totals still retain numeric history after child deletion. Current
 work may not yet have reported its final usage.
+
+### Next idle child run controls (BST-1727)
+
+The child reuses the main composer's model picker, generation/effort controls,
+plan control and tool menu. Its draft is local to the exact child panel. Before
+an explicit override, the selected model comes from the admitted persona pin or
+its owning root's live per-thread selector; provider settings and plan mode come
+from that same root store, not another thread or global settings alone. Desktop
+children use the same shared provider-discovery resource as the parent even when
+the parent panel is not mounted.
+
+Changes apply only to a new idle-child input. Active input carries no next-run
+configuration. The shared composer captures the complete next-run request once;
+an unconfirmed retry keeps that exact receipt and settings despite later control
+changes. Changing text/images still requires explicit discard. Browser receipts
+exclude credentials and local endpoint configuration. The host resolves credentials
+through the existing admitted-persona provider path.
+
+Every new native child also records the actual generation options installed on
+its Agent through the existing trusted admission binding before native input is
+persisted. No new context registry or renderer-provided authority is introduced.
+Original decision resume restores execution snapshots alongside admitted persona
+profiles at each exact ancestry depth. A different pinned descendant model uses
+its own defaults instead of inheriting options intended for another model. The
+current root's stricter permissions still apply to that child's tool construction.
+Older rows without an execution snapshot remain explicitly unrecorded.
+
+Migration 137 persists an execution configuration on each continuation receipt.
+Admission validates the current host model and image capability, intersects root
+permissions, prevents disabling root plan mode, and permits only reductions of the
+original admitted tool catalog. Resume reads the receipt's exact profile and
+generation settings and applies any newer root permission reduction. A pending
+decision is not affected by future draft edits, reload or different parent effort.
+Child settings never replace the parent outcome leg's settings. Null legacy
+execution configurations retain the explicit original-profile compatibility path;
+migration rollback refuses to discard non-null execution snapshots.
+
+Verification: real PGlite upgrade/replay/reconstruction and receipt identity tests;
+actual first-delegation and continuation admission/decision resume with child high/777 while
+the parent uses low/42; public composer retry retains the original configuration;
+shared Electron child image/idle/reload/approval path observes selected xhigh on
+the real provider wire before and after pending-decision reload.
 
 ### Structured child composer input
 
@@ -1833,6 +1899,35 @@ conflicting-content payloads refuse downgrade.
 Acknowledgement clears only the sent attachment cohort and unchanged text, preserving
 newly staged input. An unconfirmed changed payload requires explicit discard rather
 than silently reusing its receipt or replaying the input.
+
+The shared effort control offers an OpenRouter ladder only from the selected
+model's declared or matching live metadata; it never borrows direct OpenAI
+defaults while routed-model metadata is pending. This keeps first-child admission
+and the visible root controls on the same capability contract.
+
+Continuation token accounting uses Mastra's public `processOutputStep`, which
+reports the completed model response before tool execution can pause. A paused
+native stream has no `step-finish` and its terminal usage is zero; a resumed
+terminal includes earlier paused model responses. Neither is a per-host-leg
+charge. The admitted child's processor persists cumulative provider-reported
+counts within the current managed host leg, and the continuation projection emits
+those same counts. A fresh decision leg starts a fresh meter; native cumulative
+finish values cannot duplicate earlier spend. Stopping an already paused child
+therefore retains its reported model usage. Missing provider counts do not create
+a fabricated usage row. The three-process sibling fixture checks 1/1 on each
+paused child and 1/1 on the surviving child's resumed leg, both live and durable.
+
+### Settings inventory and reset release proof (BST-1727/BST-1728)
+
+`delegated-factory-reset.desktop.test.ts` toggles Settings' master delegation
+switch and observes the next real native Mastra request at the external model
+provider boundary. Enabled requests advertise `agent-worker`; disabled requests
+advertise no `agent-*` tools while retaining ordinary tool discovery. After
+Settings factory reset and process restart, the default switch and an actual
+subsequent worker-capable inventory return. The existing provider shim supplies
+model text only; the app's assistant endpoint, request preference propagation,
+persona resolution and tool catalog construction run unmodified. This case does
+not execute a delegated workspace effect; the worker fixtures own that proof.
 
 ### Native child workspace reads and checkpoint undo (BST-1726)
 

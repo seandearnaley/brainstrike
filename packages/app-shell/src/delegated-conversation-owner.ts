@@ -1,14 +1,15 @@
 import {
-  type AssistantChildInput,
   CHILD_FOLLOWUP_RUN_CONFIG_KEY,
   type DelegatedRunIdentity,
 } from '@brainstrike/assistant-contract';
+import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type {
   AssistantUiPanelProps,
   ChildContinuationIdentity,
   DelegatedConversationRuntimeOptions,
   DelegatedConversationUpdate,
 } from '@brainstrike/assistant-ui';
+import type { AssistantProviderSettingsMap } from '@brainstrike/types';
 import { createStore } from 'zustand/vanilla';
 import { createDelegatedConversationStore } from './delegated-conversation-store';
 import { createDelegatedDecisionDispatcher } from './delegated-decision-dispatcher';
@@ -31,7 +32,13 @@ type DecisionMessage = Parameters<DelegatedConversationRuntimeOptions['onNew']>[
 
 export function createDelegatedConversationRoot(rootThreadId: string) {
   const store = createDelegatedConversationStore(rootThreadId);
-  const modelSelection = createStore<{ readonly selectedModel: string | null }>(() => ({
+  const modelSelection = createStore<{
+    readonly selectedModel: string | null;
+    readonly providerSettings: AssistantProviderSettingsMap;
+    readonly planMode: boolean;
+  }>(() => ({
+    planMode: false,
+    providerSettings: {},
     selectedModel: null,
   }));
   let runtime: Registration | undefined;
@@ -92,7 +99,7 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
     },
     async sendFollowup(
       threadId: string,
-      input: AssistantChildInput,
+      input: Omit<AssistantChildFollowupAction, 'threadId'>,
       signal: AbortSignal
     ): Promise<void> {
       const owner = runtime;

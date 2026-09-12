@@ -33,7 +33,6 @@ import { type ReactNode, useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
-
 import { ChildView } from '../delegated-workspace-child-view';
 import { type ChildNode, loadDelegatedWorkspaceNode } from '../delegated-workspace-node';
 import { delegatedWorkspaceTabId } from '../delegated-workspace-tab';
@@ -80,9 +79,15 @@ function WorkspaceProviders({ children }: { children: ReactNode }) {
   );
 }
 
-function DatabaseReady() {
+function DatabaseReady({ readiness }: { readiness: { resolve: () => void } }) {
   const db = usePGliteDatabase();
-  return db ? <span data-testid="database-ready" /> : null;
+  useEffect(() => {
+    if (!db) {
+      return;
+    }
+    readiness.resolve();
+  }, [db, readiness]);
+  return null;
 }
 
 function OwningRoot() {
@@ -99,6 +104,7 @@ function OwningRoot() {
 beforeEach(async () => {
   const createClient = wasmLoader.createPGliteClient.bind(wasmLoader);
   const closed = Promise.withResolvers<void>();
+  const ready = Promise.withResolvers<void>();
   databaseClosed = closed.promise;
   vi.spyOn(wasmLoader, 'createPGliteClient').mockImplementationOnce(async (path) => {
     const client = await createClient(path);
@@ -119,10 +125,10 @@ beforeEach(async () => {
   fileSystemAdapter = new MockFileSystemAdapter();
   workspace = render(
     <WorkspaceProviders>
-      <DatabaseReady />
+      <DatabaseReady readiness={ready} />
     </WorkspaceProviders>
   );
-  await screen.findByTestId('database-ready');
+  await ready.promise;
   const history = createPgliteAssistantThreadRepository(database as DbHandle);
   const root = await history.createThread('owner');
   const child = await history.createThread('native-child');

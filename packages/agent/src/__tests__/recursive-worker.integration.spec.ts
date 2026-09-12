@@ -344,6 +344,15 @@ it.each([
       // The real native delegation hook passes this exact object to host.persist.
       // A raw wildcard here would make every newly admitted Worker unresumable.
       expect(admitted.configuration).toEqual({
+        execution: {
+          model: 'gpt-5.4',
+          permissionPolicy: expect.objectContaining({
+            policies: { edit: 'ask', execute: 'ask', mcp: 'deny', read: 'allow' },
+            yolo: false,
+          }),
+          planMode: false,
+          provider: 'openai',
+        },
         maxSteps: expect.any(Number),
         persona: { ...worker, allowedToolIds: ['brainstrike.writeWorkspaceFile'] },
       });

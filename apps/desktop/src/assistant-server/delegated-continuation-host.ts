@@ -2,10 +2,12 @@ import type { ChildContinuationHostPort } from '@brainstrike/agent';
 import type { DelegatedConversationBaseline } from '@brainstrike/assistant-contract';
 import {
   createDelegatedContinuationRepository,
+  createDelegatedConversationRepository,
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
   type DelegatedConversationScope,
 } from '@brainstrike/db';
+import { prepareDelegatedChildBranch } from './delegated-child-branch';
 import { continuationProjectionId } from './delegated-continuation-identity';
 import { reserveDelegatedInvocation } from './delegated-tree-admission';
 
@@ -17,7 +19,8 @@ export function createDesktopDelegatedContinuationHost(
   captureHistory: (
     threadId: string,
     resourceId: string,
-    initial: boolean
+    initial: boolean,
+    requiredMessageIds?: readonly string[]
   ) => Promise<DelegatedConversationBaseline>,
   resolveDelegatedDecision?: (
     input: Parameters<ChildContinuationHostPort['claimContinuationDecision']>[0]
@@ -99,14 +102,19 @@ export function createDesktopDelegatedContinuationHost(
     async persistContinuationUsage(input) {
       await (await repository()).recordUsage(input.id, input);
     },
-    async prepareContinuation(input) {
+    async prepareContinuation(input, configure) {
       if (!database.transaction) {
         throw new Error('Continuation admission requires a database transaction.');
       }
       const scope = await readScope();
       const node = await database.transaction(async (tx) => {
+        const child = await createDelegatedConversationRepository(tx).get(scope, input.threadId);
+        if (!child) {
+          throw new DelegatedConversationIdentityError('continuation-input-not-admitted');
+        }
         const claimed = await createDelegatedContinuationRepository(tx, scope, hostRunId).prepare(
-          input
+          input,
+          configure?.(child.configuration)
         );
         await reserveDelegatedInvocation(
           tx,
@@ -117,10 +125,23 @@ export function createDesktopDelegatedContinuationHost(
           claimed.threadId,
           claimed.configuration
         );
-        return claimed;
+        return await prepareDelegatedChildBranch(
+          tx,
+          { ...claimed, messageId: projectionId(claimed.id) },
+          true
+        );
       });
       try {
-        baselines.set(node.id, await captureHistory(node.threadId, node.resourceId, false));
+        const baseline = await captureHistory(
+          node.threadId,
+          node.resourceId,
+          false,
+          node.branchMessageIds
+        );
+        baselines.set(
+          node.id,
+          node.branch ? { ...baseline, headId: node.branchMessageIds?.at(-1) ?? null } : baseline
+        );
       } catch (error) {
         // Admission committed, but no native wake can occur without its baseline.
         // Release the durable active slot without permitting replay of this receipt.
@@ -152,11 +173,24 @@ export function createDesktopDelegatedContinuationHost(
     async resolveContinuationDecision(input) {
       await authorizeDelegation(input);
       const node = await (await repository()).resolveDecision(input);
-      const baseline = await captureHistory(node.threadId, node.resourceId, false);
-      baselines.set(node.id, baseline);
+      const prepared = await prepareDelegatedChildBranch(
+        database,
+        { ...node, messageId: projectionId(node.id) },
+        false
+      );
+      const baseline = await captureHistory(
+        node.threadId,
+        node.resourceId,
+        false,
+        prepared.branchMessageIds
+      );
+      const selectedBaseline = prepared.branch
+        ? { ...baseline, headId: prepared.branchMessageIds?.at(-1) ?? null }
+        : baseline;
+      baselines.set(node.id, selectedBaseline);
       return {
-        ...node,
-        baseline,
+        ...prepared,
+        baseline: selectedBaseline,
         messageId: projectionId(node.id),
       };
     },

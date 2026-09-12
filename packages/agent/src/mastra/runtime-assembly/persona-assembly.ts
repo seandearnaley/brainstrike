@@ -16,6 +16,7 @@ import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import type { RuntimeData } from '../../types';
 import { buildPersonaSubAgents, type DelegatedExecutionOptions } from '../build-persona-subagents';
+import type { ChildContinuationRuntimeScope } from '../child-continuation-usage';
 import type { DelegationPersonaSummary } from '../default-instructions';
 import type { DelegatedConversationBinding } from '../delegated-conversation-binding';
 import { personasAtDelegationDepth } from '../delegated-persona-snapshots';
@@ -59,10 +60,16 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
  * map here would bake the wrong budget into every pinned persona's tools.
  */
 export async function resolvePersonaRuntimeParts(params: {
-  continuationChildScope?: { readonly resourceId: string; readonly threadId: string } | undefined;
+  childExecutionConfiguration?:
+    | import('@brainstrike/assistant-contract').ChildExecutionConfiguration
+    | undefined;
+  continuationChildScope?: ChildContinuationRuntimeScope | undefined;
   delegatedDepthOffset?: number | undefined;
   delegatedExecutionOptions?: DelegatedExecutionOptions;
   delegatedPersonaSnapshots?: readonly AssistantPersonaDefinition[] | undefined;
+  delegatedExecutionSnapshots?:
+    | readonly (import('@brainstrike/assistant-contract').ChildExecutionConfiguration | undefined)[]
+    | undefined;
   conversationBinding?: DelegatedConversationBinding | undefined;
   guardedTools: ToolsInput;
   getDelegatedSystemContext?: DelegatedSystemContextSource | undefined;
@@ -89,15 +96,21 @@ export async function resolvePersonaRuntimeParts(params: {
     params.personas ?? [],
     params.delegatedPersonaSnapshots
   );
-  if (params.planModeActive || !shouldEnablePersonas(params.provider, personas)) {
+  if (
+    (params.planModeActive && !params.continuationChildScope) ||
+    !shouldEnablePersonas(params.provider, personas)
+  ) {
     return EMPTY_PERSONA_RUNTIME_PARTS;
   }
   const personaBuild = await buildPersonaSubAgents({
+    childExecutionConfiguration: params.childExecutionConfiguration,
     continuationChildScope: params.continuationChildScope,
     delegatedDepthOffset: params.delegatedDepthOffset,
     delegatedExecutionOptions: params.delegatedExecutionOptions,
+    delegatedExecutionSnapshots: params.delegatedExecutionSnapshots,
     delegatedPersonaSnapshots: params.delegatedPersonaSnapshots,
     memory: params.memory,
+    planModeActive: params.planModeActive,
     ...(params.conversationBinding ? { conversationBinding: params.conversationBinding } : {}),
     ...(params.settleChildToolOutputs
       ? { settleChildToolOutputs: params.settleChildToolOutputs }

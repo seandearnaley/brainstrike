@@ -3,9 +3,15 @@ import type {
   DelegatedConversationBaseline,
   DelegatedToolActionIdentity,
 } from '@brainstrike/assistant-contract';
-import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
+import type {
+  AssistantChildFollowupAction,
+  ChildBranchSelection,
+} from '@brainstrike/assistant-contract/child-followup';
 
 export interface ChildContinuationScope {
+  readonly branch?: ChildBranchSelection;
+  readonly branchInputMessageId?: string;
+  readonly branchMessageIds?: readonly string[];
   readonly configuration: unknown;
   readonly depth: number;
   readonly id: string;
@@ -59,7 +65,10 @@ export interface ChildContinuationHostPort {
     readonly model?: string;
     readonly provider?: string;
   }): Promise<void>;
-  prepareContinuation(input: AssistantChildFollowupAction): Promise<ChildContinuationScope>;
+  prepareContinuation(
+    input: AssistantChildFollowupAction,
+    configure?: (admittedConfiguration: unknown) => unknown
+  ): Promise<ChildContinuationScope>;
   releaseUnexecutedContinuationDecision(input: ChildContinuationDecision): Promise<void>;
   resolveContinuationDecision(
     input: ChildContinuationDecision

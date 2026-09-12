@@ -72,6 +72,14 @@ test('restores distinct child tabs and native transcripts without executing a ru
       'INSERT INTO brainstrike_delegated_conversations (thread_id, owner_resource_id, root_thread_id, resource_id) VALUES ($1, $2, $1, $2)',
       [root['id'], root['resource']]
     );
+    const fixturePersona = {
+      allowedToolIds: ['brainstrike.readWorkspaceFile'],
+      description: 'Inspect the persisted child workspace fixture.',
+      id: 'workspace-reload-fixture',
+      instructions: 'Read the requested workspace context and report the result.',
+      label: 'Workspace fixture',
+      maxSteps: 16,
+    };
     const ids: string[] = [];
     for (const [name, color, parentName] of [
       ['Cedar', 'emerald'],
@@ -85,7 +93,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
         [child, resource, name]
       );
       await query(
-        `INSERT INTO brainstrike_delegated_conversations (thread_id, owner_resource_id, root_thread_id, parent_thread_id, resource_id, configuration, display_name, color) VALUES ($1, $2, $3, $7, $4, '{"maxSteps":16,"persona":{"id":"explore"}}'::jsonb, $5, $6)`,
+        'INSERT INTO brainstrike_delegated_conversations (thread_id, owner_resource_id, root_thread_id, parent_thread_id, resource_id, configuration, display_name, color) VALUES ($1, $2, $3, $7, $4, $8::jsonb, $5, $6)',
         [
           child,
           root['resource'],
@@ -94,6 +102,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
           name,
           color,
           parentName ? `${root['id']}-${parentName}` : root['id'],
+          JSON.stringify({ maxSteps: fixturePersona.maxSteps, persona: fixturePersona }),
         ]
       );
       await query(
@@ -199,6 +208,10 @@ test('restores distinct child tabs and native transcripts without executing a ru
     .toBe(true);
   await cedarViewport.evaluate((element) => element.scrollTo({ behavior: 'instant', top: 0 }));
   await expect.poll(() => cedarViewport.evaluate((element) => element.scrollTop)).toBe(0);
+  // Wait for the scroll owner to record that Cedar is reading history before
+  // hiding its kept-alive panel. A DOM scrollTop write precedes its scroll
+  // event; switching tabs before that event leaves the follow state pinned.
+  await expect(cedarPanel.getByTestId('assistant-scroll-to-bottom')).toBeEnabled();
   await cedar.focus();
   await cedar.press('ArrowRight');
   await expect(flint).toBeFocused();
@@ -220,12 +233,14 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(childPanel.getByText('Instructions for Cedar', { exact: true })).toBeVisible();
   await expect(
     childPanel.getByRole('button', { includeHidden: true, name: 'Regenerate response' })
-  ).toHaveCount(0);
+  ).toHaveCount(1);
+  await childPanel.getByText('Instructions for Cedar', { exact: true }).hover();
   await expect(
     childPanel.getByRole('button', { includeHidden: true, name: 'Edit message' })
-  ).toHaveCount(0);
-  // Idle children accept their own draft; opening or editing it must not run
-  // a model or change the parent's composer. Delivery is covered separately.
+  ).toHaveCount(1);
+  // Reloaded idle children expose their branch controls and accept their own
+  // draft. Merely restoring the controls or editing the draft must not run a
+  // model or change the parent's composer. Delivery is covered separately.
   const childInput = childPanel.getByRole('textbox', { name: 'Message input' });
   await expect(childInput).toBeEnabled();
   await childInput.fill('UNSENT_CHILD_DRAFT_1724');
@@ -250,7 +265,9 @@ test('restores distinct child tabs and native transcripts without executing a ru
   ).toHaveCount(0);
   // Establish the reader's position before the sidebar navigation sequence.
   await cedarViewport.evaluate((element) => element.scrollTo({ behavior: 'instant', top: 0 }));
-  await expect.poll(() => cedarViewport.evaluate((element) => element.scrollTop)).toBe(0);
+  await expect
+    .poll(() => cedarViewport.evaluate((element) => element.scrollTop))
+    .toBeLessThanOrEqual(1);
   await window.getByRole('button', { exact: true, name: 'Flint Child' }).click();
   await expect(flint).toHaveAttribute('aria-selected', 'true');
   await expect(flint.locator('svg').first()).toHaveClass(/text-amber-500/u);

@@ -186,3 +186,24 @@ it('refuses a stored usage row with two execution owners instead of counting or 
     'conflicting execution owners'
   );
 });
+
+it('reads only this child latest admitted execution snapshot while preserving the original catalog ceiling', async () => {
+  await database.exec(
+    "UPDATE brainstrike_assistant_thread_runs SET status='completed' WHERE id <> 'wake-host'"
+  );
+  const admitted = {
+    ...configuration,
+    execution: { model: 'chosen-child', planMode: true, provider: 'openai' },
+  };
+  await createDelegatedContinuationRepository(database, scope, 'wake-host').prepare(
+    { id: 'configured-input', text: 'Continue', threadId: 'child' },
+    admitted
+  );
+  const result = await readDelegatedConversationInsights(database, scope, 'child');
+  expect(result.configuration).toEqual(configuration);
+  expect(result.latestExecutionConfiguration).toEqual(admitted);
+  expect(
+    (await readDelegatedConversationInsights(database, scope, 'sibling'))
+      .latestExecutionConfiguration
+  ).toBeNull();
+});

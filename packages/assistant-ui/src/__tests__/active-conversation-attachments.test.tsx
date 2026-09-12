@@ -33,10 +33,12 @@ function Controls() {
 }
 function Harness({
   onSend,
+  prepare,
   capture,
   panel = false,
   running = true,
 }: {
+  prepare?: (input: AssistantChildInput) => AssistantChildInput;
   panel?: boolean;
   running?: boolean;
   onSend: (input: AssistantChildInput) => Promise<void>;
@@ -59,6 +61,7 @@ function Harness({
           attachmentsAvailability={{ state: 'enabled' }}
           label="Cedar"
           onSendActiveInput={onSend}
+          prepareActiveInput={prepare}
           runtime={runtime}
           threadKey="child"
         />
@@ -67,7 +70,7 @@ function Harness({
   }
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <ActiveConversationInputProvider onSend={onSend}>
+      <ActiveConversationInputProvider onSend={onSend} prepare={prepare}>
         <Controls />
       </ActiveConversationInputProvider>
     </AssistantRuntimeProvider>
@@ -218,4 +221,43 @@ it('clears delivered text independently when only a newer image was staged', asy
   expect(runtime.thread.composer.getState().attachments.map((item) => item.name)).toEqual([
     'next.png',
   ]);
+});
+
+it('freezes next-run controls once and retries the same receipt after controls change', async () => {
+  let current: AssistantRuntime | undefined;
+  const capture = (runtime: AssistantRuntime) => {
+    current = runtime;
+  };
+  const send = vi
+    .fn<(input: AssistantChildInput) => Promise<void>>()
+    .mockRejectedValueOnce(new Error('Unconfirmed'))
+    .mockResolvedValue(undefined);
+  const prepare = vi.fn(
+    (input: AssistantChildInput): AssistantChildInput => ({
+      ...input,
+      nextRun: { modelSettings: { maxOutputTokens: 777 } },
+    })
+  );
+  const view = render(<Harness capture={capture} onSend={send} prepare={prepare} />);
+  if (!current) {
+    throw new Error('Missing runtime');
+  }
+  act(() => current?.thread.composer.setText('Continue'));
+  await userEvent.click(screen.getByRole('button', { name: 'Send child' }));
+  expect(await screen.findByText('Unconfirmed')).toBeVisible();
+  const changedPrepare = vi.fn(
+    (input: AssistantChildInput): AssistantChildInput => ({
+      ...input,
+      nextRun: { modelSettings: { maxOutputTokens: 42 } },
+    })
+  );
+  view.rerender(<Harness capture={capture} onSend={send} prepare={changedPrepare} />);
+  await userEvent.click(screen.getByRole('button', { name: 'Send child' }));
+  await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+  expect(send.mock.calls[0]?.[0]).toMatchObject({
+    nextRun: { modelSettings: { maxOutputTokens: 777 } },
+  });
+  expect(send.mock.calls[1]?.[0]).toEqual(send.mock.calls[0]?.[0]);
+  expect(prepare).toHaveBeenCalledOnce();
+  expect(changedPrepare).not.toHaveBeenCalled();
 });

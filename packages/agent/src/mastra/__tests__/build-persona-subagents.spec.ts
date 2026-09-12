@@ -18,6 +18,7 @@ import {
   resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
 } from '../../stream/tool-output-limits';
+import { scriptedAgentModel, textParts } from '../../test-fixtures/scripted-agent-model';
 import { createAskUserTool } from '../../tools/ask-user-tool';
 import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
@@ -913,4 +914,58 @@ describe('buildPersonaSubAgents', () => {
       );
     });
   });
+});
+
+it('passes the admitted child effort and output budget through the actual Mastra model call', async () => {
+  const model = scriptedAgentModel(() => textParts('Child settings applied'));
+  const result = await buildPersonaSubAgents({
+    ...makeGuardedTools(ALL_TOOL_IDS),
+    childExecutionConfiguration: {
+      model: 'gpt-5.6-sol',
+      modelSettings: { maxOutputTokens: 777 },
+      planMode: false,
+      provider: 'openai',
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    },
+    languageModel: model.model,
+    logger: noopLogger,
+    permissionSnapshot: readAllowSnapshot,
+    personas: [explorePersona],
+    provider: 'openai',
+    resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+  });
+  const child = assertDefined(result.subAgents['explore'], 'Child missing');
+  const stream = await child.stream('Use your admitted settings.');
+  await stream.consumeStream();
+  expect(model.prompts).toHaveLength(1);
+  expect(model.prompts[0]).toMatchObject({
+    maxOutputTokens: 777,
+    providerOptions: { openai: { reasoningEffort: 'high' } },
+  });
+});
+
+it('does not apply generation options for one child model to a differently pinned sibling', async () => {
+  const model = scriptedAgentModel(() => textParts('Pinned defaults'));
+  const result = await buildPersonaSubAgents({
+    ...makeGuardedTools(ALL_TOOL_IDS),
+    childExecutionConfiguration: {
+      model: 'gpt-5.6-sol',
+      modelSettings: { maxOutputTokens: 777 },
+      planMode: false,
+      provider: 'openai',
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    },
+    languageModel: model.model,
+    logger: noopLogger,
+    permissionSnapshot: readAllowSnapshot,
+    personas: [{ ...explorePersona, model: { modelId: 'gpt-5.4-mini', provider: 'openai' } }],
+    provider: 'openai',
+    resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+    resolvePinnedModel: () => model.model,
+  });
+  const child = assertDefined(result.subAgents['explore'], 'Child missing');
+  await (await child.stream('Use the pinned model defaults.')).consumeStream();
+  expect(model.prompts).toHaveLength(1);
+  expect(model.prompts[0]?.maxOutputTokens).toBeUndefined();
+  expect(model.prompts[0]?.providerOptions?.['openai']).toBeUndefined();
 });

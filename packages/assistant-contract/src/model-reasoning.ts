@@ -230,6 +230,11 @@ function resolveOpenRouterControls(
     : modelId === undefined
       ? undefined
       : findDeclaredLlmModel('openrouter', modelId)?.reasoning;
+  // OpenRouter routes must declare their own ladder. Direct OpenAI defaults
+  // do not establish capabilities for an undeclared routed model.
+  if (!declared) {
+    return { available: false, reason: 'no-reasoning-controls' };
+  }
   return resolveOpenAiFamilyControls('openrouter', declared);
 }
 

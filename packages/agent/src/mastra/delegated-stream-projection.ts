@@ -9,6 +9,8 @@ import { z } from 'zod';
 import type { ConversationStreamChunk, StreamChunkDelegatedConversation } from '../types';
 import { readChildContinuationUserMessage } from './child-continuation-user-message';
 import type { DelegatedRunIdentity } from './delegated-run-publication';
+import { readDelegatedStepUsage } from './delegated-step-usage';
+import type { SubagentChildUsageReport } from './subagent-delegation';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 import { resolveDelegationPersona } from './tool-lifecycle-processors';
 
@@ -23,6 +25,7 @@ interface ChildStreamState<State> {
   readonly identity: DelegatedRunIdentity;
   messageId: string;
   readonly state: State;
+  readonly threadId: string;
   readonly toolNames: Map<string, string>;
 }
 
@@ -40,6 +43,7 @@ interface DelegatedStreamProjectionOptions<State> {
     state: State,
     toolNames: Map<string, string>
   ) => Promise<{ readonly chunks: readonly ConversationStreamChunk[]; readonly finished: boolean }>;
+  readonly onUsage?: ((usage: SubagentChildUsageReport) => void) | undefined;
   readonly personas: ReadonlyMap<string, string>;
 }
 
@@ -111,6 +115,31 @@ function projectHumanInput<State>(
       type: 'delegated-conversation-chunk',
     },
   ];
+}
+
+function projectPublishedUsage<State>(
+  usage: NonNullable<ReturnType<typeof readDelegatedStepUsage>>,
+  children: ReadonlyMap<string, ChildStreamState<State>>,
+  onUsage: DelegatedStreamProjectionOptions<State>['onUsage']
+): void {
+  const owners = [...children.values()].filter(
+    (child) => child.threadId === usage.threadId && !child.finished
+  );
+  const owner = owners[0];
+  if (owners.length !== 1 || !owner || !onUsage) {
+    throw new Error('Delegated usage has no unique published native child owner.');
+  }
+  onUsage({
+    delegation: {
+      parentRuntimeRunId: owner.identity.parentRuntimeRunId,
+      parentToolCallId: owner.identity.parentToolCallId,
+      resourceId: usage.resourceId,
+      threadId: usage.threadId,
+    },
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    personaId: owner.identity.personaId,
+  });
 }
 
 /** One projection per attempt: native invocation identity owns independent mapper state. */
@@ -209,6 +238,11 @@ export function createDelegatedStreamProjection<State>(
     toolNames: Map<string, string>,
     ancestors: readonly DelegatedRunIdentity[] = []
   ): Promise<StreamChunkDelegatedConversation[]> => {
+    const usage = readDelegatedStepUsage(part);
+    if (usage) {
+      projectPublishedUsage(usage, children, options.onUsage);
+      return [];
+    }
     if (readMastraStreamPartString(part, 'type') === 'data-user-message') {
       return projectHumanInput(part, children);
     }
@@ -241,6 +275,7 @@ export function createDelegatedStreamProjection<State>(
           readMastraStreamPartString(nested, 'messageId') ?? binding.messageId
         ),
         state: options.createState(identity.personaId, requireIdentity(binding.threadId)),
+        threadId: requireIdentity(binding.threadId),
         toolNames: new Map(),
       };
       children.set(key, child);

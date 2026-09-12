@@ -2,8 +2,12 @@ import {
   type DbModel,
   useModelRegistryStore,
 } from '@brainstrike/app-state/stores/model-registry-store';
-import { readAdmittedPersonaConfiguration } from '@brainstrike/assistant-contract';
+import {
+  admittedPersonaConfigurationSchema,
+  readAdmittedPersonaConfiguration,
+} from '@brainstrike/assistant-contract';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
+import type { AssistantProviderSettingsMap } from '@brainstrike/types';
 import { useCallback, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import {
@@ -16,13 +20,20 @@ import {
   type DelegatedConversationPanelProps,
 } from './delegated-conversation-panel';
 import type { DelegatedConversationInsightsState } from './delegated-conversation-toolbar';
+import {
+  type AssistantProviderSource,
+  AssistantProviderSourceProvider,
+} from './hooks/assistant-provider-source';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
+import { useChildNextRunControls } from './use-child-next-run-controls';
 import { useFileMentions } from './use-file-mentions';
 
 type Props = DelegatedConversationPanelProps & {
   readonly insights: DelegatedConversationInsightsState;
   readonly inheritedModel?: string | null;
   readonly isRunning?: boolean;
+  readonly inheritedProviderSettings?: AssistantProviderSettingsMap;
+  readonly inheritedPlanMode?: boolean;
 };
 
 function resolveChildAttachments(
@@ -44,10 +55,10 @@ function resolveChildAttachments(
     const persona = readAdmittedPersonaConfiguration(insights.value.configuration);
     const modelId = isRunning
       ? insights.value.latestRun?.model
-      : (persona.model?.modelId ?? resolveModelNameFromComposite(inheritedModel));
+      : (resolveModelNameFromComposite(inheritedModel) ?? persona.model?.modelId);
     const providerId = isRunning
       ? insights.value.latestRun?.provider
-      : (persona.model?.provider ?? resolveProviderFromComposite(inheritedModel));
+      : (resolveProviderFromComposite(inheritedModel) ?? persona.model?.provider);
     const model = models.find((item) => item.id === modelId && item.providerId === providerId);
     return resolveComposerAttachmentsAvailability({
       providerGateAvailable: providerId !== 'local',
@@ -73,7 +84,31 @@ function resolveChildAttachments(
   }
 }
 
-function CapableChildPanel({ insights, inheritedModel, isRunning = false, ...props }: Props) {
+function parseAdmittedPersona(value: unknown) {
+  const parsed = admittedPersonaConfigurationSchema.safeParse(value);
+  return parsed.success ? readAdmittedPersonaConfiguration(value) : undefined;
+}
+
+const CHILD_PROVIDER_SOURCE: AssistantProviderSource = { kind: 'discovery' };
+const EMPTY_SETTINGS: AssistantProviderSettingsMap = {};
+function CapableChildPanel({
+  insights,
+  inheritedModel,
+  inheritedProviderSettings = EMPTY_SETTINGS,
+  inheritedPlanMode = false,
+  isRunning = false,
+  ...props
+}: Props) {
+  const persona =
+    insights.status === 'ready' ? parseAdmittedPersona(insights.value.configuration) : undefined;
+  const admittedConfigurationReady = insights.status === 'ready' && persona !== undefined;
+  const controls = useChildNextRunControls({
+    inheritedModel: inheritedModel ?? null,
+    inheritedPlanMode,
+    inheritedProviderSettings,
+    isRunning: () => isRunning,
+    persona,
+  });
   const [query, setQuery] = useState('');
   const { fileMentions } = useFileMentions(query);
   const slashCommands = useAssistantSlashCommands(props.threadId);
@@ -99,23 +134,35 @@ function CapableChildPanel({ insights, inheritedModel, isRunning = false, ...pro
   const attachmentsAvailability = resolveChildAttachments(
     insights,
     models,
-    inheritedModel,
+    controls.selectedModel ?? inheritedModel,
     isRunning
   );
   return (
-    <DelegatedConversationPanel
-      {...props}
-      panelProps={{
-        ...props.panelProps,
-        attachmentsAvailability,
-        composerDraftCommand: command,
-        fileMentions,
-        onComposerDraftCommandApplied: onCommandApplied,
-        onComposerTextChange: onTextChange,
-        onFileMentionQueryChange: setQuery,
-        slashCommands,
-      }}
-    />
+    <>
+      {controls.error ? (
+        <p className="px-2 text-destructive text-xs" role="alert">
+          {controls.error}
+        </p>
+      ) : null}
+      <DelegatedConversationPanel
+        {...props}
+        allowIdleInput={admittedConfigurationReady && props.allowIdleInput === true}
+        onBranch={admittedConfigurationReady ? props.onBranch : undefined}
+        panelProps={{
+          ...props.panelProps,
+          ...controls.panelProps,
+          attachmentsAvailability,
+          composerDraftCommand: command,
+          fileMentions,
+          onComposerDraftCommandApplied: onCommandApplied,
+          onComposerTextChange: onTextChange,
+          onFileMentionQueryChange: setQuery,
+          prepareActiveInput: controls.prepareInput,
+          slashCommands,
+        }}
+        prepareBranchInput={controls.prepareInput}
+      />
+    </>
   );
 }
 
@@ -126,9 +173,15 @@ export function DelegatedChildConversationPanel(props: Props) {
       insights: _insights,
       inheritedModel: _inheritedModel,
       isRunning: _isRunning,
+      inheritedProviderSettings: _inheritedProviderSettings,
+      inheritedPlanMode: _inheritedPlanMode,
       ...panel
     } = props;
     return <DelegatedConversationPanel {...panel} />;
   }
-  return <CapableChildPanel {...props} />;
+  return (
+    <AssistantProviderSourceProvider source={CHILD_PROVIDER_SOURCE}>
+      <CapableChildPanel key={props.threadId} {...props} />
+    </AssistantProviderSourceProvider>
+  );
 }

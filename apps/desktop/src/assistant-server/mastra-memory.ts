@@ -283,7 +283,7 @@ async function createDesktopMastraMemoryFromCacheState({
       createDesktopDelegatedInputContext(runtimeData),
       async (threadId) =>
         captureDelegatedWorkspaceStart(
-          await getDatabase(),
+          database,
           threadId,
           runtimeData,
           memoryDependencies?.snapshots

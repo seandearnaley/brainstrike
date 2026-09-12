@@ -30,6 +30,8 @@ export interface DelegatedConversationInsights {
   readonly depth: number;
   /** Only captured rows with retained exact identity; absence is not zero spending. */
   readonly directUsage: DelegatedCapturedUsage | null;
+  /** Latest host-admitted continuation settings; null on legacy/original delegations. */
+  readonly latestExecutionConfiguration: unknown | null;
   readonly latestRun: {
     readonly model: string;
     readonly modelSettings: Readonly<Record<string, unknown>> | null;
@@ -59,6 +61,9 @@ const INSIGHTS_QUERY = `${AUTHORIZED_DELEGATED_GRAPH}, selected AS (
     AND (invocation.thread_id IN (SELECT thread_id FROM subtree) OR continuation.thread_id IN (SELECT thread_id FROM subtree))
 )
 SELECT selected.thread_id, selected.configuration, selected.delegation_depth,
+  (SELECT continuation.execution_configuration FROM brainstrike_delegated_continuations continuation
+    WHERE continuation.thread_id=selected.thread_id AND continuation.owner_resource_id=$1 AND continuation.root_thread_id=$2
+    ORDER BY continuation.created_at DESC, continuation.id DESC LIMIT 1) AS execution_configuration,
   (SELECT jsonb_build_object('model', model, 'provider', provider, 'modelSettings', model_settings, 'providerOptions', provider_options)
    FROM brainstrike_assistant_thread_runs run WHERE run.thread_id=selected.thread_id AND run.resource_id=selected.resource_id
    ORDER BY run.started_at DESC, run.created_at DESC, run.id DESC LIMIT 1) AS latest_run,
@@ -155,6 +160,7 @@ export async function readDelegatedConversationInsights(
     configuration: selected['configuration'],
     depth: count(selected['delegation_depth']),
     directUsage: totals(direct),
+    latestExecutionConfiguration: selected['execution_configuration'] ?? null,
     latestRun: latest
       ? {
           model: text(latest['model']),

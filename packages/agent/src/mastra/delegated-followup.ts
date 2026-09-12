@@ -46,6 +46,16 @@ function matchesReceiptInput(
   return receipt.text === input.text && !input.attachments?.length;
 }
 
+function normalizeActiveChildInput(rawInput: DelegatedFollowupInput) {
+  const input = normalizeAssistantChildInput(rawInput);
+  if (input.nextRun) {
+    throw new ChildInputNotDeliveredError(
+      'Run controls apply only when starting the next idle child run. Nothing was sent.'
+    );
+  }
+  return input;
+}
+
 async function deliver(
   child: Agent,
   target: DelegatedFollowupTarget,
@@ -53,7 +63,7 @@ async function deliver(
   assertAdmission: () => Promise<void>,
   prepareContext?: PrepareChildInputContext
 ): Promise<void> {
-  const input = normalizeAssistantChildInput(rawInput);
+  const input = normalizeActiveChildInput(rawInput);
   const payload = serializeAssistantChildInput(input);
   const memory = await child.getMemory();
   const store = await memory?.storage.getStore('memory');

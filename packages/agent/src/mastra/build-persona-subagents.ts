@@ -18,6 +18,7 @@ import {
   AdmittedChildConfigurationError,
   DELEGATION_LIMITS,
   deriveEffectiveInputBudget,
+  intersectChildPermissionCeilings,
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
 import {
@@ -36,9 +37,12 @@ import {
   type ScaledToolResultBudget,
 } from '../stream/tool-output-limits';
 import type { RuntimeData } from '../types';
+import type { ChildContinuationRuntimeScope } from './child-continuation-usage';
 import { createChildInputContextProcessor } from './child-input-context';
+import { executionForPersona } from './child-run-configuration';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { personasAtDelegationDepth } from './delegated-persona-snapshots';
+import { createDelegatedStepUsageProcessor } from './delegated-step-usage';
 import {
   createDelegatedSystemContextProcessor,
   createRootDelegatedContextProcessor,
@@ -85,12 +89,16 @@ export type DelegatedExecutionOptions = Pick<
 > & { workQueue?: DelegatedWorkQueue };
 
 export interface BuildPersonaSubAgentsParams {
-  readonly continuationChildScope?:
-    | { readonly resourceId: string; readonly threadId: string }
+  readonly childExecutionConfiguration?:
+    | import('@brainstrike/assistant-contract').ChildExecutionConfiguration
     | undefined;
+  readonly continuationChildScope?: ChildContinuationRuntimeScope | undefined;
   readonly conversationBinding?: DelegatedConversationBinding;
   readonly delegatedDepthOffset?: number | undefined;
   readonly delegatedExecutionOptions?: DelegatedExecutionOptions | undefined;
+  readonly delegatedExecutionSnapshots?:
+    | readonly (import('@brainstrike/assistant-contract').ChildExecutionConfiguration | undefined)[]
+    | undefined;
   readonly delegatedPersonaSnapshots?: readonly AssistantPersonaDefinition[] | undefined;
   readonly depth?: number;
   readonly getDelegatedSystemContext?: DelegatedSystemContextSource;
@@ -107,6 +115,7 @@ export interface BuildPersonaSubAgentsParams {
   readonly modelName?: string;
   readonly permissionSnapshot: PermissionToolGateSnapshot | undefined;
   readonly personas: readonly AssistantPersonaDefinition[];
+  readonly planModeActive?: boolean;
   /**
    * The PARENT run's normalized provider, used to build the child's error
    * processors. A pinned persona overrides it with its own provider.
@@ -376,6 +385,20 @@ function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
     );
   }
   if (!existingChild && params.conversationBinding) {
+    const binding = params.conversationBinding;
+    const execution = params.childExecutionConfiguration;
+    if (execution) {
+      inputProcessors.push({
+        id: 'brainstrike-child-execution-admission',
+        processInput({ messages, requestContext }) {
+          if (!(binding.captureExecutionConfiguration && requestContext)) {
+            throw new Error('Child execution admission requires its trusted binding capability.');
+          }
+          binding.captureExecutionConfiguration(requestContext, execution);
+          return messages;
+        },
+      });
+    }
     inputProcessors.push(params.conversationBinding.inputProcessor);
   }
   if (!existingChild && params.turnPersistenceProcessor) {
@@ -387,6 +410,10 @@ function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
     // The boundary and optional persistence processors preserve memory defaults.
     outputProcessors: [
       createResponseBoundaryProcessor(),
+      ...(!existingChild && params.conversationBinding
+        ? [createDelegatedStepUsageProcessor()]
+        : []),
+      ...(existingChild?.usageProcessor ? [existingChild.usageProcessor] : []),
       ...(!existingChild && params.turnPersistenceProcessor
         ? [params.turnPersistenceProcessor]
         : []),
@@ -559,7 +586,11 @@ async function createConfiguredChild({
       params.toolOutputObserver,
       childToolResultBudget
     );
-  const childProcessors = buildChildProcessors(params);
+  const childExecution = executionForPersona(params.childExecutionConfiguration, persona.model);
+  const childProcessors = buildChildProcessors({
+    ...params,
+    childExecutionConfiguration: childExecution,
+  });
 
   // The child agent id MUST equal the persona id: Mastra sets
   // `DelegationStartContext.primitiveId = agent.id`, and the delegation caps
@@ -580,13 +611,15 @@ async function createConfiguredChild({
   let descendants: Promise<PersonaSubAgentBuildResult> | undefined;
   return new Agent({
     ...(params.memory ? { memory: params.memory } : {}),
-    ...(params.conversationBinding?.budget &&
+    ...(!params.planModeActive &&
+    params.conversationBinding?.budget &&
     params.delegatedExecutionOptions &&
     depth + (params.delegatedDepthOffset ?? 0) < DELEGATION_LIMITS.maxDepth
       ? {
           agents: async () => {
             descendants ??= buildPersonaSubAgents({
               ...params,
+              childExecutionConfiguration: childExecution,
               depth: depth + 1,
               guardedTools: rawChildTools,
               languageModel: childModel,
@@ -620,6 +653,16 @@ async function createConfiguredChild({
         : undefined;
       return {
         ...(childSignal ? { abortSignal: childSignal } : {}),
+        ...(childExecution?.modelSettings ? { modelSettings: childExecution.modelSettings } : {}),
+        // The installed provider supports Anthropic display=updates; Mastra's
+        // bundled SDK mirror is older. Match the root stream boundary assertion.
+        ...(childExecution?.providerOptions
+          ? {
+              providerOptions: childExecution.providerOptions as NonNullable<
+                AgentExecutionOptions['providerOptions']
+              >,
+            }
+          : {}),
         ...(params.delegatedExecutionOptions?.delegation
           ? { delegation: params.delegatedExecutionOptions.delegation }
           : {}),
@@ -696,6 +739,17 @@ function assertAdmittedPersonaRegistered(
   }
 }
 
+function executionAtDepth(params: BuildPersonaSubAgentsParams, personaId: string) {
+  const index = (params.depth ?? 1) - 1;
+  if (
+    params.delegatedExecutionSnapshots !== undefined &&
+    params.delegatedPersonaSnapshots?.[index]?.id === personaId
+  ) {
+    return params.delegatedExecutionSnapshots[index];
+  }
+  return params.childExecutionConfiguration;
+}
+
 export async function buildPersonaSubAgents(
   params: BuildPersonaSubAgentsParams
 ): Promise<PersonaSubAgentBuildResult> {
@@ -733,9 +787,14 @@ export async function buildPersonaSubAgents(
       params.logger
     );
 
+    const capturedExecution = executionAtDepth(params, persona.id);
+    const permissionSnapshot = intersectChildPermissionCeilings(
+      capturedExecution?.permissionPolicy,
+      params.permissionSnapshot
+    );
     const gateResult = filterToolsByPermissionWithMetadata(
       candidate,
-      params.permissionSnapshot,
+      permissionSnapshot,
       params.toolNameMap,
       params.logger
     );
@@ -791,7 +850,11 @@ export async function buildPersonaSubAgents(
             childNameMap,
             childToolResultBudget,
             keptOriginalNames,
-            params,
+            params: {
+              ...params,
+              childExecutionConfiguration: capturedExecution,
+              permissionSnapshot,
+            },
             persona,
             rawChildTools: childTools as ToolsInput,
             settledChildTools,

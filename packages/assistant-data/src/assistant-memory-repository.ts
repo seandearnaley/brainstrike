@@ -57,6 +57,7 @@ import {
   createDelegatedConversationRepository,
   readAssistantHistoryMessages,
   readAssistantHistoryRunEvents,
+  recordAssistantHistoryParent,
 } from '@brainstrike/db';
 
 import type { DbHandle } from '@brainstrike/db/react';
@@ -728,7 +729,6 @@ const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints
 /** Workspace roots (migration 039); joined by the cross-root usage rollup. */
 const ROOTS_TABLE = 'roots';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
-const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
 /**
  * Every relation the repository reads or writes, and therefore every relation
  * whose absence means this database was never migrated.
@@ -2588,7 +2588,7 @@ function orderHistoryGraphForImport(
 export function restoreDelegatedConversationHistory(
   baseline: DelegatedConversationBaseline
 ): Awaited<ReturnType<AssistantUiThreadHistoryAdapter['load']>> {
-  return toHistoryRepository(
+  const history = toHistoryRepository(
     baseline.messages.map(({ parentId, ...message }) => ({
       ...message,
       createdAt: normalizeDate(message.createdAt),
@@ -2596,6 +2596,7 @@ export function restoreDelegatedConversationHistory(
     })),
     baseline.runEvents
   );
+  return baseline.headId === undefined ? history : { ...history, headId: baseline.headId };
 }
 
 function toHistoryRepository(
@@ -3388,22 +3389,7 @@ export function createPgliteAssistantThreadRepository(
       const parentId =
         input.parentId === null ? null : requireNonEmptyTopologyId(input.parentId, 'parentId');
       await initialize();
-      const now = new Date();
-      const result = await database.query(
-        `INSERT INTO ${ASSISTANT_MESSAGE_PARENTS_TABLE}
-          (message_id, thread_id, resource_id, parent_id, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $5)
-         ON CONFLICT (message_id) DO UPDATE
-           SET updated_at = EXCLUDED.updated_at
-           WHERE ${ASSISTANT_MESSAGE_PARENTS_TABLE}.thread_id = EXCLUDED.thread_id
-             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.resource_id = EXCLUDED.resource_id
-             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.parent_id IS NOT DISTINCT FROM EXCLUDED.parent_id
-         RETURNING message_id`,
-        [messageId, threadId, resourceId, parentId, now]
-      );
-      if (result.rows.length !== 1) {
-        throw new Error(`Assistant message ${messageId} has conflicting branch topology.`);
-      }
+      await recordAssistantHistoryParent(database, { messageId, parentId, resourceId, threadId });
     },
     async recordRunOutcome(input: RecordRunOutcomeInput): Promise<void> {
       requireString(input.runId, 'runId');

@@ -8,7 +8,10 @@ import { afterEach, expect, it } from 'vitest';
 import { DelegatedConversationToolbar } from '../delegated-conversation-toolbar';
 
 afterEach(cleanup);
-function insights(threadId = 'child'): DelegatedConversationInsights {
+function insights(
+  threadId = 'child',
+  allowedToolIds: readonly string[] = ['brainstrike.readWorkspaceFile']
+): DelegatedConversationInsights {
   const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
   if (!worker) {
     throw new Error('Missing canonical Worker');
@@ -16,10 +19,11 @@ function insights(threadId = 'child'): DelegatedConversationInsights {
   return {
     configuration: {
       maxSteps: 8,
-      persona: { ...worker, allowedToolIds: ['brainstrike.readWorkspaceFile'] },
+      persona: { ...worker, allowedToolIds },
     },
     depth: 1,
     directUsage: null,
+    latestExecutionConfiguration: null,
     latestRun: {
       model: 'unknown-custom-model',
       modelSettings: null,
@@ -101,4 +105,57 @@ it('surfaces load and legacy configuration failures without replacing them with 
   );
   expect(screen.getByRole('alert')).toHaveTextContent('Start a new delegation');
   expect(screen.queryByText('Worker')).not.toBeInTheDocument();
+});
+
+it('shows the latest admitted child execution settings and tools, not a later root selection', async () => {
+  const user = userEvent.setup();
+  const value = insights('child', ['brainstrike.grepSearch', 'brainstrike.readWorkspaceFile']);
+  const latestExecutionConfiguration = {
+    execution: {
+      model: 'gpt-5.6-sol',
+      modelSettings: { maxOutputTokens: 777 },
+      permissionPolicy: {
+        policies: { edit: 'ask', execute: 'deny', mcp: 'ask', read: 'allow' },
+        yolo: false,
+      },
+      planMode: true,
+      provider: 'openai',
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    },
+    maxSteps: 3,
+    persona: { ...BUILT_IN_PERSONAS[0], allowedToolIds: ['brainstrike.readWorkspaceFile'] },
+  };
+  render(
+    <DelegatedConversationToolbar
+      insights={{ status: 'ready', value: { ...value, latestExecutionConfiguration } }}
+      isRunning={false}
+    />
+  );
+  await user.click(screen.getByRole('button', { name: 'Child details' }));
+  expect(screen.getByText('gpt-5.6-sol')).toBeVisible();
+  expect(screen.getByText('Effort high')).toBeVisible();
+  expect(screen.getByText('Up to 777 output tokens')).toBeVisible();
+  expect(screen.getByText(/execute: deny/)).toBeVisible();
+  await user.click(screen.getByText('2 admitted tools'));
+  expect(screen.getByText('grepSearch')).toBeVisible();
+  expect(screen.getByText('readWorkspaceFile')).toBeVisible();
+  expect(screen.queryByText('unknown-custom-model')).not.toBeInTheDocument();
+});
+
+it('surfaces an invalid latest execution receipt while retaining the original admission', async () => {
+  const user = userEvent.setup();
+  render(
+    <DelegatedConversationToolbar
+      insights={{
+        status: 'ready',
+        value: { ...insights(), latestExecutionConfiguration: { execution: {} } },
+      }}
+      isRunning={false}
+    />
+  );
+  expect(screen.getByRole('alert')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Child details' }));
+  expect(screen.getByText('Up to 8 steps')).toBeVisible();
+  expect(screen.getByText('1 admitted tool')).toBeVisible();
+  expect(screen.queryByText('unknown-custom-model')).not.toBeInTheDocument();
 });

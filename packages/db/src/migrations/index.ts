@@ -135,6 +135,8 @@ import { migration133MastraBackgroundTasks } from './133-mastra-background-tasks
 import { migration134DelegatedCancellationAdmission } from './134-delegated-cancellation-admission.js';
 import { migration135DelegatedContinuations } from './135-delegated-continuations.js';
 import { migration136DelegatedInputPayload } from './136-delegated-input-payload.js';
+import { migration137ChildExecutionConfiguration } from './137-child-execution-configuration.js';
+import { migration138IndependentChildContinuationPauses } from './138-independent-child-continuation-pauses.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -276,6 +278,8 @@ export const migrations: Migration[] = [
   migration134DelegatedCancellationAdmission,
   migration135DelegatedContinuations,
   migration136DelegatedInputPayload,
+  migration137ChildExecutionConfiguration,
+  migration138IndependentChildContinuationPauses,
 ];
 
 // Export base migrations (without chunks table) for test environments

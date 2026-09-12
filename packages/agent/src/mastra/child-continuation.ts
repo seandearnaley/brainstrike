@@ -9,19 +9,25 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import { Agent, createMessageSignal, createSignal } from '@mastra/core/agent';
-import type { ConversationStreamChunk, StreamChunk, StreamIterator } from '../types';
+import type { AgentMessage, ConversationStreamChunk, StreamChunk, StreamIterator } from '../types';
 import { createMastraAgentRuntime, type MastraAgentRuntimeOptions } from './agent-runtime';
 import {
   createStreamIteratorFromRuntime,
   createToolApprovalIteratorFromRuntime,
   createToolResumeIteratorFromRuntime,
 } from './attempt-legs';
+import { CHILD_BRANCH_MEMORY_OPTIONS, childBranchInputProcessors } from './child-branch';
 import type {
   ChildContinuationBaseline,
   ChildContinuationHostPort,
   ChildContinuationStatus,
 } from './child-continuation-host-port';
+import {
+  type ContinuationUsageProcessor,
+  createContinuationUsageProcessor,
+} from './child-continuation-usage';
 import { CHILD_INPUT_CONTEXT_KEY } from './child-input-context';
+import { configureChildContinuation, restoreChildExecution } from './child-run-configuration';
 import {
   readAdmittedPersonaConfiguration,
   withAdmittedPersonaSnapshots,
@@ -36,7 +42,9 @@ export async function createChildFollowupStream(
   if (!host) {
     throw new Error('The host does not provide durable child continuation.');
   }
-  const scope = await host.prepareContinuation(input);
+  const scope = await host.prepareContinuation(input, (configuration) =>
+    configureChildContinuation(configuration, input, options)
+  );
   let runtime: Awaited<ReturnType<typeof createMastraAgentRuntime>> | undefined;
   try {
     const persona = readAdmittedPersonaConfiguration(scope.configuration);
@@ -45,53 +53,129 @@ export async function createChildFollowupStream(
       persona.model?.provider ?? options.runtime?.provider,
       persona.model?.modelId ?? options.runtime?.model
     );
-    const profile = await withAdmittedPersonaSnapshots([persona], options);
+    const profile = restoreChildExecution(
+      scope.configuration,
+      await withAdmittedPersonaSnapshots([persona], options)
+    );
     const restored = {
       ...profile,
       runtime: { ...profile.runtime, assistantMessageId: scope.messageId },
     };
+    const usageProcessor = createContinuationUsageProcessor(host, input.id, scope);
     runtime = await createMastraAgentRuntime({
       ...restored,
-      continuationChildScope: { resourceId: scope.resourceId, threadId: scope.threadId },
+      continuationChildScope: {
+        resourceId: scope.resourceId,
+        threadId: scope.threadId,
+        usageProcessor,
+      },
       delegatedDepthOffset: scope.depth - 1,
     });
     const child = (await runtime.agent.listAgents())[persona.id];
     if (!(child instanceof Agent)) {
       throw new Error('The admitted child cannot use the current model or tool capabilities.');
     }
+    const inputProcessors = await childBranchInputProcessors(child, scope);
+    const branchInputMessageId = scope.branchInputMessageId;
+    if (scope.branch?.kind === 'edit' && !branchInputMessageId) {
+      throw new Error('Child edit has no admitted native input identity.');
+    }
+    const branchMessages: AgentMessage[] = [];
+    if (scope.branch?.kind === 'edit' && branchInputMessageId) {
+      branchMessages.push({
+        id: branchInputMessageId,
+        parts: assistantChildInputContents(input).map((part) =>
+          part.type === 'text' ? part : { ...part, type: 'file' as const }
+        ),
+        role: 'user',
+      });
+    }
     let binding: ChildContinuationBaseline | undefined;
     let nativeRunId: string | undefined;
     const stream = await createStreamIteratorFromRuntime({
-      runtime: { ...runtime, agent: child, childExecution: { maxSteps: persona.maxSteps } },
+      runtime: {
+        ...runtime,
+        agent: child,
+        childExecution: {
+          maxSteps: persona.maxSteps,
+          ...(inputProcessors ? { inputProcessors } : {}),
+        },
+      },
       runtimeData: {
         ...restored.runtime,
-        memory: { resourceId: scope.resourceId, threadId: scope.threadId },
+        ...(restored.childExecutionConfiguration
+          ? {
+              model: restored.childExecutionConfiguration.model,
+              provider: restored.childExecutionConfiguration.provider,
+            }
+          : {}),
+        memory: {
+          resourceId: scope.resourceId,
+          threadId: scope.threadId,
+          ...(scope.branch ? { memoryOptions: CHILD_BRANCH_MEMORY_OPTIONS } : {}),
+        },
       },
       ...(options.memory ? { memory: options.memory } : {}),
-      messages: [],
-      nativeWake: {
-        maxSteps: persona.maxSteps,
-        async onWake(runId) {
-          nativeRunId = runId;
-          binding = await host.bindContinuation({ id: input.id, nativeRunId: runId });
-        },
-        signal: createMessageSignal(
-          {
-            contents: assistantChildInputContents(input),
-            metadata: { brainstrikeChildContinuation: input.id, [CHILD_INPUT_CONTEXT_KEY]: [] },
-          },
-          {
-            id: `child-continuation:${createHash('sha256')
-              .update(JSON.stringify([scope.resourceId, scope.threadId, input.id]))
-              .digest('hex')}`,
+      messages: branchMessages,
+      ...(scope.branch
+        ? {
+            onNativeStart: async (runId: string) => {
+              nativeRunId = runId;
+              binding = await host.bindContinuation({ id: input.id, nativeRunId: runId });
+            },
           }
-        ),
-      },
+        : {
+            nativeWake: {
+              maxSteps: persona.maxSteps,
+              async onWake(runId) {
+                nativeRunId = runId;
+                binding = await host.bindContinuation({ id: input.id, nativeRunId: runId });
+              },
+              signal: createMessageSignal(
+                {
+                  contents: assistantChildInputContents(input),
+                  metadata: {
+                    brainstrikeChildContinuation: input.id,
+                    [CHILD_INPUT_CONTEXT_KEY]: [],
+                  },
+                },
+                {
+                  id: `child-continuation:${createHash('sha256')
+                    .update(JSON.stringify([scope.resourceId, scope.threadId, input.id]))
+                    .digest('hex')}`,
+                }
+              ),
+            },
+          }),
     });
     if (!(binding && nativeRunId)) {
       throw new Error('Child continuation has no admitted native run.');
     }
-    return projectContinuation(stream, host, input.id, nativeRunId, binding, options);
+    const branchStream =
+      scope.branch?.kind === 'edit'
+        ? (async function* () {
+            if (!branchInputMessageId) {
+              throw new Error('Child edit has no admitted native input identity.');
+            }
+            yield {
+              createdAt: new Date().toISOString(),
+              id: branchInputMessageId,
+              text: input.text,
+              type: 'child-user-message' as const,
+              ...(input.attachments ? { attachments: input.attachments } : {}),
+            };
+            yield* stream;
+          })()
+        : stream;
+    return projectContinuation(
+      branchStream,
+      host,
+      input.id,
+      nativeRunId,
+      binding,
+      options,
+      usageProcessor
+    );
   } catch (error) {
     const cleanup = await Promise.allSettled([
       runtime?.dispose(),
@@ -167,13 +251,6 @@ async function projectContinuationChunk(
   if (chunk.type === 'message-finish' && chunk.finishReason === 'error') {
     state.status = 'failed';
   }
-  if (chunk.type === 'finish' || chunk.type === 'message-finish') {
-    await host.persistContinuationUsage({
-      id,
-      inputTokens: chunk.usage.promptTokens,
-      outputTokens: chunk.usage.completionTokens,
-    });
-  }
   const baseline = state.baselineSent ? {} : { baseline: binding.baseline };
   state.baselineSent = true;
   return {
@@ -225,7 +302,8 @@ async function* projectContinuation(
   id: string,
   nativeRunId: string,
   binding: ChildContinuationBaseline,
-  options: MastraAgentRuntimeOptions
+  options: MastraAgentRuntimeOptions,
+  usageProcessor: ContinuationUsageProcessor
 ): AsyncIterableIterator<StreamChunk> {
   const signal = options.runtime?.signal;
   const state: ContinuationProjection = {
@@ -237,7 +315,10 @@ async function* projectContinuation(
   let failure: unknown;
   try {
     for await (const raw of stream) {
-      yield await projectContinuationChunk(raw, host, id, nativeRunId, binding, state);
+      const usage = usageProcessor.readUsage();
+      const chunk =
+        usage && (raw.type === 'finish' || raw.type === 'message-finish') ? { ...raw, usage } : raw;
+      yield await projectContinuationChunk(chunk, host, id, nativeRunId, binding, state);
     }
     if (signal?.aborted) {
       state.status = 'cancelled';
@@ -313,14 +394,22 @@ export async function createChildContinuationDecisionStream(
       readAdmittedPersonaConfiguration(child.configuration, child.identity.personaId)
     ),
   ];
-  const profile = await withAdmittedPersonaSnapshots(profiles, options);
+  const profile = restoreChildExecution(
+    scope.configuration,
+    await withAdmittedPersonaSnapshots(profiles, options)
+  );
   const restored = {
     ...profile,
     runtime: { ...profile.runtime, assistantMessageId: scope.messageId },
   };
+  const usageProcessor = createContinuationUsageProcessor(host, decision.id, scope);
   const runtime = await createMastraAgentRuntime({
     ...restored,
-    continuationChildScope: { resourceId: scope.resourceId, threadId: scope.threadId },
+    continuationChildScope: {
+      resourceId: scope.resourceId,
+      threadId: scope.threadId,
+      usageProcessor,
+    },
     delegatedDepthOffset: scope.depth - 1,
     hydrateToolDiscoveryFromMemory: true,
   });
@@ -330,11 +419,15 @@ export async function createChildContinuationDecisionStream(
     if (!(child instanceof Agent)) {
       throw new Error('The admitted continuation profile is unavailable.');
     }
+    const inputProcessors = await childBranchInputProcessors(child, scope);
     const params = {
       runtime: {
         ...runtime,
         agent: child,
-        childExecution: { maxSteps: persona.maxSteps },
+        childExecution: {
+          maxSteps: persona.maxSteps,
+          ...(inputProcessors ? { inputProcessors } : {}),
+        },
         async dispose() {
           try {
             await runtime.dispose();
@@ -345,7 +438,17 @@ export async function createChildContinuationDecisionStream(
       },
       runtimeData: {
         ...restored.runtime,
-        memory: { resourceId: scope.resourceId, threadId: scope.threadId },
+        ...(restored.childExecutionConfiguration
+          ? {
+              model: restored.childExecutionConfiguration.model,
+              provider: restored.childExecutionConfiguration.provider,
+            }
+          : {}),
+        memory: {
+          resourceId: scope.resourceId,
+          threadId: scope.threadId,
+          ...(scope.branch ? { memoryOptions: CHILD_BRANCH_MEMORY_OPTIONS } : {}),
+        },
       },
       ...(options.memory ? { memory: options.memory } : {}),
     };
@@ -357,7 +460,15 @@ export async function createChildContinuationDecisionStream(
             requireToolApproval: true,
           })
         : await createToolResumeIteratorFromRuntime({ ...params, action });
-    return projectContinuation(stream, host, decision.id, decision.nativeRunId, scope, options);
+    return projectContinuation(
+      stream,
+      host,
+      decision.id,
+      decision.nativeRunId,
+      scope,
+      options,
+      usageProcessor
+    );
   } catch (error) {
     await runtime.dispose();
     throw error;

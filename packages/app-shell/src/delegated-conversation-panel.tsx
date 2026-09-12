@@ -14,6 +14,7 @@ export interface DelegatedConversationPanelProps {
 
   readonly extendHistoryForSearch?: boolean;
   readonly label: string;
+  readonly onBranch?: DelegatedConversationRuntimeOptions['onBranch'];
   readonly onCancel?: () => Promise<void>;
   readonly onNew: DelegatedConversationRuntimeOptions['onNew'];
   readonly onSendActiveInput?: AssistantConversationPanelProps['onSendActiveInput'];
@@ -22,6 +23,7 @@ export interface DelegatedConversationPanelProps {
     'runtime' | 'threadKey' | 'label' | 'isComposerDisabled'
   >;
   readonly persistedHistory?: DelegatedConversationRuntimeOptions['history'];
+  readonly prepareBranchInput?: DelegatedConversationRuntimeOptions['prepareBranchInput'];
   readonly store: DelegatedConversationStore;
   readonly threadId: string;
 }
@@ -31,10 +33,12 @@ export function DelegatedConversationPanel({
   label,
   allowIdleInput = false,
   onNew,
+  onBranch,
   onCancel,
   onSendActiveInput,
   panelProps,
   persistedHistory,
+  prepareBranchInput,
   extendHistoryForSearch = false,
   store,
   threadId,
@@ -67,6 +71,8 @@ export function DelegatedConversationPanel({
     attachmentsPresent: panelProps?.attachmentsAvailability !== undefined,
     history,
     onNew,
+    ...(onBranch ? { onBranch } : {}),
+    ...(prepareBranchInput ? { prepareBranchInput } : {}),
     ...(snapshot ? { update: snapshot.update } : {}),
   });
   return (

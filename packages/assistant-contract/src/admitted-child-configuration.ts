@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { childExecutionConfigurationSchema } from './child-execution-configuration.js';
 import { DELEGATION_LIMITS } from './delegation-limits.js';
 import {
   type AssistantPersonaDefinition,
@@ -68,7 +69,8 @@ const personaShape = {
 } satisfies {
   [Key in keyof Required<AssistantPersonaDefinition>]: z.ZodType<AssistantPersonaDefinition[Key]>;
 };
-const configurationSchema = z.strictObject({
+export const admittedPersonaConfigurationSchema = z.strictObject({
+  execution: childExecutionConfigurationSchema.optional(),
   maxSteps: z.number().int().min(1).max(DELEGATION_LIMITS.maxChildSteps),
   persona: z.strictObject(personaShape),
 });
@@ -78,7 +80,7 @@ export function readAdmittedPersonaConfiguration(
   configuration: unknown,
   expectedPersonaId?: string
 ): AssistantPersonaDefinition {
-  const parsed = configurationSchema.safeParse(configuration);
+  const parsed = admittedPersonaConfigurationSchema.safeParse(configuration);
   if (!parsed.success) {
     throw new AdmittedChildConfigurationError('invalid-configuration');
   }

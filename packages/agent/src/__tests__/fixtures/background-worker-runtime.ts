@@ -200,6 +200,7 @@ export async function createBackgroundFixture(
     },
     getDelegatedSystemContext: () => [],
     memory: backing.memory,
+    model: runtimeData.model,
     modelOverride: model.model,
     personas: [
       {

@@ -889,10 +889,10 @@ PGlite and embedding workers.
   controls and request construction. Optional models expose Off even when
   `none` is not an advertised effort, using `reasoning.enabled=false`. Its
   sibling `resolveModelReasoningSupport` is deliberately
-  separate: an UNDECLARED OpenRouter model keeps the full effort list for the
-  controls (the request boundary accepts `openrouter.reasoning` for any model)
-  while its capability badge resolves to a visible `unknown` ("unverified") —
-  never a silent yes/no. On an explicit model switch, clear an incompatible
+  separate: an UNDECLARED OpenRouter model exposes no reasoning controls and
+  the request boundary rejects an effort without a matching static or live
+  declaration, while its capability badge resolves to a visible `unknown`
+  ("unverified") — never a silent yes/no. On an explicit model switch, clear an incompatible
   provider-wide effort override so the newly selected model uses its documented
   default; do not map it to a guessed nearest level.
 - Reasoning-control placement: effort/level selection and the primary Thinking

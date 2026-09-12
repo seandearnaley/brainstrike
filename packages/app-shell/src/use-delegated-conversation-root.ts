@@ -4,11 +4,13 @@ import {
   useAssistantThreadStore,
 } from '@brainstrike/assistant-data';
 import type { AssistantUiPanelProps } from '@brainstrike/assistant-ui';
+import type { AssistantProviderSettingsMap } from '@brainstrike/types';
 import { createContext, use, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { DelegatedConversationRoot } from './delegated-conversation-owner';
 import type { createDelegatedConversationRootRegistry } from './delegated-conversation-root-registry';
 export type Roots = ReturnType<typeof createDelegatedConversationRootRegistry>;
 export const RootsContext = createContext<Roots | null>(null);
+const EMPTY_PROVIDER_SETTINGS: AssistantProviderSettingsMap = {};
 const emptySubscribe = () => () => undefined;
 export function useDelegatedConversationRoot(
   ownerResourceId: string,
@@ -35,12 +37,14 @@ export function useDelegatedConversationRoot(
 function useDelegatedPanelBinding(
   ownerResourceId: string,
   rootThreadId: string | undefined,
-  selectedModel: string | null = null
+  selectedModel: string | null = null,
+  providerSettings: AssistantProviderSettingsMap = EMPTY_PROVIDER_SETTINGS,
+  planMode = false
 ): Pick<AssistantUiPanelProps, 'onDelegatedConversation' | 'onRuntimeReady'> {
   const root = useDelegatedConversationRoot(ownerResourceId, rootThreadId);
   useEffect(() => {
-    root?.modelSelection.setState({ selectedModel });
-  }, [root, selectedModel]);
+    root?.modelSelection.setState({ planMode, providerSettings, selectedModel });
+  }, [root, selectedModel, providerSettings, planMode]);
   return useMemo(
     () =>
       root
@@ -71,7 +75,9 @@ interface AssistantPanelThreadScope {
 export function useAssistantPanelThreadScope(
   resourceIdOverride: string | undefined,
   threadIdOverride: string | undefined,
-  selectedModel: string | null
+  selectedModel: string | null,
+  providerSettings: AssistantProviderSettingsMap = EMPTY_PROVIDER_SETTINGS,
+  planMode = false
 ): AssistantPanelThreadScope {
   const memoryResourceId = resolveAssistantMemoryResourceId(resourceIdOverride);
   const selectedThreadByResourceId = useAssistantThreadStore(
@@ -88,7 +94,9 @@ export function useAssistantPanelThreadScope(
   const delegatedPanelBinding = useDelegatedPanelBinding(
     memoryResourceId,
     selectedMemoryThreadId,
-    selectedModel
+    selectedModel,
+    providerSettings,
+    planMode
   );
   return {
     delegatedPanelBinding,

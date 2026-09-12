@@ -35,6 +35,7 @@ export interface DelegatedConversationStreamData {
 
 /** Immutable history before one host stream leg; replay carries the same boundary. */
 export const delegatedConversationBaselineSchema = z.object({
+  headId: z.string().min(1).nullable().optional(),
   hostRunId: z.string().min(1),
   messages: z.array(
     z.object({

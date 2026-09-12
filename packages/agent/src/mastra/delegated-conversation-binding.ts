@@ -1,10 +1,12 @@
 import type {
   AssistantChildInput,
+  ChildExecutionConfiguration,
   DelegatedBudgetPort,
   DelegatedConversationBaseline,
   DelegatedOriginalToolCall,
   DelegatedToolActionIdentity,
 } from '@brainstrike/assistant-contract';
+import { admittedPersonaConfigurationSchema } from '@brainstrike/assistant-contract';
 import { type DelegationStartContext, MessageList } from '@mastra/core/agent';
 import { parseMemoryRequestContext } from '@mastra/core/memory';
 import type { InputProcessor } from '@mastra/core/processors';
@@ -69,6 +71,11 @@ export interface DelegatedConversationBinding {
     readonly baseline?: DelegatedConversationBaseline;
   }>;
   readonly budget?: DelegatedBudgetPort;
+  /** Exact settings supplied by the constructed native child before its first input persists. */
+  readonly captureExecutionConfiguration?: (
+    context: DelegationStartContext['requestContext'],
+    execution: ChildExecutionConfiguration
+  ) => void;
   /** Atomic admission after native snapshot validation, held through runtime disposal. */
   readonly claimToolAction?: (action: {
     readonly continuationId?: string;
@@ -163,6 +170,17 @@ export function createDelegatedConversationBinding(
           .get(invocationKey(target))
           ?.abort(new Error('Delegated conversation stopped by user.'));
       }
+    },
+    captureExecutionConfiguration(context, execution) {
+      const parent = scopes.get(context);
+      if (!parent) {
+        throw new Error('Child execution configuration has no trusted native admission.');
+      }
+      const configuration = admittedPersonaConfigurationSchema.parse(parent.configuration);
+      scopes.set(context, {
+        ...parent,
+        configuration: structuredClone({ ...configuration, execution }),
+      });
     },
     getAbortSignal: (context) => signals.get(context),
     hooks: {
