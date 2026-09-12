@@ -34,6 +34,8 @@ export interface AssistantHistoryMessage {
 }
 
 export interface AssistantThreadMessageListOptions {
+  /** Exclusive native message cursor, scoped to the same thread and resource. */
+  readonly beforeMessageId?: string;
   readonly limitLatest?: number;
 }
 
@@ -56,6 +58,15 @@ export async function readAssistantHistoryMessages(
     throw new Error('Assistant message history limit must be a positive safe integer.');
   }
   const params: (string | number | null)[] = [threadId, resourceId];
+  if (options?.beforeMessageId && limitLatest === undefined) {
+    throw new Error('Assistant message history pagination requires a bounded page size.');
+  }
+  const cursorClause = options?.beforeMessageId
+    ? `AND ("createdAt", id) < (
+    SELECT cursor."createdAt", cursor.id FROM ${MASTRA_MEMORY_TABLES.messages} cursor
+    WHERE cursor.id = $4 AND cursor.thread_id = $1 AND cursor."resourceId" = $2
+  )`
+    : '';
   const limitClause =
     limitLatest === undefined
       ? ''
@@ -83,6 +94,7 @@ export async function readAssistantHistoryMessages(
               SELECT 1 FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} AS tombstones
               WHERE tombstones.message_id = ${MASTRA_MEMORY_TABLES.messages}.id
             )
+          ${cursorClause}
           ${limitClause}
         ) AS recent_messages
         LEFT JOIN ${ASSISTANT_MESSAGE_PARENTS_TABLE} AS message_parents
@@ -92,6 +104,9 @@ export async function readAssistantHistoryMessages(
         ORDER BY recent_messages."createdAt" ASC, recent_messages.id ASC`;
   if (limitLatest !== undefined) {
     params.push(limitLatest);
+  }
+  if (options?.beforeMessageId) {
+    params.push(options.beforeMessageId);
   }
   const result = await database.query(sql, params);
   return result.rows.map((row) => mapAssistantHistoryMessageRow(requireHistoryRow(row)));

@@ -3169,6 +3169,8 @@ Where state lives (do not relitigate):
   everything else as plain text (persisted content is never HTML), with
   aria-activedescendant keyboard nav. While searching, the tree is hidden
   (not unmounted) so disclosure/selection state survives dismissal.
+- Delegated search scope (BST-1725): lexical, semantic, title and embedding-coverage reads walk the durable child graph from native roots owned by the requested resource. Every child edge checks owner/root identity and the native resource, including intermediate ancestors. Child native resource IDs remain unchanged; search does not broaden ordinary memory authorization. Activation rechecks the selected native message and rejects tombstoned/deleted/foreign hits visibly.
+- Explicit child search navigation uses the ordinary history mapper with an exclusive `(createdAt, id)` cursor. Each older-page read is capped at 80 and scoped to the same native thread/resource; ordinary opening still loads only the latest 80. A cancelled or superseded navigation stops paging. Hydrated assistant groups retain `brainstrikeNativeMessageIds` so raw search IDs select their actual rendered group. Older context supplements the host baseline; the host keeps its current head and live decision state. Navigation intent lives in the existing factory-reset-registered session search store, never in a new persistent store.
 - Cleanup: panel thread deletion clears index rows eagerly (like
   placements); missed paths self-heal via sync GC. Factory reset clears
   `brainstrike_thread_message_index` + `_state` on BOTH the desktop
@@ -3177,9 +3179,10 @@ Where state lives (do not relitigate):
   registers in `register-factory-reset-session-stores.ts`.
 
 Paired tests: `migration-067-thread-search-index.test.ts`,
-`search-thread-message-index.test.ts`, `search-thread-search-service.test.ts`
+`search-thread-message-index.test.ts`, `delegated-thread-search.test.ts`, `search-thread-search-service.test.ts`
 (packages/db); `thread-search-store.test.ts`, `thread-search-embedding.test.ts`,
-`use-thread-search-controller.test.ts`, `threads-panel-search.test.tsx`
+`use-thread-search-controller.test.ts`, `threads-panel-search.test.tsx`,
+`delegated-child-reload.integration.test.tsx`
 (packages/app-shell).
 
 ## ASSISTANT THREAD TABS

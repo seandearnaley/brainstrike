@@ -107,6 +107,10 @@ export {
   SubagentInvocationResolverContext,
 } from './subagent-conversation-navigation';
 export {
+  type ThreadMessageNavigation,
+  ThreadMessageNavigationContext,
+} from './thread-message-navigation';
+export {
   type ToolApprovalGrantHandlers,
   ToolApprovalGrantProvider,
   useToolApprovalGrants,

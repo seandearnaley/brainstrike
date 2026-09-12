@@ -1348,6 +1348,7 @@ durable graph before supplying that history. A live host snapshot replaces the
 saved projection with its own baseline and continuation; opening either view
 never invokes `onNew`. The panel's regression test uses the real ordinary-history
 converter and proves both no execution on opening and the saved-to-live handoff.
+An explicit search hit can extend a child baseline backwards through bounded native history pages. The shared view merges older durable context while retaining the host's current head and live controls; it never imports another inference runtime or writes transcript rows. The saved-workspace coordinator opens the owning root before the singleton child tab, and the shared transcript resolves native snapshot IDs to their rendered assistant group. `delegated-child-reload.integration.test.tsx` exercises a grandchild hit older than the initial 80 rows, close/reopen, ancestry, unchanged parent draft, and no execution.
 The subagent card's optional Open conversation action is separate from its
 collapse toggle. Navigation binds the exact parent tool-call id to its host
 baseline thread id; contradictory addresses surface as card-local alerts, with

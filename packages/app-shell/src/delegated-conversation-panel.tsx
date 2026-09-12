@@ -5,7 +5,7 @@ import {
   type DelegatedConversationRuntimeOptions,
   useDelegatedConversationRuntime,
 } from '@brainstrike/assistant-ui';
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import type { DelegatedConversationStore } from './delegated-conversation-store';
 
 export interface DelegatedConversationPanelProps {
@@ -38,7 +38,27 @@ export function DelegatedConversationPanel({
     () => store.getConversation(threadId),
     () => store.getConversation(threadId)
   );
-  const history = snapshot?.history ?? persistedHistory;
+  const history = useMemo(() => {
+    const current = snapshot?.history;
+    if (!(current && persistedHistory)) {
+      return current ?? persistedHistory;
+    }
+    // A search read may extend the retained baseline backwards. Keep the host's
+    // latest rows and head, including live decisions; use loaded durable edges
+    // only to reconnect a baseline row whose parent was outside its old window.
+    const loadedById = new Map(persistedHistory.messages.map((row) => [row.message.id, row]));
+    const currentIds = new Set(current.messages.map((row) => row.message.id));
+    return {
+      ...current,
+      messages: [
+        ...persistedHistory.messages.filter((row) => !currentIds.has(row.message.id)),
+        ...current.messages.map((row) => ({
+          ...row,
+          parentId: row.parentId ?? loadedById.get(row.message.id)?.parentId ?? null,
+        })),
+      ],
+    };
+  }, [snapshot?.history, persistedHistory]);
   if (!history) {
     throw new Error('The child conversation has no host-owned transcript.');
   }

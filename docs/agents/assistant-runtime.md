@@ -2042,6 +2042,8 @@ module pair — `assistant-thread-messages.tsx` (`ThreadMessagesRegion`,
 re-exported from assistant-ui-panel.tsx. The panel only composes them and
 hands over the message components.
 
+Explicit message navigation is supplied by `ThreadMessageNavigationContext`, scoped to one conversation. `ThreadMessagesRegion` waits for loaded history, resolves raw native IDs through the mapper's source-ID metadata, and focuses the corresponding message root. Static navigation calls the existing follow engine's `scrollToMessage` (which disengages following); virtual navigation uses the existing TanStack instance's `scrollToIndex`. Both use an instant opening position and `focus({ preventScroll: true })`, so browser focus is not another scroll owner. A mounted-range observer waits for an offscreen virtual row; no timer or polling loop is involved. The browser virtualization contract covers exact focus and geometry at 40 and 600 rows with the compiled styles, then verifies appending does not repin the reader.
+
 - **Jump-to-latest** (`ThreadScrollToBottom`) is the follow engine's button
   (`ThreadStaticScrollToBottom`): DISABLED
   while at bottom, scroll + re-engage when clicked; we style it

@@ -1251,6 +1251,7 @@ const EditComposer = () => {
 };
 
 const AssistantMessage = () => {
+  const messageId = useAuiState((state) => state.message.id);
   // Bottom rhythm comes from overrides.css (.aui-*-message-root rules).
   const threadKey = use(ActiveThreadKeyContext);
   const compactionSummary = useAuiState((state) =>
@@ -1258,7 +1259,11 @@ const AssistantMessage = () => {
   );
   if (compactionSummary) {
     return (
-      <MessagePrimitive.Root className="aui-assistant-message-root w-full py-3">
+      <MessagePrimitive.Root
+        className="aui-assistant-message-root w-full py-3"
+        data-message-id={messageId}
+        tabIndex={-1}
+      >
         <CompactionSummaryCard
           {...(compactionSummary.droppedSummaryLine === undefined
             ? {}
@@ -1276,7 +1281,11 @@ const AssistantMessage = () => {
     );
   }
   return (
-    <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-2">
+    <MessagePrimitive.Root
+      className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-2"
+      data-message-id={messageId}
+      tabIndex={-1}
+    >
       <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl break-words text-foreground leading-6">
         {/* Grouped rendering (activity groups + text + data parts) lives in
             assistant-activity-parts.tsx; see its header for the grouping rule. */}

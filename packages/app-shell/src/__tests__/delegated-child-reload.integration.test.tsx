@@ -1,25 +1,43 @@
+import { createThreadWorkspaceRepository } from '@brainstrike/assistant-data';
+import { createFileExplorerStore } from '@brainstrike/file-explorer';
+import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { DelegatedConversationRoot } from '../delegated-conversation-owner';
+import { createLiveWorkspaceFacade } from '../thread-workspace/thread-workspace-live-facade';
+import { useThreadWorkspaceCoordinator } from '../thread-workspace/use-thread-workspace-coordinator';
+import { useThreadSearchTitles } from '../use-thread-search-titles';
 import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 import '@testing-library/jest-dom/vitest';
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
-import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
+import {
+  createPgliteAssistantThreadRepository,
+  useAssistantThreadStore,
+} from '@brainstrike/assistant-data';
 import {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
   createDelegatedConversationRepository,
   migrate,
   readAssistantHistoryMessages,
+  ThreadSearchRepository,
+  ThreadSearchService,
   wasmLoader,
 } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useEffect } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
 import { ChildView } from '../delegated-workspace-child-view';
 import { type ChildNode, loadDelegatedWorkspaceNode } from '../delegated-workspace-node';
+import { delegatedWorkspaceTabId } from '../delegated-workspace-tab';
+import { navigateThreadSearchResult } from '../navigate-thread-search-result';
+import { useThreadSearchStore } from '../thread-search-store';
+import { threadWorkspaceNavigation } from '../thread-workspace/live-thread-workspace-navigation';
+import { ThreadsPanelSearch } from '../threads-panel-search';
 import { useDelegatedConversationRoot } from '../use-delegated-conversation-root';
 
 let database: Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
@@ -99,6 +117,9 @@ beforeEach(async () => {
 
 afterEach(async () => {
   cleanup();
+  useThreadSearchStore.getState().reset();
+  useWorkspaceTabSelectionStore.getState().reset();
+  threadWorkspaceNavigation.loading('owner', null);
   activeRoot = undefined;
   Reflect.deleteProperty(window, 'assistant');
   vi.unstubAllGlobals();
@@ -107,6 +128,153 @@ afterEach(async () => {
 });
 
 describe('child view after renderer restart', () => {
+  it('opens an older grandchild search match through the saved workspace and focuses it without execution', async () => {
+    // happy-dom lacks scrolling. Real geometry is verified by the shared Chromium contract.
+    const scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo');
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+      configurable: true,
+      value(this: HTMLElement, options: ScrollToOptions) {
+        this.scrollTop = options.top ?? this.scrollTop;
+      },
+    });
+    onTestFinished(() => {
+      if (scrollDescriptor) {
+        Object.defineProperty(HTMLElement.prototype, 'scrollTo', scrollDescriptor);
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo');
+      }
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
+    );
+    const history = createPgliteAssistantThreadRepository(database as DbHandle);
+    const leaf = await history.createThread('native-grandchild');
+    const graph = createDelegatedConversationRepository(database);
+    const scope = { ownerResourceId: 'owner', rootThreadId };
+    await graph.createChild(scope, {
+      color: 'blue',
+      configuration: {},
+      displayName: 'Maple',
+      parentThreadId: node.threadId,
+      resourceId: 'native-grandchild',
+      threadId: leaf.id,
+    });
+    const leafNode = await loadDelegatedWorkspaceNode(graph, { ...scope, threadId: leaf.id });
+    for (let index = 0; index < 110; index += 1) {
+      await database.query(
+        `INSERT INTO mastra_messages
+        (id, thread_id, "resourceId", role, type, content, "createdAt")
+        VALUES ($1, $2, 'native-grandchild', $3, 'v2', $4, $5)`,
+        [
+          `leaf-${String(index).padStart(3, '0')}`,
+          leaf.id,
+          index % 2 === 0 && index !== 10 ? 'user' : 'assistant',
+          JSON.stringify({
+            format: 2,
+            parts: [
+              {
+                text: index === 9 ? 'quasarcobalt older match' : `leaf text ${index}`,
+                type: 'text',
+              },
+            ],
+          }),
+          new Date(Date.UTC(2026, 8, 1, 0, index)).toISOString(),
+        ]
+      );
+    }
+    const repository = new ThreadSearchRepository(database);
+    await repository.sync();
+    const { results } = await new ThreadSearchService(repository).searchThreads('quasarcobalt', {
+      queryEmbedding: null,
+      resourceId: 'owner',
+    });
+    expect(results[0]?.matches[0]?.messageId).toBe('leaf-009');
+    const initial = await history.listMessages(leaf.id, 'native-grandchild', {
+      limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    });
+    expect(initial.some((message) => message.id === 'leaf-009')).toBe(false);
+    const search = useThreadSearchStore.getState();
+    search.setQuery('quasarcobalt');
+    search.resolveResults(results, { kind: 'unused' }, search.beginSearch());
+    useAssistantComposerCommandStore.getState().recordDraft(rootThreadId, 'Unsent parent draft');
+    const facade = createLiveWorkspaceFacade(createFileExplorerStore(new MemoryStorageAdapter()));
+    const workspaceRepository = createThreadWorkspaceRepository(database as DbHandle);
+    const appId = delegatedWorkspaceTabId(leafNode);
+    function Workspace() {
+      const titles = useThreadSearchTitles(repository, 'owner');
+      const selected = useWorkspaceTabSelectionStore((state) => state.selection);
+      const activeThreadId = useAssistantThreadStore(
+        (state) => state.activeThreadIdByResourceId['owner'] ?? null
+      );
+      useThreadWorkspaceCoordinator({
+        activeThreadId,
+        facade,
+        navigation: threadWorkspaceNavigation,
+        openThreadIds: [rootThreadId],
+        repository: workspaceRepository,
+        resourceId: 'owner',
+        subscribe: useWorkspaceTabSelectionStore.subscribe,
+      });
+      return (
+        <>
+          <OwningRoot />
+          <ThreadsPanelSearch
+            groupNameByThreadId={new Map()}
+            onRetry={() => undefined}
+            onSelectThread={(threadId, messageId) => {
+              void navigateThreadSearchResult(repository, 'owner', threadId, messageId);
+            }}
+            threadsById={new Map()}
+            titlesByThreadId={titles}
+          />
+          {selected.kind === 'app' && selected.appId === appId ? (
+            <ChildView db={database as DbHandle} node={leafNode} />
+          ) : null}
+        </>
+      );
+    }
+    render(
+      <TooltipProvider>
+        <DelegatedConversationRootsProvider>
+          <Workspace />
+        </DelegatedConversationRootsProvider>
+      </TooltipProvider>
+    );
+    const user = userEvent.setup();
+    await screen.findByText('Maple');
+    await user.click(screen.getByTestId('thread-search-result'));
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute('data-message-id')).toBe('leaf-011')
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toHaveTextContent('quasarcobalt older match')
+    );
+    expect(screen.getByRole('navigation', { name: 'Conversation ancestry' })).toHaveTextContent(
+      /Cedar.*Maple/
+    );
+    expect(
+      useWorkspaceTabSelectionStore.getState().openAppIds.filter((id) => id === appId)
+    ).toHaveLength(1);
+    expect(useAssistantThreadStore.getState().selectedThreadByResourceId['owner']).toBe(
+      rootThreadId
+    );
+    expect(useThreadSearchStore.getState().navigationError).toBeNull();
+    expect(useAssistantComposerCommandStore.getState().draftTextByThreadId[rootThreadId]).toBe(
+      'Unsent parent draft'
+    );
+    expect(append).not.toHaveBeenCalled();
+    act(() => {
+      useWorkspaceTabSelectionStore.getState().closeApp(appId);
+    });
+    await user.click(screen.getByTestId('thread-search-result'));
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute('data-message-id')).toBe('leaf-011')
+    );
+    expect(append).not.toHaveBeenCalled();
+  });
+
   it('shows arriving host output before a pending recovery read settles', async () => {
     let settle: ((response: Response) => void) | undefined;
     const fetch = vi.fn(
