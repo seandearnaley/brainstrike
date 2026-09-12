@@ -39,7 +39,6 @@ const reactTransformExclude = [/[\\/]node_modules[\\/]/, /[\\/]\.vite[\\/]/];
 
 const {
   createCspQualifiedEvalWarningFilter,
-  preserveWorkerEntryPlugin,
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
@@ -53,6 +52,7 @@ const {
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
   isZustandModule,
+  preserveWorkerEntryPlugin,
 } = await import('@brainstrike/build-utils');
 const wasmPath = findPGliteWasm(__dirname);
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);

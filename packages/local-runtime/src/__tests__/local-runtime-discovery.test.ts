@@ -45,8 +45,15 @@ describe('local-runtime-discovery', () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
     await expect(service.probeRuntime('ollama', { surface: 'desktop' })).resolves.toMatchObject({
-      state: 'available',
+      state: 'blocked_web',
     });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const nativeService = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    await expect(
+      nativeService.probeRuntime('ollama', { surface: 'desktop' })
+    ).resolves.toMatchObject({ state: 'available' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

@@ -5,11 +5,6 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 // Utility to dynamically import the main entry after setting up mocks
 const importMain = () => import('../main');
 
-const configureBrowserRuntimeAccessMock = vi.hoisted(() => vi.fn());
-vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', () => ({
-  configureBrowserRuntimeAccess: configureBrowserRuntimeAccessMock,
-}));
-
 const dbProviderMock = vi.hoisted(() =>
   vi.fn(({ children }: { readonly children: React.ReactNode }) => children)
 );
@@ -189,22 +184,6 @@ describe('main entry file', () => {
     vi.spyOn(document, 'getElementById').mockReturnValue(null);
     await expect(importMain()).rejects.toThrow("Failed to find the root element with ID 'root'");
   }, 60_000);
-
-  test.each([false, true])(
-    'configures direct runtime access only in production (%s)',
-    async (production) => {
-      vi.stubEnv('PROD', production);
-      vi.spyOn(document, 'getElementById').mockReturnValue(null);
-      await expect(importMain()).rejects.toThrow("Failed to find the root element with ID 'root'");
-      if (!production) {
-        expect(configureBrowserRuntimeAccessMock).not.toHaveBeenCalled();
-        return;
-      }
-      expect(configureBrowserRuntimeAccessMock).toHaveBeenCalledExactlyOnceWith(
-        'This web app does not permit direct connections to local runtimes. Use the desktop app to connect to Ollama or LM Studio.'
-      );
-    }
-  );
 
   test('creates React root and renders routing components', async () => {
     const rootElement = document.createElement('div');

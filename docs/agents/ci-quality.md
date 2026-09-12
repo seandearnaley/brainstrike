@@ -3199,9 +3199,14 @@ can import worker startup from its own entry chunk without the managed instance
 URL fragment and initialize it twice. The real Vite build regression executes
 both the broken stock output and the preserved-entry output. Production web
 also configures Zod's public `jitless` option in its small entry module before
-dynamically importing the application. A static side-effect import beside
-application imports cannot establish that ordering: sibling dependencies may
-construct schemas first. The compiled strict-CSP test pins this startup boundary.
+dynamically configuring the host capability and then importing the application.
+The previous static configuration module was bundled with application schemas,
+whose initialization ran before configuration; this is a compiled chunk-ordering
+failure, not a general claim about ESM dependency evaluation. The compiled
+strict-CSP test is the ordering guard. `jitless` disables Zod parse code generation
+in the window realm, preserving strict CSP at the cost of that optimization;
+worker realms remain separate and their real startup/embedding paths must pass
+the same CSP qualification before changing their schema initialization.
 
 Both app builds install the shared
 `createCspQualifiedEvalWarningFilter`. It suppresses Rolldown's `EVAL` warning

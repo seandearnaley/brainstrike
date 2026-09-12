@@ -157,7 +157,7 @@ function buildProbeDefinitions(
 }
 
 export interface LocalRuntimeDiscoveryServiceOptions {
-  /** Host capability: report unavailable before a browser issues a forbidden request. */
+  /** Host capability: disallow direct requests regardless of caller surface overrides. */
   readonly browserUnavailableReason?: string;
   /**
    * Optional explicit runtime surface.
@@ -533,12 +533,12 @@ export class LocalRuntimeDiscoveryService {
     options: ProbeLocalRuntimeOptions = {}
   ): Promise<LocalRuntimeAvailabilityState> {
     const now = this.now();
+    if (this.browserUnavailableReason) {
+      return { checkedAt: now, message: this.browserUnavailableReason, state: 'blocked_web' };
+    }
     const cached = this.cache.get(runtime);
     const baseUrl = resolveRuntimeBaseUrl(runtime, options.endpoint?.baseUrl);
     const surface = options.surface ?? resolveRuntimeSurface(this.defaultSurface);
-    if (surface === 'web' && this.browserUnavailableReason) {
-      return { checkedAt: now, message: this.browserUnavailableReason, state: 'blocked_web' };
-    }
 
     // Invalidate the cache when the effective baseUrl changes so a user who
     // points at a different host sees a fresh probe, not the last answer.

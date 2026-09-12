@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-// Complete CSP configuration before importing modules that construct schemas.
-// A static side-effect import cannot precede its sibling dependency evaluation.
+// Separate configuration from the application's bundled schema graph. Keeping
+// both graphs static previously co-located schema initialization ahead of config.
 z.config({ jitless: true });
+await import('./configure-browser-runtime');
 await import('./main');

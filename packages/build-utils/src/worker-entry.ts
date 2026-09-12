@@ -1,6 +1,7 @@
 import type { Plugin } from 'vite';
 
 /**
+ * Install in Vite `worker.plugins` only, never the main application plugins.
  * Keep worker startup out of chunks imported by lazy dependencies. Managed
  * workers have an instance URL fragment; importing that entry without its
  * fragment would evaluate startup again in the same worker global.

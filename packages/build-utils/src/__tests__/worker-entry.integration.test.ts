@@ -47,8 +47,10 @@ it.each([false, true])(
             '--eval',
             `await import(${JSON.stringify(url)}); console.log(await globalThis.loadWorkerDependency());`,
           ],
-          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 2000 }
         );
+      // A changed negative control means investigate upstream chunking; do not
+      // restore double startup merely to preserve this canary.
       if (!preserve) {
         expect(run).toThrow('double bootstrap');
         return;

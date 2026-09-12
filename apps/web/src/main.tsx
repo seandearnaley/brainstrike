@@ -1,4 +1,3 @@
-import './configure-browser-runtime';
 import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
 import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
