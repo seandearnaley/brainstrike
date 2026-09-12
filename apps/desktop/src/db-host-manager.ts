@@ -18,6 +18,7 @@ import type {
   DbHostToMainMessage,
   DbHostTransactionStartResult,
 } from './db-host-protocol';
+import { DbHostRequestTimeoutError } from './db-host-timeout-error';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
 import {
   createHostRequestChannel,
@@ -26,42 +27,13 @@ import {
   type HostRequestTimeoutDecision,
 } from './platform/host-request-channel';
 
+export { DbHostRequestTimeoutError } from './db-host-timeout-error';
+
 const logger = createLogger('DbHostManager');
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_INITIALIZATION_TIMEOUT_MS = 90_000;
 const DEFAULT_CLOSE_TIMEOUT_MS = 2000;
-
-export class DbHostRequestTimeoutError extends Error {
-  readonly hasStaleAbandonedRequest: boolean;
-  readonly hostSaturated: boolean;
-  readonly pendingCount: number;
-  readonly recentAbandonedCount: number;
-  readonly requestKind: DbHostRequest['kind'];
-  readonly timeoutMs: number;
-  readonly willTerminateHost: boolean;
-
-  constructor(options: {
-    readonly hasStaleAbandonedRequest?: boolean;
-    readonly pendingCount: number;
-    readonly recentAbandonedCount?: number;
-    readonly requestKind: DbHostRequest['kind'];
-    readonly timeoutMs: number;
-    readonly willTerminateHost: boolean;
-  }) {
-    super(`DB host request timed out: ${options.requestKind}`);
-    this.name = 'DbHostRequestTimeoutError';
-    this.hasStaleAbandonedRequest = options.hasStaleAbandonedRequest ?? false;
-    this.pendingCount = options.pendingCount;
-    this.recentAbandonedCount = options.recentAbandonedCount ?? 0;
-    this.requestKind = options.requestKind;
-    this.timeoutMs = options.timeoutMs;
-    this.willTerminateHost = options.willTerminateHost;
-    this.hostSaturated =
-      !(options.willTerminateHost || this.hasStaleAbandonedRequest) &&
-      (options.pendingCount > 1 || this.recentAbandonedCount > 0);
-  }
-}
 
 function createLiveQueryDiagnostics(payload: {
   readonly mode: 'query' | 'incremental';
@@ -413,6 +385,7 @@ class DefaultDbHostManager implements DbHostManager {
   readonly #initializationTimeoutMs: number;
   readonly #maintenanceRequestTimeoutMs: number;
   readonly #requestTimeoutMs: number;
+  #retired = false;
   #client: RemoteDbClient | null = null;
   #host: UtilityProcess | null = null;
   #initialization: Promise<RemoteDbClient> | null = null;
@@ -448,6 +421,7 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   async getDatabase(): Promise<RemoteDbClient> {
+    this.#assertActive();
     if (this.#client) {
       return this.#client;
     }
@@ -496,6 +470,19 @@ class DefaultDbHostManager implements DbHostManager {
     this.#client = null;
   }
 
+  // Default-manager replacement is permanent; explicit close() remains reusable
+  // for reinitializeDatabase(). Retained clients must never fork another owner.
+  async retire(): Promise<void> {
+    this.#retired = true;
+    await this.close();
+  }
+
+  #assertActive(): void {
+    if (this.#retired) {
+      throw new Error('DB host manager is retired.');
+    }
+  }
+
   async close(): Promise<void> {
     if (!this.#host) {
       return;
@@ -542,6 +529,9 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   async send<TResult = unknown>(request: DbHostRequest): Promise<TResult> {
+    if (request.kind !== 'close') {
+      this.#assertActive();
+    }
     this.#ensureHost();
     const envelope: DbHostRequestEnvelope = {
       id: createRequestId(),
@@ -681,6 +671,7 @@ class DefaultDbHostManager implements DbHostManager {
       this.#terminateHost(error instanceof Error ? error : new Error(String(error)));
       throw error;
     }
+    this.#assertActive();
     this.#client = this.#createClient();
     return this.#client;
   }
@@ -962,7 +953,7 @@ class DefaultDbHostManager implements DbHostManager {
   }
 }
 
-let defaultManager: DbHostManager | null = null;
+let defaultManager: DefaultDbHostManager | null = null;
 let closingDefaultManager: Promise<void> | null = null;
 
 export function createDbHostManager(options?: DbHostManagerOptions): DbHostManager {
@@ -974,7 +965,7 @@ export function getDbHostManager(): DbHostManager {
     throw new Error('DB host manager is closing; wait for closeDbHostManager() to complete.');
   }
   if (!defaultManager) {
-    defaultManager = createDbHostManager();
+    defaultManager = new DefaultDbHostManager();
   }
   return defaultManager;
 }
@@ -988,7 +979,7 @@ export async function closeDbHostManager(): Promise<void> {
   if (!manager) {
     return;
   }
-  closingDefaultManager = manager.close().finally(() => {
+  closingDefaultManager = manager.retire().finally(() => {
     if (defaultManager === manager) {
       defaultManager = null;
     }

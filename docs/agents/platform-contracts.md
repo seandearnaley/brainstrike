@@ -865,6 +865,16 @@ removes the relations with the whole database rather than issuing
 table-by-table `DELETE`s. Do not add a redundant SQL purge to that
 directory-delete path.
 
+Closing the default DB host manager permanently retires that owner before its
+close handshake. Retained RemoteDbClient methods reject after retirement and
+cannot fork a competing utility process against the replacement profile. An
+explicit manager `close()` remains reusable by `reinitializeDatabase()`.
+Desktop Mastra memory's two bounded caches are scoped to the actual database
+object: completed memory and pending credential resolutions from the old owner
+cannot become the replacement owner's storage. The paired manager tests and
+`mastra-memory-database-owner.integration.test.ts` pin retirement, same-owner
+reuse, and identical native thread IDs isolated across two real databases.
+
 Two of these relations are still application-created lazily rather than
 guaranteed by the migration chain: the vector store creates `mastra_vectors` and
 the workflow store creates `mastra_workflow_snapshot`, so a never-used assistant
@@ -2313,3 +2323,16 @@ Both direct-transport reset paths and desktop IPC reset clear them, and the
 shared reset registry classifies all three. There is no separate persistent
 queue or filesystem accounting store. Native host shutdown drains active work
 before reset; unresolved output remains charged on ordinary restart.
+
+`delegated-factory-reset.desktop.test.ts` exercises Settings Cancel and confirmed
+factory reset against 14 populated, migrated relations: native thread/message
+history, delegated ancestry/invocations/decisions, host runs/events, root/child
+budgets and step reservations, continuations/continuation decisions, attributed
+usage and saved child tabs. Cancel preserves the exact seeded records and disabled
+delegation preference. Confirmed reset replaces the renderer; a subsequent full
+process restart still cannot recover those identities or tabs, and the actual
+Subagents switch returns to its default. A disposable user workspace outside the
+profile retains its file contents. This is whole-profile no-resurrection coverage,
+not a replacement for table-by-table `db:clearAll` integration proofs. The seeded
+completed continuations and consumed decisions are durable-state fixtures, not
+claims that an active native worker was stopped by this particular test.
