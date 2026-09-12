@@ -346,6 +346,12 @@ Guarding tests, `apps/desktop/src/__tests__/assistant-server/git-inventory.integ
   error — `'treats a merely-prunable ... linked worktree as trust state,
   not an inventory error'` (asserts `snapshot.errors` is `[]`).
 
+Fabricated admin fixtures publish their complete `worktrees` directory with an
+atomic rename, including Git's `locked` marker. They never expose an incomplete
+entry to background Git maintenance. The symlink attack runs real
+`git worktree prune --expire=now` before inventory and still asserts canonical
+outside-root containment and unvalidated trust; locking does not grant trust.
+
 ## THE `changes` IPC DOMAIN
 
 Main-process registration: `apps/desktop/src/ipc-changes.ts` registers

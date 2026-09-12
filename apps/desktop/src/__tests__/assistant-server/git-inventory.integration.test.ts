@@ -76,11 +76,16 @@ async function writeFabricatedWorktreeAdmin(
   name: string,
   targetGitPath: string
 ): Promise<void> {
-  const adminDir = path.join(repo, '.git', 'worktrees', name);
-  await fsPromises.mkdir(adminDir, { recursive: true });
+  // Each attack fixture starts without worktrees. Publish its complete, locked
+  // admin directory atomically so Git maintenance cannot prune partial writes.
+  const stagingDir = await fsPromises.mkdtemp(path.join(repo, '.git', 'inventory-admin-'));
+  const adminDir = path.join(stagingDir, name);
+  await fsPromises.mkdir(adminDir);
+  await fsPromises.writeFile(path.join(adminDir, 'locked'), 'security fixture\n', 'utf8');
   await fsPromises.writeFile(path.join(adminDir, 'gitdir'), `${targetGitPath}\n`, 'utf8');
   await fsPromises.writeFile(path.join(adminDir, 'HEAD'), 'ref: refs/heads/master\n', 'utf8');
   await fsPromises.writeFile(path.join(adminDir, 'commondir'), '../..\n', 'utf8');
+  await fsPromises.rename(stagingDir, path.join(repo, '.git', 'worktrees'));
 }
 
 afterEach(async () => {
@@ -342,15 +347,9 @@ describe('buildInventorySnapshot', () => {
     await execFileAsync('git', ['commit', '-q', '-m', 'add inside-link symlink'], { cwd: repo });
 
     await writeFabricatedWorktreeAdmin(repo, 'evil', path.join(insideLinkPath, '.git'));
-    // Keep Git itself from pruning/omitting the synthetic admin entry before
-    // the inventory service can exercise the canonical-path trust boundary.
-    // A locked malicious entry is still attacker-constructible; it simply
-    // makes this security fixture hermetic across the full test-file lifecycle.
-    await fsPromises.writeFile(
-      path.join(repo, '.git', 'worktrees', 'evil', 'locked'),
-      'security fixture\n',
-      'utf8'
-    );
+    // Maintenance must leave the locked malicious entry visible to inventory;
+    // the lock is attacker-constructible and does not establish trust.
+    await execFileAsync('git', ['worktree', 'prune', '--expire=now'], { cwd: repo });
 
     const snapshot = await buildInventorySnapshot({
       loadRoots: loadRootsFrom([{ id: 'root-main', path: repo }]),
