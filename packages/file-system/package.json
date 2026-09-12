@@ -32,6 +32,10 @@
       "types": "./dist/electron.d.ts",
       "default": "./dist/electron.js"
     },
+    "./file-node-handles": {
+      "types": "./dist/file-node-handles.d.ts",
+      "default": "./dist/file-node-handles.js"
+    },
     "./path-validation": {
       "types": "./dist/path-validation.d.ts",
       "default": "./dist/path-validation.js"

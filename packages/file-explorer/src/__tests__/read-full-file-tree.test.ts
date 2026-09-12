@@ -38,7 +38,10 @@ const mockDirectory = (
 class BrowserHandleTestAdapter implements FileSystemAdapter {
   private readonly pathByHandle = new WeakMap<object, string>();
 
-  constructor(private readonly root: MockDirectoryHandle) {
+  constructor(
+    private readonly root: MockDirectoryHandle,
+    private readonly wrapDirectoryDescriptors = false
+  ) {
     this.pathByHandle.set(root, '');
   }
 
@@ -64,7 +67,10 @@ class BrowserHandleTestAdapter implements FileSystemAdapter {
       this.pathByHandle.set(childHandle, path);
       nodes.push({
         depth: 0,
-        handle: childHandle as unknown as FileSystemDirectoryHandle | FileSystemFileHandle,
+        handle:
+          this.wrapDirectoryDescriptors && childHandle.kind === 'directory'
+            ? { _internal: childHandle, kind: 'directory', name, path, platform: 'web' }
+            : (childHandle as unknown as FileSystemDirectoryHandle | FileSystemFileHandle),
         name,
         path,
         rootFolderId: this.root.name,
@@ -96,6 +102,18 @@ async function readBrowserFixture(
 // --- End Mocking Strategy ---
 
 describe('readFullFileTree', () => {
+  it('traverses canonical web directory descriptors without wrapping their raw capability again', async () => {
+    const adapter = new BrowserHandleTestAdapter(
+      mockDirectory('root', [
+        ['child', mockDirectory('child', [['file.txt', mockFile('file.txt')]])],
+      ]),
+      true
+    );
+    const tree = await readFullFileTree(adapter, await adapter.requestDirectoryAccess());
+
+    expect(tree[0]?.children?.[0]).toMatchObject({ name: 'file.txt', path: '/child/file.txt' });
+  });
+
   // Test Scenario 1: Basic Valid Tree
   it('should process a basic valid tree structure', async () => {
     const _rootHandle = mockDirectory('root', [

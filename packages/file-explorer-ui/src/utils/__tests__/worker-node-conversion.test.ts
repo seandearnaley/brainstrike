@@ -1,7 +1,7 @@
 /**
  * Tests for worker-node-conversion utilities
  *
- * Tests the conversion between IFileNode (with FileSystemHandle) and
+ * Tests the conversion between IFileNode (with FileNodeHandle) and
  * WorkerFileNode (transferable to worker, no handle).
  */
 
@@ -12,14 +12,14 @@ import { describe, expect, it } from 'vitest';
 import {
   addHandlesToMap,
   buildHandleMap,
-  type FileSystemHandle,
+  type FileNodeHandle,
   rehydrateFileNode,
   rehydrateTree,
   toWorkerFileNode,
   toWorkerFileNodes,
 } from '../worker-node-conversion';
 
-// Mock FileSystemHandle for testing
+// Mock FileNodeHandle for testing
 const createMockHandle = (name: string): FileSystemDirectoryHandle =>
   ({
     kind: 'directory',
@@ -33,6 +33,30 @@ const createMockFileHandle = (name: string): FileSystemFileHandle =>
   }) as FileSystemFileHandle;
 
 describe('worker-node-conversion', () => {
+  it('retains native descriptor identity when a worker tree is rehydrated', () => {
+    const node: IFileNode = {
+      depth: 1,
+      handle: {
+        kind: 'file',
+        name: 'file.ts',
+        path: '/root/file.ts',
+        platform: 'electron',
+        rootId: 'mounted-root',
+      },
+      name: 'file.ts',
+      path: '/root/file.ts',
+      rootFolderId: 'selection-root',
+      selectionState: 'unchecked',
+      type: 'file',
+    };
+
+    const handles = buildHandleMap([node]);
+    const [rehydrated] = rehydrateTree(toWorkerFileNodes([node]), handles);
+
+    expect(rehydrated?.handle).toBe(node.handle);
+    expect(rehydrated?.handle).toMatchObject({ rootId: 'mounted-root' });
+  });
+
   describe('toWorkerFileNode', () => {
     it('should convert a basic file node', () => {
       const fileNode: IFileNode = {
@@ -249,7 +273,7 @@ describe('worker-node-conversion', () => {
       };
 
       const handle = createMockFileHandle('test.ts');
-      const handleMap = new Map<string, FileSystemHandle>([['/root/test.ts', handle]]);
+      const handleMap = new Map<string, FileNodeHandle>([['/root/test.ts', handle]]);
 
       const result = rehydrateFileNode(workerNode, handleMap);
 
@@ -268,7 +292,7 @@ describe('worker-node-conversion', () => {
         type: 'file',
       };
 
-      const handleMap = new Map<string, FileSystemHandle>();
+      const handleMap = new Map<string, FileNodeHandle>();
 
       const result = rehydrateFileNode(workerNode, handleMap);
 
@@ -295,7 +319,7 @@ describe('worker-node-conversion', () => {
 
       const dirHandle = createMockHandle('src');
       const fileHandle = createMockFileHandle('file.ts');
-      const handleMap = new Map<string, FileSystemHandle>([
+      const handleMap = new Map<string, FileNodeHandle>([
         ['/root/src', dirHandle],
         ['/root/src/file.ts', fileHandle],
       ]);
@@ -335,7 +359,7 @@ describe('worker-node-conversion', () => {
       const dirHandle = createMockHandle('src');
       const file1Handle = createMockFileHandle('file1.ts');
       // Intentionally not including file2 handle
-      const handleMap = new Map<string, FileSystemHandle>([
+      const handleMap = new Map<string, FileNodeHandle>([
         ['/root/src', dirHandle],
         ['/root/src/file1.ts', file1Handle],
       ]);
@@ -360,7 +384,7 @@ describe('worker-node-conversion', () => {
       };
 
       const handle = createMockFileHandle('test.ts');
-      const handleMap = new Map<string, FileSystemHandle>([['/root/test.ts', handle]]);
+      const handleMap = new Map<string, FileNodeHandle>([['/root/test.ts', handle]]);
 
       const result = rehydrateFileNode(workerNode, handleMap);
 
@@ -392,7 +416,7 @@ describe('worker-node-conversion', () => {
 
       const handle1 = createMockFileHandle('file1.ts');
       const handle2 = createMockFileHandle('file2.ts');
-      const handleMap = new Map<string, FileSystemHandle>([
+      const handleMap = new Map<string, FileNodeHandle>([
         ['/root/file1.ts', handle1],
         ['/root/file2.ts', handle2],
       ]);
@@ -424,7 +448,7 @@ describe('worker-node-conversion', () => {
 
       const handle1 = createMockFileHandle('file1.ts');
       // Intentionally only including file1 handle
-      const handleMap = new Map<string, FileSystemHandle>([['/root/file1.ts', handle1]]);
+      const handleMap = new Map<string, FileNodeHandle>([['/root/file1.ts', handle1]]);
 
       const result = rehydrateTree(workerNodes, handleMap);
 
@@ -536,9 +560,7 @@ describe('worker-node-conversion', () => {
       const existingHandle = createMockFileHandle('existing.ts');
       const newHandle = createMockFileHandle('new.ts');
 
-      const existingMap = new Map<string, FileSystemHandle>([
-        ['/root/existing.ts', existingHandle],
-      ]);
+      const existingMap = new Map<string, FileNodeHandle>([['/root/existing.ts', existingHandle]]);
 
       const nodes: IFileNode[] = [
         {
@@ -563,7 +585,7 @@ describe('worker-node-conversion', () => {
   describe('addHandlesToMap', () => {
     it('should add handles to existing map', () => {
       const handle = createMockFileHandle('file.ts');
-      const map = new Map<string, FileSystemHandle>();
+      const map = new Map<string, FileNodeHandle>();
 
       const nodes: IFileNode[] = [
         {
@@ -586,7 +608,7 @@ describe('worker-node-conversion', () => {
     it('should add handles from children', () => {
       const dirHandle = createMockHandle('src');
       const fileHandle = createMockFileHandle('file.ts');
-      const map = new Map<string, FileSystemHandle>();
+      const map = new Map<string, FileNodeHandle>();
 
       const nodes: IFileNode[] = [
         {
