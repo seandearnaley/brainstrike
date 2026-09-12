@@ -97,6 +97,23 @@ describe('file node adapter handles', () => {
     expect(fileNodeToDirectoryHandle(node(handle), 'parent-root')).not.toHaveProperty('_internal');
   });
 
+  it.each([null, 42])('rejects invalid raw browser root identity %s', (rootId) => {
+    const handle: FileSystemFileHandle = {
+      createWritable: vi.fn(),
+      getFile: vi.fn(),
+      isSameEntry: vi.fn(),
+      kind: 'file',
+      name: 'file',
+      queryPermission: vi.fn(),
+      requestPermission: vi.fn(),
+    };
+
+    expect(() => fileNodeToFileHandle(node(Object.assign(handle, { rootId })))).toThrow(
+      'File-system handle has an invalid root identity'
+    );
+    expect(handle.getFile).not.toHaveBeenCalled();
+  });
+
   it('rejects file and directory kind mismatches', () => {
     const file: FileHandle = { kind: 'file', name: 'file', path: '/file', platform: 'electron' };
     const directory: DirectoryHandle = {

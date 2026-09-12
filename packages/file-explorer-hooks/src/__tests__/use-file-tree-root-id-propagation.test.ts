@@ -71,8 +71,38 @@ describe('useFileTree rootId propagation across recursive traversal', () => {
       selectionState: 'unchecked',
       type: 'directory',
     };
+    const grandchildCapability = { entries: vi.fn() };
+    const grandchildHandle: DirectoryHandle = {
+      _internal: grandchildCapability,
+      kind: 'directory',
+      name: 'grandchild',
+      path: 'root/canonical-child/canonical-grandchild',
+      platform: 'web',
+    };
+    const grandchild: IFileNode = {
+      ...child,
+      handle: grandchildHandle,
+      name: 'grandchild',
+      path: grandchildHandle.path,
+    };
+    const leaf: IFileNode = {
+      depth: 3,
+      handle: {
+        _internal: { getFile: vi.fn() },
+        kind: 'file',
+        name: 'leaf.txt',
+        path: `${grandchildHandle.path}/leaf.txt`,
+        platform: 'web',
+      },
+      name: 'leaf.txt',
+      path: `${grandchildHandle.path}/leaf.txt`,
+      rootFolderId: 'root',
+      selectionState: 'unchecked',
+      type: 'file',
+    };
     MockFileSystemAdapter.setMockDirectoryData('root', [child]);
-    MockFileSystemAdapter.setMockDirectoryData(handle.path, []);
+    MockFileSystemAdapter.setMockDirectoryData(handle.path, [grandchild]);
+    MockFileSystemAdapter.setMockDirectoryData(grandchildHandle.path, [leaf]);
     const readDirectory = vi.spyOn(MockFileSystemAdapter.prototype, 'readDirectory');
     const rootWithId: DirectoryHandle = { ...mockDirectoryHandle, rootId: 'parent-root' };
 
@@ -82,6 +112,22 @@ describe('useFileTree rootId propagation across recursive traversal', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(readDirectory).toHaveBeenCalledWith(handle);
-    expect(readDirectory.mock.calls.at(-1)?.[0]._internal).toBe(rawCapability);
+    expect(readDirectory.mock.calls.map(([readHandle]) => readHandle.path)).toEqual([
+      'root',
+      handle.path,
+      grandchildHandle.path,
+    ]);
+    expect(readDirectory.mock.calls[1]?.[0]._internal).toBe(rawCapability);
+    expect(readDirectory).toHaveBeenCalledWith({ ...grandchildHandle, rootId: 'child-root' });
+    expect(readDirectory.mock.calls[2]?.[0]._internal).toBe(grandchildCapability);
+
+    const displayedChild = result.current.fileTree[0];
+    const displayedGrandchild = displayedChild?.children?.[0];
+    const displayedLeaf = displayedGrandchild?.children?.[0];
+    expect(displayedChild?.path).toBe('child');
+    expect(displayedGrandchild?.path).toBe('child/grandchild');
+    expect(displayedLeaf?.path).toBe('child/grandchild/leaf.txt');
+    expect(displayedLeaf?.handle).toBe(leaf.handle);
+    expect(result.current.error).toBeNull();
   });
 });
