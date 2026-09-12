@@ -44,8 +44,9 @@
  * pins EVERY spawn's cwd to the root — never run shadow-git commands through
  * any other channel with a different cwd.
  */
+
 import { type ExecFileException, execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { createGitCommandEnvironment } from '../git-ipc-handlers';
@@ -199,8 +200,8 @@ export function assertValidOid(oid: string, label: string): void {
   }
 }
 
-// Safe as both a single ref-name component (refs/snapshots/<threadId>) and a
-// directory name: no separators, no leading '.', no '..', no '.lock' suffix.
+// Root directories and legacy ref components retain their strict path validation.
+// Native thread identities use a bounded encoded ref when they do not fit it.
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 function assertValidIdentifier(value: string, label: string): void {
@@ -216,14 +217,28 @@ export function assertValidRootId(rootId: string): void {
   assertValidIdentifier(rootId, 'rootId');
 }
 
+/** A conversation identity is opaque data, not a path component. */
 export function assertValidThreadId(threadId: string): void {
-  assertValidIdentifier(threadId, 'threadId');
+  if (typeof threadId !== 'string' || threadId.trim().length === 0) {
+    throw new SnapshotGitError('invalid-argument', 'threadId must be a non-empty identity');
+  }
 }
 
-/** Per-thread snapshot lineage ref inside the shadow repo. */
+export const LEGACY_SNAPSHOT_REF_PREFIX = 'refs/snapshots/';
+export const ENCODED_SNAPSHOT_REF_PREFIX = 'refs/snapshot-identities/v1/';
+
+/** Preserve existing lineage refs; other native identities receive a bounded key.
+ * Exact identity stays in the existing commit metadata, never in a filesystem path. */
 export function snapshotRefForThread(threadId: string): string {
   assertValidThreadId(threadId);
-  return `refs/snapshots/${threadId}`;
+  if (
+    IDENTIFIER_PATTERN.test(threadId) &&
+    !threadId.includes('..') &&
+    !threadId.endsWith('.lock')
+  ) {
+    return `${LEGACY_SNAPSHOT_REF_PREFIX}${threadId}`;
+  }
+  return `${ENCODED_SNAPSHOT_REF_PREFIX}${createHash('sha256').update(threadId).digest('hex')}`;
 }
 
 /** Shipped `info/exclude` backstop for non-git roots (plan global constraint 3). */
@@ -349,7 +364,7 @@ export function createShadowGitPlumbing({ gitDir, rootPath, runner }: ShadowGitP
 
   /**
    * Initialize the shadow git dir if absent: `git init` (HEAD stays unborn —
-   * snapshots live under `refs/snapshots/*`, never a branch), the pinned
+   * snapshots use their own ref namespaces, never a branch), the pinned
    * config (plan global constraint 2 + deterministic commit identity for
    * `commit-tree`), and the `info/exclude` backstop. Idempotent: an existing
    * repo (HEAD present) is left as-is.

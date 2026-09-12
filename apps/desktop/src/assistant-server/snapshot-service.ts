@@ -6,7 +6,7 @@
  * `userData/snapshots` in T1 — this module has NO Electron imports). Snapshot
  * commits are taken at turn boundaries via a private per-operation index
  * (`add -A` → `write-tree` → `commit-tree` → `update-ref
- * refs/snapshots/<threadId>`); diffs resolve to the shared
+ * <canonical thread lineage ref>`); diffs resolve to the shared
  * `StructuredFileDiff` shape by reusing the W1 parsers
  * (`structured-diff-parsers.ts`); restores are computed and applied from
  * snapshot ref pairs with per-path conflict gating.
@@ -45,6 +45,8 @@ import {
   assertValidOid,
   assertValidRootId,
   createShadowGitPlumbing,
+  ENCODED_SNAPSHOT_REF_PREFIX,
+  LEGACY_SNAPSHOT_REF_PREFIX,
   type ShadowBlobRead,
   type ShadowGitPlumbing,
   type SnapshotGitCommandRunner,
@@ -223,6 +225,50 @@ function gitlinkContent(oid: string, entryPath: string): string {
   return `Subproject commit ${oid}\n`;
 }
 
+function readSnapshotRefIdentity(refname: string, subject: string): string {
+  if (refname.startsWith(LEGACY_SNAPSHOT_REF_PREFIX)) {
+    const threadId = refname.slice(LEGACY_SNAPSHOT_REF_PREFIX.length);
+    if (snapshotRefForThread(threadId) === refname) {
+      return threadId;
+    }
+  } else if (refname.startsWith(ENCODED_SNAPSHOT_REF_PREFIX)) {
+    let metadata: unknown;
+    try {
+      metadata = JSON.parse(subject);
+    } catch {
+      throw new SnapshotGitError(
+        'git-command-failed',
+        'Encoded snapshot ref has invalid identity metadata'
+      );
+    }
+    if (
+      metadata &&
+      typeof metadata === 'object' &&
+      'threadId' in metadata &&
+      typeof metadata.threadId === 'string' &&
+      snapshotRefForThread(metadata.threadId) === refname
+    ) {
+      return metadata.threadId;
+    }
+  }
+  throw new SnapshotGitError(
+    'git-command-failed',
+    `Snapshot ref "${refname}" does not match its durable identity`
+  );
+}
+
+async function verifyEncodedRefOwner(
+  plumbing: ShadowGitPlumbing,
+  ref: string,
+  oid: string
+): Promise<void> {
+  if (!ref.startsWith(ENCODED_SNAPSHOT_REF_PREFIX)) {
+    return;
+  }
+  const commit = await plumbing.runOrThrow(['show', '-s', '--format=%s', oid]);
+  readSnapshotRefIdentity(ref, commit.stdout.trim());
+}
+
 export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServiceOptions) {
   const entries = new Map<string, RootEntry>();
 
@@ -290,6 +336,9 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
         const treeOid = treeRun.stdout.trim();
         assertValidOid(treeOid, 'write-tree result');
         const parentOid = await entry.plumbing.resolveRefOrNull(ref);
+        if (parentOid) {
+          await verifyEncodedRefOwner(entry.plumbing, ref, parentOid);
+        }
         const message = JSON.stringify({
           kind: meta.kind,
           ...(meta.runId === undefined ? {} : { runId: meta.runId }),
@@ -884,32 +933,30 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     return { outcome: 'restored', path: relativePath };
   }
 
-  /**
-   * Thread ids owning a `refs/snapshots/<threadId>` lineage ref in this
-   * shadow repo — the startup GC's ref-side inventory (BST-1164 T4). A
-   * refname outside the expected shape is a thrown error, never skipped: a
-   * quietly dropped ref would be invisible to GC forever.
-   */
+  /** Inventory both legacy refs and encoded native identities for startup GC.
+   * Encoded refs are decoded from their existing commit metadata and checked
+   * against the canonical key; corruption must never hide or prune another owner. */
   async function listSnapshotThreadIds(handle: ShadowRepoHandle): Promise<readonly string[]> {
     const entry = requireEntry(handle);
     const run = await entry.plumbing.runOrThrow([
       'for-each-ref',
-      '--format=%(refname)',
-      'refs/snapshots/',
+      '--format=%(refname)%00%(contents:subject)',
+      LEGACY_SNAPSHOT_REF_PREFIX,
+      ENCODED_SNAPSHOT_REF_PREFIX,
     ]);
-    const prefix = 'refs/snapshots/';
     return run.stdout
       .split('\n')
-      .map((line) => line.trim())
       .filter((line) => line.length > 0)
-      .map((refname) => {
-        if (!refname.startsWith(prefix)) {
+      .map((line) => {
+        const separator = line.indexOf('\0');
+        const refname = line.slice(0, separator);
+        if (separator < 0) {
           throw new SnapshotGitError(
             'git-command-failed',
-            `for-each-ref returned an unexpected refname "${refname}" under "${prefix}"`
+            'Snapshot ref inventory has no metadata separator'
           );
         }
-        return refname.slice(prefix.length);
+        return readSnapshotRefIdentity(refname, line.slice(separator + 1));
       });
   }
 
@@ -963,6 +1010,7 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
       if (existing === null) {
         return { deleted: false };
       }
+      await verifyEncodedRefOwner(entry.plumbing, ref, existing);
       await entry.plumbing.runOrThrow(['update-ref', '-d', ref, existing]);
       return { deleted: true };
     });

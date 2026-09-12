@@ -569,9 +569,55 @@ describe('undoCheckpointEntry', () => {
 });
 
 describe('undoCheckpointRun', () => {
+  it('restores a recursive child checkpoint and retains independent sibling work', async () => {
+    const childThread =
+      'thread-74da70cd-4f39-46de-81b3-56b7b5b1b416-b7a52f6c-7e72-4241-bf33-e5b9bbf1d93e-70950143-21e5-44b4-8aa0-b574d36ad961-55dbf797-1713-4fc6-b4e4-9e85f0453bb7';
+    const childRun = 'recursive-child-run';
+    await write('a.txt', 'User baseline');
+    const before = await service.snapshot(handle, {
+      kind: 'turn-start',
+      runId: childRun,
+      threadId: childThread,
+    });
+    await repository.insertSnapshot({
+      commitOid: before.commitOid,
+      kind: 'turn-start',
+      rootId: ROOT_ID,
+      rootPath: handle.rootPath,
+      runId: childRun,
+      threadId: childThread,
+    });
+    await write('a.txt', 'Child edit');
+    const checkpoint = await recordEditCheckpoint(
+      db,
+      journalInput({
+        afterHash: await hashOf('Child edit'),
+        runId: childRun,
+        threadId: childThread,
+      })
+    );
+    await write('sibling.txt', 'Independent sibling work');
+    const availability = await listCheckpointUndoAvailability(db, undoDeps(), childThread);
+    expect(availability.byCheckpointId[checkpoint.id]).toEqual({ restorable: true });
+    const result = await undoCheckpointRun(db, { runId: childRun }, undoDeps());
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]).toMatchObject({ ok: true });
+    expect(await readOrNull('a.txt')).toBe('User baseline');
+    expect(await readOrNull('sibling.txt')).toBe('Independent sibling work');
+    const persisted = await db.query(
+      'SELECT thread_id, reverted_at FROM brainstrike_assistant_edit_checkpoints WHERE id = $1',
+      [checkpoint.id]
+    );
+    expect(persisted.rows[0]).toMatchObject({
+      reverted_at: expect.anything(),
+      thread_id: childThread,
+    });
+  });
+
   it('refuses child restoration over a later sibling edit without changing either journal', async () => {
     await write('a.txt', 'User baseline');
-    const childThread = 'child-restore';
+    const childThread =
+      'thread-74da70cd-4f39-46de-81b3-56b7b5b1b416-b7a52f6c-7e72-4241-bf33-e5b9bbf1d93e-70950143-21e5-44b4-8aa0-b574d36ad961-55dbf797-1713-4fc6-b4e4-9e85f0453bb7';
     const childRun = 'child-restore-run';
     const snapshot = await service.snapshot(handle, {
       kind: 'turn-start',

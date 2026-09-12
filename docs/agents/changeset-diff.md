@@ -252,6 +252,20 @@ that used to read journal content restores from snapshots instead:
   disabled with a reason — never a click-time surprise, never silent
   removal.
 
+**Native conversation identity and Git refs:** root directory identifiers keep
+strict path validation. A thread ID is opaque native identity and is never
+truncated or renamed in the snapshot ledger. Existing safe short IDs keep
+`refs/snapshots/<threadId>`; other IDs use
+`refs/snapshot-identities/v1/<sha256-of-exact-threadId>`. Snapshot commit JSON
+already stores the exact thread ID. Inventory decodes that metadata and verifies
+the canonical ref binding, so startup GC still receives actual thread identities.
+Appending or pruning an encoded lineage also verifies its existing head owner;
+malformed or mismatched metadata refuses the operation rather than deleting,
+reassigning or hiding a lineage. Both namespaces are inventoried in one Git call.
+No new persistence store or migration is needed. The real recursive 154-character
+native ID, legacy compatibility, corruption refusal, sibling-preserving restore
+and ref pruning are covered by the snapshot service and delegated admission tests.
+
 **Snapshot retention / GC** (`snapshot-startup-gc.ts`, run from main.ts's
 startup fire-and-forget block after `sweepOrphans`): dead-thread rows +
 refs purge (`mastra_threads` is the liveness source; a missing threads

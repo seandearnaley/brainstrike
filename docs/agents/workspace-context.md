@@ -1822,3 +1822,10 @@ tool input or metadata never establishes client-side workspace confinement.
 The real HTTP MCP worker fixture proves an approved server-owned disposable
 file effect once, preserves dirty/sibling files, refuses replay, and prevents
 execution when the pending worker is stopped before dispatch.
+
+Native delegated thread IDs may exceed a filesystem/ref component length at
+three levels of recursion. Snapshot ownership retains the exact native ID in
+the existing ledger and commit metadata; the Git lineage key is bounded as
+documented in changeset-diff.md. Never increase root directory validation limits
+or truncate native identity to make a recursive child snapshot fit. Real delegated
+capture/recovery and selected-path restore preserve independent user/sibling files.
