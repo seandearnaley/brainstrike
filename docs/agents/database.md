@@ -989,10 +989,15 @@ The patched loop, on a non-longjmp trap:
   a trapped instance can never end a test or a session cleanly.
 
 `packages/db/__tests__/pglite-fatal-trap-fail-closed.integration.test.ts` pins all
-three with a simulated trap and a healthy control. This is deliberately not a
-retry, a fallback or a timeout: the failure stays a failure, named and
-immediate. Do not extend the patch beyond the loop; when a PGlite release
-terminates the loop itself, drop the patch and keep the test.
+three with a simulated trap and a healthy control. Before it simulates the
+trap it proves the patched loop is the one it is about to call (the method
+source carries the `PGliteFatalTrapError` branch); if the patch is missing or
+stopped applying, the test fails immediately with a named error instead of
+driving the stock loop, which would spin the worker until the CI job is
+killed. This is deliberately not a retry, a fallback or a timeout: the failure
+stays a failure, named and immediate. Do not extend the patch beyond the loop;
+when a PGlite release terminates the loop itself, drop the patch, and rewrite
+the test's precondition against the upstream fix before keeping it.
 
 ### CLOSING a PGlite: drain first — an overlapping statement wedges it forever
 

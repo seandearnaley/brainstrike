@@ -1,4 +1,4 @@
-import type { PGlite } from '@electric-sql/pglite';
+import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
 import { wasmLoader } from '../src/wasm-loader.js';
 
@@ -11,6 +11,21 @@ interface TrapCapableModule {
   _PostgresMainLoopOnce: () => void;
 }
 
+// The probe below drives the real synchronous loop. Without the patch that loop
+// never returns, and no timer, Promise.race, or Vitest timeout can interrupt a
+// blocked event loop, so the worker would burn a core until the CI job is
+// killed. Prove the patched loop is what we are about to call before calling it.
+function assertFailClosedPatchApplied(): void {
+  const loopSource = String(PGlite.prototype.execProtocolRawSync);
+  if (!loopSource.includes('PGliteFatalTrapError')) {
+    throw new Error(
+      'patches/@electric-sql__pglite@0.5.8.patch is not applied to @electric-sql/pglite: ' +
+        'execProtocolRawSync has no PGliteFatalTrapError branch, so a WebAssembly trap ' +
+        'would spin forever. Refusing to run the trap probe against the unpatched loop.'
+    );
+  }
+}
+
 function moduleOf(db: PGlite): TrapCapableModule {
   const mod = (db as unknown as { mod?: TrapCapableModule }).mod;
   if (!mod) {
@@ -21,6 +36,7 @@ function moduleOf(db: PGlite): TrapCapableModule {
 
 describe('PGlite fail-closed behaviour on a WebAssembly trap', () => {
   it('throws a named fatal error instead of spinning, poisons later calls, and refuses a clean close', async () => {
+    assertFailClosedPatchApplied();
     const db = await wasmLoader.createPGlite('memory://fatal-trap');
     expect((await db.query<{ ok: number }>('SELECT 1 AS ok')).rows[0]?.ok).toBe(1);
 
