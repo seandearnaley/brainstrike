@@ -23,7 +23,7 @@ async function waitForAssistantChat(window: Page): Promise<void> {
       timeout: E2E_TIMEOUTS.loadingIndicator,
     });
   }
-  await expect(window.getByTestId('chat-panel')).toBeVisible({
+  await expect(window.getByTestId('chat-panel').filter({ visible: true })).toBeVisible({
     timeout: E2E_TIMEOUTS.chatPanel,
   });
 }
@@ -47,7 +47,6 @@ test.describe('assistant compaction summary (desktop)', () => {
     await window.reload();
     const { mockFileSystemOperations } = await loadElectronHelpers();
     await mockFileSystemOperations(window);
-    await setupAssistantMock(window, { message: FOLLOW_UP_REPLY, variant: 'simple' });
     await ensureMockWorkspaceOpen(window);
     await waitForAssistantChat(window);
 
@@ -58,6 +57,8 @@ test.describe('assistant compaction summary (desktop)', () => {
     await expect(card).toContainText('Conversation compacted');
     await expect(card).toContainText('AI-generated summary');
     await expect(card).toContainText('Keep the compaction divider visible.');
+    // Select the provider on the hydrated target thread, not the previous tab.
+    await setupAssistantMock(window, { message: FOLLOW_UP_REPLY, variant: 'simple' });
 
     const input = window.getByRole('textbox', { name: 'Message input' });
     await input.fill(FOLLOW_UP_PROMPT);
@@ -79,7 +80,25 @@ test.describe('assistant compaction summary (desktop)', () => {
 
     const requests = await readAssistantMockRequests(window);
     expect(requests).toHaveLength(1);
-    expect(JSON.stringify(requests[0])).toContain(seeded.summaryText);
-    expect(JSON.stringify(requests[0])).toContain(FOLLOW_UP_PROMPT);
+    // Memory-backed transport sends only the new turn. Mastra recalls the
+    // durable summary by thread ID; replaying it in this POST duplicates history.
+    expect(requests[0]).toMatchObject({
+      data: {
+        memory: { threadId: seeded.threadId },
+        transportCompaction: {
+          originalMessageCount: 2,
+          sentMessageCount: 1,
+          strategy: 'mastra-memory-current-turn',
+        },
+      },
+      messages: [{ content: [{ text: FOLLOW_UP_PROMPT }], role: 'user' }],
+    });
+    // Verify the complete durable summary remains available after the new turn.
+    await window.reload();
+    await mockFileSystemOperations(window);
+    await ensureMockWorkspaceOpen(window);
+    await waitForAssistantChat(window);
+    await window.getByRole('button', { exact: true, name: seeded.title }).click();
+    await expect(window.getByTestId('compaction-summary-card')).toContainText(seeded.summaryText);
   });
 });

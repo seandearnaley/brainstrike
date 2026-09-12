@@ -84,6 +84,10 @@ test.each(
 )(
   'keeps the shared long child transcript bounded and composer reachable ($width / dark=$dark / reduced=$reducedMotion)',
   async ({ width, dark, reducedMotion }) => {
+    const previousViewport = { height: window.innerHeight, width: window.innerWidth };
+    await page.viewport(width, 800);
+    onTestFinished(() => page.viewport(previousViewport.width, previousViewport.height));
+    expect(window.innerWidth).toBe(width);
     await commands.emulateReducedMotion({ enabled: reducedMotion });
     expect(window.matchMedia('(prefers-reduced-motion: reduce)').matches).toBe(reducedMotion);
     render(<Child dark={dark} width={width} />);
@@ -109,6 +113,20 @@ test.each(
     expect(composer.bottom).toBeLessThanOrEqual(bounds.bottom + 1);
     expect(composer.left).toBeGreaterThanOrEqual(bounds.left);
     expect(composer.right).toBeLessThanOrEqual(bounds.right + 1);
+    expect(composer.top).toBeGreaterThanOrEqual(0);
+    expect(composer.bottom).toBeLessThanOrEqual(window.innerHeight);
+    expect(composer.right).toBeLessThanOrEqual(window.innerWidth);
+    const inputBounds = input.getBoundingClientRect();
+    expect(input).toBeVisible();
+    expect(
+      input.contains(
+        document.elementFromPoint(
+          inputBounds.x + inputBounds.width / 2,
+          inputBounds.y + inputBounds.height / 2
+        )
+      )
+    ).toBe(true);
+
     expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
     await act(async () => input.focus());
     expect(input).toHaveFocus();
@@ -139,6 +157,21 @@ test.each(
     // Record through jump completion too: the final affordance is a layout assertion.
     const jump = child.getByRole('button', { name: 'Scroll to latest messages' });
     await waitFor(() => expect(jump).toBeEnabled());
+    const jumpBounds = jump.getBoundingClientRect();
+    expect(jump).toBeVisible();
+    expect(jumpBounds.top).toBeGreaterThanOrEqual(0);
+    expect(jumpBounds.bottom).toBeLessThanOrEqual(window.innerHeight);
+    expect(jumpBounds.left).toBeGreaterThanOrEqual(0);
+    expect(jumpBounds.right).toBeLessThanOrEqual(window.innerWidth);
+    expect(
+      jump.contains(
+        document.elementFromPoint(
+          jumpBounds.x + jumpBounds.width / 2,
+          jumpBounds.y + jumpBounds.height / 2
+        )
+      )
+    ).toBe(true);
+
     await act(async () => {
       jump.focus();
       await userEvent.keyboard('{Enter}');
