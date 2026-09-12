@@ -95,7 +95,10 @@ function AdmittedConfigurationDetails({
   return (
     <div className="space-y-1">
       <p className="font-medium">Admitted child configuration</p>
-      <p>{model ?? 'Model not recorded'}</p>
+      <p>
+        {model ??
+          (latestReceiptInvalid ? 'Model unavailable for latest receipt' : 'Model not recorded')}
+      </p>
       {provider ? <p className="text-muted-foreground">{provider}</p> : null}
       {execution ? (
         <>
@@ -171,20 +174,20 @@ function LoadedDetails({
   isRunning,
   persona,
   execution,
-  receiptError,
+  receiptInvalid,
 }: {
   readonly execution: ChildExecutionConfiguration | undefined;
   readonly persona: AssistantPersonaDefinition;
   readonly value: DelegatedConversationInsights;
   readonly isRunning: boolean;
-  readonly receiptError: Error | undefined;
+  readonly receiptInvalid: boolean;
 }) {
   const scope = personaScope(persona);
   return (
     <>
-      {receiptError ? (
+      {receiptInvalid ? (
         <p className="px-2 text-destructive text-xs" role="alert">
-          Latest child execution receipt could not be read: {receiptError.message}
+          Latest run settings are unavailable. Original admission details are shown.
         </p>
       ) : null}
       <Popover>
@@ -209,7 +212,7 @@ function LoadedDetails({
         >
           <AdmittedConfigurationDetails
             execution={execution}
-            latestReceiptInvalid={receiptError !== undefined}
+            latestReceiptInvalid={receiptInvalid}
             persona={persona}
             value={value}
           />
@@ -255,15 +258,14 @@ export function DelegatedConversationToolbar({
     );
   }
   let execution: ChildExecutionConfiguration | undefined;
-  let receiptError: Error | undefined;
+  let receiptInvalid = false;
   try {
     const latestExecution =
       insights.value.latestExecutionConfiguration ?? insights.value.configuration;
     const captured = admittedPersonaConfigurationSchema.parse(latestExecution).execution;
     execution = captured ? readChildExecutionConfiguration(captured) : undefined;
-  } catch (error) {
-    receiptError =
-      error instanceof Error ? error : new Error('Child execution receipt could not be read.');
+  } catch {
+    receiptInvalid = true;
   }
   return (
     <LoadedDetails
@@ -271,7 +273,7 @@ export function DelegatedConversationToolbar({
       isRunning={isRunning}
       key={insights.value.threadId}
       persona={persona}
-      receiptError={receiptError}
+      receiptInvalid={receiptInvalid}
       value={insights.value}
     />
   );

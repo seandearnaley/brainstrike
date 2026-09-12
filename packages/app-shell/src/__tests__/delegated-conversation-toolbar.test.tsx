@@ -153,9 +153,15 @@ it('surfaces an invalid latest execution receipt while retaining the original ad
       isRunning={false}
     />
   );
-  expect(screen.getByRole('alert')).toBeVisible();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Latest run settings are unavailable. Original admission details are shown.'
+  );
+  expect(
+    screen.queryByText(/expected string|invalid_type|execution.model/u)
+  ).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Child details' }));
   expect(screen.getByText('Up to 8 steps')).toBeVisible();
   expect(screen.getByText('1 admitted tool')).toBeVisible();
+  expect(screen.getByText('Model unavailable for latest receipt')).toBeVisible();
   expect(screen.queryByText('unknown-custom-model')).not.toBeInTheDocument();
 });

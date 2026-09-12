@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import type { AssistantProviderSettingsMap } from '@brainstrike/types';
+import { cn } from '@brainstrike/ui';
 import { useCallback, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import {
@@ -138,9 +139,9 @@ function CapableChildPanel({
     isRunning
   );
   return (
-    <>
+    <div className="flex h-full min-h-0 flex-col">
       {controls.error ? (
-        <p className="px-2 text-destructive text-xs" role="alert">
+        <p className="shrink-0 px-2 text-destructive text-xs" role="alert">
           {controls.error}
         </p>
       ) : null}
@@ -152,6 +153,11 @@ function CapableChildPanel({
           ...props.panelProps,
           ...controls.panelProps,
           attachmentsAvailability,
+          className: cn(
+            'min-h-0 flex-1',
+            props.panelProps?.className,
+            controls.panelProps.className
+          ),
           composerDraftCommand: command,
           fileMentions,
           onComposerDraftCommandApplied: onCommandApplied,
@@ -162,7 +168,7 @@ function CapableChildPanel({
         }}
         prepareBranchInput={controls.prepareInput}
       />
-    </>
+    </div>
   );
 }
 
