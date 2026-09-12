@@ -1,3 +1,7 @@
+import {
+  createSuspendedRunDiscovery,
+  hasDurableAssistantUsageCapability,
+} from '@brainstrike/assistant-data';
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
 import { use, useCallback, useEffect, useEffectEvent, useMemo, useState } from 'react';
@@ -7,7 +11,9 @@ import {
   type DelegatedSidebarEntry,
   projectDelegatedSidebarRows,
 } from './delegated-sidebar-rows';
+import { createDelegatedWorkspaceDiscovery } from './delegated-workspace-discovery';
 import type { ChildNode } from './delegated-workspace-node';
+import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import type { ThreadPanelVisibleRow } from './thread-panel-visible-rows';
 import { type Roots, RootsContext } from './use-delegated-conversation-root';
 
@@ -19,12 +25,10 @@ interface CachedEntry {
 async function loadChildren(
   db: DbHandle,
   parent: DelegatedSidebarAddress
-): Promise<readonly ChildNode[]> {
-  const nodes = await createDelegatedConversationRepository(db).listChildren(
-    parent,
-    parent.threadId
-  );
-  return nodes.map((node) => {
+): Promise<DelegatedSidebarEntry> {
+  const repository = createDelegatedConversationRepository(db);
+  const nodes = await repository.listChildren(parent, parent.threadId);
+  const children: readonly ChildNode[] = nodes.map((node) => {
     if (
       !(
         node.ownerResourceId === parent.ownerResourceId &&
@@ -38,6 +42,28 @@ async function loadChildren(
     }
     return { ...node, color: node.color, displayName: node.displayName };
   });
+  if (!hasDurableAssistantUsageCapability() || children.length === 0) {
+    return { children };
+  }
+  // One root discovery per expanded parent, never one request per child row.
+  const result = await createSuspendedRunDiscovery(resolveAssistantBaseUrl)(
+    parent.rootThreadId,
+    parent.ownerResourceId
+  );
+  const pending = await Promise.all(
+    children.map(async (node) => {
+      const owned = await createDelegatedWorkspaceDiscovery(
+        repository,
+        node,
+        async () => result
+      )(node.threadId, node.resourceId);
+      if (owned.error) {
+        throw new Error(`Child attention could not be verified (${owned.error.reason}).`);
+      }
+      return owned.approvals.length > 0 || owned.suspends.length > 0 ? node.threadId : undefined;
+    })
+  );
+  return { children, pendingThreadIds: new Set(pending.filter((id) => id !== undefined)) };
 }
 
 export function useDelegatedSidebar(baseRows: readonly ThreadPanelVisibleRow[]) {
@@ -211,10 +237,8 @@ function subscribeParent(
           publishEntry(parent.id, { db, signature, value });
         }
       };
-      loadChildren(db, parent).then(
-        (children) => publish({ children }),
-        (error: unknown) =>
-          publish({ error: error instanceof Error ? error : new Error(String(error)) })
+      loadChildren(db, parent).then(publish, (error: unknown) =>
+        publish({ error: error instanceof Error ? error : new Error(String(error)) })
       );
     };
     refresh();

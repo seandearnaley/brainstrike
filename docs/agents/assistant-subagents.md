@@ -798,8 +798,9 @@ alongside `parentToolCallId`, so the host run/root ownership plus this key joins
 the exact invocation, including repeated tool-call names in different runs.
 Legacy events lacking the key are not fabricated into child lifecycle history.
 The desktop production-loop test verifies this durable terminal correlation.
-Root archive is presentation state on the existing root, not a second copied
-child flag; child navigation must inherit root visibility (BST-1725). There is
+Neither root nor child conversations currently expose an archive action.
+Child navigation inherits root filter/folder visibility (BST-1725); closing a
+child tab remains reversible and does not delete or stop its work. There is
 no automatic invocation retention sweep. Host-run retention must preserve
 resumable invocations or explicitly remove the complete branch. Dedicated child
 transcript statuses, approval presentation and lifecycle controls remain in

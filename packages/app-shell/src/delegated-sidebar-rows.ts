@@ -12,7 +12,7 @@ export interface DelegatedSidebarAddress {
   readonly threadId: string;
 }
 export type DelegatedSidebarEntry =
-  | { readonly children: readonly ChildNode[] }
+  | { readonly children: readonly ChildNode[]; readonly pendingThreadIds?: ReadonlySet<string> }
   | { readonly error: Error };
 export type DelegatedSidebarRow = {
   readonly id: string;
@@ -20,7 +20,7 @@ export type DelegatedSidebarRow = {
   readonly depth: number;
   readonly groupId: string | null;
 } & (
-  | { readonly kind: 'delegated'; readonly node: ChildNode }
+  | { readonly kind: 'delegated'; readonly node: ChildNode; readonly needsInput?: boolean }
   | {
       readonly kind: 'delegated-state';
       readonly label: string;
@@ -79,6 +79,7 @@ export function projectDelegatedSidebarRows(
         groupId: parent.groupId,
         id,
         kind: 'delegated',
+        ...(entry.pendingThreadIds?.has(node.threadId) ? { needsInput: true } : {}),
         node,
         parentId,
       });
