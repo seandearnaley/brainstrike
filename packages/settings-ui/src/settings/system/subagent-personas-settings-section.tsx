@@ -44,7 +44,8 @@ const BUILT_IN_ITEMS: readonly AssistantPersonaListItem[] = BUILT_IN_PERSONAS.ma
   status: 'ok',
 }));
 
-const NUMBER = new Intl.NumberFormat('en-US');
+// The locale is pinned on purpose so limits use consistent grouping on every host.
+const LIMIT_NUMBER_FORMAT = new Intl.NumberFormat('en-US');
 const TOOL_ID_PREFIX = 'brainstrike.';
 const MAX_LISTED_TOOLS = 6;
 
@@ -65,7 +66,7 @@ function PersonaScopeLine({ item }: { readonly item: AssistantPersonaListItem })
     return null;
   }
   const steps = effectiveChildStepBudget({ maxSteps: item.maxSteps });
-  const allTools = item.allowedToolIds.length === 1 && item.allowedToolIds[0] === '*';
+  const allTools = item.allowedToolIds.includes('*');
   const listed = item.allowedToolIds.slice(0, MAX_LISTED_TOOLS).map(displayToolId).join(', ');
   const remaining = item.allowedToolIds.length - MAX_LISTED_TOOLS;
   // Worker mode only PERMITS edit/run tools to be declared; the declared list
@@ -78,7 +79,9 @@ function PersonaScopeLine({ item }: { readonly item: AssistantPersonaListItem })
       {steps === 1 ? 'step' : 'steps'}
       {steps >= 2 ? ' (1 reserved for its summary)' : ''} ·{' '}
       {allTools
-        ? `every tool the host permits${item.mode === 'worker' ? ', including edit and run tools' : ''}`
+        ? item.mode === 'worker'
+          ? 'every tool the host permits, including edit and run tools'
+          : 'every read-only tool the host permits'
         : `${item.allowedToolIds.length} ${item.allowedToolIds.length === 1 ? 'tool' : 'tools'}: ${listed}${remaining > 0 ? ` and ${remaining} more` : ''}`}
     </p>
   );
@@ -96,11 +99,12 @@ function DelegationLimits() {
       <p className="text-muted-foreground text-sm">
         Subagents can delegate to other subagents up to {DELEGATION_LIMITS.maxDepth} levels deep,
         with at most {DELEGATION_LIMITS.maxInvocations} delegations per turn and{' '}
-        {DELEGATION_LIMITS.maxConcurrentWork} subagents working at once. Each subagent runs at most{' '}
-        {DELEGATION_LIMITS.maxChildSteps} steps and may produce up to{' '}
-        {NUMBER.format(DELEGATION_LIMITS.maxChildOutputTokens)} output tokens;{' '}
-        {NUMBER.format(DELEGATION_LIMITS.maxTreeOutputTokens)} output tokens is the ceiling for all
-        subagents in one turn. Personas cannot raise these limits; the host enforces them.
+        {DELEGATION_LIMITS.maxConcurrentWork} subagents working at once. No subagent may exceed{' '}
+        {DELEGATION_LIMITS.maxChildSteps} steps, whatever its persona declares. Each subagent may
+        produce up to {LIMIT_NUMBER_FORMAT.format(DELEGATION_LIMITS.maxChildOutputTokens)} output
+        tokens; {LIMIT_NUMBER_FORMAT.format(DELEGATION_LIMITS.maxTreeOutputTokens)} output tokens is
+        the ceiling for all subagents in one turn. Personas cannot raise these limits; the host
+        enforces them.
       </p>
     </div>
   );

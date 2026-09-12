@@ -138,7 +138,9 @@ export function personaMode(
 /**
  * The facts Settings states about a loadable persona, taken from the SAME
  * definition the host builds the child from: declared capability set (`['*']`
- * = every tool the host permits), declared step budget, and effective mode.
+ * = the host catalog permitted by the persona's mode), declared step budget,
+ * and effective mode. Tool ids are copied so later changes to the source
+ * definition cannot mutate a captured scope.
  */
 export interface AssistantPersonaScope {
   readonly allowedToolIds: readonly string[];
@@ -150,7 +152,7 @@ export function personaScope(
   persona: Pick<AssistantPersonaDefinition, 'allowedToolIds' | 'maxSteps' | 'mode'>
 ): AssistantPersonaScope {
   return {
-    allowedToolIds: persona.allowedToolIds,
+    allowedToolIds: [...persona.allowedToolIds],
     maxSteps: persona.maxSteps,
     mode: personaMode(persona),
   };

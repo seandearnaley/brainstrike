@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { DELEGATION_LIMITS } from '../delegation-limits';
 import {
   type AssistantPersonaDefinition,
+  type AssistantPersonaScope,
   assertReadOnlyPersona,
   BUILT_IN_PERSONAS,
   delegationDescriptionForPersona,
   delegationToolNameForPersona,
   effectiveChildStepBudget,
   PersonaToolRiskViolationError,
+  personaMode,
   personaScope,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '../personas';
@@ -39,7 +41,22 @@ describe('effectiveChildStepBudget', () => {
   });
 });
 
+describe('personaMode', () => {
+  it('defaults an absent mode to read-only and preserves explicit modes', () => {
+    expect(personaMode({})).toBe('read-only');
+    expect(personaMode({ mode: 'read-only' })).toBe('read-only');
+    expect(personaMode({ mode: 'worker' })).toBe('worker');
+  });
+});
+
 describe('personaScope', () => {
+  it('copies the declared tools so a captured scope cannot change with its source', () => {
+    const allowedToolIds = ['brainstrike.readWorkspaceFile'];
+    const scope: AssistantPersonaScope = personaScope(baseDefinition({ allowedToolIds }));
+    allowedToolIds.push('brainstrike.grepSearch');
+    expect(scope.allowedToolIds).toEqual(['brainstrike.readWorkspaceFile']);
+  });
+
   it('reports read-only for legacy personas without a mode and worker for explicit workers', () => {
     const explore = BUILT_IN_PERSONAS.find((persona) => persona.id === 'explore');
     const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');

@@ -297,7 +297,7 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
 - **Settings states what the host enforces (BST-1727):** every loadable list
   item (`AssistantPersonaListItem`, status `'ok'`) carries `personaScope`
   of the SAME definition the child is built from — `allowedToolIds`
-  (`['*']` = every tool the host permits), declared `maxSteps`, and the
+  (`['*']` = the host catalog permitted by its mode), declared `maxSteps`, and the
   effective `mode` (no explicit mode ⇒ `'read-only'`) — populated by
   `apps/desktop/src/ipc-user-personas-handlers.ts` for built-ins and user
   personas alike, and by the panel's own built-in fallback on web. The panel
@@ -306,14 +306,19 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   list decides — "Up to N steps", with "(1 reserved for its summary)" only
   when N ≥ 2 because `buildChildIterationPolicy` reserves nothing for a
   one-step child, then the tool count with the first ids or "every tool the
-  host permits, including edit and run tools" for a worker `*`) where N is
-  `effectiveChildStepBudget` — the one helper `delegationDescriptionForPersona`
+  host permits, including edit and run tools" for a worker `*`; a read-only
+  wildcard represented by the bridge says "every read-only tool the host
+  permits"). Persona files still reject read-only and mixed wildcards; a
+  description-only file keeps its curated read-only defaults. `personaScope`
+  copies the declared tool ids so list consumers do not share the source
+  definition's array. N is `effectiveChildStepBudget` — the one helper `delegationDescriptionForPersona`
   also uses, so the number a user reads is the number the model is told and
   the host applies. The tree-wide block ("Limits on every turn") reads
   `DELEGATION_LIMITS` directly. Paired tests:
   `subagent-personas-delegation-limits.test.tsx` mocks the constant and the
-  helper with values no build uses, so a panel that repeats the arithmetic or
-  types the numbers fails; `ipc-user-personas-handlers.test.ts` pins the scope
+  helper with distinct values no build uses (the helper returns 3 while the
+  cap is 7), so a panel that repeats the arithmetic or types the numbers
+  fails; `ipc-user-personas-handlers.test.ts` pins the scope
   fields on built-in and user items; `personas.test.ts` pins the helper
   against the model-facing description. An older bridge that omits the fields
   renders no scope line rather than a guess.

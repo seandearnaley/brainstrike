@@ -26,7 +26,7 @@ vi.mock('@brainstrike/assistant-contract', async (importOriginal) => {
     }),
     // The per-persona budget must come from the shared helper the host uses,
     // not from arithmetic repeated in the panel.
-    effectiveChildStepBudget: () => 7,
+    effectiveChildStepBudget: () => 3,
   };
 });
 
@@ -46,16 +46,18 @@ describe('SubagentPersonasSettingsSection delegation limits', () => {
     expect(limits).toHaveTextContent('9 levels');
     expect(limits).toHaveTextContent('11 delegations per turn');
     expect(limits).toHaveTextContent('5 subagents working at once');
-    expect(limits).toHaveTextContent('7 steps');
+    expect(limits).toHaveTextContent(
+      'No subagent may exceed 7 steps, whatever its persona declares.'
+    );
     expect(limits).toHaveTextContent('4,321');
     expect(limits).toHaveTextContent('98,765');
   });
 
   it('states each persona step budget through the shared helper the host enforces with', () => {
     render(<SubagentPersonasSettingsSection />);
-    // Built-in personas declare 16 steps; the mocked helper answers 7, and the
-    // panel must show that answer, not its own arithmetic.
-    expect(screen.getAllByText(/Up to 7 steps/).length).toBeGreaterThan(0);
+    // Built-ins declare 16 steps; the helper answers 3 while the cap is 7.
+    // The panel must show that answer, not its own arithmetic.
+    expect(screen.getAllByText(/Up to 3 steps/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Up to 16 steps/)).not.toBeInTheDocument();
   });
 });
