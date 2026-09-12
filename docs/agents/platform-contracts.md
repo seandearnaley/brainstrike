@@ -1171,15 +1171,23 @@ step; fix the owner. Settled rulings, each with a paired test:
   stop awaits the renderer (`embedding-host-manager.test.ts`), and
   `RendererHostLifecycle.ensureStarted()` lets a `stopping` host settle instead
   of replacing its window (`renderer-host-lifecycle.test.ts`). Replacing the
-  window mid-stop orphaned the stop wait for its full 10s timeout and then let
-  the timed-out stop destroy the replacement.
-- The embedding worker's claim loop wakes for `stop()` from every wait (idle
-  backoff, inter-batch delay, claim-size retry, error backoff) via a stop
-  signal (`embedding-worker-stop-idle.integration.test.ts`). The first
+  window mid-stop used to orphan the stop wait and let a timed-out stop destroy
+  the replacement. Host Stop now waits at most 3s (`EMBEDDING_HOST_STOP_TIMEOUT_MS`),
+  below the unchanged 5s application deadline. Timeout still destroys the owned
+  renderer and retires its lifecycle, but rejects so the shutdown tracker records
+  the failure instead of reporting a successful stop.
+- The embedding worker wakes for `stop()` while awaiting a background permit,
+  idle backoff, inter-batch delay, claim-size retry, or error backoff via a stop
+  signal (`embedding-worker-stop-idle.integration.test.ts`). A stopped permit
+  waiter returns before claiming any job, even if its permit never arrives.
+  Already-running batch work remains bounded by the existing `leaseMs` stop join;
+  the stop signal does not cancel an embedding already executing. The first
   attributed local forced exit named `embedding-host` at 4998 ms: the host's
   cooperative stop was waiting for a worker parked in a 30 s idle poll.
 - The assistant HTTP server's shutdown stop ends live connections after
-  `close()` (`close-http-server.ts`, paired test). Plain `server.close()`
+  `close()` (`close-http-server.ts`, paired real-socket integration test). An
+  already-closed listener (`ERR_SERVER_NOT_RUNNING`) is a successful repeated
+  stop; other close failures remain visible. Plain `server.close()`
   waits for every in-flight response, and the first attributed CI forced exit
   named `assistant-server` at 5000 ms in the bare app-launch smoke case.
 

@@ -36,6 +36,9 @@ const MAX_PENDING_QUERY_EMBEDDING_REQUESTS = 8;
 const POWER_SAVE_BLOCKER_IDLE_GRACE_MS = 5000;
 const EMBEDDING_HOST_STATUS_IDLE_GRACE_MS = 5000;
 
+// Leave time for the remaining owners inside main's five-second shutdown budget.
+const EMBEDDING_HOST_STOP_TIMEOUT_MS = 3000;
+
 export interface EmbeddingHostManagerOptions {
   readonly platform?: NodeJS.Platform;
 }
@@ -185,7 +188,7 @@ export class EmbeddingHostManager {
     try {
       const status = await this.lifecycle.waitForStatus(
         (nextStatus) => nextStatus.state === 'stopped' || nextStatus.state === 'error',
-        10_000
+        EMBEDDING_HOST_STOP_TIMEOUT_MS
       );
       if (status.state === 'error') {
         this.lifecycle.destroyHostWindow();
@@ -194,11 +197,11 @@ export class EmbeddingHostManager {
         return this.getStatus();
       }
       return status;
-    } catch {
+    } catch (error) {
       this.lifecycle.destroyHostWindow();
       this.lifecycle.clearHostWindow();
       this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
-      return this.getStatus();
+      throw error;
     }
   }
 

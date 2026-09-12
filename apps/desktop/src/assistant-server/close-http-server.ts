@@ -11,7 +11,7 @@ import type http from 'node:http';
 export function closeHttpServerForShutdown(server: http.Server): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     server.close((error) => {
-      if (error) {
+      if (error && !('code' in error && error.code === 'ERR_SERVER_NOT_RUNNING')) {
         reject(error);
         return;
       }

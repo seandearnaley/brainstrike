@@ -338,7 +338,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
         runtimeId: 'embedding-host-runtime',
       })
     );
-    expect(lifecycleState.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 10_000);
+    expect(lifecycleState.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 3000);
     expect(lifecycleState.destroyHostWindow).toHaveBeenCalledTimes(1);
     expect(lifecycleState.clearHostWindow).toHaveBeenCalledTimes(1);
     expect(lifecycleState.setStatus).toHaveBeenCalled();
@@ -933,7 +933,7 @@ describe('EmbeddingHostManager teardown ownership', () => {
 
     const disposing = manager.dispose();
     await Promise.resolve();
-    expect(lifecycleState.waitForStatus).toHaveBeenCalledOnce();
+    expect(lifecycleState.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 3000);
 
     // A backfill arriving mid-teardown must not restart (replace) the host that
     // stop() is waiting on; that orphaned the stop wait for its full timeout.
@@ -950,5 +950,17 @@ describe('EmbeddingHostManager teardown ownership', () => {
     });
     await disposing;
     expect(lifecycleState.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('preserves a failed host stop while still destroying the owned renderer', async () => {
+    lifecycleState.getHostWindow.mockReturnValue(mockHostWindow);
+    currentLifecycleStatus.state = 'running';
+    mockHostWindow.isDestroyed.mockReturnValue(false);
+    const failure = new Error('Renderer stop deadline exceeded');
+    lifecycleState.waitForStatus.mockRejectedValueOnce(failure);
+    const manager = new EmbeddingHostManager();
+    await expect(manager.dispose()).rejects.toBe(failure);
+    expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
+    expect(lifecycleState.dispose).toHaveBeenCalled();
   });
 });

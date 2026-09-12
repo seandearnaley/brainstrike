@@ -475,7 +475,30 @@ export async function startEmbeddingWorker(
   }
 
   async function waitForBackgroundPermit(label: string): Promise<void> {
-    await options.waitForBackgroundPermit?.({ label });
+    if (stopController.signal.aborted || !options.waitForBackgroundPermit) {
+      return;
+    }
+    const permit = options.waitForBackgroundPermit({ label });
+    await new Promise<void>((resolve, reject) => {
+      const onStop = () => resolve();
+      stopController.signal.addEventListener('abort', onStop, { once: true });
+      if (stopController.signal.aborted) {
+        stopController.signal.removeEventListener('abort', onStop);
+        onStop();
+      }
+      // The permit owner may outlive this worker. Observe its eventual result
+      // without retaining the stop listener or resuming claims after Stop.
+      permit.then(
+        () => {
+          stopController.signal.removeEventListener('abort', onStop);
+          resolve();
+        },
+        (error: unknown) => {
+          stopController.signal.removeEventListener('abort', onStop);
+          reject(error);
+        }
+      );
+    });
   }
 
   async function resolveEffectiveClaimBatchSize(): Promise<number | null> {
@@ -1868,6 +1891,9 @@ export async function startEmbeddingWorker(
         return;
       }
       await waitForBackgroundPermit('embedding claim');
+      if (!running) {
+        return;
+      }
       const effectiveClaimBatchSize = await resolveEffectiveClaimBatchSize();
       if (effectiveClaimBatchSize === null) {
         await sleepUnlessStopped(CLAIM_SIZE_RESOLVER_RETRY_BACKOFF_MS, stopController.signal);

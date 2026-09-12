@@ -14,6 +14,16 @@ const receiptSchema = z.object({
   text: z.string(),
 });
 
+async function assertFollowupAdmission(assertAdmission: () => Promise<void>): Promise<void> {
+  try {
+    await assertAdmission();
+  } catch (cause) {
+    throw new ChildInputNotDeliveredError('Child input admission was revoked; nothing was sent.', {
+      cause,
+    });
+  }
+}
+
 async function deliver(
   child: Agent,
   target: DelegatedFollowupTarget,
@@ -61,7 +71,7 @@ async function deliver(
     );
   }
   // Check after queued work and asynchronous receipt lookup, not at HTTP admission alone.
-  await assertAdmission();
+  await assertFollowupAdmission(assertAdmission);
   const signal = createMessageSignal(
     { contents: input.text, metadata: { brainstrikeDelegatedInput: target.identity } },
     { id }
@@ -75,7 +85,7 @@ async function deliver(
     messages: [{ ...message, content: { ...message.content, metadata } }],
   });
   try {
-    await assertAdmission();
+    await assertFollowupAdmission(assertAdmission);
   } catch (error) {
     // No signal was enqueued. Keep it out of future native memory recall.
     try {
@@ -95,10 +105,18 @@ async function deliver(
     threadId: target.threadId,
   }).accepted;
   if (result.action !== 'deliver') {
-    await store.deleteMessages([id]);
-    throw new ChildInputNotDeliveredError(
+    const error = new ChildInputNotDeliveredError(
       `The selected child did not accept the follow-up (${result.action}).`
     );
+    try {
+      await store.deleteMessages([id]);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'Child input was rejected but its memory cleanup failed.'
+      );
+    }
+    throw error;
   }
   await store.updateMessages({
     messages: [
