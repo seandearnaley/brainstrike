@@ -679,8 +679,10 @@ Paired runtime/DOM tests: `assistant-conversation-panel.test.tsx` proves isolate
 snapshots/running state/drafts, child-only send/stop/approval routing, chronology,
 reasoning disclosure, host result ownership and zero-part errors. Its browser
 suite exercises the complete component with 600 messages, bounded mounting,
-390/900px hosts, both theme classes, keyboard jump-to-latest and real Chromium
-reduced-motion emulation. This suite compiles Tailwind using the shared theme
+actual 390/900px browser viewports (800px high), both theme classes, keyboard
+jump-to-latest and real Chromium reduced-motion emulation. Composer and jump
+controls must fit inside the browser viewport and receive center-point hit tests;
+a sized wrapper alone does not prove narrow-screen reachability. This suite compiles Tailwind using the shared theme
 and package source directives, and asserts the actual grid layout is present.
 Application navigation and native child binding remain app-shell/E2E work.
 

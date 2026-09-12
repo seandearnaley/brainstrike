@@ -2460,7 +2460,12 @@ bubble path and mounts `CompactionSummaryCard` from
 `compaction-summary-card.tsx`. Desktop coverage lives in
 `apps/desktop/e2e/assistant-compaction.desktop.test.ts`; its fixed format-2
 history fixture verifies both the visible divider and a normal follow-up turn
-in the same thread.
+in the same thread, then the complete summary after a second reload. Select the
+hydrated target thread before configuring its mock provider. The captured
+memory-backed POST contains only the new user turn plus the exact durable thread
+ID and `mastra-memory-current-turn` metadata; it must not replay the summary.
+This test uses a mocked assistant endpoint: it proves the real renderer transport,
+shared divider and durable reload behavior, not a native Mastra recall/model run.
 
 ## CANVAS DOCUMENT VERSIONS (BST-1173)
 
