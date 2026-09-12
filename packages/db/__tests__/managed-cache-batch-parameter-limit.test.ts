@@ -53,23 +53,24 @@ describe('managed-cache replacement parameter admission', () => {
     const [sql, params] = call;
     expect(params).toHaveLength(65_531);
     expect(params?.at(-1)).toBe('set-1');
-    expect(sql).toContain('embedding_set_id = $65531');
+    expect(sql).toMatch(/embedding_set_id\s*=\s*\$65531/);
     const placeholderIndices = new Set(
       [...sql.matchAll(/\$(\d+)/g)].map((match) => Number(match[1]))
     );
-    expect(placeholderIndices).toEqual(new Set(Array.from({ length: 65_531 }, (_, i) => i + 1)));
+    expect(placeholderIndices.size).toBe(65_531);
+    expect([...placeholderIndices].find((index) => index < 1 || index > 65_531)).toBeUndefined();
   });
 
   it('rejects the next replacement row before opening a transaction or issuing SQL', async () => {
-    const query = vi.fn<() => void>();
-    const transaction = vi.fn<() => void>();
+    const queryCalls = vi.fn<() => void>();
+    const transactionCalls = vi.fn<() => void>();
     const db: IDatabase = {
       query: async () => {
-        query();
+        queryCalls();
         throw new Error('Oversized batch reached SQL');
       },
       transaction: async () => {
-        transaction();
+        transactionCalls();
         throw new Error('Oversized batch opened a transaction');
       },
     };
@@ -79,7 +80,7 @@ describe('managed-cache replacement parameter admission', () => {
         embeddingSetId: 'set-1',
       })
     ).rejects.toThrow('Managed cache batch replace exceeds the PostgreSQL parameter limit.');
-    expect(transaction).not.toHaveBeenCalled();
-    expect(query).not.toHaveBeenCalled();
+    expect(transactionCalls).not.toHaveBeenCalled();
+    expect(queryCalls).not.toHaveBeenCalled();
   });
 });

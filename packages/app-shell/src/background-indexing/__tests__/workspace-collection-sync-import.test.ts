@@ -1742,6 +1742,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
   it.each(['callback-owned content', '', undefined])(
     'honors callback-supplied content %j with the durable rootId',
     async (selectedContent) => {
+      vi.mocked(runEnhancedImport).mockClear();
       vi.mocked(runEnhancedImport).mockImplementationOnce(async (params) => {
         const results = await params.baseImportRunner({
           fileContents: selectedContent === undefined ? {} : { [COMPOSITE_KEY]: selectedContent },
@@ -1792,6 +1793,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       });
 
+      expect(runEnhancedImport).toHaveBeenCalledOnce();
       if (selectedContent === undefined) {
         expect(applyManagedCacheBatch).not.toHaveBeenCalled();
         await expect(vi.mocked(runEnhancedImport).mock.results.at(-1)?.value).resolves.toEqual([
