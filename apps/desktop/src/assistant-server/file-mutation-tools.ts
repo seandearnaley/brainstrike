@@ -604,6 +604,8 @@ export async function runRenameWorkspaceFile(
       );
     }
 
+    // Directory creation is also a workspace effect: honor Stop before it starts.
+    assertFileMutationActive(runtimeData, signal);
     // Create any missing destination parent directories one component at a time,
     // rejecting symlinked intermediates (a plain mkdir -p would traverse them).
     await ensureContainedDirectory(

@@ -34,8 +34,6 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
 
-const workspaceStorage = new MemoryStorageAdapter();
-
 import { ChildView } from '../delegated-workspace-child-view';
 import { type ChildNode, loadDelegatedWorkspaceNode } from '../delegated-workspace-node';
 import { delegatedWorkspaceTabId } from '../delegated-workspace-tab';
@@ -45,6 +43,7 @@ import { threadWorkspaceNavigation } from '../thread-workspace/live-thread-works
 import { ThreadsPanelSearch } from '../threads-panel-search';
 import { useDelegatedConversationRoot } from '../use-delegated-conversation-root';
 
+let workspaceStorage: MemoryStorageAdapter;
 let database: Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
 let node: ChildNode;
 let rootThreadId: string;
@@ -69,6 +68,7 @@ function OwningRoot() {
 }
 
 beforeEach(async () => {
+  workspaceStorage = new MemoryStorageAdapter();
   database = await wasmLoader.createPGlite('memory://');
   await migrate(database);
   const history = createPgliteAssistantThreadRepository(database as DbHandle);

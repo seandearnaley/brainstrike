@@ -181,7 +181,7 @@ describe('read-before-write staleness guard', () => {
       { newStr: 'Late effect', oldStr: 'Completed child effect', path: '/README.md' },
     ],
     ['deleteWorkspaceFile', { path: '/README.md' }],
-    ['renameWorkspaceFile', { fromPath: '/README.md', toPath: '/moved.md' }],
+    ['renameWorkspaceFile', { fromPath: '/README.md', toPath: '/new-parent/moved.md' }],
   ] as const)(
     'stopping a child prevents a queued %s while preserving completed work',
     async (name, input) => {
@@ -218,7 +218,7 @@ describe('read-before-write staleness guard', () => {
         await rejected;
         expect(await fsPromises.readFile(canonicalPath, 'utf8')).toBe('Completed child effect');
         await expect(
-          fsPromises.stat(path.join(workspaceRootPath, 'moved.md'))
+          fsPromises.stat(path.join(workspaceRootPath, 'new-parent'))
         ).rejects.toMatchObject({ code: 'ENOENT' });
         await write(
           { content: 'Sibling still active', path: '/sibling.txt' },

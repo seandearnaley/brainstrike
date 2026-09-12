@@ -59,13 +59,13 @@ test('worker attributes an allowed write without a preceding human pause @smoke'
 
 async function ensureActivityExpanded(region: Locator): Promise<void> {
   const expand = region.getByRole('button', { exact: true, name: 'Expand activity' });
+  const collapse = region.getByRole('button', { exact: true, name: 'Collapse activity' });
+  await expect(expand.or(collapse)).toBeVisible();
   if (await expand.count()) {
     await expand.click();
     return;
   }
-  await expect(
-    region.getByRole('button', { exact: true, name: 'Collapse activity' })
-  ).toBeVisible();
+  await expect(collapse).toBeVisible();
 }
 
 async function assertWorkerWrite(
@@ -464,6 +464,7 @@ async function assertWorkerWrite(
           await expect(selectedTab).toHaveText(childName);
           await expect(child.getByText(childResult, { exact: true })).toBeVisible();
           await ensureActivityExpanded(child);
+          const requestsBeforeRestore = provider.requestCount();
           const userPath = path.join(workspace, 'user-note.txt');
           await writeFile(userPath, 'Independent user edit\n');
           await child.getByTestId('checkpoint-revert').click();
@@ -476,7 +477,7 @@ async function assertWorkerWrite(
           await expect(child.getByText(childResult, { exact: true })).toBeVisible();
           await ensureActivityExpanded(child);
           await expect(child.getByTestId('checkpoint-reverted')).toBeVisible();
-          expect(provider.requestCount()).toBe(completedRequests);
+          expect(provider.requestCount()).toBe(requestsBeforeRestore);
         }
       }
       await window.screenshot({
