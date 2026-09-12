@@ -61,3 +61,24 @@ it.each([
     'Malformed child continuation user message'
   );
 });
+
+it('projects image-only native continuation input with its original bytes and exact signal identity', async () => {
+  const { result, state } = projection();
+  const image = {
+    data: 'data:image/png;base64,AQID',
+    filename: 'evidence.png',
+    mediaType: 'image/png',
+    type: 'file',
+  };
+  const part = { data: { ...valid, contents: [image] }, type: 'data-user-message' };
+  expect(await result.project(part, new Map())).toEqual([]);
+  expect((await processMastraStreamPart(part, new Map(), state)).chunks).toEqual([
+    {
+      attachments: [image],
+      createdAt: valid.createdAt,
+      id: valid.id,
+      text: '',
+      type: 'child-user-message',
+    },
+  ]);
+});

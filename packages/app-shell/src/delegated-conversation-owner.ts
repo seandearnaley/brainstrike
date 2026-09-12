@@ -1,4 +1,5 @@
 import {
+  type AssistantChildInput,
   CHILD_FOLLOWUP_RUN_CONFIG_KEY,
   type DelegatedRunIdentity,
 } from '@brainstrike/assistant-contract';
@@ -8,6 +9,7 @@ import type {
   DelegatedConversationRuntimeOptions,
   DelegatedConversationUpdate,
 } from '@brainstrike/assistant-ui';
+import { createStore } from 'zustand/vanilla';
 import { createDelegatedConversationStore } from './delegated-conversation-store';
 import { createDelegatedDecisionDispatcher } from './delegated-decision-dispatcher';
 
@@ -29,6 +31,9 @@ type DecisionMessage = Parameters<DelegatedConversationRuntimeOptions['onNew']>[
 
 export function createDelegatedConversationRoot(rootThreadId: string) {
   const store = createDelegatedConversationStore(rootThreadId);
+  const modelSelection = createStore<{ readonly selectedModel: string | null }>(() => ({
+    selectedModel: null,
+  }));
   let runtime: Registration | undefined;
   const pending = new Set<() => void>();
   const retirePending = () => {
@@ -37,6 +42,7 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
     }
   };
   return {
+    modelSelection,
     onDelegatedConversation(update: DelegatedConversationUpdate): void {
       store.publish(update);
     },
@@ -86,7 +92,7 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
     },
     async sendFollowup(
       threadId: string,
-      input: { readonly id: string; readonly text: string },
+      input: AssistantChildInput,
       signal: AbortSignal
     ): Promise<void> {
       const owner = runtime;
@@ -159,6 +165,7 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
         try {
           void Promise.resolve(
             owner.thread.append({
+              // Images belong to the child action, never the parent's model input.
               content: [{ text: input.text, type: 'text' }],
               metadata: { custom },
               role: 'user',

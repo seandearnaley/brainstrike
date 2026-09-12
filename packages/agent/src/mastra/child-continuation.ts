@@ -3,6 +3,10 @@ import type {
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
 } from '@brainstrike/assistant-contract';
+import {
+  assertAssistantChildImageCapability,
+  assistantChildInputContents,
+} from '@brainstrike/assistant-contract';
 import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import { Agent, createMessageSignal, createSignal } from '@mastra/core/agent';
 import type { ConversationStreamChunk, StreamChunk, StreamIterator } from '../types';
@@ -17,6 +21,7 @@ import type {
   ChildContinuationHostPort,
   ChildContinuationStatus,
 } from './child-continuation-host-port';
+import { CHILD_INPUT_CONTEXT_KEY } from './child-input-context';
 import {
   readAdmittedPersonaConfiguration,
   withAdmittedPersonaSnapshots,
@@ -35,6 +40,11 @@ export async function createChildFollowupStream(
   let runtime: Awaited<ReturnType<typeof createMastraAgentRuntime>> | undefined;
   try {
     const persona = readAdmittedPersonaConfiguration(scope.configuration);
+    assertAssistantChildImageCapability(
+      input,
+      persona.model?.provider ?? options.runtime?.provider,
+      persona.model?.modelId ?? options.runtime?.model
+    );
     const profile = await withAdmittedPersonaSnapshots([persona], options);
     const restored = {
       ...profile,
@@ -66,7 +76,10 @@ export async function createChildFollowupStream(
           binding = await host.bindContinuation({ id: input.id, nativeRunId: runId });
         },
         signal: createMessageSignal(
-          { contents: input.text, metadata: { brainstrikeChildContinuation: input.id } },
+          {
+            contents: assistantChildInputContents(input),
+            metadata: { brainstrikeChildContinuation: input.id, [CHILD_INPUT_CONTEXT_KEY]: [] },
+          },
           {
             id: `child-continuation:${createHash('sha256')
               .update(JSON.stringify([scope.resourceId, scope.threadId, input.id]))

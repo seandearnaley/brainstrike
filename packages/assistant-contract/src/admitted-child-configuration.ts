@@ -1,3 +1,13 @@
+import { z } from 'zod';
+import { DELEGATION_LIMITS } from './delegation-limits.js';
+import {
+  type AssistantPersonaDefinition,
+  type AssistantPersonaMode,
+  type AssistantPersonaSource,
+  assertPersonaToolScope,
+} from './personas.js';
+import { findProviderDefinition } from './provider-registry.js';
+
 /** Fixed, safe remediation at the authenticated child-resume boundary. */
 const ADMITTED_CHILD_FAILURES = {
   'ancestry-incomplete': 'The admitted child configuration has incomplete authorized ancestry.',
@@ -29,4 +39,67 @@ export class AdmittedChildConfigurationError extends Error {
     super(ADMITTED_CHILD_FAILURES[reason], options);
     this.reason = reason;
   }
+}
+
+const nonempty = z.string().refine((value) => value.trim().length > 0);
+const modes = { 'read-only': 'read-only', worker: 'worker' } as const satisfies {
+  [Mode in AssistantPersonaMode]: Mode;
+};
+const sources = { 'built-in': 'built-in', user: 'user' } as const satisfies {
+  [Source in AssistantPersonaSource]: Source;
+};
+// Required keys include optional contract fields: a new field must define its
+// durable parser here instead of silently disappearing on resume.
+const personaShape = {
+  allowedToolIds: z.array(nonempty).min(1),
+  description: nonempty,
+  id: nonempty,
+  instructions: nonempty,
+  label: nonempty,
+  maxSteps: z.number().int().min(1),
+  mode: z.enum(modes).optional(),
+  model: z
+    .strictObject({
+      modelId: nonempty,
+      provider: nonempty.refine((provider) => findProviderDefinition(provider) !== undefined),
+    })
+    .optional(),
+  source: z.enum(sources).optional(),
+} satisfies {
+  [Key in keyof Required<AssistantPersonaDefinition>]: z.ZodType<AssistantPersonaDefinition[Key]>;
+};
+const configurationSchema = z.strictObject({
+  maxSteps: z.number().int().min(1).max(DELEGATION_LIMITS.maxChildSteps),
+  persona: z.strictObject(personaShape),
+});
+
+/** Parse the immutable host-authorized profile for decisions and explicit child wakes. */
+export function readAdmittedPersonaConfiguration(
+  configuration: unknown,
+  expectedPersonaId?: string
+): AssistantPersonaDefinition {
+  const parsed = configurationSchema.safeParse(configuration);
+  if (!parsed.success) {
+    throw new AdmittedChildConfigurationError('invalid-configuration');
+  }
+  if (expectedPersonaId !== undefined && parsed.data.persona.id !== expectedPersonaId) {
+    throw new AdmittedChildConfigurationError('identity-mismatch');
+  }
+  if (parsed.data.persona.allowedToolIds.includes('*')) {
+    throw new AdmittedChildConfigurationError('catalog-unknown');
+  }
+  const { mode, model, source, ...definition } = parsed.data.persona;
+  const persona: AssistantPersonaDefinition = {
+    ...definition,
+    maxSteps: parsed.data.maxSteps,
+    ...(mode ? { mode } : {}),
+    ...(model ? { model } : {}),
+    ...(source ? { source } : {}),
+  };
+  try {
+    assertPersonaToolScope(persona);
+  } catch (cause) {
+    throw new AdmittedChildConfigurationError('permission-scope-invalid', { cause });
+  }
+  return persona;
 }

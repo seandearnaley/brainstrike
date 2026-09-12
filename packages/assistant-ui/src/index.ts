@@ -37,6 +37,7 @@ export {
   readCompactionSummaryPayload,
 } from './compaction-summary-message';
 export type { OmAwaitingObserverReason, OmMeterState } from './context-usage-meter';
+export { CumulativeUsageSection, type CumulativeUsageSectionProps } from './context-usage-popover';
 export {
   resetContextUsageStore,
   type ThreadTokenUsage,

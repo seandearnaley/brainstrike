@@ -95,7 +95,8 @@ describe('desktop delegated cancellation', () => {
         threadId: 'child',
       },
       input,
-      expect.any(Function)
+      expect.any(Function),
+      undefined
     );
     await revokeDelegatedConversationAdmission(database, scope, 'child', false);
     await expect(

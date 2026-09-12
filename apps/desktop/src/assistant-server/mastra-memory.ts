@@ -34,6 +34,7 @@ import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
 import { registerDesktopDelegatedCancellation } from './delegated-execution-controls';
 import { registerDesktopDelegatedFollowup } from './delegated-followup-controls';
+import { createDesktopDelegatedInputContext } from './delegated-input-context';
 import { captureDelegatedWorkspaceStart } from './delegated-workspace-snapshot';
 import { resolveProviderApiKey } from './provider-credentials';
 import { createRunCriticalDatabase } from './run-critical-database';
@@ -245,15 +246,19 @@ async function createDesktopMastraMemoryFromCacheState({
       ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
       runId,
     });
-    // SnapshotRepository needs the full desktop handle; native memory uses the
-    // run-critical wrapper so its query scheduling keeps the owning run context.
-    const host = createDesktopDelegatedConversationHost(database, runId, async (threadId) =>
-      captureDelegatedWorkspaceStart(
-        await getDatabase(),
-        threadId,
-        runtimeData,
-        memoryDependencies?.snapshots
-      )
+    // Snapshot storage uses the captured full database owner; runtime queries
+    // keep the managed run context wrapper.
+    const host = createDesktopDelegatedConversationHost(
+      database,
+      runId,
+      createDesktopDelegatedInputContext(runtimeData),
+      async (threadId) =>
+        captureDelegatedWorkspaceStart(
+          await getDatabase(),
+          threadId,
+          runtimeData,
+          memoryDependencies?.snapshots
+        )
     );
     return {
       ...memory,

@@ -1,12 +1,9 @@
 import { z } from 'zod';
+import { assistantChildInputSchema } from './child-input.js';
 
 export const CHILD_FOLLOWUP_RUN_CONFIG_KEY = 'brainstrikeChildFollowup';
 const identifier = z.string().trim().min(1).max(512);
-const actionSchema = z.strictObject({
-  id: identifier,
-  text: z.string().trim().min(1).max(32_000),
-  threadId: identifier,
-});
+const actionSchema = assistantChildInputSchema.safeExtend({ threadId: identifier });
 
 /** Only the selection and stable input ID cross the wire; the host resolves ownership. */
 export type AssistantChildFollowupAction = Readonly<z.output<typeof actionSchema>>;

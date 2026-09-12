@@ -3679,3 +3679,18 @@ native snapshot is retained and never replayed; the HTTP 409 response instructs
 the user to start a new delegation. A mismatched persona identity receives a
 distinct integrity error. Only fixed classified messages cross the HTTP boundary,
 never stored instructions or provider/credential error text.
+
+### Child scope usage read projection
+
+`readDelegatedConversationInsights` joins the existing authorized delegated graph
+with usage's native invocation key or continuation receipt, including each stored
+row once. It returns direct and inclusive subtree captured usage without changing
+any writer, root rollup, retention rule or schema. The selected child's latest
+run header provides its actual recorded model/provider; stored profile constraints
+are parsed by the same browser-safe contract used by native resume. Reads reject
+foreign/deleted owners and broken native ancestry. Missing usage remains null,
+and a model without pricing stays unpriced through the ordinary cumulative usage
+resolver. Real migrated database tests cover siblings, grandchildren, repeated
+finish reports, continuation usage, reported costs/cache classes and changed
+native ownership. Mounted toolbar tests reuse the main usage renderer and prove
+that selecting another child does not retain the previous child's totals.

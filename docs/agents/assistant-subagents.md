@@ -1640,13 +1640,14 @@ subagent-personas factory-reset registration remains authoritative.
 
 A user follow-up to an idle child starts a fresh managed root host leg and wakes
 that exact stored child with Mastra's public `createMessageSignal` / `sendSignal`
-API. The renderer supplies only the selected child, stable input ID and text;
+API. The renderer supplies only the selected child, stable input ID and structured
+text/image payload;
 the host authorizes the actual resource/root/ancestry and claims a separate
 continuation receipt. It never changes the original invocation or manufactures
 parent tool-call coordinates. The receipt is claimed before native wake and binds
 the accepted native run before the first continuation envelope acknowledges input.
 A repeated admitted input ID never starts work again, including after an uncertain
-acknowledgement or restart. Different text under that ID is a conflict.
+acknowledgement or restart. Different text or image content under that ID is a conflict.
 
 The selected child retains its admitted persona and step cap. Direct child legs
 must preserve the child's default budget and worker processors: root per-call
@@ -1775,6 +1776,51 @@ clamping only this parser would not prove the running workflow uses the new limi
 Read-only `resolveToolAction` runs before profile reconstruction and again before
 native decision admission. The second authorization intentionally rechecks current
 ownership rather than caching authority across model/tool construction.
+
+### Selected child scope and captured usage
+
+The selected child's details surface reads its authorized durable configuration,
+actual child run model/provider and tree depth. It uses the same admitted-profile
+parser as native resume; an invalid legacy profile remains an explicit error,
+never a different persona. The displayed tool list is the admitted maximum, still
+subject to current host permissions. A missing captured effort value is displayed
+as not recorded; it is not inferred from the parent's current selector. This
+read-only surface does not implement next-run overrides.
+
+Direct captured usage and inclusive child-plus-descendant usage reuse the main
+conversation's cumulative usage component and pricing resolver. Inclusive totals
+already include the selected child and must not be added to direct totals. A
+missing usage record is not zero spend; unknown model pricing remains unavailable.
+The reader follows exact invocation and continuation attribution because ordinary
+child usage rows are stored under the root thread. It does not sum the root's
+entire bill into each child. Only retained conversation attribution is shown;
+ordinary root totals still retain numeric history after child deletion. Current
+work may not yet have reported its final usage.
+
+### Structured child composer input
+
+The shared composer uses the same image adapter, file mentions and workspace slash
+commands as the root. Image-only drafts are valid in both active and idle children;
+Send and Enter share the same content-presence and delivery gates. The selected
+child's captured running model determines active vision availability. An idle child
+uses its admitted persona model pin, or its owning root's current per-thread model
+selection when unpinned. A previous run's model never overrides the next selection.
+Known unsupported models reject images visibly; unknown provider capabilities use
+the canonical root policy and surface actual provider errors.
+
+Only the authenticated host resolves file/skill references. Caller-supplied system
+context is rejected. Native message signals retain structured file parts and bounded
+host context; live frames and reloaded messages use the ordinary shared renderer.
+The latest native user signal replaces only its input-context tag; absent or empty
+context clears the older tag without altering admitted persona or workspace authority.
+A stable receipt binds the entire normalized payload, including image bytes, through
+acknowledgement loss and restart. Migration136 stores that payload on the existing
+reset-owned continuation receipt; legacy text-only receipts remain readable. Downgrade
+permits only payloads losslessly represented by the retained input text; image or
+conflicting-content payloads refuse downgrade.
+Acknowledgement clears only the sent attachment cohort and unchanged text, preserving
+newly staged input. An unconfirmed changed payload requires explicit discard rather
+than silently reusing its receipt or replaying the input.
 
 ### Native child workspace reads and checkpoint undo (BST-1726)
 

@@ -110,6 +110,48 @@ describe('shared child conversation runtime', () => {
     expect(onNew).not.toHaveBeenCalled();
   });
 
+  it('retains live image-only child input in the ordinary user transcript across replay', async () => {
+    const update = await live('child', [
+      [
+        'aui-data',
+        {
+          data: {
+            attachments: [
+              {
+                data: 'data:image/png;base64,aW1hZ2U=',
+                filename: 'evidence.png',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            createdAt: '2026-09-12T12:00:00Z',
+            id: 'image-input',
+            text: '',
+          },
+          name: 'brainstrike.child-user-message',
+        },
+      ],
+      ['0', 'Image inspected.'],
+      finish,
+    ]);
+    const onNew = vi.fn(async () => {});
+    const { result, rerender } = renderHook(
+      (snapshot) =>
+        useDelegatedConversationRuntime({ history: { messages: [] }, onNew, update: snapshot }),
+      { initialProps: update }
+    );
+    const input = () =>
+      result.current.thread.getState().messages.find((message) => message.id === 'image-input');
+    expect(input()?.content).toMatchObject([
+      { image: 'data:image/png;base64,aW1hZ2U=', type: 'image' },
+    ]);
+    rerender({ ...update });
+    expect(input()?.content).toMatchObject([
+      { image: 'data:image/png;base64,aW1hZ2U=', type: 'image' },
+    ]);
+    expect(onNew).not.toHaveBeenCalled();
+  });
+
   it('keeps prior text and reasoning, merges the resumed tool in place, and preserves identical continuation text', async () => {
     const history: History = {
       headId: 'prior',
