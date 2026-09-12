@@ -192,14 +192,26 @@ export async function settleNativeStream(
   const wasAlreadyAborted = streamAbortContext.signal.aborted;
   const settlementAbort = new Error('Native stream settlement started.');
   streamAbortContext.abort(settlementAbort);
+  let recorded = false;
   const recordConsumptionError = (error: unknown): void => {
-    // The abort is the expected way an abandoned stream ends; anything else
-    // that surfaces only now — a failing snapshot DELETE, a persistence error
-    // in Mastra's cancel write — is a failure the chunk path never saw.
+    // One failure, one record: a callee that both reports through `onError`
+    // and rejects must not be counted twice.
+    if (recorded) {
+      return;
+    }
+    recorded = true;
+    // The abort is the expected way an abandoned stream ends — as the abort
+    // reason itself, one `cause` hop away, or as an `AbortError` (which also
+    // buckets an unrelated inner abort, a tool's own fetch for instance, as
+    // expected; abort-shaped failures do not reach warn). Anything else that
+    // surfaces only now — a failing snapshot DELETE, a persistence error in
+    // Mastra's cancel write — is a failure the chunk path never saw.
+    const reason: unknown = streamAbortContext.signal.reason;
     const expectedEnding =
-      error === streamAbortContext.signal.reason ||
+      error === reason ||
       error === settlementAbort ||
-      (error instanceof Error && error.name === 'AbortError');
+      (error instanceof Error &&
+        (error.name === 'AbortError' || error.cause === reason || error.cause === settlementAbort));
     const record = {
       code: 'mastra_native_stream_settled_with_error',
       error: error instanceof Error ? error.message : String(error),
@@ -211,11 +223,12 @@ export async function settleNativeStream(
     }
     logger.warn(record, 'native Mastra stream failed while being settled');
   };
-  // A `consumeStream` that rejects instead of routing through `onError` is
-  // recorded the same way, so the "recorded, never thrown a second time"
-  // contract holds structurally rather than depending on the callee.
-  const consumption = streamResult
-    .consumeStream({ onError: recordConsumptionError })
+  // A `consumeStream` that rejects — or throws synchronously — instead of
+  // routing through `onError` is recorded the same way, so the "recorded,
+  // never thrown a second time" contract holds structurally rather than
+  // depending on the callee.
+  const consumption = Promise.resolve()
+    .then(() => streamResult.consumeStream({ onError: recordConsumptionError }))
     .catch(recordConsumptionError);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<'deadline'>((resolve) => {

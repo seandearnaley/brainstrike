@@ -31,6 +31,27 @@ describe('settleNativeStream', () => {
     expect(abortedWhenConsumed).toBe(true);
   });
 
+  it('treats an error one cause hop from the abort reason as the expected ending', async () => {
+    const context = createStreamAbortContext(undefined);
+    const records: LogRecord[] = [];
+    const remove = addLogListener((record) => records.push(record));
+    setLogLevel(LogLevel.DEBUG);
+    try {
+      await settleNativeStream(
+        {
+          consumeStream: async (options) =>
+            options?.onError?.(new Error('wrapped', { cause: context.signal.reason })),
+        },
+        context
+      );
+    } finally {
+      remove();
+      setLogLevel(LogLevel.INFO);
+    }
+    const settled = recordsWithCode(records, 'mastra_native_stream_settled_with_error');
+    expect(settled.map((record) => record.level)).toEqual([LogLevel.DEBUG]);
+  });
+
   it('records the consumption error at debug when the stream ended by our abort', async () => {
     const context = createStreamAbortContext(undefined);
     const records: LogRecord[] = [];
@@ -67,13 +88,39 @@ describe('settleNativeStream', () => {
         { consumeStream: () => Promise.reject(new Error('pump rejected outright')) },
         createStreamAbortContext(undefined)
       );
+      await settleNativeStream(
+        {
+          consumeStream: () => {
+            throw new Error('pump threw synchronously');
+          },
+        },
+        createStreamAbortContext(undefined)
+      );
+      // Reported through onError AND rejected: one failure, one record.
+      await settleNativeStream(
+        {
+          consumeStream: (options) => {
+            options?.onError?.(new Error('reported then rejected'));
+            return Promise.reject(new Error('reported then rejected'));
+          },
+        },
+        createStreamAbortContext(undefined)
+      );
     } finally {
       remove();
     }
     const failed = recordsWithCode(records, 'mastra_native_stream_settled_with_error');
-    expect(failed.map((record) => record.level)).toEqual([LogLevel.WARN, LogLevel.WARN]);
-    expect(JSON.stringify(failed)).toContain('relation is gone');
-    expect(JSON.stringify(failed)).toContain('pump rejected outright');
+    expect(failed.map((record) => record.level)).toEqual([
+      LogLevel.WARN,
+      LogLevel.WARN,
+      LogLevel.WARN,
+      LogLevel.WARN,
+    ]);
+    const text = JSON.stringify(failed);
+    expect(text).toContain('relation is gone');
+    expect(text).toContain('pump rejected outright');
+    expect(text).toContain('pump threw synchronously');
+    expect(text.split('reported then rejected').length - 1).toBe(1);
   });
 
   it('stops waiting at the deadline, records a named error, and lets disposal proceed', async () => {

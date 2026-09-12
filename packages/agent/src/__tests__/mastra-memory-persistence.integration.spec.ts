@@ -39,6 +39,7 @@ import type {
   LanguageModelV4Prompt,
 } from '@ai-sdk/provider';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite-pgvector';
 import type { AgentMemoryOption } from '@mastra/core/agent';
@@ -848,6 +849,11 @@ describe('mastra memory persistence through the live stream path', () => {
     let toolExecutions = 0;
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '60';
+    // The settle join classifies how the REAL Mastra stream ends after our
+    // abort; that classification must recognise the abort as expected, or every
+    // aborted turn would warn.
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
 
     try {
       await runTurnWithMemory({
@@ -900,7 +906,25 @@ describe('mastra memory persistence through the live stream path', () => {
       expect(toolWorkRows.map((row) => row.id)).toEqual([abortedRows[1]?.id]);
       expect(JSON.stringify(abortedRows)).toContain('temperatureC');
       expect(toolExecutions).toBe(1);
+      const settleRecords = logRecords.filter((record) =>
+        record.args.some(
+          (argument) =>
+            Boolean(argument && typeof argument === 'object') &&
+            (argument as { code?: unknown }).code === 'mastra_native_stream_settled_with_error'
+        )
+      );
+      expect(settleRecords.map((record) => record.level)).not.toContain(LogLevel.WARN);
+      expect(
+        logRecords.some((record) =>
+          record.args.some(
+            (argument) =>
+              Boolean(argument && typeof argument === 'object') &&
+              (argument as { code?: unknown }).code === 'mastra_native_stream_settle_timeout'
+          )
+        )
+      ).toBe(false);
     } finally {
+      removeLogListener();
       if (previousToolTimeout === undefined) {
         Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
       } else {
