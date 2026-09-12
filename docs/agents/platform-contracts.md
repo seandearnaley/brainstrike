@@ -1155,12 +1155,31 @@ seven-day copy of memory-only PTY data.
 ### Graceful shutdown ownership (hidden hosts and background indexing)
 
 `main.ts` runs its ordered shutdown steps under ONE forced-exit budget
-(`SIGNAL_SHUTDOWN_TIMEOUT_MS`, 5s). Do not raise that budget to absorb a slow
+(`SIGNAL_SHUTDOWN_TIMEOUT_MS`, 5s), armed for both signals and `before-quit`.
+Do not raise that budget to absorb a slow
 step; fix the owner. Settled rulings, each with a paired test:
 
 - The forced-exit log names the step still awaiting completion and its elapsed
   time (`shutdown-step-tracker.ts`). That record is the only actionable fact a
   CI runner leaves behind, so it is a product log, not temporary instrumentation.
+- `before-quit` delays Electron's normal window closing while app cleanup runs.
+  After retiring embedding-backfill admission, the first tracked step closes
+  and joins ordinary renderer windows
+  with `BrowserWindow.close()` / `closed`, while their IPC dependencies still
+  exist (`close-desktop-renderers.ts`). Hidden chunking/embedding/LLM windows
+  stay alive for their owning stop commands. Normal close preserves unload and
+  window-state hooks; macOS activation cannot recreate a producer and
+  second-instance and macOS `open-file` requests cannot enqueue work or show a
+  window during this drain.
+  Already-admitted database work then drains through the existing
+  scheduler before database closure. The new `joins renderer IPC producers before
+  closing their hosts` case in `app-launch.test.ts` keeps real renderer DB/chunking
+  requests active across quit and rejects observed renderer console errors and
+  main-process IPC failures. Renderer console capture is observational until the
+  page closes; process output and the owned-process exit assertion remain available
+  through shutdown.
+  Its owned-process close assertion uses a 5s test deadline; the application retains
+  the separate existing `SIGNAL_SHUTDOWN_TIMEOUT_MS` 5s forced-exit budget above.
 - Shutdown retires embedding-backfill admission FIRST
   (`cancelAllDesktopEmbeddingBackfills()` before any host step), and a backfill
   that arrives after `markDesktopShuttingDown()` is refused before it touches

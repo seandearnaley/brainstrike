@@ -48,6 +48,7 @@ import { createBrowserIpcHandlers } from './browser-ipc-handlers';
 import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
+import { closeDesktopRenderers } from './close-desktop-renderers';
 import { createWindow, noteNextWindowReload } from './create-window';
 import {
   createDesktopDatabaseMaintenanceScheduler,
@@ -512,6 +513,21 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
 
     const stopServer = stopAssistantServer;
     let assistantServerDrained = stopServer === null;
+    // before-quit postpones Electron's own window close. Join the renderer
+    // producers first, while their DB/chunking/assistant dependencies still live.
+    // Hidden renderer hosts must retain command listeners until their own stop.
+    recordFailure(
+      await runShutdownStep('renderers', () =>
+        closeDesktopRenderers(
+          BrowserWindow.getAllWindows(),
+          (window) =>
+            chunkingHostManager.isHostWindow(window) ||
+            embeddingHostManager.isHostWindow(window) ||
+            llmHostManager.isHostWindow(window)
+        )
+      )
+    );
+
     recordFailure(
       await runShutdownStep('assistant-server', async () => {
         // Start every process reaper in the same settlement batch as the server
@@ -1172,6 +1188,9 @@ if (singleInstanceLockAcquired) {
   // way this entry point is observable end to end.
   app.on('open-file', (event, openedPath) => {
     event.preventDefault();
+    if (isDesktopShuttingDown()) {
+      return;
+    }
     enqueueFolderCandidates(
       workspaceOpenQueue,
       filterDirectoryOpenCandidates([openedPath], 'open-file'),
@@ -1196,6 +1215,9 @@ if (singleInstanceLockAcquired) {
     // its delivery path is the SAME queue + channel the open-file e2e
     // exercises end to end. No e2e is invented for it.
     app.on('second-instance', (_event, secondInstanceArgv, workingDirectory) => {
+      if (isDesktopShuttingDown()) {
+        return;
+      }
       enqueueFolderCandidates(
         workspaceOpenQueue,
         filterDirectoryOpenCandidates(
@@ -2233,6 +2255,9 @@ if (singleInstanceLockAcquired) {
       });
 
       app.on('activate', async () => {
+        if (isDesktopShuttingDown()) {
+          return;
+        }
         const hasVisibleWindow = BrowserWindow.getAllWindows().some(
           (window) =>
             !(
