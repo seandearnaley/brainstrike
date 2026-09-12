@@ -279,6 +279,14 @@ export async function handleVerifyProviderRequest(
   }
 }
 
+function suspendedTime(decision: { suspendedAt: string }): number {
+  const timestamp = Date.parse(decision.suspendedAt);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error('Discovered decision has an invalid suspension timestamp.');
+  }
+  return timestamp;
+}
+
 /**
  * Restart-safe rediscovery of pending tool approvals for a thread. On reload the
  * live-stream approval notice is gone (it was never persisted), but the suspended
@@ -298,6 +306,10 @@ async function includeContinuationPauses(
   storage: Parameters<typeof listSuspendedChildContinuation>[1]['storage'],
   original: Awaited<ReturnType<typeof listSuspendedMastraRuns>>
 ): Promise<Awaited<ReturnType<typeof listSuspendedMastraRuns>>> {
+  // Root pauses need the same fail-loud validation even without child receipts.
+  for (const decision of [...original.approvals, ...original.suspends]) {
+    suspendedTime(decision);
+  }
   const continuations = await readPendingChildContinuations(database, scope);
   if (continuations.length === 0) {
     return original;
@@ -312,19 +324,12 @@ async function includeContinuationPauses(
     )
   );
   for (const pending of pendingResults) {
+    // Validate singletons too; Array.sort never invokes their comparator.
+    for (const decision of [...pending.approvals, ...pending.suspends]) {
+      suspendedTime(decision);
+    }
     result.approvals.push(...pending.approvals);
     result.suspends.push(...pending.suspends);
-  }
-  const suspendedTime = (decision: { suspendedAt: string }): number => {
-    const timestamp = Date.parse(decision.suspendedAt);
-    if (!Number.isFinite(timestamp)) {
-      throw new Error('Discovered decision has an invalid suspension timestamp.');
-    }
-    return timestamp;
-  };
-  // Validate even a singleton, for which Array.sort never calls its comparator.
-  for (const decision of [...result.approvals, ...result.suspends]) {
-    suspendedTime(decision);
   }
   result.approvals.sort((a, b) => suspendedTime(a) - suspendedTime(b));
   result.suspends.sort((a, b) => suspendedTime(a) - suspendedTime(b));

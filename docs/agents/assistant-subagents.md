@@ -1674,6 +1674,20 @@ once. Reload discovers pending decisions with an inert native agent at the admit
 persona and exact stored child thread/run, then authorizes any descendant path;
 it does not require the current persona registry or execute a model to inspect it.
 
+Suspended-run discovery validates every root and child timestamp before
+staleness and capping, even when no continuation receipt exists. Invalid values
+fail the complete response visibly. Merged pauses remain oldest-first and keep
+the newest ten.
+
+Multiple approval or question calls emitted in one model step remain individually
+addressable. The installed Mastra scheduler forces concurrency one when a called
+tool requires approval or has a suspend schema; child agents use the native
+`strategy: 'called'` option. Reload therefore discovers one pending call, then
+the next after the exact first decision resumes. The native continuation test
+covers two approvals (each effect once) and two questions from the same model
+step. A multi-call suspended snapshot remains an explicit unsupported/ambiguous
+shape; do not remove its guard based only on parallel model emission.
+
 Completed child output reaches the managed root model through a public native
 notification signal and the normal root stream/persistence path. This is an
 actual model response, not a synthetic assistant message or another transcript

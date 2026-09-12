@@ -259,3 +259,91 @@ it('rejects an invalid suspension timestamp even when there is only one child de
     message: 'Suspended approval discovery failed.',
   });
 });
+
+it.each(['approvals', 'suspends'] as const)(
+  'rejects an invalid root %s timestamp with no continuation receipts',
+  async (kind) => {
+    mockListSuspendedMastraRuns.mockResolvedValue({
+      approvals: [],
+      suspends: [],
+      [kind]: [{ ...delegatedPause(0), suspendedAt: 'not-a-timestamp' }],
+    });
+    const response = await runRequest({
+      method: 'GET',
+      url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+    });
+    expect(response.status).toBe(500);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'suspended_runs_failed',
+      message: 'Suspended approval discovery failed.',
+    });
+  }
+);
+
+it('keeps the newest ten merged root and continuation suspends and only annotates those returned', async () => {
+  const receipt = {
+    configuration: { persona: { id: 'worker' } },
+    delegation_depth: 1,
+    id: 'receipt',
+    native_run_id: 'native-child',
+    parent_thread_id: 'thread-1',
+    resource_id: 'child-resource',
+    state: 'awaiting-input',
+    thread_id: 'child',
+    turn_message_id: 'turn',
+  };
+  mockDesktopDatabase.query
+    .mockResolvedValueOnce({ rows: [{ id: 'receipt' }] })
+    .mockResolvedValueOnce({ rows: [{ id: 'thread-1' }] })
+    .mockResolvedValueOnce({ rows: [receipt] })
+    .mockResolvedValueOnce({ rows: [{ id: 'thread-1' }] })
+    .mockResolvedValueOnce({ rows: [receipt] });
+  mockListSuspendedMastraRuns.mockResolvedValue({
+    approvals: [],
+    suspends: Array.from({ length: 12 }, (_, index) => ({
+      ...delegatedPause(index),
+      suspendedAt: new Date(Date.UTC(2026, 8, 12, 0, index)).toISOString(),
+    })),
+  });
+  mockListSuspendedChildContinuation.mockResolvedValue({
+    approvals: [],
+    suspends: [
+      {
+        continuationId: 'receipt',
+        runId: 'native-child',
+        suspendedAt: '2026-09-12T00:12:00.000Z',
+        suspendPayload: { question: 'Child question' },
+        toolCallId: 'child-question',
+        toolName: 'brainstrike.askUser',
+      },
+    ],
+  });
+  const response = await runRequest({
+    method: 'GET',
+    url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+  });
+  expect(response.status).toBe(200);
+  const body: unknown = JSON.parse(response.body);
+  expect(body).toMatchObject({
+    suspends: [
+      ...Array.from({ length: 9 }, (_, index) => ({ runId: `root-${index + 3}` })),
+      { continuationId: 'receipt', runId: 'native-child' },
+    ],
+  });
+  expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+    expect.stringContaining('brainstrike_delegated_tool_decisions'),
+    [
+      'workspace-a',
+      'thread-1',
+      JSON.stringify(
+        Array.from({ length: 9 }, (_, index) => [
+          `root-${index + 3}`,
+          `call-${index + 3}`,
+          `child-${index + 3}`,
+          'leaf-call',
+          [`child-${index + 3}`],
+        ])
+      ),
+    ]
+  );
+});
