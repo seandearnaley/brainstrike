@@ -120,7 +120,6 @@ it('restores pending child attention in a fresh sidebar without mounting a trans
       approvals: [
         {
           args: { path: 'report.txt' },
-          decisionState: 'interrupted',
           delegation: { path: [identity], toolCallId: 'leaf' },
           runId: identity.parentRuntimeRunId,
           stale: false,
@@ -159,6 +158,45 @@ it('restores pending child attention in a fresh sidebar without mounting a trans
   act(() => activeRoot?.onDelegatedConversation(delegatedUpdate(childThreadId)));
   await waitFor(() =>
     expect(screen.getByRole('button', { name: /Cedar.*Working/u })).toBeVisible()
+  );
+  expect(screen.queryByText('Needs input')).not.toBeInTheDocument();
+});
+
+it('keeps durable delegated decisions non-actionable even when their pauses are stale', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Response.json({
+        approvals: ['claimed', 'consumed'].map((decisionState, index) => ({
+          args: {},
+          decisionState,
+          delegation: { path: [identity], toolCallId: 'leaf' },
+          runId: identity.parentRuntimeRunId,
+          stale: index === 1,
+          suspendedAt: '2026-09-10T00:00:00.000Z',
+          toolCallId: identity.parentToolCallId,
+          toolName: 'workspace.writeFile',
+        })),
+        suspends: ['cancelled', 'interrupted'].map((decisionState, index) => ({
+          decisionState,
+          delegation: { path: [identity], toolCallId: 'leaf' },
+          runId: identity.parentRuntimeRunId,
+          stale: index === 1,
+          suspendedAt: '2026-09-10T00:00:00.000Z',
+          toolCallId: identity.parentToolCallId,
+          toolName: 'brainstrike.askUser',
+        })),
+      })
+    )
+  );
+  render(
+    <DelegatedConversationRootsProvider>
+      <Sidebar />
+    </DelegatedConversationRootsProvider>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Toggle root' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /^Cedar\s*Child$/u })).toBeVisible()
   );
   expect(screen.queryByText('Needs input')).not.toBeInTheDocument();
 });

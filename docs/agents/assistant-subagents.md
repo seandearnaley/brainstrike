@@ -1184,7 +1184,9 @@ only reads admission records and never creates a pause from them.
 The existing approval, question and plan cards retain their original content
 and show the admission status with controls locked. Unknown present states
 fail wire validation and render an unavailable status if encountered directly
-in a card. Staleness without admission state remains advisory. Status refresh
+in a card. Only a pause without a durable decision is actionable; claimed,
+consumed, interrupted and cancelled pauses never mark sidebar attention, and
+staleness without admission state remains advisory. Status refresh
 uses the existing thread reload; no polling or auto-resume is introduced.
 The server's durable admission check remains authoritative if a claim races
 this read. Missing/ambiguous native snapshots still use the visible discovery

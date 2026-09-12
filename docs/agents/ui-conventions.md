@@ -859,7 +859,7 @@ never carries the state.
 - Listing rows never mounts child transcripts; only explicitly activated workspace tabs do, using the existing keep-alive/close semantics.
 - Read receipts belong to the ephemeral root store, so virtual row unmount does not invent unread activity.
 - Reload derives pending decisions from the existing authoritative discovery path; opening/closing/reopening never starts a model.
-- Expanded sidebar parents use that same discovery result, validated against each native invocation, to restore Needs input after renderer restart without mounting transcripts. Each expanded parent makes one discovery request, and unavailable or conflicting discovery renders an explicit list error. Current live child status takes precedence over the saved attention snapshot.
+- Expanded sidebar parents use that same discovery result, validated against each native invocation, to restore Needs input after renderer restart without mounting transcripts. Only pauses without a durable decision mark Needs input; claimed, consumed, interrupted and cancelled decisions are non-actionable even when stale. Each expanded parent makes one discovery request, and unavailable or conflicting discovery renders an explicit list error. Current live child status takes precedence over the saved attention snapshot.
 - Closing a child tab is reversible and reauthorizes before reading history on reopen. Native thread deletion permanently removes the selected subtree and saved conversation data. Neither root nor child threads currently offer an archive operation.
 - Free-form steering remains BST-1723 acceptance, not claimed by this slice.
 

@@ -1,3 +1,4 @@
+import { isDelegatedToolDecisionActionable } from '@brainstrike/assistant-contract';
 import {
   createSuspendedRunDiscovery,
   hasDurableAssistantUsageCapability,
@@ -60,7 +61,10 @@ async function loadChildren(
       if (owned.error) {
         throw new Error(`Child attention could not be verified (${owned.error.reason}).`);
       }
-      return owned.approvals.length > 0 || owned.suspends.length > 0 ? node.threadId : undefined;
+      const needsInput = [...owned.approvals, ...owned.suspends].some((pause) =>
+        isDelegatedToolDecisionActionable(pause.decisionState)
+      );
+      return needsInput ? node.threadId : undefined;
     })
   );
   return { children, pendingThreadIds: new Set(pending.filter((id) => id !== undefined)) };
