@@ -93,6 +93,33 @@ describe('owning root registration', () => {
     }
   );
 
+  it.each(['', 0, false])(
+    'rejects an acknowledgement wait aborted with falsy reason %j',
+    async (reason) => {
+      const root = createDelegatedConversationRoot('root');
+      const cleanup = vi.fn();
+      const append = vi.fn();
+      root.onRuntimeReady({
+        thread: {
+          append,
+          getState: () => ({ isRunning: false, threadId: 'root' }),
+          subscribe: () => cleanup,
+        },
+      });
+      const controller = new AbortController();
+      const accepted = vi.fn();
+      const rejected = vi.fn();
+      const waiting = root
+        .sendFollowup('child', { id: 'cancelled-input', text: 'Continue' }, controller.signal)
+        .then(accepted, rejected);
+      controller.abort(reason);
+      await waiting;
+      expect(accepted).not.toHaveBeenCalled();
+      expect(rejected).toHaveBeenCalledOnce();
+      expect(cleanup).toHaveBeenCalledOnce();
+    }
+  );
+
   it('routes a continuation decision only to its exact fresh native run', async () => {
     const root = createDelegatedConversationRoot('root');
     const { identity: _identity, ...snapshot } = delegatedUpdate('child', 'new-host');

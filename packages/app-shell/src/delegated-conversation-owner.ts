@@ -127,7 +127,7 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
         const lostOwner = () =>
           finish(new Error('Child input was not confirmed before its owner retired.'));
         const onAbort = () =>
-          finish(signal.reason ?? new Error('Child input acknowledgement wait stopped.'));
+          fail(signal.reason ?? new Error('Child input acknowledgement wait stopped.'));
         pending.add(lostOwner);
         cleanups.push(() => pending.delete(lostOwner));
         signal.addEventListener('abort', onAbort, { once: true });
