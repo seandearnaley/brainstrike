@@ -39,6 +39,7 @@ const reactTransformExclude = [/[\\/]node_modules[\\/]/, /[\\/]\.vite[\\/]/];
 
 const {
   createCspQualifiedEvalWarningFilter,
+  preserveWorkerEntryPlugin,
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
@@ -388,7 +389,7 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
-    plugins: () => [browserWorkerProcessExitCodePlugin()],
+    plugins: () => [preserveWorkerEntryPlugin(), browserWorkerProcessExitCodePlugin()],
   },
 });
 

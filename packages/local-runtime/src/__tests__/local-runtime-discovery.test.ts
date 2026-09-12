@@ -29,6 +29,27 @@ describe('local-runtime-discovery', () => {
     vi.unstubAllGlobals();
   });
 
+  it('reports host-disabled browser access without issuing a forbidden request', async () => {
+    const fetchMock = vi
+      .fn<FetchMock>()
+      .mockResolvedValue(jsonResponse({ data: [{ id: 'model' }] }));
+    const service = new LocalRuntimeDiscoveryService({
+      browserUnavailableReason: 'This host does not permit direct runtime connections.',
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 1000,
+    });
+    await expect(service.probeRuntime('ollama', { force: true, surface: 'web' })).resolves.toEqual({
+      checkedAt: 1000,
+      message: 'This host does not permit direct runtime connections.',
+      state: 'blocked_web',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(service.probeRuntime('ollama', { surface: 'desktop' })).resolves.toMatchObject({
+      state: 'available',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('marks Ollama as available when /v1/models responds with OpenAI-compatible payload', async () => {
     const fetchMock = vi.fn<FetchMock>().mockResolvedValue(
       jsonResponse({
