@@ -1,5 +1,5 @@
 import { resolveQuerySelection } from '@brainstrike/file-explorer';
-import { isPathSelectedInFolder } from '@brainstrike/file-explorer/selection';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { isDescendantPath } from '@brainstrike/file-tree-worker';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { useEffect, useMemo, useRef } from 'react';
@@ -131,13 +131,37 @@ export function getWorkspaceSelectionPathCandidates(folderId: string, path: stri
   return candidates;
 }
 
-export function isWorkspacePathSelected(
+interface NodeSelectionKeys {
+  folderId: string;
+  keys: readonly string[];
+  path: string;
+}
+
+// A node owns at most one small alias projection. Weak keys release removed or
+// reloaded nodes without retaining an ever-growing path cache. Membership is
+// deliberately never cached: selection updates must be visible immediately.
+const nodeSelectionKeys = new WeakMap<Pick<IFileNode, 'path'>, NodeSelectionKeys>();
+
+export function isWorkspaceNodeSelected(
   selectedFilePaths: Set<string>,
   folderId: string,
-  path: string
+  node: Pick<IFileNode, 'path'>
 ): boolean {
-  for (const candidatePath of getWorkspaceSelectionPathCandidates(folderId, path)) {
-    if (isPathSelectedInFolder(selectedFilePaths, folderId, candidatePath)) {
+  const path = node.path;
+  let projection = nodeSelectionKeys.get(node);
+  if (!projection || projection.folderId !== folderId || projection.path !== path) {
+    projection = {
+      folderId,
+      keys: getWorkspaceSelectionPathCandidates(folderId, path).map((candidatePath) =>
+        encodeFileSelection(folderId, candidatePath)
+      ),
+      path,
+    };
+    nodeSelectionKeys.set(node, projection);
+  }
+
+  for (const key of projection.keys) {
+    if (selectedFilePaths.has(key)) {
       return true;
     }
   }

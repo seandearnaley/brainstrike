@@ -319,6 +319,15 @@ Windowing and performance:
   previous build's row objects — and the previous rows ARRAY when nothing
   changed — so untouched rows keep identity across expansion/loading rebuilds.
   Do not reintroduce per-build `{ ...node }` spreads in the row builders.
+- Explicit file-tree selection prepares absolute/root-relative/bare-relative
+  composite lookup keys once per node identity, shared by file rows and loaded
+  child traversal (`optimized-file-tree-selection-store.test.ts`). Its WeakMap
+  retains at most one projection per live node and replaces that projection
+  when its folder or path changes; removed and reloaded nodes do not accumulate
+  in a strong path cache. Each read still checks the current selection Set.
+  Never cache checkbox membership in the alias projection or change the path
+  candidates used by deselection. The 10,000-node operation-count regression
+  pins that selection changes do not repeat unchanged nodes' path preparation.
 - Expansion state is one workspace-global set across all forest roots. Each
   tree section selects it THROUGH `scopeExpandedPathsToRoot` (settled
   root-scoping semantics shared with persisted-expansion restoration, see

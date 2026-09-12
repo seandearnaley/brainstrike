@@ -13,7 +13,7 @@ import {
   createSelectedPathAncestorResolver,
   getWorkspaceSelectionPathCandidates,
   isSameOrDescendantSelectionPath,
-  isWorkspacePathSelected,
+  isWorkspaceNodeSelected,
   useSelectedDirectoryCounts,
 } from '../optimized-file-tree-selection-counts';
 
@@ -124,13 +124,19 @@ describe('optimized file tree selection counts', () => {
     ]);
 
     expect(
-      isWorkspacePathSelected(selectedFilePaths, folderId, '/workspace/project/src/index.ts')
+      isWorkspaceNodeSelected(selectedFilePaths, folderId, {
+        path: '/workspace/project/src/index.ts',
+      })
     ).toBe(true);
     expect(
-      isWorkspacePathSelected(selectedFilePaths, folderId, '/workspace/project/docs/guide.md')
+      isWorkspaceNodeSelected(selectedFilePaths, folderId, {
+        path: '/workspace/project/docs/guide.md',
+      })
     ).toBe(true);
     expect(
-      isWorkspacePathSelected(selectedFilePaths, folderId, '/workspace/project/src/other.ts')
+      isWorkspaceNodeSelected(selectedFilePaths, folderId, {
+        path: '/workspace/project/src/other.ts',
+      })
     ).toBe(false);
   });
 
