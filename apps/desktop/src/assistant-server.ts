@@ -31,6 +31,7 @@ import {
   mintAssistantServerAuthToken,
 } from './assistant-server/auth';
 import { handleDelegatedCancelRequest } from './assistant-server/cancel-delegated-conversation';
+import { closeHttpServerForShutdown } from './assistant-server/close-http-server';
 import { createCompactionRangeLookup } from './assistant-server/compaction-range-repository';
 import { handleCancelRequest, handleSteerRequest } from './assistant-server/control-endpoints';
 import {
@@ -303,7 +304,7 @@ export function startAssistantServer(portHint?: number, options: AssistantServer
       const url = `http://${host}:${actualPort}`;
       resolve({
         ...(authToken === undefined ? {} : { authToken }),
-        stop: async () => await new Promise<void>((r) => server.close(() => r())),
+        stop: () => closeHttpServerForShutdown(server),
         url,
       });
     });

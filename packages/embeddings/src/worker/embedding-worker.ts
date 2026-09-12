@@ -237,6 +237,29 @@ function sleep(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
 }
 
+/**
+ * A loop delay that ends early when the worker is stopped. Every wait inside
+ * the claim loop must use this: desktop graceful shutdown gives the embedding
+ * host one bounded budget, and a loop parked in a long idle poll would
+ * otherwise hold `stop()` until that poll expired.
+ */
+function sleepUnlessStopped(ms: number, stopSignal: AbortSignal): Promise<void> {
+  if (stopSignal.aborted) {
+    return Promise.resolve();
+  }
+  return new Promise((res) => {
+    const timer = setTimeout(() => {
+      stopSignal.removeEventListener('abort', onAbort);
+      res();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      res();
+    };
+    stopSignal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 export async function startEmbeddingWorker(
   options: EmbeddingWorkerOptions
 ): Promise<EmbeddingWorkerController> {
@@ -411,6 +434,7 @@ export async function startEmbeddingWorker(
 
   const jq = new JobQueue(options.db);
   let running = true;
+  const stopController = new AbortController();
   let inFlightJobs = 0;
   const inFlightBudgetWaiters = new Set<() => void>();
 
@@ -1827,7 +1851,7 @@ export async function startEmbeddingWorker(
       hasLoggedMaxIdleBackoff = true;
     }
     nextIdlePollDelayMs = Math.min(nextIdlePollDelayMs * 2, idlePollBackoff.maxMs);
-    await sleep(currentIdleDelayMs);
+    await sleepUnlessStopped(currentIdleDelayMs, stopController.signal);
   }
 
   function isClosedDatabaseError(error: unknown): boolean {
@@ -1846,7 +1870,7 @@ export async function startEmbeddingWorker(
       await waitForBackgroundPermit('embedding claim');
       const effectiveClaimBatchSize = await resolveEffectiveClaimBatchSize();
       if (effectiveClaimBatchSize === null) {
-        await sleep(CLAIM_SIZE_RESOLVER_RETRY_BACKOFF_MS);
+        await sleepUnlessStopped(CLAIM_SIZE_RESOLVER_RETRY_BACKOFF_MS, stopController.signal);
         return;
       }
       heldInFlightSlots = reserveInFlightJobs(effectiveClaimBatchSize);
@@ -1892,7 +1916,7 @@ export async function startEmbeddingWorker(
       // Yield between batches to let V8/GC and the foreground renderer breathe
       // under sustained background embedding load.
       if (running) {
-        await sleep(interBatchDelayMs);
+        await sleepUnlessStopped(interBatchDelayMs, stopController.signal);
       }
     } catch (err) {
       if (isClosedDatabaseError(err)) {
@@ -1900,7 +1924,7 @@ export async function startEmbeddingWorker(
         return;
       }
       workerLogger.error('Critical worker error in processBatch', { error: err });
-      await sleep(1000);
+      await sleepUnlessStopped(1000, stopController.signal);
     } finally {
       releaseInFlightJobs(heldInFlightSlots);
       metrics.totalDurationMs += performance.now() - batchStart;
@@ -1948,6 +1972,7 @@ export async function startEmbeddingWorker(
   return {
     stop: async () => {
       running = false;
+      stopController.abort();
       notifyInFlightBudgetWaiters();
       reportWorkerActivity(false);
       await Promise.race([Promise.allSettled(loops).then(() => {}), sleep(leaseMs)]);

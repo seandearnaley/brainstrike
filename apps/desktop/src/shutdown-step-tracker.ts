@@ -5,7 +5,15 @@ export interface ShutdownStepInFlight {
   readonly step: string;
 }
 
+export interface ShutdownStepDuration {
+  readonly elapsedMs: number;
+  readonly failed: boolean;
+  readonly step: string;
+}
+
 export interface ShutdownStepTracker {
+  /** Completed steps in order with their measured durations. */
+  completed(): readonly ShutdownStepDuration[];
   /** The step currently awaiting completion, or null between steps. */
   describeInFlight(): ShutdownStepInFlight | null;
   /** Runs one ordered shutdown step; a rejection becomes a named failure record. */
@@ -20,18 +28,24 @@ export interface ShutdownStepTracker {
  */
 export function createShutdownStepTracker(now: () => number = Date.now): ShutdownStepTracker {
   let inFlight: { readonly startedAt: number; readonly step: string } | null = null;
+  const completed: ShutdownStepDuration[] = [];
   return {
+    completed: () => [...completed],
     describeInFlight: () =>
       inFlight ? { elapsedMs: now() - inFlight.startedAt, step: inFlight.step } : null,
     run: async (step, fn) => {
-      inFlight = { startedAt: now(), step };
+      const startedAt = now();
+      inFlight = { startedAt, step };
+      let failed = false;
       try {
         await fn();
         return null;
       } catch (error) {
+        failed = true;
         return { step, ...serializeDesktopError(error) };
       } finally {
         inFlight = null;
+        completed.push({ elapsedMs: now() - startedAt, failed, step });
       }
     },
   };

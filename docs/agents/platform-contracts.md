@@ -1173,6 +1173,15 @@ step; fix the owner. Settled rulings, each with a paired test:
   of replacing its window (`renderer-host-lifecycle.test.ts`). Replacing the
   window mid-stop orphaned the stop wait for its full 10s timeout and then let
   the timed-out stop destroy the replacement.
+- The embedding worker's claim loop wakes for `stop()` from every wait (idle
+  backoff, inter-batch delay, claim-size retry, error backoff) via a stop
+  signal (`embedding-worker-stop-idle.integration.test.ts`). The first
+  attributed local forced exit named `embedding-host` at 4998 ms: the host's
+  cooperative stop was waiting for a worker parked in a 30 s idle poll.
+- The assistant HTTP server's shutdown stop ends live connections after
+  `close()` (`close-http-server.ts`, paired test). Plain `server.close()`
+  waits for every in-flight response, and the first attributed CI forced exit
+  named `assistant-server` at 5000 ms in the bare app-launch smoke case.
 
 ### Browser preference hydration
 

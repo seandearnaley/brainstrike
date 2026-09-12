@@ -26,4 +26,22 @@ describe('createShutdownStepTracker', () => {
     expect(failure).toMatchObject({ message: 'close failed', step: 'database' });
     expect(tracker.describeInFlight()).toBeNull();
   });
+
+  it('records every completed step with its duration and outcome, in order', async () => {
+    let now = 0;
+    const tracker = createShutdownStepTracker(() => now);
+
+    await tracker.run('assistant-server', async () => {
+      now += 12;
+    });
+    await tracker.run('embedding-host', async () => {
+      now += 2600;
+      throw new Error('stop timed out');
+    });
+
+    expect(tracker.completed()).toEqual([
+      { elapsedMs: 12, failed: false, step: 'assistant-server' },
+      { elapsedMs: 2600, failed: true, step: 'embedding-host' },
+    ]);
+  });
 });

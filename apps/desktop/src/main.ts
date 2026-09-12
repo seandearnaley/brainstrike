@@ -666,6 +666,14 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
         trigger,
       });
     }
+    // Per-step durations are the only record that explains a slow (but not
+    // forced) exit; the forced-exit path logs the in-flight step separately.
+    const steps = shutdownSteps.completed();
+    logger.info('Graceful shutdown completed', {
+      steps,
+      totalMs: steps.reduce((total, step) => total + step.elapsedMs, 0),
+      trigger,
+    });
   })().finally(() => {
     clearForcedProcessExitTimer();
   });
