@@ -65,7 +65,18 @@ export function createBackgroundResumeStream(params: {
   readonly attachParent: (
     stream: Parameters<typeof attachAbortedTurnMessageList>[1]
   ) => Promise<void>;
-}): { readonly fullStream: ReadableStream<unknown>; getFullOutput(): Promise<void> } {
+}): {
+  readonly fullStream: ReadableStream<unknown>;
+  /**
+   * Joins everything `start()` below does — the background task's terminal,
+   * the parent inference's full consumption and its snapshot cleanup — exactly
+   * like `MastraModelOutput.consumeStream` (`settleNativeStream`). The stream's
+   * own error reaches `onError`; without a handler it is swallowed, as Mastra's
+   * does.
+   */
+  consumeStream(options?: { onError?: (error: unknown) => void }): Promise<void>;
+  getFullOutput(): Promise<void>;
+} {
   const completion = Promise.withResolvers<void>();
   // The consumer joins this promise at the native terminal; retain early failures.
   completion.promise.catch(() => {});
@@ -197,5 +208,15 @@ export function createBackgroundResumeStream(params: {
       }
     },
   });
-  return { fullStream, getFullOutput: () => completion.promise };
+  return {
+    consumeStream: async (options) => {
+      try {
+        await completion.promise;
+      } catch (error) {
+        options?.onError?.(error);
+      }
+    },
+    fullStream,
+    getFullOutput: () => completion.promise,
+  };
 }

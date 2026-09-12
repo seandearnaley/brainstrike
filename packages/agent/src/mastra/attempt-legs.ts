@@ -61,6 +61,7 @@ import {
   resolveMemoryOption,
   runTurnAttempts,
   type StreamIterationParams,
+  settleNativeStream,
   type ToolApprovalIterationParams,
   type TurnAttempt,
 } from './turn-attempts';
@@ -235,6 +236,7 @@ async function createInitialTurnAttempt(
       }),
       lifecycleState,
       readProducedMessages: () => readAttemptProducedMessages(streamResult),
+      settleNativeStream: () => settleNativeStream(streamResult, streamAbortContext),
     };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra stream construction failed.'));
@@ -576,6 +578,7 @@ async function createToolApprovalTurnAttempt({
       // this is never consulted; `undefined` states that honestly rather than
       // implying an empty continuation would be safe.
       readProducedMessages: () => undefined,
+      settleNativeStream: () => settleNativeStream(streamResult, streamAbortContext),
     };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra approval-resume stream construction failed.'));
@@ -917,6 +920,7 @@ async function createToolResumeTurnAttempt({
       // See the approval-resume leg: a resume never recovers, so `undefined`
       // is the honest answer rather than an empty continuation.
       readProducedMessages: () => undefined,
+      settleNativeStream: () => settleNativeStream(streamResult, streamAbortContext),
     };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra suspended-tool stream construction failed.'));

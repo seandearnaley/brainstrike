@@ -8,7 +8,7 @@ import {
 import { StreamStalledError } from '../stream/with-inactivity-timeout';
 import type { StreamChunk } from '../types';
 
-it('joins aborted child saves before a watchdog continuation and disposes after finalization', async () => {
+it('settles the native stream, then joins aborted child saves, before a watchdog continuation and before disposal', async () => {
   const order: string[] = [];
   const childStarted = Promise.withResolvers<void>();
   const childSaved = Promise.withResolvers<void>();
@@ -22,6 +22,9 @@ it('joins aborted child saves before a watchdog continuation and disposes after 
     })(),
     lifecycleState,
     readProducedMessages: () => [],
+    settleNativeStream: async () => {
+      order.push('first attempt settled');
+    },
   };
   const runtime = {
     delegatedTurnPersistence: {
@@ -49,6 +52,9 @@ it('joins aborted child saves before a watchdog continuation and disposes after 
       })(),
       lifecycleState,
       readProducedMessages: () => [],
+      settleNativeStream: async () => {
+        order.push('continuation settled');
+      },
     };
   });
   const chunks: StreamChunk[] = [];
@@ -69,6 +75,16 @@ it('joins aborted child saves before a watchdog continuation and disposes after 
   childSaved.resolve();
   await consume;
   expect(chunks).toContainEqual({ type: 'text-delta', value: 'Recovered' });
-  expect(order).toEqual(['child finalized', 'continuation', 'child finalized', 'disposed']);
+  // Mastra's consumption of each attempt's native stream (its cancel
+  // persistence and snapshot cleanup) is joined BEFORE the child saves and
+  // before the runtime is disposed, and exactly once per attempt.
+  expect(order).toEqual([
+    'first attempt settled',
+    'child finalized',
+    'continuation',
+    'continuation settled',
+    'child finalized',
+    'disposed',
+  ]);
   expect(rootFinalizer).toHaveBeenCalledTimes(1);
 });

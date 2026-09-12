@@ -244,7 +244,44 @@ Contract A the partial text tail is therefore RETAINED; only incomplete TOOL
 work is excluded. The awaited save is also load-bearing as a join: with
 `shouldPersist` forced false (measured 2026-09-06), Mastra's floating
 abort-time write raced the PGlite `close()` in suite teardown and wedged the
-vitest worker at 100% CPU — the BST-1320 mechanism. Initial, approval-resume,
+vitest worker at 100% CPU — the BST-1320 mechanism. That save joins Mastra's
+transcript write only. Mastra's post-run snapshot cleanup (`deleteRunSnapshots`:
+two `DELETE FROM mastra_workflow_snapshot` statements) is awaited before the
+agentic loop closes ITS stream, so it is settled only for a caller that reads
+the native stream to its end; an attempt abandoned early — watchdog, Stop, or
+a consumer's `.return()` — leaves it floating past the end of the turn. Traced
+2026-09-12 (BST-1221, `mastra-memory-persistence.integration.spec.ts`): the
+second DELETE's Bind landed after `close()` had already deactivated the
+backend, trapped, and the stock PGlite loop spun the worker forever; which
+import layout the process happened to have decided the microtask order, which
+is why the wedge looked layout-dependent. The turn owner therefore joins
+Mastra's own consumption of every attempt's native stream — each
+`TurnAttempt.settleNativeStream` (`settleNativeStream` in
+`packages/agent/src/mastra/turn-attempts.ts`) awaits `consumeStream()`, which
+resolves once the base stream has closed, after that cleanup — BEFORE the
+abort seam's awaited save and before `runtime.dispose()`. The order is
+load-bearing: Mastra's cancel persistence writes inside that window, and the
+seam then captures the list Mastra finished with and appends the marker to its
+last assistant message as an upsert of Mastra's own id, so the marker is the
+last thing the model reads. Saving first puts the marker on the completed
+tool-work row while Mastra's later partial-text rows order after it (measured
+2026-09-12). By the time the join runs the attempt's abort context is disposed,
+so the stream's abort is the expected ending and a consumption error is
+recorded (`mastra_native_stream_settled_with_error`, debug) rather than thrown
+a second time — the chunk path already surfaced any real failure. The spec case
+"settles Mastra snapshot cleanup before a watchdog-aborted turn ends" holds each
+cleanup statement open and asserts the turn cannot end while one is pending or
+still to be issued; removing the join makes it fail. The join also made the
+watchdog-abort transcript read deterministic: a stalled attempt replaced by a
+continuation that stalls again leaves EACH attempt's partial text as its own
+Mastra row (four rows, marker on the last); the earlier three-row expectation
+had raced the second attempt's write. The same join exposed a
+second latent gap: Mastra's MessageHistory processor and per-step save read
+`readOnly` from the REQUEST memory options only, so a Memory whose DEFAULTS are
+read-only was still written on cancel (the write had previously been lost in
+the teardown race, which is the only reason the read-only-defaults case was
+green). `resolveMemoryOption` now carries the merged thread config's `readOnly`
+onto the request options, so Mastra and the seam enforce the same policy. Initial, approval-resume,
 and suspended-tool resume streams share this Brainstrike-owned terminal seam;
 read-only memory streams skip it and remain write-free. If the snapshot write
 itself fails, the seam emits the structured
