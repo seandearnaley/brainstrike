@@ -3,7 +3,15 @@ import { assistantChildInputSchema } from './child-input.js';
 
 export const CHILD_FOLLOWUP_RUN_CONFIG_KEY = 'brainstrikeChildFollowup';
 const identifier = z.string().trim().min(1).max(512);
-const actionSchema = assistantChildInputSchema.safeExtend({ threadId: identifier });
+export const childBranchSelectionSchema = z.strictObject({
+  kind: z.enum(['retry', 'edit']),
+  messageId: identifier,
+});
+export type ChildBranchSelection = Readonly<z.output<typeof childBranchSelectionSchema>>;
+const actionSchema = assistantChildInputSchema.safeExtend({
+  branch: childBranchSelectionSchema.optional(),
+  threadId: identifier,
+});
 
 /** Only the selection and stable input ID cross the wire; the host resolves ownership. */
 export type AssistantChildFollowupAction = Readonly<z.output<typeof actionSchema>>;

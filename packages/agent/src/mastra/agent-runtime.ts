@@ -197,7 +197,7 @@ export interface MastraAgentRuntime {
   assertAssistantMessageIdPersisted?: () => void;
   backgroundTaskManager?: BackgroundTaskManager | undefined;
   /** Direct child legs retain the child's native default processors and admitted step cap. */
-  childExecution?: { readonly maxSteps: number };
+  childExecution?: { readonly maxSteps: number; readonly inputProcessors?: unknown[] };
   conversationBinding?: DelegatedConversationBinding | undefined;
   delegatedExecutionOptions?: DelegatedExecutionOptions;
   delegatedTurnPersistence?: DelegatedTurnPersistence | undefined;

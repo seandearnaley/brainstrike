@@ -1,4 +1,5 @@
 import type { AssistantChildInput } from '@brainstrike/assistant-contract';
+import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
@@ -264,6 +265,17 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
                       setSaved(undefined);
                       setLoadedSearchRequest(undefined);
                       setRefresh((value) => value + 1);
+                    },
+                  }
+                : {})}
+              {...(hasDurableAssistantUsageCapability()
+                ? {
+                    onBranch: async (input: Omit<AssistantChildFollowupAction, 'threadId'>) => {
+                      const current = root.store.getConversation(node.threadId);
+                      if (current?.update.message.status.type === 'running') {
+                        throw new Error('Stop the child before changing its conversation branch.');
+                      }
+                      await root.sendFollowup(node.threadId, input, new AbortController().signal);
                     },
                   }
                 : {})}

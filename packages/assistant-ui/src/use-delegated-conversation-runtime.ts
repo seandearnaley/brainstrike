@@ -11,7 +11,9 @@ import {
   CHILD_USER_MESSAGE_DATA_NAME,
   childUserMessageSchema,
 } from '@brainstrike/assistant-contract';
+import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import { useMemo } from 'react';
+import { captureChildInputDraft } from './active-conversation-input-draft';
 import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
 import type { DelegatedConversationUpdate } from './delegated-conversation-receiver';
 
@@ -19,6 +21,7 @@ type History = Awaited<ReturnType<AssistantUiThreadHistoryAdapter['load']>>;
 export interface DelegatedConversationRuntimeOptions {
   readonly attachmentsPresent?: boolean;
   readonly history: History;
+  readonly onBranch?: (input: Omit<AssistantChildFollowupAction, 'threadId'>) => Promise<void>;
   readonly onNew: ExternalStoreAdapter['onNew'];
   readonly update?: DelegatedConversationUpdate;
 }
@@ -78,6 +81,7 @@ export function useDelegatedConversationRuntime({
   attachmentsPresent = false,
   update,
   onNew,
+  onBranch,
 }: DelegatedConversationRuntimeOptions): AssistantRuntime {
   const attachments = useMemo(
     () => (attachmentsPresent ? createAssistantImageAttachmentAdapter() : undefined),
@@ -140,6 +144,38 @@ export function useDelegatedConversationRuntime({
     convertMessage,
     isRunning,
     messageRepository,
+    ...(onBranch
+      ? {
+          onEdit: async (message) => {
+            if (!message.sourceId) {
+              throw new Error('Edit requires an existing child user message.');
+            }
+            const input = await captureChildInputDraft(
+              crypto.randomUUID(),
+              message.content
+                .filter((part) => part.type === 'text')
+                .map((part) => part.text)
+                .join('\n'),
+              message.attachments ?? []
+            );
+            await onBranch({ ...input, branch: { kind: 'edit', messageId: message.sourceId } });
+          },
+          onReload: async (_parentId, config) => {
+            if (!config.sourceId) {
+              throw new Error('Retry requires an existing child answer.');
+            }
+            const messageId =
+              config.sourceId === messageRepository.headId && update
+                ? update.messageId
+                : config.sourceId;
+            await onBranch({
+              branch: { kind: 'retry', messageId },
+              id: crypto.randomUUID(),
+              text: 'Retry the selected child answer.',
+            });
+          },
+        }
+      : {}),
     onNew,
   });
 }

@@ -7,6 +7,7 @@ import {
   DelegatedConversationIdentityError,
   type DelegatedConversationScope,
 } from '@brainstrike/db';
+import { prepareDelegatedChildBranch } from './delegated-child-branch';
 import { continuationProjectionId } from './delegated-continuation-identity';
 import { reserveDelegatedInvocation } from './delegated-tree-admission';
 
@@ -18,7 +19,8 @@ export function createDesktopDelegatedContinuationHost(
   captureHistory: (
     threadId: string,
     resourceId: string,
-    initial: boolean
+    initial: boolean,
+    completeHistory?: boolean
   ) => Promise<DelegatedConversationBaseline>,
   resolveDelegatedDecision?: (
     input: Parameters<ChildContinuationHostPort['claimContinuationDecision']>[0]
@@ -123,10 +125,23 @@ export function createDesktopDelegatedContinuationHost(
           claimed.threadId,
           claimed.configuration
         );
-        return claimed;
+        return await prepareDelegatedChildBranch(
+          tx,
+          { ...claimed, messageId: projectionId(claimed.id) },
+          true
+        );
       });
       try {
-        baselines.set(node.id, await captureHistory(node.threadId, node.resourceId, false));
+        const baseline = await captureHistory(
+          node.threadId,
+          node.resourceId,
+          false,
+          Boolean(node.branch)
+        );
+        baselines.set(
+          node.id,
+          node.branch ? { ...baseline, headId: node.branchMessageIds?.at(-1) ?? null } : baseline
+        );
       } catch (error) {
         // Admission committed, but no native wake can occur without its baseline.
         // Release the durable active slot without permitting replay of this receipt.
@@ -158,11 +173,24 @@ export function createDesktopDelegatedContinuationHost(
     async resolveContinuationDecision(input) {
       await authorizeDelegation(input);
       const node = await (await repository()).resolveDecision(input);
-      const baseline = await captureHistory(node.threadId, node.resourceId, false);
-      baselines.set(node.id, baseline);
+      const baseline = await captureHistory(
+        node.threadId,
+        node.resourceId,
+        false,
+        Boolean(node.branch)
+      );
+      const prepared = await prepareDelegatedChildBranch(
+        database,
+        { ...node, messageId: projectionId(node.id) },
+        false
+      );
+      const selectedBaseline = prepared.branch
+        ? { ...baseline, headId: prepared.branchMessageIds?.at(-1) ?? null }
+        : baseline;
+      baselines.set(node.id, selectedBaseline);
       return {
-        ...node,
-        baseline,
+        ...prepared,
+        baseline: selectedBaseline,
         messageId: projectionId(node.id),
       };
     },

@@ -205,11 +205,12 @@ export function createDesktopDelegatedConversationHost(
   const captureHistory = async (
     threadId: string,
     resourceId: string,
-    initial: boolean
+    initial: boolean,
+    completeHistory = false
   ): Promise<DelegatedConversationBaseline> => {
     const [messages, runEvents] = await Promise.all([
       readAssistantHistoryMessages(database, threadId, resourceId, {
-        limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+        ...(completeHistory ? {} : { limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT }),
       }),
       readAssistantHistoryRunEvents(database, threadId, resourceId, {
         limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,

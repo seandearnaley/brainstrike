@@ -72,6 +72,7 @@ export interface StreamIterationParams {
     readonly maxSteps?: number;
     readonly onWake: (nativeRunId: string) => Promise<void>;
   };
+  onNativeStart?: (nativeRunId: string) => Promise<void>;
   requireToolApproval?: boolean;
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;

@@ -1632,7 +1632,8 @@ Settings → Subagents refreshes the ordinary validated workspace/global persona
 scan and shows host preflight facts from the existing model catalog, typed
 credential reader and MCP tool registry. Missing/unreadable required credentials,
 catalogued non-language models, providers without LLM capability, and the built-in
-local model's unsupported Worker discovery are blockers. The local-worker rule is shared with actual agent admission. An unlisted model pin
+local model's unsupported Worker discovery are blockers. The local-worker rule
+is shared with actual agent admission. An unlisted model pin
 or missing/disabled MCP tool is actionable attention, not a claim that a custom
 model is invalid or that the entire persona is unavailable. Native capabilities,
 selected parent model, durable child controls and permission policy remain
@@ -1640,7 +1641,8 @@ per-request checks; a passing preflight never promises effective access.
 
 Declared scope remains visible beside these facts. Refresh rereads profile edits
 and host facts with one scan in flight, without executing a model or changing
-running children. A failed scan/check shows a visible error and Retry, retaining any previous list as such;
+running children. A failed scan/check shows a visible error and Retry, retaining
+any previous list as such;
 it does not silently substitute built-ins for a successful user-profile scan.
 No credentials enter the IPC response and no new state is persisted. Existing
 subagent-personas factory-reset registration remains authoritative.
@@ -1776,7 +1778,8 @@ registry. Cross-provider pins reacquire credentials through the trusted host rea
 including when the live persona file has been deleted; credentials are not stored
 in child configuration. `assistant-service/stream-init.ts` is the sole production
 caller of the two public resume functions and injects that reader for both.
-Restoration without an authenticated root runtime rejects before reading secrets. Native Mastra snapshots retain the original delegated
+Restoration without an authenticated root runtime rejects before reading
+secrets. Native Mastra snapshots retain the original delegated
 task and workspace/system context. This boundary does not change native workflow
 snapshot formats or create another execution owner.
 

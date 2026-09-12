@@ -325,3 +325,37 @@ function requireHistoryRow(value: unknown): Record<string, unknown> {
   }
   return value as Record<string, unknown>;
 }
+
+/** Shared topology writer; native Mastra remains the sole message-content writer. */
+export async function recordAssistantHistoryParent(
+  database: AssistantHistoryDatabase,
+  input: {
+    readonly messageId: string;
+    readonly threadId: string;
+    readonly resourceId: string;
+    readonly parentId: string | null;
+  }
+): Promise<void> {
+  for (const [name, value] of Object.entries(input)) {
+    if (name === 'parentId' && value === null) {
+      continue;
+    }
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new Error(`Assistant message topology ${name} must be a non-empty string.`);
+    }
+  }
+  const result = await database.query(
+    `INSERT INTO ${ASSISTANT_MESSAGE_PARENTS_TABLE}
+    (message_id, thread_id, resource_id, parent_id, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, NOW(), NOW())
+    ON CONFLICT (message_id) DO UPDATE SET updated_at = EXCLUDED.updated_at
+    WHERE ${ASSISTANT_MESSAGE_PARENTS_TABLE}.thread_id = EXCLUDED.thread_id
+      AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.resource_id = EXCLUDED.resource_id
+      AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.parent_id IS NOT DISTINCT FROM EXCLUDED.parent_id
+    RETURNING message_id`,
+    [input.messageId, input.threadId, input.resourceId, input.parentId]
+  );
+  if (result.rows.length !== 1) {
+    throw new Error(`Assistant message ${input.messageId} has conflicting branch topology.`);
+  }
+}

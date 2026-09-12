@@ -14,6 +14,7 @@ export interface DelegatedConversationPanelProps {
 
   readonly extendHistoryForSearch?: boolean;
   readonly label: string;
+  readonly onBranch?: DelegatedConversationRuntimeOptions['onBranch'];
   readonly onCancel?: () => Promise<void>;
   readonly onNew: DelegatedConversationRuntimeOptions['onNew'];
   readonly onSendActiveInput?: AssistantConversationPanelProps['onSendActiveInput'];
@@ -31,6 +32,7 @@ export function DelegatedConversationPanel({
   label,
   allowIdleInput = false,
   onNew,
+  onBranch,
   onCancel,
   onSendActiveInput,
   panelProps,
@@ -67,6 +69,7 @@ export function DelegatedConversationPanel({
     attachmentsPresent: panelProps?.attachmentsAvailability !== undefined,
     history,
     onNew,
+    ...(onBranch ? { onBranch } : {}),
     ...(snapshot ? { update: snapshot.update } : {}),
   });
   return (

@@ -1,8 +1,8 @@
 import {
-  type AssistantChildInput,
   CHILD_FOLLOWUP_RUN_CONFIG_KEY,
   type DelegatedRunIdentity,
 } from '@brainstrike/assistant-contract';
+import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type {
   AssistantUiPanelProps,
   ChildContinuationIdentity,
@@ -99,7 +99,7 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
     },
     async sendFollowup(
       threadId: string,
-      input: AssistantChildInput,
+      input: Omit<AssistantChildFollowupAction, 'threadId'>,
       signal: AbortSignal
     ): Promise<void> {
       const owner = runtime;

@@ -8,7 +8,13 @@ import {
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
-import { createDelegatedConversationRepository, migrate, wasmLoader } from '@brainstrike/db';
+import {
+  createDelegatedConversationRepository,
+  migrate,
+  readAssistantHistoryMessages,
+  readAssistantHistoryRunEvents,
+  wasmLoader,
+} from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -891,4 +897,106 @@ it('rejects root and foreign continuation Stop before calling any native owner',
     cancelDelegatedContinuations(database, { ...scope, ownerResourceId: 'foreign' }, 'child', false)
   ).rejects.toMatchObject({ name: 'DelegatedConversationIdentityError' });
   expect(cancel).not.toHaveBeenCalled();
+});
+
+it.each(['retry', 'edit'] as const)(
+  'admits the exact historical child %s and persists sibling topology before native execution',
+  async (kind) => {
+    for (const [index, role] of ['user', 'assistant', 'user', 'assistant'].entries()) {
+      await database.query(
+        `INSERT INTO mastra_messages (id, thread_id, "resourceId", role, type, content, "createdAt") VALUES ($1,'child','child-resource',$2,'text',$3,$4)`,
+        [
+          `branch-${index}`,
+          role,
+          JSON.stringify({ format: 2, parts: [{ text: `branch-${index}`, type: 'text' }] }),
+          new Date(Date.UTC(2026, 8, 1, 0, 0, index)),
+        ]
+      );
+    }
+    const host = port();
+    const branch = { kind, messageId: kind === 'retry' ? 'branch-1' : 'branch-2' };
+    const claimed = await host.prepareContinuation({ ...input, branch });
+    expect(claimed.branch).toEqual(branch);
+    expect(claimed.branchMessageIds).toEqual(
+      kind === 'retry' ? ['branch-0'] : ['branch-0', 'branch-1']
+    );
+    const bound = await host.bindContinuation({ id: input.id, nativeRunId: 'branch-native' });
+    expect(bound.baseline.headId).toBe(kind === 'retry' ? 'branch-0' : 'branch-1');
+    expect(bound.baseline.messages).toHaveLength(4);
+    const parents = await database.query(
+      'SELECT message_id,parent_id FROM brainstrike_assistant_message_parents ORDER BY message_id'
+    );
+    expect(parents.rows).toEqual(
+      kind === 'retry'
+        ? [{ message_id: claimed.messageId, parent_id: 'branch-0' }]
+        : [
+            { message_id: claimed.messageId, parent_id: claimed.branchInputMessageId },
+            { message_id: claimed.branchInputMessageId, parent_id: 'branch-1' },
+          ]
+    );
+    await expect(
+      port().prepareContinuation({ ...input, branch: { ...branch, messageId: 'branch-3' } })
+    ).rejects.toMatchObject({ name: 'DelegatedConversationIdentityError' });
+  }
+);
+
+it('rejects a historical selection owned by another child before admitting work', async () => {
+  await database.query(
+    `INSERT INTO mastra_messages (id,thread_id,"resourceId",role,type,content,"createdAt") VALUES ('foreign-selection','sibling','sibling-resource','assistant','text',$1,NOW())`,
+    [JSON.stringify({ format: 2, parts: [{ text: 'private', type: 'text' }] })]
+  );
+  await expect(
+    port().prepareContinuation({
+      ...input,
+      branch: { kind: 'retry', messageId: 'foreign-selection' },
+    })
+  ).rejects.toThrow('no longer available');
+  expect((await database.query('SELECT id FROM brainstrike_delegated_continuations')).rows).toEqual(
+    []
+  );
+});
+
+it('reauthorizes a paused historical branch after host restart and restores its selected head', async () => {
+  for (const [index, role] of ['user', 'assistant', 'user', 'assistant'].entries()) {
+    await database.query(
+      `INSERT INTO mastra_messages (id, thread_id, "resourceId", role, type, content, "createdAt") VALUES ($1,'child','child-resource',$2,'text',$3,$4)`,
+      [
+        `restart-branch-${index}`,
+        role,
+        JSON.stringify({ format: 2, parts: [{ text: `restart-${index}`, type: 'text' }] }),
+        new Date(Date.UTC(2026, 8, 1, 1, 0, index)),
+      ]
+    );
+  }
+  const first = port();
+  const branch = { kind: 'retry' as const, messageId: 'restart-branch-1' };
+  await first.prepareContinuation({ ...input, branch });
+  await first.bindContinuation({ id: input.id, nativeRunId: 'restart-native' });
+  await first.finishContinuation({ id: input.id, status: 'awaiting-approval' });
+  const authorize = vi.fn(async () => ({ ...scope, turnMessageId: 'new-root-user' }));
+  const restarted = createDesktopDelegatedContinuationHost(
+    database,
+    'wake-host',
+    authorize,
+    async (threadId, resourceId) => ({
+      hostRunId: 'wake-host',
+      messages: (await readAssistantHistoryMessages(database, threadId, resourceId)).map(
+        ({ createdAt, ...message }) => ({ ...message, createdAt: createdAt.toISOString() })
+      ),
+      runEvents: [...(await readAssistantHistoryRunEvents(database, threadId, resourceId))],
+      threadId,
+    })
+  );
+  const decision = {
+    id: input.id,
+    kind: 'tool-approval' as const,
+    nativeRunId: 'restart-native',
+    toolCallId: 'approval',
+  };
+  await expect(restarted.resolveContinuationDecision(decision)).resolves.toMatchObject({
+    baseline: { headId: 'restart-branch-0' },
+    branch,
+    branchMessageIds: ['restart-branch-0'],
+  });
+  expect(authorize).toHaveBeenCalledOnce();
 });

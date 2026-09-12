@@ -1728,7 +1728,7 @@ The canonical [persona Settings host-check contract](assistant-subagents.md#pers
 
 
 
-## Persona edits and admitted child decisions (BST-1727)
+### Persona edits and admitted child decisions (BST-1727)
 
 User persona scans resolve the profile for a fresh delegation. Once a child is
 admitted, its effective tool scope, instructions, mode, model pin and clamped

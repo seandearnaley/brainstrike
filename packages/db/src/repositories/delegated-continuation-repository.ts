@@ -1,5 +1,4 @@
 import {
-  type AssistantChildInput,
   type AssistantRunEvent,
   type DelegatedToolActionIdentity,
   hasValidDelegatedToolActionTarget,
@@ -7,6 +6,11 @@ import {
   sanitizeAssistantRunEventMetadata,
   serializeAssistantChildInput,
 } from '@brainstrike/assistant-contract';
+import {
+  type AssistantChildFollowupAction,
+  type ChildBranchSelection,
+  childBranchSelectionSchema,
+} from '@brainstrike/assistant-contract/child-followup';
 import {
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
@@ -75,6 +79,7 @@ const STATES: readonly string[] = [
   'interrupted',
 ];
 export interface DelegatedContinuation {
+  readonly branch?: ChildBranchSelection;
   readonly configuration: unknown;
   readonly depth: number;
   readonly id: string;
@@ -103,6 +108,11 @@ function parse(result: { rows: unknown[] }): DelegatedContinuation {
     throw new DelegatedConversationIdentityError('continuation-invalid-row');
   }
   return {
+    ...(row['input_payload'] &&
+    typeof row['input_payload'] === 'object' &&
+    Object.hasOwn(row['input_payload'], 'branch')
+      ? { branch: childBranchSelectionSchema.parse(Reflect.get(row['input_payload'], 'branch')) }
+      : {}),
     configuration: row['configuration'],
     depth: nonNegativeInteger(Number(row['delegation_depth']), 'depth'),
     id: nonblank(row['id']),
@@ -271,7 +281,7 @@ export function createDelegatedContinuationRepository(
       );
     },
     async prepare(
-      input: AssistantChildInput & { readonly threadId: string },
+      input: AssistantChildFollowupAction,
       executionConfiguration?: unknown
     ): Promise<DelegatedContinuation> {
       const normalized = normalizeAssistantChildInput({
@@ -280,7 +290,13 @@ export function createDelegatedContinuationRepository(
         ...(input.attachments ? { attachments: input.attachments } : {}),
         ...(input.nextRun ? { nextRun: input.nextRun } : {}),
       });
-      const payload = serializeAssistantChildInput(normalized);
+      const payload = input.branch
+        ? JSON.stringify({
+            attachments: normalized.attachments ?? [],
+            branch: childBranchSelectionSchema.parse(input.branch),
+            text: normalized.text,
+          })
+        : serializeAssistantChildInput(normalized);
       const result = await database.query(
         `${AUTHORIZED_DELEGATED_GRAPH}, claimed AS (
         INSERT INTO brainstrike_delegated_continuations
@@ -329,7 +345,7 @@ export function createDelegatedContinuationRepository(
           ...args(input.id),
           payload,
           normalized.text,
-          normalized.attachments?.length || normalized.nextRun ? 'false' : 'true',
+          normalized.attachments?.length || normalized.nextRun || input.branch ? 'false' : 'true',
         ]
       );
       const receipt = existing.rows[0] as { same_input: unknown; thread_id: unknown } | undefined;

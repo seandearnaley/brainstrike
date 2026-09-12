@@ -339,6 +339,25 @@ function composeDelegatedHooks(
   };
 }
 
+function buildRuntimeToolLoopOptions(
+  runtime: MastraAgentRuntime,
+  runtimeData: RuntimeData | undefined
+): Pick<BrainstrikeAgentStreamOptions, 'inputProcessors' | 'maxSteps'> {
+  if (!runtime.childExecution) {
+    return buildToolLoopOptions(
+      runtimeData,
+      runtime.toolSearchProcessor,
+      runtime.toolHistoryFilter
+    );
+  }
+  return {
+    maxSteps: runtime.childExecution.maxSteps,
+    ...(runtime.childExecution.inputProcessors
+      ? { inputProcessors: runtime.childExecution.inputProcessors }
+      : {}),
+  };
+}
+
 /** Shared option assembly for initial, approval and resume stream legs. */
 export function buildStreamOptions(
   params: BuildStreamOptionsParams
@@ -356,9 +375,7 @@ export function buildStreamOptions(
     toolCallId,
   } = params;
 
-  const loop = runtime.childExecution
-    ? { maxSteps: runtime.childExecution.maxSteps }
-    : buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter);
+  const loop = buildRuntimeToolLoopOptions(runtime, runtimeData);
   const options: BrainstrikeAgentStreamOptions & { runId?: string; toolCallId?: string } = {
     ...loop,
     ...(runtime.backgroundTaskManager ? { untilIdle: true } : {}),
