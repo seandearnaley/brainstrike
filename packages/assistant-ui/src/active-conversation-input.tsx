@@ -20,6 +20,7 @@ export function ActiveConversationInputProvider({
   const request = useRef<{ id: string; text: string } | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const canSend = Boolean(onSend && running && !busy);
   const send = async () => {
     if (!(onSend && running) || inFlight.current) {
       return;
@@ -58,7 +59,9 @@ export function ActiveConversationInputProvider({
       request.current = undefined;
     } catch (failure) {
       setError(
-        failure instanceof Error ? failure.message : 'Child input delivery was not confirmed.'
+        failure instanceof Error && failure.message.trim()
+          ? failure.message
+          : 'Child input delivery was not confirmed.'
       );
     } finally {
       cancelWait.current = undefined;
@@ -77,8 +80,8 @@ export function ActiveConversationInputProvider({
   return (
     <ActiveInputContext
       value={
-        onSend && running
-          ? { busy, discard, error, send, stopWaiting: () => cancelWait.current?.() }
+        canSend || busy || error !== undefined
+          ? { busy, canSend, discard, error, send, stopWaiting: () => cancelWait.current?.() }
           : undefined
       }
     >

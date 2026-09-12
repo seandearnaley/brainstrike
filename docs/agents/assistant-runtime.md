@@ -4206,6 +4206,10 @@ Active child input reuses the main composer's draft, button and Enter behavior
 through `ActiveConversationInputProvider`. It invokes the selected child's
 host-authorized transport; it never calls root `onNew` or the root follow-up queue.
 A failed acknowledgement retains the draft and request id for an explicit repeat.
+The provider keeps pending acknowledgement and error controls visible after a child
+becomes idle or its transport owner retires. `canSend` represents active transport
+admission separately from that retained feedback: ordinary idle Send and Enter remain
+blocked until the acknowledgement settles or the user explicitly discards the draft.
 The host verifies owner/root, live host leg, observed native child identity and
 cancellation admission before the native child signal owner can accept input.
 Closing a child panel still neither cancels nor starts execution. The actual
