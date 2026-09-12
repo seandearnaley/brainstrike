@@ -298,6 +298,13 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   destroyHostWindow(): void {
     const window = this.hostWindow;
     this.hostWindow = null;
+    if (window) {
+      this.rejectPendingStatusWaiters(
+        this.disposed
+          ? createLifecycleDisposedError(this.options.role)
+          : this.createWindowClosedError()
+      );
+    }
     if (window && !window.isDestroyed()) {
       clearWindowRoleByWebContentsId(window.webContents.id);
       window.destroy();
@@ -313,13 +320,20 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     // Any caller already awaiting the previously captured startup promise still needs a concrete
     // disposal signal here; otherwise it would sit until the status wait timeout fires.
     this.startupPromise = null;
-    const disposalError = createLifecycleDisposedError(this.options.role);
-    for (const rejectPendingWaiter of [...this.pendingWaiterRejectors]) {
-      rejectPendingWaiter(disposalError);
-    }
-    this.pendingWaiterRejectors.clear();
+    this.rejectPendingStatusWaiters(createLifecycleDisposedError(this.options.role));
     this.events.removeAllListeners();
     this.status = this.options.createStoppedStatus();
+  }
+
+  private createWindowClosedError(): Error {
+    return new Error(`${this.options.role} window closed before its state transition completed.`);
+  }
+
+  private rejectPendingStatusWaiters(error: Error): void {
+    for (const rejectPendingWaiter of [...this.pendingWaiterRejectors]) {
+      rejectPendingWaiter(error);
+    }
+    this.pendingWaiterRejectors.clear();
   }
 
   private settleStartupFailure(error: unknown, runtimeId: string): TStatus {
@@ -463,6 +477,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         return;
       }
       this.hostWindow = null;
+      this.rejectPendingStatusWaiters(this.createWindowClosedError());
       this.options.onWindowClosed?.(window);
     });
 

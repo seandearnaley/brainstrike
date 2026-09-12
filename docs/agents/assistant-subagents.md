@@ -1777,6 +1777,18 @@ Read-only `resolveToolAction` runs before profile reconstruction and again befor
 native decision admission. The second authorization intentionally rechecks current
 ownership rather than caching authority across model/tool construction.
 
+### Settings inventory and reset release proof (BST-1727/BST-1728)
+
+`delegated-factory-reset.desktop.test.ts` toggles Settings' master delegation
+switch and observes the next real native Mastra request at the external model
+provider boundary. Enabled requests advertise `agent-worker`; disabled requests
+advertise no `agent-*` tools while retaining ordinary tool discovery. After
+Settings factory reset and process restart, the default switch and an actual
+subsequent worker-capable inventory return. The existing provider shim supplies
+model text only; the app's assistant endpoint, request preference propagation,
+persona resolution and tool catalog construction run unmodified. This case does
+not execute a delegated workspace effect; the worker fixtures own that proof.
+
 ### Selected child scope and captured usage
 
 The selected child's details surface reads its authorized durable configuration,
