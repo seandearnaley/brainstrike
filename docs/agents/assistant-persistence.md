@@ -281,7 +281,18 @@ second latent gap: Mastra's MessageHistory processor and per-step save read
 read-only was still written on cancel (the write had previously been lost in
 the teardown race, which is the only reason the read-only-defaults case was
 green). `resolveMemoryOption` now carries the merged thread config's `readOnly`
-onto the request options, so Mastra and the seam enforce the same policy. Initial, approval-resume,
+onto the request options, so Mastra and the seam enforce the same policy
+(`resolveMemoryOption` returns a branded `ResolvedAgentMemoryOption`; the seam
+accepts nothing else, so a hand-built option cannot fail open). The join is
+bounded: `settleNativeStream` raises the attempt's abort itself and waits at
+most `NATIVE_STREAM_SETTLE_DEADLINE_MS` (30 s) for the native stream to close;
+a stream that ignores its abort — a hung provider socket, a tool that never
+returns — must not hold disposal hostage, so past the deadline it records
+`mastra_native_stream_settle_timeout` at error level and disposal proceeds,
+with the vitest event-loop watchdog and PGlite's fail-closed trap as the
+backstops for the leaked pipeline.
+
+Initial, approval-resume,
 and suspended-tool resume streams share this Brainstrike-owned terminal seam;
 read-only memory streams skip it and remain write-free. If the snapshot write
 itself fails, the seam emits the structured

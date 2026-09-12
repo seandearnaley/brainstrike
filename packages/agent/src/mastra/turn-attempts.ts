@@ -164,24 +164,59 @@ export async function disposeStreamAfterFailure(
  * chunk path already surfaced, and is recorded rather than thrown a second
  * time.
  */
+/**
+ * How long Mastra's native stream may take to close once this runtime has
+ * aborted it. The work being joined is Mastra's cancel persistence and two
+ * snapshot DELETEs; a stream that ignores its abort (a hung provider socket, a
+ * tool that never returns) must not hold the turn's disposal hostage — that is
+ * the failure the watchdog exists to contain. Past the deadline the join stops
+ * waiting and records a named error; the leaked pipeline is then bounded by
+ * the vitest event-loop watchdog and PGlite's fail-closed trap (BST-1221).
+ */
+export const NATIVE_STREAM_SETTLE_DEADLINE_MS = 30_000;
+
 export async function settleNativeStream(
   streamResult: {
     consumeStream: (options?: { onError?: (error: unknown) => void }) => Promise<void>;
   },
-  streamAbortContext: Pick<StreamAbortContext, 'signal'>
+  streamAbortContext: Pick<StreamAbortContext, 'abort' | 'signal'>,
+  options: { readonly deadlineMs?: number } = {}
 ): Promise<void> {
-  await streamResult.consumeStream({
+  const deadlineMs = options.deadlineMs ?? NATIVE_STREAM_SETTLE_DEADLINE_MS;
+  // The join is only bounded if the stream has been told to stop: make that
+  // structural here instead of trusting every caller's ordering. `abort` is a
+  // no-op once the context has already aborted.
+  streamAbortContext.abort(new Error('Native stream settlement started.'));
+  const consumption = streamResult.consumeStream({
     onError: (error) => {
-      logger.debug(
-        {
-          aborted: streamAbortContext.signal.aborted,
-          code: 'mastra_native_stream_settled_with_error',
-          error: error instanceof Error ? error.message : String(error),
-        },
-        'native Mastra stream ended with an error while being settled'
-      );
+      const record = {
+        aborted: streamAbortContext.signal.aborted,
+        code: 'mastra_native_stream_settled_with_error',
+        error: error instanceof Error ? error.message : String(error),
+      };
+      if (streamAbortContext.signal.aborted) {
+        // The abort raised above is the expected way an abandoned stream ends.
+        logger.debug(record, 'native Mastra stream ended with an error while being settled');
+        return;
+      }
+      logger.warn(record, 'native Mastra stream ended with an error while being settled');
     },
   });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<'deadline'>((resolve) => {
+    timer = setTimeout(() => resolve('deadline'), deadlineMs);
+  });
+  try {
+    const outcome = await Promise.race([consumption.then(() => 'settled' as const), deadline]);
+    if (outcome === 'deadline') {
+      logger.error(
+        { code: 'mastra_native_stream_settle_timeout', deadlineMs },
+        'native Mastra stream did not close within the settlement deadline after abort; disposing without it'
+      );
+    }
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** One cleanup boundary joins every owner and keeps primary and cleanup causes. */
@@ -219,16 +254,15 @@ export function createRuntimeAbortedTurnPersistence({
 }: {
   finalizeAbortedDelegatedTurns?: (() => Promise<void>) | undefined;
   memory: MastraMemory | undefined;
-  memoryOption: AgentMemoryOption | undefined;
+  memoryOption: ResolvedAgentMemoryOption | undefined;
   runtimeData: RuntimeData | undefined;
   streamAbortContext: StreamAbortContext;
 }): AbortedTurnPersistence | undefined {
   if (!(memoryOption && memory && runtimeData)) {
     return;
   }
-  // `resolveMemoryOption` already stamped the merged thread config's
-  // `readOnly` onto the request options, so this reads the same answer Mastra
-  // enforces without merging a second time.
+  // Only a `ResolvedAgentMemoryOption` reaches here, and its `options` carry
+  // the merged thread config's `readOnly` — the same answer Mastra enforces.
   if (memoryOption.options?.readOnly) {
     return;
   }
@@ -287,10 +321,21 @@ export const resolveFullStream = (
   return (result as StreamResultLike).fullStream;
 };
 
+declare const RESOLVED_MEMORY_OPTION: unique symbol;
+/**
+ * An `AgentMemoryOption` that `resolveMemoryOption` built: its `options`
+ * carry the merged thread config's `readOnly`, so consumers may read that
+ * field as the effective policy. The brand keeps a hand-built option from
+ * reaching the abort seam, where an unstamped `readOnly` would fail open.
+ */
+export type ResolvedAgentMemoryOption = AgentMemoryOption & {
+  readonly [RESOLVED_MEMORY_OPTION]: true;
+};
+
 export function resolveMemoryOption(
   runtimeData: RuntimeData | undefined,
   memory: MastraMemory | undefined
-): AgentMemoryOption | undefined {
+): ResolvedAgentMemoryOption | undefined {
   const memoryContext = runtimeData?.memory;
   if (!memoryContext) {
     return;
@@ -324,7 +369,7 @@ export function resolveMemoryOption(
     resource: memoryContext.resourceId,
     thread: memoryContext.threadId,
     ...(options ? { options } : {}),
-  };
+  } as ResolvedAgentMemoryOption;
 }
 /**
  * Build a {@link ToolLifecycleState} for ONE attempt.
@@ -456,8 +501,9 @@ export function readAttemptProducedMessages(
  * The turn's disposal boundary, in order: join the active attempt's native
  * stream (Mastra's cancel persistence and snapshot cleanup land here), persist
  * the abort snapshot for a user Stop, settle delegated children, dispose the
- * runtime. Each step runs even when an earlier one throws; the first failure
- * propagates.
+ * runtime. Every step runs even when an earlier one throws; a single failure
+ * propagates as itself and several as an `AggregateError`, so a later step
+ * cannot mask an earlier cause.
  */
 async function endTurn({
   activeAttempt,
@@ -470,22 +516,27 @@ async function endTurn({
   runtimeData: RuntimeData | undefined;
   settleAttempt: (attempt: TurnAttempt) => Promise<void>;
 }): Promise<void> {
-  try {
-    if (activeAttempt) {
-      await settleAttempt(activeAttempt);
-    }
-  } finally {
+  const failures: unknown[] = [];
+  const step = async (run: () => Promise<void> | undefined): Promise<void> => {
     try {
-      if (runtimeData?.signal?.aborted) {
-        await finalizeAbortedTurn(activeAttempt?.abortedTurnPersistence);
-      }
-    } finally {
-      try {
-        await finalizeAbortedTurn(runtime.delegatedTurnPersistence);
-      } finally {
-        await runtime.dispose();
-      }
+      await run();
+    } catch (error) {
+      failures.push(error);
     }
+  };
+  await step(() => (activeAttempt ? settleAttempt(activeAttempt) : undefined));
+  await step(() =>
+    runtimeData?.signal?.aborted
+      ? finalizeAbortedTurn(activeAttempt?.abortedTurnPersistence)
+      : undefined
+  );
+  await step(() => finalizeAbortedTurn(runtime.delegatedTurnPersistence));
+  await step(() => runtime.dispose());
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Turn disposal failed');
   }
 }
 
@@ -496,13 +547,17 @@ async function endTurn({
  * any other reason.
  */
 function createAttemptSettler(): (attempt: TurnAttempt) => Promise<void> {
-  const settled = new WeakSet<TurnAttempt>();
-  return async (attempt) => {
-    if (settled.has(attempt)) {
-      return;
+  // The promise, not a flag, is memoised: a second caller that arrives while
+  // the first settle is still in flight joins that same settle instead of
+  // being told the attempt is settled already.
+  const settling = new WeakMap<TurnAttempt, Promise<void>>();
+  return (attempt) => {
+    let pending = settling.get(attempt);
+    if (!pending) {
+      pending = attempt.settleNativeStream();
+      settling.set(attempt, pending);
     }
-    settled.add(attempt);
-    await attempt.settleNativeStream();
+    return pending;
   };
 }
 

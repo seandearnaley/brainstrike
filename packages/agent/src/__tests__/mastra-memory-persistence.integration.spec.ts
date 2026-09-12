@@ -875,7 +875,7 @@ describe('mastra memory persistence through the live stream path', () => {
       // re-uses it, `toolExecutions` stays 1); Brainstrike's seam appends the
       // marker, which Mastra's last write carries in the final assistant row.
       // Every row is durable before the turn ends: the turn joins Mastra's
-      // consumption of each attempt's stream (`settleNativeStream`) after the
+      // consumption of each attempt's stream (`settleNativeStream`) BEFORE the
       // seam's save. Before that join this read raced the second attempt's
       // write and saw three rows — the fourth landed after the assertion.
       expect(abortedRows.map((row) => row.role)).toEqual([
@@ -894,9 +894,11 @@ describe('mastra memory persistence through the live stream path', () => {
         abortedRows.slice(2).map((row) => row.id)
       );
       expect(markerRows.map((row) => row.id)).toEqual([abortedRows.at(-1)?.id]);
-      const abortedRecord = JSON.stringify(abortedRows);
-      expect(abortedRecord.split('call-watchdog').length - 1).toBe(1);
-      expect(abortedRecord).toContain('temperatureC');
+      const toolWorkRows = abortedRows.filter((row) =>
+        JSON.stringify(row.content).includes('call-watchdog')
+      );
+      expect(toolWorkRows.map((row) => row.id)).toEqual([abortedRows[1]?.id]);
+      expect(JSON.stringify(abortedRows)).toContain('temperatureC');
       expect(toolExecutions).toBe(1);
     } finally {
       if (previousToolTimeout === undefined) {
@@ -1153,6 +1155,24 @@ describe('mastra memory persistence through the live stream path', () => {
       signal: abortController.signal,
       threadId,
       userMessageId: 'user-default-read-only-cancelled',
+    });
+
+    expect(await listThreadMessages(database, threadId)).toEqual([]);
+  }, 30_000);
+
+  it('does not persist a normally completed turn when memory defaults are read-only', async () => {
+    // Mastra's MessageHistory reads `readOnly` from the REQUEST options only;
+    // `resolveMemoryOption` stamps the merged defaults onto them so a
+    // read-only-by-default Memory stays write-free on completion, not only on
+    // cancel (the cancel case had been green by teardown-race accident).
+    const threadId = 'thread-default-read-only-completed-turn';
+    await runTurnWithMemory({
+      assistantMessageId: 'assistant-default-read-only-completed',
+      database,
+      memoryDefaultOptions: { readOnly: true },
+      memorySettings: OM_DISABLED_SETTINGS,
+      threadId,
+      userMessageId: 'user-default-read-only-completed',
     });
 
     expect(await listThreadMessages(database, threadId)).toEqual([]);
