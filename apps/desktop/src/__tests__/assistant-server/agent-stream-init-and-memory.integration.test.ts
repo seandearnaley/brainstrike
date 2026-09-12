@@ -1183,6 +1183,7 @@ describe('agent-stream-init runtime composition and memory', () => {
         authInput: { apiKey: 'test-api-key', kind: 'api_key' },
         memory: mockPgliteMastraMemory,
         requireToolApproval: true,
+        resolvePersonaApiKey: expect.any(Function),
         runtime: expect.objectContaining({
           memory: expect.objectContaining({
             resourceId: 'workspace-a',
@@ -1299,6 +1300,7 @@ describe('agent-stream-init runtime composition and memory', () => {
         // OPTIONS; the runtime carries no credential fields.
         authInput: { apiKey: 'test-api-key', kind: 'api_key' },
         memory: mockPgliteMastraMemory,
+        resolvePersonaApiKey: expect.any(Function),
         runtime: expect.objectContaining({ provider: 'openai' }),
         storage: mockPgliteMastraStorage,
       })

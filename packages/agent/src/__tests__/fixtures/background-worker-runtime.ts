@@ -170,6 +170,7 @@ export async function createBackgroundFixture(
         }
         return [
           {
+            configuration: child.configuration,
             identity,
             resourceId: child.childResourceId,
             threadId: child.childThreadId,

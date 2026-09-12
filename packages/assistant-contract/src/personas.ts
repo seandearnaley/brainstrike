@@ -106,9 +106,11 @@ export const SUBAGENT_NO_ANSWER_OUTCOME = 'no-answer';
 export function delegationDescriptionForPersona(
   persona: Pick<AssistantPersonaDefinition, 'description' | 'maxSteps'>
 ): string {
+  const steps = effectiveChildStepBudget(persona);
+  const summary = steps >= 2 ? ', one of which is reserved for its summary' : '';
   return (
-    `${persona.description} Runs at most ${effectiveChildStepBudget(persona)} steps, one of which is reserved ` +
-    'for its summary — scope the task to that budget and split anything larger across several ' +
+    `${persona.description} Runs at most ${steps} ${steps === 1 ? 'step' : 'steps'}${summary} — ` +
+    'scope the task to that budget and split anything larger across several ' +
     `delegations. The root turn permits at most ${DELEGATION_LIMITS.maxDepth} descendant levels, ` +
     `${DELEGATION_LIMITS.maxInvocations} invocations, ${DELEGATION_LIMITS.maxConcurrentWork} active work operations, ` +
     `${DELEGATION_LIMITS.maxChildOutputTokens} output tokens per child and ${DELEGATION_LIMITS.maxTreeOutputTokens} across descendants.`

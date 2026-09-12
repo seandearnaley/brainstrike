@@ -85,6 +85,7 @@ it.each([
           throw new Error('Native descendant has no persisted host identity');
         }
         const scope = {
+          configuration: child.configuration,
           identity,
           ...(child.originalToolCall ? { originalToolCall: child.originalToolCall } : {}),
           resourceId: child.childResourceId,

@@ -26,6 +26,8 @@ export interface DelegatedConversationIdentity {
 }
 
 export interface DelegatedToolActionScope {
+  /** Admission-time profile and effective budget, read from the authorized child record. */
+  readonly configuration?: unknown;
   readonly identity: DelegatedRunIdentity;
   readonly originalToolCall?: DelegatedOriginalToolCall;
   readonly resourceId: string;

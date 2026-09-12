@@ -384,7 +384,12 @@ describe('desktop delegated conversation authority', () => {
     expect(
       await createDesktopDelegatedConversationHost(database, 'resume-leg').resolveToolAction(action)
     ).toEqual([
-      { identity: run, resourceId: identity.childResourceId, threadId: identity.childThreadId },
+      {
+        configuration: identity.configuration,
+        identity: run,
+        resourceId: identity.childResourceId,
+        threadId: identity.childThreadId,
+      },
     ]);
     await expect(
       host.resolveToolAction({ runId: action.runId, toolCallId: action.toolCallId })

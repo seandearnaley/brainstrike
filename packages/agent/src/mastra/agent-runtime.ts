@@ -95,6 +95,8 @@ export interface MastraAgentRuntimeOptions {
   backgroundTaskScope?: BackgroundTaskScope;
   /** Host-owned native identity persistence; never serialized through RuntimeData. */
   conversationBinding?: DelegatedConversationBinding | undefined;
+  /** Host-authorized admission profiles, indexed by delegation depth for a resumed path. */
+  delegatedPersonaSnapshots?: readonly AssistantPersonaDefinition[];
   /** @internal Initial host system context; native child snapshots own resumption. */
   getDelegatedSystemContext?: DelegatedSystemContextSource;
   /**
@@ -147,6 +149,8 @@ export interface MastraAgentRuntimeOptions {
   preserveExecuteBackedWebSearch?: boolean;
   requireToolApproval?: boolean;
   resolved?: ResolvedRuntimeConfiguration;
+  /** Trusted host credential lookup for an admitted persona removed from the live registry. */
+  resolvePersonaApiKey?: (provider: string) => Promise<string | undefined>;
   runtime?: RuntimeData;
   storage?: MastraCompositeStore;
   /**
@@ -746,6 +750,7 @@ export async function createMastraAgentRuntime(
   } = await resolvePersonaRuntimeParts({
     conversationBinding: options.conversationBinding,
     delegatedExecutionOptions,
+    delegatedPersonaSnapshots: options.delegatedPersonaSnapshots,
     getDelegatedSystemContext: options.getDelegatedSystemContext,
     // BST-1206 review (P2): a persona that pins its OWN model must project
     // its tools against THAT model's resolved budget, not the parent's — so

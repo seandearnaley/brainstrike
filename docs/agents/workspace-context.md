@@ -1726,6 +1726,20 @@ section and its paired tests.
 
 The canonical [persona Settings host-check contract](assistant-subagents.md#persona-settings-host-checks-bst-1727) covers validated scan results, model/tool availability, and request-dependent scope.
 
+## Persona edits and admitted child decisions (BST-1727)
+
+User persona scans resolve the profile for a fresh delegation. Once a child is
+admitted, its effective tool scope, instructions, mode, model pin and clamped
+step budget are stored with that delegated conversation. Editing, disabling or
+removing the file affects fresh root turns, while pending child approvals and
+questions resume with their admitted configuration, including after host reload.
+Current host permissions and available model credentials still apply. Invalid
+stored identity/configuration fails visibly rather than selecting a replacement
+profile. Cross-provider credentials are resolved from the host on resume and
+never written into the profile snapshot. No new persona store/reset registration
+is added. Implementation and production evidence live in assistant-subagents.md's
+admitted configuration section.
+
 ### Delegated workspace checkpoint ownership (BST-1726)
 
 The child input processor awaits its existing host admission, including a
