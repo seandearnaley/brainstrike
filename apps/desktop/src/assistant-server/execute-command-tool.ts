@@ -754,6 +754,7 @@ export async function runExecuteCommand(
   // Queueing is part of the same call budget; an expired waiter must never spawn.
   const deadline = AbortSignal.timeout(timeoutMs);
   const admissionSignal = options?.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
+  let spawned = false;
   const outcome = await withWorkspaceMutationLease(
     rootPath,
     'opaque',
@@ -765,6 +766,7 @@ export async function runExecuteCommand(
           'The command timed out while waiting for workspace ownership; it was not run.'
         );
       }
+      spawned = true;
       return runShellCommand({
         command: input.command,
         cwd,
@@ -774,7 +776,16 @@ export async function runExecuteCommand(
       });
     },
     admissionSignal
-  );
+  ).catch((error: unknown) => {
+    if (!spawned && admissionSignal.aborted) {
+      throw new ToolInputError(
+        options?.signal?.aborted
+          ? 'The command was aborted before execution.'
+          : 'The command timed out while waiting for workspace ownership; it was not run.'
+      );
+    }
+    throw error;
+  });
   const durationMs = Date.now() - startedAt;
 
   if (outcome.timedOut) {

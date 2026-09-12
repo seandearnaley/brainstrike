@@ -1784,7 +1784,6 @@ The live/reloaded child tests mount that provider rather than replacing its
 selector. A disconnected bound root displays an explicit unavailable-folder
 label, never an opaque root identifier or a replacement workspace.
 
-
 ### Managed opaque workspace effects (BST-1726)
 
 Finite native shell and skill processes acquire an exclusive lease on their
@@ -1795,7 +1794,9 @@ per-file locks, including staleness/capture/write/checkpoint/index settlement.
 Overlapping parent/child root paths conflict; disjoint roots and disjoint file
 mutations without an opaque owner retain concurrency. Queued cancellation
 refuses execution before any effect. Skill runtime resolution plus lease wait
-continues to share its original timeout budget.
+continues to share its original timeout budget. Admission expiry and cancellation
+produce trusted model-visible no-execution errors; a session conflict preserves
+the exact Stop instruction through the ordinary tool guard.
 
 A long-lived **delegated** command session retains its exclusive lease until
 PTY exit. A conflicting managed edit/process fails visibly with the session ID
@@ -1806,6 +1807,8 @@ the named session, and selected child Stop joins the sessions owned by those
 host-observed native child identities before acknowledging completion. That
 ownership lives in the existing process manager, not a parallel registry.
 Lease release follows actual exit; a failed stop cannot release uncertain work.
+A root/global disposal timeout retains the exit observer even after inventory
+removal, so a later actual exit releases ownership without exposing live work.
 
 Ordinary root/user command sessions retain their existing dev-server/edit flow;
 this lease does not claim to serialize arbitrary user-owned background servers

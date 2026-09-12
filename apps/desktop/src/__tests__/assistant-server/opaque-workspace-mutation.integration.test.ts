@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { expect, it, vi } from 'vitest';
+import { guardToolExecution } from '../../../../../packages/agent/src/tools/guard-tool-execution';
 import {
   configureDesktopCommandSessionManager,
   createCommandSessionManager,
@@ -197,10 +198,11 @@ it('cancels a queued native mutation without applying it while a disjoint root r
   const started = Promise.withResolvers<void>();
   let running: Promise<unknown> | undefined;
   let output = '';
+  let ownerExited = false;
   try {
     running = runExecuteCommand(
       {
-        command: 'node -e "console.log("LEASE_READY"); setInterval(() => {}, 1000)"',
+        command: `node -e 'console.log("LEASE_READY"); setInterval(() => {}, 1000)'`,
         timeoutMs: 3000,
       },
       runtime,
@@ -208,12 +210,14 @@ it('cancels a queued native mutation without applying it while a disjoint root r
         signal: processStop.signal,
         stream: (part) => {
           output += part.chunk;
-          if (output.includes('LEASE_READY')) {
+          if (part.stream === 'stdout' && output.trim() === 'LEASE_READY') {
             started.resolve();
           }
         },
       }
-    );
+    ).finally(() => {
+      ownerExited = true;
+    });
     await Promise.race([
       started.promise,
       running.then(() => {
@@ -227,6 +231,18 @@ it('cancels a queued native mutation without applying it while a disjoint root r
       'cancelled-child',
       queuedStop.signal
     );
+    const observation = new AbortController();
+    try {
+      expect(
+        await Promise.race([
+          queued.then(() => 'applied'),
+          delay(20, 'queued', { signal: observation.signal }),
+        ])
+      ).toBe('queued');
+      expect(ownerExited).toBe(false);
+    } finally {
+      observation.abort();
+    }
     queuedStop.abort(new Error('User stopped queued child'));
     await expect(queued).rejects.toThrow('User stopped queued child');
     await expect(readFile(path.join(root, 'queued.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
@@ -286,7 +302,7 @@ it('expires a finite command while queued without executing it after lease relea
       command,
       delay(250, 'still-queued', { signal: timer.signal }),
     ]);
-    expect(result).toBe('TimeoutError');
+    expect(result).toBe('ToolInputError');
     release();
     await command;
     await expect(readFile(path.join(root, 'expired.txt'))).rejects.toMatchObject({
@@ -296,6 +312,106 @@ it('expires a finite command while queued without executing it after lease relea
     timer.abort();
     release();
     await command;
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+it('preserves actionable workspace conflicts and queued expiry through the actual agent guard', async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'brainstrike-guarded-lease-')));
+  await writeFile(
+    path.join(root, 'effect.cjs'),
+    `require('node:fs').writeFileSync('effect.txt', 'no');`
+  );
+  let release = await acquireWorkspaceMutationLease(root, 'opaque', undefined, 'child-session');
+  const roots = [{ displayName: 'Main', path: root, rootId: 'root' }];
+  const manager = createCommandSessionManager({ resolver: { listRoots: async () => roots } });
+  const guardedSession = guardToolExecution(
+    {
+      execute: () =>
+        runManageCommandSession(
+          { operation: { action: 'start', command: 'node -e "process.exit(0)"' } },
+          {
+            ...singleRootRuntime(root),
+            memory: { resourceId: 'owner', threadId: 'parent' },
+            workspaceRoots: roots,
+          },
+          { executionThreadId: 'child', manager }
+        ),
+    },
+    { timeoutMs: 1000, toolName: 'brainstrike.manageCommandSession' }
+  );
+  const guardedSkill = guardToolExecution(
+    {
+      execute: () =>
+        runSkillScript(
+          {
+            cwd: '.',
+            root: path.basename(root),
+            runtime: 'node',
+            scriptPath: 'effect.cjs',
+            skillName: 'test-skill',
+            timeoutMs: 20,
+          },
+          singleRootRuntime(root),
+          {
+            resolveScriptExecution: async () => ({
+              absolutePath: path.join(root, 'effect.cjs'),
+              policy: 'matched-allowed-tools',
+              scriptPath: 'effect.cjs',
+              skillName: 'test-skill',
+              skillRootPath: root,
+              sourceTier: 'global-claude',
+            }),
+          }
+        ),
+    },
+    { timeoutMs: 1000, toolName: 'brainstrike.runSkillScript' }
+  );
+  const guardedWrite = guardToolExecution(
+    {
+      execute: () =>
+        runWriteWorkspaceFile({ content: 'no', path: '/effect.txt' }, singleRootRuntime(root)),
+    },
+    { timeoutMs: 1000, toolName: 'brainstrike.writeWorkspaceFile' }
+  );
+  const guardedCommand = guardToolExecution(
+    {
+      execute: () =>
+        runExecuteCommand(
+          { command: 'printf no > effect.txt', timeoutMs: 20 },
+          singleRootRuntime(root)
+        ),
+    },
+    { timeoutMs: 1000, toolName: 'brainstrike.executeCommand' }
+  );
+  try {
+    await expect(guardedWrite.execute()).resolves.toMatchObject({
+      error: { message: expect.stringContaining('Stop that session') },
+      ok: false,
+    });
+    await expect(guardedSession.execute()).resolves.toMatchObject({
+      error: { message: expect.stringContaining('Stop that session') },
+      ok: false,
+    });
+    expect(manager.list('root')).toEqual([]);
+    release();
+    release = await acquireWorkspaceMutationLease(root, 'opaque');
+    await expect(guardedCommand.execute()).resolves.toMatchObject({
+      error: {
+        message: expect.stringContaining('waiting for workspace ownership; it was not run'),
+      },
+      ok: false,
+    });
+    await expect(guardedSkill.execute()).resolves.toMatchObject({
+      error: {
+        message: expect.stringContaining('waiting for workspace ownership; it was not run'),
+      },
+      ok: false,
+    });
+    await expect(readFile(path.join(root, 'effect.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    release();
+    await manager.dispose();
     await rm(root, { force: true, recursive: true });
   }
 });

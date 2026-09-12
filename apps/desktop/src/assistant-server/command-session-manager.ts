@@ -19,6 +19,7 @@ import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 import treeKill from 'tree-kill';
 import { resolveRootCwd, type WorkspaceRootResolver } from '../workspace-root-cwd';
+import { CommandSessionError, commandSessionStartError } from './command-session-error';
 import { resolveShellInvocation } from './execute-command-tool';
 import { acquireWorkspaceMutationLease } from './workspace-mutation-lease';
 import { isWithinRoot } from './workspace-path';
@@ -36,29 +37,7 @@ const BUFFER_BLOCK_CHARS = 16 * 1024;
 const BUFFER_BLOCK_COMPACTION_THRESHOLD = 1024;
 const EMPTY_BUFFER = Buffer.alloc(0);
 
-export type CommandSessionErrorCode =
-  | 'aborted'
-  | 'cursor-out-of-range'
-  | 'cwd-not-found'
-  | 'cwd-outside-root'
-  | 'invalid-buffer'
-  | 'invalid-input'
-  | 'root-unavailable'
-  | 'session-exited'
-  | 'session-id-collision'
-  | 'session-not-found'
-  | 'start-failed'
-  | 'stop-failed';
-
-export class CommandSessionError extends Error {
-  readonly code: CommandSessionErrorCode;
-
-  constructor(code: CommandSessionErrorCode, message: string) {
-    super(message);
-    this.name = 'CommandSessionError';
-    this.code = code;
-  }
-}
+export { CommandSessionError, type CommandSessionErrorCode } from './command-session-error';
 
 interface CommandSessionBase {
   readonly createdAt: number;
@@ -627,9 +606,10 @@ export function createCommandSessionManager({
     }
     const invocation = resolveShellInvocation(input.command);
 
-    const releaseWorkspaceLease = await acquireDelegatedLease(input, rootPath, id);
+    let releaseWorkspaceLease: (() => void) | undefined;
     let processHandle: IPty;
     try {
+      releaseWorkspaceLease = await acquireDelegatedLease(input, rootPath, id);
       input.signal?.throwIfAborted();
       processHandle = spawn(invocation.shell, invocation.args, {
         cols,
@@ -641,9 +621,11 @@ export function createCommandSessionManager({
       });
     } catch (error) {
       releaseWorkspaceLease?.();
-      logger.error('Failed to start command session', { rootId, sessionId: id });
-      const message = error instanceof Error ? error.message : String(error);
-      throw new CommandSessionError('start-failed', `Failed to start command session: ${message}`);
+      const failure = commandSessionStartError(error, input.signal);
+      if (failure.code === 'start-failed') {
+        logger.error('Failed to start command session', { rootId, sessionId: id });
+      }
+      throw failure;
     }
 
     const info: RunningCommandSession = {
@@ -880,9 +862,8 @@ export function createCommandSessionManager({
         return;
       }
       const entry = running[index]?.[1];
-      if (entry) {
-        disposeSubscriptions(entry);
-      }
+      // A timeout is not process exit: recordExit must retain the observer and
+      // release the workspace lease only when the owned PTY actually settles.
       logger.error('Command session did not finish disposal for workspace root', {
         errorName: result.reason instanceof Error ? result.reason.name : 'UnknownError',
         rootId: trimmed,
@@ -920,9 +901,8 @@ export function createCommandSessionManager({
         return;
       }
       const entry = running[index];
-      if (entry) {
-        disposeSubscriptions(entry);
-      }
+      // A timeout is not process exit: recordExit must retain the observer and
+      // release the workspace lease only when the owned PTY actually settles.
       logger.error('Command session did not finish disposal', {
         errorName: result.reason instanceof Error ? result.reason.name : 'UnknownError',
         sessionId: entry?.info.id,

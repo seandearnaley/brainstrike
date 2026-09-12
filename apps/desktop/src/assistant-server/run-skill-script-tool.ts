@@ -191,20 +191,20 @@ export async function runSkillScript(
     options?.resolvePythonExecutable,
     executionSignal
   );
+  let spawned = false;
   const outcome = await withWorkspaceMutationLease(
     rootPath,
     'opaque',
     async () => {
       const remainingTimeoutMs = timeoutMs - (Date.now() - startedAt);
       if (remainingTimeoutMs <= 0) {
-        // Resolving the runtime already consumed the model's whole timeout
-        // budget. Never spawn with an ambiguous zero/negative timeout — fail
-        // the same way a process-level timeout would, rather than guessing at
-        // what `runDetachedProcess({ timeoutMs: 0 })` means.
+        // Runtime resolution and workspace admission share the same budget.
+        // Never spawn after that budget has expired.
         throw new ToolInputError(
-          `Resolving the "${input.runtime}" skill-script runtime took longer than the ${timeoutMs}ms timeout; the script was not run.`
+          `Preparing the "${input.runtime}" skill-script runtime and workspace ownership exceeded the ${timeoutMs}ms timeout; the script was not run.`
         );
       }
+      spawned = true;
       return runDetachedProcess({
         argv: [resolved.absolutePath, ...(input.args ?? [])],
         cwd,
@@ -216,7 +216,16 @@ export async function runSkillScript(
       });
     },
     executionSignal
-  );
+  ).catch((error: unknown) => {
+    if (!spawned && executionSignal.aborted) {
+      throw new ToolInputError(
+        options?.signal?.aborted
+          ? 'The skill script was aborted before execution.'
+          : 'The skill script timed out while waiting for workspace ownership; it was not run.'
+      );
+    }
+    throw error;
+  });
   const durationMs = Date.now() - startedAt;
   const output = fitOutput(outcome.stdout, outcome.stderr);
   logger.info('Skill script execution finished', {

@@ -1,3 +1,4 @@
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { isWithinRoot } from './workspace-path';
 
 interface LeaseRequest {
@@ -26,7 +27,7 @@ function drain(): void {
     if (session) {
       request.removeAbortListener();
       request.reject(
-        new Error(
+        new ToolInputError(
           `Workspace is held by delegated command session "${session.sessionId}". Stop that session before editing or starting another writer.`
         )
       );

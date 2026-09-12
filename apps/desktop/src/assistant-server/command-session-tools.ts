@@ -14,6 +14,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import {
   COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS,
+  CommandSessionError,
   type CommandSessionInfo,
   type CommandSessionManager,
   type CommandSessionRead,
@@ -399,18 +400,28 @@ export async function runManageCommandSession(
         'Command session execution requires its originating conversation identity.'
       );
     }
-    return await manager.start({
-      command: operation.command,
-      rootId,
-      ...(dependencies.executionThreadId &&
-      dependencies.executionThreadId !== runtimeData?.memory?.threadId
-        ? { delegatedThreadId: dependencies.executionThreadId }
-        : {}),
-      ...(operation.cols === undefined ? {} : { cols: operation.cols }),
-      ...(operation.cwd === undefined ? {} : { cwd: operation.cwd }),
-      ...(operation.rows === undefined ? {} : { rows: operation.rows }),
-      ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
-    });
+    return await manager
+      .start({
+        command: operation.command,
+        rootId,
+        ...(dependencies.executionThreadId &&
+        dependencies.executionThreadId !== runtimeData?.memory?.threadId
+          ? { delegatedThreadId: dependencies.executionThreadId }
+          : {}),
+        ...(operation.cols === undefined ? {} : { cols: operation.cols }),
+        ...(operation.cwd === undefined ? {} : { cwd: operation.cwd }),
+        ...(operation.rows === undefined ? {} : { rows: operation.rows }),
+        ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
+      })
+      .catch((error: unknown) => {
+        if (
+          error instanceof CommandSessionError &&
+          (error.code === 'workspace-busy' || error.code === 'aborted')
+        ) {
+          throw new ToolInputError(error.message);
+        }
+        throw error;
+      });
   }
   if (operation.action === 'write') {
     manager.write(rootId, operation.sessionId, operation.data);
