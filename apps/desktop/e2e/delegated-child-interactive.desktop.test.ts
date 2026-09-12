@@ -1,5 +1,5 @@
 // Keep foreground decisions covered explicitly; delegated-worker-write covers background mode.
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { TestInfo } from '@playwright/test';
@@ -8,6 +8,7 @@ import type { ElectronHarness } from './fixtures/electron-harness';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { runInteractiveChildFixture } from './utils/interactive-child-fixture';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 
@@ -100,13 +101,17 @@ async function assertChildDecision(
     BRAINSTRIKE_OPENROUTER_API_KEY: 'isolated-child-interactive-key',
     OPENROUTER_BASE_URL: provider.baseUrl,
   };
-  const previous = Object.fromEntries(
-    Object.keys(environment).map((key) => [key, process.env[key]])
-  );
-  Object.assign(process.env, environment);
-  try {
-    const window = await electron.ensureWindow();
-    try {
+  await runInteractiveChildFixture({
+    captureFailure: async (window) => {
+      await testInfo.attach('interactive-child-failure', {
+        body: await window.locator('body').innerText(),
+        contentType: 'text/plain',
+      });
+    },
+    closeProvider: () => provider.close(),
+    electron,
+    environment,
+    run: async (window) => {
       await ensureMockWorkspaceOpen(window);
       await configureAssistantProvider(window, {
         compositeModelKey: 'openrouter::openai/gpt-5.4',
@@ -173,24 +178,7 @@ async function assertChildDecision(
         animations: 'disabled',
         path: testInfo.outputPath('child-decision.png'),
       });
-    } catch (error) {
-      await testInfo.attach('interactive-child-failure', {
-        body: await window.locator('body').innerText(),
-        contentType: 'text/plain',
-      });
-      throw error;
-    }
-  } finally {
-    await electron.dispose();
-    await provider.close();
-    for (const key of Object.keys(environment)) {
-      const value = previous[key];
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    await rm(workspace, { force: true, recursive: true });
-  }
+    },
+    workspace,
+  });
 }
