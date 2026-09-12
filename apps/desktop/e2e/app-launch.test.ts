@@ -244,16 +244,24 @@ test('joins renderer IPC producers before closing their hosts @smoke', async ({
     });
     await ready.promise;
   });
-  await Promise.all([
-    once(ownedProcess, 'close', { signal: AbortSignal.timeout(5000) }),
-    electron.dispose(),
-  ]);
+  try {
+    await Promise.all([
+      once(ownedProcess, 'close', { signal: AbortSignal.timeout(5000) }),
+      electron.dispose(),
+    ]);
+  } finally {
+    // Preserve the original failure's output even when close rejects or times out.
+    await testInfo.attach('renderer-shutdown-process-log', {
+      body: output.join(''),
+      contentType: 'text/plain',
+    });
+  }
   const log = output.join('');
-  await testInfo.attach('renderer-shutdown-process-log', { body: log, contentType: 'text/plain' });
   expect(ownedProcess.exitCode).toBe(0);
   expect(ownedProcess.signalCode).toBeNull();
   expect(producerErrors).toEqual([]);
   expect(log).not.toContain('chunking-host lifecycle has been disposed');
+  expect(log).not.toContain('Chunking host is not running (state: stopped)');
   expect(log).not.toContain('DB host manager is closing');
   expect(log).not.toContain("Error occurred in handler for 'db:query'");
 });

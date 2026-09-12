@@ -1188,6 +1188,9 @@ if (singleInstanceLockAcquired) {
   // way this entry point is observable end to end.
   app.on('open-file', (event, openedPath) => {
     event.preventDefault();
+    if (isDesktopShuttingDown()) {
+      return;
+    }
     enqueueFolderCandidates(
       workspaceOpenQueue,
       filterDirectoryOpenCandidates([openedPath], 'open-file'),

@@ -551,6 +551,23 @@ describe('main workspace-open lifecycle', () => {
     expect(window.show).not.toHaveBeenCalled();
   });
 
+  it('does not deliver an open-file request after renderer shutdown begins', async () => {
+    await import('../../main');
+    await vi.waitFor(() => expect(mockWindowInstances).toHaveLength(1));
+    const window = latestWindow();
+    sendReadyPing(window);
+    window.webContents.send.mockClear();
+    isDesktopShuttingDownMock.mockReturnValue(true);
+    const handler = findHandler<(event: { preventDefault: () => void }, p: string) => void>(
+      mockApp.on,
+      'open-file'
+    );
+    const preventDefault = vi.fn();
+    handler({ preventDefault }, '/work/late-repo');
+    expect(preventDefault).toHaveBeenCalledExactlyOnceWith();
+    expect(window.webContents.send).not.toHaveBeenCalled();
+  });
+
   it('enqueues and delivers a launch-argv folder exactly once', async () => {
     process.argv = [...process.argv, '/work/argv-repo'];
 
