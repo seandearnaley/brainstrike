@@ -310,17 +310,12 @@ export function parsePersonaModelPin(value: string): ParsePersonaModelPinResult 
   return { ok: true, pin: { modelId, provider } };
 }
 
-/**
- * One persona row as the discovery IPC reports it to the settings panel:
- * built-ins and user personas in one list, INCLUDING invalid user files (with
- * their error) and files SHADOWED by a higher-priority tier, so authors see
- * exactly why a persona did not load.
- */
 export interface AssistantPersonaAvailabilityIssue {
   readonly code:
     | 'credential-missing'
     | 'credential-unreadable'
     | 'model-not-listed'
+    | 'model-unsupported'
     | 'worker-model-unsupported'
     | 'tool-not-discovered'
     | 'tool-disabled';
@@ -334,6 +329,12 @@ export interface AssistantPersonaAvailability {
   readonly status: 'blocked' | 'needs-attention' | 'request-dependent';
 }
 
+/**
+ * One persona row as the discovery IPC reports it to the settings panel:
+ * built-ins and user personas in one list, INCLUDING invalid user files (with
+ * their error) and files SHADOWED by a higher-priority tier, so authors see
+ * exactly why a persona did not load.
+ */
 export interface AssistantPersonaListItem {
   /** Absolute file path (user personas only). */
   readonly absPath?: string;

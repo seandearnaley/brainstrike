@@ -9,10 +9,17 @@ import {
   supportsWorkerPersonaProvider,
 } from '@brainstrike/assistant-contract';
 import { findProviderDefinition } from '@brainstrike/assistant-contract/provider-registry';
+import { createLogger } from '@brainstrike/logging';
+
+const logger = createLogger('PersonaAvailability');
 
 export interface PersonaAvailabilityInputs {
   readonly mcpTools: ReadonlyMap<string, boolean>;
-  readonly models: readonly { readonly id: string; readonly providerId: string }[];
+  readonly models: readonly {
+    readonly id: string;
+    readonly providerId: string;
+    readonly type: string | null;
+  }[];
   readonly readCredential: (provider: string) => Promise<ProviderCredential | undefined>;
 }
 
@@ -25,9 +32,18 @@ export async function inspectPersonaAvailability(
   let blocked = false;
   const pin = persona.model;
   if (pin) {
-    if (
-      !inputs.models.some((model) => model.id === pin.modelId && model.providerId === pin.provider)
-    ) {
+    const definition = findProviderDefinition(pin.provider);
+    const model = inputs.models.find(
+      (entry) => entry.id === pin.modelId && entry.providerId === pin.provider
+    );
+    if (!definition?.capabilities.llm || model?.type === 'embedding') {
+      blocked = true;
+      issues.push({
+        code: 'model-unsupported',
+        message: `Model ${pin.provider}::${pin.modelId} cannot run an assistant. Select a language model from an LLM-capable provider in Models.`,
+      });
+    }
+    if (!model) {
       issues.push({
         code: 'model-not-listed',
         message: `Model ${pin.provider}::${pin.modelId} is not in the host model catalog. Check its exact ID in Models or correct the profile.`,
@@ -41,21 +57,11 @@ export async function inspectPersonaAvailability(
           'Worker mode cannot use the built-in local model. Select another model provider in this profile.',
       });
     }
-    if (findProviderDefinition(pin.provider)?.authType !== 'none') {
-      try {
-        if (!(await inputs.readCredential(pin.provider))) {
-          blocked = true;
-          issues.push({
-            code: 'credential-missing',
-            message: `Add credentials for ${pin.provider} in Providers.`,
-          });
-        }
-      } catch {
+    if (definition?.capabilities.llm && definition.authType !== 'none') {
+      const issue = await inspectCredential(pin.provider, inputs.readCredential);
+      if (issue) {
         blocked = true;
-        issues.push({
-          code: 'credential-unreadable',
-          message: `Credentials for ${pin.provider} could not be read. Reconnect the provider in Providers.`,
-        });
+        issues.push(issue);
       }
     }
   }
@@ -64,6 +70,27 @@ export async function inspectPersonaAvailability(
     issues,
     status: blocked ? 'blocked' : issues.length > 0 ? 'needs-attention' : 'request-dependent',
   };
+}
+
+async function inspectCredential(
+  provider: string,
+  readCredential: PersonaAvailabilityInputs['readCredential']
+): Promise<AssistantPersonaAvailabilityIssue | undefined> {
+  try {
+    if (await readCredential(provider)) {
+      return undefined;
+    }
+    return { code: 'credential-missing', message: `Add credentials for ${provider} in Providers.` };
+  } catch {
+    logger.warn('Persona provider credentials could not be read', {
+      code: 'persona_availability_credential_unreadable',
+      provider,
+    });
+    return {
+      code: 'credential-unreadable',
+      message: `Credentials for ${provider} could not be read. Reconnect the provider in Providers.`,
+    };
+  }
 }
 
 function inspectDeclaredTools(

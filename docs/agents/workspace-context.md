@@ -1718,22 +1718,6 @@ section and its paired tests.
 
 ---
 
-
 ### Persona Settings host checks (BST-1727)
 
-Settings → Subagents refreshes the ordinary validated workspace/global persona
-scan and shows host preflight facts from the existing model catalog, typed
-credential reader and MCP tool registry. Missing/unreadable required credentials
-and the built-in local model's unsupported Worker discovery are blockers. The
-local-worker rule is shared with actual agent admission. An unlisted model pin
-or missing/disabled MCP tool is actionable attention, not a claim that a custom
-model is invalid or that the entire persona is unavailable. Native capabilities,
-selected parent model, durable child controls and permission policy remain
-per-request checks; a passing preflight never promises effective access.
-
-Declared scope remains visible beside these facts. Refresh rereads profile edits
-and host facts without executing a model or changing running children. A failed
-scan/check shows a visible error and Retry, retaining any previous list as such;
-it does not silently substitute built-ins for a successful user-profile scan.
-No credentials enter the IPC response and no new state is persisted. Existing
-subagent-personas factory-reset registration remains authoritative.
+The canonical [persona Settings host-check contract](assistant-subagents.md#persona-settings-host-checks-bst-1727) covers validated scan results, model/tool availability, and request-dependent scope.

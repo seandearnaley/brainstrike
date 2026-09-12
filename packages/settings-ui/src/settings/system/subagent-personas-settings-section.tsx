@@ -3,7 +3,7 @@
  *
  * Master switch (delegation on/off) + per-persona toggles, persisted in the
  * subagent-personas store and applied server-side per request. Built-in
- * personas always render; user-defined personas load through the
+ * personas are included in every successful host scan; user-defined personas load through the
  * capability-gated `window.assistantPersonas` bridge (desktop main scans
  * `.brainstrike/agents`) — INCLUDING invalid persona files with their
  * parse/validation error, so authors see exactly why a file did not load.
@@ -16,6 +16,7 @@ import {
 } from '@brainstrike/app-state/stores/subagent-personas-store';
 import {
   type AssistantPersonaListItem,
+  type AssistantPersonasListResult,
   BUILT_IN_PERSONAS,
   DELEGATION_LIMITS,
   effectiveChildStepBudget,
@@ -149,6 +150,7 @@ function PersonaRowDetail({
     <>
       <p className="text-muted-foreground text-sm">{item.description}</p>
       <PersonaScopeLine item={item} />
+      {/* An empty checked result deliberately distinguishes no issues from an unchecked row. */}
       {item.availability ? (
         <div className="mt-1 space-y-1" data-testid={`subagent-persona-availability-${item.id}`}>
           {item.availability.status === 'request-dependent' ? null : (
@@ -205,13 +207,15 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
   const setDelegationEnabled = useSubagentPersonasStore((state) => state.setDelegationEnabled);
   const setPersonaEnabled = useSubagentPersonasStore((state) => state.setPersonaEnabled);
 
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [reloadVersion, setReloadVersion] = useState(0);
-  const [bridgeItems, setBridgeItems] = useState<readonly AssistantPersonaListItem[] | null>(null);
-  const [incompleteDirs, setIncompleteDirs] = useState<
-    readonly { dir: string; reason: 'cap-reached' | 'listing-truncated' }[]
-  >([]);
   const hasBridge = resolveAssistantPersonasBridge() !== null;
+  const [load, setLoad] = useState<{
+    status: 'loading' | 'loaded' | 'failed';
+    result: AssistantPersonasListResult | null;
+  }>(() => ({ result: null, status: hasBridge ? 'loading' : 'loaded' }));
+  const [reloadVersion, setReloadVersion] = useState(0);
+  const loading = load.status === 'loading';
+  const loadFailed = load.status === 'failed';
+  const incompleteDirs = load.result?.incompleteDirs ?? [];
 
   useEffect(() => {
     const bridge = resolveAssistantPersonasBridge();
@@ -223,16 +227,14 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
       .list()
       .then((result) => {
         if (!cancelled) {
-          setLoadFailed(false);
-          setBridgeItems(result.personas);
-          setIncompleteDirs(result.incompleteDirs ?? []);
+          setLoad({ result, status: 'loaded' });
         }
       })
       .catch(() => {
         // Keep the last list visible, but never portray a failed refresh as a
         // successful scan or expose private filesystem/credential error text.
         if (!cancelled) {
-          setLoadFailed(true);
+          setLoad((current) => ({ ...current, status: 'failed' }));
         }
       });
     return () => {
@@ -242,7 +244,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
 
   // Bridge results include built-ins first; without a bridge fall back to the
   // static built-in list so the panel is meaningful on web too.
-  const items = bridgeItems ?? BUILT_IN_ITEMS;
+  const items = load.result?.personas ?? (hasBridge ? [] : BUILT_IN_ITEMS);
   const disabledSet = new Set(disabledPersonaIds);
 
   return (
@@ -289,11 +291,19 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
               </p>
             ) : null}
             <Button
-              onClick={() => setReloadVersion((version) => version + 1)}
+              disabled={loading}
+              onClick={() => {
+                setLoad((current) => ({ ...current, status: 'loading' }));
+                setReloadVersion((version) => version + 1);
+              }}
               size="sm"
               variant="outline"
             >
-              {loadFailed ? 'Retry loading personas' : 'Refresh personas and host checks'}
+              {loading
+                ? 'Checking personas…'
+                : loadFailed
+                  ? 'Retry loading personas'
+                  : 'Refresh personas and host checks'}
             </Button>
           </div>
         ) : null}

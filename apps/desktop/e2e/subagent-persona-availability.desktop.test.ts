@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
@@ -9,7 +9,9 @@ test('shows actual host persona issues and refreshes an edited profile @smoke', 
   window,
   homePage,
 }) => {
-  const root = await mkdtemp(path.join(tmpdir(), 'brainstrike-persona-availability-'));
+  const root = await realpath(
+    await mkdtemp(path.join(tmpdir(), 'brainstrike-persona-availability-'))
+  );
   const directory = path.join(root, '.brainstrike', 'agents');
   const profile = path.join(directory, 'availability-proof.md');
   await mkdir(directory, { recursive: true });

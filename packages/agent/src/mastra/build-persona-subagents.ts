@@ -1,4 +1,3 @@
-import { supportsWorkerPersonaProvider } from '@brainstrike/assistant-contract/personas';
 /**
  * Persona → child-`Agent` factory (subagent personas, T2).
  *
@@ -24,6 +23,7 @@ import {
   type AssistantPersonaDefinition,
   assertPersonaToolScope,
   delegationDescriptionForPersona,
+  supportsWorkerPersonaProvider,
 } from '@brainstrike/assistant-contract/personas';
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
 import { Agent, type AgentExecutionOptions, type ToolsInput } from '@mastra/core/agent';

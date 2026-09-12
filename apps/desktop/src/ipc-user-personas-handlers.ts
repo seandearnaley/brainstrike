@@ -127,9 +127,11 @@ export function createUserPersonasListHandler(): () => Promise<AssistantPersonas
       if (!database) {
         throw new Error('Persona availability requires the host model catalog.');
       }
-      const { rows: models } = await database.query<{ id: string; providerId: string }>(
-        'SELECT id, provider_id AS "providerId" FROM models'
-      );
+      const { rows: models } = await database.query<{
+        id: string;
+        providerId: string;
+        type: string | null;
+      }>(`SELECT id, provider_id AS "providerId", capabilities->>'type' AS type FROM models`);
       const mcpTools = new Map(
         Object.values(mcpToolRegistry.getAllTools())
           .flat()

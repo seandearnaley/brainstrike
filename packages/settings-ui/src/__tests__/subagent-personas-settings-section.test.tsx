@@ -394,7 +394,26 @@ it('reports loading failure and retries the bridge instead of hiding user profil
   render(<SubagentPersonasSettingsSection />);
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not load user personas');
   expect(screen.queryByText('private disk error')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('subagent-persona-toggle-worker')).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Retry loading personas' }));
   expect(await screen.findByText('Restored profile')).toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('keeps refresh disabled while the host scan is pending and enables it after settlement', async () => {
+  const pending = Promise.withResolvers<AssistantPersonasListResult>();
+  let calls = 0;
+  setBridge({
+    list: () => {
+      calls += 1;
+      return pending.promise;
+    },
+  });
+  render(<SubagentPersonasSettingsSection />);
+  const refresh = screen.getByRole('button', { name: /personas/i });
+  expect(refresh).toBeDisabled();
+  await userEvent.click(refresh);
+  expect(calls).toBe(1);
+  pending.resolve({ personas: [] });
+  await waitFor(() => expect(refresh).toBeEnabled());
 });
