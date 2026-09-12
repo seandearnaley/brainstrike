@@ -1,6 +1,7 @@
 import type { DelegatedCancellationControl, DelegatedCancellationTarget } from '@brainstrike/agent';
 import type { DelegatedConversationDatabase, DelegatedConversationScope } from '@brainstrike/db';
 import { z } from 'zod';
+import { stopDesktopDelegatedCommandSessions } from './command-session-manager';
 
 const controls = new Map<string, DelegatedCancellationControl>();
 
@@ -20,14 +21,17 @@ export function registerDesktopDelegatedCancellation(
   };
 }
 
-/** Called after durable revocation, so a later leg cannot admit the stopped invocation. */
+/** Receives only targets returned by revokeDelegatedConversationAdmission after
+ * its owner/root-scoped DB update. The query below authorizes registered host
+ * controls; its run IDs are not the already-authorized child thread IDs. */
 export async function joinDesktopDelegatedCancellation(
   database: DelegatedConversationDatabase,
   scope: DelegatedConversationScope,
-  targets: readonly DelegatedCancellationTarget[]
+  targets: readonly (DelegatedCancellationTarget & { readonly threadId: string })[]
 ): Promise<void> {
   const registered = new Map(controls);
   if (registered.size === 0) {
+    await stopDesktopDelegatedCommandSessions(targets.map((target) => target.threadId));
     return;
   }
   const rows = await database.query(
@@ -47,6 +51,13 @@ export async function joinDesktopDelegatedCancellation(
     })
   );
   const errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []));
+  // Native cancellation first closes admission. Then join any persistent PTY
+  // owned by those children before acknowledging selected Stop.
+  try {
+    await stopDesktopDelegatedCommandSessions(targets.map((target) => target.threadId));
+  } catch (error) {
+    errors.push(error);
+  }
   if (errors.length > 0) {
     throw new AggregateError(errors, 'Selected delegated execution did not finish cancellation.');
   }

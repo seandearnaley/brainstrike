@@ -13,6 +13,7 @@ import {
   type QueryDiagnosticsInput,
   type QuerySelfInput,
   type RunSkillScriptInput,
+  readToolExecutionThreadId,
   resolveRequestPermissionPolicy,
   resolveSelfApprovalDecision,
 } from '@brainstrike/agent';
@@ -229,6 +230,7 @@ export const EXECUTION_TOOL_EXECUTORS = executorGroup({
             );
             try {
               return await runManageCommandSession(resolvedInput, runtimeData, {
+                executionThreadId: readToolExecutionThreadId([input, options]),
                 ...(dependencies.commandSessionManager
                   ? { manager: dependencies.commandSessionManager }
                   : {}),

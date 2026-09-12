@@ -1,4 +1,7 @@
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import {
   getToolActionTarget,
   type McpHostPort,
@@ -54,197 +57,259 @@ async function drain(stream: AsyncIterable<StreamChunk>): Promise<StreamChunk[]>
 
 // Runtime assembly and native approval are real; this in-memory host port is
 // deliberately not another proof of desktop persistence or process restart.
-it.each([true, false])('restores worker MCP tools (memory=%s)', async (withMemory) => {
-  const action = 'approve';
-  const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
-  expect(worker, 'The production built-in worker must be available after BST-1720').toBeDefined();
-  if (!worker) {
-    throw new Error('Built-in worker is not implemented');
-  }
-  const failures: unknown[] = [];
-  const server = await startWorkerMcpServer();
-  const mcpHost = createRealTransportMcpHost({
-    name: 'remote',
-    transport: 'streamable-http',
-    url: server.url,
-  });
-  try {
-    const preToolUse = vi.fn(async () => ({ decision: 'allow' as const }));
-    const postToolUse = vi.fn(async () => ({}));
-    const identities: DelegatedConversationIdentity[] = [];
-    const scopes: DelegatedToolActionScope[] = [];
-    const observedMessageIds = new Map<string, string>();
-    const binding = {
-      ...createDelegatedConversationBinding(async (identity) => {
-        identities.push(identity);
-      }),
-      bindRun: async (identity: DelegatedRunIdentity) => {
-        const child = identities.find(
-          (entry) => entry.parentToolCallId === identity.parentToolCallId
-        );
-        if (!child) {
-          throw new Error('Native child was not bound');
-        }
-        scopes.splice(0, scopes.length, {
-          identity,
-          ...(child.originalToolCall ? { originalToolCall: child.originalToolCall } : {}),
-          resourceId: child.childResourceId,
-          threadId: child.childThreadId,
-        });
-        const messageId = observedMessageIds.get(identity.childRuntimeRunId);
-        return {
-          threadId: child.childThreadId,
-          ...(messageId ? { messageId } : {}),
-        };
-      },
-      claimToolAction: async () => undefined,
-      finishToolActions: async () => undefined,
-      prepareToolAction: async () => undefined,
-      releaseUnexecutedToolAction: async () => undefined,
-      resolveToolAction: async () => scopes,
-    };
-    const childCatalogs: string[][] = [];
-    const parentResults: unknown[] = [];
-    let childStep = 0;
-    modelHolder.current = scriptedAgentModel((options) => {
-      if (options.tools?.some((tool) => tool.name === 'agent-worker')) {
-        if (hasToolResult(options, 'agent-worker')) {
-          parentResults.push(options.prompt);
-          return textParts('PARENT_RECEIVED_WORKER_RESULT');
-        }
-        return toolCallParts('agent-worker', 'worker-delegation', {
-          prompt: 'Discover the eligible remote echo and execute it after approval.',
-        });
-      }
-      const names = options.tools?.map((tool) => tool.name) ?? [];
-      childCatalogs.push(names);
-      expect(names).not.toContain('remote_forbidden');
-      childStep += 1;
-      if (childStep === 1) {
-        return toolCallParts('search_tools', 'search-remote', { query: 'remote echo' });
-      }
-      if (childStep === 2) {
-        return toolCallParts('load_tool', 'load-forbidden', { toolName: 'remote_forbidden' });
-      }
-      if (childStep === 3) {
-        return toolCallParts('load_tool', 'load-remote', { toolName: 'remote_echo' });
-      }
-      expect(names).toContain('remote_echo');
-      if (!hasToolResult(options, 'remote_echo')) {
-        return toolCallParts('remote_echo', 'worker-edit', { value: 'WORKER_REMOTE_EFFECT' });
-      }
-      return textParts('WORKER_DELIVERABLE_RESULT');
-    }).model;
-    const storage = new InMemoryStore({ id: `worker-${action}` });
-    const memory = new Memory({ options: { generateTitle: false }, storage });
-    const options = {
-      conversationBinding: binding,
-      mcpHost,
-      memory,
-      personas: [worker],
-      runtime: {
-        apiKey: 'test-key',
-        hookRunner: { postToolUse, preToolUse },
-        memory: { resourceId: `worker-resource-${action}`, threadId: `worker-root-${action}` },
-        permissionPolicy: {
-          policies: { edit: 'ask', execute: 'ask', mcp: 'deny', read: 'allow' },
-          riskByTool: { remote_echo: 'edit', remote_forbidden: 'mcp' },
-          yolo: false,
-        },
-        provider: 'openai',
-      },
-      storage,
-    } as const;
-    const initial = await drain(
-      await streamMastraAgent(
-        [
-          {
-            id: 'workspace-context',
-            parts: [{ text: 'TRUSTED_WORKSPACE_CONVENTION', type: 'text' }],
-            role: 'system',
-          },
-          {
-            id: 'user',
-            parts: [{ text: 'Delegate my deliverable to Worker.', type: 'text' }],
-            role: 'user',
-          },
-        ],
-        options
-      )
-    );
-    // Preserve the actual stream-owned message id across runtime reconstruction,
-    // as the durable host does when resume forwards a descendant before start.
-    for (const frame of initial) {
-      if (frame.type !== 'delegated-conversation-chunk') {
-        continue;
-      }
-      observedMessageIds.set(frame.identity.childRuntimeRunId, frame.messageId);
+it.each([
+  { action: 'approve' as const, withMemory: true },
+  { action: 'approve' as const, withMemory: false },
+  { action: 'decline' as const, withMemory: true },
+  { action: 'stop' as const, withMemory: true },
+])(
+  'restores worker MCP workspace tools (memory=$withMemory, action=$action)',
+  async ({ withMemory, action }) => {
+    const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
+    expect(worker, 'The production built-in worker must be available after BST-1720').toBeDefined();
+    if (!worker) {
+      throw new Error('Built-in worker is not implemented');
     }
-    expect(observedMessageIds.size).toBe(1);
-    const pending = initial.find((chunk) => chunk.type === 'tool-approval-required');
-    expect(pending).toBeDefined();
-    expect(server.executions).toEqual([]);
-    expect(preToolUse).not.toHaveBeenCalled();
-    if (pending?.type !== 'tool-approval-required') {
-      throw new Error('Missing native child approval');
-    }
-    expect(pending.delegation).toBeDefined();
-    const target = getToolActionTarget(pending);
-    expect(target.runId).toBe(scopes[0]?.identity.parentRuntimeRunId);
-    expect(target.toolCallId).toBe('worker-delegation');
-    expect(target.delegation?.toolCallId).toBe('worker-edit');
-    const resumed = await drain(
-      await streamMastraToolApprovalAction(
-        {
-          action,
-          ...target,
-          toolName: pending.toolName,
-        },
-        {
-          ...options,
-          runtime: withMemory
-            ? options.runtime
-            : {
-                apiKey: options.runtime.apiKey,
-                hookRunner: options.runtime.hookRunner,
-                permissionPolicy: options.runtime.permissionPolicy,
-                provider: options.runtime.provider,
-              },
-        }
-      )
-    );
-    expect(server.executions, JSON.stringify({ childCatalogs, resumed })).toEqual([
-      'WORKER_REMOTE_EFFECT',
-    ]);
-    expect(preToolUse).toHaveBeenCalledTimes(1);
-    expect(postToolUse).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(resumed)).toContain('PARENT_RECEIVED_WORKER_RESULT');
-    expect(JSON.stringify(parentResults)).toContain('WORKER_DELIVERABLE_RESULT');
-    expect(childCatalogs[0]).toContain('search_tools');
-    expect(childCatalogs[0]).toContain('load_tool');
-    expect(childCatalogs[0]).not.toContain('remote_echo');
-    expect(childCatalogs.at(-1)).toContain('remote_echo');
-    await memory.settled();
-  } catch (error) {
-    failures.push(error);
-  } finally {
-    const results = await Promise.allSettled([mcpHost.close(), server.close()]);
-    failures.push(
-      ...results.filter((result) => result.status === 'rejected').map((result) => result.reason)
-    );
-  }
-  if (failures.length === 1) {
-    throw failures[0];
-  }
-  if (failures.length > 1) {
-    throw new AggregateError(failures, 'Worker MCP acceptance and cleanup failed', {
-      cause: failures[0],
+    const failures: unknown[] = [];
+    const workspace = await mkdtemp(path.join(os.tmpdir(), 'worker-mcp-workspace-'));
+    const siblingWorkspace = await mkdtemp(path.join(os.tmpdir(), 'worker-mcp-sibling-'));
+    await writeFile(path.join(workspace, 'user-draft.txt'), 'DIRTY_USER_WORK');
+    await writeFile(path.join(siblingWorkspace, 'sibling.txt'), 'SIBLING_WORK');
+    const server = await startWorkerMcpServer(async (value) => {
+      // This is a real server-owned workspace capability. Exclusive creation makes
+      // accidental replay observable; the host must never invent an auto-merge.
+      await writeFile(path.join(workspace, 'worker-result.txt'), value, { flag: 'wx' });
     });
+    const mcpHost = createRealTransportMcpHost({
+      name: 'remote',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+    try {
+      const preToolUse = vi.fn(async () => ({ decision: 'allow' as const }));
+      const postToolUse = vi.fn(async () => ({}));
+      const identities: DelegatedConversationIdentity[] = [];
+      const scopes: DelegatedToolActionScope[] = [];
+      const observedMessageIds = new Map<string, string>();
+      const binding = {
+        ...createDelegatedConversationBinding(async (identity) => {
+          identities.push(identity);
+        }),
+        bindRun: async (identity: DelegatedRunIdentity) => {
+          const child = identities.find(
+            (entry) => entry.parentToolCallId === identity.parentToolCallId
+          );
+          if (!child) {
+            throw new Error('Native child was not bound');
+          }
+          scopes.splice(0, scopes.length, {
+            identity,
+            ...(child.originalToolCall ? { originalToolCall: child.originalToolCall } : {}),
+            resourceId: child.childResourceId,
+            threadId: child.childThreadId,
+          });
+          const messageId = observedMessageIds.get(identity.childRuntimeRunId);
+          return {
+            threadId: child.childThreadId,
+            ...(messageId ? { messageId } : {}),
+          };
+        },
+        claimToolAction: async () => undefined,
+        finishToolActions: async () => undefined,
+        prepareToolAction: async () => undefined,
+        releaseUnexecutedToolAction: async () => undefined,
+        resolveToolAction: async () => scopes,
+      };
+      const childCatalogs: string[][] = [];
+      const parentResults: unknown[] = [];
+      let childStep = 0;
+      modelHolder.current = scriptedAgentModel((options) => {
+        if (options.tools?.some((tool) => tool.name === 'agent-worker')) {
+          if (hasToolResult(options, 'agent-worker')) {
+            parentResults.push(options.prompt);
+            return textParts('PARENT_RECEIVED_WORKER_RESULT');
+          }
+          return toolCallParts('agent-worker', 'worker-delegation', {
+            prompt: 'Discover the eligible remote echo and execute it after approval.',
+          });
+        }
+        const names = options.tools?.map((tool) => tool.name) ?? [];
+        childCatalogs.push(names);
+        expect(names).not.toContain('remote_forbidden');
+        childStep += 1;
+        if (childStep === 1) {
+          return toolCallParts('search_tools', 'search-remote', { query: 'remote echo' });
+        }
+        if (childStep === 2) {
+          return toolCallParts('load_tool', 'load-forbidden', { toolName: 'remote_forbidden' });
+        }
+        if (childStep === 3) {
+          return toolCallParts('load_tool', 'load-remote', { toolName: 'remote_echo' });
+        }
+        expect(names).toContain('remote_echo');
+        if (!hasToolResult(options, 'remote_echo')) {
+          return toolCallParts('remote_echo', 'worker-edit', { value: 'WORKER_REMOTE_EFFECT' });
+        }
+        return textParts('WORKER_DELIVERABLE_RESULT');
+      }).model;
+      const storage = new InMemoryStore({ id: `worker-${action}` });
+      const memory = new Memory({ options: { generateTitle: false }, storage });
+      const options = {
+        conversationBinding: binding,
+        mcpHost,
+        memory,
+        personas: [worker],
+        runtime: {
+          apiKey: 'test-key',
+          hookRunner: { postToolUse, preToolUse },
+          memory: { resourceId: `worker-resource-${action}`, threadId: `worker-root-${action}` },
+          permissionPolicy: {
+            policies: { edit: 'ask', execute: 'ask', mcp: 'deny', read: 'allow' },
+            riskByTool: { remote_echo: 'edit', remote_forbidden: 'mcp' },
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage,
+      } as const;
+      const initial = await drain(
+        await streamMastraAgent(
+          [
+            {
+              id: 'workspace-context',
+              parts: [{ text: 'TRUSTED_WORKSPACE_CONVENTION', type: 'text' }],
+              role: 'system',
+            },
+            {
+              id: 'user',
+              parts: [{ text: 'Delegate my deliverable to Worker.', type: 'text' }],
+              role: 'user',
+            },
+          ],
+          options
+        )
+      );
+      // Preserve the actual stream-owned message id across runtime reconstruction,
+      // as the durable host does when resume forwards a descendant before start.
+      for (const frame of initial) {
+        if (frame.type !== 'delegated-conversation-chunk') {
+          continue;
+        }
+        observedMessageIds.set(frame.identity.childRuntimeRunId, frame.messageId);
+      }
+      expect(observedMessageIds.size).toBe(1);
+      const pending = initial.find((chunk) => chunk.type === 'tool-approval-required');
+      expect(pending).toBeDefined();
+      expect(server.executions).toEqual([]);
+      expect(await readdir(workspace)).toEqual(['user-draft.txt']);
+      expect(preToolUse).not.toHaveBeenCalled();
+      if (pending?.type !== 'tool-approval-required') {
+        throw new Error('Missing native child approval');
+      }
+      expect(pending.delegation).toBeDefined();
+      const target = getToolActionTarget(pending);
+      expect(target.runId).toBe(scopes[0]?.identity.parentRuntimeRunId);
+      expect(target.toolCallId).toBe('worker-delegation');
+      expect(target.delegation?.toolCallId).toBe('worker-edit');
+      if (action === 'stop') {
+        const cancelled = new AbortController();
+        cancelled.abort(new Error('User stopped the pending worker'));
+        await expect(
+          (async () =>
+            drain(
+              await streamMastraToolApprovalAction(
+                { action: 'approve', ...target, toolName: pending.toolName },
+                { ...options, runtime: { ...options.runtime, signal: cancelled.signal } }
+              )
+            ))()
+        ).rejects.toThrow();
+        expect(server.executions).toEqual([]);
+        expect(await readdir(workspace)).toEqual(['user-draft.txt']);
+        expect(await readFile(path.join(siblingWorkspace, 'sibling.txt'), 'utf8')).toBe(
+          'SIBLING_WORK'
+        );
+        expect(preToolUse).not.toHaveBeenCalled();
+      } else {
+        const resumed = await drain(
+          await streamMastraToolApprovalAction(
+            {
+              action,
+              ...target,
+              toolName: pending.toolName,
+            },
+            {
+              ...options,
+              runtime: withMemory
+                ? options.runtime
+                : {
+                    apiKey: options.runtime.apiKey,
+                    hookRunner: options.runtime.hookRunner,
+                    permissionPolicy: options.runtime.permissionPolicy,
+                    provider: options.runtime.provider,
+                  },
+            }
+          )
+        );
+        expect(server.executions, JSON.stringify({ childCatalogs, resumed })).toEqual(
+          action === 'approve' ? ['WORKER_REMOTE_EFFECT'] : []
+        );
+        expect(preToolUse).toHaveBeenCalledTimes(action === 'approve' ? 1 : 0);
+        expect(postToolUse).toHaveBeenCalledTimes(action === 'approve' ? 1 : 0);
+        expect(await readFile(path.join(workspace, 'user-draft.txt'), 'utf8')).toBe(
+          'DIRTY_USER_WORK'
+        );
+        expect(await readFile(path.join(siblingWorkspace, 'sibling.txt'), 'utf8')).toBe(
+          'SIBLING_WORK'
+        );
+        expect(await readdir(siblingWorkspace)).toEqual(['sibling.txt']);
+        if (action === 'approve') {
+          expect(await readFile(path.join(workspace, 'worker-result.txt'), 'utf8')).toBe(
+            'WORKER_REMOTE_EFFECT'
+          );
+          await expect(
+            streamMastraToolApprovalAction(
+              { action, ...target, toolName: pending.toolName },
+              options
+            )
+          ).rejects.toThrow('The delegated tool decision is stale');
+          expect(server.executions).toEqual(['WORKER_REMOTE_EFFECT']);
+        } else {
+          expect(await readdir(workspace)).toEqual(['user-draft.txt']);
+        }
+        expect(JSON.stringify(resumed)).toContain('PARENT_RECEIVED_WORKER_RESULT');
+        expect(JSON.stringify(parentResults)).toContain('WORKER_DELIVERABLE_RESULT');
+        expect(childCatalogs[0]).toContain('search_tools');
+        expect(childCatalogs[0]).toContain('load_tool');
+        expect(childCatalogs[0]).not.toContain('remote_echo');
+        expect(childCatalogs.at(-1)).toContain('remote_echo');
+      }
+      await memory.settled();
+    } catch (error) {
+      failures.push(error);
+    } finally {
+      const results = await Promise.allSettled([
+        mcpHost.close(),
+        server.close(),
+        rm(workspace, { force: true, recursive: true }),
+        rm(siblingWorkspace, { force: true, recursive: true }),
+      ]);
+      failures.push(
+        ...results.filter((result) => result.status === 'rejected').map((result) => result.reason)
+      );
+    }
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Worker MCP acceptance and cleanup failed', {
+        cause: failures[0],
+      });
+    }
   }
-});
+);
 
 // Real Streamable HTTP MCP boundary; only the external language model is scripted.
-async function startWorkerMcpServer() {
+async function startWorkerMcpServer(onEcho?: (value: string) => Promise<void>) {
   const executions: string[] = [];
   const failures: unknown[] = [];
   const http = createServer(async (request, response) => {
@@ -260,6 +325,9 @@ async function startWorkerMcpServer() {
           name,
           { description: `Remote ${name} tool`, inputSchema: z.object({ value: z.string() }) },
           async ({ value }) => {
+            if (name === 'echo') {
+              await onEcho?.(value);
+            }
             executions.push(name === 'echo' ? value : 'FORBIDDEN_EFFECT');
             return { content: [{ text: value, type: 'text' }] };
           }

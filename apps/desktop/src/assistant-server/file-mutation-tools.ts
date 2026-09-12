@@ -60,6 +60,7 @@ import {
   readStateScope,
   recordOwnWriteObservation,
 } from './workspace-file-staleness';
+import { withWorkspaceMutationLease } from './workspace-mutation-lease';
 import { resolveWorkspaceLeafMutationPath } from './workspace-path-resolution';
 import { resolveWorkspaceRoot } from './workspace-roots';
 import { readWorkspaceTextFile } from './workspace-text-file-reader';
@@ -152,6 +153,21 @@ function assertFileMutationActive(
   signal?.throwIfAborted();
 }
 
+function workspaceFileLock(rootPath: string, key: string, signal: AbortSignal | undefined) {
+  return <T>(task: () => Promise<T>): Promise<T> =>
+    withWorkspaceMutationLease(rootPath, 'files', () => withFileLock(key, task), signal);
+}
+
+function workspaceRenameLock(
+  rootPath: string,
+  from: string,
+  to: string,
+  signal: AbortSignal | undefined
+) {
+  return <T>(task: () => Promise<T>): Promise<T> =>
+    withWorkspaceMutationLease(rootPath, 'files', () => withTwoFileLocks(from, to, task), signal);
+}
+
 export async function runWriteWorkspaceFile(
   input: WriteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
@@ -193,7 +209,12 @@ export async function runWriteWorkspaceFile(
   // non-fatal (it catches+logs internally), so it never extends the lock's
   // failure surface.
   const scope = threadScope;
-  const { created } = await withFileLock(resolved.absolutePath, async () => {
+  const commit = workspaceFileLock(
+    resolved.canonicalRootPath,
+    resolved.absolutePath,
+    signal ?? runtimeData?.signal
+  );
+  const { created } = await commit(async () => {
     // Staleness compare INSIDE the lock (report R8): if this scope observed the
     // file at a different mtime than disk carries now, someone else edited it
     // since — refuse instead of overwriting their work. New/unobserved files
@@ -292,7 +313,12 @@ export async function runStringReplaceWorkspaceFile(
   // SAME file cannot interleave and drop an update or stale the RAG row. Edits to
   // different files still run in parallel.
   const scope = threadScope;
-  const result = await withFileLock(resolved.absolutePath, async () => {
+  const commit = workspaceFileLock(
+    resolved.canonicalRootPath,
+    resolved.absolutePath,
+    signal ?? runtimeData?.signal
+  );
+  const result = await commit(async () => {
     // Read through the SAME checked read path the read tools use (isFile, 2 MB
     // byte cap, NUL-byte binary probe, realpath-both-sides containment), so the
     // edit inherits PR-2.1's path-escape protection on the read side too.
@@ -459,7 +485,12 @@ export async function runDeleteWorkspaceFile(
     input.path
   );
 
-  return withFileLock(mutationPath, async () => {
+  const commit = workspaceFileLock(
+    resolved.canonicalRootPath,
+    mutationPath,
+    signal ?? runtimeData?.signal
+  );
+  return commit(async () => {
     let leafStats: import('node:fs').Stats;
     try {
       leafStats = await fsPromises.lstat(mutationPath);
@@ -556,7 +587,13 @@ export async function runRenameWorkspaceFile(
 
   // Lock BOTH paths (sorted order → deadlock-free) so a concurrent edit or rename
   // touching either path cannot interleave with this move.
-  return withTwoFileLocks(fromMutationPath, toResolved.absolutePath, async () => {
+  const commit = workspaceRenameLock(
+    fromResolved.canonicalRootPath,
+    fromMutationPath,
+    toResolved.absolutePath,
+    signal ?? runtimeData?.signal
+  );
+  return commit(async () => {
     let fromStats: import('node:fs').Stats;
     try {
       fromStats = await fsPromises.lstat(fromMutationPath);

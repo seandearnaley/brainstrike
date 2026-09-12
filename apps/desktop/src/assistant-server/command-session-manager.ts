@@ -19,7 +19,9 @@ import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 import treeKill from 'tree-kill';
 import { resolveRootCwd, type WorkspaceRootResolver } from '../workspace-root-cwd';
+import { CommandSessionError, commandSessionStartError } from './command-session-error';
 import { resolveShellInvocation } from './execute-command-tool';
+import { acquireWorkspaceMutationLease } from './workspace-mutation-lease';
 import { isWithinRoot } from './workspace-path';
 
 const logger = createLogger('CommandSessionManager');
@@ -35,29 +37,7 @@ const BUFFER_BLOCK_CHARS = 16 * 1024;
 const BUFFER_BLOCK_COMPACTION_THRESHOLD = 1024;
 const EMPTY_BUFFER = Buffer.alloc(0);
 
-export type CommandSessionErrorCode =
-  | 'aborted'
-  | 'cursor-out-of-range'
-  | 'cwd-not-found'
-  | 'cwd-outside-root'
-  | 'invalid-buffer'
-  | 'invalid-input'
-  | 'root-unavailable'
-  | 'session-exited'
-  | 'session-id-collision'
-  | 'session-not-found'
-  | 'start-failed'
-  | 'stop-failed';
-
-export class CommandSessionError extends Error {
-  readonly code: CommandSessionErrorCode;
-
-  constructor(code: CommandSessionErrorCode, message: string) {
-    super(message);
-    this.name = 'CommandSessionError';
-    this.code = code;
-  }
-}
+export { CommandSessionError, type CommandSessionErrorCode } from './command-session-error';
 
 interface CommandSessionBase {
   readonly createdAt: number;
@@ -85,6 +65,8 @@ export interface StartCommandSessionInput {
   readonly command: string;
   /** Absolute or workspace-relative start directory. */
   readonly cwd?: string;
+  /** Host-observed delegated child, never a tool-input field. */
+  readonly delegatedThreadId?: string;
   readonly rootId: string;
   readonly rows?: number;
   readonly signal?: AbortSignal;
@@ -121,11 +103,13 @@ interface SessionEntry {
   bufferHeadIndex: number;
   bufferLength: number;
   bufferStartCursor: number;
+  delegatedThreadId: string | undefined;
   exitPromise: Promise<void>;
   info: CommandSessionInfo;
   outputCursor: number;
   process: IPty;
   reaping?: Promise<void>;
+  releaseWorkspaceLease: (() => void) | undefined;
   removed: boolean;
   resolveExit: () => void;
   subscriptions: { dispose: () => void }[];
@@ -158,6 +142,7 @@ export interface CommandSessionManager {
   remove: (rootId: string, sessionId: string) => Promise<void>;
   start: (input: StartCommandSessionInput) => Promise<RunningCommandSession>;
   stop: (rootId: string, sessionId: string) => Promise<void>;
+  stopDelegatedThreads: (threadIds: readonly string[]) => Promise<void>;
   write: (rootId: string, sessionId: string, data: string) => void;
 }
 
@@ -189,13 +174,13 @@ async function resolveSessionCwd(
   resolver: WorkspaceRootResolver,
   rootId: string,
   requestedCwd: string | undefined
-): Promise<string> {
+): Promise<{ cwd: string; rootPath: string }> {
   const root = await resolveRootCwd(resolver, rootId, 'command session', logger);
   if (!root.ok) {
     throw new CommandSessionError('root-unavailable', root.error);
   }
   if (requestedCwd === undefined || requestedCwd.trim().length === 0) {
-    return root.value;
+    return { cwd: root.value, rootPath: root.value };
   }
 
   const absoluteCwd = path.isAbsolute(requestedCwd)
@@ -217,7 +202,7 @@ async function resolveSessionCwd(
       'The command session cwd resolves outside its workspace root.'
     );
   }
-  return canonicalCwd;
+  return { cwd: canonicalCwd, rootPath: root.value };
 }
 
 function publicInfo(info: CommandSessionInfo): CommandSessionInfo {
@@ -522,6 +507,8 @@ export function createCommandSessionManager({
       signal: typeof signal === 'number' ? signal : null,
       status: 'exited',
     };
+    entry.releaseWorkspaceLease?.();
+    entry.releaseWorkspaceLease = undefined;
     entry.resolveExit();
     entry.abortListener?.();
     entry.abortListener = undefined;
@@ -586,6 +573,17 @@ export function createCommandSessionManager({
     }
   }
 
+  function acquireDelegatedLease(
+    input: StartCommandSessionInput,
+    rootPath: string,
+    id: string
+  ): Promise<(() => void) | undefined> {
+    if (!input.delegatedThreadId) {
+      return Promise.resolve(undefined);
+    }
+    return acquireWorkspaceMutationLease(rootPath, 'opaque', input.signal, id);
+  }
+
   async function start(input: StartCommandSessionInput): Promise<RunningCommandSession> {
     assertRootId(input?.rootId);
     if (typeof input.command !== 'string' || input.command.trim().length === 0) {
@@ -596,7 +594,7 @@ export function createCommandSessionManager({
     }
 
     const rootId = input.rootId.trim();
-    const cwd = await resolveSessionCwd(resolver, rootId, input.cwd);
+    const { cwd, rootPath } = await resolveSessionCwd(resolver, rootId, input.cwd);
     if (input.signal?.aborted) {
       throw new CommandSessionError('aborted', 'Command session start was aborted.');
     }
@@ -608,8 +606,11 @@ export function createCommandSessionManager({
     }
     const invocation = resolveShellInvocation(input.command);
 
+    let releaseWorkspaceLease: (() => void) | undefined;
     let processHandle: IPty;
     try {
+      releaseWorkspaceLease = await acquireDelegatedLease(input, rootPath, id);
+      input.signal?.throwIfAborted();
       processHandle = spawn(invocation.shell, invocation.args, {
         cols,
         cwd,
@@ -619,9 +620,12 @@ export function createCommandSessionManager({
         rows,
       });
     } catch (error) {
-      logger.error('Failed to start command session', { rootId, sessionId: id });
-      const message = error instanceof Error ? error.message : String(error);
-      throw new CommandSessionError('start-failed', `Failed to start command session: ${message}`);
+      releaseWorkspaceLease?.();
+      const failure = commandSessionStartError(error, input.signal);
+      if (failure.code === 'start-failed') {
+        logger.error('Failed to start command session', { rootId, sessionId: id });
+      }
+      throw failure;
     }
 
     const info: RunningCommandSession = {
@@ -644,10 +648,12 @@ export function createCommandSessionManager({
       bufferHeadIndex: 0,
       bufferLength: 0,
       bufferStartCursor: 0,
+      delegatedThreadId: input.delegatedThreadId,
       exitPromise,
       info,
       outputCursor: 0,
       process: processHandle,
+      releaseWorkspaceLease,
       removed: false,
       resolveExit,
       subscriptions: [],
@@ -795,6 +801,28 @@ export function createCommandSessionManager({
     await waitForExit(entry);
   }
 
+  async function stopDelegatedThreads(threadIds: readonly string[]): Promise<void> {
+    const selected = new Set(threadIds);
+    const owned = [...sessions.values()].filter(
+      (entry) =>
+        entry.delegatedThreadId &&
+        selected.has(entry.delegatedThreadId) &&
+        entry.info.status === 'running'
+    );
+    const results = await Promise.allSettled(
+      owned.map(async (entry) => {
+        await reap(entry);
+        await waitForExit(entry);
+      })
+    );
+    const errors = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    if (errors.length) {
+      throw new AggregateError(errors, 'Delegated command sessions did not finish Stop.');
+    }
+  }
+
   async function remove(rootId: string, sessionId: string): Promise<void> {
     const entry = resolveOwned(rootId, sessionId);
     entry.removed = true;
@@ -834,9 +862,8 @@ export function createCommandSessionManager({
         return;
       }
       const entry = running[index]?.[1];
-      if (entry) {
-        disposeSubscriptions(entry);
-      }
+      // A timeout is not process exit: recordExit must retain the observer and
+      // release the workspace lease only when the owned PTY actually settles.
       logger.error('Command session did not finish disposal for workspace root', {
         errorName: result.reason instanceof Error ? result.reason.name : 'UnknownError',
         rootId: trimmed,
@@ -874,9 +901,8 @@ export function createCommandSessionManager({
         return;
       }
       const entry = running[index];
-      if (entry) {
-        disposeSubscriptions(entry);
-      }
+      // A timeout is not process exit: recordExit must retain the observer and
+      // release the workspace lease only when the owned PTY actually settles.
       logger.error('Command session did not finish disposal', {
         errorName: result.reason instanceof Error ? result.reason.name : 'UnknownError',
         sessionId: entry?.info.id,
@@ -888,7 +914,18 @@ export function createCommandSessionManager({
     return running.length;
   }
 
-  return { dispose, disposeRoot, get, list, read, remove, start, stop, write };
+  return {
+    dispose,
+    disposeRoot,
+    get,
+    list,
+    read,
+    remove,
+    start,
+    stop,
+    stopDelegatedThreads,
+    write,
+  };
 }
 
 let desktopCommandSessionManager: CommandSessionManager | null = null;
@@ -932,4 +969,15 @@ export async function disposeDesktopCommandSessionsForRoot(rootId: string): Prom
     return 0;
   }
   return await desktopCommandSessionManager.disposeRoot(rootId);
+}
+
+/** No manager means no process could have been admitted. Once configured, join
+ * only sessions owned by the native child identities already authorized by DB. */
+export async function stopDesktopDelegatedCommandSessions(
+  threadIds: readonly string[]
+): Promise<void> {
+  if (!desktopCommandSessionManager) {
+    return;
+  }
+  await desktopCommandSessionManager.stopDelegatedThreads(threadIds);
 }
