@@ -67,6 +67,8 @@ it.each([
 });
 
 it('refuses an unavailable host and never launches replacement work', async () => {
+  const retire = registerDesktopDelegatedFollowup('host', send);
+  retire();
   expect(
     await request({ body: JSON.stringify(body), method: 'POST', url: '/assistant/child-input' })
   ).toMatchObject({ status: 409 });

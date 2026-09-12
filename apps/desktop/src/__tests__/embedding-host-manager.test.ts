@@ -348,10 +348,15 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
         runtimeId: 'embedding-host-runtime',
       })
     );
-    expect(lifecycleState.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 3000);
+    expect(lifecycleState.waitForStatus).toHaveBeenCalledExactlyOnceWith(
+      expect.any(Function),
+      10_000
+    );
     expect(lifecycleState.destroyHostWindow).toHaveBeenCalledTimes(1);
     expect(lifecycleState.clearHostWindow).toHaveBeenCalledTimes(1);
-    expect(lifecycleState.setStatus).toHaveBeenCalled();
+    expect(lifecycleState.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ runtimeId: 'embedding-host-runtime', state: 'stopped' })
+    );
   });
 
   it('reset returns to running without destroying the host window when the renderer restarts cleanly', async () => {
@@ -943,7 +948,10 @@ describe('EmbeddingHostManager teardown ownership', () => {
 
     const disposing = manager.dispose();
     await Promise.resolve();
-    expect(lifecycleState.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 3000);
+    expect(lifecycleState.waitForStatus).toHaveBeenCalledExactlyOnceWith(
+      expect.any(Function),
+      3000
+    );
 
     // A backfill arriving mid-teardown must not restart (replace) the host that
     // stop() is waiting on; that orphaned the stop wait for its full timeout.
@@ -959,6 +967,7 @@ describe('EmbeddingHostManager teardown ownership', () => {
       state: 'stopped',
     });
     await disposing;
+    expect(lifecycleState.waitForStatus).toHaveBeenCalledOnce();
     expect(lifecycleState.dispose).toHaveBeenCalledOnce();
   });
 
