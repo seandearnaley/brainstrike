@@ -1878,14 +1878,26 @@ persisted. No new context registry or renderer-provided authority is introduced.
 Original decision resume restores execution snapshots alongside admitted persona
 profiles at each exact ancestry depth. A different pinned descendant model uses
 its own defaults instead of inheriting options intended for another model. The
-current root's stricter permissions still apply to that child's tool construction.
+current root's permissions apply to that child's tool construction through
+`intersectChildPermissionCeilings` (`packages/assistant-contract/src/child-permission-ceiling.ts`):
+the admitted snapshot contributes ONLY its denies, so a root grant made after
+admission (a session grant, a per-tool "Always allow", yolo) lifts an admitted
+`ask` on the very next resume leg, while a later root reduction still applies and
+the admitted tool catalog stays frozen. SETTLED 2026-09-12 (do not relitigate):
+the earlier symmetric "stricter wins" rule froze every admitted `ask`, so the
+grant buttons on a child's approval notice could never end the prompting — one
+Explorer tree paused 87 times on `readWorkspaceDirectory` and exhausted its
+step budget without reading a file. Paired spec:
+`child-run-configuration.spec.ts` ("child permission ceiling honors root grants
+made after admission").
 Older rows without an execution snapshot remain explicitly unrecorded.
 
 Migration 137 persists an execution configuration on each continuation receipt.
-Admission validates the current host model and image capability, intersects root
-permissions, prevents disabling root plan mode, and permits only reductions of the
-original admitted tool catalog. Resume reads the receipt's exact profile and
-generation settings and applies any newer root permission reduction. A pending
+Admission validates the current host model and image capability, combines root
+permissions under the deny-only ceiling above, prevents disabling root plan mode,
+and permits only reductions of the original admitted tool catalog. Resume reads
+the receipt's exact profile and generation settings and applies the current root
+permissions (grants and reductions) under that same ceiling. A pending
 decision is not affected by future draft edits, reload or different parent effort.
 Child settings never replace the parent outcome leg's settings. Null legacy
 execution configurations retain the explicit original-profile compatibility path;
