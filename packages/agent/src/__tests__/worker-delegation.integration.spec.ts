@@ -341,6 +341,10 @@ it.for([
 // with "The delegated snapshot contains multiple pending calls and has no exact
 // native resume target." The approval leg must gate only the ask set: an
 // allowed sibling in the same step runs on resume without a second pause.
+// `true` and `'edit-only'` lift the approved edit tool's ask between the pause
+// and the resume and are the regression cases; `false` and `'read-only'` keep
+// its ask flag (the step stays sequential from the per-tool gate) and are the
+// controls that prove the fix changes nothing there.
 it.for([
   { grantAllOnApproval: false },
   { grantAllOnApproval: true },
@@ -501,6 +505,10 @@ it.for([
     ).toEqual([]);
     expect(write).toHaveBeenCalledTimes(1);
     expect(preToolUse.mock.calls.map(([name]) => name)).toEqual([
+      'brainstrike.writeWorkspaceFile',
+      'skill',
+    ]);
+    expect(postToolUse.mock.calls.map(([input]) => input.toolName)).toEqual([
       'brainstrike.writeWorkspaceFile',
       'skill',
     ]);

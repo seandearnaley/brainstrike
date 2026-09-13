@@ -97,7 +97,12 @@ export interface MastraAgentRuntimeOptions {
    * thread-05251b3f: `globWorkspace` paused right after `readWorkspaceDirectory`
    * was approved, and approving that pause failed with "multiple pending
    * calls"). The root leg never hits this because its function-form gate is
-   * truthy and already forces sequential execution.
+   * truthy and already forces sequential execution. Set by the two approval
+   * entry points — `streamMastraToolApprovalAction` and the tool-approval kind
+   * of `createChildContinuationDecisionStream` — which are exhaustive; a
+   * generic suspend resume needs no flag (a suspending tool carries a suspend
+   * schema, which already forces sequential execution). Effect is run-level:
+   * see `resolveChildToolCallConcurrency`.
    */
   approvalResumeLeg?: boolean;
   /**
@@ -788,7 +793,7 @@ export async function createMastraAgentRuntime(
     personasById,
     subAgents,
   } = await resolvePersonaRuntimeParts({
-    approvalResumeLeg: approvalResumeLeg === true,
+    approvalResumeLeg,
     childExecutionConfiguration: captureRuntimeChildExecution(
       sanitizedRuntime,
       normalizedProvider,

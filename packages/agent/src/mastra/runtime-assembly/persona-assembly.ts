@@ -104,7 +104,9 @@ export async function resolvePersonaRuntimeParts(params: {
     return EMPTY_PERSONA_RUNTIME_PARTS;
   }
   const personaBuild = await buildPersonaSubAgents({
-    approvalResumeLeg: params.approvalResumeLeg === true,
+    // The single normalization point: the factory's field is `boolean` under
+    // exactOptionalPropertyTypes, this params field admits `undefined`.
+    approvalResumeLeg: Boolean(params.approvalResumeLeg),
     childExecutionConfiguration: params.childExecutionConfiguration,
     continuationChildScope: params.continuationChildScope,
     delegatedDepthOffset: params.delegatedDepthOffset,

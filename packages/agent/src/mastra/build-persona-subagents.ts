@@ -89,7 +89,11 @@ export type DelegatedExecutionOptions = Pick<
 > & { workQueue?: DelegatedWorkQueue };
 
 export interface BuildPersonaSubAgentsParams {
-  /** See `MastraAgentRuntimeOptions.approvalResumeLeg`. Inherited by descendants. */
+  /**
+   * See `MastraAgentRuntimeOptions.approvalResumeLeg`. Reaches grandchildren
+   * because the lazy `agents` factory in `createConfiguredChild` spreads the
+   * whole `params` object into its nested `buildPersonaSubAgents` call.
+   */
   readonly approvalResumeLeg?: boolean;
   readonly childExecutionConfiguration?:
     | import('@brainstrike/assistant-contract').ChildExecutionConfiguration
@@ -541,15 +545,21 @@ async function prepareWorkerToolSurface(
 const MAX_CHILD_TOOL_CALL_CONCURRENCY = 8;
 
 /**
- * Children run tool calls in parallel EXCEPT on an approval-resume leg, where
- * the suspended step must resume in the sequential mode it suspended under.
- * Mastra picks the mode per step from the CALLED tools' `requireApproval`
- * flags; the approved tool lost that flag when a root grant lifted its `ask`
- * (the deny-only child ceiling), and a parallel foreach resume re-raises the
- * step's approval for every allowed sibling — the 2026-09-13 second pause on
+ * Children run tool calls in parallel EXCEPT on an approval-resume leg. The
+ * suspended step must resume in the sequential mode it suspended under: Mastra
+ * picks the mode per step from the CALLED tools' `requireApproval` flags, the
+ * approved tool lost that flag when a root grant lifted its `ask` (the
+ * deny-only child ceiling), and a parallel foreach resume re-raises the step's
+ * approval for every allowed sibling — the 2026-09-13 second pause on
  * `globWorkspace` whose approval then failed with "multiple pending calls".
- * Re-flagging the approved tool instead would re-prompt its next call and
- * recreate the loop the grant was meant to end. Paired test:
+ *
+ * BLAST RADIUS (deliberate, revisit when Mastra exposes per-step concurrency):
+ * `toolCallConcurrency` is a run-level option, so EVERY step of every child
+ * built for the resumed leg runs sequentially — the resumed child's later
+ * steps, and any persona the root delegates to fresh after the resume. A
+ * narrower fix does not exist today; re-flagging the approved tool instead
+ * would re-prompt its next call and recreate the loop the grant was meant to
+ * end. Paired tests: `build-persona-subagents.spec.ts` (this mapping) and
  * `worker-delegation.integration.spec.ts` ("allowed sibling ... ungated").
  */
 export function resolveChildToolCallConcurrency(approvalResumeLeg: boolean | undefined): {

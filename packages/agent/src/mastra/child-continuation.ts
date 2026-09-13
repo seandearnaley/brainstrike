@@ -6,6 +6,7 @@ import type {
 import {
   assertAssistantChildImageCapability,
   assistantChildInputContents,
+  isAssistantToolApprovalAction,
 } from '@brainstrike/assistant-contract';
 import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import { Agent, createMessageSignal, createSignal } from '@mastra/core/agent';
@@ -405,7 +406,9 @@ export async function createChildContinuationDecisionStream(
   const usageProcessor = createContinuationUsageProcessor(host, decision.id, scope);
   const runtime = await createMastraAgentRuntime({
     ...restored,
-    approvalResumeLeg: 'action' in action,
+    // Only a tool-approval decision resumes a step that can re-raise sibling
+    // approvals; a generic suspend resume already runs sequentially.
+    approvalResumeLeg: isAssistantToolApprovalAction(action),
     continuationChildScope: {
       resourceId: scope.resourceId,
       threadId: scope.threadId,
