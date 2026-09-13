@@ -1962,7 +1962,28 @@ permission engine (see PERMISSION ENGINE below) marks `'ask'` tools with the
 PER-TOOL `requireApproval`, so a run that includes any ask tool executes its step
 sequentially (the price of the per-tool gate), but only the ask tool actually
 suspends — allowed tools still run. A run with no ask tools stays parallel. The
-approval-resume path sets the run-wide `requireToolApproval`. The data-stream
+approval-resume path sets the run-wide `requireToolApproval` (the function-form
+gate is truthy, so the ROOT's resumed step is always sequential). DELEGATED
+CHILDREN get no run-wide gate on their nested resume (Mastra's agent-tool
+wrapper passes none), so their mode comes from the CALLED tools' flags alone —
+and the approved tool has lost its `ask` flag whenever a root grant lifted it
+between the pause and the resume (deny-only child ceiling). A parallel foreach
+resume in Mastra 1.64 re-raises the step's approval for every allowed sibling,
+so the two approval entry points (`streamMastraToolApprovalAction`, and the
+tool-approval kind of `createChildContinuationDecisionStream` — exhaustive; a
+suspend resume already runs sequentially through its suspend schema) pass
+`approvalResumeLeg: true`, and `resolveChildToolCallConcurrency`
+(`build-persona-subagents.ts`) builds that leg's children with
+`toolCallConcurrency.limit = 1`. BLAST RADIUS: that option is run-level, so the
+WHOLE resumed leg runs its child tool calls sequentially — every later step of
+the resumed child and any persona delegated fresh after the resume — until the
+leg ends; a per-step scope needs Mastra to expose per-step concurrency. SETTLED
+2026-09-13 (do not relitigate by re-flagging the approved tool: that re-prompts
+its next call and recreates the loop the grant ended). Paired tests:
+`build-persona-subagents.spec.ts` (the mapping) and
+`worker-delegation.integration.spec.ts` ("approving one delegated call leaves an
+allowed sibling in the same step ungated"; the `true`/`edit-only` grant variants
+are the regression cases, `false`/`read-only` the controls). The data-stream
 mapper and UI key all per-call state by toolCallId and handle interleaving.
 
 When changing this flow, update this section and the related tests.

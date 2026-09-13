@@ -1,4 +1,8 @@
-import { buildNativeToolRiskMap, getToolActionTarget } from '@brainstrike/assistant-contract';
+import {
+  buildNativeToolRiskMap,
+  getToolActionTarget,
+  type ToolRiskCategory,
+} from '@brainstrike/assistant-contract';
 import { BUILT_IN_PERSONAS } from '@brainstrike/assistant-contract/personas';
 import { buildUserPersona } from '@brainstrike/assistant-contract/user-personas';
 import { InMemoryStore } from '@mastra/core/storage';
@@ -327,6 +331,188 @@ it.for([
         expect(names).not.toContain('brainstrike_readWorkspaceFile');
       }
     }
+    await memory.settled();
+  }
+);
+
+// 2026-09-13 regression (thread-05251b3f): a child step that issued one ask
+// tool beside allowed tools paused AGAIN on the allowed sibling right after the
+// first approval, with no riskCategory, and approving that second pause failed
+// with "The delegated snapshot contains multiple pending calls and has no exact
+// native resume target." The approval leg must gate only the ask set: an
+// allowed sibling in the same step runs on resume without a second pause.
+// `true` and `'edit-only'` lift the approved edit tool's ask between the pause
+// and the resume and are the regression cases; `false` and `'read-only'` keep
+// its ask flag (the step stays sequential from the per-tool gate) and are the
+// controls that prove the fix changes nothing there.
+it.for([
+  { grantAllOnApproval: false },
+  { grantAllOnApproval: true },
+  { grantAllOnApproval: 'read-only' },
+  { grantAllOnApproval: 'edit-only' },
+] as const)(
+  'approving one delegated call leaves an allowed sibling in the same step ungated (%j)',
+  async ({ grantAllOnApproval }) => {
+    resolvedModels.length = 0;
+    invokedModels.length = 0;
+    const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
+    if (!worker) {
+      throw new Error('Built-in worker is not implemented');
+    }
+    const delegationTool = `agent-${worker.id}`;
+    const write = vi.fn(async (_input: { content: string; path: string }) => ({ written: true }));
+    const preToolUse = vi.fn(async (_toolName: string, _toolInput: unknown) => ({
+      decision: 'allow' as const,
+    }));
+    const postToolUse = vi.fn(async (_input: { toolName: string }) => ({}));
+    const identities: DelegatedConversationIdentity[] = [];
+    const scopes: DelegatedToolActionScope[] = [];
+    const observedMessageIds = new Map<string, string>();
+    const binding = {
+      ...createDelegatedConversationBinding(async (identity) => {
+        identities.push(identity);
+      }),
+      bindRun: async (identity: DelegatedRunIdentity) => {
+        const child = identities.find(
+          (entry) => entry.parentToolCallId === identity.parentToolCallId
+        );
+        if (!child) {
+          throw new Error('Native child was not bound');
+        }
+        scopes.splice(0, scopes.length, {
+          configuration: child.configuration,
+          identity,
+          ...(child.originalToolCall ? { originalToolCall: child.originalToolCall } : {}),
+          resourceId: child.childResourceId,
+          threadId: child.childThreadId,
+        });
+        const messageId = observedMessageIds.get(identity.childRuntimeRunId);
+        return { threadId: child.childThreadId, ...(messageId ? { messageId } : {}) };
+      },
+      claimToolAction: async () => undefined,
+      finishToolActions: async () => undefined,
+      prepareToolAction: async () => undefined,
+      releaseUnexecutedToolAction: async () => undefined,
+      resolveToolAction: async () => scopes,
+    };
+    modelHolder.current = scriptedAgentModel((options) => {
+      if (options.tools?.some((tool) => tool.name === delegationTool)) {
+        if (hasToolResult(options, delegationTool)) {
+          return textParts('PARENT_RECEIVED_WORKER_RESULT');
+        }
+        return toolCallParts(delegationTool, 'worker-delegation', {
+          instructions: 'DELEGATED_TASK_DETAIL',
+          prompt: 'Create the requested deliverable.',
+        });
+      }
+      if (
+        hasToolResult(options, 'brainstrike_writeWorkspaceFile') &&
+        hasToolResult(options, 'skill')
+      ) {
+        return textParts('WORKER_DELIVERABLE_RESULT');
+      }
+      // ONE step, two calls: the ask-gated edit first, the allowed skill read second.
+      const edit = toolCallParts('brainstrike_writeWorkspaceFile', 'worker-edit', {
+        content: 'disposable output',
+        path: 'worker-output.txt',
+      });
+      const read = toolCallParts('skill', 'worker-skill', { name: 'worker-deliverable' });
+      return [...edit.slice(0, -1), ...read.slice(1)];
+    }).model;
+    const storage = new InMemoryStore({ id: 'worker-sibling' });
+    const memory = new Memory({ options: { generateTitle: false }, storage });
+    const options = {
+      conversationBinding: binding,
+      memory,
+      model: 'gpt-5.4',
+      personas: [worker],
+      runtime: {
+        apiKey: 'test-key',
+        hookRunner: { postToolUse, preToolUse },
+        memory: { resourceId: 'worker-resource-sibling', threadId: 'worker-root-sibling' },
+        model: 'gpt-5.4',
+        permissionPolicy: {
+          policies: { edit: 'ask', execute: 'ask', mcp: 'deny', read: 'allow' },
+          riskByTool: { ...buildNativeToolRiskMap(), 'brainstrike.writeWorkspaceFile': 'edit' },
+          yolo: false,
+        },
+        provider: 'openai',
+        workspaceSkills: makeWorkerSkills(),
+      },
+      storage,
+      tools: {
+        'brainstrike.writeWorkspaceFile': createTool({
+          description: 'Write a disposable workspace deliverable.',
+          execute: write,
+          id: 'brainstrike.writeWorkspaceFile',
+          inputSchema: z.object({ content: z.string(), path: z.string() }),
+        }),
+      },
+    } as const;
+    const initial = await drain(
+      await streamMastraAgent(
+        [
+          {
+            id: 'user',
+            parts: [{ text: 'Delegate my deliverable to Worker.', type: 'text' }],
+            role: 'user',
+          },
+        ],
+        options
+      )
+    );
+    for (const frame of initial) {
+      if (frame.type === 'delegated-conversation-chunk') {
+        observedMessageIds.set(frame.identity.childRuntimeRunId, frame.messageId);
+      }
+    }
+    const pending = initial.find((chunk) => chunk.type === 'tool-approval-required');
+    if (pending?.type !== 'tool-approval-required') {
+      throw new Error('Missing native child approval');
+    }
+    expect(pending.toolName).toBe('brainstrike.writeWorkspaceFile');
+    expect(pending.riskCategory).toBe('edit');
+    expect(write).not.toHaveBeenCalled();
+    // "Allow all tools this session" is recorded in the renderer store and read
+    // fresh at request composition, so the approval leg carries every category
+    // as a session grant while the child's admitted snapshot still says ask.
+    const approvalOptions = grantAllOnApproval
+      ? {
+          ...options,
+          runtime: {
+            ...options.runtime,
+            permissionPolicy: {
+              ...options.runtime.permissionPolicy,
+              sessionGrants: (grantAllOnApproval === 'read-only'
+                ? ['read']
+                : grantAllOnApproval === 'edit-only'
+                  ? ['edit']
+                  : ['read', 'edit', 'execute', 'mcp']) satisfies ToolRiskCategory[],
+            },
+          },
+        }
+      : options;
+    const resumed = await drain(
+      await streamMastraToolApprovalAction(
+        { action: 'approve', ...getToolActionTarget(pending), toolName: pending.toolName },
+        approvalOptions
+      )
+    );
+    const secondPauses = resumed.filter((chunk) => chunk.type === 'tool-approval-required');
+    expect(
+      secondPauses.map((chunk) => (chunk.type === 'tool-approval-required' ? chunk.toolName : '')),
+      'an allowed sibling must not pause after the ask tool is approved'
+    ).toEqual([]);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(preToolUse.mock.calls.map(([name]) => name)).toEqual([
+      'brainstrike.writeWorkspaceFile',
+      'skill',
+    ]);
+    expect(postToolUse.mock.calls.map(([input]) => input.toolName)).toEqual([
+      'brainstrike.writeWorkspaceFile',
+      'skill',
+    ]);
+    expect(JSON.stringify(resumed)).toContain('PARENT_RECEIVED_WORKER_RESULT');
     await memory.settled();
   }
 );

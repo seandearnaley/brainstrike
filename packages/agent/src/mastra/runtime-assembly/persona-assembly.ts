@@ -60,6 +60,7 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
  * map here would bake the wrong budget into every pinned persona's tools.
  */
 export async function resolvePersonaRuntimeParts(params: {
+  approvalResumeLeg?: boolean | undefined;
   childExecutionConfiguration?:
     | import('@brainstrike/assistant-contract').ChildExecutionConfiguration
     | undefined;
@@ -103,6 +104,9 @@ export async function resolvePersonaRuntimeParts(params: {
     return EMPTY_PERSONA_RUNTIME_PARTS;
   }
   const personaBuild = await buildPersonaSubAgents({
+    // The single normalization point: the factory's field is `boolean` under
+    // exactOptionalPropertyTypes, this params field admits `undefined`.
+    approvalResumeLeg: Boolean(params.approvalResumeLeg),
     childExecutionConfiguration: params.childExecutionConfiguration,
     continuationChildScope: params.continuationChildScope,
     delegatedDepthOffset: params.delegatedDepthOffset,

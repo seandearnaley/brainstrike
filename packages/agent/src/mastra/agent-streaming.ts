@@ -1492,6 +1492,7 @@ export async function streamMastraToolApprovalAction(
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
     {
       ...withRuntimeDerivedStreamOptions(resumeOptions),
+      approvalResumeLeg: true,
       hydrateToolDiscoveryFromMemory: true,
       // The durable run suspended against the execute-backed tool. A session
       // grant changes authorization for this leg, not the stored invocation's

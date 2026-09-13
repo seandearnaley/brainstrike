@@ -87,6 +87,25 @@ import type { BrainstrikeToolSearchProcessor, ToolDiscoveryMetadata } from './to
 
 export interface MastraAgentRuntimeOptions {
   /**
+   * This runtime resumes a paused APPROVAL. Persona children built for it run
+   * their tool calls sequentially (see `build-persona-subagents.ts`,
+   * `resolveChildToolCallConcurrency`): a delegated child's resume inherits no
+   * run-wide approval gate from the parent, so when the approved tool's own
+   * `ask` was lifted by a grant in the meantime the child's suspended step would
+   * otherwise resume in PARALLEL mode, and Mastra 1.64's parallel foreach resume
+   * re-raises the step's approval for every allowed sibling (2026-09-13,
+   * thread-05251b3f: `globWorkspace` paused right after `readWorkspaceDirectory`
+   * was approved, and approving that pause failed with "multiple pending
+   * calls"). The root leg never hits this because its function-form gate is
+   * truthy and already forces sequential execution. Set by the two approval
+   * entry points — `streamMastraToolApprovalAction` and the tool-approval kind
+   * of `createChildContinuationDecisionStream` — which are exhaustive; a
+   * generic suspend resume needs no flag (a suspending tool carries a suspend
+   * schema, which already forces sequential execution). Effect is run-level:
+   * see `resolveChildToolCallConcurrency`.
+   */
+  approvalResumeLeg?: boolean;
+  /**
    * Provider auth input for the run's language model (BST-1352). A DIRECT
    * option by contract — never read from `runtime`: RuntimeData must not carry
    * auth inputs (RequestContext.toJSON drops functions, so a custom_fetch
@@ -602,6 +621,7 @@ export async function createMastraAgentRuntime(
     mcpTimeoutMs,
     permissionPolicy,
     preserveExecuteBackedWebSearch,
+    approvalResumeLeg,
     personas,
     hookRunner: hookRunnerOption,
     resolved,
@@ -773,6 +793,7 @@ export async function createMastraAgentRuntime(
     personasById,
     subAgents,
   } = await resolvePersonaRuntimeParts({
+    approvalResumeLeg,
     childExecutionConfiguration: captureRuntimeChildExecution(
       sanitizedRuntime,
       normalizedProvider,
