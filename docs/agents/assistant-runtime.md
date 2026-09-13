@@ -2853,7 +2853,10 @@ Flow (desktop assistant server → agent runtime):
    precisely because the grant + approve happen in one synchronous handler
    with no re-render in between (the same fresh-read pattern as plan-mode
    exit). The wrapper's reactive subscription additionally keeps later
-   requests in sync.
+   requests in sync. The same holds for a DELEGATED child's pause: the child's
+   admitted permission snapshot contributes only its denies, so the grant lifts
+   the child's `ask` on its next resume leg too (see `assistant-subagents.md`,
+   deny-only ceiling, settled 2026-09-12).
    An OpenRouter approval pause terminates its transport leg with zero-token
    usage and no claimed cost: Mastra emits the pause before that model step's
    `step-finish`. Approval resume emits the deferred step finish before later
