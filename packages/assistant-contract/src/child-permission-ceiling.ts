@@ -37,6 +37,12 @@ function decision(
  * letting every other decision follow the current root policy — grants and
  * reductions alike. Returns an explicit per-tool snapshot so callers never need
  * to re-derive session grants or yolo from either input.
+ *
+ * @remarks Despite the name this is not a lattice meet: it is a deny-union with
+ * current-wins everywhere else. Risk classification is a fact, not authority, so
+ * a tool the current snapshot fails to classify is resolved under the admitted
+ * classification rather than the current default — a classification gap can
+ * never widen a child on its own.
  */
 export function intersectChildPermissionCeilings(
   admitted: PermissionToolGateSnapshot | undefined,
@@ -60,9 +66,11 @@ export function intersectChildPermissionCeilings(
   ]);
   const perToolOverrides: Record<string, PermissionDecision> = {};
   for (const id of ids) {
+    const admittedRisk = admitted.riskByTool?.[id];
+    const currentRisk = current.riskByTool?.[id];
     perToolOverrides[id] = combine(
-      decision(admitted, admitted.riskByTool?.[id] ?? admitted.defaultRisk ?? 'mcp', id),
-      decision(current, current.riskByTool?.[id] ?? current.defaultRisk ?? 'mcp', id)
+      decision(admitted, admittedRisk ?? currentRisk ?? admitted.defaultRisk ?? 'mcp', id),
+      decision(current, currentRisk ?? admittedRisk ?? current.defaultRisk ?? 'mcp', id)
     );
   }
   // Tools missing from both classifications obey the admitted default's deny and

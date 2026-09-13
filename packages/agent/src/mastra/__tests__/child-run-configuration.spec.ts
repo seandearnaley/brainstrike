@@ -103,7 +103,7 @@ describe('host admitted child execution configuration', () => {
   });
 });
 
-it('does not widen an unclassified tool when the root changes its default risk category', () => {
+it('keeps an admitted deny for a tool unclassified on both sides when the root changes its default risk category', () => {
   const result = intersectChildPermissionCeilings(
     { ...permissionPolicy, defaultRisk: 'execute' },
     { ...permissionPolicy, defaultRisk: 'read' }
@@ -194,6 +194,45 @@ describe('child permission ceiling honors root grants made after admission', () 
       perToolOverrides: { 'brainstrike.readWorkspaceFile': 'deny' },
     });
     expect(decide(denied, 'brainstrike.readWorkspaceFile')).toBe('deny');
+  });
+
+  it('a later root reduction of a risk POLICY still applies to an admitted allow', () => {
+    const allowRead: PermissionToolGateSnapshot = {
+      ...admitted,
+      perToolOverrides: {},
+      policies: { ...admitted.policies, read: 'allow' },
+    };
+    const asked = intersectChildPermissionCeilings(allowRead, {
+      ...allowRead,
+      policies: { ...allowRead.policies, read: 'ask' },
+    });
+    expect(decide(asked, 'brainstrike.readWorkspaceFile')).toBe('ask');
+    const denied = intersectChildPermissionCeilings(allowRead, {
+      ...allowRead,
+      policies: { ...allowRead.policies, read: 'deny' },
+    });
+    expect(decide(denied, 'brainstrike.readWorkspaceFile')).toBe('deny');
+  });
+
+  it('an admitted per-tool deny survives root yolo', () => {
+    const result = intersectChildPermissionCeilings(
+      { ...admitted, perToolOverrides: { 'brainstrike.readWorkspaceFile': 'deny' } },
+      { ...admitted, yolo: true }
+    );
+    expect(decide(result, 'brainstrike.readWorkspaceFile')).toBe('deny');
+    expect(decide(result, 'brainstrike.readWorkspaceDirectory')).toBe('allow');
+  });
+
+  it('a classification gap on the current side never widens an admitted ask', () => {
+    const { 'brainstrike.readWorkspaceDirectory': _dropped, ...withoutDirectory } = riskByTool;
+    const result = intersectChildPermissionCeilings(admitted, {
+      ...admitted,
+      defaultRisk: 'mcp',
+      riskByTool: withoutDirectory,
+    });
+    // `mcp: 'allow'` is the current default; without the admitted classification
+    // the directory reader would silently resolve to allow with no user grant.
+    expect(decide(result, 'brainstrike.readWorkspaceDirectory')).toBe('ask');
   });
 
   it('keeps the admitted posture when the root sends no policy', () => {
