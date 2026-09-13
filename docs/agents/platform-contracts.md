@@ -1744,16 +1744,19 @@ or output elision applies. Missing/deleted threads, invalid selected ancestry
 and read failures fail the download visibly. Unauthorized descendants are excluded.
 
 `packages/app-shell/src/diagnostics/thread-debug-pack.ts` emits versioned JSON
-with section counts, snapshot time, active run IDs, retained artifact bytes,
-artifact decode failures, correlation instructions
+with section counts, snapshot time, canonical active run IDs, unknown run
+statuses, retained artifact bytes and accounting completeness, artifact failures,
+structural-elision counts, correlation instructions
 and explicit evidence limitations. Retention/deletion, already-shortened stored
 projections and unsaved active transcripts cannot be reconstructed. Empty
 sections never claim that nothing happened. Artifact bytes are decoded before
 key-name and value-shape secret redaction. Value scanning precedes JSON
 serialization so multiline secrets remain detectable and JSON remains valid.
-Deep and cyclic values receive visible bounded markers. One corrupt artifact
-retains its identity and a decode failure in the pack while other evidence stays
-available; collection and save errors produce no partial success. The UI uses the
+Deep and repeated/cyclic values receive visible bounded markers and manifest
+counts. One corrupt artifact retains its identity and a typed failure in the pack
+while other evidence stays available; malformed byte lengths are excluded from
+the total and make its accounting explicitly incomplete. Collection and save
+errors produce no partial success. The UI uses the
 existing `downloadBlobFile` route and regenerates on each click. Child panels
 inject their own thread binding. No new persistence is introduced.
 

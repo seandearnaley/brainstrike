@@ -13,56 +13,79 @@ export interface ThreadDebugSnapshot {
 // This explicit inventory is the export contract, not general database access.
 // SNAPSHOT_SQL deliberately composes every subquery into one PostgreSQL statement
 // so all sections, including active runs, share the same database snapshot.
+const selectColumns = (alias: string, columns: readonly string[]): string =>
+  columns.map((column) => `${alias}."${column}"`).join(', ');
+
 const SECTIONS = {
-  childBudgets:
-    'SELECT b.* FROM brainstrike_delegation_child_budgets b JOIN subtree s ON s.thread_id = b.child_thread_id ORDER BY b.root_thread_id, b.turn_message_id, b.child_thread_id',
-  continuationDecisions:
-    'SELECT d.* FROM brainstrike_delegated_continuation_decisions d JOIN brainstrike_delegated_continuations c ON c.id = d.continuation_id JOIN subtree s ON s.thread_id = c.thread_id ORDER BY d.created_at, d.continuation_id, d.target_runtime_run_id, d.tool_call_id',
-  continuations:
-    'SELECT c.* FROM brainstrike_delegated_continuations c JOIN subtree s USING (thread_id) ORDER BY c.created_at, c.id',
-  conversations:
-    'SELECT n.* FROM owned_nodes n JOIN subtree s USING (thread_id) ORDER BY delegation_depth, thread_id',
-  decisions:
-    'SELECT d.* FROM brainstrike_delegated_tool_decisions d WHERE d.child_thread_id IN (SELECT thread_id FROM subtree) ORDER BY d.created_at, d.id',
-  delegationBudgets: `SELECT b.* FROM brainstrike_delegation_budgets b WHERE b.root_thread_id IN (SELECT thread_id FROM subtree)
+  childBudgets: `SELECT ${selectColumns('b', ['root_thread_id', 'turn_message_id', 'child_thread_id', 'max_steps', 'steps', 'charged_output_tokens', 'synthesis_used'])}
+    FROM brainstrike_delegation_child_budgets b JOIN subtree s ON s.thread_id = b.child_thread_id
+    ORDER BY b.root_thread_id, b.turn_message_id, b.child_thread_id`,
+  continuationDecisions: `SELECT ${selectColumns('d', ['continuation_id', 'native_run_id', 'target_runtime_run_id', 'tool_call_id', 'kind', 'host_run_id', 'previous_host_run_id', 'state', 'created_at'])}
+    FROM brainstrike_delegated_continuation_decisions d
+    JOIN brainstrike_delegated_continuations c ON c.id = d.continuation_id
+    JOIN subtree s ON s.thread_id = c.thread_id
+    ORDER BY d.created_at, d.continuation_id, d.target_runtime_run_id, d.tool_call_id`,
+  continuations: `SELECT ${selectColumns('c', ['id', 'owner_resource_id', 'root_thread_id', 'thread_id', 'host_run_id', 'active_host_run_id', 'turn_message_id', 'input_text', 'native_run_id', 'state', 'error', 'cancellation_requested_at', 'created_at', 'updated_at', 'input_payload', 'execution_configuration'])}
+    FROM brainstrike_delegated_continuations c JOIN subtree s USING (thread_id)
+    ORDER BY c.created_at, c.id`,
+  conversations: `SELECT ${selectColumns('n', ['thread_id', 'owner_resource_id', 'root_thread_id', 'parent_thread_id', 'resource_id', 'workspace_root_id', 'configuration', 'display_name', 'color', 'created_at', 'delegation_depth'])}
+    FROM owned_nodes n JOIN subtree s USING (thread_id)
+    ORDER BY delegation_depth, thread_id`,
+  decisions: `SELECT ${selectColumns('d', ['id', 'owner_resource_id', 'root_thread_id', 'parent_runtime_run_id', 'parent_tool_call_id', 'child_thread_id', 'child_runtime_run_id', 'tool_call_id', 'host_run_id', 'state', 'created_at', 'finished_at'])}
+    FROM brainstrike_delegated_tool_decisions d
+    WHERE d.child_thread_id IN (SELECT thread_id FROM subtree)
+    ORDER BY d.created_at, d.id`,
+  delegationBudgets: `SELECT ${selectColumns('b', ['root_thread_id', 'turn_message_id', 'owner_resource_id', 'max_depth', 'max_invocations', 'max_output_tokens', 'charged_output_tokens', 'max_child_steps', 'max_child_output_tokens', 'max_step_output_tokens', 'synthesis_output_tokens', 'invocations'])}
+    FROM brainstrike_delegation_budgets b WHERE b.root_thread_id IN (SELECT thread_id FROM subtree)
     OR EXISTS (SELECT 1 FROM brainstrike_delegation_child_budgets c JOIN subtree s ON s.thread_id = c.child_thread_id
       WHERE c.root_thread_id = b.root_thread_id AND c.turn_message_id = b.turn_message_id) ORDER BY b.root_thread_id, b.turn_message_id`,
-  diagnostics:
-    'SELECT d.* FROM brainstrike_diagnostic_events d WHERE d.thread_id IN (SELECT thread_id FROM subtree) OR d.run_id IN (SELECT id FROM brainstrike_assistant_thread_runs WHERE thread_id IN (SELECT thread_id FROM subtree)) ORDER BY d.occurred_at, d.id',
-  errors:
-    'SELECT e.* FROM brainstrike_assistant_run_errors e JOIN subtree s USING (thread_id) ORDER BY e.occurred_at, e.run_id',
-  events:
-    'SELECT e.* FROM brainstrike_assistant_run_events e JOIN subtree s USING (thread_id) ORDER BY e.occurred_at, e.run_id, e.sequence, e.id',
-  invocations:
-    'SELECT i.* FROM brainstrike_delegated_invocations i JOIN subtree s USING (thread_id) ORDER BY i.created_at, i.parent_runtime_run_id, i.parent_tool_call_id',
-  messageParents:
-    'SELECT p.* FROM brainstrike_assistant_message_parents p JOIN subtree s USING (thread_id) ORDER BY p.message_id',
-  messages:
-    'SELECT m.* FROM mastra_messages m JOIN subtree s USING (thread_id) ORDER BY m."createdAt", m.id',
-  outcomes:
-    'SELECT o.* FROM brainstrike_assistant_run_outcomes o JOIN subtree s USING (thread_id) ORDER BY o.labeled_at, o.run_id',
-  runs: `SELECT r.id, r.resource_id, r.thread_id, r.provider, r.model, r.model_settings,
-    r.provider_options, r.runtime_kind, r.status, r.error, r.started_at, r.completed_at,
-    r.created_at, r.updated_at, r.turn_message_id
+  diagnostics: `SELECT ${selectColumns('d', ['id', 'occurred_at', 'severity', 'source', 'scope', 'code', 'message', 'stack', 'cause_chain', 'context', 'fingerprint', 'session_id', 'run_id', 'thread_id', 'resource_id', 'root_id', 'app_version', 'platform', 'created_at'])}
+    FROM brainstrike_diagnostic_events d
+    WHERE d.thread_id IN (SELECT thread_id FROM subtree)
+      OR d.run_id IN (SELECT id FROM brainstrike_assistant_thread_runs WHERE thread_id IN (SELECT thread_id FROM subtree))
+    ORDER BY d.occurred_at, d.id`,
+  errors: `SELECT ${selectColumns('e', ['run_id', 'thread_id', 'resource_id', 'code', 'message', 'cause_chain', 'http_status', 'provider_request_id', 'response_headers', 'occurred_at', 'created_at'])}
+    FROM brainstrike_assistant_run_errors e JOIN subtree s USING (thread_id)
+    ORDER BY e.occurred_at, e.run_id`,
+  events: `SELECT ${selectColumns('e', ['id', 'run_id', 'resource_id', 'thread_id', 'sequence', 'kind', 'status', 'label', 'detail', 'duration_ms', 'metadata', 'occurred_at', 'created_at', 'updated_at'])}
+    FROM brainstrike_assistant_run_events e JOIN subtree s USING (thread_id)
+    ORDER BY e.occurred_at, e.run_id, e.sequence, e.id`,
+  invocations: `SELECT ${selectColumns('i', ['owner_resource_id', 'root_thread_id', 'thread_id', 'host_run_id', 'turn_message_id', 'parent_runtime_run_id', 'parent_tool_call_id', 'persona_id', 'child_runtime_run_id', 'created_at', 'original_tool_call', 'cancellation_requested_at'])}
+    FROM brainstrike_delegated_invocations i JOIN subtree s USING (thread_id)
+    ORDER BY i.created_at, i.parent_runtime_run_id, i.parent_tool_call_id`,
+  messageParents: `SELECT ${selectColumns('p', ['message_id', 'thread_id', 'resource_id', 'parent_id', 'created_at', 'updated_at'])}
+    FROM brainstrike_assistant_message_parents p JOIN subtree s USING (thread_id)
+    ORDER BY p.message_id`,
+  messages: `SELECT ${selectColumns('m', ['id', 'thread_id', 'content', 'role', 'type', 'createdAt', 'resourceId'])}
+    FROM mastra_messages m JOIN subtree s USING (thread_id)
+    ORDER BY m."createdAt", m.id`,
+  outcomes: `SELECT ${selectColumns('o', ['run_id', 'thread_id', 'resource_id', 'verdict', 'source', 'detail', 'labeled_at', 'created_at', 'updated_at'])}
+    FROM brainstrike_assistant_run_outcomes o JOIN subtree s USING (thread_id)
+    ORDER BY o.labeled_at, o.run_id`,
+  runs: `SELECT ${selectColumns('r', ['id', 'resource_id', 'thread_id', 'provider', 'model', 'model_settings', 'provider_options', 'runtime_kind', 'status', 'error', 'started_at', 'completed_at', 'created_at', 'updated_at', 'turn_message_id'])}
     FROM brainstrike_assistant_thread_runs r JOIN subtree s USING (thread_id)
     ORDER BY r.started_at, r.id`,
-  stepReservations:
-    'SELECT r.* FROM brainstrike_delegation_step_reservations r JOIN subtree s ON s.thread_id = r.child_thread_id ORDER BY r.id',
-  threads:
-    'SELECT t.* FROM mastra_threads t JOIN subtree s ON s.thread_id = t.id ORDER BY t."createdAt", t.id',
-  toolOutputs: `SELECT a.id, a.resource_id, a.thread_id, a.execution_thread_id, a.run_id, a.tool_call_id,
-    a.format, encode(a.content, 'base64') AS "contentBase64", a.byte_length, a.created_at, a.expires_at
+  stepReservations: `SELECT ${selectColumns('r', ['id', 'root_thread_id', 'turn_message_id', 'child_thread_id', 'host_run_id', 'output_tokens', 'settled'])}
+    FROM brainstrike_delegation_step_reservations r JOIN subtree s ON s.thread_id = r.child_thread_id
+    ORDER BY r.id`,
+  threads: `SELECT ${selectColumns('t', ['id', 'resourceId', 'title', 'metadata', 'createdAt', 'updatedAt'])}
+    FROM mastra_threads t JOIN subtree s ON s.thread_id = t.id
+    ORDER BY t."createdAt", t.id`,
+  toolOutputs: `SELECT ${selectColumns('a', ['id', 'resource_id', 'thread_id', 'execution_thread_id', 'run_id', 'tool_call_id', 'format'])},
+    encode(a.content, 'base64') AS "contentBase64", ${selectColumns('a', ['byte_length', 'created_at', 'expires_at'])}
     FROM brainstrike_assistant_tool_output_artifacts a JOIN subtree s ON s.thread_id = a.execution_thread_id
     ORDER BY a.created_at, a.id`,
-  toolProjections:
-    'SELECT p.* FROM brainstrike_assistant_tool_projection_rewrites p JOIN subtree s USING (thread_id) ORDER BY p.created_at, p.tool_call_id',
-  toolTelemetry:
-    'SELECT t.* FROM brainstrike_tool_call_telemetry t JOIN subtree s USING (thread_id) ORDER BY t.occurred_at, t.id',
-  treatments: `SELECT t.run_id, t.thread_id, t.resource_id, t.experiment_id, t.variant,
-    t.injection_status, t.signal_injected, t.signal_content_hash, t.created_at
+  toolProjections: `SELECT ${selectColumns('p', ['tool_call_id', 'thread_id', 'rewrite_id', 'superseded_by_tool_call_id', 'marker_text', 'original_chars', 'created_at', 'kind'])}
+    FROM brainstrike_assistant_tool_projection_rewrites p JOIN subtree s USING (thread_id)
+    ORDER BY p.created_at, p.tool_call_id`,
+  toolTelemetry: `SELECT ${selectColumns('t', ['id', 'thread_id', 'run_id', 'tool_id', 'occurred_at', 'model_facing_chars', 'truncated', 'zero_match', 'is_pagination_followup', 'engine', 'scan_limited', 'candidates_truncated'])}
+    FROM brainstrike_tool_call_telemetry t JOIN subtree s USING (thread_id)
+    ORDER BY t.occurred_at, t.id`,
+  treatments: `SELECT ${selectColumns('t', ['run_id', 'thread_id', 'resource_id', 'experiment_id', 'variant', 'injection_status', 'signal_injected', 'signal_content_hash', 'created_at'])}
     FROM brainstrike_assistant_run_treatments t JOIN subtree s USING (thread_id)
     ORDER BY t.created_at, t.run_id`,
-  usage: `SELECT u.* FROM brainstrike_assistant_run_usage u
+  usage: `SELECT ${selectColumns('u', ['id', 'thread_id', 'run_id', 'resource_id', 'model', 'provider', 'input_tokens', 'output_tokens', 'created_at', 'root_id', 'billed_cost_usd', 'cache_read_input_tokens', 'cache_creation_input_tokens', 'run_kind', 'delegation_parent_run_id', 'delegation_tool_call_id', 'continuation_id'])}
+    FROM brainstrike_assistant_run_usage u
     WHERE u.thread_id IN (SELECT thread_id FROM subtree)
       OR EXISTS (SELECT 1 FROM brainstrike_delegated_invocations i JOIN subtree s USING (thread_id)
         WHERE i.root_thread_id = u.thread_id AND i.parent_runtime_run_id = u.delegation_parent_run_id

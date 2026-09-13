@@ -668,19 +668,23 @@ export function redactSensitiveLogValue(
   path: readonly string[] = [],
   seen = new WeakMap<object, unknown>(),
   options: {
-    readonly circularValue?: string;
     readonly maxDepth?: number;
+    readonly onDepthTruncated?: () => void;
+    readonly onRepeatedValue?: () => void;
+    readonly repeatedValue?: string;
   } = {}
 ): unknown {
   if (typeof value !== 'object' || value === null) {
     return value;
   }
   if (path.length >= (options.maxDepth ?? Number.POSITIVE_INFINITY)) {
+    options.onDepthTruncated?.();
     return '[TRUNCATED: maximum diagnostic depth]';
   }
   const existing = seen.get(value);
   if (existing !== undefined) {
-    return options.circularValue ?? existing;
+    options.onRepeatedValue?.();
+    return options.repeatedValue ?? existing;
   }
   const redacted = (Array.isArray(value) ? [] : {}) as Record<string, unknown>;
   // Memoize BEFORE any recursion (including the Error-cause walk below): a

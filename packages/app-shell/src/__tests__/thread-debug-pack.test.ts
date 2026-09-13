@@ -41,11 +41,20 @@ describe('thread debug pack format', () => {
         sections: {
           toolOutputs: [
             {
+              byte_length: 12,
               contentBase64: 'not base64!',
               format: 'json',
               id: 'bad-artifact',
               run_id: 'run-1',
               tool_call_id: 'call-1',
+            },
+            {
+              byte_length: '1e5',
+              contentBase64: toBase64('still readable'),
+              format: 'text',
+              id: 'bad-length',
+              run_id: 'run-2',
+              tool_call_id: 'call-2',
             },
           ],
         },
@@ -56,14 +65,23 @@ describe('thread debug pack format', () => {
       contentError: { code: 'invalid-base64' },
       id: 'bad-artifact',
     });
-    expect(corrupt.manifest.artifactDecodeFailures).toEqual([
+    expect(corrupt.sections.toolOutputs[1].content).toBe('still readable');
+    expect(corrupt.manifest.artifactFailures).toEqual([
       {
         artifactId: 'bad-artifact',
         code: 'invalid-base64',
         runId: 'run-1',
         toolCallId: 'call-1',
       },
+      {
+        artifactId: 'bad-length',
+        code: 'invalid-byte-length',
+        runId: 'run-2',
+        toolCallId: 'call-2',
+      },
     ]);
+    expect(corrupt.manifest.retainedArtifactBytes).toBe('12');
+    expect(corrupt.manifest.retainedArtifactBytesComplete).toBe(false);
   });
   it('preserves large outputs and JSON structure while redacting decoded artifact credentials', () => {
     const apiKey = ['sk', 'abcdefghijklmnopqrstuv'].join('-');
@@ -100,7 +118,8 @@ describe('thread debug pack format', () => {
     expect(pack).not.toContain('private-value');
     expect(pack).not.toContain(apiKey);
     expect(pack).not.toContain('contentBase64');
-    expect(parsed.manifest.activeRunIds).toEqual(['r1', 'r2']);
+    expect(parsed.manifest.activeRunIds).toEqual(['r1']);
+    expect(parsed.manifest.unknownRunStatuses).toEqual([{ runId: 'r2', status: 'paused' }]);
     expect(parsed.manifest.retainedArtifactBytes).toBe(String(content.length));
     expect(parsed.manifest.counts.messages).toBe(1);
     expect(parsed.manifest.elidedRows).toBe(0);
@@ -119,6 +138,7 @@ describe('thread debug pack format', () => {
       threadId: 'root',
     });
     expect(pack).toContain('[TRUNCATED: maximum diagnostic depth]');
+    expect(JSON.parse(pack).manifest.structuralElisions).toEqual({ depth: 1, repeated: 0 });
   });
 
   it('does not turn missing data into a claim of zero activity', () => {

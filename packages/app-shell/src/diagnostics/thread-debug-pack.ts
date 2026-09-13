@@ -1,3 +1,4 @@
+import type { AssistantThreadRunStatus } from '@brainstrike/assistant-data';
 import {
   readThreadDebugSnapshot,
   type ThreadDebugDatabase,
@@ -6,31 +7,45 @@ import {
 import { redactSensitiveLogValue } from '@brainstrike/logging';
 import { scrubLikelySecretValues } from './secret-scrub';
 
-type ArtifactDecodeFailureCode =
+const REPEATED_VALUE_MARKER = '[REPEATED OR CIRCULAR]';
+const RUN_STATUS_KIND = {
+  cancelled: 'terminal',
+  cancelling: 'active',
+  completed: 'terminal',
+  failed: 'terminal',
+  running: 'active',
+} as const satisfies Record<AssistantThreadRunStatus, 'active' | 'terminal'>;
+
+type ArtifactFailureCode =
   | 'invalid-base64'
+  | 'invalid-byte-length'
   | 'invalid-json'
   | 'invalid-utf8'
   | 'missing-content'
   | 'unsupported-format';
 
-interface ArtifactDecodeFailure {
+interface ArtifactFailure {
   readonly artifactId: unknown;
-  readonly code: ArtifactDecodeFailureCode;
+  readonly code: ArtifactFailureCode;
   readonly runId: unknown;
   readonly toolCallId: unknown;
 }
 
+function artifactFailure(row: Record<string, unknown>, code: ArtifactFailureCode): ArtifactFailure {
+  return {
+    artifactId: row['id'] ?? null,
+    code,
+    runId: row['run_id'] ?? null,
+    toolCallId: row['tool_call_id'] ?? null,
+  };
+}
+
 function failedArtifact(
   metadata: Record<string, unknown>,
-  code: ArtifactDecodeFailureCode
-): { failure: ArtifactDecodeFailure; row: Record<string, unknown> } {
+  code: Exclude<ArtifactFailureCode, 'invalid-byte-length'>
+): { failure: ArtifactFailure; row: Record<string, unknown> } {
   return {
-    failure: {
-      artifactId: metadata['id'] ?? null,
-      code,
-      runId: metadata['run_id'] ?? null,
-      toolCallId: metadata['tool_call_id'] ?? null,
-    },
+    failure: artifactFailure(metadata, code),
     row: {
       ...metadata,
       content: null,
@@ -44,7 +59,7 @@ function failedArtifact(
 }
 
 function decodeArtifact(row: Record<string, unknown>): {
-  failure?: ArtifactDecodeFailure;
+  failure?: ArtifactFailure;
   row: Record<string, unknown>;
 } {
   const { contentBase64, ...metadata } = row;
@@ -79,6 +94,23 @@ function decodeArtifact(row: Record<string, unknown>): {
   return { row: { ...metadata, content } };
 }
 
+function parseArtifactByteLength(value: unknown): bigint | null {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value >= 0 ? BigInt(value) : null;
+  }
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    return BigInt(value);
+  }
+  return null;
+}
+
+function getRunStatusKind(value: unknown): 'active' | 'terminal' | null {
+  if (typeof value !== 'string' || !Object.hasOwn(RUN_STATUS_KIND, value)) {
+    return null;
+  }
+  return RUN_STATUS_KIND[value as AssistantThreadRunStatus];
+}
+
 export function formatThreadDebugPack(snapshot: ThreadDebugSnapshot): string {
   const decodedArtifacts = (snapshot.sections['toolOutputs'] ?? []).map(decodeArtifact);
   const sections: ThreadDebugSnapshot['sections'] = {
@@ -86,6 +118,8 @@ export function formatThreadDebugPack(snapshot: ThreadDebugSnapshot): string {
     toolOutputs: decodedArtifacts.map((artifact) => artifact.row),
   };
   let redactedValues = 0;
+  let depthElisions = 0;
+  let repeatedElisions = 0;
   const redactedKinds = new Set<string>();
   // Scan string values before serialization so multiline PEMs are still literal
   // multiline text, and replacement cannot invalidate the exported JSON.
@@ -114,16 +148,30 @@ export function formatThreadDebugPack(snapshot: ThreadDebugSnapshot): string {
   };
   const redactedSections = scrub(
     redactSensitiveLogValue(sections, [], new WeakMap(), {
-      circularValue: '[CIRCULAR]',
       maxDepth: 64,
+      onDepthTruncated: () => {
+        depthElisions += 1;
+      },
+      onRepeatedValue: () => {
+        repeatedElisions += 1;
+      },
+      repeatedValue: REPEATED_VALUE_MARKER,
     })
   );
   const env = (import.meta as { env?: Record<string, unknown> }).env;
-  const terminalRunStatuses = new Set(['cancelled', 'completed', 'failed']);
-  const retainedArtifactBytes = (snapshot.sections['toolOutputs'] ?? []).reduce(
-    (total, row) => total + BigInt(String(row['byte_length'] ?? 0)),
-    0n
+  const artifactFailures = decodedArtifacts.flatMap((artifact) =>
+    artifact.failure ? [artifact.failure] : []
   );
+  let retainedArtifactBytes = 0n;
+  for (const row of snapshot.sections['toolOutputs'] ?? []) {
+    const byteLength = parseArtifactByteLength(row['byte_length']);
+    if (byteLength === null) {
+      artifactFailures.push(artifactFailure(row, 'invalid-byte-length'));
+    } else {
+      retainedArtifactBytes += byteLength;
+    }
+  }
+  const runs = sections['runs'] ?? [];
   return JSON.stringify({
     format: 'brainstrike-thread-debug-pack',
     guide: [
@@ -139,15 +187,11 @@ export function formatThreadDebugPack(snapshot: ThreadDebugSnapshot): string {
       'Report evidence using thread/run/message/tool-call IDs and event sequence. Distinguish observed facts from hypotheses and missing evidence.',
     ],
     manifest: {
-      activeRunIds: (sections['runs'] ?? []).flatMap((row) =>
-        typeof row['status'] === 'string' && !terminalRunStatuses.has(row['status'])
-          ? [row['id']]
-          : []
+      activeRunIds: runs.flatMap((row) =>
+        getRunStatusKind(row['status']) === 'active' ? [row['id']] : []
       ),
       appVersion: env?.['VITE_APP_VERSION'] ?? 'dev',
-      artifactDecodeFailures: decodedArtifacts.flatMap((artifact) =>
-        artifact.failure ? [artifact.failure] : []
-      ),
+      artifactFailures,
       capturedAt: snapshot.capturedAt,
       counts: Object.fromEntries(
         Object.entries(sections).map(([name, rows]) => [name, rows.length])
@@ -161,6 +205,7 @@ export function formatThreadDebugPack(snapshot: ThreadDebugSnapshot): string {
         'Diagnostics and tool output artifacts have independent retention. Only explicitly thread/run-correlated diagnostics are included.',
         'This is recorded evidence, not a complete provider wire capture: hidden model reasoning, unrecorded retries and original provider requests are unavailable.',
         'Stored transcript projections may already be shortened. Retained toolOutputs contain separately stored full output; artifacts deleted by retention cannot be reconstructed.',
+        'Values deeper than 64 levels are replaced with an explicit marker. Artifact byte totals exclude rows listed with invalid-byte-length and report incomplete accounting.',
         'Secrets are redacted by key and recognized value shapes. Conversation text, file content and paths may remain private; review locally before sharing.',
       ],
       platform: typeof navigator === 'undefined' ? 'unknown' : navigator.platform,
@@ -170,8 +215,17 @@ export function formatThreadDebugPack(snapshot: ThreadDebugSnapshot): string {
         valueKinds: [...redactedKinds].sort(),
       },
       retainedArtifactBytes: retainedArtifactBytes.toString(),
+      retainedArtifactBytesComplete: !artifactFailures.some(
+        (failure) => failure.code === 'invalid-byte-length'
+      ),
       rootThreadId: snapshot.rootThreadId,
+      structuralElisions: { depth: depthElisions, repeated: repeatedElisions },
       threadId: snapshot.threadId,
+      unknownRunStatuses: runs.flatMap((row) =>
+        getRunStatusKind(row['status']) === null
+          ? [{ runId: row['id'] ?? null, status: row['status'] ?? null }]
+          : []
+      ),
     },
     sections: redactedSections,
     version: 1,
