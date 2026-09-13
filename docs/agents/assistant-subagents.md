@@ -1889,7 +1889,12 @@ grant buttons on a child's approval notice could never end the prompting — one
 Explorer tree paused 87 times on `readWorkspaceDirectory` and exhausted its
 step budget without reading a file. Paired spec:
 `child-run-configuration.spec.ts` ("child permission ceiling honors root grants
-made after admission").
+made after admission"). Because that grant removes the approved tool's `ask`
+flag before the child resumes, the approval-resume leg builds children with
+sequential tool calls (`approvalResumeLeg` → `resolveChildToolCallConcurrency`,
+see `assistant-runtime.md` "Parallel tool calls"); otherwise Mastra's parallel
+foreach resume re-raises approval for the allowed siblings of the approved call
+(2026-09-13 `globWorkspace` pause + "multiple pending calls" 502).
 Older rows without an execution snapshot remain explicitly unrecorded.
 
 Migration 137 persists an execution configuration on each continuation receipt.

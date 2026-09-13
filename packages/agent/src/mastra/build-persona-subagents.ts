@@ -89,6 +89,8 @@ export type DelegatedExecutionOptions = Pick<
 > & { workQueue?: DelegatedWorkQueue };
 
 export interface BuildPersonaSubAgentsParams {
+  /** See `MastraAgentRuntimeOptions.approvalResumeLeg`. Inherited by descendants. */
+  readonly approvalResumeLeg?: boolean;
   readonly childExecutionConfiguration?:
     | import('@brainstrike/assistant-contract').ChildExecutionConfiguration
     | undefined;
@@ -538,6 +540,25 @@ async function prepareWorkerToolSurface(
 
 const MAX_CHILD_TOOL_CALL_CONCURRENCY = 8;
 
+/**
+ * Children run tool calls in parallel EXCEPT on an approval-resume leg, where
+ * the suspended step must resume in the sequential mode it suspended under.
+ * Mastra picks the mode per step from the CALLED tools' `requireApproval`
+ * flags; the approved tool lost that flag when a root grant lifted its `ask`
+ * (the deny-only child ceiling), and a parallel foreach resume re-raises the
+ * step's approval for every allowed sibling — the 2026-09-13 second pause on
+ * `globWorkspace` whose approval then failed with "multiple pending calls".
+ * Re-flagging the approved tool instead would re-prompt its next call and
+ * recreate the loop the grant was meant to end. Paired test:
+ * `worker-delegation.integration.spec.ts` ("allowed sibling ... ungated").
+ */
+export function resolveChildToolCallConcurrency(approvalResumeLeg: boolean | undefined): {
+  readonly limit: number;
+  readonly strategy: 'called';
+} {
+  return { limit: approvalResumeLeg ? 1 : MAX_CHILD_TOOL_CALL_CONCURRENCY, strategy: 'called' };
+}
+
 async function createConfiguredChild({
   params,
   persona,
@@ -670,10 +691,7 @@ async function createConfiguredChild({
           ? { hooks: params.delegatedExecutionOptions.hooks }
           : {}),
         onIterationComplete: buildChildIterationPolicy(),
-        toolCallConcurrency: {
-          limit: MAX_CHILD_TOOL_CALL_CONCURRENCY,
-          strategy: 'called' as const,
-        },
+        toolCallConcurrency: resolveChildToolCallConcurrency(params.approvalResumeLeg),
         ...(work
           ? {
               errorProcessors: [work.processor, ...(childErrorProcessors ?? [])],

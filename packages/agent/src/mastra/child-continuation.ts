@@ -405,6 +405,7 @@ export async function createChildContinuationDecisionStream(
   const usageProcessor = createContinuationUsageProcessor(host, decision.id, scope);
   const runtime = await createMastraAgentRuntime({
     ...restored,
+    approvalResumeLeg: 'action' in action,
     continuationChildScope: {
       resourceId: scope.resourceId,
       threadId: scope.threadId,
