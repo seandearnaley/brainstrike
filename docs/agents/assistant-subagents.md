@@ -1581,10 +1581,16 @@ the foreground too — and both are forwarded unchanged; only a non-data,
 non-envelope chunk is a contract break. SETTLED 2026-09-13: a background
 Explorer child's `data-om-buffering-start` hit the old allowlist, failed the root
 run and cancelled all four children. Paired test: `background-stream.spec.ts`.
+A forwarded `data-*` part keeps the CHILD's `runId`; consumers must attribute it
+by that id, never by its position in the host stream (the projection no longer
+tells child-origin data parts from the parent's). The delegated usage part is
+itself `data-*` and was always allowlisted, so its accounting is unchanged.
 The model may also request `_background.maxRetries` (Mastra's own system prompt
 advertises it); the durable store rejects any non-zero value loudly, so that
 delegation fails and the model reissues it without retries — a known one-step
-cost, not a silent clamp.
+cost, not a silent clamp (pinned by
+`pglite-background-store.integration.spec.ts`, "limits native manager recovery
+…", the `maxRetries: 1` create/update rejections).
 Discovery supplies the same root scope and resolves the authorized native leaf;
 missing scope/address is not permission to resume an arbitrary wrapper.
 
