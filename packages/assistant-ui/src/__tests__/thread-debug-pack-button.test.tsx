@@ -44,7 +44,6 @@ describe('thread debug pack', () => {
   });
 
   it('reports collection failure and never saves a partial pack', async () => {
-    save.mockClear();
     render(
       <DebugBundleProvider
         value={{

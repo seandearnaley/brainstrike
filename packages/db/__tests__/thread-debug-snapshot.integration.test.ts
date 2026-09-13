@@ -56,6 +56,7 @@ describe('thread debug snapshot', () => {
 
   it('includes successful and failed runs, descendants and all retained rows beyond old caps', async () => {
     const snapshot = await readThreadDebugSnapshot(db, 'root');
+    expect(snapshot.capturedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     expect(snapshot.sections['threads']?.map((row) => row['id']).sort()).toEqual([
       'child',
       'leaf',
@@ -81,7 +82,7 @@ describe('thread debug snapshot', () => {
 
   it('supports ordinary threads without a delegation graph and rejects missing threads', async () => {
     expect((await readThreadDebugSnapshot(db, 'other')).sections['threads']).toHaveLength(1);
-    await expect(readThreadDebugSnapshot(db, 'missing')).rejects.toThrow('unavailable');
+    await expect(readThreadDebugSnapshot(db, 'missing')).rejects.toThrow('has not been saved yet');
   });
 
   it('retains approval evidence, child continuations, attributed usage and full tool artifacts', async () => {
@@ -112,6 +113,13 @@ describe('thread debug snapshot', () => {
       VALUES ('artifact', 'owner', 'root', 'child', 'native-child', 'write-call', 'text', $1, $2, now(), now() + interval '1 day')`,
       [bytes, bytes.byteLength]
     );
+    const rootOutput = new TextEncoder().encode('root output');
+    await db.query(
+      `INSERT INTO brainstrike_assistant_tool_output_artifacts
+      (id, resource_id, thread_id, execution_thread_id, run_id, tool_call_id, format, content, byte_length, created_at, expires_at)
+      VALUES ('root-artifact', 'owner', 'root', 'root', 'root-run', 'root-call', 'text', $1, $2, now(), now() + interval '1 day')`,
+      [rootOutput, rootOutput.byteLength]
+    );
     const snapshot = await readThreadDebugSnapshot(db, 'child');
     expect(snapshot.sections['events']?.map((row) => row['kind'])).toEqual([
       'tool.approval.requested',
@@ -124,5 +132,10 @@ describe('thread debug snapshot', () => {
     expect(snapshot.sections['usage']?.[0]?.['id']).toBe('child-usage');
     expect(snapshot.sections['toolOutputs']?.[0]?.['byte_length']).toBe(bytes.byteLength);
     expect(atob(String(snapshot.sections['toolOutputs']?.[0]?.['contentBase64']))).toBe(output);
+    const rootSnapshot = await readThreadDebugSnapshot(db, 'root');
+    expect(rootSnapshot.sections['toolOutputs']?.map((row) => row['id']).sort()).toEqual([
+      'artifact',
+      'root-artifact',
+    ]);
   });
 });

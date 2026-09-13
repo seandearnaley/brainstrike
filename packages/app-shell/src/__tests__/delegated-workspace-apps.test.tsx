@@ -25,6 +25,7 @@ import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 const mocks = vi.hoisted(() => ({ db: { query: vi.fn() }, get: vi.fn(), insights: vi.fn() }));
 vi.mock('@brainstrike/db/react', () => ({
   useDbProviderError: () => null,
+  useOptionalPGliteDatabase: () => mocks.db,
   usePGliteDatabase: () => mocks.db,
 }));
 vi.mock('@brainstrike/db', async (importOriginal) => ({

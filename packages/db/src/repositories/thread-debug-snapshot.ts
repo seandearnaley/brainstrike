@@ -1,5 +1,7 @@
 import { AUTHORIZED_DELEGATED_GRAPH } from './delegated-graph-sql.js';
-import type { DiagnosticEventsDatabase } from './diagnostic-events-repository.js';
+export interface ThreadDebugDatabase {
+  query(sql: string, params?: readonly unknown[]): Promise<{ rows: unknown[] }>;
+}
 
 export interface ThreadDebugSnapshot {
   readonly capturedAt: string;
@@ -9,7 +11,8 @@ export interface ThreadDebugSnapshot {
 }
 
 // This explicit inventory is the export contract, not general database access.
-// Each subquery shares one PostgreSQL statement snapshot, including active runs.
+// SNAPSHOT_SQL deliberately composes every subquery into one PostgreSQL statement
+// so all sections, including active runs, share the same database snapshot.
 const SECTIONS = {
   childBudgets:
     'SELECT b.* FROM brainstrike_delegation_child_budgets b JOIN subtree s ON s.thread_id = b.child_thread_id ORDER BY b.root_thread_id, b.turn_message_id, b.child_thread_id',
@@ -38,7 +41,11 @@ const SECTIONS = {
     'SELECT m.* FROM mastra_messages m JOIN subtree s USING (thread_id) ORDER BY m."createdAt", m.id',
   outcomes:
     'SELECT o.* FROM brainstrike_assistant_run_outcomes o JOIN subtree s USING (thread_id) ORDER BY o.labeled_at, o.run_id',
-  runs: 'SELECT r.* FROM brainstrike_assistant_thread_runs r JOIN subtree s USING (thread_id) ORDER BY r.started_at, r.id',
+  runs: `SELECT r.id, r.resource_id, r.thread_id, r.provider, r.model, r.model_settings,
+    r.provider_options, r.runtime_kind, r.status, r.error, r.started_at, r.completed_at,
+    r.created_at, r.updated_at, r.turn_message_id
+    FROM brainstrike_assistant_thread_runs r JOIN subtree s USING (thread_id)
+    ORDER BY r.started_at, r.id`,
   stepReservations:
     'SELECT r.* FROM brainstrike_delegation_step_reservations r JOIN subtree s ON s.thread_id = r.child_thread_id ORDER BY r.id',
   threads:
@@ -51,8 +58,10 @@ const SECTIONS = {
     'SELECT p.* FROM brainstrike_assistant_tool_projection_rewrites p JOIN subtree s USING (thread_id) ORDER BY p.created_at, p.tool_call_id',
   toolTelemetry:
     'SELECT t.* FROM brainstrike_tool_call_telemetry t JOIN subtree s USING (thread_id) ORDER BY t.occurred_at, t.id',
-  treatments:
-    'SELECT t.* FROM brainstrike_assistant_run_treatments t JOIN subtree s USING (thread_id) ORDER BY t.created_at, t.run_id',
+  treatments: `SELECT t.run_id, t.thread_id, t.resource_id, t.experiment_id, t.variant,
+    t.injection_status, t.signal_injected, t.signal_content_hash, t.created_at
+    FROM brainstrike_assistant_run_treatments t JOIN subtree s USING (thread_id)
+    ORDER BY t.created_at, t.run_id`,
   usage: `SELECT u.* FROM brainstrike_assistant_run_usage u
     WHERE u.thread_id IN (SELECT thread_id FROM subtree)
       OR EXISTS (SELECT 1 FROM brainstrike_delegated_invocations i JOIN subtree s USING (thread_id)
@@ -76,7 +85,7 @@ const SNAPSHOT_SQL = `${AUTHORIZED_DELEGATED_GRAPH},
     UNION
     SELECT n.* FROM available n JOIN subtree p ON n.parent_thread_id = p.thread_id
   )
-  SELECT statement_timestamp()::text AS "capturedAt", jsonb_build_object(
+  SELECT to_char(statement_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "capturedAt", jsonb_build_object(
     ${Object.entries(SECTIONS)
       .map(
         ([name, sql]) =>
@@ -93,7 +102,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * boundary. Resolve the selected native thread, then revalidate its entire
  * ancestry through the same graph as ordinary child history reads. */
 export async function readThreadDebugSnapshot(
-  db: DiagnosticEventsDatabase,
+  db: ThreadDebugDatabase,
   threadId: string
 ): Promise<ThreadDebugSnapshot> {
   const identity = await db.query(
@@ -109,7 +118,9 @@ export async function readThreadDebugSnapshot(
     typeof scope['rootThreadId'] !== 'string' ||
     typeof scope['ownerResourceId'] !== 'string'
   ) {
-    throw new Error('Thread debug pack unavailable: the conversation no longer exists.');
+    throw new Error(
+      'Thread debug pack unavailable: the conversation has not been saved yet or no longer exists.'
+    );
   }
   const result = await db.query(SNAPSHOT_SQL, [
     scope['ownerResourceId'],

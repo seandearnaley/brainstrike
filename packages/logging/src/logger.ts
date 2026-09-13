@@ -666,14 +666,21 @@ function isSensitiveLogKey(key: string, path: readonly string[]): boolean {
 export function redactSensitiveLogValue(
   value: unknown,
   path: readonly string[] = [],
-  seen = new WeakMap<object, unknown>()
+  seen = new WeakMap<object, unknown>(),
+  options: {
+    readonly circularValue?: string;
+    readonly maxDepth?: number;
+  } = {}
 ): unknown {
   if (typeof value !== 'object' || value === null) {
     return value;
   }
+  if (path.length >= (options.maxDepth ?? Number.POSITIVE_INFINITY)) {
+    return '[TRUNCATED: maximum diagnostic depth]';
+  }
   const existing = seen.get(value);
   if (existing !== undefined) {
-    return existing;
+    return options.circularValue ?? existing;
   }
   const redacted = (Array.isArray(value) ? [] : {}) as Record<string, unknown>;
   // Memoize BEFORE any recursion (including the Error-cause walk below): a
@@ -690,14 +697,14 @@ export function redactSensitiveLogValue(
     // disappears the moment an Error is redacted (see diagnostic-events.ts,
     // which relies on `cause` surviving to walk it back out).
     if (value.cause !== undefined) {
-      redacted['cause'] = redactSensitiveLogValue(value.cause, [...path, 'cause'], seen);
+      redacted['cause'] = redactSensitiveLogValue(value.cause, [...path, 'cause'], seen, options);
     }
   }
   for (const [key, entry] of Object.entries(value)) {
     const entryPath = [...path, key];
     redacted[key] = isSensitiveLogKey(key, entryPath)
       ? '[REDACTED]'
-      : redactSensitiveLogValue(entry, entryPath, seen);
+      : redactSensitiveLogValue(entry, entryPath, seen, options);
   }
   return redacted;
 }

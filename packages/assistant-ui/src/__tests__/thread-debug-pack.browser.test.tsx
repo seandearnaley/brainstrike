@@ -70,10 +70,25 @@ test.each([390, 900])(
       .fn()
       .mockResolvedValue('{"version":1,"sections":{"messages":["successful"]}}');
     render(<Conversation buildThreadPack={buildThreadPack} width={width} />);
-    expect(screen.getByRole('region', { name: 'Successful conversation' })).toBeVisible();
+    const panel = screen.getByRole('region', { name: 'Successful conversation' });
+    expect(panel).toBeVisible();
     await waitFor(() => expect(screen.getByText('Completed successfully.')).toBeVisible());
+    const viewport = screen.getByTestId('assistant-ui-viewport');
+    const collapsedViewportHeight = viewport.getBoundingClientRect().height;
+    const composer = screen.getByTestId('assistant-composer-shell');
+    expect(viewport.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      composer.getBoundingClientRect().top + 1
+    );
     await page.getByText('Debug pack', { exact: true }).click();
     expect(screen.getByText(/Includes this conversation and its subagents/)).toBeVisible();
+    expect(viewport.getBoundingClientRect().height).toBeGreaterThan(0);
+    expect(viewport.getBoundingClientRect().height).toBeLessThan(collapsedViewportHeight);
+    expect(viewport.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      composer.getBoundingClientRect().top + 1
+    );
+    expect(composer.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      panel.getBoundingClientRect().bottom + 1
+    );
     await act(async () => {
       await page.getByRole('button', { exact: true, name: 'Download debug pack' }).click();
     });
