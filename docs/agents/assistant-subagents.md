@@ -1586,9 +1586,11 @@ by that id, never by its position in the host stream (the projection no longer
 tells child-origin data parts from the parent's). The delegated usage part is
 itself `data-*` and was always allowlisted, so its accounting is unchanged.
 The model may also request `_background.maxRetries` (Mastra's own system prompt
-advertises it); the durable store rejects any non-zero value loudly, so that
-delegation fails and the model reissues it without retries — a known one-step
-cost, not a silent clamp (pinned by
+advertises it); `PgliteBackgroundTasksStore.createTask()` rejects a scoped task
+with a non-zero value before persistence, so that delegation fails visibly. No
+repository-owned path retries or reissues it — whether the model tries again
+without retries is its own decision (BST-1749 tracks removing the advertised
+knob). Not a silent clamp (pinned by
 `pglite-background-store.integration.spec.ts`, "limits native manager recovery
 …", the `maxRetries: 1` create/update rejections).
 Discovery supplies the same root scope and resolves the authorized native leaf;

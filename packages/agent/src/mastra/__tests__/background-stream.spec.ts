@@ -67,6 +67,18 @@ describe('projectBackgroundStream', () => {
     expect(out[1]).toEqual(envelope);
   });
 
+  it('reports a child output with a non-string type as a contract break, not a TypeError', async () => {
+    await expect(
+      collect([
+        { payload: {}, runId: 'root-run', type: 'start' },
+        lifecycle('background-task-started'),
+        lifecycle('background-task-output', {
+          payload: { payload: {}, runId: 'child-run', type: null },
+        }),
+      ])
+    ).rejects.toThrow('omitted its delegation envelope');
+  });
+
   it.for(['text-delta', 'datafoo', 'data'])(
     'still rejects a background child output that is neither an envelope nor a data chunk (%s)',
     async (type) => {
