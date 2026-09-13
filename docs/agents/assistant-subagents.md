@@ -1,5 +1,12 @@
 # Assistant Subagents (Persona Delegation)
 
+Child conversation panels bind the shared thread debug export to the selected
+child ID, never an inherited root binding. The export includes only that child's
+authorized subtree; usage and full artifacts preserve their original root
+attribution and execution identities. The root export includes all authorized
+descendants. See `platform-contracts.md` for the export/retention contract and
+`thread-debug-snapshot.integration.test.ts` for ancestry and attribution proofs.
+
 > Extracted from AGENTS.md (2026-07-12). Read before changing persona delegation. Keep updated with the code.
 
 ## First-class subagent architecture gate (BST-1716)
