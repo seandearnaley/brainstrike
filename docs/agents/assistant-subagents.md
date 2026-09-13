@@ -1573,6 +1573,18 @@ argument retains foreground selection. Recursive descendants retain their native
 foreground execution inside the background child and use the same durable limits.
 A parent can emit useful text while a child works or waits for a decision. Live
 child content and exact approval controls use the existing rich conversation view.
+`projectBackgroundStream` (`background-stream.ts`) folds the native task events
+into the host stream: a `background-task-output` carries either a child envelope
+(`tool-output`, `data-user-message`, the delegated usage part) or a RAW `data-*`
+chunk — Mastra's `ToolStream.custom()` writes data parts without the envelope in
+the foreground too — and both are forwarded unchanged; only a non-data,
+non-envelope chunk is a contract break. SETTLED 2026-09-13: a background
+Explorer child's `data-om-buffering-start` hit the old allowlist, failed the root
+run and cancelled all four children. Paired test: `background-stream.spec.ts`.
+The model may also request `_background.maxRetries` (Mastra's own system prompt
+advertises it); the durable store rejects any non-zero value loudly, so that
+delegation fails and the model reissues it without retries — a known one-step
+cost, not a silent clamp.
 Discovery supplies the same root scope and resolves the authorized native leaf;
 missing scope/address is not permission to resume an arbitrary wrapper.
 
