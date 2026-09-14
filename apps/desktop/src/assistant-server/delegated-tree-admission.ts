@@ -23,6 +23,13 @@ const budgetSchema = z.object({
 type BudgetScope = DelegatedConversationScope & { turnMessageId: string };
 type Budget = z.infer<typeof budgetSchema>;
 
+/**
+ * A deliberate refusal of the original turn's budget, as opposed to a database
+ * or schema fault: only these become a model-visible rejection at delegation
+ * start; everything else propagates as the failure it is.
+ */
+class DelegationBudgetRefusal extends Error {}
+
 /** Open (idempotently) and lock the original turn's budget row. */
 async function lockBudget(tx: DelegatedConversationDatabase, scope: BudgetScope): Promise<Budget> {
   const legacy = await tx.query(
@@ -34,7 +41,9 @@ async function lockBudget(tx: DelegatedConversationDatabase, scope: BudgetScope)
     [scope.rootThreadId, scope.turnMessageId]
   );
   if (legacy.rows.length > 0) {
-    throw new Error('This legacy delegation has no durable budget. Start a new parent turn.');
+    throw new DelegationBudgetRefusal(
+      'This legacy delegation has no durable budget. Start a new parent turn.'
+    );
   }
   await tx.query(
     `INSERT INTO brainstrike_delegation_budgets
@@ -60,7 +69,7 @@ async function lockBudget(tx: DelegatedConversationDatabase, scope: BudgetScope)
     [scope.rootThreadId, scope.turnMessageId, scope.ownerResourceId]
   );
   if (result.rows.length !== 1) {
-    throw new Error('Delegated budget owner scope is unauthorized.');
+    throw new DelegationBudgetRefusal('Delegated budget owner scope is unauthorized.');
   }
   return budgetSchema.parse(result.rows[0]);
 }
@@ -106,9 +115,12 @@ async function describeCapacityRefusal(
  * The host's answer at delegation START (BST-1751): the same depth, invocation
  * and output rules `reserveDelegatedInvocation` enforces, evaluated before any
  * native child exists so a refusal reaches the model as a rejected delegation
- * instead of failing the root once the child binds. Reserves nothing; the
- * later reservation at persist time remains the authority. Identity failures
- * (root not running, parent under a stopped ancestor) still throw.
+ * instead of failing the root once the child binds. It RESERVES nothing, but
+ * it is not free of side effects: it opens the original turn's budget row
+ * idempotently and takes its row lock, so a turn whose very first delegation
+ * is refused still leaves an empty budget row behind. The reservation at
+ * persist time remains the authority. Identity failures (root not running,
+ * parent under a stopped ancestor) and database faults still throw.
  */
 export async function admitDelegatedInvocation(
   tx: DelegatedConversationDatabase,
@@ -122,10 +134,10 @@ export async function admitDelegatedInvocation(
   try {
     budget = await lockBudget(tx, scope);
   } catch (error) {
-    if (error instanceof DelegatedConversationIdentityError) {
+    if (!(error instanceof DelegationBudgetRefusal)) {
       throw error;
     }
-    return { admitted: false, reason: error instanceof Error ? error.message : String(error) };
+    return { admitted: false, reason: error.message };
   }
   const reason = await describeCapacityRefusal(
     tx,

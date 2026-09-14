@@ -183,6 +183,7 @@ it.for([
       )
     );
 
+    await memory.settled();
     const failures = chunks.filter(
       (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
     );
@@ -206,6 +207,5 @@ it.for([
     // A refusal admits nothing: no child was persisted for the refused call.
     expect(identities.map((identity) => identity.parentToolCallId)).not.toContain(refused);
     expect(identities).toHaveLength(total - 1);
-    await memory.settled();
   }
 );

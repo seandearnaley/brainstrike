@@ -19,14 +19,23 @@
  * run_kind='subagent' usage row instead.
  */
 
-import { type AssistantRunEventMetadata, DELEGATION_LIMITS } from '@brainstrike/assistant-contract';
+import {
+  type AssistantRunEventMetadata,
+  DELEGATION_LIMITS,
+  type DelegatedBudgetPort,
+  type DelegatedInvocationAdmission,
+} from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import {
   type AssistantDelegatedUsageIdentity,
   isAssistantDelegatedUsageIdentity,
 } from '@brainstrike/assistant-contract/run-usage';
 import type { ScopedLogger } from '@brainstrike/logging';
-import type { DelegationConfig, DelegationStartResult } from '@mastra/core/agent';
+import type {
+  DelegationConfig,
+  DelegationStartContext,
+  DelegationStartResult,
+} from '@mastra/core/agent';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { MAX_DELEGATED_CONTEXT_BYTES } from './delegated-system-context';
 import type { DelegatedTurnPersistence } from './delegated-turn-persistence';
@@ -259,10 +268,82 @@ async function resolveMissingAnswerResult(
   return { resultText: describeMissingChildAnswer(persona, context.result) };
 }
 
+type RejectDelegation = (
+  message: string,
+  rejectionReason: string,
+  code: string,
+  fields?: Record<string, unknown>
+) => DelegationStartResult;
+
+/**
+ * The host's durable tree budget answers BEFORE the child exists. Its later
+ * reservation at persist time stays the authority; a refusal here is the same
+ * refusal the model would otherwise only meet as a dead root (BST-1751).
+ * Returns the rejection to hand Mastra, or undefined when admitted.
+ */
+async function consultDurableAdmission(
+  budget: DelegatedBudgetPort | undefined,
+  context: DelegationStartContext,
+  reject: RejectDelegation
+): Promise<DelegationStartResult | undefined> {
+  if (!budget) {
+    return;
+  }
+  const parentThreadId = context.threadId?.trim();
+  const parentResourceId = context.resourceId?.trim();
+  if (!(parentThreadId && parentResourceId)) {
+    throw new Error(
+      'Durable delegation admission requires the parent thread and resource identity.'
+    );
+  }
+  let admission: DelegatedInvocationAdmission;
+  try {
+    admission = await budget.admitInvocation({ parentResourceId, parentThreadId });
+  } catch (error) {
+    // The host refuses an identity it cannot authorize (root not running, a
+    // stopped ancestor, a parent outside this root) with a bounded reason it
+    // has already logged. Nothing has run yet, so that refusal costs this one
+    // delegation, never the root. Any other failure is a real fault and
+    // propagates.
+    const reason = readIdentityRefusalReason(error);
+    if (reason === undefined) {
+      throw error;
+    }
+    return reject(
+      'Rejecting delegation: durable admission identity refused',
+      `Delegation admission refused (${reason}).`,
+      'subagent_delegation_identity_refused',
+      { parentThreadId, reason }
+    );
+  }
+  if (admission.admitted) {
+    return;
+  }
+  return reject(
+    'Rejecting delegation: durable budget refused',
+    admission.reason,
+    'subagent_delegation_budget_refused',
+    { parentThreadId }
+  );
+}
+
 /**
  * Build a per-run delegation config. Call ONCE per run (the closure carries the
  * run's in-flight + total counters).
  */
+/**
+ * The host's identity error crosses the package boundary by name and its
+ * bounded `reason` field (`DelegatedConversationIdentityError` in `@brainstrike/db`,
+ * which this package does not depend on).
+ */
+function readIdentityRefusalReason(error: unknown): string | undefined {
+  if (!(error instanceof Error) || error.name !== 'DelegatedConversationIdentityError') {
+    return;
+  }
+  const reason = (error as { reason?: unknown }).reason;
+  return typeof reason === 'string' && reason.trim().length > 0 ? reason : undefined;
+}
+
 export function createDelegationConfig(params: CreateDelegationConfigParams): DelegationConfig {
   // This per-leg counter remains a backstop. Durable host admission counts the
   // original turn across all descendants and resume legs. With that capability,
@@ -348,11 +429,12 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
       // Every refusal is a tool result the model can read and a recorded
       // outcome for the timeline; none of them starts a child (BST-1751).
       const reject = (
+        message: string,
         rejectionReason: string,
         code: string,
-        fields: Record<string, unknown>
+        fields: Record<string, unknown> = {}
       ): DelegationStartResult => {
-        params.logger.warn('Rejecting delegation', {
+        params.logger.warn(message, {
           code,
           personaId: context.primitiveId,
           rejectionReason,
@@ -364,9 +446,9 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
       const persona = params.personasById.get(context.primitiveId);
       if (!persona) {
         return reject(
+          'Rejecting delegation to unknown persona',
           `Unknown subagent '${context.primitiveId}'.`,
-          'subagent_delegation_unknown_persona',
-          {}
+          'subagent_delegation_unknown_persona'
         );
       }
 
@@ -375,6 +457,7 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         inFlight >= MAX_CONCURRENT_DELEGATIONS
       ) {
         return reject(
+          'Rejecting delegation: concurrency cap reached',
           `Too many concurrent subagents (max ${MAX_CONCURRENT_DELEGATIONS}); try again after the current ones finish.`,
           'subagent_delegation_concurrency_capped',
           { inFlight }
@@ -383,30 +466,20 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
 
       if (total >= MAX_DELEGATIONS_PER_RUN) {
         return reject(
+          'Rejecting delegation: per-run cap reached',
           `Subagent delegation limit reached (max ${MAX_DELEGATIONS_PER_RUN} per turn).`,
           'subagent_delegation_per_run_capped',
           { total }
         );
       }
 
-      // The host's durable tree budget answers BEFORE the child exists. Its
-      // later reservation at persist time stays the authority; a refusal here
-      // is the same refusal the model would otherwise only meet as a dead root.
-      const budget = params.conversationBinding?.budget;
-      if (budget) {
-        const parentThreadId = context.threadId?.trim();
-        const parentResourceId = context.resourceId?.trim();
-        if (!(parentThreadId && parentResourceId)) {
-          throw new Error(
-            'Durable delegation admission requires the parent thread and resource identity.'
-          );
-        }
-        const admission = await budget.admitInvocation({ parentResourceId, parentThreadId });
-        if (!admission.admitted) {
-          return reject(admission.reason, 'subagent_delegation_budget_refused', {
-            parentThreadId,
-          });
-        }
+      const refusal = await consultDurableAdmission(
+        params.conversationBinding?.budget,
+        context,
+        reject
+      );
+      if (refusal) {
+        return refusal;
       }
 
       const maxSteps = clampMaxSteps(

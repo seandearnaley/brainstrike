@@ -1557,11 +1557,18 @@ had started the child; a refusal there threw through the projection's
 `authorize` and failed the root with the generic identity message while every
 sibling was cancelled (thread-f6be9761). Now `DelegatedBudgetPort.admitInvocation`
 (`delegated-tree-admission.ts`, `admitDelegatedInvocation`) evaluates the same
-rules read-only, before any native child exists, and `createDelegationConfig`
-consults it in `onDelegationStart`: a refusal returns `proceed: false` with the
-host's reason, which Mastra hands the model as `[Delegation Rejected] …`. The
-reservation at persist time remains the authority (the same checks, now
-mutating), so a true sibling race can still refuse there. Two more rules make
+rules before any native child exists — it RESERVES nothing, but it does open
+the root and the original turn's budget row idempotently and take the budget
+row lock, so a turn whose first delegation is refused keeps an empty budget row
+— and `createDelegationConfig` consults it in `onDelegationStart`: a refusal
+returns `proceed: false` with the host's reason, which Mastra hands the model as
+`[Delegation Rejected] …`. Only the deliberate budget refusals become that
+answer; a database or schema fault propagates. A host identity refusal at start
+(root not running, stopped ancestor, parent outside this root) is ALSO turned
+into a rejection by the hook — nothing has run, so it costs one delegation,
+never the root — while the host has already logged its reason; any other
+failure propagates. The reservation at persist time remains the authority (the
+same checks, now mutating), so a true sibling race can still refuse there. Two more rules make
 any refusal survivable: Mastra streams a refused delegation's text through the
 PARENT's writer under the parent's run id, so `resolveChildDelegation`
 (`delegated-stream-projection.ts`) treats same-run-id nested output as not a

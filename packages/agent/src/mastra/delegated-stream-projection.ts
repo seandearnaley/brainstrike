@@ -163,7 +163,10 @@ function resolveChildDelegation(
     return;
   }
   const nested = readMastraStreamPartValue(part, 'output');
-  if (readMastraStreamPartString(nested, 'runId') === readMastraStreamPartString(part, 'runId')) {
+  const childRunId = readMastraStreamPartString(nested, 'runId');
+  // A missing child run id is a contract break the identity check below
+  // reports loudly; only a run id equal to the parent's marks a refusal.
+  if (childRunId !== undefined && childRunId === readMastraStreamPartString(part, 'runId')) {
     return;
   }
   return { delegation, nested };

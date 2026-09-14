@@ -194,7 +194,10 @@ function withIdentityLogging<Args extends unknown[], Result>(
       return await operation(...args);
     } catch (error) {
       if (error instanceof DelegatedConversationIdentityError) {
-        logger.error('Delegated conversation identity rejected', {
+        // A stopped root refuses every sibling in the same storm; that is the
+        // expected shape of a cancel, not an error-rate signal.
+        const level = error.reason === 'delegation-root-not-running' ? 'warn' : 'error';
+        logger[level]('Delegated conversation identity rejected', {
           code: 'delegated_conversation_identity_rejected',
           hostRunId,
           method,
@@ -204,6 +207,20 @@ function withIdentityLogging<Args extends unknown[], Result>(
       throw error;
     }
   };
+}
+
+function logIdentityRejections(hostRunId: string, target: object, prefix = ''): void {
+  const members = target as Record<string, unknown>;
+  for (const key of Object.keys(members)) {
+    const value = members[key];
+    if (typeof value === 'function') {
+      members[key] = withIdentityLogging(
+        hostRunId,
+        `${prefix}${key}`,
+        value as (...args: unknown[]) => Promise<unknown>
+      );
+    }
+  }
 }
 
 /**
@@ -669,47 +686,11 @@ export function createDesktopDelegatedConversationHost(
       );
     },
   };
-  host.bindRun = withIdentityLogging(hostRunId, 'bindRun', host.bindRun);
-  host.claimToolAction = withIdentityLogging(hostRunId, 'claimToolAction', host.claimToolAction);
-  host.finishToolActions = withIdentityLogging(
-    hostRunId,
-    'finishToolActions',
-    host.finishToolActions
-  );
-  host.persist = withIdentityLogging(hostRunId, 'persist', host.persist);
-  host.persistEvent = withIdentityLogging(hostRunId, 'persistEvent', host.persistEvent);
-  host.persistUsage = withIdentityLogging(hostRunId, 'persistUsage', host.persistUsage);
-  host.prepareToolAction = withIdentityLogging(
-    hostRunId,
-    'prepareToolAction',
-    host.prepareToolAction
-  );
-  host.releaseUnexecutedToolAction = withIdentityLogging(
-    hostRunId,
-    'releaseUnexecutedToolAction',
-    host.releaseUnexecutedToolAction
-  );
-  host.resolveToolAction = withIdentityLogging(
-    hostRunId,
-    'resolveToolAction',
-    host.resolveToolAction
-  );
-  host.sendFollowup = withIdentityLogging(hostRunId, 'sendFollowup', host.sendFollowup);
-  host.budget.admitInvocation = withIdentityLogging(
-    hostRunId,
-    'budget.admitInvocation',
-    host.budget.admitInvocation
-  );
-  host.budget.reserveStep = withIdentityLogging(
-    hostRunId,
-    'budget.reserveStep',
-    host.budget.reserveStep
-  );
-  host.budget.settleStep = withIdentityLogging(
-    hostRunId,
-    'budget.settleStep',
-    host.budget.settleStep
-  );
+  // Every function-valued member is wrapped by key, so a method added later
+  // cannot escape unlogged. The members never use `this`; the detached
+  // wrappers rely on that, and so must any future member.
+  logIdentityRejections(hostRunId, host);
+  logIdentityRejections(hostRunId, host.budget, 'budget.');
   return host;
 }
 

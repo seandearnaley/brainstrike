@@ -196,6 +196,46 @@ describe('createDelegationConfig', () => {
     expect(outcomes.rejected('a', 'run-1')).toBe(false);
   });
 
+  it('turns a host identity refusal at start into a rejection, and propagates any other failure', async () => {
+    const outcomes = createDelegationOutcomeCapture();
+    let failure: Error = Object.assign(new Error('identity conflict'), {
+      name: 'DelegatedConversationIdentityError',
+      reason: 'parent-scope-mismatch',
+    });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      conversationBinding: {
+        ...createDelegatedConversationBinding(async () => undefined),
+        budget: {
+          admitInvocation: async () => {
+            throw failure;
+          },
+          reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
+          settleStep: async () => undefined,
+        },
+      },
+      delegationOutcomes: outcomes,
+      logger: silentLogger,
+      personasById,
+      workQueue: new DelegatedWorkQueue(),
+    });
+    const refused = await config.onDelegationStart?.(
+      startContext({ resourceId: 'owner', threadId: 'root', toolCallId: 'identity' })
+    );
+    expect(refused).toEqual({
+      proceed: false,
+      rejectionReason: 'Delegation admission refused (parent-scope-mismatch).',
+    });
+    expect(outcomes.rejected('identity', 'run-1')).toBe(true);
+    failure = new Error('database unavailable');
+    await expect(
+      config.onDelegationStart?.(
+        startContext({ resourceId: 'owner', threadId: 'root', toolCallId: 'fault' })
+      )
+    ).rejects.toThrow('database unavailable');
+    expect(outcomes.rejected('fault', 'run-1')).toBe(false);
+  });
+
   it('records the in-memory backstop refusals as rejections too', async () => {
     const outcomes = createDelegationOutcomeCapture();
     const config = createDelegationConfig({
