@@ -44,6 +44,7 @@ import {
   assertDelegationRootRunning,
   reserveDelegatedInvocation,
 } from './delegated-tree-admission';
+import { desktopAssistantServerLogger as logger } from './logger';
 
 const identityString = z.string().refine((value) => value.trim().length > 0);
 const hostScopeSchema = z.object({
@@ -174,6 +175,34 @@ function createDisplayIdentity(threadId: string): {
   return {
     color: display.color,
     displayName: `${display.name}-${digest.toString('hex').slice(0, 6)}`,
+  };
+}
+
+/**
+ * Every `DelegatedConversationIdentityError` that escapes the host carries a
+ * bounded `reason`, but the message the run row records is generic. Log the
+ * reason at the boundary so a debug pack can say WHICH admission rule refused
+ * (BST-1751: none of the five failed runs in thread-f6be9761 recorded one).
+ */
+function withIdentityLogging<Args extends unknown[], Result>(
+  hostRunId: string,
+  method: string,
+  operation: (...args: Args) => Promise<Result>
+): (...args: Args) => Promise<Result> {
+  return async (...args: Args): Promise<Result> => {
+    try {
+      return await operation(...args);
+    } catch (error) {
+      if (error instanceof DelegatedConversationIdentityError) {
+        logger.error('Delegated conversation identity rejected', {
+          code: 'delegated_conversation_identity_rejected',
+          hostRunId,
+          method,
+          reason: error.reason,
+        });
+      }
+      throw error;
+    }
   };
 }
 
@@ -640,6 +669,47 @@ export function createDesktopDelegatedConversationHost(
       );
     },
   };
+  host.bindRun = withIdentityLogging(hostRunId, 'bindRun', host.bindRun);
+  host.claimToolAction = withIdentityLogging(hostRunId, 'claimToolAction', host.claimToolAction);
+  host.finishToolActions = withIdentityLogging(
+    hostRunId,
+    'finishToolActions',
+    host.finishToolActions
+  );
+  host.persist = withIdentityLogging(hostRunId, 'persist', host.persist);
+  host.persistEvent = withIdentityLogging(hostRunId, 'persistEvent', host.persistEvent);
+  host.persistUsage = withIdentityLogging(hostRunId, 'persistUsage', host.persistUsage);
+  host.prepareToolAction = withIdentityLogging(
+    hostRunId,
+    'prepareToolAction',
+    host.prepareToolAction
+  );
+  host.releaseUnexecutedToolAction = withIdentityLogging(
+    hostRunId,
+    'releaseUnexecutedToolAction',
+    host.releaseUnexecutedToolAction
+  );
+  host.resolveToolAction = withIdentityLogging(
+    hostRunId,
+    'resolveToolAction',
+    host.resolveToolAction
+  );
+  host.sendFollowup = withIdentityLogging(hostRunId, 'sendFollowup', host.sendFollowup);
+  host.budget.admitInvocation = withIdentityLogging(
+    hostRunId,
+    'budget.admitInvocation',
+    host.budget.admitInvocation
+  );
+  host.budget.reserveStep = withIdentityLogging(
+    hostRunId,
+    'budget.reserveStep',
+    host.budget.reserveStep
+  );
+  host.budget.settleStep = withIdentityLogging(
+    hostRunId,
+    'budget.settleStep',
+    host.budget.settleStep
+  );
   return host;
 }
 

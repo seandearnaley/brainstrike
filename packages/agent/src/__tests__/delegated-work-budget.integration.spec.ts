@@ -33,6 +33,7 @@ describe('native delegated work budget boundaries', () => {
       return toolCallParts('effect', 'forged-effect', {});
     });
     const budget: DelegatedBudgetPort = {
+      admitInvocation: async () => ({ admitted: true as const }),
       reserveStep: vi.fn(async () => ({
         id: 'reserved-summary',
         outputTokens: 512,
@@ -77,6 +78,7 @@ describe('native delegated work budget boundaries', () => {
     const effect = vi.fn(async () => ({ executed: true }));
     const fixture = scriptedAgentModel(() => toolCallParts('effect', 'over-budget-effect', {}));
     const budget: DelegatedBudgetPort = {
+      admitInvocation: async () => ({ admitted: true as const }),
       reserveStep: vi.fn(async () => ({ id: 'reservation', outputTokens: 8192, synthesis: false })),
       settleStep: vi.fn(async () => {
         throw new Error('Provider exceeded the delegated output reservation');
@@ -162,6 +164,7 @@ describe('native delegated work budget boundaries', () => {
     await started.promise;
     const model = scriptedAgentModel(() => textParts('model entered after release'));
     const budget: DelegatedBudgetPort = {
+      admitInvocation: async () => ({ admitted: true as const }),
       reserveStep: vi.fn(async () => ({ id: 'third', outputTokens: 512, synthesis: false })),
       settleStep: vi.fn(async () => undefined),
     };

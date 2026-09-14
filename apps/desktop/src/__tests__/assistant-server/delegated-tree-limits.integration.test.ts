@@ -147,6 +147,64 @@ describe('durable delegated tree admission', () => {
     );
     expect(nextTurnInvocations.rows).toHaveLength(1);
   });
+  it('answers admission at delegation start without consuming an invocation (BST-1751)', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const root = { parentResourceId: 'owner', parentThreadId: 'root' };
+    // Before any child exists the root is registered and the budget row opened.
+    await expect(host.budget.admitInvocation(root)).resolves.toEqual({ admitted: true });
+    const opened = await database.query(
+      "SELECT invocations FROM brainstrike_delegation_budgets WHERE root_thread_id = 'root'"
+    );
+    expect(opened.rows).toEqual([{ invocations: 0 }]);
+
+    for (let index = 1; index <= 8; index += 1) {
+      await host.persist(await childIdentity(`admitted-${index}`));
+    }
+    await expect(host.budget.admitInvocation(root)).resolves.toEqual({
+      admitted: false,
+      reason: expect.stringMatching(/invocation limit/i),
+    });
+    // A refusal reserves nothing and creates nothing.
+    const after = await database.query(
+      "SELECT invocations FROM brainstrike_delegation_budgets WHERE root_thread_id = 'root'"
+    );
+    expect(after.rows).toEqual([{ invocations: 8 }]);
+    const conversations = await database.query(
+      'SELECT thread_id FROM brainstrike_delegated_conversations'
+    );
+    expect(conversations.rows).toHaveLength(9);
+
+    // The parent must be a node the host owns under this root.
+    await expect(
+      host.budget.admitInvocation({ parentResourceId: 'someone-else', parentThreadId: 'root' })
+    ).rejects.toMatchObject({ reason: 'parent-scope-mismatch' });
+  });
+
+  it('refuses a fourth descendant level at delegation start', async () => {
+    let parent: DelegatedConversationIdentity | undefined;
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    for (const depth of [1, 2, 3]) {
+      const identity = await childIdentity(`start-depth-${depth}`, parent);
+      await expect(
+        host.budget.admitInvocation({
+          parentResourceId: identity.parentResourceId,
+          parentThreadId: identity.parentThreadId,
+        })
+      ).resolves.toEqual({ admitted: true });
+      await host.persist(identity);
+      parent = identity;
+    }
+    if (!parent) {
+      throw new Error('Expected three admitted levels');
+    }
+    await expect(
+      host.budget.admitInvocation({
+        parentResourceId: parent.childResourceId,
+        parentThreadId: parent.childThreadId,
+      })
+    ).resolves.toEqual({ admitted: false, reason: expect.stringMatching(/depth|level/i) });
+  });
+
   it('admits at most eight racing siblings across independent hosts for the same original turn', async () => {
     const identities = await Promise.all(
       Array.from({ length: 12 }, (_, index) => childIdentity(`racing-${index}`))

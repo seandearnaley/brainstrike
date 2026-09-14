@@ -469,6 +469,15 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
     a destructive-red state. `SUBAGENT_NO_ANSWER_OUTCOME` lives in
     `assistant-contract/personas.ts` because it is the wire between the
     agent-side emitter and the card.
+  - `SUBAGENT_REJECTED_OUTCOME` (BST-1751) is the sibling marker for a
+    delegation REFUSED before its child ran: an unknown persona, the in-memory
+    concurrency or per-turn backstop, or the host's durable tree budget answered
+    at delegation start. Mastra still returns a SUCCESSFUL tool call carrying
+    `[Delegation Rejected] …`, so `onDelegationStart` records the refusal in the
+    same outcome capture and the mapper emits `subagent.failed`/`failed` with
+    `outcome = 'rejected'` (card: `Rejected`, amber). Paired specs:
+    `subagent-delegation.spec.ts` ("asks the durable budget at start"),
+    `delegation-rejection.integration.spec.ts`.
   - **The child's LAST step is reserved for its summary — via Mastra's own
     `onIterationComplete` hook, not a bolt-on.** `buildChildIterationPolicy`
     (build-persona-subagents.ts) rides the child Agent's `defaultOptions`, so it
@@ -1540,6 +1549,32 @@ deleting a child never refunds the root's spent allocation. Step reservations
 survive database reload. A turn created before budget admission existed cannot
 start fresh child inference or admit another sibling: the visible error asks for a new parent turn.
 Existing invocation rows without their original budget must never seed fresh counters.
+
+**Admission is answered at delegation START, and a refusal never kills the
+root.** SETTLED 2026-09-14 (BST-1751). The durable checks (depth, invocations,
+output summary reservation) used to run only inside `persist`, i.e. after Mastra
+had started the child; a refusal there threw through the projection's
+`authorize` and failed the root with the generic identity message while every
+sibling was cancelled (thread-f6be9761). Now `DelegatedBudgetPort.admitInvocation`
+(`delegated-tree-admission.ts`, `admitDelegatedInvocation`) evaluates the same
+rules read-only, before any native child exists, and `createDelegationConfig`
+consults it in `onDelegationStart`: a refusal returns `proceed: false` with the
+host's reason, which Mastra hands the model as `[Delegation Rejected] …`. The
+reservation at persist time remains the authority (the same checks, now
+mutating), so a true sibling race can still refuse there. Two more rules make
+any refusal survivable: Mastra streams a refused delegation's text through the
+PARENT's writer under the parent's run id, so `resolveChildDelegation`
+(`delegated-stream-projection.ts`) treats same-run-id nested output as not a
+child stream and binds nothing; and every `DelegatedConversationIdentityError`
+that escapes the desktop host is logged at error level with its bounded
+`reason` (`delegated_conversation_identity_rejected`, method, host run) before
+it propagates, so a debug pack names the refusing rule. The debug pack behind
+the ticket showed 8 invocation rows for 8 counted invocations; the three
+"missing" rows were admitted-but-never-bound (no child run id), not a counter
+mismatch. Paired tests: `delegated-tree-limits.integration.test.ts` ("answers
+admission at delegation start", "refuses a fourth descendant level"),
+`delegated-conversation-host.integration.test.ts` ("logs the identity reason"),
+`delegation-rejection.integration.spec.ts`.
 
 The runtime shares a FIFO queue of two active model/tool operations across all
 descendants. Model permits end before native tool/delegation execution; native

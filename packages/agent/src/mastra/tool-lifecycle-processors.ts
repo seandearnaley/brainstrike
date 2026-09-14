@@ -16,6 +16,7 @@
 import {
   type AssistantPersonaDefinition,
   SUBAGENT_NO_ANSWER_OUTCOME,
+  SUBAGENT_REJECTED_OUTCOME,
 } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import type { AssistantRunEventMetadata } from '../run-events';
@@ -819,11 +820,35 @@ export type DelegationLifecyclePartType =
   | 'tool-output-denied'
   | 'tool-result';
 
+/** What the delegation hook recorded about a tool-result that LOOKS successful. */
+type RecordedDelegationOutcome =
+  | typeof SUBAGENT_NO_ANSWER_OUTCOME
+  | typeof SUBAGENT_REJECTED_OUTCOME
+  | undefined;
+
+function resolveRecordedDelegationOutcome(
+  partType: DelegationLifecyclePartType,
+  parentToolCallId: string | undefined,
+  parentRuntimeRunId: string | undefined,
+  outcomes: DelegationOutcomeCapture | undefined
+): RecordedDelegationOutcome {
+  if (partType !== 'tool-result' || !(parentToolCallId && outcomes)) {
+    return;
+  }
+  if (outcomes.rejected(parentToolCallId, parentRuntimeRunId)) {
+    return SUBAGENT_REJECTED_OUTCOME;
+  }
+  if (outcomes.returnedNoAnswer(parentToolCallId, parentRuntimeRunId)) {
+    return SUBAGENT_NO_ANSWER_OUTCOME;
+  }
+  return;
+}
+
 /** The subagent.* run event that mirrors a delegation tool-call/result/error/decline. */
 function makeSubagentLifecycleChunk(
   partType: DelegationLifecyclePartType,
   metadata: AssistantRunEventMetadata,
-  returnedNoAnswer: boolean
+  outcome: RecordedDelegationOutcome
 ): StreamChunk {
   if (partType === 'tool-call') {
     return makeRunEventChunk('subagent.started', 'running', 'Subagent started', metadata);
@@ -845,7 +870,17 @@ function makeSubagentLifecycleChunk(
       metadata
     );
   }
-  if (returnedNoAnswer) {
+  if (outcome === SUBAGENT_REJECTED_OUTCOME) {
+    // BST-1751. The delegation was refused at start — by a backstop or by the
+    // host's durable tree budget — so no child ran. Mastra still returns a
+    // successful tool call carrying `[Delegation Rejected] …`, which would
+    // read as a completion without this discriminator.
+    return makeRunEventChunk('subagent.failed', 'failed', 'Subagent delegation rejected', {
+      ...metadata,
+      outcome: SUBAGENT_REJECTED_OUTCOME,
+    });
+  }
+  if (outcome === SUBAGENT_NO_ANSWER_OUTCOME) {
     // BST-1410. The tool call returned, but the delegation did not do its job:
     // the child wrote no summary, so the parent got tool results nobody
     // analysed. Reporting that as `completed` is the silent success that made
@@ -912,19 +947,14 @@ export function mapToolLifecyclePart(
       lifecycleState.delegationLifecycle.settled(delegation.parentToolCallId);
     }
   }
-  const returnedNoAnswer = Boolean(
-    partType === 'tool-result' &&
-      delegation.parentToolCallId &&
-      lifecycleState.delegationOutcomes?.returnedNoAnswer(
-        delegation.parentToolCallId,
-        parentRuntimeRunId
-      )
+  const outcome = resolveRecordedDelegationOutcome(
+    partType,
+    delegation.parentToolCallId,
+    parentRuntimeRunId,
+    lifecycleState.delegationOutcomes
   );
   return {
-    chunks: [
-      ...generic.chunks,
-      makeSubagentLifecycleChunk(lifecycleType, metadata, returnedNoAnswer),
-    ],
+    chunks: [...generic.chunks, makeSubagentLifecycleChunk(lifecycleType, metadata, outcome)],
     finished: false,
   };
 }

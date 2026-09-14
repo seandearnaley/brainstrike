@@ -263,7 +263,11 @@ it.each([
         : {}),
       conversationBinding: {
         ...originalBinding,
-        budget: { reserveStep, settleStep: vi.fn(async () => {}) },
+        budget: {
+          admitInvocation: async () => ({ admitted: true as const }),
+          reserveStep,
+          settleStep: vi.fn(async () => {}),
+        },
         continuation: port,
       },
     };

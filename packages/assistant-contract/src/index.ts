@@ -19,6 +19,7 @@ export * from './delegated-tool-actions.js';
 export {
   DELEGATION_LIMITS,
   type DelegatedBudgetPort,
+  type DelegatedInvocationAdmission,
   type DelegatedStepReservation,
 } from './delegation-limits.js';
 export * from './edit-checkpoints.js';

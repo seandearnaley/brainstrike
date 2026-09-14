@@ -71,7 +71,11 @@ it.each([
     }));
     const settleStep = vi.fn(async (_id: string, _outputTokens: number | undefined) => undefined);
     const binding = {
-      budget: { reserveStep, settleStep },
+      budget: {
+        admitInvocation: async () => ({ admitted: true as const }),
+        reserveStep,
+        settleStep,
+      },
       ...createDelegatedConversationBinding(async (identity) => {
         identities.push(identity);
       }),
@@ -426,6 +430,7 @@ it('isolates step reservations for two concurrent invocations of the same Worker
       return { threadId: child.childThreadId };
     },
     budget: {
+      admitInvocation: async () => ({ admitted: true as const }),
       reserveStep: async ({ threadId }: { threadId: string; resourceId: string }) => {
         const id = `reservation-${reservations.size}`;
         reservations.set(id, threadId);

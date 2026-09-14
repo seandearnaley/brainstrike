@@ -26,7 +26,7 @@ import {
   isAssistantDelegatedUsageIdentity,
 } from '@brainstrike/assistant-contract/run-usage';
 import type { ScopedLogger } from '@brainstrike/logging';
-import type { DelegationConfig } from '@mastra/core/agent';
+import type { DelegationConfig, DelegationStartResult } from '@mastra/core/agent';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { MAX_DELEGATED_CONTEXT_BYTES } from './delegated-system-context';
 import type { DelegatedTurnPersistence } from './delegated-turn-persistence';
@@ -59,11 +59,18 @@ export interface DelegationOutcomeCapture {
   failed(parentToolCallId: string, parentRuntimeRunId?: string): boolean;
   recordFailure(parentToolCallId: string, parentRuntimeRunId?: string): void;
   recordNoAnswer(parentToolCallId: string, parentRuntimeRunId?: string): void;
+  /**
+   * The delegation was refused at start (BST-1751): no child ran, and the
+   * tool call still succeeds with Mastra's `[Delegation Rejected]` text, so
+   * only the hook can tell the mapper it was never a completion.
+   */
+  recordRejection(parentToolCallId: string, parentRuntimeRunId?: string): void;
+  rejected(parentToolCallId: string, parentRuntimeRunId?: string): boolean;
   returnedNoAnswer(parentToolCallId: string, parentRuntimeRunId?: string): boolean;
 }
 
 export function createDelegationOutcomeCapture(): DelegationOutcomeCapture {
-  const outcomes = new Map<string, 'failed' | 'no-answer'>();
+  const outcomes = new Map<string, 'failed' | 'no-answer' | 'rejected'>();
   const key = (call: string, run?: string) => JSON.stringify([run, call]);
   return {
     failed(call, run) {
@@ -74,6 +81,12 @@ export function createDelegationOutcomeCapture(): DelegationOutcomeCapture {
     },
     recordNoAnswer(call, run) {
       outcomes.set(key(call, run), 'no-answer');
+    },
+    recordRejection(call, run) {
+      outcomes.set(key(call, run), 'rejected');
+    },
+    rejected(call, run) {
+      return outcomes.get(key(call, run)) === 'rejected';
     },
     returnedNoAnswer(call, run) {
       return outcomes.get(key(call, run)) === 'no-answer';
@@ -331,44 +344,69 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
       // exactly the case whose cost must still be attributed.
       return await resolveMissingAnswerResult(params, context);
     },
-    onDelegationStart: (context) => {
+    onDelegationStart: async (context) => {
+      // Every refusal is a tool result the model can read and a recorded
+      // outcome for the timeline; none of them starts a child (BST-1751).
+      const reject = (
+        rejectionReason: string,
+        code: string,
+        fields: Record<string, unknown>
+      ): DelegationStartResult => {
+        params.logger.warn('Rejecting delegation', {
+          code,
+          personaId: context.primitiveId,
+          rejectionReason,
+          ...fields,
+        });
+        params.delegationOutcomes?.recordRejection(context.toolCallId, context.runId);
+        return { proceed: false, rejectionReason };
+      };
       const persona = params.personasById.get(context.primitiveId);
       if (!persona) {
-        params.logger.warn('Rejecting delegation to unknown persona', {
-          code: 'subagent_delegation_unknown_persona',
-          personaId: context.primitiveId,
-        });
-        return {
-          proceed: false,
-          rejectionReason: `Unknown subagent '${context.primitiveId}'.`,
-        };
+        return reject(
+          `Unknown subagent '${context.primitiveId}'.`,
+          'subagent_delegation_unknown_persona',
+          {}
+        );
       }
 
       if (
         !resolveDelegatedWorkBudget(params.conversationBinding?.budget, params.workQueue) &&
         inFlight >= MAX_CONCURRENT_DELEGATIONS
       ) {
-        params.logger.warn('Rejecting delegation: concurrency cap reached', {
-          code: 'subagent_delegation_concurrency_capped',
-          inFlight,
-          personaId: context.primitiveId,
-        });
-        return {
-          proceed: false,
-          rejectionReason: `Too many concurrent subagents (max ${MAX_CONCURRENT_DELEGATIONS}); try again after the current ones finish.`,
-        };
+        return reject(
+          `Too many concurrent subagents (max ${MAX_CONCURRENT_DELEGATIONS}); try again after the current ones finish.`,
+          'subagent_delegation_concurrency_capped',
+          { inFlight }
+        );
       }
 
       if (total >= MAX_DELEGATIONS_PER_RUN) {
-        params.logger.warn('Rejecting delegation: per-run cap reached', {
-          code: 'subagent_delegation_per_run_capped',
-          personaId: context.primitiveId,
-          total,
-        });
-        return {
-          proceed: false,
-          rejectionReason: `Subagent delegation limit reached (max ${MAX_DELEGATIONS_PER_RUN} per turn).`,
-        };
+        return reject(
+          `Subagent delegation limit reached (max ${MAX_DELEGATIONS_PER_RUN} per turn).`,
+          'subagent_delegation_per_run_capped',
+          { total }
+        );
+      }
+
+      // The host's durable tree budget answers BEFORE the child exists. Its
+      // later reservation at persist time stays the authority; a refusal here
+      // is the same refusal the model would otherwise only meet as a dead root.
+      const budget = params.conversationBinding?.budget;
+      if (budget) {
+        const parentThreadId = context.threadId?.trim();
+        const parentResourceId = context.resourceId?.trim();
+        if (!(parentThreadId && parentResourceId)) {
+          throw new Error(
+            'Durable delegation admission requires the parent thread and resource identity.'
+          );
+        }
+        const admission = await budget.admitInvocation({ parentResourceId, parentThreadId });
+        if (!admission.admitted) {
+          return reject(admission.reason, 'subagent_delegation_budget_refused', {
+            parentThreadId,
+          });
+        }
       }
 
       const maxSteps = clampMaxSteps(

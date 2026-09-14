@@ -1,4 +1,7 @@
-import { DELEGATION_LIMITS } from '@brainstrike/assistant-contract';
+import {
+  DELEGATION_LIMITS,
+  type DelegatedInvocationAdmission,
+} from '@brainstrike/assistant-contract';
 import {
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
@@ -17,18 +20,11 @@ const budgetSchema = z.object({
   synthesisOutputTokens: z.number().int().positive(),
 });
 
-/** Must run inside the same callback transaction as graph/invocation admission. */
-export async function reserveDelegatedInvocation(
-  tx: DelegatedConversationDatabase,
-  scope: DelegatedConversationScope & { turnMessageId: string },
-  hostRunId: string,
-  parentThreadId: string,
-  duplicate: boolean,
-  childThreadId: string,
-  configuration: unknown
-): Promise<void> {
-  await assertDelegationRootRunning(tx, scope, hostRunId);
-  await assertDelegatedConversationAdmission(tx, scope, [parentThreadId, childThreadId]);
+type BudgetScope = DelegatedConversationScope & { turnMessageId: string };
+type Budget = z.infer<typeof budgetSchema>;
+
+/** Open (idempotently) and lock the original turn's budget row. */
+async function lockBudget(tx: DelegatedConversationDatabase, scope: BudgetScope): Promise<Budget> {
   const legacy = await tx.query(
     `SELECT 1 FROM brainstrike_delegated_invocations invocation
       JOIN brainstrike_assistant_thread_runs host ON host.id = invocation.host_run_id
@@ -66,10 +62,22 @@ export async function reserveDelegatedInvocation(
   if (result.rows.length !== 1) {
     throw new Error('Delegated budget owner scope is unauthorized.');
   }
-  const budget = budgetSchema.parse(result.rows[0]);
-  if (duplicate) {
-    return;
-  }
+  return budgetSchema.parse(result.rows[0]);
+}
+
+/**
+ * Why one more invocation under `parentThreadId` cannot be admitted, or
+ * undefined when it can. `summaryCharge` is the child summary this invocation
+ * must still reserve: the full synthesis reservation for a new child, none for
+ * a child already budgeted (a replayed admission).
+ */
+async function describeCapacityRefusal(
+  tx: DelegatedConversationDatabase,
+  scope: BudgetScope,
+  budget: Budget,
+  parentThreadId: string,
+  summaryCharge: number
+): Promise<string | undefined> {
   const ancestry = await tx.query(
     `WITH RECURSIVE parents AS (
        SELECT thread_id, parent_thread_id, 1 AS depth FROM brainstrike_delegated_conversations
@@ -83,12 +91,67 @@ export async function reserveDelegatedInvocation(
   );
   const depth = z.object({ depth: z.number().int().positive() }).safeParse(ancestry.rows[0]);
   if (!depth.success || depth.data.depth > budget.maxDepth) {
-    throw new Error(`Delegation depth limit reached (${budget.maxDepth} descendant levels).`);
+    return `Delegation depth limit reached (${budget.maxDepth} descendant levels).`;
   }
   if (budget.invocations >= budget.maxInvocations) {
-    throw new Error(
-      `Delegation invocation limit reached (${budget.maxInvocations} per original turn).`
-    );
+    return `Delegation invocation limit reached (${budget.maxInvocations} per original turn).`;
+  }
+  if (budget.chargedOutputTokens + summaryCharge > budget.maxOutputTokens) {
+    return 'Delegation output budget cannot reserve a child summary.';
+  }
+  return;
+}
+
+/**
+ * The host's answer at delegation START (BST-1751): the same depth, invocation
+ * and output rules `reserveDelegatedInvocation` enforces, evaluated before any
+ * native child exists so a refusal reaches the model as a rejected delegation
+ * instead of failing the root once the child binds. Reserves nothing; the
+ * later reservation at persist time remains the authority. Identity failures
+ * (root not running, parent under a stopped ancestor) still throw.
+ */
+export async function admitDelegatedInvocation(
+  tx: DelegatedConversationDatabase,
+  scope: BudgetScope,
+  hostRunId: string,
+  parentThreadId: string
+): Promise<DelegatedInvocationAdmission> {
+  await assertDelegationRootRunning(tx, scope, hostRunId);
+  await assertDelegatedConversationAdmission(tx, scope, [parentThreadId]);
+  let budget: Budget;
+  try {
+    budget = await lockBudget(tx, scope);
+  } catch (error) {
+    if (error instanceof DelegatedConversationIdentityError) {
+      throw error;
+    }
+    return { admitted: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+  const reason = await describeCapacityRefusal(
+    tx,
+    scope,
+    budget,
+    parentThreadId,
+    budget.synthesisOutputTokens
+  );
+  return reason === undefined ? { admitted: true } : { admitted: false, reason };
+}
+
+/** Must run inside the same callback transaction as graph/invocation admission. */
+export async function reserveDelegatedInvocation(
+  tx: DelegatedConversationDatabase,
+  scope: BudgetScope,
+  hostRunId: string,
+  parentThreadId: string,
+  duplicate: boolean,
+  childThreadId: string,
+  configuration: unknown
+): Promise<void> {
+  await assertDelegationRootRunning(tx, scope, hostRunId);
+  await assertDelegatedConversationAdmission(tx, scope, [parentThreadId, childThreadId]);
+  const budget = await lockBudget(tx, scope);
+  if (duplicate) {
+    return;
   }
   const existingChild = await tx.query(
     `SELECT child_thread_id FROM brainstrike_delegation_child_budgets
@@ -96,8 +159,9 @@ export async function reserveDelegatedInvocation(
     [scope.rootThreadId, scope.turnMessageId, childThreadId]
   );
   const summaryCharge = existingChild.rows.length === 0 ? budget.synthesisOutputTokens : 0;
-  if (budget.chargedOutputTokens + summaryCharge > budget.maxOutputTokens) {
-    throw new Error('Delegation output budget cannot reserve a child summary.');
+  const refusal = await describeCapacityRefusal(tx, scope, budget, parentThreadId, summaryCharge);
+  if (refusal !== undefined) {
+    throw new Error(refusal);
   }
   const configurationBudget = z
     .object({ maxSteps: z.number().int().positive() })

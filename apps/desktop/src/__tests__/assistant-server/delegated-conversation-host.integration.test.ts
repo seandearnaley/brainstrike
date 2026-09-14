@@ -182,6 +182,27 @@ describe('desktop delegated conversation authority', () => {
     }
   );
 
+  it('logs the identity reason at the host boundary when admission is refused (BST-1751)', async () => {
+    const diagnostic = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    try {
+      const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+      await expect(
+        host.persist({ ...identity, parentResourceId: 'someone-else' })
+      ).rejects.toMatchObject({ reason: 'parent-scope-mismatch' });
+      expect(diagnostic).toHaveBeenCalledWith(
+        'Delegated conversation identity rejected',
+        expect.objectContaining({
+          code: 'delegated_conversation_identity_rejected',
+          hostRunId: 'initial-leg',
+          method: 'persist',
+          reason: 'parent-scope-mismatch',
+        })
+      );
+    } finally {
+      diagnostic.mockRestore();
+    }
+  });
+
   it('loads only the requested leaf admission, not retained history for the same child run', async () => {
     const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
     await host.persist(identity);
