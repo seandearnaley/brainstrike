@@ -236,6 +236,57 @@ describe('createDelegationConfig', () => {
     expect(outcomes.rejected('fault', 'run-1')).toBe(false);
   });
 
+  it('reserves the per-turn count before awaiting the host and releases it on refusal', async () => {
+    // The hook awaits the durable budget, so parallel starts interleave. The
+    // in-memory caps must be taken BEFORE that await and given back only when
+    // the start is refused, or eight concurrent siblings plus a ninth could
+    // all pass the check on the same stale count.
+    let releaseAdmission: (
+      admission: { admitted: true } | { admitted: false; reason: string }
+    ) => void = () => undefined;
+    const pending = new Promise<{ admitted: true } | { admitted: false; reason: string }>(
+      (resolve) => {
+        releaseAdmission = resolve;
+      }
+    );
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      conversationBinding: {
+        ...createDelegatedConversationBinding(async () => undefined),
+        budget: {
+          admitInvocation: () => pending,
+          reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
+          settleStep: async () => undefined,
+        },
+      },
+      logger: silentLogger,
+      personasById,
+      workQueue: new DelegatedWorkQueue(),
+    });
+    const start = (toolCallId: string) =>
+      config.onDelegationStart?.(
+        startContext({ resourceId: 'owner', threadId: 'root', toolCallId })
+      );
+    const inFlight = Array.from({ length: MAX_DELEGATIONS_PER_RUN }, (_, index) =>
+      start(`sibling-${index}`)
+    );
+    // The ninth arrives while the first eight still await the host.
+    const ninth = start('ninth');
+    releaseAdmission({ admitted: false, reason: 'host said no' });
+    const results = await Promise.all(inFlight);
+    expect(results.every((result) => result?.proceed === false)).toBe(true);
+    expect(await ninth).toMatchObject({
+      proceed: false,
+      rejectionReason: expect.stringMatching(/delegation limit/i),
+    });
+    // Every refusal gave its count back: a later start passes the cap and
+    // reaches the host again (which still refuses, but on its own grounds).
+    expect(await start('after-refusals')).toEqual({
+      proceed: false,
+      rejectionReason: 'host said no',
+    });
+  });
+
   it('records the in-memory backstop refusals as rejections too', async () => {
     const outcomes = createDelegationOutcomeCapture();
     const config = createDelegationConfig({

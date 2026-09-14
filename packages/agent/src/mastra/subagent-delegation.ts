@@ -473,12 +473,26 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         );
       }
 
-      const refusal = await consultDurableAdmission(
-        params.conversationBinding?.budget,
-        context,
-        reject
-      );
+      // The caps are taken BEFORE awaiting the host: parallel starts interleave
+      // across that await, and a count read before it would let every sibling
+      // pass on the same stale value. A refusal or a failure gives them back.
+      inFlight += 1;
+      total += 1;
+      let refusal: DelegationStartResult | undefined;
+      try {
+        refusal = await consultDurableAdmission(
+          params.conversationBinding?.budget,
+          context,
+          reject
+        );
+      } catch (error) {
+        inFlight -= 1;
+        total -= 1;
+        throw error;
+      }
       if (refusal) {
+        inFlight -= 1;
+        total -= 1;
         return refusal;
       }
 
@@ -492,8 +506,6 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         params.abortSignal,
         params.conversationBinding?.getAbortSignal?.(context.requestContext)
       );
-      inFlight += 1;
-      total += 1;
       return {
         // Mastra's instructions tool argument is model-authored task content. Keep it
         // in the delegated USER prompt; the child retains host/persona system authority.
