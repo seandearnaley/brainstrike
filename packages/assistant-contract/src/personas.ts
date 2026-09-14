@@ -79,6 +79,15 @@ export const SUBAGENT_DELEGATION_TOOL_PREFIX = 'agent-';
 export const SUBAGENT_NO_ANSWER_OUTCOME = 'no-answer';
 
 /**
+ * The delegation was refused before its child ran: a persona the host does
+ * not know, the concurrency or per-turn backstop, or the durable tree budget
+ * (depth, invocations, output) answered at delegation start (BST-1751). The
+ * delegation tool call itself SUCCEEDS with Mastra's `[Delegation Rejected]`
+ * text, so without this discriminator the card would read "finished".
+ */
+export const SUBAGENT_REJECTED_OUTCOME = 'rejected';
+
+/**
  * The model-facing description of a persona's `agent-<id>` delegation tool.
  *
  * The supervisor picks the SIZE of a delegated task from this string and

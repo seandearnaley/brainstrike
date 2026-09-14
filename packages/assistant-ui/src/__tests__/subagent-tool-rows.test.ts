@@ -77,6 +77,18 @@ describe('readSubagentDelegationOutcome', () => {
     expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBe('no-answer');
   });
 
+  it("reports 'rejected' for a delegation refused before its child ran (BST-1751)", () => {
+    const parts = [
+      terminalEventPart({
+        kind: 'subagent.failed',
+        outcome: 'rejected',
+        parentToolCallId: 'delegation-1',
+        status: 'failed',
+      }),
+    ];
+    expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBe('rejected');
+  });
+
   it('ignores a terminal event belonging to a DIFFERENT concurrent delegation', () => {
     // MAX_CONCURRENT_DELEGATIONS is 2, so two delegations are open at once.
     const parts = [

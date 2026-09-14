@@ -71,13 +71,13 @@ function completeContext(overrides: Record<string, unknown> = {}) {
 }
 
 describe('createDelegationConfig', () => {
-  it('proceeds for a known persona and clamps a model-supplied maxSteps to the cap', () => {
+  it('proceeds for a known persona and clamps a model-supplied maxSteps to the cap', async () => {
     const config = createDelegationConfig({
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
     });
-    const result = config.onDelegationStart?.(startContext({ params: { maxSteps: 50 } }));
+    const result = await config.onDelegationStart?.(startContext({ params: { maxSteps: 50 } }));
     expect(result).toEqual({
       modifiedInstructions: '',
       modifiedMaxSteps: 8,
@@ -86,13 +86,13 @@ describe('createDelegationConfig', () => {
     });
   });
 
-  it('defaults modifiedMaxSteps to the persona cap when the model requests none', () => {
+  it('defaults modifiedMaxSteps to the persona cap when the model requests none', async () => {
     const config = createDelegationConfig({
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
     });
-    const result = config.onDelegationStart?.(startContext());
+    const result = await config.onDelegationStart?.(startContext());
     expect(result).toEqual({
       modifiedInstructions: '',
       modifiedMaxSteps: 8,
@@ -101,26 +101,26 @@ describe('createDelegationConfig', () => {
     });
   });
 
-  it('rejects a delegation to an unknown persona (no silent fallback)', () => {
+  it('rejects a delegation to an unknown persona (no silent fallback)', async () => {
     const config = createDelegationConfig({
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
     });
-    const result = config.onDelegationStart?.(startContext({ primitiveId: 'ghost' }));
+    const result = await config.onDelegationStart?.(startContext({ primitiveId: 'ghost' }));
     expect(result).toMatchObject({ proceed: false });
   });
 
-  it('rejects the 3rd concurrent start while 2 are in flight', () => {
+  it('rejects the 3rd concurrent start while 2 are in flight', async () => {
     const config = createDelegationConfig({
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
     });
-    expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
-    expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
+    expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
+    expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
     expect(MAX_CONCURRENT_DELEGATIONS).toBe(2);
-    expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: false });
+    expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: false });
   });
 
   it.each([false, true])(
@@ -134,6 +134,7 @@ describe('createDelegationConfig', () => {
         conversationBinding: {
           ...createDelegatedConversationBinding(async () => undefined),
           budget: {
+            admitInvocation: async () => ({ admitted: true as const }),
             reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
             settleStep: async () => undefined,
           },
@@ -154,45 +155,207 @@ describe('createDelegationConfig', () => {
     }
   );
 
-  it('a completed delegation frees a concurrency slot', () => {
+  it('asks the durable budget at start and rejects with the host reason (BST-1751)', async () => {
+    const outcomes = createDelegationOutcomeCapture();
+    const calls: { parentThreadId: string; parentResourceId: string }[] = [];
+    const reason = 'Delegation invocation limit reached (8 per original turn).';
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      conversationBinding: {
+        ...createDelegatedConversationBinding(async () => undefined),
+        budget: {
+          admitInvocation: async (scope) => {
+            calls.push(scope);
+            return calls.length === 1
+              ? { admitted: true as const }
+              : { admitted: false as const, reason };
+          },
+          reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
+          settleStep: async () => undefined,
+        },
+      },
+      delegationOutcomes: outcomes,
+      logger: silentLogger,
+      personasById,
+      workQueue: new DelegatedWorkQueue(),
+    });
+    const admitted = await config.onDelegationStart?.(
+      startContext({ resourceId: 'owner', threadId: 'root', toolCallId: 'a' })
+    );
+    expect(admitted).toMatchObject({ proceed: true });
+    const refused = await config.onDelegationStart?.(
+      startContext({ resourceId: 'owner', threadId: 'root', toolCallId: 'b' })
+    );
+    expect(refused).toEqual({ proceed: false, rejectionReason: reason });
+    expect(calls).toEqual([
+      { parentResourceId: 'owner', parentThreadId: 'root' },
+      { parentResourceId: 'owner', parentThreadId: 'root' },
+    ]);
+    // The refusal is recorded for the stream mapper; the admitted call is not.
+    expect(outcomes.rejected('b', 'run-1')).toBe(true);
+    expect(outcomes.rejected('a', 'run-1')).toBe(false);
+  });
+
+  it('turns a host identity refusal at start into a rejection, and propagates any other failure', async () => {
+    const outcomes = createDelegationOutcomeCapture();
+    let failure: Error = Object.assign(new Error('identity conflict'), {
+      name: 'DelegatedConversationIdentityError',
+      reason: 'parent-scope-mismatch',
+    });
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      conversationBinding: {
+        ...createDelegatedConversationBinding(async () => undefined),
+        budget: {
+          admitInvocation: async () => {
+            throw failure;
+          },
+          reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
+          settleStep: async () => undefined,
+        },
+      },
+      delegationOutcomes: outcomes,
+      logger: silentLogger,
+      personasById,
+      workQueue: new DelegatedWorkQueue(),
+    });
+    const refused = await config.onDelegationStart?.(
+      startContext({ resourceId: 'owner', threadId: 'root', toolCallId: 'identity' })
+    );
+    expect(refused).toEqual({
+      proceed: false,
+      rejectionReason: 'Delegation admission refused (parent-scope-mismatch).',
+    });
+    expect(outcomes.rejected('identity', 'run-1')).toBe(true);
+    failure = new Error('database unavailable');
+    await expect(
+      config.onDelegationStart?.(
+        startContext({ resourceId: 'owner', threadId: 'root', toolCallId: 'fault' })
+      )
+    ).rejects.toThrow('database unavailable');
+    expect(outcomes.rejected('fault', 'run-1')).toBe(false);
+  });
+
+  it('reserves the per-turn count before awaiting the host and releases it on refusal', async () => {
+    // The hook awaits the durable budget, so parallel starts interleave. The
+    // in-memory caps must be taken BEFORE that await and given back only when
+    // the start is refused, or eight concurrent siblings plus a ninth could
+    // all pass the check on the same stale count.
+    let releaseAdmission: (
+      admission: { admitted: true } | { admitted: false; reason: string }
+    ) => void = () => undefined;
+    const pending = new Promise<{ admitted: true } | { admitted: false; reason: string }>(
+      (resolve) => {
+        releaseAdmission = resolve;
+      }
+    );
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      conversationBinding: {
+        ...createDelegatedConversationBinding(async () => undefined),
+        budget: {
+          admitInvocation: () => pending,
+          reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
+          settleStep: async () => undefined,
+        },
+      },
+      logger: silentLogger,
+      personasById,
+      workQueue: new DelegatedWorkQueue(),
+    });
+    const start = (toolCallId: string) =>
+      config.onDelegationStart?.(
+        startContext({ resourceId: 'owner', threadId: 'root', toolCallId })
+      );
+    const inFlight = Array.from({ length: MAX_DELEGATIONS_PER_RUN }, (_, index) =>
+      start(`sibling-${index}`)
+    );
+    // The ninth arrives while the first eight still await the host.
+    const ninth = start('ninth');
+    releaseAdmission({ admitted: false, reason: 'host said no' });
+    const results = await Promise.all(inFlight);
+    expect(results.every((result) => result?.proceed === false)).toBe(true);
+    expect(await ninth).toMatchObject({
+      proceed: false,
+      rejectionReason: expect.stringMatching(/delegation limit/i),
+    });
+    // Every refusal gave its count back: a later start passes the cap and
+    // reaches the host again (which still refuses, but on its own grounds).
+    expect(await start('after-refusals')).toEqual({
+      proceed: false,
+      rejectionReason: 'host said no',
+    });
+  });
+
+  it('records the in-memory backstop refusals as rejections too', async () => {
+    const outcomes = createDelegationOutcomeCapture();
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      delegationOutcomes: outcomes,
+      logger: silentLogger,
+      personasById,
+    });
+    await config.onDelegationStart?.(startContext({ primitiveId: 'ghost', toolCallId: 'ghost' }));
+    expect(outcomes.rejected('ghost', 'run-1')).toBe(true);
+  });
+
+  it('refuses to consult the durable budget without the parent thread identity', async () => {
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      conversationBinding: {
+        ...createDelegatedConversationBinding(async () => undefined),
+        budget: {
+          admitInvocation: async () => ({ admitted: true as const }),
+          reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
+          settleStep: async () => undefined,
+        },
+      },
+      logger: silentLogger,
+      personasById,
+      workQueue: new DelegatedWorkQueue(),
+    });
+    await expect(config.onDelegationStart?.(startContext())).rejects.toThrow(/parent thread/i);
+  });
+
+  it('a completed delegation frees a concurrency slot', async () => {
     const config = createDelegationConfig({
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
     });
-    config.onDelegationStart?.(startContext());
-    config.onDelegationStart?.(startContext());
+    await config.onDelegationStart?.(startContext());
+    await config.onDelegationStart?.(startContext());
     config.onDelegationComplete?.(completeContext());
-    expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
+    expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
   });
 
-  it('a rejected start does NOT consume a slot', () => {
+  it('a rejected start does NOT consume a slot', async () => {
     const config = createDelegationConfig({
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
     });
     // Unknown persona rejected — must not increment inFlight.
-    config.onDelegationStart?.(startContext({ primitiveId: 'ghost' }));
-    expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
-    expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
+    await config.onDelegationStart?.(startContext({ primitiveId: 'ghost' }));
+    expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
+    expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
     // Now 2 in flight; the 3rd is rejected by concurrency, proving the earlier
     // ghost rejection consumed nothing.
-    expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: false });
+    expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: false });
   });
 
-  it('enforces the per-run total cap across completed delegations', () => {
+  it('enforces the per-run total cap across completed delegations', async () => {
     const config = createDelegationConfig({
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
     });
     for (let index = 0; index < MAX_DELEGATIONS_PER_RUN; index += 1) {
-      expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
+      expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
       config.onDelegationComplete?.(completeContext());
     }
     // The (MAX+1)th start is rejected even though nothing is in flight.
-    expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: false });
+    expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: false });
   });
 });
 
@@ -347,16 +510,16 @@ describe('createDelegationConfig: a child that returned no answer', () => {
     expect((result as { resultText: string }).resultText).not.toContain('made no tool calls');
   });
 
-  it('still frees the concurrency slot for an empty delegation', () => {
+  it('still frees the concurrency slot for an empty delegation', async () => {
     const config = createDelegationConfig({
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
     });
-    config.onDelegationStart?.(startContext());
-    config.onDelegationStart?.(startContext());
+    await config.onDelegationStart?.(startContext());
+    await config.onDelegationStart?.(startContext());
     config.onDelegationComplete?.(completeContext({ result: { text: '' } }));
-    expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
+    expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
   });
 });
 

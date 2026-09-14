@@ -44,6 +44,7 @@ import {
   assertDelegationRootRunning,
   reserveDelegatedInvocation,
 } from './delegated-tree-admission';
+import { desktopAssistantServerLogger as logger } from './logger';
 
 const identityString = z.string().refine((value) => value.trim().length > 0);
 const hostScopeSchema = z.object({
@@ -175,6 +176,51 @@ function createDisplayIdentity(threadId: string): {
     color: display.color,
     displayName: `${display.name}-${digest.toString('hex').slice(0, 6)}`,
   };
+}
+
+/**
+ * Every `DelegatedConversationIdentityError` that escapes the host carries a
+ * bounded `reason`, but the message the run row records is generic. Log the
+ * reason at the boundary so a debug pack can say WHICH admission rule refused
+ * (BST-1751: none of the five failed runs in thread-f6be9761 recorded one).
+ */
+function withIdentityLogging<Args extends unknown[], Result>(
+  hostRunId: string,
+  method: string,
+  operation: (...args: Args) => Promise<Result>
+): (...args: Args) => Promise<Result> {
+  return async (...args: Args): Promise<Result> => {
+    try {
+      return await operation(...args);
+    } catch (error) {
+      if (error instanceof DelegatedConversationIdentityError) {
+        // A stopped root refuses every sibling in the same storm; that is the
+        // expected shape of a cancel, not an error-rate signal.
+        const level = error.reason === 'delegation-root-not-running' ? 'warn' : 'error';
+        logger[level]('Delegated conversation identity rejected', {
+          code: 'delegated_conversation_identity_rejected',
+          hostRunId,
+          method,
+          reason: error.reason,
+        });
+      }
+      throw error;
+    }
+  };
+}
+
+function logIdentityRejections(hostRunId: string, target: object, prefix = ''): void {
+  const members = target as Record<string, unknown>;
+  for (const key of Object.keys(members)) {
+    const value = members[key];
+    if (typeof value === 'function') {
+      members[key] = withIdentityLogging(
+        hostRunId,
+        `${prefix}${key}`,
+        value as (...args: unknown[]) => Promise<unknown>
+      );
+    }
+  }
 }
 
 /**
@@ -640,6 +686,12 @@ export function createDesktopDelegatedConversationHost(
       );
     },
   };
+  // Every function-valued member is wrapped by key, so a method added later
+  // cannot escape unlogged. The members never use `this`; the detached
+  // wrappers rely on that, and so must any future member.
+  logIdentityRejections(hostRunId, host);
+  logIdentityRejections(hostRunId, host.budget, 'budget.');
+  logIdentityRejections(hostRunId, host.continuation, 'continuation.');
   return host;
 }
 

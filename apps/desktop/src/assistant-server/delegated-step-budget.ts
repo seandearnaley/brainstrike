@@ -3,11 +3,12 @@ import type { DelegatedBudgetPort } from '@brainstrike/assistant-contract';
 import {
   createDelegatedConversationRepository,
   type DelegatedConversationDatabase,
+  DelegatedConversationIdentityError,
   type DelegatedConversationScope,
 } from '@brainstrike/db';
 import { z } from 'zod';
 import { assertDelegatedConversationAdmission } from './delegated-cancellation-admission';
-import { assertDelegationRootRunning } from './delegated-tree-admission';
+import { admitDelegatedInvocation, assertDelegationRootRunning } from './delegated-tree-admission';
 
 const treeSchema = z.object({
   chargedOutputTokens: z.number().int().nonnegative(),
@@ -60,6 +61,19 @@ export function createDelegatedStepBudget(
     return treeSchema.parse(tree.rows[0]);
   }
   return {
+    async admitInvocation(parentScope) {
+      return await transact(async (tx, scope) => {
+        const repository = createDelegatedConversationRepository(tx);
+        // The root joins the graph on its first admission question, exactly as
+        // it does on its first persisted child.
+        await repository.registerRoot(scope);
+        const parent = await repository.get(scope, parentScope.parentThreadId);
+        if (!parent || parent.resourceId !== parentScope.parentResourceId) {
+          throw new DelegatedConversationIdentityError('parent-scope-mismatch');
+        }
+        return await admitDelegatedInvocation(tx, scope, hostRunId, parentScope.parentThreadId);
+      });
+    },
     async reserveStep(childScope) {
       return await transact(async (tx, scope) => {
         await assertDelegatedConversationAdmission(tx, scope, [childScope.threadId]);

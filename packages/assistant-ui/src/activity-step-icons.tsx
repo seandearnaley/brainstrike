@@ -41,6 +41,8 @@ function renderStateIcon(state: StepGlyphState): ReactNode {
     case 'waiting':
       return <CircleDashed aria-hidden="true" className="size-4 text-muted-foreground" />;
     case 'no-answer':
+    case 'rejected':
+      // Amber like no-answer: nothing broke, the delegation never ran.
       return (
         <AlertCircle aria-hidden="true" className="size-4 text-amber-600 dark:text-amber-500" />
       );

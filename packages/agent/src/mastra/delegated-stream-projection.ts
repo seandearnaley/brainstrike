@@ -142,6 +142,36 @@ function projectPublishedUsage<State>(
   });
 }
 
+/**
+ * The delegation a `tool-output` part belongs to and the nested child part it
+ * carries, or undefined when the part is not a child stream. Mastra answers a
+ * REFUSED delegation through the parent's own writer, under the parent's run
+ * id: `[Delegation Rejected] …` text and nothing else. No child ran, so there
+ * is no native identity to bind (BST-1751); the tool result carries the
+ * refusal to the model and the lifecycle mapper records the outcome. A real
+ * child streams under its own run id.
+ */
+function resolveChildDelegation(
+  part: unknown,
+  toolNames: Map<string, string>,
+  personas: ReadonlyMap<string, string>
+):
+  | { delegation: NonNullable<ReturnType<typeof resolveDelegationPersona>>; nested: unknown }
+  | undefined {
+  const delegation = resolveDelegationPersona(part, toolNames, personas);
+  if (!delegation) {
+    return;
+  }
+  const nested = readMastraStreamPartValue(part, 'output');
+  const childRunId = readMastraStreamPartString(nested, 'runId');
+  // A missing child run id is a contract break the identity check below
+  // reports loudly; only a run id equal to the parent's marks a refusal.
+  if (childRunId !== undefined && childRunId === readMastraStreamPartString(part, 'runId')) {
+    return;
+  }
+  return { delegation, nested };
+}
+
 /** One projection per attempt: native invocation identity owns independent mapper state. */
 export function createDelegatedStreamProjection<State>(
   options: DelegatedStreamProjectionOptions<State>
@@ -249,11 +279,11 @@ export function createDelegatedStreamProjection<State>(
     if (readMastraStreamPartString(part, 'type') !== 'tool-output') {
       return [];
     }
-    const delegation = resolveDelegationPersona(part, toolNames, options.personas);
-    if (!delegation) {
+    const resolved = resolveChildDelegation(part, toolNames, options.personas);
+    if (!resolved) {
       return [];
     }
-    const nested = readMastraStreamPartValue(part, 'output');
+    const { delegation, nested } = resolved;
     const identity: DelegatedRunIdentity = {
       childRuntimeRunId: requireIdentity(readMastraStreamPartString(nested, 'runId')),
       parentRuntimeRunId: requireIdentity(readMastraStreamPartString(part, 'runId')),

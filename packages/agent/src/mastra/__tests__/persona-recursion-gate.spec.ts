@@ -60,6 +60,7 @@ describe('persona recursion gate', () => {
           ...createDelegatedConversationBinding(async () => undefined),
           bindRun: async () => ({ threadId: 'child' }),
           budget: {
+            admitInvocation: async () => ({ admitted: true as const }),
             reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
             settleStep: async () => undefined,
           },
