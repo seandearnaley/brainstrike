@@ -38,7 +38,14 @@ it.each([
   'nested-question',
   'resume-then-delegate',
 ] as const)('wakes an idle child and preserves exact continuation decisions (%s)', async (mode) => {
-  const fixture = await createBackgroundFixture(false, undefined, 'available', false);
+  // Only a worker child may delegate (read-only personas are leaves).
+  const fixture = await createBackgroundFixture(
+    false,
+    undefined,
+    'available',
+    false,
+    NESTED_MODES.has(mode)
+  );
   try {
     fixture.release.resolve();
     const initial = await createStreamIteratorFromRuntime({
@@ -634,4 +641,11 @@ it.each([
     await fixture.runtime.dispose();
     await fixture.database.close();
   }
-});
+}); /** Modes whose child delegates further; the fixture registers its persona as a worker for them. */
+const NESTED_MODES = new Set([
+  'depth-limit',
+  'depth-available',
+  'nested-approve',
+  'nested-question',
+  'resume-then-delegate',
+]);

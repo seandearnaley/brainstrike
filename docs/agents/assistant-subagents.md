@@ -22,7 +22,14 @@ Mastra runtime/stream regression is
 remain outside capture until BST-1740.
 
 The first-class subagent project extends this system in separate tickets.
-**Explorer/Analyst remain read-only and children still cannot delegate.**
+**Explorer/Analyst remain read-only and READ-ONLY children cannot delegate:
+only a `mode: worker` child receives `agent-*` tools.** SETTLED 2026-09-14 (do
+not relitigate): with recursion open to every persona, an Explorer delegated to
+more Explorers three levels deep, ignored "do not delegate further", consumed
+all eight invocations of the turn and the root's own three specialists were
+rejected (thread-f6be9761). Paired test: `persona-recursion-gate.spec.ts`
+("with durable budgets only a worker child may delegate"). A persona without an
+explicit `mode` is read-only by contract (`personaMode`), so it is a leaf too.
 BST-1720 landed durable child decisions; BST-1721 enables explicit workers only
 with that complete host capability. Recursion remains gated by BST-1722.
 
@@ -349,9 +356,11 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   retain native per-tool approval only when storage and the complete durable
   child-control binding are available; otherwise they are omitted. An empty post-gate
   map ⇒ the persona is NOT registered. With the durable host budget capability,
-  children lazily assemble native `agents` from their own narrowed tool map,
-  through three descendant levels. The shared Mastra memory is explicit so
-  grandchildren retain native persistence; native delegation still selects a
+  WORKER children lazily assemble native `agents` from their own narrowed tool
+  map, through three descendant levels; read-only children are leaves and never
+  receive `agent-*` tools (see the settled ruling above). The shared Mastra
+  memory is explicit so grandchildren retain native persistence; native
+  delegation still selects a
   fresh child thread. Without durable budgets, recursion is not advertised. The child `Agent` id EQUALS the persona id — Mastra
   sets `DelegationStartContext.primitiveId = agent.id`, and the caps resolve the
   persona by that id. Because the selected tools are the SAME parent-owned

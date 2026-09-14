@@ -55,7 +55,9 @@ export async function createBackgroundFixture(
   requireApproval = false,
   signal?: AbortSignal,
   question: boolean | 'then-plan' | 'available' = false,
-  background?: boolean
+  background?: boolean,
+  /** Register the fixture persona as a WORKER so it may delegate (read-only personas are leaves). */
+  asWorker = false
 ): Promise<BackgroundFixture> {
   const database = await createEnginePglite();
   const scope = { resourceId: 'background-owner', threadId: 'background-root' };
@@ -211,8 +213,9 @@ export async function createBackgroundFixture(
         description: 'Read evidence',
         id: 'explore',
         instructions: 'Read evidence',
-        label: 'Explorer',
+        label: asWorker ? 'Worker' : 'Explorer',
         maxSteps: 4,
+        ...(asWorker ? { mode: 'worker' as const } : {}),
       },
     ],
     runtime: runtimeData,

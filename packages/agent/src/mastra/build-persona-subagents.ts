@@ -25,6 +25,7 @@ import {
   type AssistantPersonaDefinition,
   assertPersonaToolScope,
   delegationDescriptionForPersona,
+  personaMode,
   supportsWorkerPersonaProvider,
 } from '@brainstrike/assistant-contract/personas';
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
@@ -642,7 +643,16 @@ async function createConfiguredChild({
   let descendants: Promise<PersonaSubAgentBuildResult> | undefined;
   return new Agent({
     ...(params.memory ? { memory: params.memory } : {}),
-    ...(!params.planModeActive &&
+    // Recursion is a WORKER capability. Read-only personas (Explorer, Analyst,
+    // user profiles without `mode: worker`) are leaves: a research child that
+    // can delegate delegates to more research children, ignores "do not
+    // delegate further", and one subtree then consumes the turn's whole
+    // invocation budget while the root's own specialists are rejected
+    // (2026-09-14, thread-f6be9761: 1 + 4 + 3 Explorers, root's other three
+    // delegations refused). A persona without an explicit `mode` is read-only
+    // by contract (`personaMode`). SETTLED — do not relitigate per persona prompt.
+    ...(personaMode(persona) === 'worker' &&
+    !params.planModeActive &&
     params.conversationBinding?.budget &&
     params.delegatedExecutionOptions &&
     depth + (params.delegatedDepthOffset ?? 0) < DELEGATION_LIMITS.maxDepth
