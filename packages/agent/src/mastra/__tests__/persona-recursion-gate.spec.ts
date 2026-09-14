@@ -29,7 +29,7 @@ function persona(id: 'explore' | 'worker') {
 }
 
 async function childToolKeys(child: Agent): Promise<string[]> {
-  return Object.keys(await child.getToolsForExecution({})).sort();
+  return Object.keys(await child.getToolsForExecution({}));
 }
 
 // 2026-09-14 (thread-f6be9761): read-only Explorer children delegated to more

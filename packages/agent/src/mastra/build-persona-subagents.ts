@@ -25,6 +25,7 @@ import {
   type AssistantPersonaDefinition,
   assertPersonaToolScope,
   delegationDescriptionForPersona,
+  personaMode,
   supportsWorkerPersonaProvider,
 } from '@brainstrike/assistant-contract/personas';
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
@@ -648,8 +649,9 @@ async function createConfiguredChild({
     // delegate further", and one subtree then consumes the turn's whole
     // invocation budget while the root's own specialists are rejected
     // (2026-09-14, thread-f6be9761: 1 + 4 + 3 Explorers, root's other three
-    // delegations refused). SETTLED — do not relitigate per persona prompt.
-    ...(persona.mode === 'worker' &&
+    // delegations refused). A persona without an explicit `mode` is read-only
+    // by contract (`personaMode`). SETTLED — do not relitigate per persona prompt.
+    ...(personaMode(persona) === 'worker' &&
     !params.planModeActive &&
     params.conversationBinding?.budget &&
     params.delegatedExecutionOptions &&
