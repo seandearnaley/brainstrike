@@ -57,6 +57,7 @@ import { withToolCallInputTimeout } from '../stream/with-tool-call-input-timeout
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type {
   AgentMessage,
+  ConversationStreamChunk,
   RuntimeData,
   StreamChunk,
   StreamChunkTool,
@@ -1208,6 +1209,18 @@ function resolveLegPart(
   return { chunks: mapped.chunks.slice(0, -1), finished: false, paused: true };
 }
 
+/** Which projected child a scoped chunk belongs to. */
+function scopedOwnerKey(chunk: StreamChunk): string | undefined {
+  switch (chunk.type) {
+    case 'delegated-conversation-chunk':
+      return JSON.stringify([chunk.identity.parentRuntimeRunId, chunk.identity.parentToolCallId]);
+    case 'child-continuation-chunk':
+      return chunk.continuationId;
+    default:
+      return;
+  }
+}
+
 /**
  * Chunks that EXPOSE a decision: the pause notice, its durable "awaiting your
  * approval" row, and — for a paused CHILD's projected stream — the `tool-calls`
@@ -1217,38 +1230,48 @@ function resolveLegPart(
  * (`docs/agents/assistant-runtime.md`, "Native suspension completion"). The
  * root's own `tool-calls` finish never reaches this predicate: the leg strips
  * it (`resolveLegPart`) and emits one at native close.
+ *
+ * Provenance comes from the stream itself: the pause builder emits a child's
+ * notice and its `tool-calls` finish together, so a scoped finish is withheld
+ * only for a child whose notice this leg already withheld (`pausedOwners`). A
+ * child that legitimately ends on `tool-calls` without pausing (step cap with
+ * pending calls) keeps its finish live.
+ *
+ * Scoped chunks never nest here: a child leg withholds its own children's
+ * notices inside its own loop, and the continuation layer wraps chunks only
+ * AFTER that loop published them (`mapPart` rejects an already-scoped chunk).
  */
-function isPauseNoticeChunk(chunk: StreamChunk): boolean {
-  const scoped =
-    chunk.type === 'delegated-conversation-chunk' || chunk.type === 'child-continuation-chunk';
-  // Scoped chunks never nest here: a child leg withholds its own children's
-  // notices inside its own loop, and the continuation layer wraps chunks only
-  // AFTER that loop published them (`mapPart` rejects an already-scoped chunk).
-  const inner = scoped ? chunk.chunk : chunk;
+function isPauseNoticeChunk(chunk: StreamChunk, pausedOwners: Set<string>): boolean {
+  const owner = scopedOwnerKey(chunk);
+  const inner = owner === undefined ? chunk : (chunk as { chunk: ConversationStreamChunk }).chunk;
   switch (inner.type) {
     case 'tool-approval-required':
     case 'tool-suspend-required':
+      if (owner !== undefined) {
+        pausedOwners.add(owner);
+      }
       return true;
     case 'run-event':
       return inner.event.kind === 'tool.approval.requested';
     case 'message-finish':
-      // A projected child's `tool-calls` finish closes that child's leg. It is
-      // withheld by type, not by a seen pause: a child that legitimately ends
-      // on `tool-calls` (step cap with pending calls) emits nothing after it
-      // and is already marked finished for `settle()`, so deferring it only
-      // keeps it behind the join like the pause it usually belongs to.
-      return scoped && inner.finishReason === 'tool-calls';
+      return owner !== undefined && inner.finishReason === 'tool-calls' && pausedOwners.has(owner);
     default:
       return false;
   }
 }
 
-function* withholdPauseNotices(
+/**
+ * Publish every chunk except the decision-exposing ones, which land in `held`
+ * for the leg's exit path. `pausedOwners` carries pause provenance across
+ * calls within one leg; see {@link isPauseNoticeChunk}.
+ */
+export function* withholdPauseNotices(
   chunks: Iterable<StreamChunk>,
-  held: StreamChunk[]
+  held: StreamChunk[],
+  pausedOwners: Set<string>
 ): Generator<StreamChunk> {
   for (const chunk of chunks) {
-    if (isPauseNoticeChunk(chunk)) {
+    if (isPauseNoticeChunk(chunk, pausedOwners)) {
       held.push(chunk);
     } else {
       yield chunk;
@@ -1394,6 +1417,7 @@ export async function* streamAttemptChunks({
   let streamFailure: unknown;
   let pausePart: unknown;
   const heldPauseNotices: StreamChunk[] = [];
+  const pausedOwners = new Set<string>();
   const calibrationState = { emitted: false };
   const toolCallTelemetryState = { emitted: false };
   const toolNames = new Map<string, string>();
@@ -1448,7 +1472,8 @@ export async function* streamAttemptChunks({
       yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
       yield* withholdPauseNotices(
         await delegatedProjection.project(part, toolNames),
-        heldPauseNotices
+        heldPauseNotices,
+        pausedOwners
       );
       const { chunks, finished, paused } = resolveLegPart(
         part,
@@ -1510,7 +1535,8 @@ export async function* streamAttemptChunks({
       }
       yield* withholdPauseNotices(
         chunks.map((chunk) => delegatedProjection.decorate(chunk)),
-        heldPauseNotices
+        heldPauseNotices,
+        pausedOwners
       );
       if (finished) {
         abortedTurnPersistence?.markNormalFinish();
