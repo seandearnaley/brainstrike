@@ -109,6 +109,50 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     expect(chunks.some((chunk) => chunk.type === 'tool-approval-required')).toBe(false);
   });
 
+  it('drops a withheld pause notice when the user stops the run before native close', async () => {
+    // A parallel delegation step keeps streaming after one sibling pauses, so
+    // the leg reads to native close and withholds the notice until then. A
+    // Stop in that window cancels paused work: the decision is unresumable and
+    // neither its notice nor its durable "awaiting your approval" row may
+    // surface (Codex review of #3187).
+    const controller = new AbortController();
+    setMockStreamParts([
+      {
+        payload: {
+          args: { path: 'file.txt' },
+          toolCallId: 'stopped-approval',
+          toolName: 'brainstrike.writeWorkspaceFile',
+        },
+        runId: 'stopped-run',
+        type: 'tool-call-approval',
+      },
+      { textDelta: 'a sibling still streaming', type: 'text-delta' },
+    ]);
+    const stream = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'Write the file', type: 'text' }], role: 'user' }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai', signal: controller.signal },
+      }
+    );
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+      if (chunk.type === 'text-delta') {
+        // The pause part has been read and withheld; the sibling's text proves
+        // the leg is still open. Stop now, before native close.
+        controller.abort();
+      }
+    }
+    expect(chunks.some((chunk) => chunk.type === 'text-delta')).toBe(true);
+    expect(chunks.some((chunk) => chunk.type === 'tool-approval-required')).toBe(false);
+    expect(
+      chunks.some(
+        (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'tool.approval.requested'
+      )
+    ).toBe(false);
+  });
+
   it('passes tool approval through as a pending non-error stream state', async () => {
     setMockStreamParts([
       {

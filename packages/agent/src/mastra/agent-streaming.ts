@@ -1326,9 +1326,14 @@ async function* concludeClosedStream(params: {
   const endChunks = aborted
     ? makeCancelledDelegationRunEventChunks(lifecycleState)
     : makeMissingFinishStreamChunks(lifecycleState);
-  // No completion join exists on this path; the notices stream as they did
-  // before they were withheld, ahead of the synthetic ending.
-  yield* params.heldPauseNotices;
+  // No completion join exists on a missing finish; the notices stream as they
+  // did before they were withheld, ahead of the synthetic ending. An explicit
+  // root Stop cancels paused work (`background-stop.ts`), so a decision that
+  // surfaced before the Stop is unresumable and its notice — and the durable
+  // "awaiting your approval" row that would flag the thread — must not appear.
+  if (!aborted) {
+    yield* params.heldPauseNotices;
+  }
   yield* drainToolCallTelemetryChunks(true, runtime, params.toolCallTelemetryState);
   yield* endChunks;
   return { titleGenerationTask };
