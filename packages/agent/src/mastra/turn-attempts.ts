@@ -506,6 +506,20 @@ export interface TurnAttempt {
 }
 
 /**
+ * Mastra's synchronous `MastraModelOutput.status`. `suspended` at native close
+ * means the run is parked on the user: a pause chunk in this leg set it, or a
+ * resumed leg restored it from the snapshot because sibling calls stay
+ * suspended (that leg closes with no finish and no pause part of its own).
+ */
+export function readNativeStreamStatus(streamResult: unknown): string | undefined {
+  if (typeof streamResult !== 'object' || streamResult === null) {
+    return;
+  }
+  const status = (streamResult as { status?: unknown }).status;
+  return typeof status === 'string' ? status : undefined;
+}
+
+/**
  * Read the assistant/tool messages an attempt produced, from Mastra's own
  * message list on the stream result.
  *
