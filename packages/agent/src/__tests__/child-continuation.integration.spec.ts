@@ -38,7 +38,14 @@ it.each([
   'nested-question',
   'resume-then-delegate',
 ] as const)('wakes an idle child and preserves exact continuation decisions (%s)', async (mode) => {
-  const fixture = await createBackgroundFixture(false, undefined, 'available', false);
+  const nested =
+    mode === 'depth-limit' ||
+    mode === 'depth-available' ||
+    mode === 'nested-approve' ||
+    mode === 'nested-question' ||
+    mode === 'resume-then-delegate';
+  // Only a worker child may delegate (read-only personas are leaves).
+  const fixture = await createBackgroundFixture(false, undefined, 'available', false, nested);
   try {
     fixture.release.resolve();
     const initial = await createStreamIteratorFromRuntime({

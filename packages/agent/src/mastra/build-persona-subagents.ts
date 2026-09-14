@@ -642,7 +642,15 @@ async function createConfiguredChild({
   let descendants: Promise<PersonaSubAgentBuildResult> | undefined;
   return new Agent({
     ...(params.memory ? { memory: params.memory } : {}),
-    ...(!params.planModeActive &&
+    // Recursion is a WORKER capability. Read-only personas (Explorer, Analyst,
+    // user profiles without `mode: worker`) are leaves: a research child that
+    // can delegate delegates to more research children, ignores "do not
+    // delegate further", and one subtree then consumes the turn's whole
+    // invocation budget while the root's own specialists are rejected
+    // (2026-09-14, thread-f6be9761: 1 + 4 + 3 Explorers, root's other three
+    // delegations refused). SETTLED — do not relitigate per persona prompt.
+    ...(persona.mode === 'worker' &&
+    !params.planModeActive &&
     params.conversationBinding?.budget &&
     params.delegatedExecutionOptions &&
     depth + (params.delegatedDepthOffset ?? 0) < DELEGATION_LIMITS.maxDepth
