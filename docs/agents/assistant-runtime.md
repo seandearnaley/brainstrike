@@ -50,10 +50,17 @@ pause part of its own (the earlier leg surfaced those notices): its synchronous
 while `getFullOutput()` REJECTS ("promise 'suspendPayload' was not resolved" —
 that payload was resolved by the earlier stream), so that leg skips the join
 (`readNativeStreamStatus`) and still ends as the pause it is, never as a missing
-finish. An explicit root Stop drops withheld notices (paused work is cancelled,
-so no unresumable decision or "awaiting your approval" row may surface); a
-genuinely missing finish publishes them ahead of its synthetic ending, as before
-they were withheld. A pause raised by a gated DIRECT tool in a sequential step is unchanged:
+finish. Exit rules for withheld notices (each drained where published, so no
+exit repeats one): a rejected completion join DISCARDS them (a failed snapshot
+write must not expose an unresumable decision); an explicit root Stop drops
+them (paused work is cancelled, so no "awaiting your approval" row may surface);
+any other failure later in the leg — a sibling's stream or projection — and a
+genuinely missing finish PUBLISH them ahead of the failure or synthetic ending,
+because the pause already reached Mastra and is parked durably, and hiding it
+behind reload rediscovery is the stuck thread this rule exists to end. Scoped
+chunks never nest at this seam: a child leg withholds its own children's
+notices in its own loop, and the continuation layer wraps only published
+chunks. A pause raised by a gated DIRECT tool in a sequential step is unchanged:
 the queue is killed, so the stream closes right behind it ("PAUSES ONE CALL AT A
 TIME"). The renderer keeps every notice actionable across legs and locks the
 buttons while a leg streams (`actionLockedByRun`). Scenario proof:

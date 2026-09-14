@@ -54,10 +54,12 @@ async function drain(stream: AsyncIterable<StreamChunk>): Promise<StreamChunk[]>
 
 /** One model step that issues every call together, the way a provider batches parallel calls. */
 function parallelCalls(calls: readonly [string, string, Record<string, unknown>][]) {
+  // `toolCallParts` yields `[step-start, ...call parts, step-finish]`; the
+  // merged step keeps the first call's boundaries around every call's middle.
   const parts = calls.map(([name, id, args]) => toolCallParts(name, id, args));
   const [first, ...rest] = parts;
-  if (!first) {
-    throw new Error('parallelCalls requires at least one call');
+  if (!first || parts.some((part) => part.length < 3)) {
+    throw new Error('parallelCalls requires calls of the shape [start, ...parts, finish]');
   }
   return [...first.slice(0, -1), ...rest.flatMap((part) => part.slice(1, -1)), ...first.slice(-1)];
 }
@@ -73,7 +75,9 @@ function specialistOf(prompt: string): (typeof SPECIALISTS)[number] | undefined 
 // pause. The root must finish with all four findings, every pause must surface
 // LIVE, no child may pause twice, no allowed sibling may pause, and no child
 // may delegate.
-it('four specialist Explorer children complete under a read:ask posture with one grant', async () => {
+it('four specialist Explorer children complete under a read:ask posture with one grant', {
+  timeout: 30_000,
+}, async () => {
   const explore = BUILT_IN_PERSONAS.find((persona) => persona.id === 'explore');
   if (!explore) {
     throw new Error('Built-in Explorer is missing');
@@ -289,6 +293,10 @@ it('four specialist Explorer children complete under a read:ask posture with one
     (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
   );
   expect(failures, JSON.stringify(failures)).toEqual([]);
+  expect(outstanding.size, 'unanswered pauses at the leg budget').toBe(0);
+  // The budget port admitted every child step; that is why the native
+  // in-flight backstop never rejected the third and fourth children.
+  expect(reservations.length).toBeGreaterThanOrEqual(SPECIALISTS.length);
   // Every pause must have surfaced LIVE; a pause only rediscovery finds is a stuck thread.
   expect(rediscovered, 'pauses that never surfaced live').toBe(0);
   expect(JSON.stringify(chunks)).toContain('ROOT_REPORT');

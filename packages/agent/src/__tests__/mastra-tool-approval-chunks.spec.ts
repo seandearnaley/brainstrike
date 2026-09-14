@@ -38,6 +38,7 @@ import {
   resetMastraStreamHarness,
   setMockStreamParts,
   setStreamCompletion,
+  setStreamPartFailure,
   setSuspendedRuns,
 } from './fixtures/mastra-stream-harness';
 
@@ -151,6 +152,46 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'tool.approval.requested'
       )
     ).toBe(false);
+  });
+
+  it('publishes a withheld pause notice when a later sibling fails the leg', async () => {
+    // The pause already reached Mastra and is parked durably; a failure
+    // elsewhere in the same leg must not hide it behind reload rediscovery.
+    // Only a rejected completion join (previous case) or a Stop discards it.
+    const failure = new Error('sibling projection failed');
+    setStreamPartFailure(1, failure);
+    setMockStreamParts([
+      {
+        payload: {
+          args: { path: 'file.txt' },
+          toolCallId: 'orphaned-approval',
+          toolName: 'brainstrike.writeWorkspaceFile',
+        },
+        runId: 'orphaned-run',
+        type: 'tool-call-approval',
+      },
+      { textDelta: 'never delivered', type: 'text-delta' },
+    ]);
+    const stream = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'Write the file', type: 'text' }], role: 'user' }],
+      { requireToolApproval: true, runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+    const chunks: StreamChunk[] = [];
+    await expect(
+      (async () => {
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+      })()
+    ).rejects.toThrow('sibling projection failed');
+    expect(
+      chunks.filter((chunk) => chunk.type === 'tool-approval-required').map((c) => c.toolCallId)
+    ).toEqual(['orphaned-approval']);
+    expect(
+      chunks.some(
+        (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'tool.approval.requested'
+      )
+    ).toBe(true);
   });
 
   it('passes tool approval through as a pending non-error stream state', async () => {

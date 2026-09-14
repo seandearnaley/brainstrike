@@ -506,18 +506,6 @@ export interface TurnAttempt {
 }
 
 /**
- * Read the assistant/tool messages an attempt produced, from Mastra's own
- * message list on the stream result.
- *
- * Mastra's `mastra_messages` is NOT a usable source here: an aborted stream
- * persists nothing at all (BST-1415, measured — not even the user's message),
- * so the in-memory list is the only record of what the attempt did.
- *
- * Narrowed rather than asserted, and `undefined` on ANY shape surprise: see
- * {@link TurnAttempt.readProducedMessages} for why a wrong answer here would
- * re-execute tools.
- */
-/**
  * Mastra's synchronous `MastraModelOutput.status`. `suspended` at native close
  * means the run is parked on the user: a pause chunk in this leg set it, or a
  * resumed leg restored it from the snapshot because sibling calls stay
@@ -531,6 +519,18 @@ export function readNativeStreamStatus(streamResult: unknown): string | undefine
   return typeof status === 'string' ? status : undefined;
 }
 
+/**
+ * Read the assistant/tool messages an attempt produced, from Mastra's own
+ * message list on the stream result.
+ *
+ * Mastra's `mastra_messages` is NOT a usable source here: an aborted stream
+ * persists nothing at all (BST-1415, measured — not even the user's message),
+ * so the in-memory list is the only record of what the attempt did.
+ *
+ * Narrowed rather than asserted, and `undefined` on ANY shape surprise: see
+ * {@link TurnAttempt.readProducedMessages} for why a wrong answer here would
+ * re-execute tools.
+ */
 export function readAttemptProducedMessages(
   streamResult: unknown
 ): readonly MastraDBMessage[] | undefined {

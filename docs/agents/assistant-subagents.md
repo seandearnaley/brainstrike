@@ -45,6 +45,7 @@ through a budget port because the desktop host does. LANDMINE: without that
 port the native in-flight backstop (`MAX_CONCURRENT_DELEGATIONS`) rejects the
 third parallel child, because Mastra fires no completion hook for a SUSPENDED
 child and the counter never releases within the leg.
+
 BST-1720 landed durable child decisions; BST-1721 enables explicit workers only
 with that complete host capability. Recursion remains gated by BST-1722.
 

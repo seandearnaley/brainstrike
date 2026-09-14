@@ -1221,6 +1221,9 @@ function resolveLegPart(
 function isPauseNoticeChunk(chunk: StreamChunk): boolean {
   const scoped =
     chunk.type === 'delegated-conversation-chunk' || chunk.type === 'child-continuation-chunk';
+  // Scoped chunks never nest here: a child leg withholds its own children's
+  // notices inside its own loop, and the continuation layer wraps chunks only
+  // AFTER that loop published them (`mapPart` rejects an already-scoped chunk).
   const inner = scoped ? chunk.chunk : chunk;
   switch (inner.type) {
     case 'tool-approval-required':
@@ -1229,6 +1232,11 @@ function isPauseNoticeChunk(chunk: StreamChunk): boolean {
     case 'run-event':
       return inner.event.kind === 'tool.approval.requested';
     case 'message-finish':
+      // A projected child's `tool-calls` finish closes that child's leg. It is
+      // withheld by type, not by a seen pause: a child that legitimately ends
+      // on `tool-calls` (step cap with pending calls) emits nothing after it
+      // and is already marked finished for `settle()`, so deferring it only
+      // keeps it behind the join like the pause it usually belongs to.
       return scoped && inner.finishReason === 'tool-calls';
     default:
       return false;
@@ -1265,7 +1273,8 @@ async function* concludeClosedStream(params: {
   completeNativeStream: () => Promise<unknown>;
   delegatedProjection: ReturnType<typeof createAttemptDelegatedProjection>;
   delegationUsage: DelegationUsageCapture | undefined;
-  heldPauseNotices: readonly StreamChunk[];
+  /** Drained (`splice(0)`) wherever published, so no exit can repeat a notice. */
+  heldPauseNotices: StreamChunk[];
   lifecycleState: ToolLifecycleState;
   memory: MastraMemory | undefined;
   pausePart: unknown;
@@ -1300,11 +1309,19 @@ async function* concludeClosedStream(params: {
     // its siblings' suspension (the suspend payload it awaits was resolved by
     // an earlier leg's stream). The turn layer settles the closed stream.
     if (params.pausePart !== undefined) {
-      await completeNativeTerminal(params.pausePart, params.completeNativeStream);
+      try {
+        await completeNativeTerminal(params.pausePart, params.completeNativeStream);
+      } catch (error) {
+        // A failed snapshot write fails the stream instead of exposing an
+        // unresumable decision: discard the notices before the failure path
+        // publishes whatever it still holds.
+        params.heldPauseNotices.length = 0;
+        throw error;
+      }
     }
     yield* delegatedProjection.settle();
     yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
-    yield* params.heldPauseNotices;
+    yield* params.heldPauseNotices.splice(0);
     yield makeToolCallsFinishChunk();
     params.abortedTurnPersistence?.markNormalFinish();
     runtime.assertAssistantMessageIdPersisted?.();
@@ -1332,7 +1349,7 @@ async function* concludeClosedStream(params: {
   // surfaced before the Stop is unresumable and its notice — and the durable
   // "awaiting your approval" row that would flag the thread — must not appear.
   if (!aborted) {
-    yield* params.heldPauseNotices;
+    yield* params.heldPauseNotices.splice(0);
   }
   yield* drainToolCallTelemetryChunks(true, runtime, params.toolCallTelemetryState);
   yield* endChunks;
@@ -1452,8 +1469,9 @@ export async function* streamAttemptChunks({
         // leg. Its notice is withheld below until native close, where the leg
         // ends once behind its completion join and its finish belongs.
         // Returning here lost every later sibling's binding and pause
-        // (thread-f6be9761, 2026-09-14).
-        pausePart = part;
+        // (thread-f6be9761, 2026-09-14). The join keys on the part's type
+        // alone, so the FIRST pause pins it, whatever order siblings arrive in.
+        pausePart ??= part;
       }
       // Start the canonical Mastra title request BEFORE yielding the terminal
       // finish. Downstream stops pulling at that chunk; the finally block still
@@ -1488,7 +1506,7 @@ export async function* streamAttemptChunks({
         yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
         // A background child's pause parks that task, not this run: its
         // withheld notice publishes behind the run's own completion join.
-        yield* heldPauseNotices;
+        yield* heldPauseNotices.splice(0);
       }
       yield* withholdPauseNotices(
         chunks.map((chunk) => delegatedProjection.decorate(chunk)),
@@ -1527,6 +1545,14 @@ export async function* streamAttemptChunks({
     yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
     yield* delegatedProjection.settle();
     yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
+    // A failure elsewhere in the leg (a sibling's stream or projection) leaves
+    // a pause that already reached Mastra parked and durable. Publish it so the
+    // thread is not stuck waiting for reload rediscovery; only a rejected
+    // completion join discards (it clears the array before throwing) and only
+    // a Stop cancels the paused work.
+    if (!runtimeData?.signal?.aborted) {
+      yield* heldPauseNotices.splice(0);
+    }
     // Best-effort telemetry must not be lost on an ordinary stream/projector
     // failure after earlier tool calls already completed — drain whatever was
     // accumulated before propagating the failure (review fix). Since BST-1409
