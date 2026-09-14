@@ -114,7 +114,7 @@ import {
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
 import { mapShellOutputStreamPart, SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output-stream';
-import { makeRunEventChunk } from './stream-run-event-chunks';
+import { makeRunEventChunk, makeToolCallsFinishChunk } from './stream-run-event-chunks';
 import {
   drainDelegationUsageChunks,
   drainTokenEstimateCalibrationChunk,
@@ -669,8 +669,11 @@ export async function processMastraStreamPart(
     case 'tool-call-input-streaming-end':
       return mapGenericToolEvent(part, toolNames, lifecycleState, p.type, sanitizedNameMap);
     case 'tool-call-approval':
-      // Stop at the first approval pause and surface resumable metadata. Later
-      // stream parts are only valid after an explicit approve/decline action.
+      // The pause is the terminal of its OWNER's leg: a child's pause finishes
+      // that child's projected stream. The ROOT loop (`streamAttemptChunks`)
+      // surfaces the notice and keeps reading, because Mastra's foreach runs
+      // the step's remaining calls after one suspends; the leg ends once, at
+      // native close.
       return {
         chunks: [
           ...makePendingToolOutputRunEventChunks(lifecycleState),
@@ -680,8 +683,8 @@ export async function processMastraStreamPart(
       };
     case 'tool-call-suspended':
       // A suspending tool (submitPlan/askUser) paused via suspend(). Surface the
-      // resumable suspend metadata and STOP at the pause; later stream parts are
-      // only valid after an explicit resume (streamMastraToolResumeAction).
+      // resumable suspend metadata; the root loop reads on to native close, the
+      // same as an approval pause (an explicit resume answers it later).
       return {
         chunks: [
           ...makePendingToolOutputRunEventChunks(lifecycleState),
@@ -899,6 +902,13 @@ interface StreamGeneratorParams {
    * honestly omit it rather than re-emitting a partial figure).
    */
   promptBreakdown?: AssistantContextBreakdown;
+  /**
+   * Mastra's synchronous run status, read at native close. `suspended` there
+   * means the run is parked on the user even when this leg raised no pause of
+   * its own (a resumed leg whose sibling calls stay suspended), so the leg ends
+   * as a `tool-calls` pause rather than a missing finish.
+   */
+  readNativeStatus: () => string | undefined;
   resumedApprovalToolCall?: ResumedApprovalToolCall;
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
@@ -1170,6 +1180,160 @@ export function createAttemptDelegatedProjection({
   };
 }
 
+/**
+ * A resumable pause maps to its notice chunks plus a `tool-calls` finish. The
+ * finish belongs to the LEG, not to the pause: one leg can carry several pauses
+ * (a parallel delegation step pauses each child that hits its gate) and ends
+ * once, at native close. A resumable pause therefore resolves to its notice
+ * chunks alone with `finished: false`; every other part, including a malformed
+ * pause that terminates the leg with its own error chunks, passes unchanged.
+ */
+function resolveLegPart(
+  part: unknown,
+  mapped: { readonly chunks: readonly StreamChunk[]; readonly finished: boolean }
+): {
+  readonly chunks: readonly StreamChunk[];
+  readonly finished: boolean;
+  readonly paused: boolean;
+} {
+  const type = asMastraStreamPart(part).type;
+  const last = mapped.chunks.at(-1);
+  if (
+    !(mapped.finished && (type === 'tool-call-approval' || type === 'tool-call-suspended')) ||
+    last?.type !== 'message-finish' ||
+    last.finishReason !== 'tool-calls'
+  ) {
+    return { ...mapped, paused: false };
+  }
+  return { chunks: mapped.chunks.slice(0, -1), finished: false, paused: true };
+}
+
+/**
+ * Chunks that EXPOSE a decision: the pause notice, its durable "awaiting your
+ * approval" row, and — for a paused CHILD's projected stream — the `tool-calls`
+ * finish that closes that child's leg behind the notice. A decision the user
+ * can act on must find a durable snapshot behind it, so these are withheld
+ * until the leg ends and its native completion join has succeeded
+ * (`docs/agents/assistant-runtime.md`, "Native suspension completion"). The
+ * root's own `tool-calls` finish never reaches this predicate: the leg strips
+ * it (`resolveLegPart`) and emits one at native close.
+ */
+function isPauseNoticeChunk(chunk: StreamChunk): boolean {
+  const scoped =
+    chunk.type === 'delegated-conversation-chunk' || chunk.type === 'child-continuation-chunk';
+  const inner = scoped ? chunk.chunk : chunk;
+  switch (inner.type) {
+    case 'tool-approval-required':
+    case 'tool-suspend-required':
+      return true;
+    case 'run-event':
+      return inner.event.kind === 'tool.approval.requested';
+    case 'message-finish':
+      return scoped && inner.finishReason === 'tool-calls';
+    default:
+      return false;
+  }
+}
+
+function* withholdPauseNotices(
+  chunks: Iterable<StreamChunk>,
+  held: StreamChunk[]
+): Generator<StreamChunk> {
+  for (const chunk of chunks) {
+    if (isPauseNoticeChunk(chunk)) {
+      held.push(chunk);
+    } else {
+      yield chunk;
+    }
+  }
+}
+
+/**
+ * The native stream closed without a terminal part the loop acted on. Mastra
+ * closes a suspended run's stream with no finish part once its foreach
+ * settles, and a resumed leg whose sibling calls stay suspended closes the
+ * same way while raising no pause part of its own (the leg that raised them
+ * already surfaced the notices) — its native status is still `suspended`.
+ * Either way the run is parked on the user, so the leg ends as the pause it
+ * is, never as a missing finish. Otherwise settle an aborted run's delegations
+ * or finalize a genuinely missing finish. Returns the title task the caller
+ * still awaits.
+ */
+async function* concludeClosedStream(params: {
+  abortedTurnPersistence: AbortedTurnPersistence | undefined;
+  calibrationState: { emitted: boolean };
+  completeNativeStream: () => Promise<unknown>;
+  delegatedProjection: ReturnType<typeof createAttemptDelegatedProjection>;
+  delegationUsage: DelegationUsageCapture | undefined;
+  heldPauseNotices: readonly StreamChunk[];
+  lifecycleState: ToolLifecycleState;
+  memory: MastraMemory | undefined;
+  pausePart: unknown;
+  promptBreakdown: AssistantContextBreakdown | undefined;
+  readNativeStatus: () => string | undefined;
+  runtime: MastraAgentRuntime;
+  runtimeData: RuntimeData | undefined;
+  titleGenerationTask: Promise<void> | undefined;
+  titleMessages: AgentMessage[] | undefined;
+  toolCallTelemetryState: { emitted: boolean };
+  // An async generator awaits a returned promise, so the title task travels
+  // wrapped: the caller joins it in its own `finally`, not here.
+}): AsyncGenerator<StreamChunk, { titleGenerationTask: Promise<void> | undefined }> {
+  const { delegatedProjection, delegationUsage, lifecycleState, runtime, runtimeData } = params;
+  const aborted = Boolean(runtimeData?.signal?.aborted);
+  // A stream that ended without a finish (or was aborted) may still have
+  // recorded a warning after its last part - or produced no part at all.
+  yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
+  yield* drainDelegationUsageChunks(delegationUsage);
+  if (!aborted && (params.pausePart !== undefined || params.readNativeStatus() === 'suspended')) {
+    yield* drainTokenEstimateCalibrationChunk(
+      true,
+      runtime,
+      runtimeData,
+      lifecycleState,
+      params.calibrationState,
+      params.promptBreakdown
+    );
+    yield* drainToolCallTelemetryChunks(true, runtime, params.toolCallTelemetryState);
+    // Only a pause raised in THIS leg joins snapshot storage through the
+    // native full output: Mastra rejects that read for a leg that closes on
+    // its siblings' suspension (the suspend payload it awaits was resolved by
+    // an earlier leg's stream). The turn layer settles the closed stream.
+    if (params.pausePart !== undefined) {
+      await completeNativeTerminal(params.pausePart, params.completeNativeStream);
+    }
+    yield* delegatedProjection.settle();
+    yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
+    yield* params.heldPauseNotices;
+    yield makeToolCallsFinishChunk();
+    params.abortedTurnPersistence?.markNormalFinish();
+    runtime.assertAssistantMessageIdPersisted?.();
+    return { titleGenerationTask: params.titleGenerationTask };
+  }
+  yield* delegatedProjection.settle();
+  yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
+  // Aborted mid-run: settle any orphaned delegations (a cancelled parent must
+  // never leave a forever-"running" subagent.started). Otherwise finalize a
+  // missing-finish stream with pending tool output + a synthetic finish.
+  const titleGenerationTask = ensureMastraThreadTitleGeneration({
+    eligible: !aborted,
+    memory: params.memory,
+    messages: params.titleMessages,
+    runtime,
+    runtimeData,
+    task: params.titleGenerationTask,
+  });
+  const endChunks = aborted
+    ? makeCancelledDelegationRunEventChunks(lifecycleState)
+    : makeMissingFinishStreamChunks(lifecycleState);
+  // No completion join exists on this path; the notices stream as they did
+  // before they were withheld, ahead of the synthetic ending.
+  yield* params.heldPauseNotices;
+  yield* drainToolCallTelemetryChunks(true, runtime, params.toolCallTelemetryState);
+  yield* endChunks;
+  return { titleGenerationTask };
+}
+
 async function completeNativeTerminal(
   part: unknown,
   complete: () => Promise<unknown>
@@ -1202,9 +1366,12 @@ export async function* streamAttemptChunks({
   resumedApprovalToolCall,
   titleMessages,
   completeNativeStream,
+  readNativeStatus,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   let titleGenerationTask: Promise<void> | undefined;
   let streamFailure: unknown;
+  let pausePart: unknown;
+  const heldPauseNotices: StreamChunk[] = [];
   const calibrationState = { emitted: false };
   const toolCallTelemetryState = { emitted: false };
   const toolNames = new Map<string, string>();
@@ -1257,16 +1424,32 @@ export async function* streamAttemptChunks({
       // its stream - ahead of the first token, and never after the finish
       // chunk that stops the consumer from pulling.
       yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
-      yield* await delegatedProjection.project(part, toolNames);
-      const { chunks, finished } = await processMastraStreamPart(
-        delegatedProjection.preparePart(part),
-        toolNames,
-        lifecycleState,
-        sanitizedNameMap,
-        runtime.askTools,
-        runtime.delegationToolPersonas,
-        runtimeData
+      yield* withholdPauseNotices(
+        await delegatedProjection.project(part, toolNames),
+        heldPauseNotices
       );
+      const { chunks, finished, paused } = resolveLegPart(
+        part,
+        await processMastraStreamPart(
+          delegatedProjection.preparePart(part),
+          toolNames,
+          lifecycleState,
+          sanitizedNameMap,
+          runtime.askTools,
+          runtime.delegationToolPersonas,
+          runtimeData
+        )
+      );
+      if (paused) {
+        // A pause does not end the native stream. Mastra's foreach kills only
+        // its QUEUED calls when one suspends; the calls already running carry
+        // on, so a parallel delegation step pauses several children in ONE
+        // leg. Its notice is withheld below until native close, where the leg
+        // ends once behind its completion join and its finish belongs.
+        // Returning here lost every later sibling's binding and pause
+        // (thread-f6be9761, 2026-09-14).
+        pausePart = part;
+      }
       // Start the canonical Mastra title request BEFORE yielding the terminal
       // finish. Downstream stops pulling at that chunk; the finally block still
       // awaits this detached task before shutting the per-run Mastra instance
@@ -1298,41 +1481,38 @@ export async function* streamAttemptChunks({
         // Publishing child terminal chunks yields to the consumer. Flush warnings
         // recorded during publication before downstream stops at the finish.
         yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
+        // A background child's pause parks that task, not this run: its
+        // withheld notice publishes behind the run's own completion join.
+        yield* heldPauseNotices;
       }
-      for (const chunk of chunks) {
-        yield delegatedProjection.decorate(chunk);
-      }
+      yield* withholdPauseNotices(
+        chunks.map((chunk) => delegatedProjection.decorate(chunk)),
+        heldPauseNotices
+      );
       if (finished) {
         abortedTurnPersistence?.markNormalFinish();
         runtime.assertAssistantMessageIdPersisted?.();
         return;
       }
     }
-    // A stream that ended without a finish (or was aborted) may still have
-    // recorded a warning after its last part - or produced no part at all.
-    yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
-    yield* drainDelegationUsageChunks(delegationUsage);
-    yield* delegatedProjection.settle();
-    yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
-    // Aborted mid-run: settle any orphaned delegations (a cancelled parent must
-    // never leave a forever-"running" subagent.started). Otherwise finalize a
-    // missing-finish stream with pending tool output + a synthetic finish.
-    const aborted = Boolean(runtimeData?.signal?.aborted);
-    titleGenerationTask = ensureMastraThreadTitleGeneration({
-      eligible: !aborted,
+    ({ titleGenerationTask } = yield* concludeClosedStream({
+      abortedTurnPersistence,
+      calibrationState,
+      completeNativeStream,
+      delegatedProjection,
+      delegationUsage,
+      heldPauseNotices,
+      lifecycleState,
       memory,
-      messages: titleMessages,
+      pausePart,
+      promptBreakdown,
+      readNativeStatus,
       runtime,
       runtimeData,
-      task: titleGenerationTask,
-    });
-    const endChunks = aborted
-      ? makeCancelledDelegationRunEventChunks(lifecycleState)
-      : makeMissingFinishStreamChunks(lifecycleState);
-    yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
-    for (const chunk of endChunks) {
-      yield chunk;
-    }
+      titleGenerationTask,
+      titleMessages,
+      toolCallTelemetryState,
+    }));
   } catch (error) {
     streamFailure = error;
     yield* drainDelegationUsageChunks(delegationUsage);

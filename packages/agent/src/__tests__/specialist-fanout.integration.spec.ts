@@ -81,7 +81,18 @@ it('four specialist Explorer children complete under a read:ask posture with one
   const identities: DelegatedConversationIdentity[] = [];
   const bound: DelegatedToolActionScope[] = [];
   const observedMessageIds = new Map<string, string>();
+  // The desktop host admits every delegation through a durable budget; the
+  // native in-flight backstop only counts when no such port exists.
+  const reservations: string[] = [];
   const binding = {
+    budget: {
+      reserveStep: async (_scope: { threadId: string; resourceId: string }) => {
+        const id = `reservation-${reservations.length}`;
+        reservations.push(id);
+        return { id, outputTokens: 8192, synthesis: false };
+      },
+      settleStep: async (_id: string, _outputTokens: number | undefined) => undefined,
+    },
     ...createDelegatedConversationBinding(async (identity) => {
       identities.push(identity);
     }),
@@ -215,6 +226,11 @@ it('four specialist Explorer children complete under a read:ask posture with one
       options
     )
   );
+  type LivePause = Extract<StreamChunk, { type: 'tool-approval-required' }>;
+  // What a live renderer keeps: every notice it has seen and not yet answered,
+  // across legs. A leg that resumes one child leaves its siblings parked.
+  const outstanding = new Map<string, LivePause>();
+  const legFinishReasons: string[] = [];
   const pauses: { toolName: string; leaf: string | undefined }[] = [];
   let rediscovered = 0;
   for (let leg = 0; leg < 12; leg += 1) {
@@ -222,13 +238,19 @@ it('four specialist Explorer children complete under a read:ask posture with one
       if (frame.type === 'delegated-conversation-chunk') {
         observedMessageIds.set(frame.identity.childRuntimeRunId, frame.messageId);
       }
+      if (frame.type === 'tool-approval-required') {
+        outstanding.set(`${frame.runId}:${frame.toolCallId}`, frame);
+      }
     }
-    const live = chunks.findLast((chunk) => chunk.type === 'tool-approval-required');
+    const finish = chunks.findLast((chunk) => chunk.type === 'message-finish');
+    legFinishReasons.push(finish?.type === 'message-finish' ? finish.finishReason : 'none');
     let pending: { toolName: string; delegation?: { toolCallId: string } } & Parameters<
       typeof getToolActionTarget
     >[0];
-    if (live?.type === 'tool-approval-required') {
-      pending = live;
+    const [next] = outstanding;
+    if (next) {
+      outstanding.delete(next[0]);
+      pending = next[1];
     } else {
       // What a reloaded renderer does: rediscover pauses that never surfaced live.
       const discovered = await listSuspendedMastraRuns(
@@ -273,11 +295,13 @@ it('four specialist Explorer children complete under a read:ask posture with one
   for (const name of SPECIALISTS) {
     expect(JSON.stringify(rootResults)).toContain(`SPECIALIST_${name.toUpperCase()}_FINDINGS`);
   }
-  expect(pauses.length).toBeGreaterThanOrEqual(1);
-  expect(pauses.length).toBeLessThanOrEqual(SPECIALISTS.length);
-  // Only the ask tool ever pauses, and each child pauses at most once.
-  expect(new Set(pauses.map((pause) => pause.toolName))).toEqual(new Set([DIRECTORY_TOOL]));
-  expect(new Set(pauses.map((pause) => pause.leaf)).size).toBe(pauses.length);
+  // Every child pauses exactly once, on the ask tool only. The session grant
+  // lifts the ask for later decisions; it does not answer pauses already parked.
+  expect(pauses.map((pause) => pause.toolName)).toEqual(SPECIALISTS.map(() => DIRECTORY_TOOL));
+  expect(new Set(pauses.map((pause) => pause.leaf)).size).toBe(SPECIALISTS.length);
+  // A leg that leaves the run parked on the user ends as a tool-calls pause,
+  // never as a synthetic finish; only the last leg completes the turn.
+  expect(legFinishReasons).toEqual([...SPECIALISTS.map(() => 'tool-calls'), 'stop']);
   expect(readDirectory).toHaveBeenCalledTimes(SPECIALISTS.length);
   expect(readFile).toHaveBeenCalledTimes(SPECIALISTS.length);
   // Read-only children are leaves: no child ever saw a delegation tool.

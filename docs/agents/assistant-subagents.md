@@ -30,6 +30,21 @@ all eight invocations of the turn and the root's own three specialists were
 rejected (thread-f6be9761). Paired test: `persona-recursion-gate.spec.ts`
 ("with durable budgets only a worker child may delegate"). A persona without an
 explicit `mode` is read-only by contract (`personaMode`), so it is a leaf too.
+
+**Every child pause surfaces in the leg that raised it, and the leg reads to
+native close.** SETTLED 2026-09-14: a parallel delegation step pauses several
+children in one native stream; the root loop no longer stops at the first
+pause (`docs/agents/assistant-runtime.md`, "Native suspension completion").
+Notices publish together behind the completion join; a resumed leg whose
+siblings stay suspended ends as a `tool-calls` pause. Scenario proof for the
+prompt that failed four times in production ("spin up 4 specialist
+subagents"): `specialist-fanout.integration.spec.ts` — four Explorer children
+under `read: ask`, every pause live (`rediscovered === 0`), one pause per
+child, no child delegates, the root reports. The harness admits delegations
+through a budget port because the desktop host does. LANDMINE: without that
+port the native in-flight backstop (`MAX_CONCURRENT_DELEGATIONS`) rejects the
+third parallel child, because Mastra fires no completion hook for a SUSPENDED
+child and the counter never releases within the leg.
 BST-1720 landed durable child decisions; BST-1721 enables explicit workers only
 with that complete host capability. Recursion remains gated by BST-1722.
 

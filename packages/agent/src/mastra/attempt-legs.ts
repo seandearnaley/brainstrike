@@ -57,6 +57,7 @@ import {
   createTurnAttemptLifecycleState,
   disposeStreamAfterFailure,
   readAttemptProducedMessages,
+  readNativeStreamStatus,
   resolveFullStream,
   resolveMemoryOption,
   runTurnAttempts,
@@ -294,6 +295,7 @@ async function createInitialTurnAttempt(
       chunks: streamAttemptChunks({
         abortedTurnPersistence,
         completeNativeStream: () => streamResult.getFullOutput(),
+        readNativeStatus: () => readNativeStreamStatus(streamResult),
         ...(delegationUsage ? { delegationUsage } : {}),
         lifecycleState,
         ...(memory ? { memory } : {}),
@@ -634,6 +636,7 @@ async function createToolApprovalTurnAttempt({
       chunks: streamAttemptChunks({
         abortedTurnPersistence,
         completeNativeStream: () => streamResult.getFullOutput(),
+        readNativeStatus: () => readNativeStreamStatus(streamResult),
         ...(delegationUsage ? { delegationUsage } : {}),
         lifecycleState,
         promptBreakdown,
@@ -978,6 +981,7 @@ async function createToolResumeTurnAttempt({
       chunks: streamAttemptChunks({
         abortedTurnPersistence,
         completeNativeStream: () => streamResult.getFullOutput(),
+        readNativeStatus: () => readNativeStreamStatus(streamResult),
         ...(delegationUsage ? { delegationUsage } : {}),
         lifecycleState,
         promptBreakdown,
