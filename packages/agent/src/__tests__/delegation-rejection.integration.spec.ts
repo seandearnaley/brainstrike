@@ -77,6 +77,11 @@ function subagentEvents(chunks: readonly StreamChunk[]) {
 it.for([
   { admitted: 'per-turn backstop', refuse: 'backstop' },
   { admitted: 'durable budget at start', refuse: 'host' },
+  // Two siblings admitted at start can still lose the last slot at persist
+  // time. That refusal runs inside the child's input processing, before the
+  // child streams a single part, so there is nothing for the parent to bind:
+  // Mastra turns it into that delegation's tool error and the root continues.
+  { admitted: 'late reservation at persist', refuse: 'persist' },
 ] as const)(
   'a refused delegation ($admitted) rejects that call and the root completes',
   { timeout: 30_000 },
@@ -106,6 +111,9 @@ it.for([
         settleStep: async (_id: string, _outputTokens: number | undefined) => undefined,
       },
       ...createDelegatedConversationBinding(async (identity) => {
+        if (refuse === 'persist' && identity.parentToolCallId === refused) {
+          throw new Error(hostReason);
+        }
         identities.push(identity);
       }),
       // The desktop host: a run the graph never admitted has no identity.
@@ -189,21 +197,28 @@ it.for([
     );
     expect(failures, JSON.stringify(failures)).toEqual([]);
     expect(JSON.stringify(chunks)).toContain('ROOT_REPORT');
-    // The model read the refusal as that call's tool result.
-    expect(rootPrompts.join('\n')).toContain('[Delegation Rejected]');
-    if (refuse === 'host') {
-      expect(rootPrompts.join('\n')).toContain(hostReason);
-    }
     const events = subagentEvents(chunks);
     expect(events.filter((event) => event.kind === 'subagent.finished')).toHaveLength(total - 1);
-    expect(events.filter((event) => event.kind === 'subagent.failed')).toEqual([
-      {
-        call: refused,
-        kind: 'subagent.failed',
-        outcome: SUBAGENT_REJECTED_OUTCOME,
-        status: 'failed',
-      },
-    ]);
+    if (refuse === 'persist') {
+      // A late refusal is a hard delegation failure, not a recorded rejection.
+      expect(events.filter((event) => event.kind === 'subagent.failed')).toEqual([
+        { call: refused, kind: 'subagent.failed', outcome: undefined, status: 'failed' },
+      ]);
+    } else {
+      // The model read the refusal as that call's tool result.
+      expect(rootPrompts.join('\n')).toContain('[Delegation Rejected]');
+      if (refuse === 'host') {
+        expect(rootPrompts.join('\n')).toContain(hostReason);
+      }
+      expect(events.filter((event) => event.kind === 'subagent.failed')).toEqual([
+        {
+          call: refused,
+          kind: 'subagent.failed',
+          outcome: SUBAGENT_REJECTED_OUTCOME,
+          status: 'failed',
+        },
+      ]);
+    }
     // A refusal admits nothing: no child was persisted for the refused call.
     expect(identities.map((identity) => identity.parentToolCallId)).not.toContain(refused);
     expect(identities).toHaveLength(total - 1);

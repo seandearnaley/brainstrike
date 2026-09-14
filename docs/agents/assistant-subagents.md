@@ -1568,7 +1568,12 @@ answer; a database or schema fault propagates. A host identity refusal at start
 into a rejection by the hook — nothing has run, so it costs one delegation,
 never the root — while the host has already logged its reason; any other
 failure propagates. The reservation at persist time remains the authority (the
-same checks, now mutating), so a true sibling race can still refuse there. Two more rules make
+same checks, now mutating), so a true sibling race can still refuse there — and
+that refusal is non-fatal too: it runs inside the child's input processing,
+before the child streams a single part, so the parent has nothing to bind and
+Mastra turns it into that delegation's tool error (`subagent.failed`, no
+`rejected` marker) while the root continues (scenario case "late reservation
+at persist"). Two more rules make
 any refusal survivable: Mastra streams a refused delegation's text through the
 PARENT's writer under the parent's run id, so `resolveChildDelegation`
 (`delegated-stream-projection.ts`) treats same-run-id nested output as not a

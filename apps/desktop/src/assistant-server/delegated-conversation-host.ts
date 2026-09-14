@@ -691,6 +691,7 @@ export function createDesktopDelegatedConversationHost(
   // wrappers rely on that, and so must any future member.
   logIdentityRejections(hostRunId, host);
   logIdentityRejections(hostRunId, host.budget, 'budget.');
+  logIdentityRejections(hostRunId, host.continuation, 'continuation.');
   return host;
 }
 
