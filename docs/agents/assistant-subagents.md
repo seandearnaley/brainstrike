@@ -1573,6 +1573,26 @@ argument retains foreground selection. Recursive descendants retain their native
 foreground execution inside the background child and use the same durable limits.
 A parent can emit useful text while a child works or waits for a decision. Live
 child content and exact approval controls use the existing rich conversation view.
+`projectBackgroundStream` (`background-stream.ts`) folds the native task events
+into the host stream: a `background-task-output` carries either a child envelope
+(`tool-output`, `data-user-message`, the delegated usage part) or a RAW `data-*`
+chunk — Mastra's `ToolStream.custom()` writes data parts without the envelope in
+the foreground too — and both are forwarded unchanged; only a non-data,
+non-envelope chunk is a contract break. SETTLED 2026-09-13: a background
+Explorer child's `data-om-buffering-start` hit the old allowlist, failed the root
+run and cancelled all four children. Paired test: `background-stream.spec.ts`.
+A forwarded `data-*` part keeps the CHILD's `runId`; consumers must attribute it
+by that id, never by its position in the host stream (the projection no longer
+tells child-origin data parts from the parent's). The delegated usage part is
+itself `data-*` and was always allowlisted, so its accounting is unchanged.
+The model may also request `_background.maxRetries` (Mastra's own system prompt
+advertises it); `PgliteBackgroundTasksStore.createTask()` rejects a scoped task
+with a non-zero value before persistence, so that delegation fails visibly. No
+repository-owned path retries or reissues it — whether the model tries again
+without retries is its own decision (BST-1749 tracks removing the advertised
+knob). Not a silent clamp (pinned by
+`pglite-background-store.integration.spec.ts`, "limits native manager recovery
+…", the `maxRetries: 1` create/update rejections).
 Discovery supplies the same root scope and resolves the authorized native leaf;
 missing scope/address is not permission to resume an arbitrary wrapper.
 

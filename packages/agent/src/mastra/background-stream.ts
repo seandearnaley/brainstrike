@@ -5,6 +5,18 @@ import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-ev
 
 const CHILD_OUTPUT_TYPES = new Set([DELEGATED_STEP_USAGE_PART, 'data-user-message', 'tool-output']);
 
+/**
+ * A background child output is forwardable when it is a child envelope or a raw
+ * `data-*` chunk; a missing or non-string discriminator is a contract break,
+ * reported as such rather than as a TypeError.
+ */
+function isForwardableChildOutput(outputType: unknown): outputType is string {
+  return (
+    typeof outputType === 'string' &&
+    (CHILD_OUTPUT_TYPES.has(outputType) || outputType.startsWith('data-'))
+  );
+}
+
 function addParentUsage(total: UsageLike, part: MastraStreamPart): void {
   const next = readStreamPartUsage(part);
   if (!next) {
@@ -113,7 +125,16 @@ export async function* projectBackgroundStream(
         break;
       case 'background-task-output': {
         const output = readMastraStreamPartValue(decoded.payload, 'payload');
-        if (!CHILD_OUTPUT_TYPES.has(asMastraStreamPart(output).type)) {
+        const outputType = asMastraStreamPart(output).type;
+        // A child's `data-*` chunk (observational memory, approval/suspend data
+        // parts, user messages) reaches the parent RAW in both paths: Mastra's
+        // `ToolStream.custom()` writes it without the `tool-output` envelope in
+        // the foreground, and the background task publishes the same object as
+        // its output. Forward it unchanged, exactly as the foreground stream
+        // already does; only a non-data, non-envelope chunk is a contract break.
+        // (2026-09-13: `data-om-buffering-start` from a background Explorer
+        // child hit the throw below and failed the root run.)
+        if (!isForwardableChildOutput(outputType)) {
           throw new Error('Native background child output omitted its delegation envelope.');
         }
         yield output;
