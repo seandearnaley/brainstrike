@@ -283,6 +283,49 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
   });
 
   /**
+   * PR #3206 review (C): the background-task sweep runs LAST, after the
+   * native-decision repair that predates it. That repair is what stops a dead
+   * leg from owning native resume admission, and it used to run unconditionally
+   * — so a background-task statement that throws (an absent relation, a lock,
+   * anything) must not be able to skip it. The reap is one fire-and-forget
+   * caller with no transaction, so ORDER is the whole guarantee.
+   */
+  it('repairs native decisions BEFORE sweeping background tasks, so a failing sweep cannot skip the repair', async () => {
+    const db = await makeFixtureDb('reaper-statement-order');
+    // The one failure this statement can plausibly raise on a database that
+    // never had the relation; any throw would do.
+    await db.exec('DROP TABLE mastra_background_tasks');
+    const statements: string[] = [];
+    const recording = {
+      async query<T = Record<string, unknown>>(
+        sql: string,
+        params?: readonly unknown[]
+      ): Promise<{ rows: T[] }> {
+        statements.push(sql);
+        return await asHandle(db).query<T>(sql, params);
+      },
+    } satisfies EditCheckpointDatabase;
+
+    await expect(reapOrphanedThreadRuns(recording, BOOTED_AT)).rejects.toMatchObject({
+      code: '42P01',
+    });
+
+    const decisions = statements.findIndex((sql) =>
+      sql.includes('brainstrike_delegated_tool_decisions')
+    );
+    const backgroundTasks = statements.findIndex((sql) => sql.includes('mastra_background_tasks'));
+    // Both continuation repairs belong to the same pre-existing group.
+    const continuations = statements.filter((sql) =>
+      sql.includes('brainstrike_delegated_continuation')
+    ).length;
+    expect({ continuations, ranDecisionRepair: decisions >= 0 }).toEqual({
+      continuations: 2,
+      ranDecisionRepair: true,
+    });
+    expect(backgroundTasks).toBeGreaterThan(decisions);
+  });
+
+  /**
    * NOT a supported input — a FAILURE-MODE pin (BST-1651).
    *
    * Migration 118 owns the run header, and neither runtime can hand this sweep
