@@ -393,4 +393,31 @@ describe('thread debug pack swarm diagnostics', () => {
     expect(pack).not.toContain(apiKey);
     expect(JSON.parse(pack).manifest.redaction.valueCount).toBe(5);
   });
+
+  it('scrubs and counts a secret shape inside an unavailable host evidence reason', () => {
+    const apiKey = ['sk', 'abcdefghijklmnopqrstuv'].join('-');
+    const pack = formatThreadDebugPack(
+      {
+        capturedAt: '2026-09-15T00:00:00Z',
+        rootThreadId: 'root',
+        sections: { toolOutputs: [] },
+        threadId: 'root',
+      },
+      {
+        hostLog: {
+          reason: `not readable at /tmp/${apiKey}/brainstrike.log`,
+          status: 'unavailable',
+        },
+        processCounters: { reason: 'not under test', status: 'unavailable' },
+        window: null,
+      }
+    );
+    expect(pack).not.toContain(apiKey);
+    const { manifest } = JSON.parse(pack);
+    // Paths are documented export content: only the secret shape is replaced.
+    expect(manifest.host.hostLog).toBe(
+      'unavailable: not readable at /tmp/[redacted-secret:api-key]/brainstrike.log'
+    );
+    expect(manifest.redaction.valueCount).toBe(1);
+  });
 });
