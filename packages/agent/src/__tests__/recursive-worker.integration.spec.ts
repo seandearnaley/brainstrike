@@ -67,7 +67,7 @@ it.each([
     const reserveStep = vi.fn(async (_scope: { threadId: string; resourceId: string }) => ({
       id: `step-${reserveStep.mock.calls.length}`,
       outputTokens: 8192,
-      synthesis: false,
+      synthesis: false as const,
     }));
     const settleStep = vi.fn(async (_id: string, _outputTokens: number | undefined) => undefined);
     const binding = {
@@ -434,7 +434,7 @@ it('isolates step reservations for two concurrent invocations of the same Worker
       reserveStep: async ({ threadId }: { threadId: string; resourceId: string }) => {
         const id = `reservation-${reservations.size}`;
         reservations.set(id, threadId);
-        return { id, outputTokens: 8192, synthesis: false };
+        return { id, outputTokens: 8192, synthesis: false as const };
       },
       settleStep: async (id: string, outputTokens: number | undefined) => {
         expect(reservations.has(id)).toBe(true);

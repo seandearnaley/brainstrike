@@ -145,3 +145,32 @@ export function withLateBackgroundResults<Options extends { inputProcessors?: un
   // First, so the stale-history filter and the limiter judge the real results.
   return { ...options, inputProcessors: [processor, ...(options.inputProcessors ?? [])] };
 }
+
+/** The late overlay sends the model no wakeup text; the row says so. */
+export const LATE_OVERLAY_WAKEUP_DIRECTIVE =
+  'Late background results overlaid at the provider boundary: dispatch acknowledgements replaced by saved outcomes. No model-facing wakeup text was sent.';
+
+/**
+ * Debug-pack evidence for the late overlay (swarm diagnostics, migration 139):
+ * one `late-overlay` wakeup row naming every task whose saved outcome replaces
+ * its acknowledgement on the resumed run. Nothing is recorded when nothing
+ * returned late. Both overlay call sites (approval and typed resume) share it.
+ */
+export async function recordLateOverlayWakeup(
+  runtime: Pick<MastraAgentRuntime, 'conversationBinding'>,
+  late: readonly BackgroundTask[]
+): Promise<void> {
+  if (late.length === 0) {
+    return;
+  }
+  await runtime.conversationBinding?.recordWakeup?.({
+    directive: LATE_OVERLAY_WAKEUP_DIRECTIVE,
+    invocations: late.map((task) => ({
+      outcome: 'late' as const,
+      taskId: task.id,
+      toolCallId: task.toolCallId,
+      toolName: task.toolName,
+    })),
+    kind: 'late-overlay',
+  });
+}

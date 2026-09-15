@@ -33,6 +33,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import {
   AdmittedChildConfigurationError,
   readAssistantChildSignalContents,
+  readAssistantRunEvent,
 } from '@brainstrike/assistant-contract';
 import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
@@ -91,6 +92,7 @@ import { readChildContinuationUserMessage } from './child-continuation-user-mess
 import { withDelegatedPersonaSnapshots } from './delegated-persona-snapshots';
 import { DELEGATED_STEP_USAGE_PART } from './delegated-step-usage';
 import { createDelegatedStreamProjection } from './delegated-stream-projection';
+import { DELEGATED_SYNTHESIS_PART } from './delegated-synthesis-outcomes';
 import { captureDelegatedSystemContext } from './delegated-system-context';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import {
@@ -108,6 +110,7 @@ import {
 } from './mastra-chunk-decoding';
 import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
 import type { PermissionAskToolMetadata } from './permission-tool-gate';
+import { buildRootLegPromptManifest } from './prompt-manifest-root-leg';
 import { drainProviderCallWarningChunks } from './provider-warning-run-events';
 import { withRootPauseNotices } from './root-pause-notices';
 import { assertNoUnsupportedDirectStreamOptions } from './runtime-assembly/stream-options';
@@ -147,6 +150,7 @@ import {
   makeFinishChunk,
   makeLifecycleStepMetadata,
   makePendingToolOutputRunEventChunks,
+  makeStepFinishedMetadata,
   makeTerminalRunEvent,
   makeToolLifecycleRunEventChunk,
   mapDelegationToolOutput,
@@ -447,6 +451,19 @@ function absorbEmptyAttemptSpend(part: unknown, lifecycleState: ToolLifecycleSta
   lifecycleState.sawStepWithoutBilledCost = true;
 }
 
+/**
+ * A host-owned run event published into the running leg (the background
+ * ledger row, `background-ledger.ts`). Mastra never emits this type; a
+ * malformed one is refused rather than forwarded.
+ */
+function mapHostRunEventPart(rawEvent: unknown): ProcessStreamPartResult {
+  const event = readAssistantRunEvent(rawEvent);
+  if (!event) {
+    throw new Error('A host run-event chunk is malformed.');
+  }
+  return { chunks: [{ event, type: 'run-event' }], finished: false };
+}
+
 export async function processMastraStreamPart(
   part: unknown,
   toolNames: Map<string, string>,
@@ -472,6 +489,9 @@ export async function processMastraStreamPart(
   switch (p.type) {
     // The delegated projection has already validated and metered this published child.
     case DELEGATED_STEP_USAGE_PART:
+    // ...and turned this reserved-synthesis outcome into the owner child's
+    // `delegation.budget.exhausted` run event; the root stream carries nothing.
+    case DELEGATED_SYNTHESIS_PART:
       return { chunks: [], finished: false };
     // A background child's task is parked in storage; its withheld card is
     // released by `releaseParkedNotices` on this same part. Its resume drops
@@ -489,6 +509,8 @@ export async function processMastraStreamPart(
       }
       return { chunks: [{ ...answered, type: 'tool-approval-answered' }], finished: false };
     }
+    case 'run-event':
+      return mapHostRunEventPart((p as { event?: unknown }).event);
     case 'data-signal':
       // Native notifications are persisted as model context. Their actual model
       // response follows on this stream; they are not an extra user/assistant row.
@@ -565,7 +587,7 @@ export async function processMastraStreamPart(
         'run.step.finished',
         'completed',
         'Generation step completed',
-        makeLifecycleStepMetadata(part, lifecycleState)
+        makeStepFinishedMetadata(part, lifecycleState)
       );
       if (lifecycleState.steering?.stopRequested()) {
         // NOTE: an OpenRouter run whose boundary step omitted its billed cost
@@ -1129,7 +1151,11 @@ export function createAttemptDelegatedProjection({
   delegationUsage?: DelegationUsageCapture | undefined;
   runtime: Pick<
     MastraAgentRuntime,
-    'conversationBinding' | 'personasById' | 'delegationToolPersonas' | 'askTools'
+    | 'conversationBinding'
+    | 'personasById'
+    | 'delegationToolPersonas'
+    | 'askTools'
+    | 'delegatedExecutionOptions'
   >;
   runtimeData: RuntimeData | undefined;
   lifecycleState: ToolLifecycleState;
@@ -1153,6 +1179,12 @@ export function createAttemptDelegatedProjection({
       );
       if (lifecycleState.delegationOutcomes) {
         childState.delegationOutcomes = lifecycleState.delegationOutcomes;
+      }
+      // A `length` finish on this child's reserved synthesis is a truncated
+      // completion only when the budget processor recorded it here.
+      const synthesisOutcomes = runtime.delegatedExecutionOptions?.synthesisOutcomes;
+      if (synthesisOutcomes) {
+        childState.synthesisOutcomes = synthesisOutcomes;
       }
       return childState;
     },
@@ -1757,11 +1789,21 @@ export async function streamMastraAgent(
     },
     runtimeResolution
   );
+  // Debug-pack evidence for a FRESH turn only: resume legs replay the prompt
+  // their snapshot carries. The host logs a failed write and resolves.
+  const rootManifest = buildRootLegPromptManifest({
+    messages: initialSystemMessages,
+    registeredToolNames: runtime.registeredToolNames,
+    runtime: runtimeResolution.runtime,
+  });
+  if (rootManifest) {
+    await runtime.conversationBinding?.recordPromptManifest?.(rootManifest);
+  }
 
-  // Per-call approval for `'ask'` tools comes from the PER-TOOL `requireApproval`
-  // flag the permission gate set (see permission-tool-gate.ts), NOT from the
-  // run-wide `requireToolApproval` — the global flag would suspend EVERY tool
-  // call, including allowed read/mcp tools. We therefore only pass
+  // Per-call approval for `'ask'` tools comes from each ask tool's FUNCTION-form
+  // `requireApproval` (approval-gate.ts, evaluated by Mastra on every call),
+  // NOT from the run-wide `requireToolApproval` — a truthy run-wide gate would
+  // suspend EVERY tool call and force sequential steps. We therefore only pass
   // `requireToolApproval` when the caller explicitly set it (e.g. a deliberate
   // approve-all run); an unset option leaves the run on the per-tool gate.
   const requireToolApproval = options.requireToolApproval;

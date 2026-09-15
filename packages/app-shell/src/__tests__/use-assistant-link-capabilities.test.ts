@@ -1,5 +1,11 @@
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import {
+  __resetWorkspaceTabSelectionStoreForTests,
+  useWorkspaceTabSelectionStore,
+} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import type { PlatformBridge } from '../platform-bridge';
 import { useAssistantLinkCapabilitiesValue } from '../use-assistant-link-capabilities';
 
@@ -27,6 +33,46 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     setPlatform(undefined);
     toastMock.mockClear();
     vi.restoreAllMocks();
+    __resetWorkspaceTabSelectionStoreForTests();
+    useChangesNavigationStore.getState().reset();
+    usePanelLayoutStore.getState().setActiveTab('explorer');
+  });
+
+  it('routes a canvas:// link to the Canvas workspace tab, never to the OS browser', async () => {
+    const openExternal = vi.fn();
+    setPlatform(fullBridge({ openExternal }));
+    usePanelLayoutStore.getState().setActiveTab('settings');
+
+    const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
+
+    await expect(
+      result.current.openLink('canvas://019a0b3c-4d5e-7f60-8a1b-2c3d4e5f6071')
+    ).resolves.toEqual({ ok: true });
+    // Mutation: falling through to openExternalLink calls the bridge and toasts
+    // "Blocked protocol: canvas:".
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(toastMock).not.toHaveBeenCalled();
+    expect(useChangesNavigationStore.getState().focusedCanvasId).toBe(
+      '019a0b3c-4d5e-7f60-8a1b-2c3d4e5f6071'
+    );
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      appId: 'canvas',
+      kind: 'app',
+    });
+    // The workspace panel only exists on the explorer route (same pairing as
+    // the "→ Review" link).
+    expect(usePanelLayoutStore.getState().activeTab).toBe('explorer');
+  });
+
+  it('reports a malformed canvas link instead of failing silently', async () => {
+    setPlatform(fullBridge());
+
+    const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
+    const outcome = await result.current.openLink('canvas://');
+
+    expect(outcome).toEqual({ error: 'Canvas link has no usable canvas id', ok: false });
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    expect(useChangesNavigationStore.getState().focusedCanvasId).toBeNull();
   });
 
   it('opens an http link through the desktop bridge', async () => {

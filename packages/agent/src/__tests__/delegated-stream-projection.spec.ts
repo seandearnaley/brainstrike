@@ -271,3 +271,70 @@ it('requires exactly one published native child for unwrapped processor usage da
   await expect(projection.project(usage, new Map())).rejects.toThrow('unique published');
   expect(onUsage).toHaveBeenCalledTimes(1);
 });
+
+it('projects a synthesis part onto its owner child as a delegation.budget.exhausted run event', async () => {
+  const projection = createDelegatedStreamProjection({
+    authorize: async () => ({ messageId: 'native-message', threadId: 'child' }),
+    createState: () => ({}),
+    mapPart: async () => ({ chunks: [], finished: false }),
+    personas: new Map([['agent-explore', 'explore']]),
+  });
+  if (!projection) {
+    throw new Error('Missing projection');
+  }
+  const synthesis = {
+    data: {
+      cap: 'steps',
+      limit: 32,
+      outputTokens: 512,
+      reservedOutputTokens: 2048,
+      resourceId: 'child-resource',
+      threadId: 'child',
+      truncated: true,
+      used: 31,
+    },
+    type: 'data-brainstrike-delegated-synthesis',
+  };
+  // Nobody published this thread yet.
+  await expect(projection.project(synthesis, new Map())).rejects.toThrow(
+    'no unique published native child owner'
+  );
+  await projection.project(part, new Map());
+  const chunks = await projection.project(synthesis, new Map());
+  expect(chunks).toMatchObject([
+    {
+      chunk: {
+        event: {
+          kind: 'delegation.budget.exhausted',
+          label: 'Subagent step budget exhausted (31 of 32); summary reserved and truncated',
+          metadata: {
+            cap: 'steps',
+            limit: 32,
+            outputTokens: 512,
+            parentToolCallId: 'call',
+            personaId: 'explore',
+            reservedOutputTokens: 2048,
+            synthesisForced: true,
+            truncated: true,
+            used: 31,
+          },
+          status: 'info',
+        },
+        type: 'run-event',
+      },
+      identity,
+      messageId: 'native-message',
+      type: 'delegated-conversation-chunk',
+    },
+  ]);
+  await expect(
+    projection.project(
+      { ...synthesis, data: { ...synthesis.data, threadId: 'foreign' } },
+      new Map()
+    )
+  ).rejects.toThrow('no unique published native child owner');
+  // A malformed part is a defect, never dropped.
+  await expect(
+    projection.project({ ...synthesis, data: { ...synthesis.data, cap: 'moon' } }, new Map())
+  ).rejects.toThrow();
+});

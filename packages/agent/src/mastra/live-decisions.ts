@@ -9,10 +9,12 @@ import {
   recordGrantedBackgroundApprovals,
 } from './background-granted-approvals';
 import { findPendingBackgroundTask } from './background-resume';
+import type { DelegatedLiveDecisionRecord } from './delegated-conversation-binding';
 import { assertDelegatedToolActionPending } from './delegated-tool-actions';
 import {
   type LiveBackgroundOwner,
   type LiveDecisionAction,
+  type LiveDecisionRequest,
   LiveDecisionUnavailableError,
 } from './live-decision-channel';
 import { resolveDiscoveredApprovalToolName } from './suspended-run-discovery';
@@ -90,6 +92,64 @@ async function publishAndResume(params: {
 }
 
 /**
+ * Debug-pack evidence (swarm diagnostics, migration 139): the running leg
+ * records a delivered decision with its task, its leaf call, the parked
+ * siblings the request's snapshot answered and that snapshot. The endpoint
+ * records only the outcomes it alone sees (no live run, refused, failed).
+ */
+function deliveredDecisionRecord(input: {
+  readonly action: LiveDecisionAction;
+  readonly answeredSiblingTaskIds: readonly string[];
+  readonly delegationToolCallId: string;
+  readonly permissionPolicy: LiveDecisionRequest['permissionPolicy'];
+  readonly taskId: string;
+  readonly toolName: string;
+}): DelegatedLiveDecisionRecord {
+  return {
+    answeredSiblingTaskIds: input.answeredSiblingTaskIds,
+    ...(isApprovalAction(input.action)
+      ? { decision: input.action.action, kind: 'approval' as const }
+      : { decision: 'resume' as const, kind: 'resume' as const }),
+    delegationToolCallId: input.delegationToolCallId,
+    outcome: 'delivered',
+    ...(input.permissionPolicy ? { policySnapshot: input.permissionPolicy } : {}),
+    source: 'user',
+    taskId: input.taskId,
+    toolCallId: input.action.toolCallId,
+    toolName: input.toolName,
+  };
+}
+
+/**
+ * Debug-pack evidence for a remembered session grant's answer to a later pause
+ * (swarm diagnostics, migration 139): answered with the grant it applied, or
+ * failed with the reason (nothing native happened then; the card stays).
+ */
+function rememberedDecisionRecord(input: {
+  readonly entry: GrantedBackgroundApproval;
+  readonly failure: string | undefined;
+  readonly remembered: NonNullable<LiveDecisionRequest['permissionPolicy']>;
+}): DelegatedLiveDecisionRecord {
+  const { entry } = input;
+  const leaf = {
+    delegationToolCallId: entry.action.delegation.toolCallId,
+    kind: 'approval' as const,
+    source: 'remembered-grant' as const,
+    taskId: entry.task.id,
+    toolCallId: entry.action.toolCallId,
+    ...(entry.answered.toolName ? { toolName: entry.answered.toolName } : {}),
+  };
+  return input.failure === undefined
+    ? {
+        ...leaf,
+        decision: 'approve',
+        outcome: 'remembered-answered',
+        policySnapshot: input.remembered,
+      }
+    : { ...leaf, outcome: 'remembered-failed', reason: input.failure };
+}
+
+/**
  * Arm a leg's live decision handler on its runtime channel (settled
  * 2026-09-14, do not relitigate: a decision reaches the RUNNING leg).
  *
@@ -99,12 +159,16 @@ async function publishAndResume(params: {
  * claim already), its parked siblings that the request's fresh snapshot now
  * allows are recorded the same way, the answers are published on the leg's
  * own stream so every card locks, and the owning phase resumes the tasks
- * in-process. A lasting grant is remembered for the rest of the leg.
+ * in-process. A lasting grant is remembered once the records succeed and
+ * BEFORE the in-process resume; from then on every ask tool's function-form
+ * flag (approval-gate.ts) lets each later call the grant allows run without
+ * a pause — the user granted reads for the session; a fifth specialist's
+ * read is not a new question (Claude Code applies lasting grants to every
+ * later prompt).
  *
- * `suspended`: a task that parks later under a remembered grant is answered
- * by it — the user granted reads for the session; a fifth specialist asking
- * for a read is not a new question (Claude Code applies lasting grants to
- * every later prompt). A pause the grant does not cover keeps its card.
+ * `suspended`: remains for a pause the flag did not lift under a remembered
+ * grant (a category the grant does not cover keeps its card; a task that
+ * parked before the grant was remembered is answered by it).
  */
 export function armLiveDecisions(
   runtime: LiveRuntime,
@@ -133,7 +197,8 @@ export function armLiveDecisions(
       readonly answered: StreamChunkToolApprovalAnswered | undefined;
       readonly resume: { readonly resumeData: unknown; readonly task: BackgroundTask };
       readonly record: () => Promise<void>;
-    }
+    },
+    remember?: () => void
   ) => {
     const reservation = owner.reserve([
       ...(explicit ? [explicit.resume.task] : []),
@@ -150,6 +215,12 @@ export function armLiveDecisions(
       reservation.release();
       throw error;
     }
+    // The grant is remembered only once the host has recorded the user's
+    // decision (a refused record must not widen the gate), and BEFORE the
+    // resumed child runs: its next call reads `remembered` through its
+    // function-form flag (approval-gate.ts), and a child resumed in-process
+    // reaches that call within the same tick chain as `manager.resume`.
+    remember?.();
     await publishAndResume({
       answered,
       owner,
@@ -199,29 +270,31 @@ export function armLiveDecisions(
             select: (candidate) => candidate.id !== task.id,
           })
         : [];
-      await answerGranted(owner, granted, {
-        answered: approval
-          ? {
-              decision: action.action,
-              delegation,
-              reason: 'user',
-              runId: action.runId,
-              toolCallId: action.toolCallId,
-              toolName,
-              type: 'tool-approval-answered',
-            }
-          : undefined,
-        record: () => record({ delegation, runId: action.runId, toolCallId: action.toolCallId }),
-        resume: {
-          resumeData: approval
-            ? { approved: action.action === 'approve' }
-            : withApprovalRider(action, runtime.askTools.has(leaf.toolName), leaf.toolName),
-          task,
+      await answerGranted(
+        owner,
+        granted,
+        {
+          answered: approval
+            ? {
+                decision: action.action,
+                delegation,
+                reason: 'user',
+                runId: action.runId,
+                toolCallId: action.toolCallId,
+                toolName,
+                type: 'tool-approval-answered',
+              }
+            : undefined,
+          record: () => record({ delegation, runId: action.runId, toolCallId: action.toolCallId }),
+          resume: {
+            resumeData: approval
+              ? { approved: action.action === 'approve' }
+              : withApprovalRider(action, runtime.askTools.has(leaf.toolName), leaf.toolName),
+            task,
+          },
         },
-      });
-      if (grantedPolicy) {
-        channel.remember(grantedPolicy);
-      }
+        grantedPolicy ? () => channel.remember(grantedPolicy) : undefined
+      );
       logger.info('Decision delivered into the running leg', {
         answeredSiblings: granted.map((entry) => entry.task.id),
         code: 'live_decision_delivered',
@@ -229,12 +302,26 @@ export function armLiveDecisions(
         taskId: task.id,
         toolCallId: action.toolCallId,
       });
+      await runtime.conversationBinding?.recordLiveDecision?.(
+        deliveredDecisionRecord({
+          action,
+          answeredSiblingTaskIds: granted.map((entry) => entry.task.id),
+          delegationToolCallId: delegation.toolCallId,
+          permissionPolicy: request.permissionPolicy,
+          taskId: task.id,
+          toolName,
+        })
+      );
     },
     async suspended(taskId) {
       const remembered = channel.remembered;
       if (!remembered) {
         return;
       }
+      // The parked leaf once known: a failure before it has no call id to name
+      // and stays in the coded error log, never a row with an invented id.
+      let answering: GrantedBackgroundApproval | undefined;
+      let failure: string | undefined;
       try {
         const { manager, scope } = requireScope();
         const owner = requireLiveOwner(runtime);
@@ -248,6 +335,7 @@ export function armLiveDecisions(
         if (granted.length === 0) {
           return;
         }
+        [answering] = granted;
         await answerGranted(owner, granted);
         logger.info('Remembered session grant answered a later pause', {
           code: 'live_decision_remembered_grant',
@@ -255,11 +343,19 @@ export function armLiveDecisions(
         });
       } catch (error) {
         // The card stays for the user; nothing native happened.
+        failure = error instanceof Error ? error.message : String(error);
         logger.error('A remembered session grant could not answer a later pause', {
           code: 'live_decision_remembered_grant_failed',
-          error: error instanceof Error ? error.message : String(error),
+          error: failure,
           taskId,
         });
+      }
+      // Recorded after the attempt, so a rejecting record can never relabel a
+      // pause that was answered as a failed one.
+      if (answering) {
+        await runtime.conversationBinding?.recordLiveDecision?.(
+          rememberedDecisionRecord({ entry: answering, failure, remembered })
+        );
       }
     },
   });

@@ -174,11 +174,14 @@ it("a background child's pause wakes no parent turn: the host surfaces the decis
         : []
     );
     expect(pending).toEqual(['background-read']);
-    // The decision lives in the ROOT thread: a root-level notice addressed to
-    // the delegation call, naming the leaf tool and carrying the leaf identity.
-    // A background child never suspends its parent run, so nothing native
-    // produces this card (thread-b629776b, 2026-09-14: four parked children,
-    // no card on the root, five stray canvas approvals instead).
+    // The decision lives in the ROOT thread: ONE root-level notice addressed to
+    // the delegation call, naming the leaf tool and carrying the leaf identity,
+    // synthesized when the task parks (thread-b629776b, 2026-09-14: four parked
+    // children, no card on the root, five stray canvas approvals instead). A
+    // background child never suspends its parent RUN, but Mastra does emit a
+    // parent-level pause on the dispatching turn while that turn is still
+    // open; the host drops it ("reaches each view ONCE", below). This root
+    // answers instantly, so its turn has closed before the child pauses.
     const rootNotices = chunks.flatMap((chunk) =>
       chunk.type === 'tool-approval-required' ? [chunk] : []
     );
@@ -302,6 +305,89 @@ async function approveFirstRead(
   return chunks;
 }
 
+it("a background child's decision reaches each view ONCE while the dispatching root turn is still open", async () => {
+  // Live GLM run 19 (2026-09-15): the root's first turn stayed open (parallel
+  // reads, long reasoning) while four specialists streamed and parked. While
+  // that turn is open Mastra's background executor delivers every child
+  // pause TWICE: to the task (`background-task-suspended`) and, through the
+  // dispatching step's own suspend, to the turn itself (a parent-level
+  // `tool-call-approval` for the delegation call). It delivered every child
+  // output twice too (`background-task-output` and a raw `tool-output`
+  // envelope on the turn) until patches/@mastra__core@1.64.0.patch made the
+  // task the only output delivery. Projecting both gave every child view each
+  // frame twice and the root thread eight cards for four decisions. A root that answers instantly closes its turn
+  // before any child output exists, so only a held-open turn delivers the
+  // runtime shape.
+  const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
+    permissionPolicy: READ_ASK_POLICY,
+    siblings: 2,
+    slowRootTurn: true,
+  });
+  const { backing, runtime, runtimeData, release, database } = fixture;
+  release.resolve();
+  try {
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [{ id: 'fan-out', parts: [{ text: 'Survey', type: 'text' }], role: 'user' }],
+      runtime,
+      runtimeData,
+    })) {
+      chunks.push(chunk);
+    }
+    const failures = chunks.filter(
+      (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+    );
+    expect(failures, JSON.stringify(failures)).toEqual([]);
+    // ONE root card per parked leaf decision, addressed to its delegation call.
+    const rootCards = chunks
+      .flatMap((chunk) =>
+        chunk.type === 'tool-approval-required'
+          ? [[chunk.toolCallId, chunk.delegation?.toolCallId]]
+          : []
+      )
+      .sort();
+    expect(rootCards).toEqual([
+      ['background-child-1', 'background-read-1'],
+      ['background-child-2', 'background-read-2'],
+    ]);
+    const rootRequested = chunks
+      .flatMap((chunk) =>
+        chunk.type === 'run-event' && chunk.event.kind === 'tool.approval.requested'
+          ? [chunk.event.metadata?.['toolCallId']]
+          : []
+      )
+      .sort();
+    expect(rootRequested).toEqual(['background-child-1', 'background-child-2']);
+    // Each child view carries every frame exactly once: the same view a root
+    // that closed its turn first produces.
+    const childFrames = (parentToolCallId: string) =>
+      chunks.flatMap((chunk) =>
+        chunk.type === 'delegated-conversation-chunk' &&
+        chunk.identity.parentToolCallId === parentToolCallId
+          ? [chunk.chunk.type === 'run-event' ? chunk.chunk.event.kind : chunk.chunk.type]
+          : []
+      );
+    for (const child of ['background-child-1', 'background-child-2']) {
+      expect(childFrames(child), child).toEqual([
+        'run.started',
+        'run.step.started',
+        'tool-event',
+        'tool.started',
+        'tool.approval.requested',
+        'tool-approval-required',
+        'message-finish',
+      ]);
+    }
+    const parked = await runtime.backgroundTaskManager?.listTasks({ status: 'suspended' });
+    expect(parked?.tasks).toHaveLength(2);
+  } finally {
+    release.resolve();
+    await runtime.dispose();
+    await database.close();
+  }
+});
+
 it('a session grant answers every parked background sibling in the same approval leg', async () => {
   const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
     permissionPolicy: READ_ASK_POLICY,
@@ -332,6 +418,30 @@ it('a session grant answers every parked background sibling in the same approval
     const parked = await runtime.backgroundTaskManager?.listTasks({ status: 'suspended' });
     expect(parked?.tasks).toEqual([]);
     expect(JSON.stringify(chunks)).toContain('PARENT_FINAL_OUTCOME');
+    // Debug-pack evidence (swarm diagnostics): the approval leg's resume stream
+    // recorded ONE resume-leg wakeup naming both returned siblings, carrying the
+    // exact text the parent then received, before that inference ran.
+    // MUTATION: recording after `agent.stream` moves `promptsAtRecord` past the
+    // wakeup prompt.
+    const wakeupPrompt = fixture.model.prompts.findIndex((call) =>
+      JSON.stringify(call.prompt).includes('Background invocations of this turn')
+    );
+    const lastUser = fixture.model.prompts[wakeupPrompt]?.prompt
+      .filter((message) => message.role === 'user')
+      .at(-1);
+    const sent =
+      lastUser && Array.isArray(lastUser.content)
+        ? lastUser.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
+        : undefined;
+    expect(fixture.wakeups.map((row) => row.kind)).toEqual(['resume-leg']);
+    expect(fixture.wakeups[0]?.directive).toBe(sent);
+    expect(fixture.wakeups[0]?.promptsAtRecord).toBe(wakeupPrompt);
+    expect(
+      fixture.wakeups[0]?.invocations.map((entry) => [entry.outcome, entry.toolCallId]).sort()
+    ).toEqual([
+      ['completed', 'background-child-1'],
+      ['completed', 'background-child-2'],
+    ]);
   } finally {
     release.resolve();
     await runtime.dispose();
@@ -463,6 +573,22 @@ it('a decision delivered into the running leg resumes the child there; its next 
       toolCallId: 'background-child-1',
     });
     expect(fixture.policyAnswers).toEqual(['background-child-1']);
+    // Debug-pack evidence (swarm diagnostics): the running leg recorded the
+    // user's live one-shot decision as delivered — its task, dispatch address
+    // and leaf call, no answered siblings and no policy snapshot.
+    expect(fixture.liveDecisions).toEqual([
+      {
+        answeredSiblingTaskIds: [],
+        decision: 'approve',
+        delegationToolCallId: 'background-read-1',
+        kind: 'approval',
+        outcome: 'delivered',
+        source: 'user',
+        taskId: expect.any(String),
+        toolCallId: 'background-child-1',
+        toolName: 'brainstrike.grepSearch',
+      },
+    ]);
     // One leg, two root cards for the same child: read 1, then read 2.
     const rootCards = chunks
       .flatMap((chunk) => (chunk.type === 'tool-approval-required' ? [chunk] : []))
@@ -515,6 +641,329 @@ it('a live decision after the leg settled is refused as not live, never applied'
     expect(fixture.policyAnswers).toEqual([]);
     const parked = await runtime.backgroundTaskManager?.listTasks({ status: 'suspended' });
     expect(parked?.tasks).toHaveLength(2);
+  } finally {
+    release.resolve();
+    await runtime.dispose();
+    await database.close();
+  }
+});
+
+it("after a live session grant the sibling's NEXT gated read runs without a pause", async () => {
+  // Claude Code's contract: after "allow for session" the tool simply runs.
+  // Sibling 2's allowed read is held open so the leg keeps running; sibling 1
+  // parks on its first ask-gated read; the user's "Allow reads this session"
+  // is delivered live on that card. Sibling 1's SECOND gated read must then
+  // run under the remembered grant with no pause, no card and no resume.
+  // MUTATION: a gate that ignores `remembered` (Task 1) parks read 2 again
+  // and a second root card appears — `rootCards` below fails.
+  const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 2, {
+    heldSibling: 2,
+    permissionPolicy: {
+      ...READ_ASK_POLICY,
+      perToolOverrides: { 'brainstrike.readWorkspaceFile': 'allow' },
+    },
+    siblings: 2,
+  });
+  const { backing, runtime, runtimeData, release, hold, database, effect } = fixture;
+  release.resolve();
+  const chunks: StreamChunk[] = [];
+  let delivered: Promise<void> | undefined;
+  try {
+    for await (const chunk of await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [{ id: 'fan-out', parts: [{ text: 'Survey', type: 'text' }], role: 'user' }],
+      runtime,
+      runtimeData,
+    })) {
+      chunks.push(chunk);
+      if (
+        chunk.type === 'tool-approval-required' &&
+        chunk.delegation?.toolCallId === 'background-read-1' &&
+        !delivered
+      ) {
+        delivered = fixture
+          .decide({
+            action: {
+              action: 'approve',
+              delegation: chunk.delegation,
+              runId: chunk.runId,
+              toolCallId: chunk.toolCallId,
+            },
+            permissionPolicy: {
+              ...READ_ASK_POLICY,
+              perToolOverrides: { 'brainstrike.readWorkspaceFile': 'allow' },
+              sessionGrants: ['read'],
+            },
+          })
+          .finally(() => hold.resolve());
+      }
+    }
+    await expect(delivered).resolves.toBeUndefined();
+    const failures = chunks.filter(
+      (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+    );
+    expect(failures, JSON.stringify(failures)).toEqual([]);
+    // Exactly one root card for the whole leg: read 1. Read 2 never parked.
+    const rootCards = chunks
+      .flatMap((chunk) => (chunk.type === 'tool-approval-required' ? [chunk] : []))
+      .map((chunk) => [chunk.toolCallId, chunk.delegation?.toolCallId]);
+    expect(rootCards).toEqual([['background-child-1', 'background-read-1']]);
+    // The user's answer is the only answer; no policy answer was needed.
+    const answered = chunks.flatMap((chunk) =>
+      chunk.type === 'tool-approval-answered' ? [chunk] : []
+    );
+    expect(answered).toHaveLength(1);
+    expect(answered[0]).toMatchObject({ reason: 'user', toolCallId: 'background-child-1' });
+    expect(fixture.policyAnswers).toEqual(['background-child-1']);
+    // Debug-pack evidence: the live grant is recorded as delivered with the
+    // trusted snapshot it was delivered with; no parked sibling needed an answer.
+    // MUTATION: dropping the snapshot from the delivered record fails this.
+    expect(fixture.liveDecisions).toEqual([
+      expect.objectContaining({
+        answeredSiblingTaskIds: [],
+        outcome: 'delivered',
+        policySnapshot: expect.objectContaining({ sessionGrants: ['read'] }),
+        source: 'user',
+        toolCallId: 'background-child-1',
+      }),
+    ]);
+    // Both gated reads of sibling 1 executed.
+    expect(effect).toHaveBeenCalledTimes(2);
+    const parked = await runtime.backgroundTaskManager?.listTasks({ status: 'suspended' });
+    expect(parked?.tasks).toEqual([]);
+    expect(JSON.stringify(chunks)).toContain('PARENT_FINAL_OUTCOME');
+  } finally {
+    hold.resolve();
+    release.resolve();
+    await runtime.dispose();
+    await database.close();
+  }
+});
+
+it('a live session grant is remembered BEFORE the parked child is resumed, so its next call already sees it', async () => {
+  // The resumed child's next gated call consults the leg's remembered grant
+  // through its function-form flag (approval-gate.ts). If the grant were
+  // remembered only after `manager.resume` returned, a child that reaches its
+  // next call within the resume's own tick chain would park again. The
+  // ordering is the invariant: `remember` strictly precedes every `resume`
+  // the decision issues.
+  const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 2, {
+    heldSibling: 2,
+    permissionPolicy: {
+      ...READ_ASK_POLICY,
+      perToolOverrides: { 'brainstrike.readWorkspaceFile': 'allow' },
+    },
+    siblings: 2,
+  });
+  const { backing, runtime, runtimeData, release, hold, database } = fixture;
+  const manager = runtime.backgroundTaskManager;
+  if (!manager) {
+    throw new Error('Background manager missing');
+  }
+  const order: string[] = [];
+  const originalResume = manager.resume.bind(manager);
+  manager.resume = async (taskId, resumeData) => {
+    order.push(`resume:${runtime.liveDecisions.remembered ? 'remembered' : 'forgotten'}`);
+    return await originalResume(taskId, resumeData);
+  };
+  const originalRemember = runtime.liveDecisions.remember.bind(runtime.liveDecisions);
+  runtime.liveDecisions.remember = (policy) => {
+    order.push('remember');
+    originalRemember(policy);
+  };
+  release.resolve();
+  let delivered: Promise<void> | undefined;
+  try {
+    for await (const chunk of await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [{ id: 'fan-out', parts: [{ text: 'Survey', type: 'text' }], role: 'user' }],
+      runtime,
+      runtimeData,
+    })) {
+      if (
+        chunk.type === 'tool-approval-required' &&
+        chunk.delegation?.toolCallId === 'background-read-1' &&
+        !delivered
+      ) {
+        delivered = fixture
+          .decide({
+            action: {
+              action: 'approve',
+              delegation: chunk.delegation,
+              runId: chunk.runId,
+              toolCallId: chunk.toolCallId,
+            },
+            permissionPolicy: { ...READ_ASK_POLICY, sessionGrants: ['read'] },
+          })
+          .finally(() => hold.resolve());
+      }
+    }
+    await expect(delivered).resolves.toBeUndefined();
+    // MUTATION: remembering after `answerGranted` (the pre-2026-09-15 order)
+    // records ['resume:forgotten', 'remember'].
+    expect(order).toEqual(['remember', 'resume:remembered']);
+  } finally {
+    hold.resolve();
+    release.resolve();
+    await runtime.dispose();
+    await database.close();
+  }
+});
+
+it('the wakeup carries the whole ledger: a root that trusts it reports the final outcome exactly once nothing is still running', async () => {
+  // Two specialists. Sibling 1 returns at once; sibling 2 is held until the
+  // root's FIRST wakeup has reached the model with a ledger that says
+  // "1 still running" (the initial leg already answers "progress" once, on
+  // its dispatch acknowledgements, so the hold is keyed on the wakeup prompt
+  // itself, never on the progress text). The second wakeup says "Nothing is
+  // still running" and the root reports the final outcome — even though its
+  // own count of tool results would have said the same thing either time.
+  // MUTATIONS: emitting the closing sentence unconditionally makes the first
+  // continuation say FINAL (order assertion fails); omitting it never says
+  // FINAL (the GLM run); building the ledger from in-memory sets instead of
+  // the rows cannot produce the durable status row sequence below.
+  const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
+    heldSibling: 2,
+    rootReadsLedger: true,
+    siblings: 2,
+  });
+  const { backing, runtime, runtimeData, release, hold, database, model } = fixture;
+  release.resolve();
+  const chunks: StreamChunk[] = [];
+  const texts: string[] = [];
+  const isWakeupPrompt = (prompt: (typeof model.prompts)[number]) =>
+    JSON.stringify(prompt.prompt.filter((message) => message.role === 'user').at(-1)).includes(
+      'Background invocations of this turn'
+    );
+  try {
+    for await (const chunk of await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [{ id: 'fan-out', parts: [{ text: 'Survey', type: 'text' }], role: 'user' }],
+      runtime,
+      runtimeData,
+    })) {
+      chunks.push(chunk);
+      if (chunk.type === 'text-delta') {
+        texts.push(chunk.value);
+      }
+      if (model.prompts.some(isWakeupPrompt)) {
+        hold.resolve();
+      }
+    }
+    const text = texts.join('');
+    expect(text.indexOf('PARENT_USEFUL_PROGRESS')).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf('PARENT_FINAL_OUTCOME')).toBeGreaterThan(
+      text.indexOf('PARENT_USEFUL_PROGRESS')
+    );
+    const wakeups = model.prompts
+      .filter((prompt) => prompt.tools?.some((tool) => tool.name === 'agent-explore'))
+      .filter(isWakeupPrompt)
+      .map((prompt) =>
+        JSON.stringify(prompt.prompt.filter((message) => message.role === 'user').at(-1))
+      );
+    expect(wakeups).toHaveLength(2);
+    expect(wakeups[0]).toContain('2 total: 1 returned, 0 failed, 0 cancelled, 1 still running');
+    expect(wakeups[0]).toContain('Explorer): still running');
+    expect(wakeups[0]).not.toContain('Nothing is still running');
+    expect(wakeups[1]).toContain('2 total: 2 returned, 0 failed, 0 cancelled, 0 still running');
+    expect(wakeups[1]).toContain(
+      'All 2 background invocations have finished. Nothing is still running.'
+    );
+    const rows = chunks.flatMap((chunk) =>
+      chunk.type === 'run-event' && chunk.event.kind === 'delegation.ledger'
+        ? [[chunk.event.label, chunk.event.status]]
+        : []
+    );
+    expect(rows.at(-1)).toEqual(['2 of 2 specialists returned', 'completed']);
+    expect(rows).toContainEqual(['1 of 2 specialists returned · 1 running', 'running']);
+    expect(new Set(rows.map(([label]) => label)).size).toBeGreaterThanOrEqual(2);
+  } finally {
+    hold.resolve();
+    release.resolve();
+    await runtime.dispose();
+    await database.close();
+  }
+});
+
+it('a child whose synthesis is cut returns a truncated summary the root can use', async () => {
+  // GLM pack 2026-09-15: three of four Explorers exhausted 16/16 steps and the
+  // fourth's 512-token synthesis finished with `length`, which the terminal
+  // mapper turned into run.failed and a "failed; do not retry" delegation. A
+  // cut summary is partial findings: the child COMPLETES (truncated), the root
+  // reads the text plus a truncation note, and the child tab records why.
+  const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
+    budget: { maxSteps: 4, synthesisOutputTokens: 2048 },
+  });
+  const { backing, runtime, runtimeData, release, database, model, effect } = fixture;
+  release.resolve();
+  try {
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [
+        { id: 'exhaust', parts: [{ text: 'Survey everything', type: 'text' }], role: 'user' },
+      ],
+      runtime,
+      runtimeData,
+    })) {
+      chunks.push(chunk);
+    }
+    // Three working steps, then the reserved synthesis (steps 4/4).
+    expect(effect).toHaveBeenCalledTimes(3);
+    const synthesisCall = model.prompts.find((prompt) => prompt.maxOutputTokens === 2048);
+    expect(synthesisCall).toBeDefined();
+    expect(synthesisCall?.tools ?? []).toEqual([]);
+    // No failure anywhere: not on the root, not on the child.
+    const failed = chunks.filter(
+      (chunk) =>
+        (chunk.type === 'run-event' && chunk.event.kind === 'run.failed') ||
+        (chunk.type === 'delegated-conversation-chunk' &&
+          chunk.chunk.type === 'run-event' &&
+          chunk.chunk.event.kind === 'run.failed')
+    );
+    expect(failed, JSON.stringify(failed)).toEqual([]);
+    const childEvents = chunks.flatMap((chunk) =>
+      chunk.type === 'delegated-conversation-chunk' && chunk.chunk.type === 'run-event'
+        ? [chunk.chunk.event]
+        : []
+    );
+    expect(childEvents).toContainEqual(
+      expect.objectContaining({
+        kind: 'delegation.budget.exhausted',
+        metadata: expect.objectContaining({
+          cap: 'steps',
+          limit: 4,
+          synthesisForced: true,
+          truncated: true,
+          used: 3,
+        }),
+        status: 'info',
+      })
+    );
+    expect(childEvents).toContainEqual(
+      expect.objectContaining({
+        kind: 'run.finished',
+        metadata: expect.objectContaining({ finishReason: 'length', outcome: 'truncated' }),
+      })
+    );
+    const subagentTerminal = chunks.flatMap((chunk) =>
+      chunk.type === 'run-event' && chunk.event.kind.startsWith('subagent.f') ? [chunk.event] : []
+    );
+    expect(subagentTerminal).toEqual([
+      expect.objectContaining({
+        kind: 'subagent.finished',
+        metadata: expect.objectContaining({ outcome: 'truncated' }),
+      }),
+    ]);
+    // The root's next model call sees the partial findings AND the note.
+    const parentPrompts = model.prompts.filter((prompt) =>
+      prompt.tools?.some((tool) => tool.name === 'agent-explore')
+    );
+    const last = JSON.stringify(parentPrompts.at(-1)?.prompt);
+    expect(last).toContain('PARTIAL_CHILD_FINDINGS');
+    expect(last).toContain('[Truncated summary]');
+    expect(last).not.toContain('do not retry it');
+    expect(JSON.stringify(chunks)).toContain('PARENT_FINAL_OUTCOME');
   } finally {
     release.resolve();
     await runtime.dispose();

@@ -17,11 +17,13 @@ import {
   type AssistantPersonaDefinition,
   SUBAGENT_NO_ANSWER_OUTCOME,
   SUBAGENT_REJECTED_OUTCOME,
+  SUBAGENT_TRUNCATED_OUTCOME,
 } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import type { AssistantRunEventMetadata } from '../run-events';
 import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
 import type { RuntimeData, StreamChunk, StreamChunkTool } from '../types';
+import type { DelegatedSynthesisOutcomes } from './delegated-synthesis-outcomes';
 import {
   asMastraStreamPart,
   getToolCallIdFromToolEvent,
@@ -157,6 +159,13 @@ export interface ToolLifecycleState {
   steppedCompletionTokens: number;
   steppedPromptTokens: number;
   streamStartedAtMs: number;
+  /**
+   * Per-runtime registry of reserved-synthesis outcomes
+   * (`delegated-synthesis-outcomes.ts`). Set on CHILD lifecycle states by the
+   * delegated projection so a `length` finish on the synthesis step maps to a
+   * truncated completion; absent on the root, where `length` always fails.
+   */
+  synthesisOutcomes?: DelegatedSynthesisOutcomes;
   terminalToolCallStates: Map<string, TerminalToolCallState>;
   /**
    * Real per-call execution time from the guard wrapper, stamped onto terminal
@@ -304,6 +313,27 @@ export function makeLifecycleStepMetadata(
   return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
+/**
+ * `run.step.finished` metadata: the lifecycle step metadata plus the step's own
+ * `finishReason` (debug pack, 2026-09-15), so a `length`-cut step is visible
+ * without waiting for the terminal event. Deliberately NOT in
+ * `makeStepMetadata`: that also feeds `run.started`, `run.step.started`,
+ * `run.steered`, the steered `run.finished` and the stream-termination rows,
+ * where a step's reason would contradict the run's terminal (a steered finish
+ * reports `stop`). `'absent'` is the reader's no-value sentinel, never written.
+ */
+export function makeStepFinishedMetadata(
+  part: unknown,
+  lifecycleState: ToolLifecycleState
+): AssistantRunEventMetadata | undefined {
+  const metadata = makeLifecycleStepMetadata(part, lifecycleState);
+  const finishReason = readFinishReason(part);
+  if (finishReason === 'absent') {
+    return metadata;
+  }
+  return { ...metadata, finishReason };
+}
+
 export function recordFirstTextLatency(delta: string, lifecycleState: ToolLifecycleState): void {
   if (delta.length === 0 || lifecycleState.firstTextLatencyMs !== undefined) {
     return;
@@ -340,6 +370,25 @@ export function makeTerminalRunEvent(
       'completed',
       'Assistant run completed',
       terminalMetadata
+    );
+  }
+  const synthesis =
+    finishReason === 'length' && lifecycleState.toolExecutionThreadId
+      ? lifecycleState.synthesisOutcomes?.read(lifecycleState.toolExecutionThreadId)
+      : undefined;
+  if (synthesis?.truncated) {
+    // The reserved summary was cut by the provider's output limit: the child
+    // COMPLETED with partial findings (GLM pack 2026-09-15). A mid-run
+    // `length` has no recorded synthesis and stays the failure below.
+    return makeRunEventChunk(
+      'run.finished',
+      'completed',
+      'Subagent summary truncated at its synthesis budget',
+      {
+        ...terminalMetadata,
+        outcome: SUBAGENT_TRUNCATED_OUTCOME,
+        reservedOutputTokens: synthesis.reservedOutputTokens,
+      }
     );
   }
   const label =
@@ -824,6 +873,7 @@ export type DelegationLifecyclePartType =
 type RecordedDelegationOutcome =
   | typeof SUBAGENT_NO_ANSWER_OUTCOME
   | typeof SUBAGENT_REJECTED_OUTCOME
+  | typeof SUBAGENT_TRUNCATED_OUTCOME
   | undefined;
 
 function resolveRecordedDelegationOutcome(
@@ -840,6 +890,9 @@ function resolveRecordedDelegationOutcome(
   }
   if (outcomes.returnedNoAnswer(parentToolCallId, parentRuntimeRunId)) {
     return SUBAGENT_NO_ANSWER_OUTCOME;
+  }
+  if (outcomes.truncated(parentToolCallId, parentRuntimeRunId)) {
+    return SUBAGENT_TRUNCATED_OUTCOME;
   }
   return;
 }
@@ -896,6 +949,17 @@ function makeSubagentLifecycleChunk(
       ...metadata,
       outcome: SUBAGENT_NO_ANSWER_OUTCOME,
     });
+  }
+  if (outcome === SUBAGENT_TRUNCATED_OUTCOME) {
+    // The child hit its durable budget and the model cut its reserved summary.
+    // A COMPLETION with partial findings, so `finished`; the discriminator lets
+    // the card say "truncated" without sniffing the label.
+    return makeRunEventChunk(
+      'subagent.finished',
+      'completed',
+      'Subagent completed with a truncated summary',
+      { ...metadata, outcome: SUBAGENT_TRUNCATED_OUTCOME }
+    );
   }
   return makeRunEventChunk('subagent.finished', 'completed', 'Subagent completed', metadata);
 }

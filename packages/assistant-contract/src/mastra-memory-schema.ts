@@ -328,6 +328,11 @@ export const THREAD_DELETE_SIDECAR_TABLES = [
   // turn↔oid ledger. The shadow refs/objects those rows point at live on the
   // main-process filesystem and are pruned by SnapshotService GC, not by SQL.
   { table: 'brainstrike_workspace_snapshots', threadColumns: ['thread_id'] },
+  // Prompt manifests are keyed by the ROOT host run (their FK) but named by a
+  // thread: a delegation's first step by the thread that dispatched it (the
+  // child thread does not exist yet), a human follow-up by the child it was
+  // sent to. Deleting a delegated branch drops the prompts sent to and from it.
+  { table: 'brainstrike_assistant_prompt_manifests', threadColumns: ['thread_id'] },
 ] as const;
 
 /**

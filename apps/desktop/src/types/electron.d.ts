@@ -86,6 +86,8 @@ import type {
   CommandSessionWriteParams,
 } from '../command-session-ipc-handlers';
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
+import type { MainLogWindowRequest, MainLogWindowResult } from '../diagnostics/main-log-window';
+import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring';
 import type {
   EmbeddingHostBackfillInfo,
   EmbeddingHostBackfillProgress,
@@ -297,6 +299,8 @@ declare global {
     contextFiles?: Bridge<typeof contextFilesContract>;
     desktopDiagnostics?: {
       getSnapshot: () => Promise<DesktopPlatformDiagnosticsSnapshot>;
+      readMainLogWindow: (request: MainLogWindowRequest) => Promise<MainLogWindowResult>;
+      readProcessCounters: () => Promise<ProcessCounterSnapshot>;
     };
     desktopLifecycle?: {
       isTestMode: boolean;

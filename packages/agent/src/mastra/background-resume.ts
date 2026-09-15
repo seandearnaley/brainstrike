@@ -1,12 +1,13 @@
 import { createLogger } from '@brainstrike/logging';
 import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/background-tasks';
 import type { MastraMemory } from '@mastra/core/memory';
-import type { RuntimeData } from '../types';
+import type { RuntimeData, StreamChunk } from '../types';
 import type { attachAbortedTurnMessageList } from './aborted-turn-persistence';
 import type { MastraAgentRuntime } from './agent-runtime';
 import {
+  type BackgroundIdleLoopParams,
   createSuspensionLedger,
-  describeBackgroundWakeup,
+  describeWakeupInvocations,
   isParentWakeup,
   readTaskEvent,
   readTaskId,
@@ -14,6 +15,15 @@ import {
   TERMINAL_TASK_EVENTS,
   withBackgroundIdleLoop,
 } from './background-idle-loop';
+import {
+  type BackgroundLedger,
+  type BackgroundLedgerSource,
+  createBackgroundLedgerSource,
+  createLedgerPublisher,
+  describeBackgroundWakeup,
+  makeBackgroundLedgerChunk,
+  personaLabelFor,
+} from './background-ledger';
 import { requireBackgroundResultDelivery } from './background-result-delivery';
 import { saveBackgroundResult } from './background-results';
 import {
@@ -131,7 +141,8 @@ function createTerminalWait(
 async function parentWakeups(
   agent: Pick<MastraAgentRuntime['agent'], 'listSuspendedRuns'>,
   scope: { readonly resourceId: string; readonly threadId: string },
-  terminals: ReadonlyMap<string, TaskEvent>
+  terminals: ReadonlyMap<string, TaskEvent>,
+  recordWakeup: BackgroundIdleLoopParams['recordWakeup']
 ): Promise<TaskEvent[]> {
   const wakeups = [...terminals.values()].filter(isParentWakeup);
   if (wakeups.length === 0) {
@@ -148,8 +159,17 @@ async function parentWakeups(
     code: 'background_parent_parked_wakeup_deferred',
     invocations: wakeups.map((event) => String(event.payload.toolCallId)),
   });
+  await recordWakeup?.({
+    directive: PARKED_ROOT_DEFERRED_DIRECTIVE,
+    invocations: describeWakeupInvocations(wakeups, 'deferred'),
+    kind: 'deferred',
+  });
   return [];
 }
+
+/** The deferral a resume leg records for a parked root: the model is sent nothing. */
+const PARKED_ROOT_DEFERRED_DIRECTIVE =
+  'Returned background work waits for the parked root to resume. No model-facing wakeup text was sent.';
 
 function readResumeScope(resumes: readonly BackgroundResume[]): {
   readonly resourceId: string;
@@ -166,6 +186,51 @@ function readResumeScope(resumes: readonly BackgroundResume[]): {
     }
   }
   return scope;
+}
+
+/**
+ * The resume leg's ledger (WAKEUP LEDGER, settled 2026-09-15): the user's
+ * `delegation.ledger` row on every terminal the leg observes and the parent's
+ * wakeup, both read from the DURABLE task rows of the runs being resumed —
+ * the same source the idle loop reads. `idle()` joins in-flight rows before
+ * the leg releases its owner, so the final row is never lost to a fast close.
+ */
+function createResumeLedger(params: {
+  readonly enqueue: (chunk: StreamChunk) => boolean;
+  readonly manager: BackgroundTaskManager;
+  readonly resumes: readonly BackgroundResume[];
+  readonly runtime: MastraAgentRuntime;
+  readonly scope: { readonly resourceId: string; readonly threadId: string };
+}): {
+  readonly ledgerId: string;
+  readonly source: BackgroundLedgerSource;
+  idle(): Promise<void>;
+  observe(event: unknown): void;
+  read(): Promise<BackgroundLedger>;
+} {
+  const [first] = params.resumes;
+  if (!first) {
+    throw new Error('Background resume has nothing to resume.');
+  }
+  const source = createBackgroundLedgerSource({
+    manager: params.manager,
+    personaLabel: personaLabelFor(params.runtime),
+    scope: params.scope,
+  });
+  const runIds = new Set(params.resumes.map(({ task }) => task.runId));
+  const ledgerId = first.task.runId;
+  const publisher = createLedgerPublisher({ enqueue: params.enqueue, onSettled: () => {}, source });
+  return {
+    idle: () => publisher.idle(),
+    ledgerId,
+    observe: (event) => {
+      if (TERMINAL_TASK_EVENTS.has(String((event as { type?: unknown }).type))) {
+        publisher.publish(runIds, ledgerId);
+      }
+    },
+    read: () => source.read(runIds),
+    source,
+  };
 }
 
 /**
@@ -304,6 +369,13 @@ export function createBackgroundResumeStream(params: {
             };
           },
         };
+        const ledger = createResumeLedger({
+          enqueue: owner.publish,
+          manager,
+          resumes,
+          runtime,
+          scope,
+        });
         const releaseOwner = params.channel?.own(owner);
         let terminals: ReadonlyMap<string, TaskEvent>;
         try {
@@ -314,6 +386,7 @@ export function createBackgroundResumeStream(params: {
             for await (const event of events) {
               controller.enqueue(event);
               wait.observe(event);
+              ledger.observe(event);
               if (!waiting) {
                 return;
               }
@@ -323,6 +396,9 @@ export function createBackgroundResumeStream(params: {
           // (`watching.abort()`); the checks below name that, never a hang.
           terminals = await Promise.race([wait.done, reading.then(() => wait.seen())]);
         } finally {
+          // Join in-flight ledger rows before the owner is released and the
+          // publisher's enqueue closes: the final row must reach the leg.
+          await ledger.idle();
           waiting = false;
           releaseOwner?.();
         }
@@ -333,7 +409,12 @@ export function createBackgroundResumeStream(params: {
         if (terminals.size !== wait.size()) {
           throw new Error('Background resume ended before every terminal task state.');
         }
-        const wakeups = await parentWakeups(runtime.agent, scope, terminals);
+        const wakeups = await parentWakeups(
+          runtime.agent,
+          scope,
+          terminals,
+          runtime.conversationBinding?.recordWakeup
+        );
         if (wakeups.length === 0) {
           // A new decision is not a returned result, and a parked root takes no
           // wakeup (`parentWakeups`). Join the native snapshots before closing
@@ -341,6 +422,9 @@ export function createBackgroundResumeStream(params: {
           // `status` to end as a pause.
           await Promise.all(settled);
           await manager.shutdown();
+          // The user's row still reflects the returned work, even though no
+          // parent inference runs on this leg.
+          controller.enqueue(makeBackgroundLedgerChunk(await ledger.read(), ledger.ledgerId));
           status = 'suspended';
           completion.resolve();
           controller.close();
@@ -350,18 +434,28 @@ export function createBackgroundResumeStream(params: {
         // Native result injection above is joined before its terminal event.
         // The parent may dispatch further workers or see siblings return, so
         // its continuation runs under the same host loop as every other leg.
+        const directive = describeBackgroundWakeup(await ledger.read());
+        // Debug-pack evidence: the exact text the resumed parent receives,
+        // durable BEFORE its inference streams.
+        await runtime.conversationBinding?.recordWakeup?.({
+          directive,
+          invocations: describeWakeupInvocations(wakeups),
+          kind: 'resume-leg',
+        });
         const parent = withBackgroundIdleLoop(
           await runtime.agent.stream([], {
             ...options,
-            context: [{ content: describeBackgroundWakeup(wakeups), role: 'user' }],
+            context: [{ content: directive, role: 'user' }],
           } as AgentStreamOptions),
           {
             abortSignal: options.abortSignal,
             agent: runtime.agent,
             channel: params.channel,
+            ledger: ledger.source,
             manager,
             maxIdleMs: runtime.backgroundIdleMs,
             options,
+            recordWakeup: runtime.conversationBinding?.recordWakeup,
             scope,
           }
         );

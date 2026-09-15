@@ -77,6 +77,8 @@ import type {
   PanelPersistenceState,
 } from '@brainstrike/ui';
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
+import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
+import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import type {
   EmbeddingHostBackfillRequest,
   EmbeddingHostQueryEmbeddingPayload,
@@ -987,6 +989,10 @@ if (shouldExposeBridge('desktopDiagnostics')) {
   contextBridge.exposeInMainWorld('desktopDiagnostics', {
     getSnapshot: (): Promise<DesktopPlatformDiagnosticsSnapshot> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.getSnapshot),
+    readMainLogWindow: (request: MainLogWindowRequest): Promise<MainLogWindowResult> =>
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow, request),
+    readProcessCounters: (): Promise<ProcessCounterSnapshot> =>
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters),
   });
 }
 

@@ -20,7 +20,7 @@ export const manageCanvas = defineNativeTool({
     riskCategory: 'edit',
   },
   description:
-    'Create, list, or version-update a persisted HTML Canvas document for the current thread. update replaces oldString only when it occurs exactly once; rewrite replaces the whole HTML. Every change creates a new reversible version',
+    'Create, list, or version-update a persisted HTML Canvas document for the current thread. create needs a title and a document with content: the write IS the deliverable, so never create an empty or placeholder canvas — call create once, when the content is ready. update replaces oldString only when it occurs exactly once; rewrite replaces the whole HTML. Every change creates a new reversible version',
   discovery: { family: 'canvas documents', namespace: 'workspace' },
   id: 'brainstrike.manageCanvas',
   inputSchema: providerCompatibleInputSchema(ManageCanvasInputSchema),

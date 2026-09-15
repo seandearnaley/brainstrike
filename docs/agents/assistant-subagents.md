@@ -164,10 +164,14 @@ These prove the worker layer, not recursion/background/worktree coordination.
 - BST-1720 must connect native nested approval/suspension to the production
   host and UI before BST-1721 exposes write/execute/general-worker tools.
 - BST-1722 starts with **three descendant levels**, **two runnable children**
-  and **eight total invocations per root turn**, with **16 steps per child**
-  including its reserved synthesis step. `DELEGATION_LIMITS` is the shared source:
-  32,768 output tokens per child, 131,072 per original root turn, at most
-  8,192 per working step and one precharged 512-token synthesis allocation.
+  and **eight total invocations per root turn**, with **`maxChildSteps` per
+  child (user setting, default 32, ceiling 64)** including its reserved
+  synthesis step. `DELEGATION_LIMITS` is the TREE source (depth 3, invocations
+  8, two runnable, 131,072 output tokens per original turn); the per-child
+  allocations — `maxChildOutputTokens` (default 32,768), `maxStepOutputTokens`
+  (default 8,192) and the precharged `synthesisOutputTokens` (default 2,048) —
+  are `RuntimeSubagentSettings` (`subagent-settings.ts`), copied into the
+  turn's budget row at first admission.
   These output allocations are separate from each model's input context window.
   The host atomically admits invocations and reserves model steps before work,
   across descendants and resume legs. Unknown usage remains charged; reported
@@ -891,6 +895,35 @@ without remapping or minting duplicate child events. Child frames obey the same
 parent text/input-stream deferral rules as other auxiliary data. No native
 transcript result or parent model projection is replaced by this transport.
 
+SETTLED 2026-09-15, CONSUMED CHILD ENVELOPES (do not relitigate): the renderer
+tap (`createDelegatedConversationTap`) consumes every out-of-band `data` entry
+named `brainstrike.delegated-conversation` or `brainstrike.child-continuation`
+once it has routed it to its child receiver; the parent accumulator never sees
+it. Other entries in the same list are forwarded. A `part-start` data part owns
+a parent part index and is still forwarded. Forwarding made assistant-stream's
+accumulator and assistant-ui's local runtime copy every child frame into the
+parent's `metadata.unstable_data` and publish a new parent message per frame,
+re-rendering every parent part. In one GLM fan-out the root held 8,146
+envelopes and 860 parts, React's development build retained 14.1 million
+performance measures, and the renderer grew to 15 GB. Paired:
+`delegated-conversation-receiver.test.ts` ("consumes routed child envelopes so
+the parent message neither retains nor re-emits them").
+
+SETTLED 2026-09-15, GROUPED PARTS RENDER ISOLATION (pnpm patch, do not
+relitigate without an upstream release that fixes it): a fan-out root message
+carries hundreds of run-event data parts (755–1,083 observed), and
+`MessagePrimitive.GroupedParts` in @assistant-ui/core 0.3.17 (unchanged in
+0.3.19 and on upstream main) handed every leaf a new render closure on every
+render, defeating `MessagePartChildren`'s cache. Every root token then
+re-rendered every part subtree (~1,000 parts at ~60 commits/s in run 17) and
+the dev renderer crashed at 17 GB. `patches/@assistant-ui__core@0.3.17.patch`
+builds one leaf closure per `children` identity. Paired:
+`grouped-parts-render-isolation.test.tsx` ("does not re-invoke unchanged leaf
+parts when another part streams" — 80 extra leaf renders before the patch, 0
+after; "renders leaves with the new render function when the caller replaces
+it" — fails when the memo ignores `children`). The upstream report is drafted,
+not filed; delete the patch when a release carries the fix.
+
 The decoder belongs to the native invocation, not to each observed native
 message id. A resumed turn may move from its persisted message id to a new
 native step id; the envelope preserves that observation while the same decoder
@@ -1598,6 +1631,65 @@ retain their native descriptors, projections, approval flags and guarded executi
 Synthesis forces toolChoice none and no active tools, and rejects a provider tool
 call before execution even if the provider ignores that request.
 
+**Child budgets are USER SETTINGS; a cut synthesis is a truncated completion.**
+SETTLED 2026-09-15 (budgets plan, Workstream C; GLM pack 03-31-15Z; do not
+relitigate). The four per-child allocations live in `RuntimeSubagentSettings`
+(`assistant-contract/subagent-settings.ts`; defaults 32 steps / 2,048
+synthesis / 32,768 child / 8,192 step; ranges in `SUBAGENT_SETTINGS_LIMITS`),
+persisted by `assistant-subagent-preferences.v1`, edited in Settings → Models
+→ Subagents (`subagent-settings-section.tsx`), sent on EVERY request as
+`runtimeData.subagentSettings` (`buildAssistantRequestData`) and copied into
+the turn's `brainstrike_delegation_budgets` row at first admission.
+`parseRuntimeSubagentSettings` is the ONLY intake: absent → defaults, anything
+else malformed → throws (the desktop host in `mastra-memory.ts` and the agent
+runtime in `agent-runtime.ts` both call it). `DELEGATION_LIMITS` has no child
+keys — a consumer reading a constant instead of the request's settings is a
+compile error — and the admitted-configuration `maxSteps` ceiling is
+`SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max`. Read-only built-ins declare 32
+steps; the effective budget is `effectiveChildStepBudget(persona, settings)`
+and `delegationDescriptionForPersona` tells the model that number.
+
+The host's synthesis reservation (`DelegatedStepReservation` with
+`synthesis: true`) names its `cap` (`steps` / `child-output` / `tree-output`)
+and the numbers behind it (`used` of `limit`, in that cap's unit). The budget
+processor (`delegated-work-budget.ts`) sees Mastra's `finishReason` on
+`processOutputStep`; on a synthesis step it records `{ cap, limit, used,
+reservedOutputTokens, outputTokens, truncated: finishReason === 'length' }` in
+the per-runtime `DelegatedSynthesisOutcomes` registry (keyed by native child
+thread id) and streams the transient `data-brainstrike-delegated-synthesis`
+part. Three readers, none of which can see the reservation:
+`makeTerminalRunEvent` maps a `length` finish on a child whose synthesis was
+TRUNCATED to `run.finished` / `outcome: 'truncated'` (a mid-run `length`, a
+sibling's record, an untruncated synthesis and the root all still fail);
+`onDelegationComplete` reads the REGISTRY (never the projected stream: the hook
+runs before the parent consumer maps the child's parts), and
+`resolveTruncatedAnswer` appends the `[Truncated summary]` note to `resultText`
+— which Mastra applies on the foreground and background delegation paths alike
+— and records the outcome, so the parent mapper emits `subagent.finished` with
+`outcome: 'truncated'`; the projection turns the part into the persisted
+`delegation.budget.exhausted` run event on the child conversation
+(assistant-persistence.md, DELEGATION BUDGET EXHAUSTED KIND). Empty text stays
+`no-answer` even when a synthesis was truncated. The delegation card reads
+`outcome: 'truncated'` as "<persona> finished with a truncated summary" (amber
+check, "Completed (truncated summary)"); the child tab header shows `steps N/M ·
+used/limit tokens` from the durable child budget row
+(`readDelegatedConversationInsights().budget`, refreshed at leg / pause /
+terminal boundaries, not per token). Paired tests: `subagent-settings.test.ts`,
+`personas.test.ts`, `delegated-persona-snapshots.spec.ts` (admitted ceiling),
+`delegated-budget-settings.integration.test.ts`,
+`subagent-settings-runtime.spec.ts`, `delegated-work-budget.integration.spec.ts`
+("records a truncated synthesis outcome"), `delegated-synthesis-outcome.spec.ts`
+(mutations: any recorded synthesis read as truncated; truncation resolved
+before the empty-text check; the lifecycle outcome dropped),
+`delegated-stream-projection.spec.ts` ("projects a synthesis part"),
+`background-worker-policy.integration.spec.ts` ("a child whose synthesis is cut
+returns a truncated summary the root can use"; mutation: no truncated terminal
+branch), `assistant-ui-panel-wrapper-runtime.test.ts` ("carries the subagent
+budget settings"), `delegated-conversation-insights.integration.test.ts`
+("reads the child budget"), `delegated-conversation-toolbar.test.tsx`,
+`subagent-settings-section.test.tsx`, and the truncated rows in
+`subagent-tool-rows.test.ts` and `subagent-execution-card.test.tsx`.
+
 Every child stream creates its own budget processor. A native same-persona sibling
 barrier proves two models run concurrently with distinct child reservations and
 exactly one settlement per matching reservation. Mastra 1.64 can omit the
@@ -1657,6 +1749,53 @@ A forwarded `data-*` part keeps the CHILD's `runId`; consumers must attribute it
 by that id, never by its position in the host stream (the projection no longer
 tells child-origin data parts from the parent's). The delegated usage part is
 itself `data-*` and was always allowlisted, so its accounting is unchanged.
+SETTLED 2026-09-15, ONE DELIVERY PER BACKGROUND CALL (do not relitigate):
+while the turn that dispatched a background call is still open, Mastra's
+background executor delivered every child output and pause TWICE. Its
+`outputWriter` published the chunk as the task's output (`task.output` →
+`background-task-output`) and then wrote it through the dispatching step's own
+writer (a raw `tool-output` envelope on that turn); its `suspend` calls the
+step's `suspend` (a parent-level `tool-call-approval` / `tool-call-suspended`
+for the delegation call, on that turn) before parking the task (`@mastra/core`
+1.64, the background branch of the tool-call step in `agent-DsRUDsS_.js`;
+unchanged in 1.67.0, whose own `streamUntilIdle` merges both channels too).
+Live GLM run 19 (2026-09-15, a slow root first turn with parallel reads)
+projected both: every child view carried each frame twice, and the root thread
+showed eight cards for four decisions — four synthesized when the tasks parked,
+four native copies published when the leg ended at the root's canvas pause
+(`withRootPauseNotices` dedupes only within one publish). The TASK is the
+delivery: its copy exists for the call's whole life, the turn's only until that
+turn closes, and every leg with a background manager is idle-loop wrapped
+(`driveBackgroundWork`, the resume stream), so the task channel is always read.
+OUTPUTS are single at the source: a child's raw `data-*` part
+(observational-memory markers, the delegated usage part, the synthesis
+breadcrumb) reaches the executor through the subagent tool's `writer.custom()`
+with no call identity, so no host filter can tell its turn copy from the root's
+own data parts, and that turn copy also ran the ROOT's data-part pipeline,
+which stored a non-transient child part in the root's own message.
+`patches/@mastra__core@1.64.0.patch` therefore makes the executor's
+`outputWriter` publish to the task only, and `projectBackgroundStream` throws on
+a background call's `tool-output` on its dispatching turn (the patch no longer
+applies). The task output is now the only copy, so the background manager's
+`progressThrottleMs` must stay unset: a throttled chunk would be lost. PAUSES:
+`projectBackgroundStream` drops a turn's `tool-call-approval` /
+`tool-call-suspended` for a call known as background (`background-task-started`
+/ `-running`), logging `background_turn_copy_dropped` once per call. It throws
+if a turn copy was forwarded BEFORE the turn acknowledged that call's dispatch
+(Mastra enqueues the acknowledgement first; a violation would silently project
+the task's copy again). A resume leg's host executor (`registerResumedExecutor`)
+writes only to its own stream and publishes no task output, so resumed children
+are untouched. Paired: `mastra-background-contract.integration.spec.ts`
+("delivers a background child's raw data part once while the dispatching parent
+turn is still open"; RED unpatched: the part arrived as task AND turn, and one
+copy was stored in the parent thread), `background-stream.spec.ts` ("one
+delivery per background call": removing the output contract break, exempting
+pauses from the drop, or dropping the order guard each fails only its own rows)
+and `background-worker-policy.integration.spec.ts` ("reaches each view ONCE
+while the dispatching root turn is still open", fixture `slowRootTurn`; RED
+before the drop: four root cards for two decisions and every child frame twice).
+A root that answers instantly closes its turn before any child output exists,
+which is why the fixture never delivered this shape.
 The model may also request `_background.maxRetries` (Mastra's own system prompt
 advertises it, its resolver honours the model's value ahead of the host default,
 and no host knob removes the advertisement). SETTLED 2026-09-14 (BST-1749): the
@@ -1695,7 +1834,8 @@ not pass `untilIdle`; every parent inference (initial, approval, resume, native
 wake and the child-resume continuation) passes `_skipBgTaskWait` and is wrapped
 by `withBackgroundIdleLoop` (`background-idle-loop.ts`), which mirrors Mastra's
 loop except that only a returned, failed or cancelled task queues a wakeup
-(`describeBackgroundWakeup` is the host's directive). A suspension is a
+(`describeBackgroundWakeup` in `background-ledger.ts` is the host's directive
+— see WAKEUP LEDGER below). A suspension is a
 host-surfaced approval prompt, exactly as Claude Code surfaces a subagent's
 permission prompt in the main session; the model is not the messenger. Silence
 from running work past `backgroundIdleMs` (default: the longest a task may run)
@@ -1703,13 +1843,51 @@ closes the stream unfinished and the projection reports it. Paired:
 `background-worker-policy.integration.spec.ts` ("wakes no parent turn"; mutating
 the wakeup guard to include suspensions fails it) and the idle-expiry case in
 `background-worker-stream.integration.spec.ts`.
+SETTLED 2026-09-15, WAKEUP LEDGER (do not relitigate): a parent wakeup is
+the whole LEDGER of this turn's background invocations, not one line per
+event. The GLM root (thread-debug pack 2026-09-15T03-31-15Z) received
+"Background invocation X has returned" four times over four continuations,
+mis-counted, and ended "waiting on the remaining subagents" after all four
+had finished. The ledger is read from the DURABLE task rows
+(`manager.listTasks` in the thread scope, filtered to the parent run ids the
+leg observed on its lifecycle events — `background-ledger.ts`,
+`createBackgroundLedgerSource`), never from the loop's `running`/`settled`
+sets alone, and lists every invocation as returned (persona, the first 120
+chars of its prompt, "use its saved outcome"), failed (with the recorded
+reason; a timeout reads "timed out"), cancelled, or still running. When
+nothing is still running it says so in one sentence — "All N background
+invocations have finished. Nothing is still running. Continue with the task
+using the saved outcomes." — and only then. A SUSPENDED task is "still
+running" to the ledger: the pause is the host's card, the model is never
+its messenger (the 2026-09-14 ruling above stands). The idle loop
+(`runContinuation`), the resume stream's parent wakeup and the parked-root
+deferral all read the same source. The same ledger reaches the USER as the
+`delegation.ledger` run event (assistant-persistence.md, DELEGATION LEDGER
+KIND): one live row in the root thread — "3 of 4 specialists returned · 1
+running" — published on every task lifecycle change, joined before the leg
+closes so the final row is never lost (`settle` waits on
+`publisher.inFlight`; the parked-parent close is where that join is
+load-bearing, since no continuation keeps the leg open), persisted like
+every run event. Because the wakeup QUOTES each child's prompt, a scripted
+harness must tell the root's wakeup apart by its header ("Background
+invocations of this turn") before it uses prompt text to pick a child.
+Paired: `background-ledger.spec.ts` (mutations: the closing sentence while
+something runs; omitting it when nothing runs), `background-idle-loop.spec.ts`
+("carrying the durable ledger", "publishes a delegation.ledger row …",
+"a parked parent leg publishes the final ledger row before it closes" —
+mutation: dropping the join from `settle`), and the harness row "the wakeup
+carries the whole ledger: a root that trusts it reports the final outcome
+exactly once nothing is still running" (`fanout.rootReadsLedger`; the
+scripted root answers from the LAST user message, never its own count).
 SETTLED 2026-09-14 (do not relitigate): EVERY parked leaf decision has a card in
 the ROOT thread. A foreground child's pause suspends the parent run on the
 delegation call, so Mastra's parent-level pause becomes that card once
 `decorate()` addresses it to the leaf. A BACKGROUND child's pause parks a task
-and suspends nothing in the parent, so the root stream carried only the child
-envelope and the root thread showed NO card while four specialists sat parked
-(thread-b629776b): `withRootPauseNotices` (`root-pause-notices.ts`) runs at
+and suspends nothing in the parent run (the parent-level copy Mastra writes on a
+still-open dispatching turn is dropped, ONE DELIVERY PER BACKGROUND CALL above),
+so the root stream carries only the child envelope and the root thread showed NO
+card while four specialists sat parked (thread-b629776b):
+`withRootPauseNotices` (`root-pause-notices.ts`) runs at
 every publish of the withheld notices and synthesizes, for each child-scoped
 notice whose leaf identity has no root-level notice, a root card addressed to
 the ROOT edge (`path[0]`, the transport target every resume already uses) with
@@ -1718,7 +1896,8 @@ the leaf tool, args and risk metadata, preceded by the durable
 already carries the root notice and gets no duplicate. Paired:
 `root-pause-notices.spec.ts` and the root-notice assertions in
 `background-worker-policy.integration.spec.ts` (RED before the seam: zero root
-notices for a background child). The card names the child (persona label + the
+notices for a background child; "reaches each view ONCE" pins exactly one root
+card per decision while the dispatching turn is still open). The card names the child (persona label + the
 delegation prompt), and a
 session grant answers every parked BACKGROUND sibling in the same approval leg
 (`claimGrantedBackgroundResumes` → `createBackgroundResumeStream` with N
@@ -1769,6 +1948,19 @@ REAL desktop host, ledger and background store in
   queued decision the host meanwhile answered is dropped at dispatch with a
   log line (`dequeueDispatchable`), never sent stale. The card locks for the
   round trip; a host refusal (409) unlocks it with a warning.
+- Presentation (assistant-ui, settled 2026-09-15): N parked children of one
+  category → ONE full root card and N−1 rows behind it; a grant collapses
+  every answered card into a row ("Allowed by session grant") and promotes
+  the next pending card of another category; a grandchild's card indents
+  under its ancestor with the ancestor's rail. Contract and tests in
+  `assistant-runtime.md` (PERMISSION ENGINE, SWARM-AWARE PRESENTATION).
+- Child views (assistant-ui + app-shell, settled 2026-09-15): a child tab
+  renders its own copy of a leaf approval, but the host answers it on the
+  ROOT leg only, so the child reads its owning root's answers by identity
+  and shows the same answered row ("Allowed by session grant" / "Approved");
+  a genuinely pending child card stays actionable. Contract and tests in
+  `assistant-runtime.md` (PERMISSION ENGINE, CHILD VIEWS READ THE ROOT'S
+  ANSWERS).
 SETTLED 2026-09-14 (canonical, after reading Claude Code v2.1.186+, Codex and
 Cursor behaviour): a BACKGROUND child's pause publishes LIVE — its scoped
 notice and the synthesized root card leave the leg the moment its TASK is
@@ -1799,8 +1991,9 @@ records the answer with the host as consumed — never the root's single active
 claim, the leg may hold that already — answers parked siblings the request's
 FRESH snapshot allows via `allowedBySnapshot`, publishes the
 `tool-approval-answered` chunks on the leg's own stream, resumes in-process
-through `manager.resume`, and REMEMBERS a lasting grant so a child that parks
-later is answered by it); desktop `delegated-execution-controls.ts`
+through `manager.resume`, and REMEMBERS a lasting grant so every ask tool's
+live flag lets each later call the grant allows run without parking (SESSION
+GRANT STOPS ASKING, below)); desktop `delegated-execution-controls.ts`
 (`registerDesktopDelegatedDecision` keyed by the steerable host run id,
 `deliverDesktopDelegatedDecision` → `'no-live-run'` on
 `LiveDecisionUnavailableError`) and `decide-endpoint.ts` (400 shape / 404 no
@@ -1814,6 +2007,57 @@ continuation re-enters (`parked`; a completed child's late parts stay
 dropped). The parent still wakes only on returned/failed/cancelled work; the
 idle loop keeps closing when nothing runs, so a decision on an all-parked turn
 takes the ordinary new-leg path (404 → queue/append).
+SETTLED 2026-09-15, SESSION GRANT STOPS ASKING (do not relitigate): after a
+live "Allow <category> this session" the next gated call of EVERY child in
+the leg simply runs — no suspension, no card, no resume. The remembered
+grant used to answer each later pause after the fact (park → card →
+auto-answer → resume): 70 cards and 70 resumes for reads the user had
+allowed (GLM run, thread-debug pack 2026-09-15T03-31-15Z). Mechanism: the
+permission gate no longer clones an ask tool with a STATIC
+`requireApproval: true` (Mastra copies that boolean once per stream call,
+`agent-DsRUDsS_.js:34955` → `utils-C9npriyv.js:682-709`, so nothing could
+lift it mid-stream). `applyLiveApprovalGate` (`approval-gate.ts`) clones each
+kept ask tool with the PUBLIC FUNCTION form of the per-tool flag
+(`dist/tools/types.d.ts:551`); `CoreToolBuilder.build()` turns it into
+`requireApproval: true` + `needsApprovalFn` (`utils-C9npriyv.js:684-686`) and
+Mastra evaluates `needsApprovalFn` on EVERY tool call
+(`agent-DsRUDsS_.js:26437-26444`, overriding both the run-wide gate and the
+boolean). The function forwards to the runtime's single decision point,
+`createApprovalGate` — the agent's OWN ask set (the root's in
+`resolveGatedToolMap`, each child's re-gated set in `buildPersonaSubAgents`,
+grandchildren re-gate the raw child map) AND `runtime.liveDecisions.remembered`,
+read per call — so a mid-stream child is lifted on its very next call. NO
+run-wide `requireToolApproval` predicate is ever synthesized: any truthy
+run-wide gate forces Mastra to run every step with concurrency 1
+(`agent-DsRUDsS_.js:24054`, `toolCallConcurrency` ignored), which would have
+serialized foreground fan-out and the root's parallel reads under the default
+posture (proven by the fanout harness: HEAD parks four foreground children in
+leg 0, a run-wide predicate parks one). The converted boolean is `true`,
+exactly the old static clone, so per-step concurrency classification is
+unchanged. `live-decisions.ts` remembers the grant once the host has recorded
+the user's decision and BEFORE the in-process resume (`remember` strictly
+precedes every `manager.resume` the decision issues), so the resumed child's
+next call already sees it; `suspended` still answers a pause the flag did not
+lift. Persisted "Always allow" policies work through the same flag (the
+rebuilt leg's snapshot resolves the tool to allow → not in the ask set → no
+clone). Paired: `approval-gate.spec.ts` (mutation: ignoring `remembered`
+fails "lifts the gate for every tool a remembered session grant allows"; a
+clone captured at clone time fails "the clone reads the gate on EVERY call"),
+`build-persona-subagents-approval-gate.spec.ts` ("child approval gate": the
+converted child tool carries `requireApproval: true` + `needsApprovalFn`,
+lifted by `channel.remember`, and `defaultOptions.requireToolApproval` is
+undefined), `background-worker-policy.integration.spec.ts` ("after a live
+session grant the sibling's NEXT gated read runs without a pause": exactly one
+root card for the leg, `effect` called for every read — mutation:
+`needsApprovalFn` → `() => true` fails it; "a live session grant is remembered
+BEFORE the parked child is resumed": call order `['remember',
+'resume:remembered']` — mutation: remembering after the resume records
+`['resume:forgotten', 'remember']`), and the desktop rows "a live 'Allow
+reads this session' answers the parked sibling, and a child that reads
+afterwards never parks" and "a live session grant during an approval leg: one
+claimed decision, zero further policy rows" (mutation: a gate that never lifts
+adds `delegate-1` to both rows' cards). Verifier: `e2e-subagents.mjs` verdict
+`cardsAfterGrant` must be 0.
 SETTLED 2026-09-14, PAUSE TERMINAL (proven by the live-app verifier, do not
 relitigate): a background child's pause FINISH (`message-finish`,
 `tool-calls`) is the child view's TERMINAL frame — the renderer's
@@ -1924,6 +2168,54 @@ recursive leaf approval, renderer reload and a distinct native host restart.
 plan pause, failed outcomes, lost parent-result delivery and root Stop with a
 queued effect. Native background follow-up/human composer and selective subtree
 controls remain separate acceptance within BST-1723.
+
+### Swarm diagnostics evidence (2026-09-15)
+
+Every model-facing wakeup, deferral and late overlay is durable evidence for the
+thread debug pack, recorded through the binding's `recordWakeup` (rows in
+`brainstrike_delegated_wakeups`). `withBackgroundIdleLoop` records `idle-loop`
+BEFORE the continuation streams, with the exact `describeBackgroundWakeup(ledger)`
+directive the parent receives and, as invocations, the terminal events that woke
+it. A parked parent leg records `deferred` and refuses to close while that record
+is pending, so a rejected record fails the leg instead of vanishing.
+`createBackgroundResumeStream` records `resume-leg` before `agent.stream`, and
+`deferred` for a parked root. Both `withLateBackgroundResults` call sites record
+`late-overlay` (`recordLateOverlayWakeup`) before approving or resuming.
+
+Prompt manifests (`brainstrike_assistant_prompt_manifests`): a fresh root turn
+records its system messages and registered tool names once (resume legs replay
+the snapshotted prompt and record none; deferred tool-search tools are not
+listed). The delegation-start hook records `child-first-step` with the prompt the
+child receives and the instructions and kept tool names from the DISPATCHING
+agent's `childPromptFacts`; a delegation dispatched by any other agent logs
+`subagent_prompt_manifest_unrecorded` and records nothing, so nested worker
+delegations have no first-step row yet. A child resumed within the same leg
+records nothing; a parked child resumed on a NEW leg records a second row for the
+same dispatch address, and the pack's `childFirstSteps` takes the earliest. A
+host-prepared follow-up records `continuation` only after the running child
+accepts it; waking an idle child records no continuation manifest.
+
+Live decisions (`brainstrike_delegated_live_decisions`): the decide endpoint
+records `no-live-run`, `refused` (with the host reason) and `failed` BEFORE it
+answers; the running leg records `delivered` with the answered sibling task ids
+and the request's policy snapshot; a remembered grant records
+`remembered-answered` or `remembered-failed` after its attempt, from the parked
+leaf captured once it is found. Exactly one row per outcome.
+
+These rows are evidence, never inputs to the loop. The loop awaits each record,
+and the host binding logs a failed or run-missing write with a code and resolves,
+so a database failure never fails a leg (the pack's host log window captures the
+code). Storage contract: docs/agents/assistant-persistence.md ("SWARM DIAGNOSTICS
+TABLES"). Paired: `background-idle-loop.spec.ts` (record before stream, deferral
+join), `background-late-results.integration.spec.ts` and
+`background-worker-policy.integration.spec.ts` (resume-leg, deferral and overlay
+rows), `late-background-results-processor.spec.ts`,
+`subagent-delegation.spec.ts`, `build-persona-subagents-compat.spec.ts`,
+`prompt-manifest-root-leg.spec.ts`, `live-decisions.spec.ts`,
+`decide-endpoint.test.ts`, `live-decision-log.test.ts`,
+`delegated-sibling-grant.integration.test.ts`,
+`delegated-cancellation.integration.test.ts` and
+`delegated-conversation-host.integration.test.ts`.
 
 ### Selected child cancellation (BST-1723)
 

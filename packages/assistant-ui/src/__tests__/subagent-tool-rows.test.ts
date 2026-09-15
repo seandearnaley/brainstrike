@@ -89,6 +89,19 @@ describe('readSubagentDelegationOutcome', () => {
     expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBe('rejected');
   });
 
+  it("reports 'truncated' for a completed delegation whose reserved summary was cut", () => {
+    const parts = [
+      terminalEventPart({
+        kind: 'subagent.finished',
+        outcome: 'truncated',
+        parentToolCallId: 'delegation-1',
+        status: 'completed',
+      }),
+    ];
+    expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBe('truncated');
+    expect(readSubagentDelegationOutcome(parts, 'delegation-2')).toBeUndefined();
+  });
+
   it('ignores a terminal event belonging to a DIFFERENT concurrent delegation', () => {
     // MAX_CONCURRENT_DELEGATIONS is 2, so two delegations are open at once.
     const parts = [

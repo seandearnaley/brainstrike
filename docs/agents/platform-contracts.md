@@ -793,6 +793,18 @@ BST-1392 Layer 2 Step 0: `resetBackgroundIndexingPreferencesStoreToDefaults()`
 action) is now called from `clearPersistentUiState`, covered by
 `packages/app-state/src/__tests__/factory-reset-background-indexing-preferences.test.ts`.
 
+`assistant-subagent-preferences-store` (`assistant-subagent-preferences.v1`,
+the per-child subagent budgets edited in Settings → Models → Subagents and sent
+as `runtimeData.subagentSettings`) is wired the same way from the start: its
+persisted slice is purged with the rest of browser storage, and its LIVE store
+is re-defaulted by `resetAssistantSubagentPreferencesStoreToDefaults()` (clears
+persisted storage, then sets the defaults), called through
+`resetLiveStoreSafely` inside `clearBrowserStorage()` — the step
+`clearPersistentUiState` runs via `collectPersistentUiStateResetFailures`.
+Covered by
+`packages/app-state/src/__tests__/factory-reset-assistant-subagent-preferences.test.ts`
+(drives `clearPersistentUiState` and asserts the defaults are back in memory).
+
 Mastra owns six assistant-persistence relations, and a true fresh start clears
 ALL SIX:
 
@@ -1787,7 +1799,9 @@ paths — desktop `db-ipc.ts` `OptionalRelationTable` list
 `Debug pack` → `Download debug pack` through the shared conversation renderer.
 The expanded control names included content before download. This explicit local
 export includes conversation/file content, tool arguments/results, captured
-settings, approvals and diagnostics; it never uploads. Review the JSON locally
+settings, approvals and live decisions, the prompts each leg and specialist
+received, parent wakeups and diagnostics, and on desktop the main-process log
+window and process counters; it never uploads. Review the JSON locally
 before sharing. This is the feature-specific content opt-in under
 `docs/diagnostics-privacy-contract.md`, not new background telemetry.
 
@@ -1796,9 +1810,12 @@ revalidates the canonical authorized delegated graph. Its `SECTIONS` inventory
 is the source of truth for included tables and columns. A single SQL statement
 captures every listed section from the selected subtree, including retained
 messages/branch edges, runs, events, errors, usage, diagnostics, verdicts,
-projection rewrites, delegation budgets, invocations, decisions, continuations
-and complete stored tool artifacts. Child usage follows exact invocation/continuation
-attribution; artifacts follow `execution_thread_id`. No status filter, row window
+projection rewrites, delegation budgets, invocations, decisions, continuations,
+prompt manifests, wakeups, live decisions and complete stored tool artifacts.
+Child usage follows exact invocation/continuation attribution; artifacts follow
+`execution_thread_id`. A child-first-step prompt manifest is named by its
+dispatching thread and follows its invocation into the child's subtree; wakeups
+and live decisions follow the root host run, so a child-only export omits them. No status filter, row window
 or output elision applies. Missing/deleted threads, invalid selected ancestry
 and read failures fail the download visibly. Unauthorized descendants are excluded.
 
@@ -1819,9 +1836,30 @@ errors produce no partial success. The UI uses the
 existing `downloadBlobFile` route and regenerates on each click. Child panels
 inject their own thread binding. No new persistence is introduced.
 
+Derived sections and host evidence (2026-09-15): `legs` (one row per run with
+provider/model, the child persona from its admitted configuration, OpenRouter
+upstreams, the last terminal `finishReason`, `lastStepFinishReason`, and step and
+length-cut counts) and
+`childFirstSteps` (the earliest child-first-step manifest per dispatch address,
+later re-entries listed) are computed by `thread-debug-legs.ts` from the
+snapshot and sit inside `sections`, so both redaction passes cover them; a row
+missing an identity column fails the download. Host evidence is fetched when the
+user clicks Download and is never persisted: `hostLog` and `processCounters`
+come from the desktop main process through the capability probe
+`readThreadDebugHostProbe`, and `manifest.host` records each as `included` or
+`unavailable: <reason>` (no bridge, a rejected read, a malformed result, or no
+run start to bound the window). The log window runs from the earliest run start,
+clamped to 24 hours before capture, to capture. `manifest.permissionGates` lists
+the redacted `permission.gate.resolved` events. `formatThreadDebugPack(snapshot,
+host)` and `buildThreadDebugPack(db, threadId, probe)` take those inputs
+explicitly.
+
 Paired proofs: `thread-debug-snapshot.integration.test.ts` (real migrated
-PGlite, prior-cap overflow, ownership, child approvals/usage/root and child artifacts),
-`thread-debug-pack.test.ts` (full output, corruption isolation and redaction),
+PGlite, prior-cap overflow, ownership, child approvals/usage/root and child
+artifacts, swarm diagnostics with the child and grandchild first-step joins),
+`thread-debug-pack.test.ts` (full output, corruption isolation, redaction, host
+evidence and each missing-evidence reason), `thread-debug-legs.test.ts`,
+`thread-debug-host-probe.test.ts`, `use-debug-bundle.test.ts`,
 `thread-debug-pack-button.test.tsx` and `thread-debug-pack.browser.test.tsx`
 (successful conversation, download failure and shared renderer at two widths).
 
@@ -2168,6 +2206,44 @@ factory reset. They are the full operational log, not a plaintext mirror of
 the reset diagnostic table. Shutdown still owns no new main-thread sink handle:
 Pino's worker lifecycle is unchanged, while the warn+ NDJSON sink remains the
 explicit last graceful-shutdown writer described above.
+
+**Swarm diagnostics IPC and process counters (2026-09-15)**: two read-only calls
+on the `desktopDiagnostics` preload bridge feed the thread debug pack when it is
+built; nothing new is written to disk for them.
+`desktop-diagnostics:read-main-log-window` (`readMainLogWindow` in
+`diagnostics/main-log-window.ts`) validates `{ since, until }` with
+`assertMainLogWindowRequest` BEFORE the provider runs: ISO-8601 UTC instants,
+`until` not before `since`, at most 24 hours, not in the future. The handler is
+async, so a malformed request always rejects. It returns the warn-and-above lines
+of `brainstrike.log` and its rotated siblings inside the window, oldest file
+first, capped at 2000 lines and 2 MiB keeping the newest (`droppedLineCount`,
+`truncated`), plus marker counts over EVERY level in the window
+(`unhandledRejections`, `wasmAllocationFailures`, `toolTimeouts`,
+`emptyChildResults`). The rotated slot count derives from the rotating sink's
+`DEFAULT_MAX_FILES`, so the reader cannot drift from the transport. A
+crash-truncated line is counted in `malformedLineCount`, never thrown; a missing
+live log file rejects, and the provider rejects when file logging is disabled.
+Lines were already redacted by `logInternal` before pino.
+
+`desktop-diagnostics:read-process-counters` returns `{ installedAt, samples }`:
+the last 240 samples (2 hours at the 30 s `main-process-health` cadence) of heap
+and RSS, WebAssembly `instantiate` / `compile` / `Instance` / `Memory` counts with
+the last 20 failure messages, and native background task counts by status (or
+`backgroundTasksUnavailableReason` when that read failed). The counter wraps the
+main process's `WebAssembly` once, installed by the bare side-effect import on
+the first line of `main.ts` so later imports (PGlite, tokenizers, xxhash-wasm)
+are counted; results and errors pass through unchanged. The `main-process-health`
+log line carries each tick's WebAssembly counts and the last completed
+background-task counts. The ring is session state cleared by the
+`process-counter-ring` factory-reset runtime entry, and `processCounters` is a
+`DesktopPlatformDiagnosticsProviderName`, so a throwing provider is reported like
+the others. The pack reaches both calls ONLY through `readThreadDebugHostProbe`
+(capability probe, never `isElectron()`); a web build or an older preload
+records `unavailable: no desktop diagnostics bridge …`. Paired:
+`main-log-window.test.ts`, `ipc-desktop-diagnostics.test.ts`,
+`webassembly-counter.test.ts`, `process-counter-ring.test.ts`,
+`desktop-platform-diagnostics.test.ts`, `thread-debug-host-probe.test.ts` and
+`thread-debug-pack.test.ts`.
 
 **Main-thread freeze watchdog (BST-342)**: the watchdog is a typed worker entry
 at `apps/desktop/src/diagnostics/main-watchdog-worker.ts`, bundled as the flat

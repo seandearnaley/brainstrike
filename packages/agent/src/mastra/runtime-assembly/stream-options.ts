@@ -48,8 +48,8 @@ const logger = createLogger('MastraAgent');
 /**
  * Per-call approval decision, matching Mastra's `RequireToolApproval` union
  * (`boolean | (ctx) => boolean`). The function form gates approval per tool call;
- * the resume leg uses it to exempt Mastra-internal tools (see
- * {@link resolveResumeApprovalGate}).
+ * the approval leg uses it to exempt Mastra-internal tools (see
+ * `resolveRequireToolApproval` in approval-gate.ts).
  */
 export type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
 
@@ -411,6 +411,10 @@ export function buildStreamOptions(
       ? {
           delegation: createDelegationConfig({
             abortSignal,
+            childPromptFacts: {
+              byPersonaId: runtime.childPromptFacts,
+              dispatchingAgentId: runtime.agent.id,
+            },
             workQueue: runtime.delegatedExecutionOptions?.workQueue,
             ...(runtime.conversationBinding
               ? { conversationBinding: runtime.conversationBinding }
@@ -419,6 +423,8 @@ export function buildStreamOptions(
             logger,
             onChildUsage: delegationUsage.onChildUsage,
             personasById: runtime.personasById,
+            subagentSettings: runtime.subagentSettings,
+            synthesisOutcomes: runtime.delegatedExecutionOptions?.synthesisOutcomes,
             turnPersistence: runtime.delegatedTurnPersistence,
           }),
         }

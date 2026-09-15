@@ -6,7 +6,12 @@
  */
 
 import '@testing-library/jest-dom/vitest';
+import {
+  __resetAssistantSubagentPreferencesStoreForTests,
+  useAssistantSubagentPreferencesStore,
+} from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
 import { __resetSubagentPersonasStoreForTests } from '@brainstrike/app-state/stores/subagent-personas-store';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SubagentPersonasSettingsSection } from '../settings/system/subagent-personas-settings-section';
@@ -17,8 +22,6 @@ vi.mock('@brainstrike/assistant-contract', async (importOriginal) => {
     ...original,
     DELEGATION_LIMITS: Object.freeze({
       ...original.DELEGATION_LIMITS,
-      maxChildOutputTokens: 4321,
-      maxChildSteps: 7,
       maxConcurrentWork: 5,
       maxDepth: 9,
       maxInvocations: 11,
@@ -33,10 +36,21 @@ vi.mock('@brainstrike/assistant-contract', async (importOriginal) => {
 beforeEach(() => {
   window.localStorage.clear();
   __resetSubagentPersonasStoreForTests();
+  __resetAssistantSubagentPreferencesStoreForTests();
+  // The per-child ceilings are USER SETTINGS now; the panel must read them
+  // from the preferences store, never from a constant.
+  useAssistantSubagentPreferencesStore.setState({
+    settings: {
+      ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+      maxChildOutputTokens: 4321,
+      maxChildSteps: 7,
+    },
+  });
 });
 
 afterEach(() => {
   cleanup();
+  __resetAssistantSubagentPreferencesStoreForTests();
 });
 
 describe('SubagentPersonasSettingsSection delegation limits', () => {
@@ -47,7 +61,7 @@ describe('SubagentPersonasSettingsSection delegation limits', () => {
     expect(limits).toHaveTextContent('11 delegations per turn');
     expect(limits).toHaveTextContent('5 subagents working at once');
     expect(limits).toHaveTextContent(
-      'No subagent may exceed 7 steps, whatever its persona declares.'
+      'No subagent may exceed 7 steps, whatever its persona declares (Settings → Models → Subagents).'
     );
     expect(limits).toHaveTextContent('4,321');
     expect(limits).toHaveTextContent('98,765');
@@ -55,9 +69,9 @@ describe('SubagentPersonasSettingsSection delegation limits', () => {
 
   it('states each persona step budget through the shared helper the host enforces with', () => {
     render(<SubagentPersonasSettingsSection />);
-    // Built-ins declare 16 steps; the helper answers 3 while the cap is 7.
+    // Built-ins declare 32 steps; the helper answers 3 while the cap is 7.
     // The panel must show that answer, not its own arithmetic.
     expect(screen.getAllByText(/Up to 3 steps/).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Up to 16 steps/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Up to 32 steps/)).not.toBeInTheDocument();
   });
 });

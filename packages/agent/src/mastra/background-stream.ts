@@ -1,9 +1,18 @@
+import { createLogger } from '@brainstrike/logging';
 import { DELEGATED_STEP_USAGE_PART } from './delegated-step-usage';
+import { DELEGATED_SYNTHESIS_PART } from './delegated-synthesis-outcomes';
 import { asMastraStreamPart, type MastraStreamPart } from './mastra-chunk-decoding';
 import { readStreamPartUsage, type UsageLike } from './runtime-assembly/usage-metering';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 
-const CHILD_OUTPUT_TYPES = new Set([DELEGATED_STEP_USAGE_PART, 'data-user-message', 'tool-output']);
+const logger = createLogger('BackgroundStream');
+
+const CHILD_OUTPUT_TYPES = new Set([
+  DELEGATED_STEP_USAGE_PART,
+  DELEGATED_SYNTHESIS_PART,
+  'data-user-message',
+  'tool-output',
+]);
 
 /**
  * A background child output is forwardable when it is a child envelope or a raw
@@ -79,6 +88,78 @@ async function* separateParentTurns(source: AsyncIterable<unknown>): AsyncGenera
   }
 }
 
+/**
+ * ONE DELIVERY PER BACKGROUND CALL (settled 2026-09-15). While the turn that
+ * dispatched a background call is still open, Mastra's background executor
+ * delivers every child pause TWICE: its `suspend` calls the step's `suspend`
+ * (a parent-level `tool-call-approval` / `tool-call-suspended` for the
+ * delegation call) before parking the task. It delivered every child output
+ * twice as well, through the task and the step's own writer, until
+ * `patches/@mastra__core@1.64.0.patch` made the task the only output delivery:
+ * a child's raw `data-*` part carries no call identity, so no filter here could
+ * drop its turn copy. Live GLM run 19 projected both copies: every child view
+ * showed each frame twice and the root thread eight cards for four decisions.
+ * The task is the delivery (`background-task-output`, and
+ * `background-task-suspended` releases the root card), so a turn's pause copy
+ * is dropped and a turn's output copy is a contract break.
+ */
+function createTurnCopyFilter(backgroundCalls: ReadonlySet<string>): {
+  /** A native lifecycle part; the dispatching turn's `background-task-started` acknowledges a call. */
+  acknowledge(part: MastraStreamPart, callKey: string): void;
+  /**
+   * Whether a turn's result or pause part is superseded by its background
+   * call's task. A turn's output for a background call throws.
+   */
+  supersedes(part: MastraStreamPart, callId: string | undefined, callKey: string): boolean;
+} {
+  /** Calls whose output or pause was forwarded from a turn. */
+  const delivered = new Set<string>();
+  /** Background calls whose turn copy was dropped (logged once each). */
+  const dropped = new Set<string>();
+  return {
+    acknowledge(part, callKey) {
+      // The turn copy is recognised by this acknowledgement, which Mastra
+      // enqueues on the dispatching turn before the task can run. A copy
+      // forwarded ahead of it has already been projected, and the task's own
+      // copy would project it a second time.
+      if (part.type === 'background-task-started' && delivered.has(callKey)) {
+        throw new Error(
+          'A background call streamed output on its turn before the turn acknowledged the dispatch.'
+        );
+      }
+    },
+    supersedes(part, callId, callKey) {
+      if (!callId) {
+        return false;
+      }
+      const background = backgroundCalls.has(callKey);
+      // Native dispatch acknowledgement is not the child's terminal result.
+      if (part.type === 'tool-result') {
+        return background;
+      }
+      if (!background) {
+        delivered.add(callKey);
+        return false;
+      }
+      if (part.type === 'tool-output') {
+        throw new Error(
+          'A background call streamed output on its dispatching turn; its task is the only delivery.'
+        );
+      }
+      if (!dropped.has(callKey)) {
+        dropped.add(callKey);
+        logger.info("Dropped the dispatching turn's copy of a background call's delivery", {
+          code: 'background_turn_copy_dropped',
+          partType: part.type,
+          runId: readMastraStreamPartString(part, 'runId'),
+          toolCallId: callId,
+        });
+      }
+      return true;
+    },
+  };
+}
+
 /** Fold the host idle loop's turns into one host-owned stream, retaining native child envelopes. */
 export async function* projectBackgroundStream(
   source: AsyncIterable<unknown>,
@@ -91,6 +172,7 @@ export async function* projectBackgroundStream(
     return;
   }
   const calls = new Set<string>();
+  const turnCopies = createTurnCopyFilter(calls);
   const activeTasks = new Set<string>();
   const usage: UsageLike = {};
   let started = false;
@@ -117,12 +199,15 @@ export async function* projectBackgroundStream(
         if (!callId) {
           throw new Error('Native background task omitted its tool-call identity.');
         }
+        turnCopies.acknowledge(decoded, callKey);
         calls.add(callKey);
         backgroundCalls?.add(callKey);
         continue;
       case 'tool-result':
-        // Native dispatch acknowledgement is not the child's terminal result.
-        if (callId && calls.has(callKey)) {
+      case 'tool-output':
+      case 'tool-call-approval':
+      case 'tool-call-suspended':
+        if (turnCopies.supersedes(decoded, callId, callKey)) {
           continue;
         }
         break;

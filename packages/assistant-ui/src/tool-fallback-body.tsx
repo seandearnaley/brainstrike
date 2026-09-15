@@ -1,5 +1,7 @@
 import { type ReactNode, useMemo } from 'react';
 import type { ActivityStepState } from './activity-trace-model';
+import { CanvasLinkChip } from './canvas-link-chip';
+import { readCanvasMutationResult } from './canvas-result-model';
 import { LiveShellOutputPane } from './live-shell-output-pane';
 import { RunPythonResultSurface } from './run-python-result';
 import type { RunPythonDisplayResult } from './run-python-result-model';
@@ -9,7 +11,7 @@ import { formatResult, type ToolResult } from './tool-fallback-state';
 /**
  * Everything the tool card renders BELOW its step row, in DOM order: the
  * inline error line, the live shell output pane, the structured `run_python`
- * surface, and the collapsible args/result details pane.
+ * surface, the canvas link chip, and the collapsible args/result details pane.
  *
  * Split out of `tool-fallback.tsx` (BST-1684). Each region keeps its own
  * mounting condition — in particular the details pane still mounts only while
@@ -57,6 +59,9 @@ export function ToolFallbackBody({
           panes. The raw result object stays available in the details pane. */}
       <RunPythonResultRegion isRunning={isRunning} result={runPythonResult} />
 
+      {/* canvas://<id> chip for a settled manageCanvas write (approach plan D2). */}
+      <CanvasResultRegion isRunning={isRunning} result={result} toolName={toolName} />
+
       {showDetails && !collapsed ? (
         <ToolDetailsPane
           argsText={argsText}
@@ -88,6 +93,27 @@ function RunPythonResultRegion({
     return null;
   }
   return <RunPythonResultSurface result={result} />;
+}
+
+/**
+ * The `canvas://<id>` chip under a settled manageCanvas create/update/rewrite.
+ * Reads the result shape (tool-name gated) rather than a `by_name` entry so a
+ * hydrated card with the sanitized tool name renders it too.
+ */
+function CanvasResultRegion({
+  isRunning,
+  result,
+  toolName,
+}: {
+  isRunning: boolean;
+  result: ToolResult;
+  toolName: string;
+}): ReactNode {
+  const canvas = useMemo(() => readCanvasMutationResult(toolName, result), [result, toolName]);
+  if (!canvas || isRunning) {
+    return null;
+  }
+  return <CanvasLinkChip canvasId={canvas.canvasId} version={canvas.version} />;
 }
 
 /**

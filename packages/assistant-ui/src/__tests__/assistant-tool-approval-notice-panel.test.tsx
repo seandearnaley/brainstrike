@@ -11,6 +11,7 @@ import {
   useFollowUpQueueStore,
 } from '../follow-up-queue-store';
 import { LiveDecisionProvider } from '../live-decision-context';
+import { expandApprovalRow } from './approval-row-helpers';
 
 const appendMessageMock = vi.hoisted(() => vi.fn());
 const threadMessagesMock = vi.hoisted(
@@ -237,6 +238,8 @@ describe('AssistantToolApprovalNotice', () => {
         },
       })
     );
+    // An answered notice collapses into a row; its buttons live in the expanded body.
+    await expandApprovalRow(user);
     expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
   });
@@ -270,10 +273,11 @@ describe('AssistantToolApprovalNotice', () => {
     const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await expandApprovalRow(user);
 
     expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
-    expect(screen.getByText('Approved')).toBeInTheDocument();
+    expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
 
     threadMessagesMock.push({
       role: 'assistant',
@@ -353,6 +357,7 @@ describe('AssistantToolApprovalNotice', () => {
     const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await expandApprovalRow(user);
 
     threadMessagesMock.push({
       role: 'assistant',
@@ -361,7 +366,7 @@ describe('AssistantToolApprovalNotice', () => {
     view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
 
     expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
-    expect(screen.getByText('Approved')).toBeInTheDocument();
+    expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
 
     threadMessagesMock.push({
       role: 'assistant',
@@ -375,7 +380,7 @@ describe('AssistantToolApprovalNotice', () => {
 
     expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
-    expect(screen.getByText('Approved')).toBeInTheDocument();
+    expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
   });
 
   it('keeps restored completed approval actions disabled after remount', async () => {
@@ -398,17 +403,19 @@ describe('AssistantToolApprovalNotice', () => {
       status: { type: 'complete' },
     });
     render(<AssistantToolApprovalNotice data={baseApproval} />);
+    await expandApprovalRow(user);
 
     expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
-    expect(screen.getByText('Approved')).toBeInTheDocument();
+    expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
 
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
 
     expect(appendMessageMock).not.toHaveBeenCalled();
   });
 
-  it('keeps restored pending approval actions disabled after remount', () => {
+  it('keeps restored pending approval actions disabled after remount', async () => {
+    const user = userEvent.setup();
     threadMessagesMock.push({
       metadata: {
         custom: {
@@ -423,10 +430,11 @@ describe('AssistantToolApprovalNotice', () => {
       role: 'user',
     });
     render(<AssistantToolApprovalNotice data={baseApproval} />);
+    await expandApprovalRow(user);
 
     expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
-    expect(screen.getByText('Declined')).toBeInTheDocument();
+    expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Declined');
   });
 
   it('returns a stable approval outcome selector value for unchanged thread state', () => {
@@ -459,6 +467,7 @@ describe('AssistantToolApprovalNotice', () => {
     const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await expandApprovalRow(user);
 
     threadMessagesMock.push({
       metadata: {
@@ -485,7 +494,7 @@ describe('AssistantToolApprovalNotice', () => {
 
     expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
-    expect(screen.getByText('Approved')).toBeInTheDocument();
+    expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
   });
 
   it('renders nothing for malformed approval data', () => {
@@ -573,6 +582,7 @@ describe('AssistantToolApprovalNotice for a delegated child', () => {
     });
     renderIndexed(childApproval);
     await waitFor(() => expect(screen.getByText('Allowed by session grant')).toBeInTheDocument());
+    await expandApprovalRow(userEvent.setup());
     expect(
       screen.getByRole('button', { name: 'Approve brainstrike.queryEmbeddingSpace' })
     ).toBeDisabled();
@@ -601,6 +611,7 @@ describe('AssistantToolApprovalNotice for a delegated child', () => {
     });
     renderIndexed(childApproval);
     await waitFor(() => expect(screen.getByText('Declined')).toBeInTheDocument());
+    await expandApprovalRow(userEvent.setup());
     expect(
       screen.getByRole('button', { name: 'Approve brainstrike.queryEmbeddingSpace' })
     ).toBeDisabled();
@@ -664,6 +675,7 @@ describe('AssistantToolApprovalNotice while a run is active', () => {
       text: 'Approved workspace.writeFile.',
     });
     expect(screen.getByText('Queued')).toBeInTheDocument();
+    await expandApprovalRow(userEvent.setup());
     expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeDisabled();
     // The chip is the user's veto: removing it hands the card back.
     const item = queued?.[0];
@@ -700,6 +712,7 @@ describe('AssistantToolApprovalNotice while a run is active', () => {
       undefined
     );
     await waitFor(() => expect(screen.getByText('Approved')).toBeInTheDocument());
+    await expandApprovalRow(userEvent.setup());
     expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeDisabled();
   });
 

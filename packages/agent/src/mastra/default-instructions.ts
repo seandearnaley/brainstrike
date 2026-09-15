@@ -429,7 +429,7 @@ function buildCanvasInstruction(names: ModelFacingToolNames): string {
   if (!names.manageCanvas) {
     return '';
   }
-  return `Use ${names.manageCanvas} to create or list persisted HTML canvas documents (list returns summaries, never content). Use update for one exact unique replacement, or rewrite for full HTML replacement; every change creates a new version.`;
+  return `Use ${names.manageCanvas} to create or list persisted HTML canvas documents (list returns summaries, never content). Create a canvas only when its content is ready — the create call carrying the finished document is the deliverable, never an empty placeholder. Use update for one exact unique replacement, or rewrite for full HTML replacement; every change creates a new version.`;
 }
 
 function buildBrowserPaneInstruction(names: ModelFacingToolNames): string {

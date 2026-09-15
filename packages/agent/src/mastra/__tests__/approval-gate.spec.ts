@@ -2,6 +2,7 @@ import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract
 import { describe, expect, it } from 'vitest';
 import {
   allowedBySnapshot,
+  applyLiveApprovalGate,
   createApprovalGate,
   resolveRequireToolApproval,
 } from '../approval-gate';
@@ -143,5 +144,73 @@ describe('resolveRequireToolApproval', () => {
     const custom = () => true;
     expect(resolveRequireToolApproval(custom, gated, true)).toBe(custom);
     expect(resolveRequireToolApproval(false, gated, true)).toBe(false);
+  });
+});
+
+describe('applyLiveApprovalGate', () => {
+  class ToolLike {
+    readonly id: string;
+    constructor(id: string) {
+      this.id = id;
+    }
+  }
+  const askIds = new Set(['brainstrike_grepSearch', 'brainstrike_writeWorkspaceFile']);
+
+  it('clones every ask tool with the FUNCTION form of `requireApproval` and leaves the rest by reference', async () => {
+    const grep = new ToolLike('brainstrike.grepSearch');
+    const read = new ToolLike('brainstrike.readWorkspaceFile');
+    const tools = { brainstrike_grepSearch: grep, brainstrike_readWorkspaceFile: read };
+    const gated = applyLiveApprovalGate(
+      tools,
+      new Set(['brainstrike_grepSearch']),
+      gate(undefined)
+    );
+    expect(gated.brainstrike_readWorkspaceFile).toBe(read);
+    expect(gated.brainstrike_grepSearch).not.toBe(grep);
+    // The clone keeps the prototype and own fields; the input is untouched.
+    expect(gated.brainstrike_grepSearch).toBeInstanceOf(ToolLike);
+    expect((gated.brainstrike_grepSearch as ToolLike).id).toBe('brainstrike.grepSearch');
+    expect((grep as { requireApproval?: unknown }).requireApproval).toBeUndefined();
+    const flag = (gated.brainstrike_grepSearch as { requireApproval?: unknown }).requireApproval;
+    expect(typeof flag).toBe('function');
+    if (typeof flag !== 'function') {
+      throw new Error('expected the function-form flag');
+    }
+    expect(await flag({}, {})).toBe(true);
+  });
+
+  it('the clone reads the gate on EVERY call: a grant remembered later lifts it', async () => {
+    // MUTATION: a clone that captures the decision at clone time (or ignores
+    // `remembered`) keeps returning true — the harness row "after a live
+    // session grant the sibling's NEXT gated read runs without a pause" fails.
+    let remembered: PermissionToolGateSnapshot | undefined;
+    const live = createApprovalGate({
+      askTools: ASK_READ_AND_EDIT,
+      permissionEnforced: true,
+      remembered: () => remembered,
+      toolNameMap: NAME_MAP,
+    });
+    const gated = applyLiveApprovalGate(
+      {
+        brainstrike_grepSearch: new ToolLike('brainstrike.grepSearch'),
+        brainstrike_writeWorkspaceFile: new ToolLike('brainstrike.writeWorkspaceFile'),
+      },
+      askIds,
+      live
+    );
+    const flagOf = (name: keyof typeof gated) =>
+      (gated[name] as unknown as { requireApproval: (input: unknown, ctx: unknown) => boolean })
+        .requireApproval;
+    expect(flagOf('brainstrike_grepSearch')({}, {})).toBe(true);
+    remembered = READ_GRANT;
+    expect(flagOf('brainstrike_grepSearch')({}, {})).toBe(false);
+    // A read grant never lifts an edit gate.
+    expect(flagOf('brainstrike_writeWorkspaceFile')({}, {})).toBe(true);
+  });
+
+  it('refuses an ask id that is not in the map (a kept ask tool must never be missed)', () => {
+    expect(() =>
+      applyLiveApprovalGate({}, new Set(['brainstrike_grepSearch']), gate(undefined))
+    ).toThrow(/brainstrike_grepSearch/);
   });
 });

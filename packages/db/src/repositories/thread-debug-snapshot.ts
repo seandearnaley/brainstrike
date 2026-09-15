@@ -53,6 +53,13 @@ const SECTIONS = {
   invocations: `SELECT ${selectColumns('i', ['owner_resource_id', 'root_thread_id', 'thread_id', 'host_run_id', 'turn_message_id', 'parent_runtime_run_id', 'parent_tool_call_id', 'persona_id', 'child_runtime_run_id', 'created_at', 'original_tool_call', 'cancellation_requested_at'])}
     FROM brainstrike_delegated_invocations i JOIN subtree s USING (thread_id)
     ORDER BY i.created_at, i.parent_runtime_run_id, i.parent_tool_call_id`,
+  // Swarm diagnostics (migration 139) hang off the ROOT host run: a child-only
+  // pack omits root-run wakeups and live decisions.
+  liveDecisions: `SELECT ${selectColumns('d', ['id', 'host_run_id', 'root_thread_id', 'task_id', 'tool_call_id', 'delegation_tool_call_id', 'tool_name', 'kind', 'decision', 'source', 'outcome', 'reason', 'answered_sibling_task_ids', 'policy_snapshot', 'occurred_at'])}
+    FROM brainstrike_delegated_live_decisions d
+    JOIN brainstrike_assistant_thread_runs r ON r.id = d.host_run_id
+    JOIN subtree s ON s.thread_id = r.thread_id
+    ORDER BY d.occurred_at, d.id`,
   messageParents: `SELECT ${selectColumns('p', ['message_id', 'thread_id', 'resource_id', 'parent_id', 'created_at', 'updated_at'])}
     FROM brainstrike_assistant_message_parents p JOIN subtree s USING (thread_id)
     ORDER BY p.message_id`,
@@ -62,6 +69,19 @@ const SECTIONS = {
   outcomes: `SELECT ${selectColumns('o', ['run_id', 'thread_id', 'resource_id', 'verdict', 'source', 'detail', 'labeled_at', 'created_at', 'updated_at'])}
     FROM brainstrike_assistant_run_outcomes o JOIN subtree s USING (thread_id)
     ORDER BY o.labeled_at, o.run_id`,
+  // A child-first-step row is named by the DISPATCHING thread; it belongs to the
+  // subtree of the child its invocation admitted (native_run_id and
+  // parent_tool_call_id are that invocation's parent_runtime_run_id and
+  // parent_tool_call_id under the same root).
+  promptManifests: `SELECT ${selectColumns('p', ['id', 'host_run_id', 'thread_id', 'kind', 'native_run_id', 'parent_tool_call_id', 'persona_id', 'provider', 'model', 'system_context_source', 'system_messages', 'persona_instructions', 'delegation_prompt', 'tool_names', 'total_chars', 'truncated', 'created_at'])}
+    FROM brainstrike_assistant_prompt_manifests p
+    JOIN brainstrike_assistant_thread_runs host ON host.id = p.host_run_id
+    WHERE p.thread_id IN (SELECT thread_id FROM subtree)
+      OR (p.kind = 'child-first-step' AND EXISTS (
+        SELECT 1 FROM brainstrike_delegated_invocations i JOIN subtree s USING (thread_id)
+        WHERE i.root_thread_id = host.thread_id AND i.parent_runtime_run_id = p.native_run_id
+          AND i.parent_tool_call_id = p.parent_tool_call_id))
+    ORDER BY p.created_at, p.id`,
   runs: `SELECT ${selectColumns('r', ['id', 'resource_id', 'thread_id', 'provider', 'model', 'model_settings', 'provider_options', 'runtime_kind', 'status', 'error', 'started_at', 'completed_at', 'created_at', 'updated_at', 'turn_message_id'])}
     FROM brainstrike_assistant_thread_runs r JOIN subtree s USING (thread_id)
     ORDER BY r.started_at, r.id`,
@@ -93,6 +113,11 @@ const SECTIONS = {
       OR EXISTS (SELECT 1 FROM brainstrike_delegated_continuations c JOIN subtree s USING (thread_id)
         WHERE c.id = u.continuation_id)
     ORDER BY u.created_at, u.id`,
+  wakeups: `SELECT ${selectColumns('w', ['id', 'host_run_id', 'root_thread_id', 'kind', 'directive', 'invocations', 'created_at'])}
+    FROM brainstrike_delegated_wakeups w
+    JOIN brainstrike_assistant_thread_runs r ON r.id = w.host_run_id
+    JOIN subtree s ON s.thread_id = r.thread_id
+    ORDER BY w.created_at, w.id`,
 } as const;
 
 const SNAPSHOT_SQL = `${AUTHORIZED_DELEGATED_GRAPH},

@@ -86,6 +86,7 @@ it("the root's own pause ends the leg once its children return: one card, no con
     if (!approval) {
       throw new Error('No pending root approval for root-write');
     }
+    const promptsBeforeApproval = model.prompts.length;
     resumed = await createMastraAgentRuntime(discoveryOptions);
     const second: StreamChunk[] = [];
     for await (const chunk of await createToolApprovalIteratorFromRuntime({
@@ -120,6 +121,23 @@ it("the root's own pause ends the leg once its children return: one card, no con
           part.type === 'tool-invocation' && part.toolInvocation.toolCallId === 'background-child'
       );
     expect(JSON.stringify(invocation)).toContain('CHILD_FINAL_EVIDENCE');
+    // Debug-pack evidence (swarm diagnostics): the parked first leg recorded its
+    // deferral, and the root's resume recorded the late overlay BEFORE its
+    // inference ran. MUTATION: recording the overlay after the resumed stream
+    // starts moves `promptsAtRecord` past the approval's first prompt.
+    expect(fixture.wakeups.map((row) => row.kind)).toEqual(['deferred', 'late-overlay']);
+    expect(fixture.wakeups[0]?.directive).toContain('Parked parent leg closed');
+    expect(
+      fixture.wakeups[0]?.invocations.map((entry) => [entry.outcome, entry.toolCallId])
+    ).toEqual([['deferred', 'background-child']]);
+    expect(
+      fixture.wakeups[1]?.invocations.map((entry) => [
+        entry.outcome,
+        entry.toolCallId,
+        entry.toolName,
+      ])
+    ).toEqual([['late', 'background-child', 'agent-explore']]);
+    expect(fixture.wakeups[1]?.promptsAtRecord).toBe(promptsBeforeApproval);
   } finally {
     release.resolve();
     await Promise.allSettled([consuming]);
@@ -203,6 +221,13 @@ it("a child card answered on a new leg never wakes a parked root; the root's own
       rootLeg.flatMap((chunk) => (chunk.type === 'text-delta' ? [chunk.value] : [])).join('')
     ).toBe('PARENT_FINAL_OUTCOME');
     expect(parentPrompts()).toHaveLength(promptsBefore + 1);
+    // The child-card leg found the root parked: it recorded that deferral and
+    // ran no resume-leg wakeup; the root's own resume recorded the late overlay.
+    expect(fixture.wakeups.map((row) => row.kind)).toEqual(['deferred', 'late-overlay']);
+    expect(fixture.wakeups[0]?.directive).toContain('waits for the parked root to resume');
+    expect(
+      fixture.wakeups[0]?.invocations.map((entry) => [entry.outcome, entry.toolCallId])
+    ).toEqual([['deferred', 'background-child']]);
   } finally {
     for (const resumed of resumedRuntimes) {
       await resumed.dispose();

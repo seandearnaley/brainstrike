@@ -6,6 +6,7 @@
 
 import { DELEGATION_LIMITS } from './delegation-limits.js';
 import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
+import type { RuntimeSubagentSettings } from './subagent-settings.js';
 import {
   getNativeToolDefaults,
   WEB_EXTRACT_TOOL_ID,
@@ -79,6 +80,16 @@ export const SUBAGENT_DELEGATION_TOOL_PREFIX = 'agent-';
 export const SUBAGENT_NO_ANSWER_OUTCOME = 'no-answer';
 
 /**
+ * `metadata.outcome` on a `subagent.finished` run event whose child hit its
+ * durable budget and whose reserved summary was cut by the model's output
+ * limit (`finishReason: 'length'` on the synthesis step). The delegation
+ * COMPLETED — the text is partial findings the root can use — so the kind is
+ * `finished`, not `failed`; the discriminator lets the card and the wakeup
+ * ledger say "truncated" without sniffing the label.
+ */
+export const SUBAGENT_TRUNCATED_OUTCOME = 'truncated';
+
+/**
  * The delegation was refused before its child ran: a persona the host does
  * not know, the concurrency or per-turn backstop, or the durable tree budget
  * (depth, invocations, output) answered at delegation start (BST-1751). The
@@ -113,30 +124,32 @@ export const SUBAGENT_REJECTED_OUTCOME = 'rejected';
  * `persona-assembly.ts`.
  */
 export function delegationDescriptionForPersona(
-  persona: Pick<AssistantPersonaDefinition, 'description' | 'maxSteps'>
+  persona: Pick<AssistantPersonaDefinition, 'description' | 'maxSteps'>,
+  settings: RuntimeSubagentSettings
 ): string {
-  const steps = effectiveChildStepBudget(persona);
+  const steps = effectiveChildStepBudget(persona, settings);
   const summary = steps >= 2 ? ', one of which is reserved for its summary' : '';
   return (
     `${persona.description} Runs at most ${steps} ${steps === 1 ? 'step' : 'steps'}${summary} — ` +
     'scope the task to that budget and split anything larger across several ' +
     `delegations. The root turn permits at most ${DELEGATION_LIMITS.maxDepth} descendant levels, ` +
     `${DELEGATION_LIMITS.maxInvocations} invocations, ${DELEGATION_LIMITS.maxConcurrentWork} active work operations, ` +
-    `${DELEGATION_LIMITS.maxChildOutputTokens} output tokens per child and ${DELEGATION_LIMITS.maxTreeOutputTokens} across descendants.`
+    `${settings.maxChildOutputTokens} output tokens per child and ${DELEGATION_LIMITS.maxTreeOutputTokens} across descendants.`
   );
 }
 
 /**
  * The step budget the host ENFORCES for a persona: its declared `maxSteps`
- * capped by the tree-wide ceiling. Every surface that states a budget — the
- * model-facing delegation description above and Settings → Subagents — derives
- * it from here, so the number a user reads and the number the host applies
- * cannot disagree (BST-1727).
+ * capped by the user's `maxChildSteps` setting. Every surface that states a
+ * budget — the model-facing delegation description above and Settings →
+ * Subagents — derives it from here, so the number a user reads and the number
+ * the host applies cannot disagree (BST-1727).
  */
 export function effectiveChildStepBudget(
-  persona: Pick<AssistantPersonaDefinition, 'maxSteps'>
+  persona: Pick<AssistantPersonaDefinition, 'maxSteps'>,
+  settings: Pick<RuntimeSubagentSettings, 'maxChildSteps'>
 ): number {
-  return Math.min(persona.maxSteps, DELEGATION_LIMITS.maxChildSteps);
+  return Math.min(persona.maxSteps, settings.maxChildSteps);
 }
 
 /** The effective mode: a persona without an explicit mode is read-only. */
@@ -287,7 +300,7 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
       'working towards (a document, a page, a patch) even if the prompt mentions one — you are a ' +
       'research step, and anything beyond findings is wasted budget.',
     label: 'Explorer',
-    maxSteps: 16,
+    maxSteps: 32,
   }),
   definePersona({
     allowedToolIds: [
@@ -317,7 +330,7 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
       'deliverable the caller is working towards (a report, a page, a patch) even if the prompt ' +
       'mentions one — you are a research step, and anything beyond findings is wasted budget.',
     label: 'Analyst',
-    maxSteps: 16,
+    maxSteps: 32,
   }),
   definePersona({
     allowedToolIds: ['*'],

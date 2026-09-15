@@ -1,6 +1,8 @@
 import { addAbortListener } from 'node:events';
+import type { DelegatedBudgetPort } from '@brainstrike/assistant-contract';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
+import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
 import { createTool, type ToolExecutionContext } from '@mastra/core/tools';
 import { vi } from 'vitest';
 import { z } from 'zod';
@@ -8,12 +10,15 @@ import {
   createMastraAgentRuntime,
   type MastraAgentRuntimeOptions,
 } from '../../mastra/agent-runtime';
+import { readTaskEvent, readTaskId } from '../../mastra/background-idle-loop';
 import {
   createDelegatedConversationBinding,
   type DelegatedCancellationControl,
   type DelegatedConversationIdentity,
   type DelegatedDecisionControl,
   type DelegatedFollowupControl,
+  type DelegatedLiveDecisionRecord,
+  type DelegatedWakeupRecord,
 } from '../../mastra/delegated-conversation-binding';
 import type { DelegatedRunIdentity } from '../../mastra/delegated-run-publication';
 import type { DelegatedSuspensionResolver } from '../../mastra/delegated-suspension-discovery';
@@ -21,6 +26,7 @@ import { LiveDecisionUnavailableError } from '../../mastra/live-decision-channel
 import { createPgliteMastraMemory } from '../../pglite-mastra-memory';
 import {
   hasToolResult,
+  lengthParts,
   parallelToolCallParts,
   scriptedAgentModel,
   textParts,
@@ -29,6 +35,79 @@ import {
 import { createAskUserTool } from '../../tools/ask-user-tool';
 import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
 import type { RuntimeData } from '../../types';
+
+/**
+ * A durable-style budget port (the desktop host's `createDelegatedStepBudget`
+ * in miniature): each child thread gets `maxSteps` reservations, the LAST of
+ * which is the reserved synthesis forced by the step cap, carrying `used` of
+ * `limit` exactly as the host reports them.
+ */
+function createScriptedBudgetPort(limits: {
+  readonly maxSteps: number;
+  readonly synthesisOutputTokens: number;
+}): DelegatedBudgetPort {
+  const steps = new Map<string, number>();
+  return {
+    admitInvocation: async () => ({ admitted: true as const }),
+    reserveStep: async ({ threadId }) => {
+      const used = steps.get(threadId) ?? 0;
+      if (used >= limits.maxSteps) {
+        throw new Error('Delegated step budget exhausted; reserved synthesis is already consumed.');
+      }
+      steps.set(threadId, used + 1);
+      const id = `${threadId}-step-${used + 1}`;
+      return used === limits.maxSteps - 1
+        ? {
+            cap: 'steps' as const,
+            id,
+            limit: limits.maxSteps,
+            outputTokens: limits.synthesisOutputTokens,
+            synthesis: true as const,
+            used,
+          }
+        : { id, outputTokens: 8192, synthesis: false as const };
+    },
+    settleStep: async () => undefined,
+  };
+}
+
+/**
+ * Resolves once `count` background tasks in `scope` are suspended. The
+ * lifecycle subscription is opened BEFORE the durable rows are read, so a
+ * suspension published in between is never missed.
+ */
+async function waitForParkedTasks(
+  manager: BackgroundTaskManager,
+  scope: { readonly resourceId: string; readonly threadId: string },
+  count: number
+): Promise<void> {
+  const watching = new AbortController();
+  const reader = manager
+    .stream({
+      abortSignal: watching.signal,
+      resourceId: scope.resourceId,
+      threadId: scope.threadId,
+    })
+    .getReader();
+  try {
+    const { tasks } = await manager.listTasks({ status: 'suspended' });
+    const parked = new Set(tasks.map((task) => task.id));
+    while (parked.size < count) {
+      const { done, value } = await reader.read();
+      if (done) {
+        throw new Error('The background lifecycle stream closed before every child parked.');
+      }
+      const event = readTaskEvent(value);
+      const taskId = event ? readTaskId(event) : undefined;
+      if (event?.type === 'background-task-suspended' && taskId) {
+        parked.add(taskId);
+      }
+    }
+  } finally {
+    watching.abort();
+    reader.releaseLock();
+  }
+}
 
 interface BackgroundFixture {
   backing: Awaited<ReturnType<typeof createPgliteMastraMemory>>;
@@ -51,6 +130,8 @@ interface BackgroundFixture {
   ) => Promise<void>;
   /** Releases the held sibling's allowed read (`fanout.heldSibling`). */
   hold: PromiseWithResolvers<void>;
+  /** Every live decision the running leg asked the binding to record, in order. */
+  liveDecisions: DelegatedLiveDecisionRecord[];
   model: ReturnType<typeof scriptedAgentModel>;
   /** Delegation call ids the host recorded as answered without a claim, in order. */
   policyAnswers: string[];
@@ -59,6 +140,12 @@ interface BackgroundFixture {
   runtimeData: RuntimeData & { memory: { resourceId: string; threadId: string } };
   scope: { resourceId: string; threadId: string };
   toolSignals: AbortSignal[];
+  /**
+   * Every wakeup row the binding was asked to record, in order, with how many
+   * model prompts had run when it was recorded: a wakeup is recorded BEFORE the
+   * inference it names.
+   */
+  wakeups: (DelegatedWakeupRecord & { readonly promptsAtRecord: number })[];
 }
 
 export async function createBackgroundFixture(
@@ -87,6 +174,29 @@ export async function createBackgroundFixture(
      * while background work runs (the live-app verifier's canvas write).
      */
     readonly rootGate?: boolean;
+    /**
+     * The ROOT reports the final outcome only when its LAST user message (the
+     * wakeup) says nothing is still running — it trusts the ledger, never its
+     * own count of tool results (the GLM root mis-counted, 2026-09-15).
+     */
+    readonly rootReadsLedger?: boolean;
+    /**
+     * Give the binding a durable-style budget port so the child runs through
+     * `createDelegatedWorkBudget`: `maxSteps` working+synthesis steps, the
+     * last reserved with `synthesisOutputTokens`. The child then loops reads
+     * until the synthesis system message arrives and answers with a `length`
+     * finish (the GLM synthesis cut).
+     */
+    readonly budget?: { readonly maxSteps: number; readonly synthesisOutputTokens: number };
+    /**
+     * The ROOT's first turn stays OPEN while its background children stream
+     * and park: its post-dispatch step streams only once every dispatched
+     * child's task is suspended. A production root is slow there (GLM run 19,
+     * 2026-09-15: parallel reads and long reasoning in the dispatching turn),
+     * and a root that answers instantly closes its turn before any child
+     * output exists.
+     */
+    readonly slowRootTurn?: boolean;
   } = {}
 ): Promise<BackgroundFixture> {
   const database = await createEnginePglite();
@@ -156,6 +266,16 @@ export async function createBackgroundFixture(
           pattern: 'report',
         });
       }
+      if (fanout.rootReadsLedger) {
+        const lastUser = JSON.stringify(
+          options.prompt.filter((message) => message.role === 'user').at(-1)
+        );
+        return textParts(
+          lastUser.includes('Nothing is still running')
+            ? 'PARENT_FINAL_OUTCOME'
+            : 'PARENT_USEFUL_PROGRESS'
+        );
+      }
       // Count RETURNED children by their tool-result parts: the prompt spells
       // one result's text several times (output, provider modelOutput), so a
       // substring count read one returned sibling as all of them.
@@ -165,9 +285,24 @@ export async function createBackgroundFixture(
         .filter(
           (part) =>
             part.type === 'tool-result' &&
-            JSON.stringify(part.output).includes('CHILD_FINAL_EVIDENCE')
+            /CHILD_FINAL_EVIDENCE|PARTIAL_CHILD_FINDINGS/.test(JSON.stringify(part.output))
         ).length;
       return textParts(returned >= siblings ? 'PARENT_FINAL_OUTCOME' : 'PARENT_USEFUL_PROGRESS');
+    }
+    if (fanout.budget) {
+      const synthesis = options.prompt.some(
+        (message) =>
+          message.role === 'system' &&
+          typeof message.content === 'string' &&
+          message.content.includes('Delegated work budget exhausted')
+      );
+      if (synthesis) {
+        return lengthParts('PARTIAL_CHILD_FINDINGS');
+      }
+      const reads = options.prompt.filter((message) => message.role === 'tool').length;
+      return toolCallParts('brainstrike_grepSearch', `background-read-${reads + 1}`, {
+        pattern: `evidence-${reads + 1}`,
+      });
     }
     const sibling = JSON.stringify(options.prompt).match(/Read background evidence (\d+)/)?.[1];
     const readId = sibling === undefined ? 'background-read' : `background-read-${sibling}`;
@@ -198,6 +333,29 @@ export async function createBackgroundFixture(
     }
     return textParts('CHILD_FINAL_EVIDENCE');
   });
+  // Late-bound: the runtime, and so its task manager, exists only after the model.
+  let heldRuntime:
+    | { readonly backgroundTaskManager?: BackgroundTaskManager | undefined }
+    | undefined;
+  if (fanout.slowRootTurn) {
+    const scripted = model.model.doStream;
+    let rootTurnHeld = false;
+    model.model.doStream = async (options) => {
+      if (
+        !rootTurnHeld &&
+        options.tools?.some((tool) => tool.name === 'agent-explore') &&
+        hasToolResult(options, 'agent-explore')
+      ) {
+        rootTurnHeld = true;
+        const manager = heldRuntime?.backgroundTaskManager;
+        if (!manager) {
+          throw new Error('slowRootTurn requires the runtime background task manager.');
+        }
+        await waitForParkedTasks(manager, scope, siblings);
+      }
+      return scripted(options);
+    };
+  }
   const runtimeData = {
     apiKey: 'test-key',
     memory: scope,
@@ -211,6 +369,8 @@ export async function createBackgroundFixture(
   let followup: DelegatedFollowupControl | undefined;
   let activeClaim: string | undefined;
   const policyAnswers: string[] = [];
+  const wakeups: BackgroundFixture['wakeups'] = [];
+  const liveDecisions: DelegatedLiveDecisionRecord[] = [];
   const resolveParked = async (parent: {
     parentRuntimeRunId: string;
     parentToolCallId: string;
@@ -233,6 +393,7 @@ export async function createBackgroundFixture(
   const options = {
     backgroundTaskScope: scope,
     conversationBinding: {
+      ...(fanout.budget ? { budget: createScriptedBudgetPort(fanout.budget) } : {}),
       // The desktop ledger holds ONE active claim per root; a second claim in
       // the same leg is refused (thread-796a942d, 2026-09-14). The fixture
       // refuses the same way so a multi-claim design cannot pass here.
@@ -246,8 +407,14 @@ export async function createBackgroundFixture(
         activeClaim = undefined;
       },
       prepareToolAction: async () => {},
+      recordLiveDecision: async (record: DelegatedLiveDecisionRecord) => {
+        liveDecisions.push(record);
+      },
       recordToolActionAnswer: async (action: { toolCallId: string; delegation: unknown }) => {
         policyAnswers.push(action.toolCallId);
+      },
+      recordWakeup: async (record: DelegatedWakeupRecord) => {
+        wakeups.push({ ...record, promptsAtRecord: model.prompts.length });
       },
       registerCancellation: (control: DelegatedCancellationControl) => {
         cancel = control;
@@ -394,6 +561,7 @@ export async function createBackgroundFixture(
     },
   };
   const runtime = await createMastraAgentRuntime(options);
+  heldRuntime = runtime;
   return {
     backing,
     cancel: (targets: Parameters<DelegatedCancellationControl>[0]) => {
@@ -439,6 +607,7 @@ export async function createBackgroundFixture(
       );
     },
     hold,
+    liveDecisions,
     model,
     policyAnswers,
     release,
@@ -446,5 +615,6 @@ export async function createBackgroundFixture(
     runtimeData,
     scope,
     toolSignals,
+    wakeups,
   };
 }

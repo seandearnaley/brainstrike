@@ -1,6 +1,10 @@
-import type { DelegatedConversationBaseline } from '@brainstrike/assistant-contract';
+import type {
+  DelegatedConversationBaseline,
+  DelegationBudgetCap,
+} from '@brainstrike/assistant-contract';
 import {
   assistantChildSignalContentsSchema,
+  createAssistantRunEvent,
   type DelegatedToolActionIdentity,
   isDelegatedToolActionIdentity,
   readAssistantChildSignalContents,
@@ -10,6 +14,10 @@ import type { ConversationStreamChunk, StreamChunkDelegatedConversation } from '
 import { readChildContinuationUserMessage } from './child-continuation-user-message';
 import type { DelegatedRunIdentity } from './delegated-run-publication';
 import { readDelegatedStepUsage } from './delegated-step-usage';
+import {
+  type DelegatedSynthesisPart,
+  readDelegatedSynthesisPart,
+} from './delegated-synthesis-outcomes';
 import type { SubagentChildUsageReport } from './subagent-delegation';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 import { resolveDelegationPersona } from './tool-lifecycle-processors';
@@ -169,6 +177,60 @@ function projectPublishedUsage<State>(
     outputTokens: usage.outputTokens,
     personaId: owner.identity.personaId,
   });
+}
+
+const SYNTHESIS_CAP_NOUNS = {
+  'child-output': 'output token',
+  steps: 'step',
+  'tree-output': 'shared output token',
+} as const satisfies Record<DelegationBudgetCap, string>;
+
+/**
+ * The budget processor's reserved-synthesis outcome becomes the owner child's
+ * persisted `delegation.budget.exhausted` breadcrumb (status `info`, no pair):
+ * the cap that forced the summary, `used` of `limit` in that cap's unit, and
+ * whether the model then cut the summary. Like usage, the part is raw on the
+ * parent stream, so its owner is the ONE published unfinished child on its
+ * native thread; none or several is a contract break, never a dropped event.
+ */
+function projectSynthesisOutcome<State>(
+  outcome: DelegatedSynthesisPart,
+  children: ReadonlyMap<string, ChildStreamState<State>>
+): StreamChunkDelegatedConversation[] {
+  const owners = [...children.values()].filter(
+    (child) => child.threadId === outcome.threadId && !child.finished
+  );
+  const owner = owners[0];
+  if (owners.length !== 1 || !owner) {
+    throw new Error(
+      `Delegated synthesis outcome has no unique published native child owner (thread ${outcome.threadId}).`
+    );
+  }
+  const event = createAssistantRunEvent({
+    kind: 'delegation.budget.exhausted',
+    label: `Subagent ${SYNTHESIS_CAP_NOUNS[outcome.cap]} budget exhausted (${outcome.used} of ${outcome.limit}); summary ${outcome.truncated ? 'reserved and truncated' : 'reserved'}`,
+    metadata: {
+      cap: outcome.cap,
+      limit: outcome.limit,
+      parentToolCallId: owner.identity.parentToolCallId,
+      personaId: owner.identity.personaId,
+      reservedOutputTokens: outcome.reservedOutputTokens,
+      // Always true here: this event exists because the reserved summary step ran.
+      synthesisForced: true,
+      truncated: outcome.truncated,
+      used: outcome.used,
+      ...(outcome.outputTokens === undefined ? {} : { outputTokens: outcome.outputTokens }),
+    },
+    status: 'info',
+  });
+  return [
+    {
+      chunk: { event, type: 'run-event' },
+      identity: owner.identity,
+      messageId: owner.messageId,
+      type: 'delegated-conversation-chunk',
+    },
+  ];
 }
 
 /**
@@ -331,6 +393,10 @@ export function createDelegatedStreamProjection<State>(
     if (usage) {
       projectPublishedUsage(usage, children, options.onUsage);
       return [];
+    }
+    const synthesis = readDelegatedSynthesisPart(part);
+    if (synthesis) {
+      return projectSynthesisOutcome(synthesis, children);
     }
     if (readMastraStreamPartString(part, 'type') === 'data-user-message') {
       return projectHumanInput(part, children);

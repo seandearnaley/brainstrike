@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { childExecutionConfigurationSchema } from './child-execution-configuration.js';
-import { DELEGATION_LIMITS } from './delegation-limits.js';
 import {
   type AssistantPersonaDefinition,
   type AssistantPersonaMode,
@@ -8,6 +7,7 @@ import {
   assertPersonaToolScope,
 } from './personas.js';
 import { findProviderDefinition } from './provider-registry.js';
+import { SUBAGENT_SETTINGS_LIMITS } from './subagent-settings.js';
 
 /** Fixed, safe remediation at the authenticated child-resume boundary. */
 const ADMITTED_CHILD_FAILURES = {
@@ -71,7 +71,7 @@ const personaShape = {
 };
 export const admittedPersonaConfigurationSchema = z.strictObject({
   execution: childExecutionConfigurationSchema.optional(),
-  maxSteps: z.number().int().min(1).max(DELEGATION_LIMITS.maxChildSteps),
+  maxSteps: z.number().int().min(1).max(SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max),
   persona: z.strictObject(personaShape),
 });
 

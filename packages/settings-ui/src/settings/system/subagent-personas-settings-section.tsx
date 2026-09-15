@@ -10,6 +10,7 @@
  * Web has no bridge and shows an honest desktop-only note instead.
  */
 
+import { useAssistantSubagentPreferencesStore } from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
 import {
   subagentPersonasSelectors,
   useSubagentPersonasStore,
@@ -64,10 +65,11 @@ function displayToolId(toolId: string): string {
  * guess.
  */
 function PersonaScopeLine({ item }: { readonly item: AssistantPersonaListItem }) {
+  const settings = useAssistantSubagentPreferencesStore((state) => state.settings);
   if (item.mode === undefined || item.maxSteps === undefined || item.allowedToolIds === undefined) {
     return null;
   }
-  const steps = effectiveChildStepBudget({ maxSteps: item.maxSteps });
+  const steps = effectiveChildStepBudget({ maxSteps: item.maxSteps }, settings);
   const allTools = item.allowedToolIds.includes('*');
   const listed = item.allowedToolIds.slice(0, MAX_LISTED_TOOLS).map(displayToolId).join(', ');
   const remaining = item.allowedToolIds.length - MAX_LISTED_TOOLS;
@@ -95,6 +97,7 @@ function PersonaScopeLine({ item }: { readonly item: AssistantPersonaListItem })
  * (a mocked-constant test pins this).
  */
 function DelegationLimits() {
+  const settings = useAssistantSubagentPreferencesStore((state) => state.settings);
   return (
     <div className="space-y-1" data-testid="subagent-delegation-limits">
       <p className="font-medium text-sm">Limits on every turn</p>
@@ -102,11 +105,12 @@ function DelegationLimits() {
         Subagents can delegate to other subagents up to {DELEGATION_LIMITS.maxDepth} levels deep,
         with at most {DELEGATION_LIMITS.maxInvocations} delegations per turn and{' '}
         {DELEGATION_LIMITS.maxConcurrentWork} subagents working at once. No subagent may exceed{' '}
-        {DELEGATION_LIMITS.maxChildSteps} steps, whatever its persona declares. Each subagent may
-        produce up to {LIMIT_NUMBER_FORMAT.format(DELEGATION_LIMITS.maxChildOutputTokens)} output
-        tokens; {LIMIT_NUMBER_FORMAT.format(DELEGATION_LIMITS.maxTreeOutputTokens)} output tokens is
-        the ceiling for all subagents in one turn. Personas cannot raise these limits; the host
-        enforces them.
+        {settings.maxChildSteps} steps, whatever its persona declares (Settings → Models →
+        Subagents). Each subagent may produce up to{' '}
+        {LIMIT_NUMBER_FORMAT.format(settings.maxChildOutputTokens)} output tokens;{' '}
+        {LIMIT_NUMBER_FORMAT.format(DELEGATION_LIMITS.maxTreeOutputTokens)} output tokens is the
+        ceiling for all subagents in one turn. Personas cannot raise these limits; the host enforces
+        them.
       </p>
     </div>
   );
