@@ -256,9 +256,14 @@ function startLeg(params: {
     delegationToolPersonas: new Map<string, string>(),
     personasById: new Map<string, { label: string }>(),
   } as unknown as MastraAgentRuntime;
+  // Only the inputs these rows exercise are built here. The capture belongs to
+  // a path this spec does not drive, so it is passed explicitly absent rather
+  // than cast away: a future required parameter must fail this file's type
+  // check instead of being absorbed by the argument's own parameter type.
   const leg = createBackgroundResumeStream({
     attachParent: async () => {},
     channel: params.channel,
+    delegationOutcomes: undefined,
     memory: {} as MastraMemory,
     options: {
       ...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
