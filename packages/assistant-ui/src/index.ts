@@ -1,4 +1,5 @@
 export { TooltipIconButton, type TooltipIconButtonProps } from '@brainstrike/ui';
+export type { ApprovalOwnerThread } from './approval-owner-thread-context';
 export {
   AssistantConversationPanel,
   type AssistantConversationPanelProps,
@@ -77,11 +78,8 @@ export {
   resetFollowUpQueueStore,
   useFollowUpQueueStore,
 } from './follow-up-queue-store';
-export {
-  LiveDecisionProvider,
-  type LiveDecisionTransport,
-  useLiveDecisionTransport,
-} from './live-decision-context';
+export { LiveDecisionProvider } from './live-decision-context';
+export { type LiveDecisionTransport, useLiveDecisionTransport } from './live-decision-transport';
 export { hasDesktopLlmHost } from './local-runtime-adapter';
 export {
   McpTaskBridgeProvider,

@@ -13,7 +13,7 @@ import {
   useDelegatedNoticeContext,
 } from './approval-notice-status';
 import { submitDecisionOrQueue } from './decision-dispatch';
-import { useLiveDecisionTransport } from './live-decision-context';
+import { useLiveDecisionTransport } from './live-decision-transport';
 import {
   type RediscoveredPauseDisplay,
   readRediscoveredPauseDisplay,

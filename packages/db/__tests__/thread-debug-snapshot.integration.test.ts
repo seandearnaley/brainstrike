@@ -138,4 +138,97 @@ describe('thread debug snapshot', () => {
       'root-artifact',
     ]);
   });
+
+  it('retains swarm diagnostics, joining a child first step to its subtree through the invocation', async () => {
+    // Runtime shapes (debug-pack plan, Task 4 deviations): a child-first-step
+    // row is named by the DISPATCHING thread, and `native_run_id` /
+    // `parent_tool_call_id` are the invocation's `parent_runtime_run_id` /
+    // `parent_tool_call_id`. All three tables hang off the ROOT host run.
+    await db.exec(`INSERT INTO brainstrike_delegated_invocations
+      (owner_resource_id, root_thread_id, thread_id, host_run_id, turn_message_id, parent_runtime_run_id, parent_tool_call_id, persona_id, child_runtime_run_id)
+      VALUES ('owner', 'root', 'child', 'root-run', 'message-1', 'native-root', 'delegate-call', 'worker', 'native-child'),
+        ('owner', 'root', 'leaf', 'root-run', 'message-1', 'native-child', 'nested-call', 'worker', 'native-leaf');
+      INSERT INTO brainstrike_assistant_prompt_manifests
+        (id, host_run_id, thread_id, kind, native_run_id, parent_tool_call_id, persona_id, provider, model,
+         system_context_source, system_messages, persona_instructions, delegation_prompt, tool_names, total_chars, created_at)
+      VALUES
+        ('pm-root', 'root-run', 'root', 'root-leg', NULL, NULL, NULL, 'openai', 'test-model', 'captured',
+          '[{"role":"system","content":"You are Brainstrike."}]', NULL, NULL, '["brainstrike.grepSearch"]', 20, '2026-09-15T00:00:01Z'),
+        ('pm-child', 'root-run', 'root', 'child-first-step', 'native-root', 'delegate-call', 'worker', NULL, NULL, 'root-leg',
+          '[]', 'You are the worker.', 'Survey the repo', '["brainstrike.grepSearch"]', 34, '2026-09-15T00:00:02Z'),
+        ('pm-leaf', 'root-run', 'child', 'child-first-step', 'native-child', 'nested-call', 'worker', NULL, NULL, 'root-leg',
+          '[]', 'You are the worker.', 'Read one file', '[]', 32, '2026-09-15T00:00:03Z'),
+        ('pm-continuation', 'root-run', 'child', 'continuation', NULL, NULL, 'worker', NULL, NULL, 'none',
+          '[]', NULL, 'Keep going', '["brainstrike.grepSearch"]', 10, '2026-09-15T00:00:04Z'),
+        ('pm-child-reentry', 'root-run', 'root', 'child-first-step', 'native-root', 'delegate-call', 'worker', NULL, NULL, 'root-leg',
+          '[]', 'You are the worker.', 'Survey the repo', '["brainstrike.grepSearch"]', 34, '2026-09-15T00:00:05Z'),
+        ('pm-other', 'other-run', 'other', 'root-leg', NULL, NULL, NULL, 'openai', 'test-model', 'captured',
+          '[]', NULL, NULL, '[]', 0, '2026-09-15T00:00:06Z'),
+        ('pm-foreign', 'other-run', 'other', 'child-first-step', 'native-root', 'delegate-call', 'worker', NULL, NULL, 'root-leg',
+          '[]', 'You are the worker.', 'Same dispatch address under another root', '[]', 26, '2026-09-15T00:00:07Z');
+      INSERT INTO brainstrike_delegated_wakeups (id, host_run_id, root_thread_id, kind, directive, invocations)
+      VALUES ('wk', 'root-run', 'root', 'idle-loop', 'Background invocation delegate-call (agent-worker) has returned.',
+        '[{"taskId":"t1","toolCallId":"delegate-call","toolName":"agent-worker","outcome":"completed"}]');
+      INSERT INTO brainstrike_delegated_live_decisions
+        (id, host_run_id, root_thread_id, task_id, tool_call_id, delegation_tool_call_id, tool_name, kind, decision,
+         source, outcome, answered_sibling_task_ids, policy_snapshot)
+      VALUES ('ld', 'root-run', 'root', 't1', 'delegate-call', 'write-call', 'brainstrike.writeWorkspaceFile', 'approval',
+        'approve', 'user', 'delivered', '["t2"]', '{"yolo":false}');`);
+    const ids = (rows: Record<string, unknown>[] | undefined): unknown[] | undefined =>
+      rows?.map((row) => row['id']);
+
+    const root = await readThreadDebugSnapshot(db, 'root');
+    expect(ids(root.sections['promptManifests'])).toEqual([
+      'pm-root',
+      'pm-child',
+      'pm-leaf',
+      'pm-continuation',
+      'pm-child-reentry',
+    ]);
+    expect(root.sections['promptManifests']?.[0]).toMatchObject({
+      system_messages: [{ content: 'You are Brainstrike.', role: 'system' }],
+      tool_names: ['brainstrike.grepSearch'],
+    });
+    expect(root.sections['wakeups']).toEqual([
+      expect.objectContaining({
+        directive: 'Background invocation delegate-call (agent-worker) has returned.',
+        invocations: [
+          {
+            outcome: 'completed',
+            taskId: 't1',
+            toolCallId: 'delegate-call',
+            toolName: 'agent-worker',
+          },
+        ],
+        kind: 'idle-loop',
+      }),
+    ]);
+    expect(root.sections['liveDecisions']).toEqual([
+      expect.objectContaining({
+        answered_sibling_task_ids: ['t2'],
+        decision: 'approve',
+        delegation_tool_call_id: 'write-call',
+        outcome: 'delivered',
+        policy_snapshot: { yolo: false },
+      }),
+    ]);
+    expect(JSON.stringify(root)).not.toContain('pm-other');
+
+    // The child's own first step is named by the root (dispatching) thread, so
+    // only the invocation join brings it into the child's pack.
+    const child = await readThreadDebugSnapshot(db, 'child');
+    expect(ids(child.sections['promptManifests'])).toEqual([
+      'pm-child',
+      'pm-leaf',
+      'pm-continuation',
+      'pm-child-reentry',
+    ]);
+    // The invocation join is scoped to the manifest's own root: the same
+    // dispatch address recorded under another root never joins in.
+    expect(JSON.stringify(child)).not.toContain('pm-foreign');
+    expect(child.sections['wakeups']).toEqual([]);
+    expect(child.sections['liveDecisions']).toEqual([]);
+    const leaf = await readThreadDebugSnapshot(db, 'leaf');
+    expect(ids(leaf.sections['promptManifests'])).toEqual(['pm-leaf']);
+  });
 });

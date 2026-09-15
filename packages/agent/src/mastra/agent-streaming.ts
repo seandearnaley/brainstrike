@@ -150,6 +150,7 @@ import {
   makeFinishChunk,
   makeLifecycleStepMetadata,
   makePendingToolOutputRunEventChunks,
+  makeStepFinishedMetadata,
   makeTerminalRunEvent,
   makeToolLifecycleRunEventChunk,
   mapDelegationToolOutput,
@@ -586,7 +587,7 @@ export async function processMastraStreamPart(
         'run.step.finished',
         'completed',
         'Generation step completed',
-        makeLifecycleStepMetadata(part, lifecycleState)
+        makeStepFinishedMetadata(part, lifecycleState)
       );
       if (lifecycleState.steering?.stopRequested()) {
         // NOTE: an OpenRouter run whose boundary step omitted its billed cost

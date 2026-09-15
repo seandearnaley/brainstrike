@@ -10,7 +10,8 @@ import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { ApprovalRanksProvider } from '../approval-presentation-context';
 import { ApprovalQueueStrip } from '../approval-queue-strip';
 import { resetFollowUpQueueStore } from '../follow-up-queue-store';
-import { LiveDecisionProvider, type LiveDecisionTransport } from '../live-decision-context';
+import { LiveDecisionProvider } from '../live-decision-context';
+import type { LiveDecisionTransport } from '../live-decision-transport';
 import {
   type ToolApprovalGrantHandlers,
   ToolApprovalGrantProvider,

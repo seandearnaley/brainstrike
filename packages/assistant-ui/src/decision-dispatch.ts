@@ -1,6 +1,6 @@
 import type { CreateAppendMessage } from '@assistant-ui/react';
 import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store';
-import type { LiveDecisionTransport } from './live-decision-context';
+import type { LiveDecisionTransport } from './live-decision-transport';
 
 export type DecisionDispatchOutcome = 'delivered' | 'queued' | 'sent';
 

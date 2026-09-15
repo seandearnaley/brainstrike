@@ -3,11 +3,8 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ActiveThreadKeyContext } from '../active-thread-key-context';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
-import {
-  ApprovalRanksProvider,
-  useApprovalRank,
-  usePendingApprovalsByCategory,
-} from '../approval-presentation-context';
+import { ApprovalRanksProvider } from '../approval-presentation-context';
+import { useApprovalRank, usePendingApprovalsByCategory } from '../approval-ranks-context';
 import {
   followUpQueueKey,
   resetFollowUpQueueStore,

@@ -184,6 +184,21 @@ describe('filterToolsByPermissionWithMetadata', () => {
     expect(result.tools).toBe(input);
     expect(result.askToolIds.size).toBe(0);
     expect(result.askTools.size).toBe(0);
+    expect(result.deniedTools.size).toBe(0);
+  });
+
+  it('records each omitted deny tool with its risk bucket (debug-pack gate evidence)', () => {
+    const result = filterToolsByPermissionWithMetadata(
+      { ...TOOLS },
+      snapshot({ policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' } }),
+      NAME_MAP,
+      noopLogger()
+    );
+
+    expect(result.tools).not.toHaveProperty('edit_tool');
+    expect([...result.deniedTools.entries()]).toEqual([
+      ['edit_tool', { originalName: 'edit_tool', riskCategory: 'edit' }],
+    ]);
   });
 
   it('does not mutate the input tool map (purity)', () => {

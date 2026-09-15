@@ -1140,6 +1140,19 @@ typed, non-terminating host saturation. Snapshot retries emit `run.database.retr
 stamp sanitized `metadata.databaseRetry`. Serial host ordering plus same-id upsert prevents duplication
 after late completion. Retries are logged; arbitrary, wedged, terminating, and exhausted failures remain typed.
 
+The delegated conversation host is built on that same run-critical handle in `mastra-memory.ts`.
+That covers `createDesktopDelegatedConversationHost`: scope reads, step budget, tool-action
+claims, swarm diagnostics and continuation admission. Only workspace snapshot capture keeps the
+owner handle.
+
+On the owner handle, the host's queries skipped the scheduler and reached a DB host held by an 82 s
+maintenance statement. Two children failed on the 30 s request timeout (live GLM run 22,
+2026-09-15). Its transactions use only `tx` inside the callback, and history capture runs after them,
+so the serial scheduler never waits on itself.
+
+Paired: `delegated-host-run-lane.test.ts`. A held lane defers the host's scope read; the owner
+handle fails it.
+
 **`duration_ms` is an INTEGER column, and durations are rounded at the
 PRODUCER.** The guard wrapper measures tool execution with `performance.now()`,
 whose deltas are fractional; forwarding the raw float made every stamped
@@ -1406,6 +1419,69 @@ report the exhaustion to nobody. Paired: `run-events.test.ts`,
 cut returns a truncated summary the root can use"
 (`background-worker-policy.integration.spec.ts`). Contract:
 docs/agents/assistant-subagents.md ("Child budgets are USER SETTINGS").
+
+### PERMISSION GATE RESOLVED KIND AND PER-STEP FINISH REASON (2026-09-15)
+
+`permission.gate.resolved` is an additive `ASSISTANT_RUN_EVENT_KINDS` member:
+the permission gate a leg's Agent was BUILT with. It is emitted ONCE per fresh
+root leg on the stream prelude beside `mcp.tools.unavailable`
+(`makePermissionGateResolvedChunks` in `permission-gate-run-events.ts`, prelude
+in `attempt-legs.ts`), and only when a policy snapshot gated the run:
+`MastraAgentRuntime.permissionGate` is a REQUIRED `PermissionGateSummary | null`,
+where null means no policy. Resume legs pass `preludeChunks: []` and persona
+children re-gate inside `buildPersonaSubAgents`, so neither emits one.
+
+Metadata: `policies`, `grantedCategories` (the snapshot's session grants),
+`yolo`, `defaultRisk` (null when unset), `overrideCount`, `askTools` (the KEPT
+ask set the live gate suspends), `deniedTools`, and `omittedAskTools` (ask tools
+the storage fail-safe dropped because nothing could resume an approval). No key
+may contain `session`: `sanitizeAssistantRunEventMetadata` drops such keys at
+publication and at storage. Status `'completed'`, never `'running'`
+(`NEVER_RUNNING`). Deliberately NOT in `isAlwaysVisibleRunEvent`: it explains why
+an approval card appeared, and the card is the user-facing surface. Paired:
+`permission-gate-run-events.spec.ts` (shape, detail, sanitizer survival),
+`permission-gate-prelude.spec.ts` (real runtime assembly: gated turn,
+storage-less omission, no policy), `permission-tool-gate.spec.ts` (denied
+tools), `run-events.test.ts` and `assistant-run-timeline.test.tsx`.
+
+`run.step.finished` metadata carries the step's own `finishReason`
+(`readFinishReason` over Mastra's `payload.stepResult.reason`), so a
+`length`-cut step is visible without waiting for the terminal event. It is added
+at the `run.step.finished` mint (`makeStepFinishedMetadata`), NOT in
+`makeStepMetadata`: that helper also feeds `run.started`, `run.step.started`,
+`run.steered`, the steered `run.finished` and the stream-termination rows, and a
+steered `run.finished` must not report the step's `tool-calls` while its finish
+chunk reports `stop`. The reader's no-value sentinel `'absent'` is never
+written. Paired: `step-metadata-finish-reason.spec.ts` and
+`step-finish-reason-run-events.spec.ts` (including the steered turn).
+
+### SWARM DIAGNOSTICS TABLES (migration 139)
+
+`brainstrike_assistant_prompt_manifests`, `brainstrike_delegated_wakeups` and
+`brainstrike_delegated_live_decisions` are append-only debug-pack evidence. The
+runtime never reads them and they are never runtime authority. The desktop host
+writes them through `DelegatedConversationBinding.recordPromptManifest`,
+`recordWakeup` and `recordLiveDecision` (`delegated-conversation-host.ts` over
+`swarm-diagnostics-records.ts`); `createLiveDecisionLog` records the
+`/assistant/decide` outcomes only the endpoint sees. Writers cap text
+(`PROMPT_MANIFEST_LIMITS`, `WAKEUP_DIRECTIVE_MAX_CHARS`) and key-redact every
+jsonb value with `redactSensitiveLogValue` before insert; the pack scrubs value
+shapes at export. The host logs a failed or run-missing write with a code
+(`swarm_diagnostic_record_failed`, `swarm_diagnostic_record_run_missing`,
+`live_decision_log_failed`, `live_decision_log_run_missing`) and resolves, so a
+database failure never fails the leg: the same policy as run-event persistence.
+
+All three reference the ROOT host run with `ON DELETE CASCADE`. A
+`child-first-step` manifest is named by the DISPATCHING thread, and its
+`native_run_id` / `parent_tool_call_id` equal the invocation's
+`parent_runtime_run_id` / `parent_tool_call_id`; `thread-debug-snapshot.ts` joins
+it into a child's subtree through that invocation.
+`brainstrike_delegated_continuations` remains the HUMAN wake-admission ledger:
+never write a model wakeup into it. Storage, reset and deletion ownership:
+docs/agents/database.md ("Swarm diagnostics evidence"). Paired:
+`swarm-diagnostics-records.integration.test.ts`,
+`delegated-conversation-host.integration.test.ts`, `live-decision-log.test.ts`,
+`thread-debug-snapshot.integration.test.ts` and `thread-debug-pack.test.ts`.
 
 ### Threads-panel active-run projection (BST-1244)
 

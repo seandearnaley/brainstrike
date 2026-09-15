@@ -50,6 +50,7 @@ import {
 import { armLiveDecisions } from './live-decisions';
 import { createMastraAgentError, isMastraAgentError, MastraAgentError } from './mastra-agent-error';
 import { makeMcpDiscoverySkipChunks } from './mcp-discovery-diagnostics';
+import { makePermissionGateResolvedChunks } from './permission-gate-run-events';
 import { computePromptBreakdown } from './prompt-breakdown';
 import { buildStreamOptions } from './runtime-assembly/stream-options';
 import { createDelegationOutcomeCapture } from './subagent-delegation';
@@ -104,8 +105,12 @@ export async function createStreamIteratorFromRuntime(
     // BST-1602: a run whose MCP server contributed nothing says so. This is the
     // FRESH-TURN seam, which is exactly the scope the rows want — the resume
     // legs call `runTurnAttempts` directly, rebuild the runtime, re-run
-    // discovery, and still emit nothing.
-    preludeChunks: makeMcpDiscoverySkipChunks(runtime.mcpDiscoverySkips),
+    // discovery, and still emit nothing. The resolved permission gate (debug
+    // pack, 2026-09-15) rides the same seam for the same reason: once per leg.
+    preludeChunks: [
+      ...makeMcpDiscoverySkipChunks(runtime.mcpDiscoverySkips),
+      ...makePermissionGateResolvedChunks(runtime.permissionGate),
+    ],
     runtime,
     runtimeData,
   });

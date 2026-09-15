@@ -120,6 +120,13 @@ describe('ASSISTANT_RUN_EVENT_KINDS', () => {
       'delegation.budget.started'
     );
   });
+
+  it('declares the resolved permission gate kind OUTSIDE the `.started` namespace (2026-09-15)', () => {
+    // Emitted once per fresh leg, after the gate has already decided: nothing
+    // is in flight, so there is no terminal to pair against.
+    const kinds = ASSISTANT_RUN_EVENT_KINDS.filter((kind) => kind.startsWith('permission.'));
+    expect(kinds).toEqual(['permission.gate.resolved']);
+  });
 });
 
 describe('boundRunEventReason', () => {
