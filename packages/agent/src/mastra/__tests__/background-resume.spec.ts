@@ -399,8 +399,8 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
   }, 2000);
 
   it('the pause branch still joins a resumed executor whose host join outlives its suspension', async () => {
-    // A terminal settles the join only for an executor that never started;
-    // a started one is joined through its own settle (after the host join).
+    // Only a running executor parks, so a suspension never settles the join:
+    // the executor that parked settles it, after its host join.
     const hostJoin = Promise.withResolvers<void>();
     const native = createNativeManager();
     const { ended } = startLeg({

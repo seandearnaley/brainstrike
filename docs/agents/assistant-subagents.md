@@ -2218,13 +2218,22 @@ RESUMED EXECUTORS (BST-1749 review of #3197): a resume leg registers every
 executor it resumes (`registerResumedExecutor`, awaited) BEFORE it asks Mastra
 to resume any task. Mastra looks the executor up only when its workflow runs
 the task, so a resume issued first raced that lookup ("No executor
-registered"). A registration failure fails the leg before any native effect.
+registered"). A registration failure fails the leg before any task is resumed,
+and every context the leg registered but Mastra never accepted — a registration
+or resume that failed part-way through the leg's tasks, or an abort before its
+resumes — is deregistered when the leg ends (Mastra 1.64 throws from `resume`
+only before it publishes `task.resume`, so a refusal dispatched nothing).
 The leg's pause branch joins each resumed execution (`Promise.all(settled)`),
-and a join exists only for a task Mastra accepted: a refused `manager.resume`
-deregisters that task's context and joins nothing, and a task whose terminal
-arrives before its executor ever started (cancelled before it ran) settles its
-join on that terminal. Before, either case hung the leg forever. Paired:
-`background-resume.spec.ts` ("executor registration").
+and a join exists only for a task Mastra accepted. A join settles when its
+executor settles, or when Mastra publishes a terminal that ends the task:
+completed, failed and timed-out follow the execution, and a cancel precedes it
+(Mastra joins the aborted execution itself under its 5s grace, as this leg's
+`manager.shutdown()` does — an in-flight `execute` returns only if the tool
+honours the abort signal). A SUSPENSION never settles a join: only a running
+executor parks, so the executor that parked is still joined after its host
+join. Before, a refused resume, a cancel before the executor ran and a cancel
+while it ran each hung the leg forever. Paired: `background-resume.spec.ts`
+("executor registration").
 KNOWN LIMITS: the root's OWN foreground pause (e.g. a canvas write) while
 children still run is not live-deliverable — it queues behind the leg (404);
 a queued decision whose pause was cancelled by a root Stop dispatches and
@@ -2237,7 +2246,9 @@ final ledger row, because `createTerminalWait` closes before it resolves and
 `reserve` refuses a closed wait. Before, a decision reserved during that ledger
 read joined the ended wait and failed the leg ("Background resume ended before
 every terminal task state."). Paired: `background-resume.spec.ts` ("terminal
-wait"). OPEN (foreground children only, i.e. web): a sibling that has not
+wait").
+
+OPEN (foreground children only, i.e. web): a sibling that has not
 yet paused when the parent run suspends on the first child's approval is not
 surfaced live — Mastra closes the parent stream at that suspension; its pause
 appears on reload through rediscovery. Seen in the desktop scenario before the
