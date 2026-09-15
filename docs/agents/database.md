@@ -280,8 +280,8 @@ Both desktop maintenance schedulers now share `maintenance-admission.ts`:
   legitimately long. Boot evidence is PROOF of death — no worker or stream survives its process,
   so a row stamped before this boot has no owner left. (Neither table carries an `updated_at` /
   `"updatedAt"` heartbeat either, so there is no cheap liveness signal to bound age against.)
-  The background sweep runs LAST, after the native-decision repair, so a failure there cannot
-  skip it. Reaping supersedes no retry path and never reruns a crashed task; assistant-persistence.md
+  The background sweep runs after the native-decision repair, so a failure in the sweep cannot
+  skip that repair (pinned). Its position last in the function is intent, not a pinned claim. Reaping supersedes no retry path and never reruns a crashed task; assistant-persistence.md
   (the reaper paragraph) is canonical for that rule and names the test that pins it.
 - A malformed read throws; it never reads as idle.
 - A task suspended on the user does not block. Its decision resumes it as a new run.

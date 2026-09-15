@@ -345,12 +345,16 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
   });
 
   /**
-   * PR #3206 review (C): the background-task sweep runs LAST, after the
+   * PR #3206 review (C): the background-task sweep runs AFTER the
    * native-decision repair that predates it. That repair is what stops a dead
    * leg from owning native resume admission, and it used to run unconditionally
    * — so a background-task statement that throws (an absent relation, a lock,
    * anything) must not be able to skip it. The reap is one fire-and-forget
    * caller with no transaction, so ORDER is the whole guarantee.
+   *
+   * What this case pins is exactly that: all three repairs completed before the
+   * sweep raised. It does NOT pin "the sweep is last in the function" — since
+   * the sweep throws here, nothing could follow it in any ordering.
    */
   it('repairs native decisions BEFORE sweeping background tasks, so a failing sweep cannot skip the repair', async () => {
     const db = await makeFixtureDb('reaper-statement-order');
@@ -384,8 +388,9 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
       continuations: 2,
       ranDecisionRepair: true,
     });
-    // LAST, not merely "after": the sweep threw here, so it is by construction
-    // the final recorded statement. A repair appended below it would fail this.
+    // Nothing ran after the sweep raised. This is trivially true here BECAUSE
+    // it raised, so it does not pin "the sweep is last in source" — what this
+    // case pins is the useful half: all three repairs completed first.
     expect(backgroundTasks).toBe(statements.length - 1);
   });
 

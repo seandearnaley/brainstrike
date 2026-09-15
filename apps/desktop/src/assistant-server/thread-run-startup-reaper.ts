@@ -38,9 +38,10 @@
  *
  * WHAT IT DOES NOT DO:
  * - It never reaps an UNKNOWN status. `hasInFlightThreadRun` deliberately
- *   treats any non-terminal status as in flight; the reaper matching only
- *   the literal `'running'` keeps that posture — a future status this module
- *   does not understand stays refused, never silently "recovered".
+ *   treats any non-terminal status as in flight; the reaper matching only the
+ *   literals `'running'` and `'cancelling'` keeps that posture — a future
+ *   status this module does not understand stays refused, never silently
+ *   "recovered".
  * - It never creates the table. MIGRATION 118 owns the runs schema (revised
  *   ruling, docs/agents/assistant-persistence.md § RUN-EVENT / THREAD-RUN
  *   SCHEMA OWNERSHIP, 2026-09-05); main may only UPDATE. It no longer probes
@@ -69,9 +70,10 @@ export interface ThreadRunReapReport {
 }
 
 /**
- * Mark every provably-dead `running` row `failed` and every provably-dead
- * `pending`/`running` background task `failed` — see the module doc comment
- * for the evidence rule. Returns what it changed; the CALLER owns visible
+ * Finalize every provably-dead run row (`running` becomes `failed`, and a
+ * `cancelling` leg becomes `cancelled`, retaining its cancellation authority)
+ * and fail every provably-dead `pending`/`running` background task — see the
+ * module doc comment for the evidence rule. Returns what it changed; the CALLER owns visible
  * reporting (main.ts logs the reaped ids and any failure under its own step
  * name). Throws only on a genuine database failure.
  */
