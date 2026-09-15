@@ -1214,15 +1214,19 @@ propagates it:
   inside that thread's next run, while unpreemptable maintenance admission
   reads these rows across every thread (database.md, maintenance admission).
   Reaping supersedes no retry path, and a crashed task is never rerun: the
-  host pins background retries to 0. `createTask` pins them through
-  `pinHostRetryPolicy`
-  (`packages/agent/src/pglite-mastra-memory/background-store.ts:221,343-357`),
-  `updateTask` rejects any other value (same file, `:240-241`), and the
-  runtime default is `defaultRetries: { maxRetries: 0 }`
-  (`packages/agent/src/mastra/agent-runtime.ts:540`). A row with
-  `max_retries > 0` cannot exist, so never add a `retry_count < max_retries`
-  carve-out to the reap.
-  Paired test: `thread-run-startup-reaper.integration.test.ts`.
+  host pins background retries to 0 — `createTask` pins a model-requested
+  count down, and `updateTask` refuses to re-arm one on an existing row. Both
+  halves are pinned by `pglite-background-store.integration.spec.ts` ("limits
+  native manager recovery and every task operation to its conversation
+  owner"); cite that test rather than line numbers, which rot silently. No
+  host write path can produce `max_retries > 0`, so never add a
+  `retry_count < max_retries` carve-out to the reap. This paragraph is the
+  canonical statement of that rule; database.md's maintenance admission
+  section points here.
+  Paired test: `thread-run-startup-reaper.integration.test.ts`, whose cases
+  also pin the statement ORDER (the native-decision repair runs before the
+  background sweep, so a failing sweep can never skip it) and the clock-skew
+  margin from both sides.
 
 Neither carve-out is a regression introduced alongside this ruling, and neither
 is currently worth runtime machinery — but they are why the provenance invariant

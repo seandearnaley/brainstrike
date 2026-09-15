@@ -263,20 +263,22 @@ Both desktop maintenance schedulers now share `maintenance-admission.ts`:
 - Inside the background lane, immediately before the statement, `readInFlightAssistantWork` runs.
   Any `brainstrike_assistant_thread_runs` row in `running`/`cancelling`, or `mastra_background_tasks`
   row in `pending`/`running`, skips the pass with reason `assistant-work-in-flight`. The skip is
-  logged at info.
+  logged at info, so a pass held off by a stuck row is visible — boot reconciliation clears the
+  crash-stranded rows, but a genuinely stuck LIVE row still exists, and info is why it is visible.
 - The gate reads those rows across every thread, so boot reconciliation is part of this contract.
   A crash leaves them in flight with no process to finish them. The desktop startup reaper
   (`reapOrphanedThreadRuns`, assistant-persistence.md) fails pre-boot `running` runs, cancels
-  pre-boot `cancelling` runs, and fails pre-boot `pending`/`running` background tasks with a
+  pre-boot `cancelling` runs (`assistant-thread-run-reaper.ts` writes
+  `CASE WHEN status = 'cancelling' THEN 'cancelled'`, pinned by the reaper suite's "retains
+  cancellation authority" case), and fails pre-boot `pending`/`running` background tasks with a
   visible orphan error. Mastra's own stale-task recovery cannot stand in for it: it runs only
   when a later run of the SAME thread builds its thread-scoped manager, so an orphan in a thread
   the user never revisits would hold both statements off for the database's lifetime. The reap is
   fire-and-forget; losing the race to a scheduler's first pass costs one skipped pass. Never
   swap it for an age bound: run rows carry no heartbeat and task rows have no `updated_at`.
-  Reaping supersedes no retry path, and a crashed task is never rerun: the host pins background
-  retries to 0 (`packages/agent/src/pglite-mastra-memory/background-store.ts:221,240-241,343-357`;
-  runtime default at `packages/agent/src/mastra/agent-runtime.ts:540`). Never add a
-  `retry_count < max_retries` carve-out to the reap.
+  The background sweep runs LAST, after the native-decision repair, so a failure there cannot
+  skip it. Reaping supersedes no retry path and never reruns a crashed task; assistant-persistence.md
+  (the reaper paragraph) is canonical for that rule and names the test that pins it.
 - A malformed read throws; it never reads as idle.
 - A task suspended on the user does not block. Its decision resumes it as a new run.
 
