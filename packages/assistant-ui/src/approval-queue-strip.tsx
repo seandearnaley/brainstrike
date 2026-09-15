@@ -7,16 +7,16 @@ import { createLogger } from '@brainstrike/logging';
 import { Timer } from 'lucide-react';
 import { use, useState } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
-import { useAnsweredApprovals } from './answered-approvals-index';
+import { useAnsweredApprovals } from './answered-approvals-context';
 import { buildApprovalDecisionMessage } from './approval-decision-message';
 import {
   RISK_CATEGORY_GRANT_NOUN,
   RISK_CATEGORY_GRANT_NOUN_SINGULAR,
 } from './approval-notice-status';
 import type { ApprovalCategoryKey } from './approval-presentation';
-import { usePendingApprovalsByCategory } from './approval-presentation-context';
+import { usePendingApprovalsByCategory } from './approval-ranks-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
-import { useLiveDecisionTransport } from './live-decision-context';
+import { useLiveDecisionTransport } from './live-decision-transport';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
 
 const logger = createLogger('ApprovalQueueStrip');

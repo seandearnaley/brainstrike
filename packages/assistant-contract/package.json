@@ -176,6 +176,11 @@
       "import": "./dist/secrets-bridge.js",
       "require": "./dist/secrets-bridge.js"
     },
+    "./subagent-settings": {
+      "types": "./dist/subagent-settings.d.ts",
+      "import": "./dist/subagent-settings.js",
+      "require": "./dist/subagent-settings.js"
+    },
     "./skills-bridge": {
       "types": "./dist/skills-bridge.d.ts",
       "import": "./dist/skills-bridge.js",

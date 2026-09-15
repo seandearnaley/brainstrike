@@ -22,10 +22,14 @@ function readPauseNotice(chunk: StreamChunk | ConversationStreamChunk): PauseNot
  * A foreground child's pause suspends the parent run on the delegation call,
  * so Mastra emits a parent-level pause that `decorate()` addresses to the leaf
  * and the root card follows for free. A BACKGROUND child's pause parks a task
- * and suspends nothing in the parent, so the only trace of it in the root
- * stream was the child envelope, which renders in the child view alone. Four
- * specialists parked on reads, the root thread showed no card, and the user
- * approved five stray canvas prompts instead (thread-b629776b, 2026-09-14).
+ * and suspends nothing in the parent run. Mastra does emit a parent-level
+ * pause on the dispatching turn while that turn is still open, but that copy
+ * is not the call's delivery and `projectBackgroundStream` drops it (ONE
+ * DELIVERY PER BACKGROUND CALL, settled 2026-09-15), so the only trace of the
+ * decision in the root stream is the child envelope, which renders in the
+ * child view alone. Four specialists parked on reads, the root thread showed
+ * no card, and the user approved five stray canvas prompts instead
+ * (thread-b629776b, 2026-09-14).
  *
  * At the leg's publish seam the withheld notices hold both shapes, so the rule
  * is mode-agnostic: for every child-scoped notice whose leaf identity has no

@@ -251,6 +251,37 @@ logged with reason `database-scheduler-recently-busy` and simply retry on the
 next interval — never widen this gate to "idle right now" for a statement whose
 duration is unbounded.
 
+**Unpreemptable maintenance never starts while assistant work is in flight (2026-09-15).**
+Sustained scheduler quiet cannot see a run waiting on its model. In live GLM run 22,
+`createDesktopDimensionIndexMaintenanceScheduler` still sampled idle once, and it started an 82 s HNSW
+`CREATE INDEX` 24 s into a four-child fan-out, during a gap between run-scoped queries. Every
+run-scoped query behind the build hit the 30 s DB host request timeout, and two children failed.
+Both desktop maintenance schedulers now share `maintenance-admission.ts`:
+
+- The BST-1333 sustained-quiet window applies to both. The HNSW scheduler REQUIRES the snapshot
+  subscription; there is no single-sample mode.
+- Inside the background lane, immediately before the statement, `readInFlightAssistantWork` runs.
+  Any `brainstrike_assistant_thread_runs` row in `running`/`cancelling`, or `mastra_background_tasks`
+  row in `pending`/`running`, skips the pass with reason `assistant-work-in-flight`. The skip is
+  logged at info, so a pass held off by a stuck row is visible.
+- A malformed read throws; it never reads as idle.
+- A task suspended on the user does not block. Its decision resumes it as a new run.
+
+The work scheduler is serial, so run-scoped work submitted after that read queues behind the
+statement rather than racing it. One window stays open: a run started while a statement is
+already running. The host cannot preempt the statement, so that run WAITS in the scheduler.
+Run-scoped work must therefore be on the scheduler, so it waits instead of timing out at the host
+(assistant-persistence.md, run-critical lane).
+
+Paired:
+- `dimension-index-maintenance-scheduler.test.ts` ("admission")
+- `database-maintenance-scheduler.test.ts` ("assistant work admission")
+- `maintenance-admission.test.ts` (malformed reads)
+- `maintenance-admission.integration.test.ts` (statuses against migrated tables)
+
+Removing the in-flight skip, the quiet gate, the busy seed at start, or the subscription each
+fails its own rows.
+
 **Corruption found by maintenance recovers the database; the app never keeps
 running on it.** A maintenance pass that fails with a corruption-class error
 (`isCorruptionError`, the same rule as `db:query`) enters runtime corruption
@@ -1486,3 +1517,29 @@ which has no continuation row. Failed concurrent claims roll back the decision
 insert together with the receipt transition. Existing receipts survive upgrade
 and replay unchanged; the existing continuation table reset/delete ownership
 covers both indexes without another persistent store.
+
+### Swarm diagnostics evidence (migration 139)
+
+`custom-139-swarm-diagnostics` adds `brainstrike_assistant_prompt_manifests`,
+`brainstrike_delegated_wakeups` and `brainstrike_delegated_live_decisions`:
+append-only debug-pack evidence written by the desktop host, never runtime
+authority. Each references `brainstrike_assistant_thread_runs` (the ROOT host
+run) with `ON DELETE CASCADE`, and host runs cascade from `mastra_threads`, so all
+three sit in `RESET_EXCLUDED_TABLES` with that reason and need no clear-path
+entry; `reset-table-coverage.integration.test.ts` fails if one is missing.
+Prompt manifests are also in `THREAD_DELETE_SIDECAR_TABLES` by `thread_id`. A
+`child-first-step` row is named by the thread that DISPATCHED it (the child
+thread does not exist yet when the start hook runs), so deleting a delegated
+branch removes the follow-up and nested-dispatch manifests named by that branch
+but not the child's own first-step row, which goes with its dispatching thread or
+with the root host run. `CHECK` constraints bound every kind, source and outcome
+vocabulary. `thread-debug-snapshot.ts` exports all three with explicit column
+allowlists: wakeups and live decisions through their host run's thread in the
+selected subtree; prompt manifests by `thread_id` in the subtree or, for a
+child-first-step row, through the invocation whose `parent_runtime_run_id` /
+`parent_tool_call_id` equal its `native_run_id` / `parent_tool_call_id` under the
+same root. Paired: `migration-139-swarm-diagnostics.integration.test.ts` (DDL,
+cascade, kind check, replay and rollback),
+`thread-debug-snapshot.integration.test.ts` (runtime-shaped rows, the child and
+grandchild joins, a foreign-root address) and
+`reset-table-coverage.integration.test.ts`.

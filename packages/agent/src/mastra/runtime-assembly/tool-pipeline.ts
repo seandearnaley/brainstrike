@@ -55,6 +55,7 @@ import {
 import type { McpDiscoverySkip } from '../mcp-discovery-diagnostics';
 import { createMcpRuntimeClient, type McpRuntimeClient } from '../mcp-runtime-client';
 import { collectCombinedTools } from '../mcp-tool-loader';
+import { type PermissionGateSummary, summarizePermissionGate } from '../permission-gate-run-events';
 import {
   filterToolsByPermissionWithMetadata,
   type PermissionAskToolMetadata,
@@ -166,6 +167,7 @@ function resolveGatedToolMap(params: GatedToolMapParams): {
   readonly approvalGate: RuntimeApprovalGate;
   readonly gatedTools: ToolsInput;
   readonly askTools: ResolvedAskTools['askTools'];
+  readonly permissionGate: PermissionGateSummary | null;
 } {
   const planFilteredTools = params.planModeActive
     ? filterToolsForPlanMode(
@@ -209,7 +211,15 @@ function resolveGatedToolMap(params: GatedToolMapParams): {
     params.toolNameMap,
     logger
   );
-  return { approvalGate, askTools, gatedTools };
+  // Debug-pack evidence of the gate this Agent is built with: the KEPT ask set
+  // (what the live gate suspends), denials, and any storage fail-safe omissions.
+  const permissionGate = summarizePermissionGate({
+    deniedTools: gateResult.deniedTools,
+    gatedAskTools: gateResult.askTools,
+    keptAskTools: askTools,
+    snapshot: params.permissionSnapshot,
+  });
+  return { approvalGate, askTools, gatedTools, permissionGate };
 }
 
 /**
@@ -497,6 +507,11 @@ export interface RuntimeToolMapResult {
    * a materially reduced tool surface and the user is owed that fact.
    */
   mcpDiscoverySkips: readonly McpDiscoverySkip[];
+  /**
+   * The resolved permission gate, minted as `permission.gate.resolved` on the
+   * fresh-turn prelude. Null when no policy snapshot gated this run.
+   */
+  permissionGate: PermissionGateSummary | null;
   resilienceConfig: AssistantResilienceConfig;
   sanitizedLocalToolIds: ReadonlySet<string>;
   /** Apply the same settlement policy to an independently gated child tool map. */
@@ -608,7 +623,7 @@ export async function composeRuntimeToolMap(
   // askUser) and omit every edit/execute tool, BEFORE the permission gate (a
   // dropped mutation tool is dropped regardless of allow/ask/deny). The risk map
   // is the authoritative static registry classification (never client-supplied).
-  const { approvalGate, gatedTools, askTools } = resolveGatedToolMap({
+  const { approvalGate, gatedTools, askTools, permissionGate } = resolveGatedToolMap({
     hasStorage: params.hasStorage,
     hookedTools,
     permissionSnapshot: params.permissionSnapshot,
@@ -662,6 +677,7 @@ export async function composeRuntimeToolMap(
     mcpAppToolAdmission,
     mcpClient,
     mcpDiscoverySkips,
+    permissionGate,
     resilienceConfig,
     sanitizedLocalToolIds,
     // Children select a strict subset of these sanitized IDs; they never rename

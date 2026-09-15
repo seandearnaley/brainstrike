@@ -64,6 +64,7 @@ it.each([
           insights={{
             status: 'ready',
             value: {
+              budget: null,
               configuration: {
                 maxSteps: 8,
                 persona: {
@@ -118,6 +119,7 @@ it('surfaces provider discovery failure beside the child composer', () => {
         insights={{
           status: 'ready',
           value: {
+            budget: null,
             configuration: { maxSteps: 8, persona },
             depth: 1,
             directUsage: null,

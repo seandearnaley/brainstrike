@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createLateBackgroundResultsProcessor,
   LateBackgroundResultsProcessor,
+  recordLateOverlayWakeup,
 } from '../late-background-results-processor';
 
 type Prompt = ProcessLLMRequestArgs['prompt'];
@@ -103,5 +104,42 @@ describe('LateBackgroundResultsProcessor', () => {
     expect(() => new LateBackgroundResultsProcessor([task({ status: 'running' })])).toThrow(
       'unfinished'
     );
+  });
+});
+
+describe('recordLateOverlayWakeup', () => {
+  it('records one late-overlay wakeup naming every late task, and nothing when none returned late', async () => {
+    const wakeups: unknown[] = [];
+    const runtime = {
+      conversationBinding: {
+        recordWakeup: async (record: unknown) => {
+          wakeups.push(record);
+        },
+      },
+    } as never;
+    await recordLateOverlayWakeup(runtime, [
+      task({ id: 't1', result: { text: 'done' } }),
+      task({
+        error: { message: 'boom' },
+        id: 't2',
+        status: 'failed',
+        toolCallId: 'delegate-2',
+        toolName: 'agent-analyze',
+      }),
+    ]);
+    expect(wakeups).toEqual([
+      {
+        directive:
+          'Late background results overlaid at the provider boundary: dispatch acknowledgements replaced by saved outcomes. No model-facing wakeup text was sent.',
+        invocations: [
+          { outcome: 'late', taskId: 't1', toolCallId: 'delegate-1', toolName: 'agent-explore' },
+          { outcome: 'late', taskId: 't2', toolCallId: 'delegate-2', toolName: 'agent-analyze' },
+        ],
+        kind: 'late-overlay',
+      },
+    ]);
+    // MUTATION: dropping the empty guard records a row for a resume with nothing late.
+    await recordLateOverlayWakeup(runtime, []);
+    expect(wakeups).toHaveLength(1);
   });
 });

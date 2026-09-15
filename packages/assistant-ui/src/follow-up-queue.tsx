@@ -28,10 +28,10 @@ import { useAui, useAuiState } from '@assistant-ui/react';
 import { createLogger } from '@brainstrike/logging';
 import { ListPlusIcon, Redo2Icon, XIcon } from 'lucide-react';
 import { use, useEffect, useRef } from 'react';
-import { useAnsweredApprovals } from './answered-approvals-index';
+import { useAnsweredApprovals } from './answered-approvals-context';
 import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
 import {
-  type FollowUpQueueItem,
+  dequeueDispatchable,
   followUpQueueKey,
   useFollowUpQueueStore,
 } from './follow-up-queue-store';
@@ -122,31 +122,6 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
       follow.scrollToBottom();
     }
   }, [answered, aui, follow, isHistoryLoading, isRunning, ownsQueue, queueKey, queueLength]);
-}
-
-/**
- * Dequeue the next item that still needs sending. A queued DECISION whose
- * pause the host has meanwhile answered (a session grant on a sibling card
- * answered it by policy; `answered-approvals-index.tsx`) is dropped with a
- * log line instead of dispatched: sending it would resume a consumed
- * decision and fail the run visibly for nothing (2026-09-14 multi-approval
- * audit). Typed follow-ups carry no identity and are never dropped.
- */
-export function dequeueDispatchable(
-  queueKey: string,
-  answered: ReadonlyMap<string, unknown>
-): FollowUpQueueItem | undefined {
-  const store = useFollowUpQueueStore.getState();
-  let item = store.dequeue(queueKey);
-  while (item?.identityKey !== undefined && answered.has(item.identityKey)) {
-    logger.info('Dropped a queued decision the host already answered', {
-      code: 'follow_up_queue_decision_answered',
-      identityKey: item.identityKey,
-      text: item.text,
-    });
-    item = store.dequeue(queueKey);
-  }
-  return item;
 }
 
 /** Render-nothing leaf owning the run-end dispatch subscription. */

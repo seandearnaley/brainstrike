@@ -2,6 +2,7 @@ import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import {
   SUBAGENT_NO_ANSWER_OUTCOME,
   SUBAGENT_REJECTED_OUTCOME,
+  SUBAGENT_TRUNCATED_OUTCOME,
 } from '@brainstrike/assistant-contract/personas';
 import { extractPrimaryArg } from './tool-summaries';
 
@@ -46,7 +47,8 @@ export function readSubAgentToolRows(result: unknown): SubAgentToolRow[] {
 /** How a delegation ended, beyond what the tool-call status can express. */
 export type SubagentDelegationOutcome =
   | typeof SUBAGENT_NO_ANSWER_OUTCOME
-  | typeof SUBAGENT_REJECTED_OUTCOME;
+  | typeof SUBAGENT_REJECTED_OUTCOME
+  | typeof SUBAGENT_TRUNCATED_OUTCOME;
 
 /**
  * This delegation's terminal outcome, when it is one the tool-call status
@@ -76,6 +78,9 @@ export function readSubagentDelegationOutcome(
     }
     if (metadata['outcome'] === SUBAGENT_REJECTED_OUTCOME) {
       return SUBAGENT_REJECTED_OUTCOME;
+    }
+    if (metadata['outcome'] === SUBAGENT_TRUNCATED_OUTCOME) {
+      return SUBAGENT_TRUNCATED_OUTCOME;
     }
   }
   return;

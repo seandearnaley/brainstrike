@@ -279,6 +279,7 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
     manager,
     maxIdleMs: runtime.backgroundIdleMs,
     options,
+    recordWakeup: runtime.conversationBinding?.recordWakeup,
     scope,
   });
 }

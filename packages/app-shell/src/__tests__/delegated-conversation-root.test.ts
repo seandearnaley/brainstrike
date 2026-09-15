@@ -22,7 +22,7 @@ describe('owning root registration', () => {
     root.onRuntimeReady({
       thread: {
         append,
-        getState: () => ({ isRunning, threadId: 'root' }),
+        getState: () => ({ isRunning, messages: [], threadId: 'root' }),
         subscribe: (listener: () => void) => {
           listeners.add(listener);
           return () => listeners.delete(listener);
@@ -99,7 +99,7 @@ describe('owning root registration', () => {
       root.onRuntimeReady({
         thread: {
           append: () => result.promise,
-          getState: () => ({ isRunning: false, threadId: 'root' }),
+          getState: () => ({ isRunning: false, messages: [], threadId: 'root' }),
           subscribe: () => cleanup,
         },
       });
@@ -134,7 +134,7 @@ describe('owning root registration', () => {
       root.onRuntimeReady({
         thread: {
           append,
-          getState: () => ({ isRunning: false, threadId: 'root' }),
+          getState: () => ({ isRunning: false, messages: [], threadId: 'root' }),
           subscribe: () => cleanup,
         },
       });
@@ -162,7 +162,13 @@ describe('owning root registration', () => {
     };
     root.onDelegatedConversation({ ...snapshot, continuation });
     const append = vi.fn();
-    root.onRuntimeReady({ thread: { append, getState: () => ({ threadId: 'root' }) } });
+    root.onRuntimeReady({
+      thread: {
+        append,
+        getState: () => ({ messages: [], threadId: 'root' }),
+        subscribe: () => () => undefined,
+      },
+    });
     const action = {
       action: 'approve',
       continuationId: 'input-1',
@@ -214,7 +220,13 @@ describe('owning root registration', () => {
     root.onDelegatedConversation({ ...snapshot, continuation });
     const append = vi.fn();
     let isRunning = true;
-    root.onRuntimeReady({ thread: { append, getState: () => ({ isRunning, threadId: 'root' }) } });
+    root.onRuntimeReady({
+      thread: {
+        append,
+        getState: () => ({ isRunning, messages: [], threadId: 'root' }),
+        subscribe: () => () => undefined,
+      },
+    });
     const action = {
       action: 'approve',
       continuationId: 'input-1',
@@ -303,7 +315,13 @@ describe('owning root registration', () => {
     expect(resolve).not.toHaveBeenCalled();
     const append = vi.fn();
     let threadId = 'registered-root';
-    const dispose = root.onRuntimeReady({ thread: { append, getState: () => ({ threadId }) } });
+    const dispose = root.onRuntimeReady({
+      thread: {
+        append,
+        getState: () => ({ messages: [], threadId }),
+        subscribe: () => () => undefined,
+      },
+    });
     await root.sendDecision('child', message, resolve);
     expect(resolve).toHaveBeenCalledTimes(1);
     expect(append).toHaveBeenCalledTimes(1);
@@ -332,10 +350,18 @@ describe('owning root registration', () => {
     // The adapter consumes the bound thread identity and append; the actual runtime is
     // exercised by the shared panel and runtime-publication tests.
     const disposeOld = root.onRuntimeReady({
-      thread: { append: oldAppend, getState: () => ({ threadId: 'old-root' }) },
+      thread: {
+        append: oldAppend,
+        getState: () => ({ messages: [], threadId: 'old-root' }),
+        subscribe: () => () => undefined,
+      },
     });
     const dispose = root.onRuntimeReady({
-      thread: { append, getState: () => ({ threadId: 'root' }) },
+      thread: {
+        append,
+        getState: () => ({ messages: [], threadId: 'root' }),
+        subscribe: () => () => undefined,
+      },
     });
     disposeOld();
     const action = {
@@ -363,5 +389,37 @@ describe('owning root registration', () => {
     await expect(root.sendDecision('child', message)).rejects.toThrow('owning conversation');
     expect(append).toHaveBeenCalledTimes(1);
     expect(root.store.getConversation('child')?.update).toBe(update);
+  });
+
+  it('publishes the registered owning thread to child views and retires it only with that registration', () => {
+    // A child view reads the root's host answers from this thread
+    // (`ApprovalOwnerThreadContext`); the host answers a child's approval on
+    // the root leg only.
+    const root = createDelegatedConversationRoot('root');
+    const thread = (threadId: string) => ({
+      append: vi.fn(),
+      getState: () => ({ isRunning: false, messages: [], threadId }),
+      subscribe: () => () => undefined,
+    });
+    const notified = vi.fn();
+    const unsubscribe = root.subscribeOwner(notified);
+    expect(root.getOwnerThread()).toBeUndefined();
+    const old = thread('old-root');
+    const disposeOld = root.onRuntimeReady({ thread: old });
+    expect(root.getOwnerThread()).toBe(old);
+    expect(notified).toHaveBeenCalledTimes(1);
+    const current = thread('root');
+    const dispose = root.onRuntimeReady({ thread: current });
+    expect(root.getOwnerThread()).toBe(current);
+    expect(notified).toHaveBeenCalledTimes(2);
+    disposeOld();
+    expect(root.getOwnerThread()).toBe(current);
+    expect(notified).toHaveBeenCalledTimes(2);
+    dispose();
+    expect(root.getOwnerThread()).toBeUndefined();
+    expect(notified).toHaveBeenCalledTimes(3);
+    unsubscribe();
+    root.onRuntimeReady({ thread: thread('root') });
+    expect(notified).toHaveBeenCalledTimes(3);
   });
 });

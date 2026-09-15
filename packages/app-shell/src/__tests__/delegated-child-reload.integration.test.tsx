@@ -6,7 +6,11 @@ import { useThreadWorkspaceCoordinator } from '../thread-workspace/use-thread-wo
 import { useThreadSearchTitles } from '../use-thread-search-titles';
 import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 import '@testing-library/jest-dom/vitest';
-import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  TOOL_APPROVAL_ANSWERED_DATA_NAME,
+  TOOL_APPROVAL_DATA_NAME,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
+} from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
 import {
   createPgliteAssistantThreadRepository,
@@ -90,12 +94,21 @@ function DatabaseReady({ readiness }: { readiness: { resolve: () => void } }) {
   return null;
 }
 
+type RootThreadMessages = ReturnType<
+  Parameters<DelegatedConversationRoot['onRuntimeReady']>[0]['thread']['getState']
+>['messages'];
+let rootMessages: RootThreadMessages = [];
+
 function OwningRoot() {
   const root = useDelegatedConversationRoot('owner', rootThreadId);
   useEffect(() => {
     activeRoot = root;
     return root?.onRuntimeReady({
-      thread: { append, getState: () => ({ threadId: rootThreadId }) },
+      thread: {
+        append,
+        getState: () => ({ isRunning: false, messages: rootMessages, threadId: rootThreadId }),
+        subscribe: () => () => undefined,
+      },
     });
   }, [root]);
   return null;
@@ -587,14 +600,18 @@ describe('child view after renderer restart', () => {
       'href',
       'https://example.com/evidence.txt'
     );
+    // A durable decision is answered, so it renders as a collapsed row
+    // (SWARM-AWARE PRESENTATION). Its recovery status is readable before the
+    // row opens; the locked buttons live in the row's expanded body.
     expect(screen.getByTestId('delegated-decision-recovery-status')).toHaveTextContent(
       'Decision interrupted. Processing stopped and the outcome is unknown.'
     );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /show approval details/i }));
     const approve = screen.getByRole('button', { name: 'Approve workspace.writeFile' });
     const decline = screen.getByRole('button', { name: 'Decline workspace.writeFile' });
     expect(approve).toBeDisabled();
     expect(decline).toBeDisabled();
-    const user = userEvent.setup();
     await user.click(approve);
     await user.click(decline);
     expect(append).not.toHaveBeenCalled();
@@ -678,4 +695,79 @@ describe('child view after renderer restart', () => {
       expect(fetch).toHaveBeenCalledTimes(1);
     }
   );
+
+  it('shows a child approval its owning root already answered as the answered row in the live child view', async () => {
+    // Live GLM fan-out (2026-09-15): "Allow reads this session" answered every
+    // parked read on the ROOT leg, yet each child tab kept a "Pending" card
+    // with live buttons — the answer never streams into the child's own leg.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
+    );
+    const delegation = { path: [identity], toolCallId: 'leaf-read' };
+    const childNotice = {
+      args: { path: 'README.md' },
+      delegation,
+      riskCategory: 'read',
+      runId: identity.childRuntimeRunId,
+      toolCallId: 'leaf-read',
+      toolName: 'brainstrike.readWorkspaceFile',
+    };
+    const rootEdge = { runId: identity.parentRuntimeRunId, toolCallId: identity.parentToolCallId };
+    rootMessages = [
+      {
+        content: [
+          { data: { ...childNotice, ...rootEdge }, name: TOOL_APPROVAL_DATA_NAME, type: 'data' },
+          {
+            data: {
+              decision: 'approve',
+              delegation,
+              reason: 'session-grant',
+              ...rootEdge,
+              toolName: 'brainstrike.readWorkspaceFile',
+            },
+            name: TOOL_APPROVAL_ANSWERED_DATA_NAME,
+            type: 'data',
+          },
+        ],
+        createdAt: new Date('2026-09-15T00:00:00.000Z'),
+        id: 'root-turn',
+        metadata: {
+          custom: {},
+          steps: [],
+          unstable_annotations: [],
+          unstable_data: [],
+          unstable_state: null,
+        },
+        role: 'assistant',
+        status: { type: 'running' },
+      },
+    ];
+    onTestFinished(() => {
+      rootMessages = [];
+    });
+    workspace.rerender(
+      <WorkspaceProviders>
+        <DelegatedConversationRootsProvider>
+          <OwningRoot />
+          <ChildView db={database as DbHandle} node={node} />
+        </DelegatedConversationRootsProvider>
+      </WorkspaceProviders>
+    );
+    expect(await screen.findByText('Persisted native child transcript.')).toBeVisible();
+    const update = delegatedUpdate(node.threadId, 'answered-leg', 'Reading the README.');
+    update.message.parts.push({ data: childNotice, name: TOOL_APPROVAL_DATA_NAME, type: 'data' });
+    act(() => {
+      activeRoot?.onDelegatedConversation({ ...update, identity });
+    });
+    const notice = await screen.findByTestId('assistant-tool-approval-notice');
+    expect(notice).toHaveAttribute('data-approval-presentation', 'row');
+    expect(within(notice).getByTestId('approval-row-status')).toHaveTextContent(
+      'Allowed by session grant'
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Approve brainstrike.readWorkspaceFile' })
+    ).not.toBeInTheDocument();
+    expect(append).not.toHaveBeenCalled();
+  });
 });

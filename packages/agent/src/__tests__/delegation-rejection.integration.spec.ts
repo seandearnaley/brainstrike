@@ -106,7 +106,7 @@ it.for([
         reserveStep: async (_scope: { threadId: string; resourceId: string }) => ({
           id: `reservation-${identities.length}`,
           outputTokens: 8192,
-          synthesis: false,
+          synthesis: false as const,
         }),
         settleStep: async (_id: string, _outputTokens: number | undefined) => undefined,
       },

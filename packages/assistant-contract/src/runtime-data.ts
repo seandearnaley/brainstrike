@@ -8,6 +8,7 @@ import {
 import type { AssistantTaskItem } from './assistant-task-list.js';
 import type { RuntimeAssistantMemorySettings } from './memory-settings.js';
 import type { SkillsContextRequest } from './skills.js';
+import type { RuntimeSubagentSettings } from './subagent-settings.js';
 
 export type RuntimeJsonObject = Record<string, unknown>;
 
@@ -421,6 +422,14 @@ export interface RuntimeData {
    * inject personas or credentials. Absent => delegation on, nothing disabled.
    */
   subagentPersonasRequest?: SubagentPersonasAvailabilityRequest;
+  /**
+   * Renderer-supplied per-child delegation budgets (Settings → Models →
+   * Subagents, `assistant-subagent-preferences.v1`). A preference the host
+   * VALIDATES (`parseRuntimeSubagentSettings`: absent → defaults, malformed
+   * → throws) and copies into the original turn's durable budget row at first
+   * admission; it can never exceed `DELEGATION_LIMITS` tree ceilings.
+   */
+  subagentSettings?: RuntimeSubagentSettings;
   /**
    * The current per-thread assistant task list, read server-side at request
    * start and re-serialized into the system instructions every turn (see the

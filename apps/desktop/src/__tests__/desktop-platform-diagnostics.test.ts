@@ -99,6 +99,19 @@ describe('desktop platform diagnostics', () => {
       rendererReloadAttemptCount: 0,
       suppressedRendererReloadCount: 0,
     };
+    const processCounters = {
+      installedAt: '2026-05-20T17:59:00.000Z',
+      samples: [
+        {
+          at: '2026-05-20T18:00:30.000Z',
+          backgroundTasks: { pending: 1, running: 2, suspended: 0 },
+          heapUsedKb: 1024,
+          rssKb: 4096,
+          wasm: { compile: 0, failures: 0, instance: 3, instantiate: 3, memory: 3 },
+          wasmRecentFailures: [],
+        },
+      ],
+    };
     const runtimeMetrics = [
       {
         cpuPercent: '1.0',
@@ -177,6 +190,7 @@ describe('desktop platform diagnostics', () => {
       },
       llmHost: { getPlatformStatus: vi.fn(() => llmHostStatus) },
       logging: { getState: vi.fn(() => loggingState) },
+      processCounters: { getSnapshot: vi.fn(() => processCounters) },
       reset: {
         getSnapshot: vi.fn(() => ({
           lastCompletedAt: null,
@@ -219,6 +233,7 @@ describe('desktop platform diagnostics', () => {
       telemetry: {
         backgroundRuntimeMetrics: runtimeMetrics,
         embedding: embeddingTelemetry,
+        processCounters,
       },
     });
     expect(snapshot.errors).toEqual({});
@@ -264,6 +279,14 @@ describe('desktop platform diagnostics', () => {
           throw new Error('logging unavailable');
         }),
       },
+      mainLog: {
+        readWindow: vi.fn(() => Promise.reject(new Error('main log unavailable'))),
+      },
+      processCounters: {
+        getSnapshot: vi.fn(() => {
+          throw new Error('process counters unavailable');
+        }),
+      },
       reset: {
         getSnapshot: vi.fn(() => {
           throw new Error('reset unavailable');
@@ -285,9 +308,11 @@ describe('desktop platform diagnostics', () => {
       embeddingTelemetry: 'embedding telemetry unavailable',
       llmHost: 'llm unavailable',
       logging: 'logging unavailable',
+      processCounters: 'process counters unavailable',
       reset: 'reset unavailable',
       telemetry: 'telemetry unavailable',
     });
+    expect(snapshot.telemetry.processCounters).toEqual({ installedAt: null, samples: [] });
     expect(snapshot.databaseScheduler).toBeNull();
     expect(snapshot.indexing.activeBackfills).toEqual([]);
     expect(snapshot.indexing.dimensionIndexMaintenance).toEqual({

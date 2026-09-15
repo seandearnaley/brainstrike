@@ -411,6 +411,10 @@ export function buildStreamOptions(
       ? {
           delegation: createDelegationConfig({
             abortSignal,
+            childPromptFacts: {
+              byPersonaId: runtime.childPromptFacts,
+              dispatchingAgentId: runtime.agent.id,
+            },
             workQueue: runtime.delegatedExecutionOptions?.workQueue,
             ...(runtime.conversationBinding
               ? { conversationBinding: runtime.conversationBinding }
@@ -419,6 +423,8 @@ export function buildStreamOptions(
             logger,
             onChildUsage: delegationUsage.onChildUsage,
             personasById: runtime.personasById,
+            subagentSettings: runtime.subagentSettings,
+            synthesisOutcomes: runtime.delegatedExecutionOptions?.synthesisOutcomes,
             turnPersistence: runtime.delegatedTurnPersistence,
           }),
         }

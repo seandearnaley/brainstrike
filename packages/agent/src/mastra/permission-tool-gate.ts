@@ -121,6 +121,14 @@ export interface PermissionAskToolMetadata {
   riskCategory: ToolRiskCategory;
 }
 
+/** Per-tool risk metadata recorded for a `'deny'` tool the gate omitted. */
+export interface PermissionDeniedToolMetadata {
+  /** The original (pre-sanitization) tool name, for logging/diagnostics. */
+  originalName: string;
+  /** The risk bucket that resolved to `'deny'`. */
+  riskCategory: ToolRiskCategory;
+}
+
 /**
  * Resolve an `'ask'` tool's risk metadata by EITHER name form: the sanitized
  * registered id (the map key — Mastra's approval parts carry it today) or the
@@ -163,6 +171,11 @@ export interface FilterToolsByPermissionResult<TMap extends Record<string, unkno
   askToolIds: ReadonlySet<string>;
   /** Sanitized id → risk metadata for each `'ask'`-gated tool kept in the map. */
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
+  /**
+   * Sanitized id → risk metadata for each `'deny'` tool OMITTED from the map.
+   * Evidence only (`permission.gate.resolved`); nothing gates on it.
+   */
+  deniedTools: ReadonlyMap<string, PermissionDeniedToolMetadata>;
   /** The gated tool map (deny tools omitted; allow + ask tools kept). */
   tools: TMap;
 }
@@ -202,7 +215,12 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
 ): FilterToolsByPermissionResult<TMap> {
   // Production-unchanged path: no policy threaded → no filtering, no approval.
   if (!snapshot) {
-    return { askToolIds: new Set<string>(), askTools: new Map(), tools: guardedTools };
+    return {
+      askToolIds: new Set<string>(),
+      askTools: new Map(),
+      deniedTools: new Map(),
+      tools: guardedTools,
+    };
   }
 
   // The resolver expects a ReadonlySet; the serializable snapshot carries an
@@ -214,6 +232,7 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
   const filtered: Record<string, unknown> = {};
   const askToolIds = new Set<string>();
   const askTools = new Map<string, PermissionAskToolMetadata>();
+  const deniedTools = new Map<string, PermissionDeniedToolMetadata>();
   for (const [sanitizedId, tool] of Object.entries(guardedTools)) {
     // Propagates InvalidPermissionPolicyError on a malformed policy/override.
     const { decision, originalName, riskCategory } = resolveToolGateDecision(
@@ -224,6 +243,7 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
     );
 
     if (decision === 'deny') {
+      deniedTools.set(sanitizedId, { originalName, riskCategory });
       logger.info('Tool omitted by permission policy (deny)', {
         code: 'permission_tool_gate_deny',
         riskCategory,
@@ -258,7 +278,7 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
     }
   }
 
-  return { askToolIds, askTools, tools: filtered as TMap };
+  return { askToolIds, askTools, deniedTools, tools: filtered as TMap };
 }
 
 /**

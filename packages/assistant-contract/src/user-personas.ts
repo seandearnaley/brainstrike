@@ -36,11 +36,13 @@ export const MAX_USER_PERSONAS = 50;
 /**
  * Hard ceiling a user persona's maxSteps may declare.
  *
- * The built-ins sit AT this ceiling rather than below it, deliberately: a user
- * persona must be able to replicate what the shipped Explorer does, and a
- * built-in budget above the user ceiling would make that impossible.
+ * No built-in sits ABOVE this ceiling, deliberately: a user persona must be
+ * able to replicate what the shipped Explorer does (32 declared steps since
+ * 2026-09-15), and a built-in budget above the user ceiling would make that
+ * impossible. The host still caps every child at the user's `maxChildSteps`
+ * setting (`effectiveChildStepBudget`).
  */
-export const MAX_USER_PERSONA_MAX_STEPS = 16;
+export const MAX_USER_PERSONA_MAX_STEPS = 32;
 
 /** maxSteps applied when the frontmatter omits it. */
 export const DEFAULT_USER_PERSONA_MAX_STEPS = 8;

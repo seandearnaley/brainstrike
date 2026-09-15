@@ -7,6 +7,7 @@ import { describeDelegationChain } from './approval-notice-status';
 import { approvalDepth } from './approval-presentation';
 import { ApprovalRails } from './approval-rails';
 import { delegationColourIndex } from './delegation-colour';
+import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 import { extractPrimaryArg } from './tool-summaries';
 import type { ApprovalNoticeState } from './use-approval-notice-state';
 
@@ -26,6 +27,10 @@ function requestedAction(toolName: string): string {
  * status chip · chevron, ≈ 28 px tall. Expanding it mounts the full card
  * (`ApprovalCard`, `presentation="embedded"`): locked for an answered
  * approval, actionable for a pending one waiting behind its category's card.
+ * A durable decision state's recovery status renders UNDER the collapsed
+ * line: it is safety information ("Processing stopped and the outcome is
+ * unknown…") and must be readable without opening the row, so the row owns
+ * it and the embedded card omits it.
  * Carries the shared notice test id so the live verifier and the reload e2e
  * keep counting every pause.
  */
@@ -41,6 +46,11 @@ export function ApprovalRow({ approval, state }: ApprovalRowProps) {
   const visible = target ? `${owner} ${action} ${target.display}` : `${owner} ${action}`;
   const affordance = expanded ? 'hide approval details' : 'show approval details';
   const style = { '--bs-approval-depth': approvalDepth(approval) } as CSSProperties;
+  // The row renders a durable decision's recovery status itself, so the
+  // embedded card receives a state without that display and never renders it
+  // a second time. Pending-since and stale lines still reach the card.
+  const embeddedState: ApprovalNoticeState =
+    state.rediscovered?.decisionState === undefined ? state : { ...state, rediscovered: null };
 
   return (
     <div
@@ -76,9 +86,14 @@ export function ApprovalRow({ approval, state }: ApprovalRowProps) {
         </span>
         <ChevronRight aria-hidden="true" className="bs-step-row-chevron bs-trace-glyph size-3.5" />
       </button>
+      {state.rediscovered?.decisionState === undefined ? null : (
+        <div className="bs-approval-row-recovery">
+          <RediscoveredPauseLines display={state.rediscovered} />
+        </div>
+      )}
       {expanded ? (
         <div className="bs-approval-row-body" id={bodyId}>
-          <ApprovalCard approval={approval} presentation="embedded" state={state} />
+          <ApprovalCard approval={approval} presentation="embedded" state={embeddedState} />
         </div>
       ) : null}
     </div>

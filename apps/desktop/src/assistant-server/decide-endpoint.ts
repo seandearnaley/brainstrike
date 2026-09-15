@@ -10,7 +10,9 @@ import { respondJson } from '@brainstrike/assistant-service/http';
 import { DelegatedConversationIdentityError } from '@brainstrike/db';
 import { deliverDesktopDelegatedDecision } from './delegated-execution-controls';
 import { readRequestBody } from './http';
+import type { LiveDecisionLog } from './live-decision-log';
 import { desktopAssistantServerLogger as logger } from './logger';
+import type { LiveDecisionRecord } from './swarm-diagnostics-records';
 
 /** Transport ceiling shared with approval/resume action identifiers. */
 const DECIDE_RUN_ID_MAX_CHARS = 512;
@@ -26,6 +28,35 @@ function reject(res: http.ServerResponse, message: string): void {
   respondJson(res, 400, { error: 'invalid_decide_action', message });
 }
 
+export interface DecideRequestDependencies {
+  /**
+   * The outcomes only this endpoint sees — no live run, a host refusal, a
+   * failed resume — recorded for the debug pack (swarm diagnostics, migration
+   * 139). A delivered decision is recorded by the running leg, which also sees
+   * its task and the parked siblings the request answered.
+   */
+  readonly recordLiveDecision: LiveDecisionLog;
+}
+
+function endpointDecisionRecord(
+  request: DelegatedDecisionRequest,
+  outcome: 'no-live-run' | 'refused' | 'failed',
+  reason?: string
+): LiveDecisionRecord {
+  const { action } = request;
+  return {
+    ...(isAssistantToolApprovalAction(action)
+      ? { decision: action.action, kind: 'approval' as const }
+      : { decision: 'resume' as const, kind: 'resume' as const }),
+    ...(action.delegation ? { delegationToolCallId: action.delegation.toolCallId } : {}),
+    outcome,
+    ...(request.permissionPolicy ? { policySnapshot: request.permissionPolicy } : {}),
+    ...(reason === undefined ? {} : { reason }),
+    source: 'user',
+    toolCallId: action.toolCallId,
+  };
+}
+
 /**
  * Live decision endpoint (settled 2026-09-14): POST /assistant/decide with
  * `{ runId, action, permissionPolicyRequest? }` delivers an approval or typed
@@ -37,11 +68,14 @@ function reject(res: http.ServerResponse, message: string): void {
  * leg owns that decision (the leg settled, or the decision is not a parked
  * background child) and the renderer takes the ordinary new-leg path; 409
  * means the host refused it (already answered, stale, unauthorized) and the
- * card must say so; a failed native resume is a 500 the card reports.
+ * card must say so; a failed native resume is a 500 the card reports. Each
+ * non-delivered outcome is recorded BEFORE the answer, so a debug pack taken
+ * on that answer holds the row.
  */
 export async function handleDecideRequest(
   req: http.IncomingMessage,
-  res: http.ServerResponse
+  res: http.ServerResponse,
+  deps: DecideRequestDependencies
 ): Promise<void> {
   let parsed: unknown;
   try {
@@ -93,6 +127,10 @@ export async function handleDecideRequest(
         runId,
         toolCallId: action.toolCallId,
       });
+      await deps.recordLiveDecision(
+        runId,
+        endpointDecisionRecord(request, 'refused', error.reason)
+      );
       respondJson(res, 409, {
         error: 'decision_refused',
         message: `The host refused this decision (${error.reason}).`,
@@ -101,6 +139,14 @@ export async function handleDecideRequest(
       return;
     }
     logger.error('Live decision failed', { error, runId, toolCallId: action.toolCallId });
+    await deps.recordLiveDecision(
+      runId,
+      endpointDecisionRecord(
+        request,
+        'failed',
+        error instanceof Error ? error.message : String(error)
+      )
+    );
     respondJson(res, 500, {
       error: 'decision_failed',
       message: 'The decision could not be applied to the running turn.',
@@ -108,6 +154,7 @@ export async function handleDecideRequest(
     return;
   }
   if (outcome === 'no-live-run') {
+    await deps.recordLiveDecision(runId, endpointDecisionRecord(request, 'no-live-run'));
     respondJson(res, 404, {
       error: 'no_live_run',
       message: 'No running turn owns that decision; it may have already settled.',

@@ -102,10 +102,19 @@ async function assertWorkerWrite(
       return { finalText: 'Worker workspace task' };
     }
     const history = JSON.stringify(messages);
+    // A background wakeup is a user message that quotes each invocation's prompt
+    // (the WAKEUP LEDGER). It is not this agent's task: matching it would read
+    // the root's wakeup as a worker. A child's own task still follows the
+    // root's forwarded user message, so the level markers are read across the
+    // remaining user messages.
     const task = JSON.stringify(
       messages.filter(
         (message) =>
-          message && typeof message === 'object' && 'role' in message && message.role === 'user'
+          message &&
+          typeof message === 'object' &&
+          'role' in message &&
+          message.role === 'user' &&
+          !JSON.stringify(message).includes('Background invocations of this turn')
       )
     );
     const level = task.includes('WORKER_LEVEL_3')

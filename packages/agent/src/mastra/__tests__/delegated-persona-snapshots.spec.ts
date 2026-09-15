@@ -1,4 +1,5 @@
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract';
+import { SUBAGENT_SETTINGS_LIMITS } from '@brainstrike/assistant-contract/subagent-settings';
 import { describe, expect, it, vi } from 'vitest';
 import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
 import {
@@ -43,7 +44,8 @@ describe('admitted persona restoration', () => {
   it.each([
     undefined,
     { maxSteps: 0, persona },
-    { maxSteps: 17, persona },
+    // One past the admitted ceiling, which is the settings ceiling (64), not a persona default.
+    { maxSteps: SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max + 1, persona },
     { maxSteps: 3, persona: { ...persona, id: 'sibling' } },
     { maxSteps: 3, persona: { ...persona, mode: 'administrator' } },
     { maxSteps: 3, persona: { ...persona, instructions: '' } },

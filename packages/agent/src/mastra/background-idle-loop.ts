@@ -7,6 +7,10 @@ import {
   createLedgerPublisher,
   describeBackgroundWakeup,
 } from './background-ledger';
+import type {
+  DelegatedWakeupInvocation,
+  DelegatedWakeupRecord,
+} from './delegated-conversation-binding';
 import {
   type LiveBackgroundOwner,
   type LiveDecisionChannel,
@@ -148,6 +152,42 @@ export function isParentWakeup(event: TaskEvent): boolean {
   return WAKING_TASK_EVENTS.has(event.type) && event.payload.suspendedAt === undefined;
 }
 
+/** The deferral a parked parent leg records: the model is sent nothing. */
+export const PARKED_PARENT_DEFERRED_DIRECTIVE =
+  'Parked parent leg closed; returned work waits in its history for the resumed leg. No model-facing wakeup text was sent.';
+
+const WAKEUP_OUTCOME_BY_EVENT: Readonly<
+  Record<string, Exclude<DelegatedWakeupInvocation['outcome'], 'deferred' | 'late'>>
+> = {
+  'background-task-cancelled': 'cancelled',
+  'background-task-completed': 'completed',
+  'background-task-failed': 'failed',
+};
+
+/**
+ * The durable counterpart of a parent wakeup (swarm diagnostics, migration
+ * 139): one entry per terminal event the wakeup answers — the directive
+ * itself is the ledger text. Only parent wakeups (`isParentWakeup`) reach
+ * this; a deferral passes `'deferred'` because the parent took no wakeup.
+ */
+export function describeWakeupInvocations(
+  events: readonly TaskEvent[],
+  deferred?: 'deferred'
+): DelegatedWakeupInvocation[] {
+  return events.map((event) => {
+    const outcome = deferred ?? WAKEUP_OUTCOME_BY_EVENT[event.type];
+    if (!outcome) {
+      throw new Error(`A ${event.type} event is not a parent wakeup.`);
+    }
+    return {
+      outcome,
+      taskId: readTaskId(event) ?? null,
+      toolCallId: String(event.payload.toolCallId),
+      toolName: typeof event.payload.toolName === 'string' ? event.payload.toolName : null,
+    };
+  });
+}
+
 /** The leg's own ephemeral context messages, kept ahead of the wakeup. */
 function readContextMessages(options: LegStreamOptions): readonly unknown[] {
   const context = (options as { context?: unknown }).context;
@@ -175,6 +215,12 @@ export interface BackgroundIdleLoopParams {
   readonly maxIdleMs?: number | undefined;
   /** The leg's own options; a continuation reuses them, as Mastra's loop does. */
   readonly options: LegStreamOptions;
+  /**
+   * Debug-pack evidence (migration 139), the binding's `recordWakeup`: every
+   * continuation's exact wakeup text is recorded before it streams, and a
+   * parked leg's deferral is joined before the leg closes.
+   */
+  readonly recordWakeup?: ((record: DelegatedWakeupRecord) => Promise<void>) | undefined;
   readonly scope: { readonly threadId: string; readonly resourceId: string };
 }
 
@@ -274,11 +320,47 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       close();
     }, maxIdleMs);
   };
+  /** Deferral records a parked leg makes before it closes; `settle` joins them. */
+  let recording = 0;
+  const recordDeferral = (deferred: readonly TaskEvent[]) => {
+    logger.info(
+      'Parked parent leg closes; returned work waits in its history for the resumed leg',
+      {
+        code: 'background_parked_parent_wakeups_deferred',
+        invocations: deferred.map(describeInvocation),
+      }
+    );
+    const record = params.recordWakeup;
+    if (!record) {
+      close();
+      return;
+    }
+    // Debug-pack evidence joined like a ledger row: the leg closes only once
+    // the deferral is durable. The binding resolves even when its write
+    // fails (it logs); a rejection breaks that contract and fails the leg,
+    // exactly as the awaited idle-loop record does.
+    recording += 1;
+    void record({
+      directive: PARKED_PARENT_DEFERRED_DIRECTIVE,
+      invocations: describeWakeupInvocations(deferred, 'deferred'),
+      kind: 'deferred',
+    }).then(
+      () => {
+        recording -= 1;
+        settle();
+      },
+      (error: unknown) => {
+        recording -= 1;
+        fail(error);
+      }
+    );
+  };
   const settle = () => {
     // An in-flight ledger read is joined before the leg can close: a leg
     // settling right after the last terminal would otherwise close before
     // the final "4 of 4" row was enqueued, and reload would show "3 of 4".
-    if (closed || processing || answering > 0 || publisher.inFlight > 0) {
+    // A parked leg's deferral record is joined the same way.
+    if (closed || processing || answering > 0 || publisher.inFlight > 0 || recording > 0) {
       return;
     }
     if (parked) {
@@ -287,13 +369,8 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
         return;
       }
       if (pending.length > 0) {
-        logger.info(
-          'Parked parent leg closes; returned work waits in its history for the resumed leg',
-          {
-            code: 'background_parked_parent_wakeups_deferred',
-            invocations: pending.map(describeInvocation),
-          }
-        );
+        recordDeferral(pending.splice(0, pending.length));
+        return;
       }
       close();
       return;
@@ -377,10 +454,18 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
         invocations: batch.map(describeInvocation),
         ...ledger.counts,
       });
+      const directive = describeBackgroundWakeup(ledger);
+      // Debug-pack evidence: the exact text the model is about to receive,
+      // durable BEFORE the continuation streams.
+      await params.recordWakeup?.({
+        directive,
+        invocations: describeWakeupInvocations(batch),
+        kind: 'idle-loop',
+      });
       const continuation = await params.agent.stream([], {
         ...params.options,
         _skipBgTaskWait: true,
-        context: [...priorContext, { content: describeBackgroundWakeup(ledger), role: 'user' }],
+        context: [...priorContext, { content: directive, role: 'user' }],
       } as AgentStreamOptions);
       await pipeTurn(continuation);
     } catch (error) {

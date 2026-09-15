@@ -14,7 +14,8 @@ import { AlertTriangle, Check, ChevronDown, ChevronUp, ShieldCheck, Timer, X } f
 import { type CSSProperties, useId, useMemo, useState } from 'react';
 import { RISK_CATEGORY_GRANT_NOUN } from './approval-notice-status';
 import { approvalDepth } from './approval-presentation';
-import { ApprovalPreview, resolveApprovalPreviewPolicy } from './approval-preview';
+import { ApprovalPreview } from './approval-preview';
+import { resolveApprovalPreviewPolicy } from './approval-preview-policy';
 import { ApprovalRails } from './approval-rails';
 import { delegationColourIndex } from './delegation-colour';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';

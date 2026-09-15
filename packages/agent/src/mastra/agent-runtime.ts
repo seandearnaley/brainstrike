@@ -1,5 +1,9 @@
 import type { McpHostPort } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import {
+  parseRuntimeSubagentSettings,
+  type RuntimeSubagentSettings,
+} from '@brainstrike/assistant-contract/subagent-settings';
 import { createLogger } from '@brainstrike/logging';
 import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
 import type { AgentBackgroundConfig, BackgroundTaskManager } from '@mastra/core/background-tasks';
@@ -68,6 +72,7 @@ import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error
 import type { McpAppToolAdmissionCapability } from './mcp-app-tool-call';
 import type { McpDiscoverySkip } from './mcp-discovery-diagnostics';
 import type { McpRuntimeClient } from './mcp-runtime-client';
+import type { PermissionGateSummary } from './permission-gate-run-events';
 import type { PermissionAskToolMetadata, PermissionToolGateSnapshot } from './permission-tool-gate';
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
 import type { ProjectionSafeToolCallFilter } from './projection-safe-tool-call-filter';
@@ -83,6 +88,7 @@ import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
+import type { ChildPromptFacts } from './subagent-delegation';
 import type { RunTokenDiagnostics } from './token-measurement';
 import type { ToolOutputArtifactSettlementStore } from './tool-output-artifact-settlement';
 import type { BrainstrikeToolSearchProcessor, ToolDiscoveryMetadata } from './tool-search-runtime';
@@ -234,6 +240,12 @@ export interface MastraAgentRuntime {
   backgroundTaskManager?: BackgroundTaskManager | undefined;
   /** Direct child legs retain the child's native default processors and admitted step cap. */
   childExecution?: { readonly maxSteps: number; readonly inputProcessors?: unknown[] };
+  /**
+   * Persona id → the exact instructions and kept tool names each child Agent of
+   * THIS runtime's persona build was constructed with (debug-pack prompt
+   * manifests). Describes only delegations dispatched by `agent`.
+   */
+  childPromptFacts: ReadonlyMap<string, ChildPromptFacts>;
   conversationBinding?: DelegatedConversationBinding | undefined;
   delegatedExecutionOptions?: DelegatedExecutionOptions;
   delegatedTurnPersistence?: DelegatedTurnPersistence | undefined;
@@ -282,6 +294,13 @@ export interface MastraAgentRuntime {
    * is a genuine explicit GLOBAL approval (gate every non-internal tool).
    */
   permissionEnforced: boolean;
+  /**
+   * The permission gate this runtime's Agent was built with, minted ONCE as
+   * `permission.gate.resolved` on the fresh-turn prelude (attempt-legs.ts).
+   * REQUIRED: null means no policy snapshot gated the run, which must stay
+   * distinguishable from a runtime that never computed it.
+   */
+  permissionGate: PermissionGateSummary | null;
   /** Persona id → definition for the registered delegation tools (delegation caps). */
   personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
   /**
@@ -294,10 +313,21 @@ export interface MastraAgentRuntime {
    * into this same run sink.
    */
   providerCallWarnings: ProviderCallWarningSink;
+  /**
+   * Original names of the tools `agent` registered after the plan-mode filter,
+   * the permission gate and the suspend-storage gate — the same set its
+   * instructions advertise (`effectiveToolNameMap`). Debug-pack evidence only.
+   */
+  registeredToolNames: readonly string[];
   resilienceConfig: AssistantResilienceConfig;
   /** Per-run budget shared by fresh producers and runtime projection guards. */
   resolvedToolResultBudget: ScaledToolResultBudget;
   rootDelegatedContextProcessor?: InputProcessor | undefined;
+  /**
+   * Validated request budgets (`runtimeData.subagentSettings`, absent →
+   * defaults); the delegation config clamps every child with them.
+   */
+  subagentSettings: RuntimeSubagentSettings;
   /** Bounded, content-free token measurements for this concrete run/tool map. */
   tokenDiagnostics: RunTokenDiagnostics;
   /** Content-free discovery surface metadata for traces, tests, and diagnostics. */
@@ -741,6 +771,7 @@ export async function createMastraAgentRuntime(
     mcpAppToolAdmission,
     mcpClient,
     mcpDiscoverySkips,
+    permissionGate,
     resilienceConfig,
     sanitizedLocalToolIds,
     settleChildToolOutputs,
@@ -815,10 +846,14 @@ export async function createMastraAgentRuntime(
 
   // Subagent personas (D10): built BEFORE the instructions so guidance only
   // names personas that actually registered a delegation tool this run.
+  // Validated ONCE per runtime; a malformed request field fails construction
+  // loudly rather than admitting a child under an unknown budget.
+  const subagentSettings = parseRuntimeSubagentSettings(sanitizedRuntime.subagentSettings);
   const delegatedExecutionOptions: DelegatedExecutionOptions = {};
   const delegatedTurnPersistence = createDelegatedTurnPersistence(memory, sanitizedRuntime.memory);
   const {
     artifactReaderDelegationTools,
+    childPromptFacts,
     delegationToolPersonas,
     hasSubAgents,
     instructionPersonaSummaries,
@@ -883,6 +918,7 @@ export async function createMastraAgentRuntime(
     }),
     rootMemoryContext: sanitizedRuntime.memory,
     settleChildToolOutputs,
+    subagentSettings,
     toolNameMap,
     // Persona agents get the same raw/model split. Their independent policy
     // gate clones full tool descriptors, so `toModelOutput` survives intact.
@@ -1031,6 +1067,7 @@ export async function createMastraAgentRuntime(
     approvalGate,
     askTools,
     backgroundIdleMs: options.backgroundIdleMs,
+    childPromptFacts,
     conversationBinding: options.conversationBinding,
     delegatedExecutionOptions,
     delegatedTurnPersistence,
@@ -1044,10 +1081,13 @@ export async function createMastraAgentRuntime(
     // resume gate uses to tell all-allowed (empty askTools) from a genuine
     // global-approval run (see resolveRequireToolApproval / MastraAgentRuntime).
     permissionEnforced,
+    permissionGate,
     personasById,
     providerCallWarnings,
+    registeredToolNames: [...effectiveToolNameMap.values()],
     resilienceConfig,
     resolvedToolResultBudget,
+    subagentSettings,
     tokenDiagnostics,
     ...(discoverySurface ? { toolDiscovery: discoverySurface.metadata } : {}),
     toolExecutionDurations,

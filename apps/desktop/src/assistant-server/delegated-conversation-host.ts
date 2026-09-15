@@ -14,7 +14,10 @@ import type {
   DelegatedBudgetPort,
   DelegatedConversationBaseline,
 } from '@brainstrike/assistant-contract';
-import { hasValidDelegatedToolActionTarget } from '@brainstrike/assistant-contract';
+import {
+  hasValidDelegatedToolActionTarget,
+  readAdmittedPersonaConfiguration,
+} from '@brainstrike/assistant-contract';
 import {
   type AssistantRunEvent,
   sanitizeAssistantRunEventMetadata,
@@ -23,6 +26,7 @@ import {
   type AssistantChildRunUsage,
   isAssistantDelegatedUsageIdentity,
 } from '@brainstrike/assistant-contract/run-usage';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
   createDelegatedContinuationRepository,
@@ -45,6 +49,46 @@ import {
   reserveDelegatedInvocation,
 } from './delegated-tree-admission';
 import { desktopAssistantServerLogger as logger } from './logger';
+import {
+  type LiveDecisionRecord,
+  type PromptManifestRecord,
+  type RecordOutcome,
+  recordLiveDecision,
+  recordPromptManifest,
+  recordWakeup,
+  type WakeupRecord,
+} from './swarm-diagnostics-records';
+
+type SwarmDiagnosticRecordName = 'prompt-manifest' | 'wakeup' | 'live-decision';
+
+/**
+ * Debug-pack evidence is never runtime authority (swarm diagnostics ruling 4):
+ * a missing host run or a failed insert is logged at `error` with a code — it
+ * lands in the main log the pack captures — and the leg continues. Never
+ * reported as recorded, never swallowed silently.
+ */
+async function recordSwarmDiagnostic(
+  hostRunId: string,
+  record: SwarmDiagnosticRecordName,
+  write: () => Promise<RecordOutcome>
+): Promise<void> {
+  try {
+    if ((await write()) === 'run-missing') {
+      logger.error('Swarm diagnostic record has no host run', {
+        code: 'swarm_diagnostic_record_run_missing',
+        hostRunId,
+        record,
+      });
+    }
+  } catch (error) {
+    logger.error('Swarm diagnostic record failed to persist', {
+      code: 'swarm_diagnostic_record_failed',
+      error,
+      hostRunId,
+      record,
+    });
+  }
+}
 
 const identityString = z.string().refine((value) => value.trim().length > 0);
 const hostScopeSchema = z.object({
@@ -235,7 +279,14 @@ export function createDesktopDelegatedConversationHost(
     input: DelegatedFollowupInput,
     configuration: unknown
   ) => Promise<{ role: 'system'; content: string }[]>,
-  captureWorkspaceStart?: (threadId: string) => Promise<void>
+  captureWorkspaceStart?: (threadId: string) => Promise<void>,
+  /**
+   * The request's validated per-child budgets. A streaming leg passes them so
+   * the turn's budget row can be OPENED from the settings; legs that never
+   * open a row (run persistence, cancel/status) pass nothing and read the row
+   * the first leg stored.
+   */
+  subagentSettings?: RuntimeSubagentSettings
 ): {
   budget: DelegatedBudgetPort;
   continuation: ChildContinuationHostPort;
@@ -253,6 +304,9 @@ export function createDesktopDelegatedConversationHost(
   resolveToolAction: NonNullable<DelegatedConversationBinding['resolveToolAction']>;
   resolveParkedInvocation: NonNullable<DelegatedConversationBinding['resolveParkedInvocation']>;
   recordToolActionAnswer: NonNullable<DelegatedConversationBinding['recordToolActionAnswer']>;
+  recordPromptManifest(record: PromptManifestRecord): Promise<void>;
+  recordWakeup(record: WakeupRecord): Promise<void>;
+  recordLiveDecision(record: LiveDecisionRecord): Promise<void>;
   prepareToolAction: NonNullable<DelegatedConversationBinding['prepareToolAction']>;
   claimToolAction: NonNullable<DelegatedConversationBinding['claimToolAction']>;
   finishToolActions(): Promise<void>;
@@ -390,7 +444,7 @@ export function createDesktopDelegatedConversationHost(
         ...(invocation.messageId ? { messageId: invocation.messageId } : {}),
       };
     },
-    budget: createDelegatedStepBudget(database, hostRunId, readScope),
+    budget: createDelegatedStepBudget(database, hostRunId, readScope, subagentSettings),
     async claimToolAction(action) {
       const scopes = await host.resolveToolAction(action);
       const leaf = scopes.at(-1);
@@ -456,7 +510,8 @@ export function createDesktopDelegatedConversationHost(
           toolCallId: input.toolCallId,
           ...(input.delegation ? { delegation: input.delegation } : {}),
         });
-      }
+      },
+      subagentSettings
     ),
     async finishToolActions() {
       for (const id of claims) {
@@ -492,7 +547,8 @@ export function createDesktopDelegatedConversationHost(
           identity.parentThreadId,
           duplicate !== null,
           identity.childThreadId,
-          identity.configuration
+          identity.configuration,
+          subagentSettings
         );
         await admissionRepository.createChild(scope, {
           ...createDisplayIdentity(identity.childThreadId),
@@ -582,6 +638,14 @@ export function createDesktopDelegatedConversationHost(
         baselines.set(baseline.threadId, baseline);
       }
     },
+    recordLiveDecision: (record) =>
+      recordSwarmDiagnostic(hostRunId, 'live-decision', () =>
+        recordLiveDecision(database, hostRunId, record)
+      ),
+    recordPromptManifest: (record) =>
+      recordSwarmDiagnostic(hostRunId, 'prompt-manifest', () =>
+        recordPromptManifest(database, hostRunId, record)
+      ),
     async recordToolActionAnswer(action) {
       const scopes = await host.resolveToolAction(action);
       const leaf = scopes.at(-1);
@@ -642,6 +706,8 @@ export function createDesktopDelegatedConversationHost(
         baselines.set(baseline.threadId, baseline);
       }
     },
+    recordWakeup: (record) =>
+      recordSwarmDiagnostic(hostRunId, 'wakeup', () => recordWakeup(database, hostRunId, record)),
     async releaseUnexecutedToolAction(action) {
       const leaf = action.delegation?.path.at(-1);
       if (!(leaf && action.delegation && hasValidDelegatedToolActionTarget(action))) {
@@ -742,6 +808,10 @@ export function createDesktopDelegatedConversationHost(
         throw new DelegatedConversationIdentityError('followup-child-owner-unavailable');
       }
       await assertDelegatedConversationAdmission(database, scope, [threadId]);
+      // The context the child is actually sent is captured when the control
+      // prepares it, and recorded only once the control accepted the input: a
+      // refused follow-up told the child nothing.
+      const sent: { context?: { role: 'system'; content: string }[] } = {};
       await control(
         target,
         input,
@@ -749,8 +819,27 @@ export function createDesktopDelegatedConversationHost(
           await assertDelegationRootRunning(database, scope, hostRunId);
           await assertDelegatedConversationAdmission(database, scope, [threadId]);
         },
-        prepareInputContext ? () => prepareInputContext(input, node.configuration) : undefined
+        prepareInputContext
+          ? async () => {
+              sent.context = await prepareInputContext(input, node.configuration);
+              return sent.context;
+            }
+          : undefined
       );
+      const systemMessages = sent.context;
+      if (systemMessages) {
+        await recordSwarmDiagnostic(hostRunId, 'prompt-manifest', () =>
+          recordPromptManifest(database, hostRunId, {
+            delegationPrompt: input.text,
+            kind: 'continuation',
+            personaId: target.personaId,
+            systemContextSource: systemMessages.length > 0 ? 'captured' : 'none',
+            systemMessages,
+            threadId,
+            toolNames: readAdmittedPersonaConfiguration(node.configuration).allowedToolIds,
+          })
+        );
+      }
     },
   };
   // Every function-valued member is wrapped by key, so a method added later

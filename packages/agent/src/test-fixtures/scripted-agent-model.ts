@@ -53,6 +53,21 @@ export function textParts(text: string): LanguageModelV2StreamPart[] {
   ];
 }
 
+/** A text answer the provider CUT at its output limit (`finishReason: 'length'`). */
+export function lengthParts(text: string): LanguageModelV2StreamPart[] {
+  return [
+    { type: 'stream-start', warnings: [] },
+    { id: 'answer', type: 'text-start' },
+    { delta: text, id: 'answer', type: 'text-delta' },
+    { id: 'answer', type: 'text-end' },
+    {
+      finishReason: 'length',
+      type: 'finish',
+      usage: { inputTokens: 1, outputTokens: 512, totalTokens: 513 },
+    },
+  ];
+}
+
 /** A model transport fixture: Agent, tools, hooks, streams and storage stay real. */
 export function scriptedAgentModel(
   script: (options: LanguageModelV2CallOptions) => LanguageModelV2StreamPart[]

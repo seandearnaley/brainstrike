@@ -59,6 +59,7 @@ import {
   readRequestBody,
   streamResponse,
 } from './assistant-server/http';
+import { createLiveDecisionLog } from './assistant-server/live-decision-log';
 import { desktopAssistantServerLogger } from './assistant-server/logger';
 import {
   DesktopMemoryCredentialMissingError,
@@ -132,6 +133,8 @@ import { resolveDesktopPythonExecutable } from './python-runtime';
 const logger = desktopAssistantServerLogger;
 const compactionOverlayLookup = createCompactionRangeLookup(getDatabase);
 const toolProjectionRewriteLookup = createToolProjectionRewriteLookup(getDatabase);
+/** The /assistant/decide outcomes the running leg cannot see (swarm diagnostics). */
+const liveDecisionLog = createLiveDecisionLog(getDatabase);
 
 /**
  * Desktop's instantiation of the service's opaque capability kinds
@@ -390,7 +393,7 @@ export async function handleAssistantRequest(
   }
 
   if (route === 'decide') {
-    await handleDecideRequest(req, res);
+    await handleDecideRequest(req, res, { recordLiveDecision: liveDecisionLog });
     return;
   }
 

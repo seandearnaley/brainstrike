@@ -29,6 +29,7 @@ import {
   supportsWorkerPersonaProvider,
 } from '@brainstrike/assistant-contract/personas';
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import { Agent, type AgentExecutionOptions, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { type MastraMemory, parseMemoryRequestContext } from '@mastra/core/memory';
@@ -45,6 +46,10 @@ import { executionForPersona } from './child-run-configuration';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { personasAtDelegationDepth } from './delegated-persona-snapshots';
 import { createDelegatedStepUsageProcessor } from './delegated-step-usage';
+import {
+  createDelegatedSynthesisOutcomes,
+  type DelegatedSynthesisOutcomes,
+} from './delegated-synthesis-outcomes';
 import {
   createDelegatedSystemContextProcessor,
   createRootDelegatedContextProcessor,
@@ -72,6 +77,7 @@ import {
   createToolHistoryFilter,
   prepareHostedToolDiscovery,
 } from './runtime-assembly/tool-pipeline';
+import type { ChildPromptFacts } from './subagent-delegation';
 import {
   applyToolModelOutputProjections,
   type ModelOutputProjectionObserver,
@@ -79,6 +85,12 @@ import {
 
 export interface PersonaSubAgentBuildResult {
   readonly artifactReaderDelegationTools: readonly string[];
+  /**
+   * Persona id → the exact instructions string and kept original tool names
+   * each child Agent of THIS build was constructed with (debug-pack prompt
+   * manifests). Same keys as `personasById`.
+   */
+  readonly childPromptFacts: ReadonlyMap<string, ChildPromptFacts>;
   /** 'agent-<personaId>' → personaId, for the stream mapper (D9). */
   readonly delegationToolPersonas: ReadonlyMap<string, string>;
   /** Persona id → resolved persona (for delegation caps + instructions). */
@@ -90,7 +102,11 @@ export interface PersonaSubAgentBuildResult {
 export type DelegatedExecutionOptions = Pick<
   AgentExecutionOptions,
   'delegation' | 'hooks' | 'abortSignal'
-> & { workQueue?: DelegatedWorkQueue };
+> & {
+  /** Per-runtime registry of reserved-synthesis outcomes (see `delegated-synthesis-outcomes.ts`). */
+  synthesisOutcomes?: DelegatedSynthesisOutcomes;
+  workQueue?: DelegatedWorkQueue;
+};
 
 export interface BuildPersonaSubAgentsParams {
   /**
@@ -164,6 +180,12 @@ export interface BuildPersonaSubAgentsParams {
     budget: ScaledToolResultBudget
   ) => ToolsInput;
   /** sanitizedId → originalName (the parent's map). */
+  /**
+   * The request's validated per-child budgets; the delegation description each
+   * child tool carries derives its step budget from these. Reaches
+   * grandchildren through the spread in the lazy `agents` factory.
+   */
+  readonly subagentSettings: RuntimeSubagentSettings;
   readonly toolNameMap: ReadonlyMap<string, string>;
   /** Forwarded to `applyToolModelOutputProjections` for every child (BST-1196
    * subagent telemetry attribution — see its call site in agent-runtime.ts). */
@@ -609,7 +631,7 @@ async function createConfiguredChild({
   params,
   persona,
   childModel,
-  keptOriginalNames,
+  instructions,
   childNameMap,
   settledChildTools,
   rawChildTools,
@@ -618,7 +640,8 @@ async function createConfiguredChild({
   params: BuildPersonaSubAgentsParams;
   persona: AssistantPersonaDefinition;
   childModel: MastraModelConfig;
-  keptOriginalNames: readonly string[];
+  /** `buildChildInstructions(persona, keptOriginalNames)`, built once by the caller. */
+  instructions: string;
   childNameMap: ReadonlyMap<string, string>;
   settledChildTools: ToolsInput;
   rawChildTools: ToolsInput;
@@ -721,7 +744,8 @@ async function createConfiguredChild({
         ? createDelegatedWorkBudget(
             durable.budget,
             durable.queue,
-            params.delegatedExecutionOptions?.abortSignal
+            params.delegatedExecutionOptions?.abortSignal,
+            params.delegatedExecutionOptions?.synthesisOutcomes
           )
         : undefined;
       const childSignal = requestContext
@@ -765,9 +789,9 @@ async function createConfiguredChild({
     // Mastra turns this into the `agent-<id>` tool description, the only
     // thing the supervisor reads when sizing a delegation — so it carries the
     // DERIVED step budget rather than the persona's bare prose.
-    description: delegationDescriptionForPersona(persona),
+    description: delegationDescriptionForPersona(persona, params.subagentSettings),
     id: persona.id,
-    instructions: buildChildInstructions(persona, keptOriginalNames),
+    instructions,
     ...childProcessors,
     ...(workerSurface
       ? {
@@ -828,11 +852,13 @@ export async function buildPersonaSubAgents(
 ): Promise<PersonaSubAgentBuildResult> {
   if (params.delegatedExecutionOptions) {
     params.delegatedExecutionOptions.workQueue ??= new DelegatedWorkQueue();
+    params.delegatedExecutionOptions.synthesisOutcomes ??= createDelegatedSynthesisOutcomes();
   }
   const canSuspend = canSuspendPersonaTools(params);
   const originalToSanitized = buildOriginalToSanitized(params.toolNameMap);
   const artifactReaderCapabilities = new Map<string, boolean>();
   const childBuilders: (() => Promise<readonly [string, Agent]>)[] = [];
+  const childPromptFacts = new Map<string, ChildPromptFacts>();
   const delegationToolPersonas = new Map<string, string>();
   const personasById = new Map<string, AssistantPersonaDefinition>();
 
@@ -936,6 +962,10 @@ export async function buildPersonaSubAgents(
     const settledChildTools = params.settleChildToolOutputs
       ? params.settleChildToolOutputs(gatedChildTools as ToolsInput, childToolResultBudget)
       : (gatedChildTools as ToolsInput);
+    // Built ONCE: the child Agent is constructed with exactly this string, and
+    // the debug pack's child-first-step prompt manifest records the same one.
+    const instructions = buildChildInstructions(persona, keptOriginalNames);
+    childPromptFacts.set(persona.id, { instructions, toolNames: [...keptOriginalNames] });
     childBuilders.push(
       async () =>
         [
@@ -944,7 +974,7 @@ export async function buildPersonaSubAgents(
             childModel,
             childNameMap,
             childToolResultBudget,
-            keptOriginalNames,
+            instructions,
             params: {
               ...params,
               childExecutionConfiguration: capturedExecution,
@@ -972,6 +1002,7 @@ export async function buildPersonaSubAgents(
     artifactReaderDelegationTools: Array.from(artifactReaderCapabilities)
       .filter(([, allowed]) => allowed)
       .map(([tool]) => tool),
+    childPromptFacts,
     delegationToolPersonas,
     personasById,
     subAgents,

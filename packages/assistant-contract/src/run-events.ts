@@ -27,6 +27,16 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // load-bearing reason spelled out on `mcp.tools.unavailable`, and carries no
   // `toolCallId`, so it needs no exemption from the card-suppression rule.
   'compaction.failed',
+  // A delegated child's durable budget (steps / child output / tree output)
+  // forced its reserved synthesis step (BST-1749 follow-up, GLM pack
+  // 2026-09-15). Standalone breadcrumb, status 'info', emitted by the stream
+  // projection on the CHILD conversation from the budget processor's transient
+  // part; metadata carries `cap`, `limit`, `used`, `synthesisForced` and
+  // `truncated` (whether the model then cut the summary). Deliberately NOT
+  // `.started`: nothing runs and nothing pairs. In `isAlwaysVisibleRunEvent`
+  // for the load-bearing reason on `mcp.tools.unavailable`: without it the
+  // child tab would show silence where the user needs "ran out of steps".
+  'delegation.budget.exhausted',
   // The ledger of a run's background (delegated) invocations, settled
   // 2026-09-15: "3 of 4 specialists returned · 1 running". Emitted by the
   // host idle loop and the resume stream on every task lifecycle change, with
@@ -85,6 +95,15 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // no exemption from the card-suppression rule (unlike that allowlist's two
   // `tool.*` entries).
   'mcp.tools.unavailable',
+  // The permission gate this leg's Agent was built with (debug pack,
+  // 2026-09-15): policies, granted categories, yolo, ask tools with their risk,
+  // denied tools, and ask tools omitted without approval storage. Emitted ONCE
+  // per fresh leg on the stream prelude beside `mcp.tools.unavailable`
+  // (`makePermissionGateResolvedChunks`), and only when a policy snapshot gated
+  // the run. Status 'completed', never 'running': the gate has already decided,
+  // so nothing pairs. Deliberately NOT in `isAlwaysVisibleRunEvent`: it explains
+  // why an approval card appeared, and that card is the user-facing surface.
+  'permission.gate.resolved',
   // Forge (pull request) observations (BST-1391, W4). These are the ONLY run
   // events not produced by the agent stream: the main-process ForgeService
   // observes them out of band and the renderer appends them to the thread's

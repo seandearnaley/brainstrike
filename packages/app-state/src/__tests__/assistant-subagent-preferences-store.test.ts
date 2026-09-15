@@ -1,0 +1,106 @@
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  __resetAssistantSubagentPreferencesStoreForTests,
+  useAssistantSubagentPreferencesStore,
+} from '../stores/assistant-subagent-preferences-store';
+import type { PersistApi } from './persist-api-test-helper';
+
+const storeWithPersist = useAssistantSubagentPreferencesStore as PersistApi<
+  typeof useAssistantSubagentPreferencesStore
+>;
+
+describe('assistant subagent preferences store', () => {
+  afterEach(() => {
+    __resetAssistantSubagentPreferencesStoreForTests();
+  });
+
+  it('defaults to the contract defaults', () => {
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
+      DEFAULT_RUNTIME_SUBAGENT_SETTINGS
+    );
+  });
+
+  it('stores each field independently', () => {
+    const store = useAssistantSubagentPreferencesStore.getState();
+    store.setMaxChildSteps(48);
+    store.setSynthesisOutputTokens(4096);
+    store.setMaxChildOutputTokens(65_536);
+    store.setMaxStepOutputTokens(16_384);
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
+      maxChildOutputTokens: 65_536,
+      maxChildSteps: 48,
+      maxStepOutputTokens: 16_384,
+      synthesisOutputTokens: 4096,
+    });
+  });
+
+  it('THROWS on an out-of-range or non-integer value and lands nothing', () => {
+    const store = useAssistantSubagentPreferencesStore.getState();
+    for (const invalid of [0, 65, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => store.setMaxChildSteps(invalid)).toThrow(/Subagent settings are malformed/);
+    }
+    expect(() => store.setSynthesisOutputTokens(255)).toThrow(/synthesisOutputTokens/);
+    // Cross-field: a synthesis reservation cannot exceed the child's whole budget.
+    store.setSynthesisOutputTokens(512);
+    store.setMaxStepOutputTokens(512);
+    store.setMaxChildOutputTokens(1024);
+    expect(() => store.setSynthesisOutputTokens(2048)).toThrow(/must not exceed/);
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
+      maxChildOutputTokens: 1024,
+      maxChildSteps: DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxChildSteps,
+      maxStepOutputTokens: 512,
+      synthesisOutputTokens: 512,
+    });
+  });
+
+  it('refuses a child output budget below the current synthesis or step budget', () => {
+    // Defaults: synthesis 2048 and step 8192 both exceed 1024, so the write is
+    // refused rather than silently shrinking them.
+    const store = useAssistantSubagentPreferencesStore.getState();
+    expect(() => store.setMaxChildOutputTokens(1024)).toThrow(/must not exceed/);
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
+      DEFAULT_RUNTIME_SUBAGENT_SETTINGS
+    );
+  });
+
+  it('sanitizes malformed persisted data at the current version back to defaults', async () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name && storeWithPersist.persist?.rehydrate)) {
+      throw new Error('persist storage unavailable for test');
+    }
+    if (options.version === undefined) {
+      throw new Error('persist version unavailable for test');
+    }
+    options.storage.setItem(options.name, {
+      state: { settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 999 } },
+      version: options.version,
+    });
+    await storeWithPersist.persist.rehydrate();
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
+      DEFAULT_RUNTIME_SUBAGENT_SETTINGS
+    );
+  });
+
+  it('rehydrates a valid persisted value', async () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name && storeWithPersist.persist?.rehydrate)) {
+      throw new Error('persist storage unavailable for test');
+    }
+    if (options.version === undefined) {
+      throw new Error('persist version unavailable for test');
+    }
+    const settings = { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 12 };
+    options.storage.setItem(options.name, { state: { settings }, version: options.version });
+    await storeWithPersist.persist.rehydrate();
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(settings);
+  });
+
+  it('resets to defaults', () => {
+    useAssistantSubagentPreferencesStore.getState().setMaxChildSteps(5);
+    useAssistantSubagentPreferencesStore.getState().resetToDefaults();
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
+      DEFAULT_RUNTIME_SUBAGENT_SETTINGS
+    );
+  });
+});
