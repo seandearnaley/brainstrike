@@ -188,3 +188,41 @@ export async function claimDelegatedToolAction(
     throw error;
   }
 }
+
+/**
+ * Run the work a leg still does between `claimDelegatedToolAction` and native
+ * resume (locating the parked task, answering the siblings its grant covers).
+ * Nothing native has run, so a failure releases this binding's unexecuted
+ * claim and propagates, exactly like a failed recheck above. Left to
+ * disposal, `finishToolActions` would consume a decision that never ran and
+ * refuse its still-parked card for good (BST-1749 review). A decision without
+ * delegation holds no claim.
+ */
+export async function beforeDelegatedToolActionResume<T>(
+  action: ToolActionTarget,
+  binding: DelegatedConversationBinding | undefined,
+  work: () => Promise<T>
+): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (!action.delegation) {
+      throw error;
+    }
+    if (!binding?.releaseUnexecutedToolAction) {
+      throw new AggregateError(
+        [error],
+        'Delegated decision failed before resume and its claim cannot be released.'
+      );
+    }
+    try {
+      await binding.releaseUnexecutedToolAction(action);
+    } catch (releaseError) {
+      throw new AggregateError(
+        [error, releaseError],
+        'Delegated decision preparation and release failed.'
+      );
+    }
+    throw error;
+  }
+}

@@ -40,6 +40,7 @@ import { createBackgroundResumeStream, findPendingBackgroundTask } from './backg
 import { stopBackgroundTree } from './background-stop';
 import {
   assertDelegatedToolActionPending,
+  beforeDelegatedToolActionResume,
   claimDelegatedToolAction,
 } from './delegated-tool-actions';
 import {
@@ -561,25 +562,37 @@ async function createToolApprovalTurnAttempt({
       agent: runtime.agent,
       requiresApproval: true,
     });
-    streamAbortContext.signal.throwIfAborted();
-    const backgroundTask = await findPendingBackgroundTask(
-      runtime.backgroundTaskManager,
-      runtimeData?.memory,
-      action
+    // Native resume is not invoked until the stream below, so a failure here
+    // releases the claim rather than letting disposal consume it.
+    const { answeredApprovals, backgroundTask, resumes } = await beforeDelegatedToolActionResume(
+      action,
+      runtime.conversationBinding,
+      async () => {
+        streamAbortContext.signal.throwIfAborted();
+        const task = await findPendingBackgroundTask(
+          runtime.backgroundTaskManager,
+          runtimeData?.memory,
+          action
+        );
+        if (!task) {
+          return { answeredApprovals: [], backgroundTask: undefined, resumes: [] };
+        }
+        if (!memory) {
+          throw new Error('Background resume requires durable memory.');
+        }
+        // A session grant recorded with this approval reaches the runtime as its
+        // permission snapshot; every parked sibling that snapshot now allows is
+        // answered and resumed in this same leg (see background-granted-approvals).
+        return {
+          backgroundTask: task,
+          ...(await claimGrantedBackgroundResumes({
+            decision: { resumeData: { approved: action.action === 'approve' }, task },
+            runtime,
+            runtimeData,
+          })),
+        };
+      }
     );
-    if (backgroundTask && !memory) {
-      throw new Error('Background resume requires durable memory.');
-    }
-    // A session grant recorded with this approval reaches the runtime as its
-    // permission snapshot; every parked sibling that snapshot now allows is
-    // claimed and resumed in this same leg (see background-granted-approvals).
-    const { answeredApprovals, resumes } = backgroundTask
-      ? await claimGrantedBackgroundResumes({
-          decision: { resumeData: { approved: action.action === 'approve' }, task: backgroundTask },
-          runtime,
-          runtimeData,
-        })
-      : { answeredApprovals: [], resumes: [] };
     const late = backgroundTask
       ? []
       : await readLateBackgroundResults(runtime, runtimeData, action.runId);

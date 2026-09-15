@@ -1192,7 +1192,12 @@ marks abandoned claims interrupted and retains their identity, without replay.
 The record describes admission, not whether a tool effect succeeded. If the
 post-admission snapshot recheck fails before native resume is invoked, the host
 rolls back only that binding's matching unexecuted claim and propagates the
-failure. Subsequent native failures or cancellation do not release the leaf:
+failure; so does any later failure before the approval leg invokes native
+resume — locating the parked task or answering the parked siblings its grant
+covers (`claimGrantedBackgroundResumes`). Left to disposal, `finishToolActions`
+consumed the never-executed claim and refused the still-parked card for good
+(BST-1749 review; desktop row "an approval leg whose granted sibling is refused
+releases the user's claim"). Subsequent native failures or cancellation do not release the leaf:
 the effect may already have occurred. Disposal attempts all cleanup owners in
 order and preserves multiple failures in an `AggregateError`; it never logs
 and swallows a failed decision settlement. Construction failures on every
