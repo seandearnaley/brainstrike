@@ -4860,8 +4860,9 @@ the report" 25 s into the turn and wrote the report behind a SECOND approval,
 breaking the user's reading of card → approve → document appears. `create`
 now refuses a document that `isEmptyCanvasDocument` (leading head and comments
 stripped, the head ending at `</head>` or the first non-head token since both
-head tags are optional; svg/canvas/img count as content, and script does too
-unless inside an explicit `<head>`) judges empty, BEFORE any DB
+head tags are optional; svg/canvas/img count as content, and
+script/template/noscript do too unless inside an explicit `<head>`) judges
+empty, BEFORE any DB
 call and at no approval cost, with the structured `empty_document` failure
 and `EMPTY_CANVAS_DOCUMENT_HINT` ("create the canvas when the content is
 ready — there is nothing to prepare"). `update`/`rewrite`/`list` are

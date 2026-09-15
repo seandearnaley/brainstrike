@@ -29,6 +29,7 @@ const HTML_TAG = /<[^>]*>/g;
 const WHITESPACE_ENTITY = /&(?:nbsp|ensp|emsp|thinsp|#160|#xa0);/gi;
 // No `g` flag: `.test` on a global regex is stateful across calls.
 const CONTENT_BEARING_ELEMENT = /<(?:img|svg|canvas|video|audio|iframe|object|embed|script)\b/i;
+const BODY_CONTENT_OUTSIDE_EXPLICIT_HEAD = new Set(['script', 'template', 'noscript']);
 
 function stripLeadingHead(html: string): string {
   HEAD_TOKEN.lastIndex = 0;
@@ -36,9 +37,14 @@ function stripLeadingHead(html: string): string {
   let explicitHead = false;
   for (let token = HEAD_TOKEN.exec(html); token; token = HEAD_TOKEN.exec(html)) {
     const { headTag, rawText } = token.groups ?? {};
-    // A script is head content only inside an explicit `<head>`. Without one
-    // it is a script-only document, which counts as content.
-    if (rawText?.toLowerCase() === 'script' && !explicitHead) {
+    // Outside an explicit `<head>`, script/template/noscript are treated as
+    // body content. A deliberate bias toward content: a leading script is how
+    // a canvas draws itself. `style` stays head: a style-only document is empty.
+    if (
+      !explicitHead &&
+      rawText !== undefined &&
+      BODY_CONTENT_OUTSIDE_EXPLICIT_HEAD.has(rawText.toLowerCase())
+    ) {
       break;
     }
     headEnd = HEAD_TOKEN.lastIndex;
