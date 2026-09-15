@@ -10,6 +10,16 @@ describe('isEmptyCanvasDocument', () => {
     // block is removed BEFORE the text check, so <title> never counts as body
     // text. Mutation: dropping the head strip fails this row.
     ['head-only title', '<html><head><title>Report</title></head><body></body></html>'],
+    // `</head>` and `<head>` are both optional in HTML5: the head ends where the
+    // parser ends it, not at a closing tag the document may never write.
+    ['head with omitted </head>', '<html><head><title>Report</title><body></body></html>'],
+    ['implied head', '<title>Report</title><body></body>'],
+    // A script inside an explicit head is head content whether or not the
+    // head is closed. Mutation: never stripping a head script fails this row.
+    [
+      'script in a head with omitted </head>',
+      '<html><head><script src="x.js"></script><body></body></html>',
+    ],
     // Mutation: dropping the comment strip fails this row.
     ['comment only', '<body><!-- report goes here --></body>'],
     ['non-breaking spaces only', '<p>&nbsp;&nbsp;</p><div>&#160;</div>'],
@@ -35,6 +45,14 @@ describe('isEmptyCanvasDocument', () => {
       '<body><canvas id="c"></canvas><script src="draw.js"></script></body>',
     ],
     ['text after a comment', '<!-- header --><h1>Report</h1>'],
+    // The head ends at the first token the parser would not keep in it, so
+    // body text after an unclosed head is never stripped with the head.
+    ['body text after an unclosed head', '<head><title>T</title><h1>Report</h1>'],
+    // A script with no explicit head before it is content, not an implied head.
+    // Mutation: stripping every leading script fails this row.
+    ['a script-only document', '<script>render()</script>'],
+    // Mutation: scanning past `</head>` strips this script with the head.
+    ['a script after a closed head', '<head><title>T</title></head><script>render()</script>'],
   ])('treats %s as content', (_label, html) => {
     expect(isEmptyCanvasDocument(html)).toBe(false);
   });
