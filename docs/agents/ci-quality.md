@@ -3466,9 +3466,10 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   (2026-09-15) against upstream source, not re-run here: the `baseline-pure-rename` regression
   test is byte-identical at the `react-doctor@0.9.11` and `react-doctor@0.9.13` tags.
   `compute-diagnostic-delta.ts` also gained detector-provided identities that take precedence
-  over source evidence. In the 0.9.13 bundle the only detector that sets one is
-  `duplicate-jsx-subtree`, keyed on its JSX-family fingerprint and occurrence count rather than a
-  path; whether that interacts with a BST-981-style rename set is untested. CAVEAT (BST-981,
+  over source evidence. Across both the `react-doctor` and `oxlint-plugin-react-doctor` 0.9.13
+  `dist/` trees the only detector that sets one is `duplicate-jsx-subtree`, keyed on its
+  JSX-family fingerprint and occurrence count rather than a path; whether that interacts with a
+  BST-981-style rename set is untested. CAVEAT (BST-981,
   2026-08-06, not re-tested since): that pairing failed on a ~200-file rename PR —
   byte-identical renamed files had their pre-existing diagnostics reclassified as new, both in
   CI and in a local `--scope changed` run. Precedent: prove pre-existence with a full scan of
@@ -3482,16 +3483,18 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   `.github/workflows/react-doctor.yml`, and that constant.
 - **Keep lint enabled when reading JSON coverage.** React Doctor's `analyzedFiles`,
   `analyzedFileCount`, and `complete` fields describe its lint pass, not dead-code enumeration.
-  Passing `--no-lint` therefore reports zero analyzed files and `complete:false` even when the
-  command scans every project for dead code; that output is expected, not a repository config or
-  environment failure (BST-1142, verified against 0.9.11 on 2026-08-23 and upstream's
+  Passing `--no-lint` therefore reports zero analyzed files and `complete:false`; through 0.9.12
+  it still scanned every project for dead code, and that output is expected, not a repository
+  config or environment failure (BST-1142, verified against 0.9.11 on 2026-08-23 and upstream's
   [JSON report contract](https://github.com/millionco/react-doctor/blob/main/docs/json-report.md)).
   Re-measured at 0.9.13 (2026-09-15, `cf2d8db86`): `--no-lint` reports `analyzedFileCount` 0,
   empty `analyzedFiles`, and `complete:false` for all 23 projects while `scannedFileCount`
   totals 4360; the lint-enabled full scan reports 4360 analyzed with `complete:true` for every
   project. At the `react-doctor@0.9.13` tag the contract still defines `complete` by the
-  planned lint files.
-  The root `react-doctor` script pins `--scope full` and deliberately omits `--no-lint`;
+  planned lint files. At 0.9.13 `--no-lint` runs no dead-code rules (see the knip bullet); it
+  still reported one `duplicate-jsx-subtree` warning.
+  The root `react-doctor` script pins `--scope full` and deliberately omits `--no-lint` — at
+  0.9.13 that protects lint coverage, not dead-code scanning;
   `scripts/__tests__/react-doctor-version-contract.test.mjs` guards both properties.
 - **0.9.11 activated four error-severity rules that 0.9.3 did not** (measured at 0.9.11 on
   2026-08-15, BST-1273; historical — the 0.9.13 re-measurement follows).
@@ -3504,7 +3507,8 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   under `scope: changed` they join the advisory backlog rather than blocking; none sit in a
   file the bump itself touched. Concentrations to expect when burning them down:
   `root-layout-content.tsx` (all three copies) and `hooks/use-resize-observer.ts`.
-  **Re-measured at 0.9.13** (2026-09-15, `cf2d8db86`, 23 projects / 4360 files / 608 issues):
+  **Re-measured at 0.9.13** (2026-09-15, `cf2d8db86` — `main`, 132 commits after #3038's squash
+  merge, not #3038's head `3e50c70cd`; 23 projects / 4360 files / 608 issues):
   the 85 errors are `no-ref-current-in-render` ×67, `effect-needs-cleanup` ×10,
   `no-impure-state-updater` ×4, `no-prop-callback-in-render` ×3, and
   `effect-observer-needs-disconnect` ×1. This is a larger tree than the 3366-file one above,
@@ -3536,7 +3540,8 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   ×0 and `no-multi-component-file` ×7 warnings in 2 files; no repo config sets either id, so
   neither can trip `blocking: error`. The id's occurrence count in `react-doctor/dist/` is 6 at
   0.9.11 (reproduced from the published tarball), 15 at 0.9.12 (BST-1273, not re-measured), and
-  10 at 0.9.13 — a proxy, not a severity signal. Enabling `no-multi-comp`, or raising either id
+  10 at 0.9.13 — a proxy, not a severity signal, and `dist/`-only: the rule itself ships in
+  `oxlint-plugin-react-doctor`. Enabling `no-multi-comp`, or raising either id
   to `error`, is the change that needs a fresh multi-component scan first.
 - **knip is retained, NOT replaced.** Before 0.9.13, `deslop` was not knip: it read knip's
   `entry`/`ignore` (only from strict-JSON `knip.json` or `package.json#knip`, never
@@ -3555,9 +3560,11 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   (BST-1759 records them as out of scope). Opting `unused-file` + `circular-dependency` in
   (2026-09-15) produced 0 graph findings and an unchanged 608-issue report; that alone does not
   prove the rules are live. `pnpm knip` (driven by `knip.jsonc`, with the curated
-  false-positive allowlist) stays the dependency auditor, but no workflow in
-  `.github/workflows/` invokes it — so at 0.9.13 CI runs no dead-code or unused-dependency
-  analysis at all. BST-1761 tracks that gap.
+  false-positive allowlist) stays the dependency auditor, but CI never reaches it: no file under
+  `.github/workflows/` invokes knip, and neither the turbo config nor any root or `scripts/`
+  command those workflows run (`check`, `lint:ci`, `boundaries`, `type-check`, `test`, `build`,
+  `test:scripts`) references it (2026-09-15). So at 0.9.13 CI runs no dead-code or
+  unused-dependency analysis at all. BST-1761 tracks that gap.
 - **No broad `ignore.files` exclusions.** The old 0.5.5/0.7.1 implementation silently dropped
   roughly half the monorepo when that key was present. Upstream fixed enumeration by listing
   all supported sources before filtering (0.9.3, per `doctor.config.ts`; the 0.9.13 full scan
@@ -3603,7 +3610,8 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   `react-doctor/*` or `react-hooks-js/*` id, or on the legacy `deslop/*` aliases. Do not
   read a green `test:scripts` as evidence that a react-doctor id is live; that engine remains
   unmechanized, and it is the one with the silent-acceptance defect.
-- **The two ids once "absent from the bundle" were a grep-scope artifact** (2026-08-09, #2372;
+- **The two ids once "absent from the bundle" were a grep-scope miss; only `async-parallel` is
+  proved live** (2026-08-09, #2372;
   re-measured at 0.9.11 on 2026-08-15, BST-1273; re-measured at 0.9.13 on 2026-09-15).
   `react-hooks-js/preserve-manual-memoization` and `react-doctor/async-parallel` (the rule in
   `doctor.config.ts`'s lone `ignore.overrides` entry) still appear **0 times** across
