@@ -138,6 +138,48 @@ describe('readMainLogWindow', () => {
     ).rejects.toThrow('brainstrike.log');
   });
 
+  it('rejects a parseable record with no time field, but still counts a crash-truncated line', async () => {
+    const window = { since: '2026-09-15T02:19:00.000Z', until: '2026-09-15T02:25:00.000Z' };
+    const truncatedPath = path.join(logDir(), 'brainstrike.log');
+    writeFileSync(
+      truncatedPath,
+      `${[line('2026-09-15T02:20:00.000Z', 50, 'timestamped'), '{"level":5'].join('\n')}\n`
+    );
+    const truncated = await readMainLogWindow({ logFilePath: truncatedPath, request: window });
+    expect(truncated.malformedLineCount).toBe(1);
+    expect(truncated.scannedLineCount).toBe(1);
+
+    // Logged with timestamps off: pino writes the record with no `time` at all.
+    const timelessPath = path.join(logDir(), 'brainstrike.log');
+    writeFileSync(
+      timelessPath,
+      `${[
+        line('2026-09-15T02:20:00.000Z', 50, 'timestamped'),
+        JSON.stringify({ level: 50, msg: 'Unhandled promise rejection' }),
+      ].join('\n')}\n`
+    );
+    await expect(readMainLogWindow({ logFilePath: timelessPath, request: window })).rejects.toThrow(
+      /no ISO "time" field/
+    );
+  });
+
+  it('accepts only the millisecond instants the log sink writes, so string order is time order', () => {
+    const now = Date.parse('2026-09-15T03:00:00.000Z');
+    // `…00.500Z` < `…00Z` as strings: a whole-second bound would misplace sink lines.
+    expect(() =>
+      assertMainLogWindowRequest(
+        { since: '2026-09-15T02:19:00Z', until: '2026-09-15T02:20:00.000Z' },
+        now
+      )
+    ).toThrow('since');
+    expect(() =>
+      assertMainLogWindowRequest(
+        { since: '2026-09-15T02:19:00.000Z', until: '2026-09-15T02:20:00.5Z' },
+        now
+      )
+    ).toThrow('until');
+  });
+
   it('rejects malformed or oversized windows', () => {
     const now = Date.parse('2026-09-15T03:00:00.000Z');
     expect(() =>
