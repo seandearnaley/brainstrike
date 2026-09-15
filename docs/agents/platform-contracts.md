@@ -2212,7 +2212,10 @@ on the `desktopDiagnostics` preload bridge feed the thread debug pack when it is
 built; nothing new is written to disk for them.
 `desktop-diagnostics:read-main-log-window` (`readMainLogWindow` in
 `diagnostics/main-log-window.ts`) validates `{ since, until }` with
-`assertMainLogWindowRequest` BEFORE the provider runs: ISO-8601 UTC instants,
+`assertMainLogWindowRequest` BEFORE the provider runs: millisecond ISO-8601 UTC
+instants exactly as `Date#toISOString()` writes them (the form pino's `isoTime`
+stamps on every line, which the reader orders as strings — a whole-second
+`…00Z` bound would sort after a `…00.500Z` line),
 `until` not before `since`, at most 24 hours, not in the future. The handler is
 async, so a malformed request always rejects. It returns the warn-and-above lines
 of `brainstrike.log` and its rotated siblings inside the window, oldest file
@@ -2221,8 +2224,12 @@ first, capped at 2000 lines and 2 MiB keeping the newest (`droppedLineCount`,
 (`unhandledRejections`, `wasmAllocationFailures`, `toolTimeouts`,
 `emptyChildResults`). The rotated slot count derives from the rotating sink's
 `DEFAULT_MAX_FILES`, so the reader cannot drift from the transport. A
-crash-truncated line is counted in `malformedLineCount`, never thrown; a missing
-live log file rejects, and the provider rejects when file logging is disabled.
+crash-truncated line is counted in `malformedLineCount`, never thrown. A
+parseable record with no `time` field (the main log written with timestamps
+disabled) rejects instead of reading as an empty window, so the pack's manifest
+records `hostLog: unavailable: Main log record N of <file> has no ISO "time"
+field …`. A missing live log file rejects, and the provider rejects when file
+logging is disabled.
 Lines were already redacted by `logInternal` before pino.
 
 `desktop-diagnostics:read-process-counters` returns `{ installedAt, samples }`:
