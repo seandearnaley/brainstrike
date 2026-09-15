@@ -510,18 +510,23 @@ describe('DesktopDimensionIndexMaintenanceScheduler admission', () => {
     harness.scheduler.stop();
   });
 
-  it.for([-1, Number.NaN])('rejects a %s quiet period instead of coercing it', (quietPeriodMs) => {
-    expect(() =>
-      createDesktopDimensionIndexMaintenanceScheduler({
-        getDatabase: vi.fn(async () => ({ query: vi.fn() })),
-        getDimensionIndexStrategy: () => 'regular',
-        getPowerSnapshot: idleAcSnapshot,
-        getSchedulerSnapshot: idleSchedulerSnapshot,
-        logger: createLogger(),
-        quietPeriodMs,
-        runScheduledWork: vi.fn(),
-        subscribeToSchedulerSnapshots: ignoreSchedulerSnapshots,
-      })
-    ).toThrow(/quietPeriodMs must be a non-negative number/);
-  });
+  // Infinity is rejected by the same `!Number.isFinite` arm as NaN: a quiet
+  // window that never elapses would park the build forever, not run it early.
+  it.for([-1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects a %s quiet period instead of coercing it',
+    (quietPeriodMs) => {
+      expect(() =>
+        createDesktopDimensionIndexMaintenanceScheduler({
+          getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+          getDimensionIndexStrategy: () => 'regular',
+          getPowerSnapshot: idleAcSnapshot,
+          getSchedulerSnapshot: idleSchedulerSnapshot,
+          logger: createLogger(),
+          quietPeriodMs,
+          runScheduledWork: vi.fn(),
+          subscribeToSchedulerSnapshots: ignoreSchedulerSnapshots,
+        })
+      ).toThrow(/quietPeriodMs must be a non-negative number/);
+    }
+  );
 });

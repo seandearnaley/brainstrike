@@ -231,6 +231,19 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
       id: 'task-live',
       status: 'running',
     });
+    // The clock-skew margin, from BOTH sides (PR #3206 review). A backward NTP
+    // step makes a task this boot created read slightly pre-boot, so anything
+    // inside the band survives; the first second past the band is reaped.
+    await insertBackgroundTask(db, {
+      createdAt: new Date(BOOTED_AT.getTime() - REAP_CLOCK_SKEW_MARGIN_MS / 2).toISOString(),
+      id: 'task-inside-margin',
+      status: 'running',
+    });
+    await insertBackgroundTask(db, {
+      createdAt: new Date(BOOTED_AT.getTime() - REAP_CLOCK_SKEW_MARGIN_MS - 1000).toISOString(),
+      id: 'task-past-cutoff',
+      status: 'running',
+    });
     await insertBackgroundTask(db, {
       createdAt: '2026-01-01T10:00:00Z',
       id: 'task-suspended',
@@ -242,8 +255,9 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     expect([...report.reapedBackgroundTaskIds].sort()).toEqual([
       'task-orphan-pending',
       'task-orphan-running',
+      'task-past-cutoff',
     ]);
-    await expect(readInFlightAssistantWork(db)).resolves.toEqual({ backgroundTasks: 1, runs: 0 });
+    await expect(readInFlightAssistantWork(db)).resolves.toEqual({ backgroundTasks: 2, runs: 0 });
     const { rows } = await db.query<{
       completedAt: string | null;
       deliveredAt: string | null;
@@ -256,6 +270,13 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     );
     const orphanError = { message: ORPHANED_BACKGROUND_TASK_ERROR };
     expect(rows).toEqual([
+      {
+        completedAt: null,
+        deliveredAt: null,
+        error: null,
+        id: 'task-inside-margin',
+        status: 'running',
+      },
       { completedAt: null, deliveredAt: null, error: null, id: 'task-live', status: 'running' },
       // Undelivered on purpose: the thread's next turn delivers the failure once.
       {
@@ -270,6 +291,13 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
         deliveredAt: null,
         error: orphanError,
         id: 'task-orphan-running',
+        status: 'failed',
+      },
+      {
+        completedAt: expect.any(String),
+        deliveredAt: null,
+        error: orphanError,
+        id: 'task-past-cutoff',
         status: 'failed',
       },
       {
