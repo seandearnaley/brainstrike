@@ -1,5 +1,6 @@
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import { render, screen, waitFor } from '@testing-library/react';
+import type { UserEvent } from '@testing-library/user-event';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActiveThreadKeyContext } from '../active-thread-key-context';
@@ -54,6 +55,18 @@ vi.mock('@assistant-ui/react', () => ({
     return firstResult;
   },
 }));
+
+/**
+ * The approve button wherever the notice keeps it: an unanswered notice is a
+ * card with its buttons on show, an answered one collapses into a row whose
+ * buttons live in the expanded body.
+ */
+async function approveButton(user: UserEvent): Promise<HTMLElement> {
+  if (screen.queryByRole('button', { name: /approve workspace\.writefile/i }) === null) {
+    await expandApprovalRow(user);
+  }
+  return screen.getByRole('button', { name: /approve workspace\.writefile/i });
+}
 
 const baseApproval = {
   args: {
@@ -320,6 +333,49 @@ describe('AssistantToolApprovalNotice', () => {
     );
     expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
     expect(screen.getByText('Pending')).toBeInTheDocument();
+  });
+
+  // A retry click is taken while the thread STILL reads the run that failed:
+  // the retried decision has not reached `state.thread.messages` yet. The
+  // optimistic lock belongs to the click, not to the outcome state — drop it
+  // here and the second of two quick clicks appends a duplicate decision.
+  it('locks the card from a retry click the thread has not caught up with yet', async () => {
+    const user = userEvent.setup();
+    threadMessagesMock.push({
+      metadata: {
+        custom: {
+          brainstrikeToolApproval: {
+            action: 'approve',
+            runId: 'run-approval-1',
+            toolCallId: 'tool-call-1',
+            toolName: 'workspace.writeFile',
+          },
+        },
+      },
+      role: 'user',
+    });
+    threadMessagesMock.push({
+      role: 'assistant',
+      status: {
+        error: 'tool_approval_resume_unsupported',
+        reason: 'error',
+        type: 'incomplete',
+      },
+    });
+    // The append does not reach the thread synchronously, so the outcome keeps
+    // resolving to the failed run across the click.
+    appendMessageMock.mockImplementation(() => undefined);
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    expect(await approveButton(user)).toBeEnabled();
+    await user.click(await approveButton(user));
+
+    expect(appendMessageMock).toHaveBeenCalledTimes(1);
+    expect(await approveButton(user)).toBeDisabled();
+
+    await user.click(await approveButton(user));
+
+    expect(appendMessageMock).toHaveBeenCalledTimes(1);
   });
 
   it('reenables approval actions after a synchronous append failure', async () => {

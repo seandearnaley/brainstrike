@@ -3098,7 +3098,24 @@ Flow (desktop assistant server → agent runtime):
    builds its label from `describeDelegationChain`, so a depth-1 card still
    reads "Explorer · <prompt>"). The notice file is a chooser;
    `use-approval-notice-state.ts` owns the outcome/lock/submit logic and
-   `approval-preview.tsx` the structured previews. Paired:
+   `approval-preview.tsx` the structured previews.
+   OPTIMISTIC LOCK (settled 2026-09-15, do not relitigate): the lock a click
+   takes is STAMPED with the run outcome it was taken in
+   (`ApprovalRunOutcomeKey`) and DERIVED during render — never adjusted in an
+   effect. It holds while the thread still reads that outcome: the
+   double-click window, and a live decision delivered INTO the running turn,
+   which appends no message at all and so keeps the card locked for good. It
+   is spent the moment the outcome moves on, which is how a FAILED
+   (`retryable`) resumed run hands the card back. Testing `retryable`
+   directly — as the effect this replaced did — DROPS the lock a RETRY click
+   has just taken, because the thread still reads the run that failed until
+   the retried decision reaches it, and the second of two quick clicks then
+   appends a duplicate decision (the same hazard as DECISIONS DURING A RUN,
+   one layer up). Pinned by
+   `assistant-tool-approval-notice-panel.test.tsx` ("locks the card from a
+   retry click the thread has not caught up with yet", which must stay green
+   beside the `retryable` re-enable cases it is in tension with).
+   Paired:
    `approval-presentation.test.ts`, `approval-presentation-context.test.tsx`,
    `approval-row.test.tsx` (card→row on a host answer, promotion of the next
    pending card, nesting depth/rails/chain, an answered click collapses, a

@@ -6,7 +6,7 @@ import type {
 } from '@brainstrike/assistant-contract/tool-approval';
 import { createLogger } from '@brainstrike/logging';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { buildApprovalDecisionMessage } from './approval-decision-message';
 import {
   resolveNoticeStatus,
@@ -71,6 +71,17 @@ interface SendFailure {
   readonly outcomeKey: ApprovalRunOutcomeKey;
 }
 
+/**
+ * A decision this notice has submitted, stamped with the run outcome it was
+ * submitted in. The stamp is what spends the optimistic lock: the click takes
+ * it in the outcome it saw, and any later answer for this pause moves the
+ * outcome on and hands the card back.
+ */
+interface SubmittedDecision {
+  readonly action: AssistantToolApprovalDecision;
+  readonly outcomeKey: ApprovalRunOutcomeKey;
+}
+
 export interface ApprovalNoticeState {
   /** Approve / Decline / grant buttons disabled (queued, locked, in flight, or already run). */
   readonly actionButtonsDisabled: boolean;
@@ -111,9 +122,7 @@ export function useApprovalNoticeState(
   approval: AssistantToolApprovalRequest
 ): ApprovalNoticeState {
   const aui = useAui();
-  const [submittedAction, setSubmittedAction] = useState<AssistantToolApprovalDecision | null>(
-    null
-  );
+  const [submittedDecision, setSubmittedDecision] = useState<SubmittedDecision | null>(null);
   const [sendFailure, setSendFailure] = useState<SendFailure | null>(null);
   const rediscovered = readRediscoveredPauseDisplay(approval);
   const approvalRunOutcomeKey = useAuiState((state) =>
@@ -129,6 +138,16 @@ export function useApprovalNoticeState(
   const decisionLocked = rediscovered?.decisionState !== undefined || hostAnswer !== null;
   const actionLockedByRun =
     approvalRunOutcome.state === 'pending' || approvalRunOutcome.state === 'completed';
+  // Derived, not adjusted in an effect: the optimistic lock belongs to the run
+  // outcome the click was taken in. It holds while the thread still reads that
+  // outcome — the double-click window, and a live decision delivered into the
+  // running turn that appends no message at all — and is spent as soon as the
+  // outcome moves on, which is how a FAILED (`retryable`) resumed run hands the
+  // card back. Reading `state !== 'retryable'` instead would drop the lock a
+  // RETRY click had just taken, because the thread still reads the run that
+  // failed until the retried decision reaches it.
+  const submittedAction =
+    submittedDecision?.outcomeKey === approvalRunOutcomeKey ? submittedDecision.action : null;
 
   const submitApprovalAction = useCallback(
     (action: AssistantToolApprovalDecision): void => {
@@ -138,7 +157,7 @@ export function useApprovalNoticeState(
       setSendFailure(null);
       const decision = buildApprovalDecisionMessage(approval, action);
       const sendNow = (queuedMessage: typeof decision.message): void => {
-        setSubmittedAction(action);
+        setSubmittedDecision({ action, outcomeKey: approvalRunOutcomeKey });
         // `append` returns void in the installed assistant-ui: a failed run
         // arrives as thread state (`retryable` below), never as a rejection
         // here. Only a synchronous throw (e.g. an unavailable thread scope)
@@ -146,7 +165,7 @@ export function useApprovalNoticeState(
         try {
           aui.thread().append(queuedMessage);
         } catch (error) {
-          setSubmittedAction(null);
+          setSubmittedDecision(null);
           setSendFailure({ message: getErrorMessage(error), outcomeKey: approvalRunOutcomeKey });
           logger.warn('Failed to append tool approval action', {
             error,
@@ -160,7 +179,7 @@ export function useApprovalNoticeState(
       // otherwise waits in the follow-up queue (chip + "Queued" chip on this
       // notice) until the run ends (`decision-dispatch.ts`). The notice locks
       // for the round trip so a second click cannot race the first.
-      setSubmittedAction(action);
+      setSubmittedDecision({ action, outcomeKey: approvalRunOutcomeKey });
       submitDecisionOrQueue({
         append: sendNow,
         deliverLive,
@@ -172,11 +191,11 @@ export function useApprovalNoticeState(
       }).then(
         (outcome) => {
           if (outcome === 'queued') {
-            setSubmittedAction(null);
+            setSubmittedDecision(null);
           }
         },
         (error: unknown) => {
-          setSubmittedAction(null);
+          setSubmittedDecision(null);
           setSendFailure({ message: getErrorMessage(error), outcomeKey: approvalRunOutcomeKey });
           logger.warn('Failed to deliver tool approval action', {
             error,
@@ -198,13 +217,6 @@ export function useApprovalNoticeState(
       threadKey,
     ]
   );
-
-  useEffect(() => {
-    if (submittedAction === null || approvalRunOutcome.state !== 'retryable') {
-      return;
-    }
-    setSubmittedAction(null);
-  }, [approvalRunOutcome.state, submittedAction]);
 
   // Derived, not adjusted in an effect: a notice the user can no longer act on
   // has an authoritative status, and a failure from an earlier attempt beside
