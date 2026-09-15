@@ -73,6 +73,39 @@ describe('installWebAssemblyCounter', () => {
     });
   });
 
+  it('hands back a promise it never handled, so a rejection the caller ignores stays reported', async () => {
+    // Attaching a handler marks a promise handled. If the wrapper returned the
+    // promise it attached `.catch` to, a caller ignoring the rejection would
+    // never reach process 'unhandledRejection' (the main log's marker).
+    const handled = new Set<Promise<unknown>>();
+    class TrackedPromise<T> extends Promise<T> {
+      // biome-ignore lint/suspicious/noThenProperty: records which promises received a handler; that is the assertion.
+      override then<TResult1 = T, TResult2 = never>(
+        onFulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
+        onRejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+      ): Promise<TResult1 | TResult2> {
+        handled.add(this);
+        return super.then(onFulfilled, onRejected);
+      }
+    }
+    const failure = new WebAssembly.CompileError('rejected by the fake engine');
+    const target = fakeWebAssembly();
+    target.instantiate = (() =>
+      TrackedPromise.reject(failure)) as unknown as typeof WebAssembly.instantiate;
+    target.compile = (() =>
+      TrackedPromise.reject(failure)) as unknown as typeof WebAssembly.compile;
+    const counter = installWebAssemblyCounter(target);
+
+    const instantiated = target.instantiate(EMPTY_MODULE);
+    const compiled = target.compile(EMPTY_MODULE);
+
+    expect(handled.has(instantiated)).toBe(false);
+    expect(handled.has(compiled)).toBe(false);
+    await expect(instantiated).rejects.toBe(failure);
+    await expect(compiled).rejects.toBe(failure);
+    expect(counter.snapshot().counts).toMatchObject({ compile: 1, failures: 2, instantiate: 1 });
+  });
+
   it('is idempotent per target and keeps at most 20 recent failures', async () => {
     const target = fakeWebAssembly();
     const counter = installWebAssemblyCounter(target);
