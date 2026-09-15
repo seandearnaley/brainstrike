@@ -1213,6 +1213,15 @@ propagates it:
   `recoverStaleTasks` cannot replace this: it is thread-scoped and runs only
   inside that thread's next run, while unpreemptable maintenance admission
   reads these rows across every thread (database.md, maintenance admission).
+  Reaping supersedes no retry path, and a crashed task is never rerun: the
+  host pins background retries to 0. `createTask` pins them through
+  `pinHostRetryPolicy`
+  (`packages/agent/src/pglite-mastra-memory/background-store.ts:221,343-357`),
+  `updateTask` rejects any other value (same file, `:240-241`), and the
+  runtime default is `defaultRetries: { maxRetries: 0 }`
+  (`packages/agent/src/mastra/agent-runtime.ts:540`). A row with
+  `max_retries > 0` cannot exist, so never add a `retry_count < max_retries`
+  carve-out to the reap.
   Paired test: `thread-run-startup-reaper.integration.test.ts`.
 
 Neither carve-out is a regression introduced alongside this ruling, and neither

@@ -273,6 +273,10 @@ Both desktop maintenance schedulers now share `maintenance-admission.ts`:
   the user never revisits would hold both statements off for the database's lifetime. The reap is
   fire-and-forget; losing the race to a scheduler's first pass costs one skipped pass. Never
   swap it for an age bound: run rows carry no heartbeat and task rows have no `updated_at`.
+  Reaping supersedes no retry path, and a crashed task is never rerun: the host pins background
+  retries to 0 (`packages/agent/src/pglite-mastra-memory/background-store.ts:221,240-241,343-357`;
+  runtime default at `packages/agent/src/mastra/agent-runtime.ts:540`). Never add a
+  `retry_count < max_retries` carve-out to the reap.
 - A malformed read throws; it never reads as idle.
 - A task suspended on the user does not block. Its decision resumes it as a new run.
 
