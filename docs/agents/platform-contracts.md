@@ -2227,7 +2227,7 @@ first, capped at 2000 lines and 2 MiB keeping the newest (`droppedLineCount`,
 crash-truncated line is counted in `malformedLineCount`, never thrown. A
 parseable record with no `time` field (the main log written with timestamps
 disabled) rejects instead of reading as an empty window, so the pack's manifest
-records `hostLog: unavailable: Main log record N of <file> has no ISO "time"
+records `hostLog: unavailable: Main log line N of <file> has no ISO "time"
 field …`. A missing live log file rejects, and the provider rejects when file
 logging is disabled.
 Lines were already redacted by `logInternal` before pino.
@@ -2249,8 +2249,12 @@ the database; the 30 s interval itself keeps running because it also writes the
 main process's `WebAssembly` once, installed by the bare side-effect import on
 the first line of `main.ts` so later imports (PGlite, tokenizers, xxhash-wasm)
 are counted; results and errors pass through unchanged. The `main-process-health`
-log line carries each tick's WebAssembly counts and the last completed
-background-task counts. The ring is session state cleared by the
+log line carries each tick's WebAssembly counts and the newest background-task
+counts ALREADY in the ring, never an await. A tick that skips its read because
+the previous one is still outstanding takes no await, so its
+`backgroundTasks: null` entry lands before the line is built: through a long
+read the line reports a null count, not the last completed one, and
+`previous sample still pending` stays in the ring. The ring is session state cleared by the
 `process-counter-ring` factory-reset runtime entry, and `processCounters` is a
 `DesktopPlatformDiagnosticsProviderName`, so a throwing provider is reported like
 the others. The pack reaches both calls ONLY through `readThreadDebugHostProbe`

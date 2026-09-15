@@ -150,6 +150,10 @@ function isJsonRecord(raw: string): boolean {
  * thrown). A whole record without a time — the log written with timestamps
  * disabled — cannot be placed in any window, and reading it as empty would
  * hide every failure marker, so it throws.
+ *
+ * `lineNumber` is the PHYSICAL 1-based line — `scanFile` counts blank lines
+ * before it skips them — so the operator-facing message points at the line an
+ * editor or `sed -n '<n>p'` lands on, not at an Nth non-blank record.
  */
 function readRecordTime(raw: string, lineNumber: number, filePath: string): string | null {
   const time = TIME_FIELD.exec(raw)?.[1] ?? null;
@@ -157,7 +161,7 @@ function readRecordTime(raw: string, lineNumber: number, filePath: string): stri
     return time;
   }
   throw new Error(
-    `Main log record ${lineNumber} of ${path.basename(filePath)} has no ISO "time" field, so the window cannot place it.`
+    `Main log line ${lineNumber} of ${path.basename(filePath)} has no ISO "time" field, so the window cannot place it.`
   );
 }
 
