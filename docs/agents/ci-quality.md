@@ -3444,14 +3444,15 @@ The rule:
 
 Apply the same shape to any new file-size guard rather than reintroducing a cap.
 
-## REACT DOCTOR (LINT; DEAD CODE INACTIVE AT 0.9.13)
+## REACT DOCTOR (LINT)
 
 `.github/workflows/react-doctor.yml` runs **React Doctor** (`millionco/react-doctor@v2`,
 pinned `0.9.13`) on every PR and on push to `main`. It was adopted to supersede standalone knip
-in CI by pairing knip-style dead-code analysis (the `deslop` engine, a dependency through
-0.9.12) with its React/JS lint rules (Security / Bugs / Performance / Accessibility /
-Maintainability). At 0.9.13 dead-code analysis is not active in this repository — see the knip
-bullet below.
+in CI by pairing knip-style dead-code analysis (the `deslop` engine, a separate `deslop-js`
+dependency through 0.9.12; React Doctor's rule metadata likewise ships outside
+`react-doctor/dist/`, see the absent-ids bullet) with its React/JS lint rules (Security / Bugs /
+Performance / Accessibility / Maintainability). At 0.9.13 dead-code analysis is not active in
+this repository — see the knip bullet below.
 It uses `ubicloud-standard-2`; provider allocation has no GitHub fallback.
 Config lives in `doctor.config.ts`. Plan + baseline: `docs/react-doctor-migration-2026-06-15.md`
 (historical: it predates `deslop`'s removal, and this section wins where they differ).
@@ -3491,8 +3492,9 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   empty `analyzedFiles`, and `complete:false` for all 23 projects while `scannedFileCount`
   totals 4360; the lint-enabled full scan reports 4360 analyzed with `complete:true` for every
   project. At the `react-doctor@0.9.13` tag the contract still defines `complete` by the
-  planned lint files. At 0.9.13 `--no-lint` runs no dead-code rules (see the knip bullet); it
-  still reported one `duplicate-jsx-subtree` warning.
+  planned lint files. At 0.9.13 `--no-lint` runs no dead-code rules (see the knip bullet). It
+  still reported one `duplicate-jsx-subtree` warning: that detector is tagged `project-analysis`
+  and runs outside the per-file lint pass, so it reports even with zero analyzed files.
   The root `react-doctor` script pins `--scope full` and deliberately omits `--no-lint` — at
   0.9.13 that protects lint coverage, not dead-code scanning;
   `scripts/__tests__/react-doctor-version-contract.test.mjs` guards both properties.
@@ -3526,7 +3528,9 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   component, 0.9.13 reports `hasReactCompiler:true` for the files before BST-1659 (#3017, which
   moved the compiler from a Babel preset to `oxc-transform-react`) and `false` for the current
   ones. #3017 is an ancestor of #3038's head, so #3038's 0.9.11-vs-0.9.13 comparison (85 → 85
-  errors) already ran without the plugin. **Unresolved:** nothing in this repository has been
+  errors) already ran without the plugin, while BST-1273's 0.9.11 counts of `react-hooks-js/todo`
+  ×4 and `refs` ×1 (2026-08-15) predate #3017's 2026-09-06 merge and were observable then.
+  **Unresolved:** nothing in this repository has been
   changed to restore these rules; BST-1760 tracks the decision.
 - **`react-doctor/no-multi-comp` re-measured for 0.9.13** (2026-09-15). BST-1273 said not to
   bump past 0.9.11 without re-measuring it. #3038 took 0.9.13 without measuring this rule
@@ -3543,7 +3547,7 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   10 at 0.9.13 — a proxy, not a severity signal, and `dist/`-only: the rule itself ships in
   `oxlint-plugin-react-doctor`. Enabling `no-multi-comp`, or raising either id
   to `error`, is the change that needs a fresh multi-component scan first.
-- **knip is retained, NOT replaced.** Before 0.9.13, `deslop` was not knip: it read knip's
+- **knip is retained, but CI never runs it.** Before 0.9.13, `deslop` was not knip: it read knip's
   `entry`/`ignore` (only from strict-JSON `knip.json` or `package.json#knip`, never
   `knip.jsonc`) but ignored knip's `ignoreDependencies` and had no per-dependency allowlist, so
   `deslop/unused-dependency` + `deslop/unused-dev-dependency` were disabled in
@@ -3575,10 +3579,13 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   biome a11y rules (and react-doctor can't read `biome-ignore`, so it re-flagged every
   documented exception + custom ARIA widget — an audit of 28 findings found 1 genuine
   gap). Security produced 0 genuine issues across 6 real-source findings; secret detection
-  stays covered by the lefthook `secrets-scan`. react-doctor's unique value here is its
-  React-Compiler-correctness rules (`react-hooks-js/*`, `react-compiler-*`) + dead-code,
-  which is where remediation effort is focused. At 0.9.13 neither the `react-hooks-js/*` rules
-  nor dead-code analysis runs here; see the `react-hooks-js` and knip bullets.
+  stays covered by the lefthook `secrets-scan`. react-doctor's intended unique value here was
+  its React-Compiler-correctness rules (`react-hooks-js/*`, `react-compiler-*`) + dead-code,
+  which is where remediation effort was focused. At 0.9.13 neither the `react-hooks-js/*` rules
+  nor dead-code analysis runs here (see the `react-hooks-js` and knip bullets), and no
+  `react-compiler-*` id reports (`react-compiler-no-manual-memoization` is off by config). What
+  still reports is React Doctor's native `react-doctor/*` set: 53 rule ids in the 2026-09-15 full
+  scan, including all 85 errors.
 - **`react-compiler-no-manual-memoization` is OFF.** Manual `useMemo`/`useCallback`/
   `React.memo` is intentional here (guards non-React work, external-store identity,
   referential stability for consumers outside the compiled tree). The rule fired 1211× (54%
