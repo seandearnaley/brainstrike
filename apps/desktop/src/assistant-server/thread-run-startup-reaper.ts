@@ -49,6 +49,7 @@
  *   was never migrated, and that raises 42P01 into the caller's `catch`
  *   rather than the `info`-level `runsTableMissing` report it used to return.
  */
+import { MASTRA_BACKGROUND_TASKS_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   ORPHANED_THREAD_RUN_ERROR,
   REAP_CLOCK_SKEW_MARGIN_MS,
@@ -58,22 +59,41 @@ import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
 
 export { ORPHANED_THREAD_RUN_ERROR, REAP_CLOCK_SKEW_MARGIN_MS };
 
+/** The failure the thread's next turn delivers for a task no worker survived to finish. */
+export const ORPHANED_BACKGROUND_TASK_ERROR =
+  'Background task orphaned by an earlier app session; marked failed by the startup sweep. It was not rerun. A task that had started may have partially applied its effects; inspect the workspace before rerunning.';
+
 export interface ThreadRunReapReport {
   readonly reaped: readonly { readonly id: string; readonly threadId: string }[];
+  readonly reapedBackgroundTaskIds: readonly string[];
 }
 
 /**
- * Mark every provably-dead `running` row `failed` — see the module doc
- * comment for the evidence rule. Returns what it changed; the CALLER owns
- * visible reporting (main.ts logs the reaped ids, the table-missing signal,
- * and any failure under its own step name). Throws only on a genuine
- * database failure.
+ * Mark every provably-dead `running` row `failed` and every provably-dead
+ * `pending`/`running` background task `failed` — see the module doc comment
+ * for the evidence rule. Returns what it changed; the CALLER owns visible
+ * reporting (main.ts logs the reaped ids and any failure under its own step
+ * name). Throws only on a genuine database failure.
  */
 export async function reapOrphanedThreadRuns(
   db: EditCheckpointDatabase,
   bootedAt: Date
 ): Promise<ThreadRunReapReport> {
   const report = await reapOrphanedAssistantThreadRuns(db, bootedAt);
+  // BST-1749: no worker survives a process, so a background task created
+  // before boot that is still pending/running never finishes. Mastra's own
+  // stale-task recovery is thread-scoped and waits for that thread's next run,
+  // while unpreemptable maintenance admission reads these rows across every
+  // thread (database.md). Same boot evidence rule as the runs above; a task
+  // suspended on the user stays resumable. `delivered_at` stays NULL so the
+  // thread's next turn delivers the failure once.
+  const backgroundTasks = await db.query<{ id: string }>(
+    `UPDATE ${MASTRA_BACKGROUND_TASKS_TABLE}
+     SET status = 'failed', error = jsonb_build_object('message', $2::text), "completedAt" = NOW()
+     WHERE status IN ('pending', 'running') AND "createdAt" < $1::timestamptz
+     RETURNING id`,
+    [new Date(bootedAt.getTime() - REAP_CLOCK_SKEW_MARGIN_MS), ORPHANED_BACKGROUND_TASK_ERROR]
+  );
   // A dead execution leg cannot still own native resume admission. Retain the
   // leaf identity as interrupted: an unknown effect must never be replayed.
   await db.query(
@@ -91,5 +111,5 @@ export async function reapOrphanedThreadRuns(
     SET state = 'interrupted' FROM brainstrike_assistant_thread_runs host
     WHERE decision.host_run_id = host.id AND decision.state = 'claimed'
       AND host.status IN ('completed', 'failed', 'cancelled')`);
-  return report;
+  return { ...report, reapedBackgroundTaskIds: backgroundTasks.rows.map((row) => row.id) };
 }

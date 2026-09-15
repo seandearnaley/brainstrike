@@ -1448,8 +1448,9 @@ if (singleInstanceLockAcquired) {
               database as unknown as EditCheckpointDatabase,
               mainProcessStartedAt
             );
-            if (reapReport.reaped.length > 0) {
+            if (reapReport.reaped.length > 0 || reapReport.reapedBackgroundTaskIds.length > 0) {
               logger.info('Startup thread-run reap completed', {
+                reapedBackgroundTaskIds: reapReport.reapedBackgroundTaskIds,
                 reapedRunIds: reapReport.reaped.map((row) => row.id),
               });
             }

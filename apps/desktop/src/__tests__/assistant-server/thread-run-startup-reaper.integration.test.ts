@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
 import { hasInFlightThreadRun } from '../../assistant-server/rewind-repository';
 import {
+  ORPHANED_BACKGROUND_TASK_ERROR,
   ORPHANED_THREAD_RUN_ERROR,
   REAP_CLOCK_SKEW_MARGIN_MS,
   reapOrphanedThreadRuns,
@@ -236,8 +237,12 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
       status: 'suspended',
     });
 
-    await reapOrphanedThreadRuns(asHandle(db), BOOTED_AT);
+    const report = await reapOrphanedThreadRuns(asHandle(db), BOOTED_AT);
 
+    expect([...report.reapedBackgroundTaskIds].sort()).toEqual([
+      'task-orphan-pending',
+      'task-orphan-running',
+    ]);
     await expect(readInFlightAssistantWork(db)).resolves.toEqual({ backgroundTasks: 1, runs: 0 });
     const { rows } = await db.query<{
       completedAt: string | null;
@@ -249,7 +254,7 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
       `SELECT id, status, error, "completedAt"::text AS "completedAt", delivered_at::text AS "deliveredAt"
        FROM mastra_background_tasks ORDER BY id`
     );
-    const orphanError = { message: expect.stringContaining('earlier app session') };
+    const orphanError = { message: ORPHANED_BACKGROUND_TASK_ERROR };
     expect(rows).toEqual([
       { completedAt: null, deliveredAt: null, error: null, id: 'task-live', status: 'running' },
       // Undelivered on purpose: the thread's next turn delivers the failure once.

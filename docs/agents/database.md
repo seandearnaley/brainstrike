@@ -263,7 +263,16 @@ Both desktop maintenance schedulers now share `maintenance-admission.ts`:
 - Inside the background lane, immediately before the statement, `readInFlightAssistantWork` runs.
   Any `brainstrike_assistant_thread_runs` row in `running`/`cancelling`, or `mastra_background_tasks`
   row in `pending`/`running`, skips the pass with reason `assistant-work-in-flight`. The skip is
-  logged at info, so a pass held off by a stuck row is visible.
+  logged at info.
+- The gate reads those rows across every thread, so boot reconciliation is part of this contract.
+  A crash leaves them in flight with no process to finish them. The desktop startup reaper
+  (`reapOrphanedThreadRuns`, assistant-persistence.md) fails pre-boot `running` runs, cancels
+  pre-boot `cancelling` runs, and fails pre-boot `pending`/`running` background tasks with a
+  visible orphan error. Mastra's own stale-task recovery cannot stand in for it: it runs only
+  when a later run of the SAME thread builds its thread-scoped manager, so an orphan in a thread
+  the user never revisits would hold both statements off for the database's lifetime. The reap is
+  fire-and-forget; losing the race to a scheduler's first pass costs one skipped pass. Never
+  swap it for an age bound: run rows carry no heartbeat and task rows have no `updated_at`.
 - A malformed read throws; it never reads as idle.
 - A task suspended on the user does not block. Its decision resumes it as a new run.
 
@@ -278,9 +287,10 @@ Paired:
 - `database-maintenance-scheduler.test.ts` ("assistant work admission")
 - `maintenance-admission.test.ts` (malformed reads)
 - `maintenance-admission.integration.test.ts` (statuses against migrated tables)
+- `thread-run-startup-reaper.integration.test.ts` (orphaned background tasks leave the in-flight read)
 
-Removing the in-flight skip, the quiet gate, the busy seed at start, or the subscription each
-fails its own rows.
+Removing the in-flight skip, the quiet gate, the busy seed at start, the subscription, or the
+boot reap of background tasks each fails its own rows.
 
 **Corruption found by maintenance recovers the database; the app never keeps
 running on it.** A maintenance pass that fails with a corruption-class error

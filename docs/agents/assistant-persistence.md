@@ -1205,6 +1205,14 @@ propagates it:
   whenReady, so a row this boot minted can never match) marks them `failed`
   with a visible error, un-sticking `hasInFlightThreadRun`'s rewind gate
   without weakening it — live runs and unknown statuses still refuse.
+  The same sweep fails pre-boot `pending`/`running` `mastra_background_tasks`
+  rows (`"createdAt"` before boot less the same clock-skew margin) with
+  `ORPHANED_BACKGROUND_TASK_ERROR`; a `suspended` task is never touched.
+  `delivered_at` stays NULL, so the thread's next turn delivers the failure
+  once through the ordinary undelivered-outcome repair. Mastra's own
+  `recoverStaleTasks` cannot replace this: it is thread-scoped and runs only
+  inside that thread's next run, while unpreemptable maintenance admission
+  reads these rows across every thread (database.md, maintenance admission).
   Paired test: `thread-run-startup-reaper.integration.test.ts`.
 
 Neither carve-out is a regression introduced alongside this ruling, and neither
