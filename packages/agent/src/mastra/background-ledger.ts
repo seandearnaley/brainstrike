@@ -17,6 +17,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/background-tasks';
 import type { AssistantRunEventMetadata } from '../run-events';
 import type { StreamChunk } from '../types';
+import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { makeRunDetailEventChunk } from './stream-run-event-chunks';
 import type { DelegationOutcomeCapture } from './subagent-delegation';
 
@@ -125,36 +126,43 @@ export function createBackgroundLedgerSource(params: {
    * Undefined only without a host, where no other leg can read these rows
    * (every delegated decision needs `resolveToolAction`).
    */
-  readonly resolveInvocation:
-    | ((parent: {
-        readonly parentRuntimeRunId: string;
-        readonly parentThreadId: string;
-        readonly parentToolCallId: string;
-      }) => Promise<unknown>)
-    | undefined;
+  readonly resolveInvocation: DelegatedConversationBinding['resolveParkedInvocation'];
   readonly scope: { readonly resourceId: string; readonly threadId: string };
 }): BackgroundLedgerSource {
-  /** A completed row's answer is settled: a child persists its invocation before it can return. */
-  const refusedCompletions = new Map<string, boolean>();
-  const isRefused = async (task: BackgroundTask): Promise<boolean> => {
+  /**
+   * One answer per completed row for the life of this leg. A completed row's
+   * answer is settled by construction: the child's `inputProcessor` AWAITS
+   * `persist` before the child streams a part, and Mastra writes a task's
+   * `completed` status together with its executor result. Overlapping reads
+   * share the PENDING answer — the idle loop publishes a row per lifecycle
+   * event — and a rejected answer is dropped, so one transient host failure
+   * never becomes this leg's permanent answer for that row.
+   */
+  const refusedCompletions = new Map<string, Promise<boolean>>();
+  const isRefused = (task: BackgroundTask): Promise<boolean> => {
     if (params.rejectedDelegations?.rejected(task.toolCallId, task.runId)) {
-      return true;
+      return Promise.resolve(true);
     }
     // A refusal always completes; a child still starting has not persisted its invocation yet.
-    if (task.status !== 'completed' || !params.resolveInvocation) {
-      return false;
+    const resolveInvocation = params.resolveInvocation;
+    if (task.status !== 'completed' || !resolveInvocation) {
+      return Promise.resolve(false);
     }
     const known = refusedCompletions.get(task.id);
-    if (known !== undefined) {
+    if (known) {
       return known;
     }
-    const invocation = await params.resolveInvocation({
+    const answer = resolveInvocation({
       parentRuntimeRunId: task.runId,
       parentThreadId: params.scope.threadId,
       parentToolCallId: task.toolCallId,
-    });
-    refusedCompletions.set(task.id, invocation === undefined);
-    return invocation === undefined;
+    }).then((invocation) => invocation === undefined);
+    // A host that cannot answer fails the read (the publisher logs
+    // `background_ledger_read_failed`, the wakeup fails loudly): never an
+    // answer, so never remembered.
+    answer.catch(() => refusedCompletions.delete(task.id));
+    refusedCompletions.set(task.id, answer);
+    return answer;
   };
   return {
     async read(runIds) {

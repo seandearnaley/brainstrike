@@ -134,6 +134,9 @@ it('a resume leg leaves a sibling refused in the same parent run out of its ledg
     const refused = tasks.filter((task) => task.status === 'completed');
     expect(parked).toHaveLength(2);
     expect(refused).toHaveLength(1);
+    // The TEST's oracle for which sibling was refused, read from Mastra's own
+    // result text. Production never matches on it — a child can echo the words
+    // — so only the leg's capture and the host's invocation graph name one.
     expect(refused[0]?.result).toMatchObject({
       text: '[Delegation Rejected] Too many concurrent subagents (max 2); try again after the current ones finish.',
     });

@@ -176,6 +176,70 @@ describe('createBackgroundLedgerSource', () => {
     expect(ledger.counts.total).toBe(0);
   });
 
+  it('asks once even when two reads overlap: the leg shares one pending answer', async () => {
+    // The idle loop publishes a row per lifecycle event, so reads overlap.
+    const listTasks = vi.fn(async () => ({ tasks: [task('refused', 'completed')], total: 1 }));
+    const resolveInvocation = vi.fn(async () => undefined);
+    const source = createBackgroundLedgerSource({
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: undefined,
+      resolveInvocation,
+      scope,
+    });
+    const both = await Promise.all([
+      source.read(new Set(['root-run'])),
+      source.read(new Set(['root-run'])),
+    ]);
+    // MUTATION: memoising the settled answer instead of the pending promise
+    // asks the host twice for the same row.
+    expect(resolveInvocation).toHaveBeenCalledOnce();
+    expect(both.map((ledger) => ledger.counts.total)).toEqual([0, 0]);
+  });
+
+  it('fails the read when the host cannot answer, and asks again on the next read', async () => {
+    // NO SILENT DEGRADATION: answering "not refused" on a host error would
+    // count a refusal as returned — the defect the graph exists to answer. A
+    // failed read publishes no row (`background_ledger_read_failed`) and fails
+    // the wakeup loudly, as every ledger read failure already does.
+    const listTasks = vi.fn(async () => ({ tasks: [task('c1', 'completed')], total: 1 }));
+    const resolveInvocation = vi
+      .fn<() => Promise<undefined>>()
+      .mockRejectedValueOnce(new Error('host unavailable'))
+      .mockResolvedValue(undefined);
+    const source = createBackgroundLedgerSource({
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: undefined,
+      resolveInvocation,
+      scope,
+    });
+    // MUTATION: swallowing the error counts an unanswerable row as returned.
+    await expect(source.read(new Set(['root-run']))).rejects.toThrow('host unavailable');
+    // MUTATION: caching the rejected promise makes one transient failure the
+    // leg's permanent answer for that row.
+    await expect(source.read(new Set(['root-run']))).resolves.toMatchObject({
+      counts: { cancelled: 0, failed: 0, returned: 0, running: 0, total: 0 },
+    });
+    expect(resolveInvocation).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads the leg capture before the host: a refusal it recorded asks nothing', async () => {
+    const listTasks = vi.fn(async () => ({ tasks: [task('c2', 'completed')], total: 1 }));
+    const resolveInvocation = vi.fn(async () => undefined);
+    const source = createBackgroundLedgerSource({
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: { rejected: (toolCallId) => toolCallId === 'c2' },
+      resolveInvocation,
+      scope,
+    });
+    expect((await source.read(new Set(['root-run']))).counts.total).toBe(0);
+    // MUTATION: asking the host first spends a durable read on a row this leg
+    // already knows it refused.
+    expect(resolveInvocation).not.toHaveBeenCalled();
+  });
+
   it('names a timed-out task as failed with the reason "timed out"', async () => {
     const { source } = sourceOf([task('c1', 'timed_out')]);
     const ledger = await source.read(new Set(['root-run']));

@@ -1927,9 +1927,17 @@ total: 2 returned, 0 failed, 0 cancelled, 1 still running" once one sibling
 resumed, so the resumed parent was told a specialist returned when none ran.
 `createBackgroundLedgerSource` takes `resolveInvocation` as a required key
 beside `rejectedDelegations`; `driveBackgroundWork` and `createResumeLedger` pass
-the binding's member. Only a `completed` row asks (a child still starting has
-not persisted its invocation yet, and a refusal always completes), and once per
-leg (its answer is settled before it completes). The same persona-only
+the binding's member. Only a `completed` row asks: a child still starting has
+not persisted its invocation yet, and a refusal always completes. That ordering
+is guaranteed, not assumed — the child's `inputProcessor` AWAITS `persist`
+before the child streams a part, and Mastra writes a task's `completed` status
+together with its executor result — so a completed row's answer is settled and
+the leg remembers it, with overlapping reads (the loop publishes a row per
+lifecycle event) sharing one pending answer. A host that CANNOT answer fails
+the read: no row is published (`background_ledger_read_failed`) and the wakeup
+fails loudly, because answering "not refused" would count a refusal as returned
+— the defect the graph exists to answer. That failure is not remembered, so the
+next read asks again. The same persona-only
 eligibility makes every row a delegation the graph can answer for; a new
 background-capable tool must revisit this too. Without a host the key is
 undefined and the capture answers alone: no other leg can read those rows,
@@ -1945,8 +1953,10 @@ turn and is no ledger entry", "fails the leg loudly once more invocations wake
 the parent than one turn may admit"), `background-ledger.spec.ts` ("leaves out a
 delegation rejected at start", "leaves out a completed delegation the host holds
 no invocation for, whichever leg dispatched it" — mutations: ignoring the host's
-answer; asking about a row that has not completed — and "asks the host once per
-completed row"), and the desktop host's "resolves a parked invocation from its
+answer; asking about a row that has not completed — plus "asks the host once per
+completed row", "asks once even when two reads overlap", "fails the read when the
+host cannot answer, and asks again on the next read" and "reads the leg capture
+before the host"), and the desktop host's "resolves a parked invocation from its
 dispatch address without a leaf identity" (an address that delegated nothing
 answers `undefined`). A scripted harness root that must delegate on every turn
 uses `fanout.rootRedelegates`.
