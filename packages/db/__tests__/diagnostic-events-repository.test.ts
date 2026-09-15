@@ -9,6 +9,14 @@ import {
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createPGliteTestDataDir } from './test-data-dir';
 
+const NUL = String.fromCharCode(0);
+// U+2400 SYMBOL FOR NULL: the visible stand-in stored in place of a NUL.
+const NUL_MARKER = String.fromCharCode(0x24_00);
+const REPLACEMENT_CHARACTER = String.fromCharCode(0xff_fd);
+// The high half of a surrogate pair that a bounded `slice` leaves behind when
+// it splits an emoji (boundWithMarker truncates by UTF-16 code unit).
+const LONE_HIGH_SURROGATE = '🙂'.slice(0, 1);
+
 function makeEvent(overrides: Partial<DiagnosticEvent>): DiagnosticEvent {
   return {
     appVersion: 'v',
@@ -190,5 +198,163 @@ describe('DiagnosticEventsRepository', () => {
     expect(rows).toHaveLength(4);
     expect(rows[0]?.id).toBe('e9');
     expect(DIAGNOSTIC_RETENTION_MAX_ROWS).toBe(20_000);
+  });
+
+  describe('characters PostgreSQL text and jsonb cannot store', () => {
+    it('keeps every sibling event when one row carries a NUL character', async () => {
+      // Production shape (2026-09-15): forge-service logged its NUL-joined
+      // in-memory PR cache key as `context.key`, and PostgreSQL rejected the
+      // whole multi-row INSERT with 22P05.
+      await repo.insertBatch([
+        makeEvent({ id: 'before', occurredAt: 1000 }),
+        makeEvent({
+          context: { detail: 'DB host request timed out: query', key: `/repo${NUL}fix/branch` },
+          id: 'poisoned',
+          occurredAt: 2000,
+        }),
+        makeEvent({ id: 'after', occurredAt: 3000 }),
+      ]);
+
+      const rows = await repo.queryEvents({});
+      expect(rows.map((row) => row.id)).toEqual(['after', 'poisoned', 'before']);
+      expect(rows[1]?.context).toEqual({
+        detail: 'DB host request timed out: query',
+        key: `/repo${NUL_MARKER}fix/branch`,
+        storageReplacements: { context: 1 },
+      });
+    });
+
+    it('records a text-column replacement on an event that had no context', async () => {
+      await repo.insertBatch([
+        makeEvent({ context: null, id: 'no-context', stack: `at read${NUL}` }),
+      ]);
+
+      const [row] = await repo.queryEvents({});
+      expect(row?.stack).toBe(`at read${NUL_MARKER}`);
+      expect(row?.context).toEqual({ storageReplacements: { stack: 1 } });
+    });
+
+    it('rewrites a toJSON value as it would be stored, not as its own properties', async () => {
+      await repo.insertBatch([
+        makeEvent({ context: { at: new Date(0), note: `read${NUL}` }, id: 'dated' }),
+      ]);
+
+      const [row] = await repo.queryEvents({});
+      expect(row?.context).toEqual({
+        at: '1970-01-01T00:00:00.000Z',
+        note: `read${NUL_MARKER}`,
+        storageReplacements: { context: 1 },
+      });
+    });
+
+    it('replaces NUL with a visible marker in every column and records the rewrite per field', async () => {
+      const withNul = (label: string) => `${label}${NUL}`;
+      const marked = (label: string) => `${label}${NUL_MARKER}`;
+      await repo.insertBatch([
+        makeEvent({
+          appVersion: withNul('app'),
+          causeChain: [
+            { code: withNul('code'), message: withNul('cause'), name: withNul('Error') },
+          ],
+          code: withNul('code'),
+          context: { [withNul('key')]: withNul('value'), nested: [withNul('item')] },
+          fingerprint: withNul('fp'),
+          id: withNul('id'),
+          message: withNul('message'),
+          occurredAt: 1000,
+          platform: withNul('platform'),
+          resourceId: withNul('resource'),
+          rootId: withNul('root'),
+          runId: withNul('run'),
+          scope: withNul('scope'),
+          sessionId: withNul('session'),
+          source: withNul('source'),
+          stack: withNul('stack'),
+          threadId: withNul('thread'),
+        }),
+      ]);
+
+      const [row] = await repo.queryEvents({});
+      expect(row).toEqual({
+        appVersion: marked('app'),
+        causeChain: [{ code: marked('code'), message: marked('cause'), name: marked('Error') }],
+        code: marked('code'),
+        context: {
+          [marked('key')]: marked('value'),
+          nested: [marked('item')],
+          storageReplacements: {
+            appVersion: 1,
+            causeChain: 3,
+            code: 1,
+            context: 3,
+            fingerprint: 1,
+            id: 1,
+            message: 1,
+            platform: 1,
+            resourceId: 1,
+            rootId: 1,
+            runId: 1,
+            scope: 1,
+            sessionId: 1,
+            source: 1,
+            stack: 1,
+            threadId: 1,
+          },
+        },
+        fingerprint: marked('fp'),
+        id: marked('id'),
+        message: marked('message'),
+        occurredAt: 1000,
+        platform: marked('platform'),
+        resourceId: marked('resource'),
+        rootId: marked('root'),
+        runId: marked('run'),
+        scope: marked('scope'),
+        sessionId: marked('session'),
+        severity: 'error',
+        source: marked('source'),
+        stack: marked('stack'),
+        threadId: marked('thread'),
+      });
+    });
+
+    it('replaces a lone surrogate with U+FFFD and records it instead of rejecting the batch', async () => {
+      const loneLowSurrogate = '🙂'.slice(1);
+      await repo.insertBatch([
+        makeEvent({ id: 'before', occurredAt: 1000 }),
+        makeEvent({
+          context: { truncatedContext: `split ${LONE_HIGH_SURROGATE}` },
+          id: 'split-emoji',
+          message: `${loneLowSurrogate} split ${LONE_HIGH_SURROGATE}`,
+          occurredAt: 2000,
+        }),
+        makeEvent({ id: 'after', occurredAt: 3000 }),
+      ]);
+
+      const rows = await repo.queryEvents({});
+      expect(rows.map((row) => row.id)).toEqual(['after', 'split-emoji', 'before']);
+      expect(rows[1]?.message).toBe(`${REPLACEMENT_CHARACTER} split ${REPLACEMENT_CHARACTER}`);
+      expect(rows[1]?.context).toEqual({
+        storageReplacements: { context: 1, message: 2 },
+        truncatedContext: `split ${REPLACEMENT_CHARACTER}`,
+      });
+    });
+
+    it('stores storable events exactly as given, without a replacement record', async () => {
+      const context = {
+        count: 3,
+        emoji: '🙂',
+        escapedText: '\\u0000 is six characters, not a NUL',
+        none: null,
+        ok: true,
+      };
+      await repo.insertBatch([
+        makeEvent({ context, id: 'clean', message: 'literal \\u0000 text 🙂' }),
+      ]);
+
+      const [row] = await repo.queryEvents({});
+      expect(row?.context).toEqual(context);
+      expect(row?.message).toBe('literal \\u0000 text 🙂');
+    });
   });
 });

@@ -159,6 +159,137 @@ function mapDiagnosticFingerprintGroupRow(value: unknown): DiagnosticFingerprint
   };
 }
 
+const NUL = String.fromCharCode(0);
+/** U+2400 SYMBOL FOR NULL: the visible stand-in stored in place of a NUL. */
+const NUL_MARKER = String.fromCharCode(0x24_00);
+/** U+FFFD: the replacement `String.prototype.toWellFormed` makes for a lone surrogate. */
+const REPLACEMENT_CHARACTER = String.fromCharCode(0xff_fd);
+/** In `u` mode a well-formed pair is one astral code point, so only lone surrogates match. */
+const LONE_SURROGATE_RE = /[\uD800-\uDFFF]/gu;
+/** Reserved `context` key: per event field, how many characters were rewritten for storage. */
+const STORAGE_REPLACEMENTS_KEY = 'storageReplacements';
+
+type StorableTextField =
+  | 'appVersion'
+  | 'code'
+  | 'fingerprint'
+  | 'id'
+  | 'message'
+  | 'platform'
+  | 'resourceId'
+  | 'rootId'
+  | 'runId'
+  | 'scope'
+  | 'sessionId'
+  | 'source'
+  | 'stack'
+  | 'threadId';
+
+type StorageReplacements = Record<string, number>;
+
+function toStorableText(value: string, field: string, replacements: StorageReplacements): string {
+  let count = 0;
+  const storable = value
+    .replaceAll(NUL, () => {
+      count += 1;
+      return NUL_MARKER;
+    })
+    .replace(LONE_SURROGATE_RE, () => {
+      count += 1;
+      return REPLACEMENT_CHARACTER;
+    });
+  if (count > 0) {
+    replacements[field] = (replacements[field] ?? 0) + count;
+  }
+  return storable;
+}
+
+function toStorableJsonValue(
+  value: unknown,
+  field: string,
+  replacements: StorageReplacements
+): unknown {
+  if (typeof value === 'string') {
+    return toStorableText(value, field, replacements);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => toStorableJsonValue(entry, field, replacements));
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        toStorableText(key, field, replacements),
+        toStorableJsonValue(entry, field, replacements),
+      ])
+    );
+  }
+  return value;
+}
+
+/**
+ * PostgreSQL text cannot hold NUL (22021) and jsonb rejects NUL and lone-surrogate
+ * escapes (22P05/22P02). One such row fails the whole multi-row INSERT, and the
+ * writer re-queues that batch whole, so every retry fails until the writer disables
+ * itself. Every stored string is therefore rewritten visibly, and the row records the
+ * rewrite under `context.storageReplacements`.
+ */
+function toStorableRowParams(event: DiagnosticEvent): unknown[] {
+  const replacements: StorageReplacements = {};
+  const text = (field: StorableTextField): string | null => {
+    const value = event[field];
+    return value === null ? null : toStorableText(value, field, replacements);
+  };
+  // Round-trip through JSON first so the walk rewrites exactly what would be
+  // stored: `toJSON` values (a Date, say) have no own entries to walk.
+  const json = (field: 'causeChain' | 'context'): unknown =>
+    event[field]
+      ? toStorableJsonValue(JSON.parse(JSON.stringify(event[field])), field, replacements)
+      : null;
+
+  const row = {
+    appVersion: text('appVersion'),
+    causeChain: json('causeChain'),
+    code: text('code'),
+    context: json('context') as Record<string, unknown> | null,
+    fingerprint: text('fingerprint'),
+    id: text('id'),
+    message: text('message'),
+    platform: text('platform'),
+    resourceId: text('resourceId'),
+    rootId: text('rootId'),
+    runId: text('runId'),
+    scope: text('scope'),
+    sessionId: text('sessionId'),
+    source: text('source'),
+    stack: text('stack'),
+    threadId: text('threadId'),
+  };
+  const context =
+    Object.keys(replacements).length === 0
+      ? row.context
+      : { ...row.context, [STORAGE_REPLACEMENTS_KEY]: replacements };
+  return [
+    row.id,
+    new Date(event.occurredAt).toISOString(),
+    event.severity,
+    row.source,
+    row.scope,
+    row.code,
+    row.message,
+    row.stack,
+    row.causeChain === null ? null : JSON.stringify(row.causeChain),
+    context === null ? null : JSON.stringify(context),
+    row.fingerprint,
+    row.sessionId,
+    row.runId,
+    row.threadId,
+    row.resourceId,
+    row.rootId,
+    row.appVersion,
+    row.platform,
+  ];
+}
+
 export class DiagnosticEventsRepository {
   private readonly db: DiagnosticEventsDatabase;
   private readonly now: () => Date;
@@ -177,26 +308,7 @@ export class DiagnosticEventsRepository {
     const params: unknown[] = [];
     const tuples = events.map((event, index) => {
       const base = index * 18;
-      params.push(
-        event.id,
-        new Date(event.occurredAt).toISOString(),
-        event.severity,
-        event.source,
-        event.scope,
-        event.code,
-        event.message,
-        event.stack,
-        event.causeChain ? JSON.stringify(event.causeChain) : null,
-        event.context ? JSON.stringify(event.context) : null,
-        event.fingerprint,
-        event.sessionId,
-        event.runId,
-        event.threadId,
-        event.resourceId,
-        event.rootId,
-        event.appVersion,
-        event.platform
-      );
+      params.push(...toStorableRowParams(event));
       const placeholders = Array.from({ length: 18 }, (_, offset) => `$${base + offset + 1}`);
       return `(${placeholders.join(', ')})`;
     });
