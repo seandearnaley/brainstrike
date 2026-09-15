@@ -1278,6 +1278,22 @@ an unbounded blocking dialog; a recovered IPC call rejects with
 `DatabaseCorruptionRecoveredError` and the already-scheduled reload remounts
 all renderer state.
 
+Scheduled database maintenance is an entry point too, not just IPC. A
+maintenance pass that fails with an error `isCorruptionError` accepts (the same
+rule `db:query` uses, never a copy) logs `Corruption detected in maintenance;
+replacing the database without retrying.` and enters this path with context
+`'maintenance'`. It does that inside its background-lane operation, before the
+lane is released, exactly like `db:query`, and the pass rejects with
+`DatabaseCorruptionRecoveredError`. `createDesktopDatabaseMaintenanceScheduler`
+takes `onRuntimeCorruption` as a required option with no default, so a
+composition cannot keep serving a database a pass has proven corrupt.
+Non-corruption maintenance failures stay log-only (`Scheduled database
+maintenance failed`, no reset). Measured case (2026-09-15): an `XX001` found by
+maintenance was only logged, and the app kept serving that database for about
+nine hours until a `db:query` hit `XX001` and recovered. Paired tests: the
+corruption-recovery block in
+`apps/desktop/src/__tests__/database-maintenance-scheduler.test.ts`.
+
 ---
 
 ## AGENT DEVTOOLS PROFILE ISOLATION

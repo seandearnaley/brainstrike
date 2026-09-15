@@ -6,8 +6,16 @@ import {
   type ScheduledDatabaseMaintenanceOptions,
   type ScheduledDatabaseMaintenanceResult,
 } from '@brainstrike/db';
+import { isCorruptionError } from './db-main';
+import {
+  type RuntimeDatabaseCorruptionHandler,
+  recoverRuntimeDatabaseCorruption,
+} from './ipc-domains/runtime-database-corruption';
 
 const DEFAULT_DATABASE_MAINTENANCE_INITIAL_DELAY_MS = 30_000;
+
+/** Runtime-recovery context for corruption found by a maintenance pass. */
+const MAINTENANCE_CORRUPTION_CONTEXT = 'maintenance';
 
 /**
  * BST-1333: how long the database scheduler must have been CONTINUOUSLY idle
@@ -49,6 +57,7 @@ interface MaintenanceLogger {
   readonly debug: (context: Record<string, unknown>, message: string) => void;
   readonly error: (context: Record<string, unknown>, message: string) => void;
   readonly info: (context: Record<string, unknown>, message: string) => void;
+  readonly warn: (context: Record<string, unknown>, message: string) => void;
 }
 
 export type DesktopDatabaseMaintenanceSkipReason =
@@ -86,6 +95,12 @@ export interface DesktopDatabaseMaintenanceSchedulerOptions {
   readonly logger: MaintenanceLogger;
   readonly maintenanceOptions?: ScheduledDatabaseMaintenanceOptions;
   readonly now?: () => Date;
+  /**
+   * Runtime corruption recovery: backup, DB host replacement, window reload.
+   * Required, never defaulted: a pass that finds corruption must not leave the
+   * app serving the corrupt database.
+   */
+  readonly onRuntimeCorruption: RuntimeDatabaseCorruptionHandler;
   /**
    * Continuous idle required before a pass may start (BST-1333). Observed via
    * `subscribeToSchedulerSnapshots`; when that is not supplied the gate cannot
@@ -214,11 +229,27 @@ export function createDesktopDatabaseMaintenanceScheduler(
 
     maintenanceInFlight = options
       .runScheduledWork(MAINTENANCE_WORK_OPTIONS, async () => {
-        const db = await options.getDatabase();
-        return await runMaintenance(db, {
-          ...options.maintenanceOptions,
-          now,
-        });
+        try {
+          const db = await options.getDatabase();
+          return await runMaintenance(db, {
+            ...options.maintenanceOptions,
+            now,
+          });
+        } catch (error) {
+          if (!isCorruptionError(error)) {
+            throw error;
+          }
+          // Same rule and path as db:query: recover while this operation still
+          // owns the lane, and never retry against the replacement database.
+          options.logger.warn(
+            { context: MAINTENANCE_CORRUPTION_CONTEXT, error },
+            `Corruption detected in ${MAINTENANCE_CORRUPTION_CONTEXT}; replacing the database without retrying.`
+          );
+          return await recoverRuntimeDatabaseCorruption(
+            MAINTENANCE_CORRUPTION_CONTEXT,
+            options.onRuntimeCorruption
+          );
+        }
       })
       .then((result) => {
         if (result.status === 'skipped') {

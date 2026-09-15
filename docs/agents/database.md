@@ -251,6 +251,14 @@ logged with reason `database-scheduler-recently-busy` and simply retry on the
 next interval — never widen this gate to "idle right now" for a statement whose
 duration is unbounded.
 
+**Corruption found by maintenance recovers the database; the app never keeps
+running on it.** A maintenance pass that fails with a corruption-class error
+(`isCorruptionError`, the same rule as `db:query`) enters runtime corruption
+recovery with context `'maintenance'`: backup before reset, DB host
+replacement, window reload. Any other maintenance failure is only logged. The
+full contract is in `docs/agents/platform-contracts.md`, under RUNTIME DATABASE
+CORRUPTION RECOVERY.
+
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
 Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static catalog is NOT enough — the in-app model picker is driven by a DB-backed catalog.
