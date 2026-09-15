@@ -394,7 +394,7 @@ describe('thread debug pack swarm diagnostics', () => {
     expect(JSON.parse(pack).manifest.redaction.valueCount).toBe(5);
   });
 
-  it('scrubs and counts a secret shape inside an unavailable host evidence reason', () => {
+  it('scrubs and counts a secret shape inside each unavailable host evidence reason', () => {
     const apiKey = ['sk', 'abcdefghijklmnopqrstuv'].join('-');
     const pack = formatThreadDebugPack(
       {
@@ -408,7 +408,10 @@ describe('thread debug pack swarm diagnostics', () => {
           reason: `not readable at /tmp/${apiKey}/brainstrike.log`,
           status: 'unavailable',
         },
-        processCounters: { reason: 'not under test', status: 'unavailable' },
+        processCounters: {
+          reason: `counter read rejected for ${apiKey} by main`,
+          status: 'unavailable',
+        },
         window: null,
       }
     );
@@ -418,6 +421,9 @@ describe('thread debug pack swarm diagnostics', () => {
     expect(manifest.host.hostLog).toBe(
       'unavailable: not readable at /tmp/[redacted-secret:api-key]/brainstrike.log'
     );
-    expect(manifest.redaction.valueCount).toBe(1);
+    expect(manifest.host.processCounters).toBe(
+      'unavailable: counter read rejected for [redacted-secret:api-key] by main'
+    );
+    expect(manifest.redaction.valueCount).toBe(2);
   });
 });

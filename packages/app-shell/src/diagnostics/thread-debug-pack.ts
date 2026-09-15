@@ -210,7 +210,11 @@ function describeHostItem(item: ThreadDebugHostItem): string {
   return item.status === 'included' ? 'included' : `unavailable: ${item.reason}`;
 }
 
-/** Read from the REDACTED sections, so listed gates carry their events' redaction. */
+/**
+ * Read from the REDACTED sections, so listed gates carry their events'
+ * redaction and the manifest never bypasses redaction (host reasons take the
+ * same value scrub in `formatThreadDebugPack`).
+ */
 function listPermissionGates(redactedSections: unknown): Record<string, unknown>[] {
   const events = isRecord(redactedSections) ? redactedSections['events'] : undefined;
   if (!Array.isArray(events)) {
