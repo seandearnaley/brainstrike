@@ -476,6 +476,7 @@ describe('withBackgroundIdleLoop', () => {
           order.push('map');
           mapped.push(nativeRunId);
         },
+        rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
     );
@@ -566,6 +567,7 @@ describe('withBackgroundIdleLoop', () => {
     };
     const { manager, push, setTask } = fakeManager([], () => {});
     const ledger = createBackgroundLedgerSource({
+      generation: async () => ({ generationRunId: 'root-run', nativeRunIds: ['root-run'] }),
       manager,
       personaLabel: () => 'Explorer',
       rejectedDelegations,
@@ -586,6 +588,7 @@ describe('withBackgroundIdleLoop', () => {
         manager,
         maxIdleMs: 60_000,
         options: {} as never,
+        recordNativeRootRun,
         rejectedDelegations,
         scope: { resourceId: 'r', threadId: 't' },
       }
@@ -646,6 +649,7 @@ describe('withBackgroundIdleLoop', () => {
       manager,
       maxIdleMs: 60_000,
       options: {} as never,
+      recordNativeRootRun,
       rejectedDelegations: undefined,
       scope: { resourceId: 'r', threadId: 't' },
     });

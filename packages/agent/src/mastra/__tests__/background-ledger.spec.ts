@@ -123,6 +123,7 @@ describe('createBackgroundLedgerSource', () => {
       total: 2,
     }));
     const source = createBackgroundLedgerSource({
+      generation: async () => ROOT_GENERATION,
       manager: { listTasks } as never,
       personaLabel,
       rejectedDelegations: {
