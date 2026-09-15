@@ -2970,8 +2970,12 @@ Flow (desktop assistant server → agent runtime):
    a failed resumed run is observed through thread state (`incomplete` →
    `retryable` unlocks the card; `ErrorPrimitive` renders the error) and only
    a synchronous throw (e.g. an unavailable thread scope) is caught, with the
-   same inline alert. Paired: `follow-up-queue-store.test.ts`,
+   same inline alert, which is DERIVED (the failure carries the run-outcome key
+   it happened in) so no effect adjusts it after the fact and no frame shows a
+   spent message. Paired: `follow-up-queue-store.test.ts`,
    `assistant-tool-approval-notice-panel.test.tsx` ("while a run is active"),
+   `assistant-ui-append-contract.test.ts` (the `void` return itself — a version
+   bump that returns a promise fails type-check, not at runtime),
    `follow-up-queue.behavior.test.tsx` (real local runtime dispatch of a queued
    decision) and app-shell `delegated-conversation-root.test.ts`. SETTLED
    2026-09-14 (thread-796a942d): the decision ledger permits ONE `claimed`

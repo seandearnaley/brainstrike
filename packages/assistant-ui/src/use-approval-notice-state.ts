@@ -72,7 +72,10 @@ export interface ApprovalNoticeState {
   readonly rediscovered: RediscoveredPauseDisplay | null;
   /**
    * Why the user's last decision was not sent (the append threw, or the host
-   * refused the live decision); null once a new submit starts.
+   * refused the live decision), for as long as that failure still describes
+   * the card. Null once a new submit starts, once the pause is answered by any
+   * other route (the status is then authoritative), and once the run outcome
+   * moves on from the attempt that failed.
    */
   readonly sendError: string | null;
   /** The header chip text (Pending / Queued / Approved / Declined / Allowed by session grant / …). */
