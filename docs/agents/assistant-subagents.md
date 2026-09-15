@@ -2230,8 +2230,14 @@ children still run is not live-deliverable — it queues behind the leg (404);
 a queued decision whose pause was cancelled by a root Stop dispatches and
 fails visibly (`run.failed`), it is not silently discarded; foreground (web)
 siblings that have not paused when the parent suspends surface only on
-reload; in the gap between the resume stream's terminal wait ending and the
-parent wakeup starting, a decision is `'no-live-run'` and queues. OPEN (foreground children only, i.e. web): a sibling that has not
+reload; from the moment the resume stream's terminal wait ends (its last
+terminal is in, or a Stop ended it) until the parent wakeup starts, a decision
+is `'no-live-run'` and queues. That holds even while the leg still joins its
+final ledger row, because `createTerminalWait` closes before it resolves and
+`reserve` refuses a closed wait. Before, a decision reserved during that ledger
+read joined the ended wait and failed the leg ("Background resume ended before
+every terminal task state."). Paired: `background-resume.spec.ts` ("terminal
+wait"). OPEN (foreground children only, i.e. web): a sibling that has not
 yet paused when the parent run suspends on the first child's approval is not
 surfaced live — Mastra closes the parent stream at that suspension; its pause
 appears on reload through rediscovery. Seen in the desktop scenario before the

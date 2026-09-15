@@ -82,6 +82,13 @@ function createTerminalWait(
   onTerminal: (taskId: string) => void
 ): {
   readonly add: (taskId: string) => void;
+  /** Stop accepting tasks (the leg stopped waiting). */
+  readonly close: () => void;
+  /**
+   * No task may join any more: every terminal is in (set before `done`
+   * resolves, so before the leg's own continuation runs) or the leg closed it.
+   */
+  readonly closed: () => boolean;
   readonly done: Promise<ReadonlyMap<string, TaskEvent>>;
   /** The terminals seen so far (the lifecycle stream may end before every one). */
   readonly seen: () => ReadonlyMap<string, TaskEvent>;
@@ -94,8 +101,10 @@ function createTerminalWait(
   const done = Promise.withResolvers<ReadonlyMap<string, TaskEvent>>();
   const isNewSuspension = createSuspensionLedger();
   let answering = 0;
+  let closed = false;
   const check = () => {
     if (answering === 0 && [...awaited].every((taskId) => terminals.has(taskId))) {
+      closed = true;
       done.resolve(terminals);
     }
   };
@@ -103,6 +112,10 @@ function createTerminalWait(
     add: (taskId) => {
       awaited.add(taskId);
     },
+    close: () => {
+      closed = true;
+    },
+    closed: () => closed,
     done: done.promise,
     observe: (event) => {
       const decoded = readTaskEvent(event);
@@ -364,7 +377,9 @@ export function createBackgroundResumeStream(params: {
             return true;
           },
           reserve: (tasks) => {
-            if (!waiting) {
+            // An ended wait takes no task, even while the leg still joins its
+            // final ledger row (KNOWN LIMITS: the decision is not live).
+            if (wait.closed()) {
               throw new LiveDecisionUnavailableError('The resume leg is no longer waiting.');
             }
             for (const task of tasks) {
@@ -417,6 +432,9 @@ export function createBackgroundResumeStream(params: {
           // (`watching.abort()`); the checks below name that, never a hang.
           terminals = await Promise.race([wait.done, reading.then(() => wait.seen())]);
         } finally {
+          // The wait takes no task once the leg stopped waiting (a Stop or a
+          // failed resume ends it early); `publish` stays open meanwhile.
+          wait.close();
           // Join in-flight ledger rows before the owner is released and the
           // publisher's enqueue closes: the final row must reach the leg.
           await ledger.idle();
