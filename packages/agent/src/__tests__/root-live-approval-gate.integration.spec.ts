@@ -40,6 +40,8 @@ const EAGER_ASK_TOOL = 'fixture.shell';
 const EAGER_ALLOW_TOOL = 'fixture.read';
 /** A non-critical native edit tool: deferred behind tool search for a hosted provider. */
 const DEFERRED_ASK_TOOL = NATIVE_TOOL_ID.deleteWorkspaceFile;
+/** A deferred read-risk native tool: the loading path must leave it ungated. */
+const DEFERRED_ALLOW_TOOL = NATIVE_TOOL_ID.queryDiagnostics;
 
 const ASK_POLICY: PermissionToolGateSnapshot = {
   defaultRisk: 'mcp',
@@ -121,7 +123,10 @@ async function loadDeferredTools(
     throw new Error('Tool-search step exposed no executable load_tool; deferred tools cannot load');
   }
   for (const toolName of sanitizedIds) {
-    await loadTool.execute({ toolName }, { observe: noopObserve });
+    const result = await loadTool.execute({ toolName }, { observe: noopObserve });
+    // Attribute a harness failure to the LOAD itself: an error-shaped result
+    // would otherwise resurface later as a missing entry in the tool map.
+    expect(result, `load_tool(${toolName})`).toMatchObject({ success: true, toolName });
   }
   const second = await processor.processInputStep(createDiscoveryStepArgs(threadId, 1));
   return second.tools;
@@ -159,6 +164,7 @@ describe('root live approval gate on the executed tool map', () => {
         store: () => Promise.reject(new Error('root-live-approval-gate never stores output')),
       },
       tools: {
+        [DEFERRED_ALLOW_TOOL]: fixtureTool(DEFERRED_ALLOW_TOOL),
         [DEFERRED_ASK_TOOL]: fixtureTool(DEFERRED_ASK_TOOL),
         [EAGER_ALLOW_TOOL]: fixtureTool(EAGER_ALLOW_TOOL),
         [EAGER_ASK_TOOL]: fixtureTool(EAGER_ASK_TOOL),
@@ -206,12 +212,24 @@ describe('root live approval gate on the executed tool map', () => {
 
     // Deferred: the tool object tool search hands Mastra, which converts it
     // with `requireApproval: tool.requireApproval`.
-    const loaded = await loadDeferredTools(root, deferredAskIds, 'root-ask-gate-deferred');
+    const deferredAllowId = sanitizeToolName(DEFERRED_ALLOW_TOOL);
+    const loaded = await loadDeferredTools(
+      root,
+      [...deferredAskIds, deferredAllowId],
+      'root-ask-gate-deferred'
+    );
     for (const sanitizedId of deferredAskIds) {
       const tool = flagsOf(loaded[sanitizedId], sanitizedId);
       expect(typeof tool.requireApproval, sanitizedId).toBe('function');
-      expect(callable(tool.requireApproval, sanitizedId)(), sanitizedId).toBe(true);
+      expect(callable(tool.requireApproval, sanitizedId)({}, {}), sanitizedId).toBe(true);
     }
+    // Control: the deferred path must gate ONLY ask tools. The exact-set
+    // assertion above pins `askTools` MEMBERSHIP; this pins what the loading
+    // path stamps on a tool outside that set (`createTool` leaves the field
+    // `false`; only the gate clone replaces it with a function).
+    const deferredAllowed = flagsOf(loaded[deferredAllowId], deferredAllowId);
+    expect(deferredAllowed.requireApproval, deferredAllowId).toBe(false);
+    expect(deferredAllowed.needsApprovalFn, deferredAllowId).toBeUndefined();
   });
 
   it('an ask-gated web search on anthropic keeps the approval-gated Tavily clone, never the provider-native tool', async () => {
@@ -229,6 +247,6 @@ describe('root live approval gate on the executed tool map', () => {
     expect(webSearch.type, 'provider-native web search cannot suspend').not.toBe('provider');
     expect(typeof webSearch.execute).toBe('function');
     expect(typeof webSearch.requireApproval).toBe('function');
-    expect(callable(webSearch.requireApproval, sanitizedId)()).toBe(true);
+    expect(callable(webSearch.requireApproval, sanitizedId)({}, {})).toBe(true);
   });
 });
