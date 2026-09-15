@@ -266,7 +266,7 @@ export function ApprovalCard({ approval, presentation, state }: ApprovalCardProp
             />
           </div>
           {state.sendError === null ? null : (
-            <p className="mt-2 text-destructive text-xs" role="alert">
+            <p className="mt-2 break-words text-destructive text-xs" role="alert">
               Decision not sent: {state.sendError}
             </p>
           )}

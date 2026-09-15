@@ -169,11 +169,14 @@ export function useApprovalNoticeState(
   );
 
   useEffect(() => {
-    if (submittedAction === null || approvalRunOutcome.state !== 'retryable') {
+    if (approvalRunOutcome.state !== 'retryable') {
       return;
     }
     setSubmittedAction(null);
-  }, [approvalRunOutcome.state, submittedAction]);
+    // The card unlocks for a retry, so a failure from an earlier attempt is
+    // spent: it must not reappear beside the re-enabled buttons.
+    setSendError(null);
+  }, [approvalRunOutcome.state]);
 
   const displayedAction = submittedAction ?? (actionLockedByRun ? approvalRunOutcome.action : null);
   const status = resolveNoticeStatus({
@@ -191,7 +194,11 @@ export function useApprovalNoticeState(
     delegationOwner,
     hostAnswer,
     rediscovered,
-    sendError,
+    // Only a notice the user can still act on reports a send failure. Once the
+    // pause is answered by any other route — the composer's approval strip, a
+    // host answer, a durable decision — the status is authoritative and a
+    // stale failure beside it would contradict it.
+    sendError: queued || decisionLocked || actionLockedByRun ? null : sendError,
     status,
     submitApprovalAction,
   };
