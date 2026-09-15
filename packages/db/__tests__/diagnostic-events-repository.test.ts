@@ -356,5 +356,35 @@ describe('DiagnosticEventsRepository', () => {
       expect(row?.context).toEqual(context);
       expect(row?.message).toBe('literal \\u0000 text 🙂');
     });
+
+    it('stores an omitted nullable field as NULL instead of throwing', async () => {
+      // Runtime shape: an event that lost a null-valued key crossing a
+      // serialization boundary. PGlite binds `undefined` as NULL, so this
+      // inserted before the rewrite existed and must still insert.
+      const { stack: _omitted, ...withoutStack } = makeEvent({ id: 'no-stack', occurredAt: 1000 });
+      await repo.insertBatch([
+        withoutStack as unknown as DiagnosticEvent,
+        makeEvent({ id: 'sibling', occurredAt: 2000 }),
+      ]);
+
+      const rows = await repo.queryEvents({});
+      expect(rows.map((row) => row.id)).toEqual(['sibling', 'no-stack']);
+      expect(rows[1]?.stack).toBeNull();
+    });
+
+    it('stores a context whose toJSON renders nothing as NULL instead of throwing', async () => {
+      await repo.insertBatch([
+        makeEvent({
+          context: { toJSON: () => undefined },
+          id: 'renders-nothing',
+          occurredAt: 1000,
+        }),
+        makeEvent({ id: 'sibling', occurredAt: 2000 }),
+      ]);
+
+      const rows = await repo.queryEvents({});
+      expect(rows.map((row) => row.id)).toEqual(['sibling', 'renders-nothing']);
+      expect(rows[1]?.context).toBeNull();
+    });
   });
 });

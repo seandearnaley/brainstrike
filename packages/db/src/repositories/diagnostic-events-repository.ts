@@ -231,26 +231,36 @@ function toStorableJsonValue(
  * escapes (22P05/22P02). One such row fails the whole multi-row INSERT, and the
  * writer re-queues that batch whole, so every retry fails until the writer disables
  * itself. Every stored string is therefore rewritten visibly, and the row records the
- * rewrite under `context.storageReplacements`.
+ * rewrite under `context.storageReplacements`. The rewrite itself must never throw,
+ * so a value that is not a string passes through as before (PGlite binds `undefined`
+ * as NULL).
  */
 function toStorableRowParams(event: DiagnosticEvent): unknown[] {
   const replacements: StorageReplacements = {};
-  const text = (field: StorableTextField): string | null => {
-    const value = event[field];
-    return value === null ? null : toStorableText(value, field, replacements);
+  const text = (field: StorableTextField): unknown => {
+    const value: unknown = event[field];
+    return typeof value === 'string' ? toStorableText(value, field, replacements) : value;
   };
-  // Round-trip through JSON first so the walk rewrites exactly what would be
-  // stored: `toJSON` values (a Date, say) have no own entries to walk.
-  const json = (field: 'causeChain' | 'context'): unknown =>
-    event[field]
-      ? toStorableJsonValue(JSON.parse(JSON.stringify(event[field])), field, replacements)
-      : null;
+  // `JSON.stringify` emits NUL and lone surrogates as `\u` escapes, so text
+  // without one is already storable. Otherwise walk the parsed text rather than
+  // the value, so `toJSON` values (a Date, say) are rewritten as they are stored.
+  const serialize = (field: 'causeChain' | 'context'): string | null => {
+    const value = event[field];
+    const serialized: string | undefined = value ? JSON.stringify(value) : undefined;
+    if (serialized === undefined) {
+      return null;
+    }
+    if (!serialized.includes('\\u')) {
+      return serialized;
+    }
+    return JSON.stringify(toStorableJsonValue(JSON.parse(serialized), field, replacements));
+  };
 
   const row = {
     appVersion: text('appVersion'),
-    causeChain: json('causeChain'),
+    causeChain: serialize('causeChain'),
     code: text('code'),
-    context: json('context') as Record<string, unknown> | null,
+    context: serialize('context'),
     fingerprint: text('fingerprint'),
     id: text('id'),
     message: text('message'),
@@ -267,7 +277,10 @@ function toStorableRowParams(event: DiagnosticEvent): unknown[] {
   const context =
     Object.keys(replacements).length === 0
       ? row.context
-      : { ...row.context, [STORAGE_REPLACEMENTS_KEY]: replacements };
+      : JSON.stringify({
+          ...(row.context === null ? {} : (JSON.parse(row.context) as Record<string, unknown>)),
+          [STORAGE_REPLACEMENTS_KEY]: replacements,
+        });
   return [
     row.id,
     new Date(event.occurredAt).toISOString(),
@@ -277,8 +290,8 @@ function toStorableRowParams(event: DiagnosticEvent): unknown[] {
     row.code,
     row.message,
     row.stack,
-    row.causeChain === null ? null : JSON.stringify(row.causeChain),
-    context === null ? null : JSON.stringify(context),
+    row.causeChain,
+    context,
     row.fingerprint,
     row.sessionId,
     row.runId,
@@ -306,10 +319,12 @@ export class DiagnosticEventsRepository {
     const columns =
       '(id, occurred_at, severity, source, scope, code, message, stack, cause_chain, context, fingerprint, session_id, run_id, thread_id, resource_id, root_id, app_version, platform)';
     const params: unknown[] = [];
-    const tuples = events.map((event, index) => {
-      const base = index * 18;
-      params.push(...toStorableRowParams(event));
-      const placeholders = Array.from({ length: 18 }, (_, offset) => `$${base + offset + 1}`);
+    const tuples = events.map((event) => {
+      // Placeholders derive from the row itself, so the column count lives only in
+      // toStorableRowParams and the column list above.
+      const row = toStorableRowParams(event);
+      const placeholders = row.map((_, offset) => `$${params.length + offset + 1}`);
+      params.push(...row);
       return `(${placeholders.join(', ')})`;
     });
     try {
