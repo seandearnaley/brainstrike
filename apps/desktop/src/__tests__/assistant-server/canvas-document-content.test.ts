@@ -91,6 +91,9 @@ describe('isEmptyCanvasDocument', () => {
     // The unclosed-to-EOF rule must not swallow a script the guard protects.
     // Mutation: dropping the guard consumes this as an implied head.
     ['truncated script outside a head', '<script>render()'],
+    // Only a literal `<head>` sets the explicit-head flag. Mutation: setting it
+    // on ANY consumed head token strips this script and fails this row.
+    ['a script after an implied head', '<title>T</title><script>render()</script>'],
   ])('treats %s as content', (_label, html) => {
     expect(isEmptyCanvasDocument(html)).toBe(false);
   });
