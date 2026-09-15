@@ -7,7 +7,11 @@ import type { MastraMemory } from '@mastra/core/memory';
 import { describe, expect, it } from 'vitest';
 import type { MastraAgentRuntime } from '../agent-runtime';
 import { createBackgroundResumeStream } from '../background-resume';
-import { createLiveDecisionChannel, type LiveDecisionChannel } from '../live-decision-channel';
+import {
+  createLiveDecisionChannel,
+  type LiveDecisionChannel,
+  LiveDecisionUnavailableError,
+} from '../live-decision-channel';
 import type { BrainstrikeAgentStreamOptions } from '../runtime-assembly/stream-options';
 
 const SCOPE = { resourceId: 'resource-1', threadId: 'thread-1' } as const;
@@ -64,6 +68,7 @@ function createNativeManager(
   const rows = new Map<string, BackgroundTask>();
   let push: (event: unknown) => void = () => {};
   let stamp = 0;
+  let heldRead: { readonly gate: Promise<void>; readonly onRead: () => void } | undefined;
   const update = (taskId: string, status: BackgroundTask['status']): BackgroundTask => {
     const row = rows.get(taskId);
     if (!row) {
@@ -119,6 +124,12 @@ function createNativeManager(
       contexts.delete(taskId);
     },
     listTasks: async () => {
+      const held = heldRead;
+      heldRead = undefined;
+      if (held) {
+        held.onRead();
+        await held.gate;
+      }
       const tasks = [...rows.values()];
       return { tasks, total: tasks.length };
     },
@@ -177,7 +188,19 @@ function createNativeManager(
     rows.set(taskId, task);
     return task;
   };
-  return { add, calls, manager: manager as unknown as BackgroundTaskManager };
+  /** Hold the next durable read (a ledger row); `onRead` runs the moment that read starts. */
+  const holdNextRead = (onRead: () => void = () => {}): (() => void) => {
+    const gate = Promise.withResolvers<void>();
+    heldRead = { gate: gate.promise, onRead };
+    return () => gate.resolve();
+  };
+  return {
+    add,
+    calls,
+    cancel,
+    holdNextRead,
+    manager: manager as unknown as BackgroundTaskManager,
+  };
 }
 
 /**
@@ -185,6 +208,8 @@ function createNativeManager(
  * terminal wakes a parent inference: the leg always ends on the join branch.
  */
 function startLeg(params: {
+  /** The root Stop (`options.abortSignal`). */
+  readonly abortSignal?: AbortSignal;
   /** The host's per-call join (`hooks.afterToolCall`) a resumed executor runs before it settles. */
   readonly afterToolCall?: () => Promise<void>;
   readonly channel?: LiveDecisionChannel | undefined;
@@ -209,9 +234,10 @@ function startLeg(params: {
     attachParent: async () => {},
     channel: params.channel,
     memory: {} as MastraMemory,
-    options: (params.afterToolCall
-      ? { hooks: { afterToolCall: params.afterToolCall } }
-      : {}) as BrainstrikeAgentStreamOptions,
+    options: {
+      ...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+      ...(params.afterToolCall ? { hooks: { afterToolCall: params.afterToolCall } } : {}),
+    } as BrainstrikeAgentStreamOptions,
     resumes: params.resumes.map((task) => ({ resumeData: { approved: true }, task })),
     runtime,
   });
@@ -328,5 +354,77 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
     hostJoin.resolve();
     await expect(ended).resolves.toEqual({ error: undefined });
     expect(native.calls).toContain('shutdown');
+  }, 2000);
+});
+
+describe('createBackgroundResumeStream terminal wait (BST-1749)', () => {
+  it('refuses a reservation once every awaited terminal is in, while the leg still joins its final ledger row', async () => {
+    // The last terminal ends the wait and starts the leg's final ledger read
+    // in the same turn. A decision that reaches `reserve` from then on — here
+    // as that read starts, before the leg's own continuation runs — is refused
+    // as not live (KNOWN LIMITS), never added to a wait that has ended.
+    const channel = createLiveDecisionChannel();
+    const native = createNativeManager({ cancelOnResume: new Set(['t1']) });
+    const sibling = native.add('t2');
+    let reservation: unknown;
+    const release = native.holdNextRead(() => {
+      try {
+        channel.owner?.reserve([sibling]);
+        reservation = 'accepted';
+      } catch (error) {
+        reservation = error;
+      }
+    });
+    const { ended, leg } = startLeg({
+      channel,
+      manager: native.manager,
+      resumes: [native.add('t1')],
+      tools: Promise.resolve({ [TOOL]: parkingTool() }),
+    });
+    await until(() => reservation !== undefined);
+    release();
+    expect(reservation).toBeInstanceOf(LiveDecisionUnavailableError);
+    await expect(ended).resolves.toEqual({ error: undefined });
+    expect(leg.status).toBe('suspended');
+  }, 2000);
+
+  it('refuses a reservation once a stopped leg stopped waiting, while it still joins its final ledger row', async () => {
+    const stop = new AbortController();
+    const gate = Promise.withResolvers<void>();
+    const channel = createLiveDecisionChannel();
+    const native = createNativeManager();
+    const other = native.add('t9');
+    const sibling = native.add('t2');
+    const { ended } = startLeg({
+      abortSignal: stop.signal,
+      channel,
+      manager: native.manager,
+      resumes: [native.add('t1')],
+      tools: Promise.resolve({ [TOOL]: parkingTool(gate.promise) }),
+    });
+    try {
+      await until(() => native.calls.includes('execute:t1'));
+      let reading = false;
+      const release = native.holdNextRead(() => {
+        reading = true;
+      });
+      // Another child's terminal starts a ledger read; the Stop then ends the
+      // lifecycle stream while that row is still being joined.
+      native.cancel(other.id);
+      await until(() => reading);
+      stop.abort(new Error('User stopped the root.'));
+      await macrotask();
+      await macrotask();
+      const owner = channel.owner;
+      if (!owner) {
+        throw new Error('The stopped leg released its owner before its final ledger row.');
+      }
+      expect(() => owner.reserve([sibling])).toThrow(LiveDecisionUnavailableError);
+      release();
+      const { error } = await ended;
+      expect(error).toMatchObject({ message: 'User stopped the root.' });
+    } finally {
+      gate.resolve();
+    }
   }, 2000);
 });
