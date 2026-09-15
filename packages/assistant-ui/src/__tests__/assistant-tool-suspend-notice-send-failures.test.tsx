@@ -9,12 +9,25 @@ import { LiveDecisionProvider } from '../live-decision-context';
 
 const appendMessageMock = vi.hoisted(() => vi.fn());
 const threadRunningMock = vi.hoisted(() => ({ isRunning: false }));
+const threadMessagesMock = vi.hoisted(
+  () =>
+    [] as Array<{
+      metadata?: { custom?: Record<string, unknown> };
+      role: 'assistant' | 'user';
+      status?: { type: string };
+    }>
+);
 
 vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({ thread: () => ({ append: appendMessageMock }) }),
   useAuiState: (
-    selector: (state: { thread: { isRunning: boolean; messages: readonly unknown[] } }) => unknown
-  ) => selector({ thread: { isRunning: threadRunningMock.isRunning, messages: [] } }),
+    selector: (state: {
+      thread: { isRunning: boolean; messages: typeof threadMessagesMock };
+    }) => unknown
+  ) =>
+    selector({
+      thread: { isRunning: threadRunningMock.isRunning, messages: threadMessagesMock },
+    }),
 }));
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -53,6 +66,7 @@ describe('AssistantToolSuspendNotice send failures', () => {
   beforeEach(() => {
     appendMessageMock.mockReset();
     threadRunningMock.isRunning = false;
+    threadMessagesMock.splice(0);
     resetFollowUpQueueStore();
   });
 
@@ -118,6 +132,31 @@ describe('AssistantToolSuspendNotice send failures', () => {
 
     expect(appendMessageMock).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  // The same pause can be answered elsewhere (a delegated child view routed
+  // through the owning root). A stale "not sent" must not outlive its context
+  // next to a card the started run has already locked.
+  it('clears the send error once a resume run starts by another route', async () => {
+    appendMessageMock.mockImplementationOnce(() => {
+      throw new Error('append failed');
+    });
+    const user = userEvent.setup();
+    const view = render(<AssistantToolSuspendNotice data={planRequest} />);
+    await user.click(screen.getByRole('button', { name: /approve/i }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
+
+    threadMessagesMock.push({
+      metadata: {
+        custom: { brainstrikeToolSuspend: { runId: 'run-plan', toolCallId: 'call-plan' } },
+      },
+      role: 'user',
+    });
+    threadMessagesMock.push({ role: 'assistant', status: { type: 'running' } });
+    view.rerender(<AssistantToolSuspendNotice data={planRequest} />);
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
   });
 
   it('unlocks the notice and shows why when the host refuses the live decision', async () => {

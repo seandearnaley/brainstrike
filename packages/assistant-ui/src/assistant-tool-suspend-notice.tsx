@@ -207,6 +207,13 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
     if (submitted && runOutcome === 'retryable') {
       setSubmitted(false);
     }
+    // A resume that DID start — this card's retry, or the same pause answered
+    // from the delegated child view that shares it — settles the question the
+    // error was about, so a stale "Decision not sent" must not sit beside the
+    // now-locked controls.
+    if (runOutcome === 'pending' || runOutcome === 'completed') {
+      setSendError(null);
+    }
   }
   const lockedByRun = runOutcome === 'pending' || runOutcome === 'completed';
   const threadKey = use(ActiveThreadKeyContext);

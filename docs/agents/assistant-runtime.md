@@ -2971,7 +2971,16 @@ Flow (desktop assistant server → agent runtime):
    returns `void` and rethrows any failure other than `MessageNotSentError`
    from a detached handler (it reaches `unhandledrejection`), so the notice
    never wraps it in a promise: a failed resumed run is observed through thread
-   state (`incomplete` → `retryable` unlocks the controls). Paired:
+   state (`incomplete` → `retryable` unlocks the controls). The swallowed
+   `MessageNotSentError` is the runtime's own rollback signal and is raised
+   ONLY when a thread-list initializer rejects (`RemoteThreadResource`); the
+   desktop/web `useLocalRuntime` in `data-stream-runtime.ts` wires none, so
+   that branch is unreachable here — adding a remote thread list would make it
+   reachable and would need its own observation channel, because `append`
+   reports it to no caller. A started resume (this card's retry, or the same
+   pause answered from the delegated child view) clears `sendError` on the
+   `pending`/`completed` transition so a stale "not sent" cannot outlive its
+   context. Paired:
    `follow-up-queue-store.test.ts`,
    `assistant-tool-suspend-notice-send-failures.test.tsx`,
    `assistant-tool-approval-notice-panel.test.tsx` ("while a run is active"),
