@@ -1728,6 +1728,43 @@ implemented in P1 — this self-disable-after-repeated-flush-failures behavior,
 with its visible `onDisabled` log, is the deliberate P1 substitute; revisit
 once P2 surfaces sink health.
 
+**Unstorable characters are rewritten at the repository boundary, visibly.**
+PostgreSQL `text` cannot hold NUL (22021), and `jsonb` rejects both a NUL
+escape (22P05) and a lone-surrogate escape (22P02). `insertBatch` is one
+multi-row `INSERT` and the writer re-queues a failed batch whole, so one such
+row fails every retry until `maxConsecutiveFailures` disables the writer and
+drops everything pending. On 2026-09-15 forge-service logged its NUL-joined
+in-memory PR cache key as `context.key`; each occurrence produced a burst of
+five 22P05 failures, 2 s apart, and ended that writer. `insertBatch` therefore
+rewrites every string it stores — each text column and every JSON key and
+string value in `cause_chain`/`context` — replacing NUL with U+2400 (`␀`,
+SYMBOL FOR NULL) and each lone surrogate with U+FFFD. U+FFFD is the
+replacement `String.prototype.toWellFormed` makes, but the code uses a `u`-mode
+regex because the record needs a count; `boundWithMarker` slices by UTF-16 code
+unit and can split a pair. The row records the rewrite as
+`context.storageReplacements`, a per-field count such as
+`{ "context": 1, "stack": 2 }`, creating `context` when the event had none; the
+key is reserved at this boundary. Each JSON field is serialized once, and only
+text containing a `\u` escape (how `JSON.stringify` emits NUL and lone
+surrogates) is parsed and walked. `toJSON` values are therefore rewritten
+exactly as stored, and a storable row takes the same single-serialization path
+as before, with no record. A non-string value passes through unchanged
+(PGlite binds `undefined` as NULL): the rewrite must never throw itself, or it
+recreates the retry loop it exists to end.
+
+The rewrite is not injective. A JSON key or id that differs from another only
+by a rewritten character versus its stand-in collapses into it: the later key
+wins in `context`, and `ON CONFLICT (id) DO NOTHING` keeps the first row. This
+is accepted rather than encoded, because an injective scheme would also have
+to rewrite genuine `␀`/U+FFFD in storable rows, and producers mint ids with
+`crypto.randomUUID()`. A rewritten row also no longer matches its NDJSON
+backstop line byte for byte: the file keeps the original characters (JSON
+escapes them), and the record says where they differ. `insertBatch` is the
+only writer to this table. Do not replace this with per-row retry after a
+batch failure (a fallback that still loses the row) or with silent stripping.
+Paired: `diagnostic-events-repository.test.ts` (`characters PostgreSQL text
+and jsonb cannot store`).
+
 **Retention**: `DiagnosticEventsRepository.purge()`
 (`packages/db/src/repositories/diagnostic-events-repository.ts`) is a bounded,
 oldest-first `DELETE ... WHERE id IN (SELECT ... ORDER BY occurred_at ASC
