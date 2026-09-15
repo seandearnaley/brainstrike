@@ -89,6 +89,7 @@ test('an expanded row owns the indent and the rail: the embedded card adds neith
     delegationOwner: null,
     hostAnswer: null,
     rediscovered: null,
+    sendError: null,
     status: 'Approved',
     submitApprovalAction: () => undefined,
   };
