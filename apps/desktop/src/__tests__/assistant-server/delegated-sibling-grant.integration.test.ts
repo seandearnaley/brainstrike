@@ -874,6 +874,38 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
     ]);
   });
 
+  it("an approval leg whose granted sibling is refused releases the user's claim: the card stays answerable", async () => {
+    // BST-1749 review: the approval leg claimed the user's decision, then
+    // answering the parked sibling its grant covers failed before any native
+    // resume; disposal's `finishToolActions` turned the unexecuted claim into
+    // `consumed`, so the still-parked child's card was refused for good.
+    const fanout = await setupFanout(database, TWO);
+    await answerLeafConcurrently(database, fanout.notice('2'));
+    const refusal = await fanout
+      .decide(fanout.notice('1'), 'approve', { ...READ_ASK, sessionGrants: ['read'] })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+    // The leg's construction failure carries the host's refusal as its cause.
+    expect(refusal).toMatchObject({
+      cause: { reason: 'tool-action-already-consumed-or-root-busy' },
+      code: 'mastra_agent_stream_failure',
+    });
+    expect(fanout.execute).not.toHaveBeenCalled();
+    // MUTATION GUARD: without the release, disposal consumes delegate-1's claim.
+    expect(await fanout.decisions()).toEqual([
+      { parent_tool_call_id: 'delegate-2', state: 'consumed' },
+    ]);
+    const retried = await fanout.decide(fanout.notice('1'), 'approve');
+    expect(retried.answered).toEqual([]);
+    expect(fanout.execute).toHaveBeenCalledTimes(1);
+    expect(await fanout.decisions()).toEqual([
+      { parent_tool_call_id: 'delegate-1', state: 'consumed' },
+      { parent_tool_call_id: 'delegate-2', state: 'consumed' },
+    ]);
+  });
+
   it('a live session grant during an approval leg: one claimed decision, zero further policy rows, the resumed child reads on without a card', async () => {
     // Both children park on the initial leg. The user one-shot-approves card
     // 1 on a NEW leg (the ledger `claims` it; `finishToolActions` consumes it
