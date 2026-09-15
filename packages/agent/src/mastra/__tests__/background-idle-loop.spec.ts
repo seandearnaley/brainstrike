@@ -62,6 +62,7 @@ function fakeManager(events: unknown[], onResume: (taskId: string) => void) {
   const ledger = createBackgroundLedgerSource({
     manager,
     personaLabel: () => 'Explorer',
+    rejectedDelegations: undefined,
     scope: { resourceId: 'r', threadId: 't' },
   });
   return { ledger, manager, push: (event: unknown) => push?.(event), setTask };
@@ -490,5 +491,103 @@ describe('withBackgroundIdleLoop', () => {
         kind: 'deferred',
       },
     ]);
+  });
+
+  it('a delegation rejected at start wakes no parent turn and is no ledger entry', async () => {
+    // BST-1751: Mastra answers a refusal inside the background task it already
+    // created, so the rejected call still completes as a task row.
+    const rejectedDelegations = {
+      rejected: (toolCallId: string, runId?: string) =>
+        toolCallId === 'call-t2' && runId === 'root-run',
+    };
+    const { manager, push, setTask } = fakeManager([], () => {});
+    const ledger = createBackgroundLedgerSource({
+      manager,
+      personaLabel: () => 'Explorer',
+      rejectedDelegations,
+      scope: { resourceId: 'r', threadId: 't' },
+    });
+    setTask('t1', 'running');
+    setTask('t2', 'running');
+    const stream = vi.fn(async () => turn('success'));
+    const output = withBackgroundIdleLoop(
+      turn('success', [
+        lifecycle('background-task-started', 't1'),
+        lifecycle('background-task-started', 't2'),
+      ]),
+      {
+        agent: { id: 'root', stream } as unknown as Agent,
+        ledger,
+        manager,
+        maxIdleMs: 60_000,
+        options: {} as never,
+        rejectedDelegations,
+        scope: { resourceId: 'r', threadId: 't' },
+      }
+    );
+    const reader = output.fullStream.getReader();
+    const chunks: unknown[] = [];
+    const reading = (async () => {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          return;
+        }
+        chunks.push(value);
+      }
+    })();
+    const lifecycleTypes = () =>
+      chunks
+        .filter((chunk) => !isLedgerRow(chunk))
+        .map((chunk) => (chunk as { type: string }).type);
+    await vi.waitFor(() => expect(lifecycleTypes()).toHaveLength(2));
+    setTask('t2', 'completed');
+    push(lifecycle('background-task-completed', 't2'));
+    await vi.waitFor(() => expect(lifecycleTypes()).toHaveLength(3));
+    setTask('t1', 'completed');
+    push(lifecycle('background-task-completed', 't1'));
+    await reading;
+    // MUTATION: queueing the rejected terminal as a wakeup runs a second
+    // continuation — one parent turn per refusal, as in the 2026-09-15 E2E.
+    expect(stream).toHaveBeenCalledTimes(1);
+    const context = JSON.stringify(
+      (stream.mock.calls[0] as unknown as [unknown, { context: unknown[] }])[1].context
+    );
+    // MUTATION: a ledger source that ignores the capture reads "2 total: 2 returned".
+    expect(context).toContain('1 total: 1 returned, 0 failed, 0 cancelled, 0 still running');
+    expect(context).not.toContain('call-t2');
+    expect(chunks.filter(isLedgerRow).at(-1)?.event.label).toBe('1 of 1 specialist returned');
+  });
+
+  it('fails the leg loudly once more invocations wake the parent than one turn may admit', async () => {
+    const { ledger, manager, push, setTask } = fakeManager([], () => {});
+    let dispatched = 0;
+    // Every parent turn dispatches a task that returns at once, as if
+    // admission were bypassed; the script stops after 12 so an unbounded loop ends.
+    const dispatchingTurn = () => {
+      if (dispatched >= 12) {
+        return turn('success');
+      }
+      dispatched += 1;
+      const taskId = `t${dispatched}`;
+      setTask(taskId, 'completed');
+      push(lifecycle('background-task-completed', taskId));
+      return turn('success', [lifecycle('background-task-started', taskId)]);
+    };
+    const stream = vi.fn(async () => dispatchingTurn());
+    const output = withBackgroundIdleLoop(dispatchingTurn(), {
+      agent: { id: 'root', stream } as unknown as Agent,
+      ledger,
+      manager,
+      maxIdleMs: 60_000,
+      options: {} as never,
+      rejectedDelegations: undefined,
+      scope: { resourceId: 'r', threadId: 't' },
+    });
+    // MUTATION: without the bound the leg wakes the parent for all 12 and closes cleanly.
+    await expect(drain(output.fullStream.getReader())).rejects.toThrow(
+      'Background work woke the parent for 9 invocations; one turn admits at most 8.'
+    );
+    expect(stream).toHaveBeenCalledTimes(8);
   });
 });
