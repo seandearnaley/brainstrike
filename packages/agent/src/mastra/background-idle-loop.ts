@@ -248,7 +248,7 @@ export interface BackgroundIdleLoopParams {
    * The capture the leg's delegation config records refusals in
    * (`buildStreamOptions`): a refused delegation's completed task wakes no parent.
    */
-  readonly rejectedDelegations?: Pick<DelegationOutcomeCapture, 'rejected'> | undefined;
+  readonly rejectedDelegations: Pick<DelegationOutcomeCapture, 'rejected'> | undefined;
   readonly scope: { readonly threadId: string; readonly resourceId: string };
 }
 
@@ -277,7 +277,10 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   const settled = new Set<string>();
   const pending: TaskEvent[] = [];
   const seenTerminals = new Set<string>();
-  /** Tasks whose terminal queued a parent wakeup; one turn admits at most `maxInvocations`. */
+  /**
+   * Tasks whose terminal queued a parent wakeup. Persona delegations are the
+   * only background-eligible tools, so one turn's `maxInvocations` bounds it.
+   */
   const woken = new Set<string>();
   const isNewSuspension = createSuspensionLedger();
   const loopAbort = new AbortController();
@@ -550,12 +553,13 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       if (woken.size > DELEGATION_LIMITS.maxInvocations) {
         logger.error('Background work woke the parent for more invocations than one turn admits', {
           code: 'background_parent_wakeup_limit_exceeded',
-          invocations: [...woken],
+          invocation: describeInvocation(event),
           limit: DELEGATION_LIMITS.maxInvocations,
+          taskIds: [...woken],
         });
         fail(
           new Error(
-            `Background work woke the parent for ${woken.size} invocations; one turn admits at most ${DELEGATION_LIMITS.maxInvocations}. Admission was bypassed, so the leg stops instead of waking the parent again.`
+            `Background work woke the parent for ${woken.size} invocations; one turn admits at most ${DELEGATION_LIMITS.maxInvocations}, so the leg stops instead of waking the parent again.`
           )
         );
         return;

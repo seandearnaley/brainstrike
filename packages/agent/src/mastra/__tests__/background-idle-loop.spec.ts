@@ -147,6 +147,7 @@ describe('withBackgroundIdleLoop', () => {
       manager,
       maxIdleMs: 60_000,
       options: {} as never,
+      rejectedDelegations: undefined,
       scope: { resourceId: 'r', threadId: 't' },
     });
     const reader = output.fullStream.getReader();
@@ -194,6 +195,7 @@ describe('withBackgroundIdleLoop', () => {
       manager,
       maxIdleMs: 60_000,
       options: {} as never,
+      rejectedDelegations: undefined,
       scope: { resourceId: 'r', threadId: 't' },
     });
     const reader = output.fullStream.getReader();
@@ -228,6 +230,7 @@ describe('withBackgroundIdleLoop', () => {
         manager,
         maxIdleMs: 60_000,
         options: {} as never,
+        rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
     );
@@ -257,6 +260,7 @@ describe('withBackgroundIdleLoop', () => {
         manager,
         maxIdleMs: 60_000,
         options: {} as never,
+        rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
     );
@@ -304,6 +308,7 @@ describe('withBackgroundIdleLoop', () => {
         manager,
         maxIdleMs: 60_000,
         options: {} as never,
+        rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
     );
@@ -354,6 +359,7 @@ describe('withBackgroundIdleLoop', () => {
         manager,
         maxIdleMs: 60_000,
         options: {} as never,
+        rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
     );
@@ -402,6 +408,7 @@ describe('withBackgroundIdleLoop', () => {
           order.push('record');
           wakeups.push(record);
         },
+        rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
     );
@@ -450,6 +457,7 @@ describe('withBackgroundIdleLoop', () => {
           wakeups.push(record);
           await landed.promise;
         },
+        rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
     );
@@ -586,7 +594,7 @@ describe('withBackgroundIdleLoop', () => {
     });
     // MUTATION: without the bound the leg wakes the parent for all 12 and closes cleanly.
     await expect(drain(output.fullStream.getReader())).rejects.toThrow(
-      'Background work woke the parent for 9 invocations; one turn admits at most 8.'
+      'Background work woke the parent for 9 invocations; one turn admits at most 8, so the leg stops'
     );
     expect(stream).toHaveBeenCalledTimes(8);
   });
