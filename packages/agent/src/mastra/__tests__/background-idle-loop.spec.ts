@@ -377,4 +377,118 @@ describe('withBackgroundIdleLoop', () => {
       ['1 of 1 specialist returned', 'completed'],
     ]);
   });
+
+  it('records the idle-loop wakeup — the exact ledger text the model receives — before the continuation streams', async () => {
+    const channel = createLiveDecisionChannel();
+    const { ledger, manager, push, setTask } = fakeManager([], () => {});
+    setTask('t1', 'running');
+    const order: string[] = [];
+    const wakeups: unknown[] = [];
+    const stream = vi.fn(async () => {
+      order.push('stream');
+      return turn('success');
+    });
+    const output = withBackgroundIdleLoop(
+      turn('success', [lifecycle('background-task-started', 't1', { toolName: 'agent-explore' })]),
+      {
+        agent: { id: 'root', stream } as unknown as Agent,
+        channel,
+        ledger,
+        manager,
+        maxIdleMs: 60_000,
+        options: {} as never,
+        recordWakeup: async (record) => {
+          order.push('record');
+          wakeups.push(record);
+        },
+        scope: { resourceId: 'r', threadId: 't' },
+      }
+    );
+    const reader = output.fullStream.getReader();
+    await readLifecycle(reader);
+    setTask('t1', 'completed');
+    push(lifecycle('background-task-completed', 't1', { toolName: 'agent-explore' }));
+    expect(await drain(reader)).toEqual(['background-task-completed']);
+    const context = (
+      stream.mock.calls[0] as unknown as [unknown, { context: { content: string }[] }]
+    )[1].context;
+    const sent = context.at(-1)?.content;
+    expect(sent).toContain('Nothing is still running');
+    expect(wakeups).toEqual([
+      {
+        directive: sent,
+        invocations: [
+          { outcome: 'completed', taskId: 't1', toolCallId: 'call-t1', toolName: 'agent-explore' },
+        ],
+        kind: 'idle-loop',
+      },
+    ]);
+    // MUTATION: recording after `pipeTurn(continuation)` reads ['stream', 'record'].
+    expect(order).toEqual(['record', 'stream']);
+  });
+
+  it('a parked parent leg records its deferred wakeup and stays open until the record lands', async () => {
+    const channel = createLiveDecisionChannel();
+    const { ledger, manager, push, setTask } = fakeManager([], () => {});
+    setTask('t1', 'running');
+    const stream = vi.fn(async () => turn('success'));
+    const landed = Promise.withResolvers<void>();
+    const wakeups: unknown[] = [];
+    const output = withBackgroundIdleLoop(
+      turn('suspended', [
+        lifecycle('background-task-started', 't1', { toolName: 'agent-explore' }),
+      ]),
+      {
+        agent: { id: 'root', stream } as unknown as Agent,
+        channel,
+        ledger,
+        manager,
+        maxIdleMs: 60_000,
+        options: {} as never,
+        recordWakeup: async (record) => {
+          wakeups.push(record);
+          await landed.promise;
+        },
+        scope: { resourceId: 'r', threadId: 't' },
+      }
+    );
+    const reader = output.fullStream.getReader();
+    await readLifecycle(reader);
+    setTask('t1', 'completed');
+    push(lifecycle('background-task-completed', 't1', { toolName: 'agent-explore' }));
+    expect(((await readLifecycle(reader)).value as { type: string }).type).toBe(
+      'background-task-completed'
+    );
+    await vi.waitFor(() => expect(wakeups).toHaveLength(1));
+    // A late lifecycle copy for the settled task (the manager replays around
+    // resumes) publishes a ledger row whose settle runs while the deferral
+    // record is still in flight.
+    push(lifecycle('background-task-running', 't1', { toolName: 'agent-explore' }));
+    expect(((await readLifecycle(reader)).value as { type: string }).type).toBe(
+      'background-task-running'
+    );
+    let closed = false;
+    const end = readLifecycle(reader).then((result) => {
+      closed = result.done === true;
+      return result;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // MUTATION: dropping `recording > 0` from `settle` lets that settle close the
+    // leg here, before the deferral is durable (and a rejected record would then
+    // be dropped by the closed leg instead of failing it).
+    expect(closed).toBe(false);
+    landed.resolve();
+    expect((await end).done).toBe(true);
+    expect(stream).not.toHaveBeenCalled();
+    expect(wakeups).toEqual([
+      {
+        directive:
+          'Parked parent leg closed; returned work waits in its history for the resumed leg. No model-facing wakeup text was sent.',
+        invocations: [
+          { outcome: 'deferred', taskId: 't1', toolCallId: 'call-t1', toolName: 'agent-explore' },
+        ],
+        kind: 'deferred',
+      },
+    ]);
+  });
 });

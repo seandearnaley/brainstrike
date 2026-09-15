@@ -1,0 +1,108 @@
+diff --git a/dist/react/primitives/message/MessageGroupedParts.js b/dist/react/primitives/message/MessageGroupedParts.js
+index e342739..f1975b0 100644
+--- a/dist/react/primitives/message/MessageGroupedParts.js
++++ b/dist/react/primitives/message/MessageGroupedParts.js
+@@ -28,13 +28,10 @@ const shouldShowIndicator = (mode, parts, isRunning) => {
+ const PartChildrenSentinel = () => {
+ 	throw new Error("MessagePrimitive.GroupedParts: rendered `children` under a leaf part. `children` is only meaningful for `group-…` cases — add a matching case for the part type or return `null` to skip it.");
+ };
+-const renderNode = (node, parts, render) => {
++const renderNode = (node, parts, render, renderPart) => {
+ 	if (node.type === "part") return /* @__PURE__ */ jsx(MessagePartChildren, {
+ 		index: node.index,
+-		children: ({ part }) => render({
+-			part,
+-			children: /* @__PURE__ */ jsx(PartChildrenSentinel, {})
+-		})
++		children: renderPart
+ 	}, node.idKey ? `part-${node.idKey}` : `part-${node.index}`);
+ 	const status = getGroupStatus(parts, node.indices);
+ 	const groupPart = {
+@@ -44,7 +41,7 @@ const renderNode = (node, parts, render) => {
+ 	};
+ 	return /* @__PURE__ */ jsx(Fragment, { children: render({
+ 		part: groupPart,
+-		children: /* @__PURE__ */ jsx(Fragment$1, { children: node.children.map((child) => renderNode(child, parts, render)) })
++		children: /* @__PURE__ */ jsx(Fragment$1, { children: node.children.map((child) => renderNode(child, parts, render, renderPart)) })
+ 	}) }, node.idKey ?? node.nodeKey);
+ };
+ /**
+@@ -93,7 +90,18 @@ const MessagePrimitiveGroupedParts = ({ groupBy, indicator = "no-text", children
+ 		memoDep,
+ 		toolUIs
+ 	]);
+-	return /* @__PURE__ */ jsxs(Fragment$1, { children: [tree.map((node) => renderNode(node, parts, children)), shouldShowIndicator(indicator, parts, isRunning) && children({
++	/**
++	* Brainstrike patch (proven upstream defect, draft report kept with the patch): one
++	* leaf closure per `children` identity. A new closure per part per render
++	* defeated `MessagePartChildren`'s cache, so every part subtree re-rendered on
++	* every streamed delta (O(parts) per token; a ~1,000-part agent message crashed
++	* the dev renderer 2026-09-15). Paired: grouped-parts-render-isolation.test.tsx.
++	*/
++	const renderPart = useMemo(() => ({ part }) => children({
++		part,
++		children: /* @__PURE__ */ jsx(PartChildrenSentinel, {})
++	}), [children]);
++	return /* @__PURE__ */ jsxs(Fragment$1, { children: [tree.map((node) => renderNode(node, parts, children, renderPart)), shouldShowIndicator(indicator, parts, isRunning) && children({
+ 		part: { type: "indicator" },
+ 		children: /* @__PURE__ */ jsx(PartChildrenSentinel, {})
+ 	})] });
+diff --git a/src/react/primitives/message/MessageGroupedParts.tsx b/src/react/primitives/message/MessageGroupedParts.tsx
+index cec2fdb..377ae02 100644
+--- a/src/react/primitives/message/MessageGroupedParts.tsx
++++ b/src/react/primitives/message/MessageGroupedParts.tsx
+@@ -179,6 +179,7 @@ const renderNode = <TKey extends `group-${string}`>(
+   node: GroupNode,
+   parts: readonly PartState[],
+   render: (info: MessagePrimitiveGroupedParts.RenderInfo<TKey>) => ReactNode,
++  renderPart: (info: { part: EnrichedPartState }) => ReactNode,
+ ): ReactNode => {
+   if (node.type === "part") {
+     // Key by part identity when available, else absolute part index — never
+@@ -189,7 +190,7 @@ const renderNode = <TKey extends `group-${string}`>(
+         key={node.idKey ? `part-${node.idKey}` : `part-${node.index}`}
+         index={node.index}
+       >
+-        {({ part }) => render({ part, children: <PartChildrenSentinel /> })}
++        {renderPart}
+       </MessagePartChildren>
+     );
+   }
+@@ -206,7 +207,11 @@ const renderNode = <TKey extends `group-${string}`>(
+       {render({
+         part: groupPart,
+         children: (
+-          <>{node.children.map((child) => renderNode(child, parts, render))}</>
++          <>
++            {node.children.map((child) =>
++              renderNode(child, parts, render, renderPart),
++            )}
++          </>
+         ),
+       })}
+     </Fragment>
+@@ -280,9 +285,23 @@ export const MessagePrimitiveGroupedParts = <TKey extends `group-${string}`>({
+     // oxlint-disable-next-line react/exhaustive-deps -- groupBy is captured via memoDep (either its identity or the helper's memoKey fingerprint); listing it directly would defeat the helper-tagged memo path
+   }, [parts, memoDep, toolUIs]);
+ 
++  /**
++   * Brainstrike patch (proven upstream defect, draft report kept with the patch): one
++   * leaf closure per `children` identity. A new closure per part per render
++   * defeated `MessagePartChildren`'s cache, so every part subtree re-rendered on
++   * every streamed delta (O(parts) per token; a ~1,000-part agent message crashed
++   * the dev renderer 2026-09-15). Paired: grouped-parts-render-isolation.test.tsx.
++   */
++  const renderPart = useMemo(
++    () =>
++      ({ part }: { part: EnrichedPartState }) =>
++        children({ part, children: <PartChildrenSentinel /> }),
++    [children],
++  );
++
+   return (
+     <>
+-      {tree.map((node) => renderNode(node, parts, children))}
++      {tree.map((node) => renderNode(node, parts, children, renderPart))}
+       {shouldShowIndicator(indicator, parts, isRunning) &&
+         children({
+           part: { type: "indicator" },

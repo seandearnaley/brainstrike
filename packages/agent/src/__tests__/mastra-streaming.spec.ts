@@ -2260,6 +2260,10 @@ describe('mastra streaming integration', () => {
 
     expect(runtime.toolNameMap.get('local_tool')).toBe('local tool');
     expect(runtime.toolNameMap.get('filesystem_remote_tool')).toBe('filesystem.remote tool');
+    // The debug pack's root-leg prompt manifest lists what the Agent was given,
+    // never the raw name map. MUTATION: `[...toolNameMap.values()]` adds the
+    // deferred MCP tool the Agent was not built with.
+    expect(runtime.registeredToolNames).toEqual(['local tool']);
     expect(runtime.toolDiscovery).toEqual({
       adapter: 'mastra-catalog-search',
       coreToolIds: ['local tool'],

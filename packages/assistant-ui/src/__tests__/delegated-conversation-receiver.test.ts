@@ -234,6 +234,41 @@ describe('delegated conversations through the normal runtime adapter', () => {
     });
   });
 
+  it('consumes routed child envelopes so the parent message neither retains nor re-emits them', async () => {
+    const outOfBand = (line: string): unknown => JSON.parse(line.slice(line.indexOf(':') + 1));
+    const unrelated = { data: { note: 'kept' }, name: 'brainstrike.other' };
+    const parentFrames = [frame('f', { messageId: 'parent-message' }), frame('0', 'Parent.')];
+    const tokens = Array.from({ length: 50 }, (_, index) => `t${index} `);
+    const run = async (lines: string[]) => {
+      serve(lines);
+      const updates: AssistantMessage[] = [];
+      const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+        api: 'http://assistant.test',
+        onDelegatedConversation: (update) => updates.push(update.message),
+      });
+      const snapshots: AssistantMessage[] = [];
+      for await (const snapshot of adapter.run(options())) {
+        snapshots.push(snapshot as AssistantMessage);
+      }
+      return { snapshots, updates };
+    };
+    const baseline = await run([...parentFrames, frame(finish.code, finish.value)]);
+    const fanOut = await run([
+      ...parentFrames,
+      frame('2', [outOfBand(child('a', [{ code: 'f', value: { messageId: 'native-a' } }]))]),
+      ...tokens.map((token) => frame('2', [outOfBand(child('a', [{ code: '0', value: token }]))])),
+      // One mixed entry list: the envelope is routed, the unrelated entry stays.
+      frame('2', [outOfBand(child('a', [finish])), unrelated]),
+      frame(finish.code, finish.value),
+    ]);
+    expect(fanOut.updates.at(-1)?.parts).toMatchObject([{ text: tokens.join(''), type: 'text' }]);
+    const parent = fanOut.snapshots.at(-1);
+    expect(parent?.metadata.unstable_data).toEqual([unrelated]);
+    // Only the unrelated entry is a parent change (2026-09-15: 8,146 routed
+    // envelopes each re-rendered all 860 root parts during a GLM fan-out).
+    expect(fanOut.snapshots).toHaveLength(baseline.snapshots.length + 1);
+  });
+
   it('rejects a history row whose content disappeared at the JSON boundary', async () => {
     const baseline = {
       hostRunId: 'host',

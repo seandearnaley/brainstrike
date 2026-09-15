@@ -5,7 +5,9 @@
  * `requireToolApproval` through `defaultOptions`. Split from
  * build-persona-subagents.spec.ts (per-file line cap).
  */
+
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import {
   buildNativeToolRiskMap,
   type PermissionToolGateSnapshot,
@@ -135,6 +137,7 @@ describe('child approval gate (settled 2026-09-15: the predicate reaches every c
       personas: [explorePersona],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     return { child: assertDefined(result.subAgents['explore'], 'Child missing'), model };
   }
@@ -190,6 +193,7 @@ describe('child approval gate (settled 2026-09-15: the predicate reaches every c
       personas: [explorePersona],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     const child = assertDefined(result.subAgents['explore'], 'Child missing');
     expect((await child.getDefaultOptions({})).requireToolApproval).toBeUndefined();

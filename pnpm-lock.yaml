@@ -308,6 +308,7 @@ overrides:
   vite-plugin-top-level-await>@swc/wasm: ~1.15.43
 
 patchedDependencies:
+  '@assistant-ui/core@0.3.17': 549173d35294b059b61150d1106e3d1e4dcac33281cdf39f2f510d1dcb53e1e6
   '@mastra/core@1.64.0': d86cba7b7269cf3006a9f0b8fcefb939b5d82f00d584c7a90629208435e38079
   '@stryker-mutator/vitest-runner@10.0.0': 280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c
 
@@ -15091,7 +15092,7 @@ snapshots:
       is-potential-custom-element-name: 1.0.1
       lru-cache: 11.5.2
 
-  '@assistant-ui/core@0.3.17(@assistant-ui/store@0.3.12(@assistant-ui/tap@0.9.16(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(react@19.3.0))(@assistant-ui/tap@0.9.16(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(assistant-cloud@0.1.43)(react@19.3.0)':
+  '@assistant-ui/core@0.3.17(patch_hash=549173d35294b059b61150d1106e3d1e4dcac33281cdf39f2f510d1dcb53e1e6)(@assistant-ui/store@0.3.12(@assistant-ui/tap@0.9.16(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(react@19.3.0))(@assistant-ui/tap@0.9.16(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(assistant-cloud@0.1.43)(react@19.3.0)':
     dependencies:
       '@assistant-ui/store': 0.3.12(@assistant-ui/tap@0.9.16(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(react@19.3.0)
       '@assistant-ui/tap': 0.9.16(@types/react@19.3.0)(react@19.3.0)
@@ -15123,7 +15124,7 @@ snapshots:
 
   '@assistant-ui/react@0.15.18(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(immer@10.2.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(use-sync-external-store@1.6.0(react@19.3.0))':
     dependencies:
-      '@assistant-ui/core': 0.3.17(@assistant-ui/store@0.3.12(@assistant-ui/tap@0.9.16(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(react@19.3.0))(@assistant-ui/tap@0.9.16(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(assistant-cloud@0.1.43)(react@19.3.0)
+      '@assistant-ui/core': 0.3.17(patch_hash=549173d35294b059b61150d1106e3d1e4dcac33281cdf39f2f510d1dcb53e1e6)(@assistant-ui/store@0.3.12(@assistant-ui/tap@0.9.16(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(react@19.3.0))(@assistant-ui/tap@0.9.16(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(assistant-cloud@0.1.43)(react@19.3.0)
       '@assistant-ui/store': 0.3.12(@assistant-ui/tap@0.9.16(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(react@19.3.0)
       '@assistant-ui/tap': 0.9.16(@types/react@19.3.0)(react@19.3.0)
       assistant-cloud: 0.1.43

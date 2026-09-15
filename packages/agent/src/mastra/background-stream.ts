@@ -1,9 +1,15 @@
 import { DELEGATED_STEP_USAGE_PART } from './delegated-step-usage';
+import { DELEGATED_SYNTHESIS_PART } from './delegated-synthesis-outcomes';
 import { asMastraStreamPart, type MastraStreamPart } from './mastra-chunk-decoding';
 import { readStreamPartUsage, type UsageLike } from './runtime-assembly/usage-metering';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 
-const CHILD_OUTPUT_TYPES = new Set([DELEGATED_STEP_USAGE_PART, 'data-user-message', 'tool-output']);
+const CHILD_OUTPUT_TYPES = new Set([
+  DELEGATED_STEP_USAGE_PART,
+  DELEGATED_SYNTHESIS_PART,
+  'data-user-message',
+  'tool-output',
+]);
 
 /**
  * A background child output is forwardable when it is a child envelope or a raw

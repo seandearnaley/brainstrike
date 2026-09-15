@@ -109,8 +109,16 @@ describe('ASSISTANT_RUN_EVENT_KINDS', () => {
   it('keeps the delegation ledger OUT of the `.started` lifecycle namespace', () => {
     // A self-superseding row: every change emits a fresh row for the same
     // `metadata.ledgerId`; the renderer shows the latest. No pair to close.
+    // The budget breadcrumb is likewise standalone (see below).
     const kinds = ASSISTANT_RUN_EVENT_KINDS.filter((kind) => kind.startsWith('delegation.'));
-    expect(kinds).toEqual(['delegation.ledger']);
+    expect(kinds).toEqual(['delegation.budget.exhausted', 'delegation.ledger']);
+  });
+
+  it('declares the budget-exhaustion breadcrumb with no lifecycle pair', () => {
+    expect(ASSISTANT_RUN_EVENT_KINDS).toContain('delegation.budget.exhausted');
+    expect(ASSISTANT_RUN_EVENT_KINDS as readonly string[]).not.toContain(
+      'delegation.budget.started'
+    );
   });
 });
 

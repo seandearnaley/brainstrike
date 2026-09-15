@@ -49,6 +49,7 @@ import {
   type ProviderModelDefinition,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import { readToolApprovalRunConfigAction } from '@brainstrike/assistant-contract/tool-approval';
 import {
   getNativeToolDescription,
@@ -584,6 +585,12 @@ export function buildAssistantRequestData(args: {
   selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   /**
+   * Per-child subagent budgets (Settings → Models → Subagents). REQUIRED and
+   * sent on every request: the defaults are a real value, and the host
+   * validates whatever arrives (`parseRuntimeSubagentSettings`).
+   */
+  subagentSettings: RuntimeSubagentSettings;
+  /**
    * Opt-in workspace instructions preference; only set on the desktop
    * data-stream transport (web has no injection path). A preference, not a
    * security boundary — the server reads it directly.
@@ -661,6 +668,9 @@ export function buildAssistantRequestData(args: {
   if (args.modelSettings) {
     data['modelSettings'] = args.modelSettings;
   }
+  // Always sent: the defaults are a real value, and the host validates
+  // whatever arrives (`parseRuntimeSubagentSettings`) rather than assuming.
+  data['subagentSettings'] = args.subagentSettings;
   if (args.providerOptions) {
     data['providerOptions'] = args.providerOptions;
   }

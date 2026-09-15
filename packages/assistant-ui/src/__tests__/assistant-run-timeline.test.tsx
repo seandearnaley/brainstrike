@@ -209,6 +209,10 @@ describe('isAlwaysVisibleRunEvent', () => {
     expect(isAlwaysVisibleRunEvent(event('delegation.ledger', 'completed'))).toBe(true);
   });
 
+  it('forces the budget-exhaustion breadcrumb to stay visible (settled 2026-09-15)', () => {
+    expect(isAlwaysVisibleRunEvent(event('delegation.budget.exhausted', 'info'))).toBe(true);
+  });
+
   it('forces run-level failure and cancellation rows to stay visible', () => {
     expect(isAlwaysVisibleRunEvent(event('run.failed', 'failed'))).toBe(true);
     expect(isAlwaysVisibleRunEvent(event('run.cancelled', 'cancelled'))).toBe(true);

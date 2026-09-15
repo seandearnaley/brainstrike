@@ -19,6 +19,7 @@ afterEach(() => {
 const db = { query: vi.fn(async () => ({ rows: [] })) };
 const node = (threadId: string) => ({ ownerResourceId: 'owner', rootThreadId: 'root', threadId });
 const value = (threadId: string): DelegatedConversationInsights => ({
+  budget: null,
   configuration: {},
   depth: 1,
   directUsage: null,

@@ -164,10 +164,14 @@ These prove the worker layer, not recursion/background/worktree coordination.
 - BST-1720 must connect native nested approval/suspension to the production
   host and UI before BST-1721 exposes write/execute/general-worker tools.
 - BST-1722 starts with **three descendant levels**, **two runnable children**
-  and **eight total invocations per root turn**, with **16 steps per child**
-  including its reserved synthesis step. `DELEGATION_LIMITS` is the shared source:
-  32,768 output tokens per child, 131,072 per original root turn, at most
-  8,192 per working step and one precharged 512-token synthesis allocation.
+  and **eight total invocations per root turn**, with **`maxChildSteps` per
+  child (user setting, default 32, ceiling 64)** including its reserved
+  synthesis step. `DELEGATION_LIMITS` is the TREE source (depth 3, invocations
+  8, two runnable, 131,072 output tokens per original turn); the per-child
+  allocations — `maxChildOutputTokens` (default 32,768), `maxStepOutputTokens`
+  (default 8,192) and the precharged `synthesisOutputTokens` (default 2,048) —
+  are `RuntimeSubagentSettings` (`subagent-settings.ts`), copied into the
+  turn's budget row at first admission.
   These output allocations are separate from each model's input context window.
   The host atomically admits invocations and reserves model steps before work,
   across descendants and resume legs. Unknown usage remains charged; reported
@@ -891,6 +895,35 @@ without remapping or minting duplicate child events. Child frames obey the same
 parent text/input-stream deferral rules as other auxiliary data. No native
 transcript result or parent model projection is replaced by this transport.
 
+SETTLED 2026-09-15, CONSUMED CHILD ENVELOPES (do not relitigate): the renderer
+tap (`createDelegatedConversationTap`) consumes every out-of-band `data` entry
+named `brainstrike.delegated-conversation` or `brainstrike.child-continuation`
+once it has routed it to its child receiver; the parent accumulator never sees
+it. Other entries in the same list are forwarded. A `part-start` data part owns
+a parent part index and is still forwarded. Forwarding made assistant-stream's
+accumulator and assistant-ui's local runtime copy every child frame into the
+parent's `metadata.unstable_data` and publish a new parent message per frame,
+re-rendering every parent part. In one GLM fan-out the root held 8,146
+envelopes and 860 parts, React's development build retained 14.1 million
+performance measures, and the renderer grew to 15 GB. Paired:
+`delegated-conversation-receiver.test.ts` ("consumes routed child envelopes so
+the parent message neither retains nor re-emits them").
+
+SETTLED 2026-09-15, GROUPED PARTS RENDER ISOLATION (pnpm patch, do not
+relitigate without an upstream release that fixes it): a fan-out root message
+carries hundreds of run-event data parts (755–1,083 observed), and
+`MessagePrimitive.GroupedParts` in @assistant-ui/core 0.3.17 (unchanged in
+0.3.19 and on upstream main) handed every leaf a new render closure on every
+render, defeating `MessagePartChildren`'s cache. Every root token then
+re-rendered every part subtree (~1,000 parts at ~60 commits/s in run 17) and
+the dev renderer crashed at 17 GB. `patches/@assistant-ui__core@0.3.17.patch`
+builds one leaf closure per `children` identity. Paired:
+`grouped-parts-render-isolation.test.tsx` ("does not re-invoke unchanged leaf
+parts when another part streams" — 80 extra leaf renders before the patch, 0
+after; "renders leaves with the new render function when the caller replaces
+it" — fails when the memo ignores `children`). The upstream report is drafted,
+not filed; delete the patch when a release carries the fix.
+
 The decoder belongs to the native invocation, not to each observed native
 message id. A resumed turn may move from its persisted message id to a new
 native step id; the envelope preserves that observation while the same decoder
@@ -1597,6 +1630,65 @@ Ordinary and deferred discovered tools
 retain their native descriptors, projections, approval flags and guarded execution.
 Synthesis forces toolChoice none and no active tools, and rejects a provider tool
 call before execution even if the provider ignores that request.
+
+**Child budgets are USER SETTINGS; a cut synthesis is a truncated completion.**
+SETTLED 2026-09-15 (budgets plan, Workstream C; GLM pack 03-31-15Z; do not
+relitigate). The four per-child allocations live in `RuntimeSubagentSettings`
+(`assistant-contract/subagent-settings.ts`; defaults 32 steps / 2,048
+synthesis / 32,768 child / 8,192 step; ranges in `SUBAGENT_SETTINGS_LIMITS`),
+persisted by `assistant-subagent-preferences.v1`, edited in Settings → Models
+→ Subagents (`subagent-settings-section.tsx`), sent on EVERY request as
+`runtimeData.subagentSettings` (`buildAssistantRequestData`) and copied into
+the turn's `brainstrike_delegation_budgets` row at first admission.
+`parseRuntimeSubagentSettings` is the ONLY intake: absent → defaults, anything
+else malformed → throws (the desktop host in `mastra-memory.ts` and the agent
+runtime in `agent-runtime.ts` both call it). `DELEGATION_LIMITS` has no child
+keys — a consumer reading a constant instead of the request's settings is a
+compile error — and the admitted-configuration `maxSteps` ceiling is
+`SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max`. Read-only built-ins declare 32
+steps; the effective budget is `effectiveChildStepBudget(persona, settings)`
+and `delegationDescriptionForPersona` tells the model that number.
+
+The host's synthesis reservation (`DelegatedStepReservation` with
+`synthesis: true`) names its `cap` (`steps` / `child-output` / `tree-output`)
+and the numbers behind it (`used` of `limit`, in that cap's unit). The budget
+processor (`delegated-work-budget.ts`) sees Mastra's `finishReason` on
+`processOutputStep`; on a synthesis step it records `{ cap, limit, used,
+reservedOutputTokens, outputTokens, truncated: finishReason === 'length' }` in
+the per-runtime `DelegatedSynthesisOutcomes` registry (keyed by native child
+thread id) and streams the transient `data-brainstrike-delegated-synthesis`
+part. Three readers, none of which can see the reservation:
+`makeTerminalRunEvent` maps a `length` finish on a child whose synthesis was
+TRUNCATED to `run.finished` / `outcome: 'truncated'` (a mid-run `length`, a
+sibling's record, an untruncated synthesis and the root all still fail);
+`onDelegationComplete` reads the REGISTRY (never the projected stream: the hook
+runs before the parent consumer maps the child's parts), and
+`resolveTruncatedAnswer` appends the `[Truncated summary]` note to `resultText`
+— which Mastra applies on the foreground and background delegation paths alike
+— and records the outcome, so the parent mapper emits `subagent.finished` with
+`outcome: 'truncated'`; the projection turns the part into the persisted
+`delegation.budget.exhausted` run event on the child conversation
+(assistant-persistence.md, DELEGATION BUDGET EXHAUSTED KIND). Empty text stays
+`no-answer` even when a synthesis was truncated. The delegation card reads
+`outcome: 'truncated'` as "<persona> finished with a truncated summary" (amber
+check, "Completed (truncated summary)"); the child tab header shows `steps N/M ·
+used/limit tokens` from the durable child budget row
+(`readDelegatedConversationInsights().budget`, refreshed at leg / pause /
+terminal boundaries, not per token). Paired tests: `subagent-settings.test.ts`,
+`personas.test.ts`, `delegated-persona-snapshots.spec.ts` (admitted ceiling),
+`delegated-budget-settings.integration.test.ts`,
+`subagent-settings-runtime.spec.ts`, `delegated-work-budget.integration.spec.ts`
+("records a truncated synthesis outcome"), `delegated-synthesis-outcome.spec.ts`
+(mutations: any recorded synthesis read as truncated; truncation resolved
+before the empty-text check; the lifecycle outcome dropped),
+`delegated-stream-projection.spec.ts` ("projects a synthesis part"),
+`background-worker-policy.integration.spec.ts` ("a child whose synthesis is cut
+returns a truncated summary the root can use"; mutation: no truncated terminal
+branch), `assistant-ui-panel-wrapper-runtime.test.ts` ("carries the subagent
+budget settings"), `delegated-conversation-insights.integration.test.ts`
+("reads the child budget"), `delegated-conversation-toolbar.test.tsx`,
+`subagent-settings-section.test.tsx`, and the truncated rows in
+`subagent-tool-rows.test.ts` and `subagent-execution-card.test.tsx`.
 
 Every child stream creates its own budget processor. A native same-persona sibling
 barrier proves two models run concurrently with distinct child reservations and

@@ -27,6 +27,16 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // load-bearing reason spelled out on `mcp.tools.unavailable`, and carries no
   // `toolCallId`, so it needs no exemption from the card-suppression rule.
   'compaction.failed',
+  // A delegated child's durable budget (steps / child output / tree output)
+  // forced its reserved synthesis step (BST-1749 follow-up, GLM pack
+  // 2026-09-15). Standalone breadcrumb, status 'info', emitted by the stream
+  // projection on the CHILD conversation from the budget processor's transient
+  // part; metadata carries `cap`, `limit`, `used`, `synthesisForced` and
+  // `truncated` (whether the model then cut the summary). Deliberately NOT
+  // `.started`: nothing runs and nothing pairs. In `isAlwaysVisibleRunEvent`
+  // for the load-bearing reason on `mcp.tools.unavailable`: without it the
+  // child tab would show silence where the user needs "ran out of steps".
+  'delegation.budget.exhausted',
   // The ledger of a run's background (delegated) invocations, settled
   // 2026-09-15: "3 of 4 specialists returned · 1 running". Emitted by the
   // host idle loop and the resume stream on every task lifecycle change, with

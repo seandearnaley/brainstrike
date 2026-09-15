@@ -18,8 +18,8 @@ import { isAssistantToolApprovalRequest } from './tool-decision-run-outcome';
  * One incremental index over the thread for every approval card, instead of
  * a full message walk per card per store update.
  *
- * During a fan-out the root assistant message accumulates one data part per
- * child chunk (the delegated-conversation envelopes), so a per-card selector
+ * During a fan-out the root assistant message accumulates hundreds of data
+ * parts (755 run-event parts in one GLM fan-out, 2026-09-15), so a per-card selector
  * that walks every part on every update is O(parts) × cards × updates: the
  * work grows with the square of the stream and the renderer stalls while
  * four children stream (2026-09-14, "the app locks up while processing").

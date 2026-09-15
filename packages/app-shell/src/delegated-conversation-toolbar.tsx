@@ -1,3 +1,4 @@
+import { useAssistantSubagentPreferencesStore } from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
 import {
   admittedPersonaConfigurationSchema,
   type ChildExecutionConfiguration,
@@ -18,6 +19,7 @@ import {
 import { resolveCumulativeUsageDisplay } from '@brainstrike/assistant-data';
 import { CumulativeUsageSection } from '@brainstrike/assistant-ui';
 import type { DelegatedConversationInsights } from '@brainstrike/db';
+import { formatTokenCount } from '@brainstrike/tokenization';
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { SlidersHorizontal } from 'lucide-react';
 
@@ -83,6 +85,9 @@ function AdmittedConfigurationDetails({
   readonly persona: AssistantPersonaDefinition;
   readonly value: DelegatedConversationInsights;
 }) {
+  // The admitted profile's declared steps, capped by the CURRENT user setting
+  // (the durable per-child row is what the host enforces; see the header).
+  const subagentSettings = useAssistantSubagentPreferencesStore((state) => state.settings);
   const scope = personaScope(persona);
   const model =
     execution?.model ??
@@ -114,7 +119,7 @@ function AdmittedConfigurationDetails({
       ) : (
         <p>Effort not recorded</p>
       )}
-      <p>Up to {effectiveChildStepBudget(persona)} steps</p>
+      <p>Up to {effectiveChildStepBudget(persona, subagentSettings)} steps</p>
       <p>
         Level {value.depth} of {DELEGATION_LIMITS.maxDepth}
       </p>
@@ -203,6 +208,13 @@ function LoadedDetails({
             <span className="text-muted-foreground">
               · {scope.mode === 'worker' ? 'Worker mode' : 'Read-only'}
             </span>
+            {value.budget ? (
+              // The durable child budget row; refreshed at leg / pause /
+              // terminal boundaries by `useDelegatedConversationInsights`.
+              <span className="text-muted-foreground" data-testid="child-budget-usage">
+                {`· steps ${value.budget.steps}/${value.budget.maxSteps} · ${formatTokenCount(value.budget.chargedOutputTokens)} / ${formatTokenCount(value.budget.maxChildOutputTokens)}`}
+              </span>
+            ) : null}
           </Button>
         </PopoverTrigger>
         <PopoverContent

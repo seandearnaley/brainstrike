@@ -136,6 +136,10 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     // assistant-run-timeline.test.tsx and by the emitter's own status
     // assertion in stream-init-compaction.test.ts.
     'compaction.failed',
+    // A child's durable budget forced its reserved summary. Emitted `status:
+    // 'info'` by the delegated stream projection (`projectSynthesisOutcome`),
+    // never `'running'`: a standalone breadcrumb, no span, no pair.
+    'delegation.budget.exhausted',
     'hook.blocked',
     'hook.notice',
     'memory.configured',

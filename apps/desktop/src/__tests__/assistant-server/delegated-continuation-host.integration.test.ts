@@ -1,4 +1,5 @@
 // @vitest-environment node
+
 import { createTool } from '@brainstrike/agent/test-fixtures/delegated-stream';
 import {
   scriptedAgentModel,
@@ -7,6 +8,7 @@ import {
 } from '@brainstrike/agent/test-fixtures/scripted-agent-model';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
 import {
   createDelegatedConversationRepository,
@@ -21,7 +23,6 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { cancelDelegatedContinuations } from '../../assistant-server/delegated-continuation-cancellation';
 import { createDesktopDelegatedContinuationHost } from '../../assistant-server/delegated-continuation-host';
-import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
 import { readDelegatedDecisionStates } from '../../assistant-server/delegated-decision-discovery';
 import {
   getDesktopMastraMemory,
@@ -30,6 +31,7 @@ import {
 import { handleSuspendedRunsRequest } from '../../assistant-server/status-endpoints';
 import { reapOrphanedThreadRuns } from '../../assistant-server/thread-run-startup-reaper';
 import { createRunRequest } from './_harness';
+import { createBudgetedHost } from './fixtures/budgeted-host';
 
 const runDiscoveryRequest = createRunRequest((req, res, options = {}) =>
   handleSuspendedRunsRequest(req, res, options)
@@ -60,7 +62,17 @@ const configuration = {
   maxSteps: 8,
   persona: { id: 'worker', instructions: 'Exact original profile' },
 };
-const port = () => createDesktopDelegatedConversationHost(database, 'wake-host').continuation;
+/** A wake leg whose history capture fails; it carries settings so it can open the turn's budget row. */
+const failingHistoryHost = (captureHistory: () => Promise<never>) =>
+  createDesktopDelegatedContinuationHost(
+    database,
+    'wake-host',
+    async () => ({ ...scope, turnMessageId: 'new-root-user' }),
+    captureHistory,
+    undefined,
+    DEFAULT_RUNTIME_SUBAGENT_SETTINGS
+  );
+const port = () => createBudgetedHost(database, 'wake-host').continuation;
 beforeEach(async () => {
   resetDesktopMastraMemoryCacheForTests();
   cancel.mockResolvedValue(undefined);
@@ -91,14 +103,9 @@ afterEach(async () => {
 
 it('settles a committed receipt when history capture fails and admits a new explicit input', async () => {
   const failure = new Error('Actual history read failed');
-  const host = createDesktopDelegatedContinuationHost(
-    database,
-    'wake-host',
-    async () => ({ ...scope, turnMessageId: 'new-root-user' }),
-    async () => {
-      throw failure;
-    }
-  );
+  const host = failingHistoryHost(async () => {
+    throw failure;
+  });
   await expect(host.prepareContinuation(input)).rejects.toBe(failure);
   expect(
     await createDelegatedConversationRepository(database).getContinuation(scope, input.id)
@@ -115,15 +122,10 @@ it('preserves both history and failed-settlement errors after committed admissio
   const historyFailure = new Error('History read failed');
   const settlementFailure = new Error('Receipt write failed');
   const transaction = vi.spyOn(database, 'transaction');
-  const host = createDesktopDelegatedContinuationHost(
-    database,
-    'wake-host',
-    async () => ({ ...scope, turnMessageId: 'new-root-user' }),
-    async () => {
-      transaction.mockRejectedValueOnce(settlementFailure);
-      throw historyFailure;
-    }
-  );
+  const host = failingHistoryHost(async () => {
+    transaction.mockRejectedValueOnce(settlementFailure);
+    throw historyFailure;
+  });
   try {
     await expect(host.prepareContinuation(input)).rejects.toMatchObject({
       errors: [historyFailure, settlementFailure],
@@ -190,7 +192,7 @@ it('admits through the real host and reserves the existing durable child/tree bu
   ).toHaveLength(0);
 });
 it('resumes an exact decision against the original durable child budget instead of resetting its steps', async () => {
-  const first = createDesktopDelegatedConversationHost(database, 'wake-host');
+  const first = createBudgetedHost(database, 'wake-host');
   await first.continuation.prepareContinuation(input);
   await first.continuation.bindContinuation({ id: input.id, nativeRunId: 'native-wake' });
   const child = { resourceId: 'child-resource', threadId: 'child' };
@@ -200,7 +202,7 @@ it('resumes an exact decision against the original durable child budget instead 
   await database.exec(`UPDATE brainstrike_assistant_thread_runs SET status='completed' WHERE id='wake-host';
     INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id)
     VALUES ('resume-host','owner','root','openai','test','desktop','running',NOW(),NOW(),NOW(),'new-root-user');`);
-  const resumed = createDesktopDelegatedConversationHost(database, 'resume-host');
+  const resumed = createBudgetedHost(database, 'resume-host');
   const decision = {
     id: input.id,
     kind: 'tool-approval' as const,
@@ -223,7 +225,7 @@ it('resumes an exact decision against the original durable child budget instead 
   await resumed.continuation.finishContinuation({ id: input.id, status: 'completed' });
 });
 it('authorizes continuation descendants through their saved parent and consumes sibling leaf calls independently', async () => {
-  const host = createDesktopDelegatedConversationHost(database, 'wake-host');
+  const host = createBudgetedHost(database, 'wake-host');
   await host.continuation.prepareContinuation(input);
   await host.continuation.bindContinuation({ id: input.id, nativeRunId: 'native-wake' });
   const graph = createDelegatedConversationRepository(database);
@@ -773,7 +775,7 @@ it.each(['complete', 'approval'] as const)(
     );
     const finalHost = mode === 'approval' ? 'resume-host' : 'wake-host';
     await expect(
-      createDesktopDelegatedConversationHost(database, finalHost).continuation.prepareContinuation({
+      createBudgetedHost(database, finalHost).continuation.prepareContinuation({
         ...input,
         id: 'next-explicit-input',
       })

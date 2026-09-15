@@ -1,4 +1,5 @@
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -593,6 +594,7 @@ describe('assistant runtime helpers', () => {
       providerOptions: { openai: { reasoningEffort: 'medium' } },
       selectedMemoryThreadId: 'thread-1',
       selectionData: { filePaths: ['src/a.ts'], folderId: 'folder-a' },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: {
         files: [],
         includeProjectTree: false,
@@ -650,12 +652,53 @@ describe('assistant runtime helpers', () => {
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
     });
 
     expect(data).not.toHaveProperty('permissionPolicyRequest');
+  });
+
+  it('carries the subagent budget settings on every request', () => {
+    const subagentSettings = { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 12 };
+    const data = buildAssistantRequestData({
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings,
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    });
+    expect(data['subagentSettings']).toEqual(subagentSettings);
+    // The defaults are a real value, sent as such — never omitted as "unset".
+    expect(
+      buildAssistantRequestData({
+        agentLoopSettings: undefined,
+        enabledNativeToolIds: [],
+        hostedMemoryBackendAvailable: false,
+        memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+        memoryResourceId: undefined,
+        memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+        modelSettings: undefined,
+        providerOptions: undefined,
+        selectedMemoryThreadId: undefined,
+        selectionData: { filePaths: [] as string[], folderId: undefined },
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+        workspaceContext: null,
+        workspaceIndex: baseWorkspaceIndex,
+        workspaceRootPath: null,
+      })['subagentSettings']
+    ).toEqual(DEFAULT_RUNTIME_SUBAGENT_SETTINGS);
   });
 
   it('attaches planMode only when true (presence-means-on, no false residue)', () => {
@@ -670,6 +713,7 @@ describe('assistant runtime helpers', () => {
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -694,6 +738,7 @@ describe('assistant runtime helpers', () => {
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -755,6 +800,7 @@ describe('assistant runtime helpers', () => {
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -793,6 +839,7 @@ describe('assistant runtime helpers', () => {
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -856,6 +903,7 @@ describe('assistant runtime helpers', () => {
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -884,6 +932,7 @@ describe('assistant runtime helpers', () => {
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -910,6 +959,7 @@ describe('assistant runtime helpers', () => {
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: ['src/a.ts'], folderId: 'root-a', otherRootsCount: 3 },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -928,6 +978,7 @@ describe('assistant runtime helpers', () => {
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: ['src/a.ts'], folderId: 'root-a', otherRootsCount: 0 },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',

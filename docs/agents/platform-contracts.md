@@ -793,6 +793,18 @@ BST-1392 Layer 2 Step 0: `resetBackgroundIndexingPreferencesStoreToDefaults()`
 action) is now called from `clearPersistentUiState`, covered by
 `packages/app-state/src/__tests__/factory-reset-background-indexing-preferences.test.ts`.
 
+`assistant-subagent-preferences-store` (`assistant-subagent-preferences.v1`,
+the per-child subagent budgets edited in Settings → Models → Subagents and sent
+as `runtimeData.subagentSettings`) is wired the same way from the start: its
+persisted slice is purged with the rest of browser storage, and its LIVE store
+is re-defaulted by `resetAssistantSubagentPreferencesStoreToDefaults()` (clears
+persisted storage, then sets the defaults), called through
+`resetLiveStoreSafely` inside `clearBrowserStorage()` — the step
+`clearPersistentUiState` runs via `collectPersistentUiStateResetFailures`.
+Covered by
+`packages/app-state/src/__tests__/factory-reset-assistant-subagent-preferences.test.ts`
+(drives `clearPersistentUiState` and asserts the defaults are back in memory).
+
 Mastra owns six assistant-persistence relations, and a true fresh start clears
 ALL SIX:
 

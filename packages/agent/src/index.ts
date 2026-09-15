@@ -224,7 +224,12 @@ export {
   type DelegatedFollowupControl,
   type DelegatedFollowupInput,
   type DelegatedFollowupTarget,
+  type DelegatedLiveDecisionRecord,
+  type DelegatedPromptManifestKind,
+  type DelegatedPromptManifestRecord,
   type DelegatedToolActionScope,
+  type DelegatedWakeupInvocation,
+  type DelegatedWakeupRecord,
 } from './mastra/delegated-conversation-binding';
 export type { DelegatedRunIdentity } from './mastra/delegated-run-publication';
 export type { DelegatedSuspensionResolver } from './mastra/delegated-suspension-discovery';

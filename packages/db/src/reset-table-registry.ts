@@ -247,9 +247,15 @@ export const RESET_EXCLUDED_TABLES = {
     'the sole production migration ledger (drizzle.config.ts) — clearing it would re-run every migration',
   _migrations:
     'schema-validation-only ledger (db-migration-authority); never production, never cleared',
+  brainstrike_assistant_prompt_manifests:
+    'migration 139; FK ON DELETE CASCADE from brainstrike_assistant_thread_runs (child rows also cascade by thread via THREAD_DELETE_SIDECAR_TABLES)',
   brainstrike_assistant_run_events:
     'migration 118; FK ON DELETE CASCADE from brainstrike_assistant_thread_runs AND mastra_threads',
   brainstrike_assistant_thread_runs: 'migration 118; FK ON DELETE CASCADE from mastra_threads',
+  brainstrike_delegated_live_decisions:
+    'migration 139; FK ON DELETE CASCADE from brainstrike_assistant_thread_runs',
+  brainstrike_delegated_wakeups:
+    'migration 139; FK ON DELETE CASCADE from brainstrike_assistant_thread_runs',
   brainstrike_thread_search_profiles:
     'singleton search profile — configuration, intentionally survives (platform-contracts)',
   file_relationships: 'FK ON DELETE CASCADE from file_records (migration 003)',

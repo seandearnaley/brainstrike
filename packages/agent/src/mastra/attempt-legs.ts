@@ -44,6 +44,7 @@ import {
 } from './delegated-tool-actions';
 import {
   readLateBackgroundResults,
+  recordLateOverlayWakeup,
   withLateBackgroundResults,
 } from './late-background-results-processor';
 import { armLiveDecisions } from './live-decisions';
@@ -577,6 +578,7 @@ async function createToolApprovalTurnAttempt({
       ? []
       : await readLateBackgroundResults(runtime, runtimeData, action.runId);
     const resumedOptions = withLateBackgroundResults(approvalOptions, late);
+    await recordLateOverlayWakeup(runtime, late);
     const streamResult =
       backgroundTask && memory
         ? createBackgroundResumeStream({
@@ -942,6 +944,7 @@ async function createToolResumeTurnAttempt({
       ? []
       : await readLateBackgroundResults(runtime, runtimeData, action.runId);
     const resumedOptions = withLateBackgroundResults(resumeOptions, late);
+    await recordLateOverlayWakeup(runtime, late);
     const streamResult =
       backgroundTask && memory
         ? createBackgroundResumeStream({

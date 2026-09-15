@@ -2,6 +2,7 @@ import {
   DELEGATION_LIMITS,
   type DelegatedInvocationAdmission,
 } from '@brainstrike/assistant-contract';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import {
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
@@ -30,8 +31,17 @@ type Budget = z.infer<typeof budgetSchema>;
  */
 class DelegationBudgetRefusal extends Error {}
 
-/** Open (idempotently) and lock the original turn's budget row. */
-async function lockBudget(tx: DelegatedConversationDatabase, scope: BudgetScope): Promise<Budget> {
+/**
+ * Open (idempotently) and lock the original turn's budget row. Only a leg that
+ * carries the request's validated `RuntimeSubagentSettings` can OPEN the row —
+ * the per-child values are copied from those settings, never from a constant —
+ * and a later leg without settings reads the row the first leg stored.
+ */
+async function lockBudget(
+  tx: DelegatedConversationDatabase,
+  scope: BudgetScope,
+  subagentSettings: RuntimeSubagentSettings | undefined
+): Promise<Budget> {
   const legacy = await tx.query(
     `SELECT 1 FROM brainstrike_delegated_invocations invocation
       JOIN brainstrike_assistant_thread_runs host ON host.id = invocation.host_run_id
@@ -45,31 +55,37 @@ async function lockBudget(tx: DelegatedConversationDatabase, scope: BudgetScope)
       'This legacy delegation has no durable budget. Start a new parent turn.'
     );
   }
-  await tx.query(
-    `INSERT INTO brainstrike_delegation_budgets
-       (root_thread_id, turn_message_id, owner_resource_id, max_depth, max_invocations,
-        max_output_tokens, max_child_steps, max_child_output_tokens, max_step_output_tokens, synthesis_output_tokens)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT DO NOTHING`,
-    [
-      scope.rootThreadId,
-      scope.turnMessageId,
-      scope.ownerResourceId,
-      DELEGATION_LIMITS.maxDepth,
-      DELEGATION_LIMITS.maxInvocations,
-      DELEGATION_LIMITS.maxTreeOutputTokens,
-      DELEGATION_LIMITS.maxChildSteps,
-      DELEGATION_LIMITS.maxChildOutputTokens,
-      DELEGATION_LIMITS.maxStepOutputTokens,
-      DELEGATION_LIMITS.synthesisOutputTokens,
-    ]
-  );
+  if (subagentSettings) {
+    await tx.query(
+      `INSERT INTO brainstrike_delegation_budgets
+         (root_thread_id, turn_message_id, owner_resource_id, max_depth, max_invocations,
+          max_output_tokens, max_child_steps, max_child_output_tokens, max_step_output_tokens, synthesis_output_tokens)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT DO NOTHING`,
+      [
+        scope.rootThreadId,
+        scope.turnMessageId,
+        scope.ownerResourceId,
+        DELEGATION_LIMITS.maxDepth,
+        DELEGATION_LIMITS.maxInvocations,
+        DELEGATION_LIMITS.maxTreeOutputTokens,
+        subagentSettings.maxChildSteps,
+        subagentSettings.maxChildOutputTokens,
+        subagentSettings.maxStepOutputTokens,
+        subagentSettings.synthesisOutputTokens,
+      ]
+    );
+  }
   const result = await tx.query(
     `SELECT charged_output_tokens AS "chargedOutputTokens", invocations AS "invocations", max_child_steps AS "maxChildSteps", max_depth AS "maxDepth", max_invocations AS "maxInvocations", max_output_tokens AS "maxOutputTokens", synthesis_output_tokens AS "synthesisOutputTokens" FROM brainstrike_delegation_budgets
      WHERE root_thread_id = $1 AND turn_message_id = $2 AND owner_resource_id = $3 FOR UPDATE`,
     [scope.rootThreadId, scope.turnMessageId, scope.ownerResourceId]
   );
   if (result.rows.length !== 1) {
-    throw new DelegationBudgetRefusal('Delegated budget owner scope is unauthorized.');
+    throw new DelegationBudgetRefusal(
+      subagentSettings
+        ? 'Delegated budget owner scope is unauthorized.'
+        : 'This turn has no delegation budget yet; only a streaming leg carrying subagent settings can open one.'
+    );
   }
   return budgetSchema.parse(result.rows[0]);
 }
@@ -126,13 +142,14 @@ export async function admitDelegatedInvocation(
   tx: DelegatedConversationDatabase,
   scope: BudgetScope,
   hostRunId: string,
-  parentThreadId: string
+  parentThreadId: string,
+  subagentSettings?: RuntimeSubagentSettings
 ): Promise<DelegatedInvocationAdmission> {
   await assertDelegationRootRunning(tx, scope, hostRunId);
   await assertDelegatedConversationAdmission(tx, scope, [parentThreadId]);
   let budget: Budget;
   try {
-    budget = await lockBudget(tx, scope);
+    budget = await lockBudget(tx, scope, subagentSettings);
   } catch (error) {
     if (!(error instanceof DelegationBudgetRefusal)) {
       throw error;
@@ -157,11 +174,12 @@ export async function reserveDelegatedInvocation(
   parentThreadId: string,
   duplicate: boolean,
   childThreadId: string,
-  configuration: unknown
+  configuration: unknown,
+  subagentSettings?: RuntimeSubagentSettings
 ): Promise<void> {
   await assertDelegationRootRunning(tx, scope, hostRunId);
   await assertDelegatedConversationAdmission(tx, scope, [parentThreadId, childThreadId]);
-  const budget = await lockBudget(tx, scope);
+  const budget = await lockBudget(tx, scope, subagentSettings);
   if (duplicate) {
     return;
   }

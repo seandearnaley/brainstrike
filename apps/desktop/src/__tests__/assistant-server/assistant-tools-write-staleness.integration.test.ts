@@ -7,10 +7,10 @@ import { type RuntimeData, resetFileReadState, withFileLock } from '@brainstrike
 import { migrate, wasmLoader } from '@brainstrike/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
-import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
 import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
 import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
+import { createBudgetedHost } from './fixtures/budgeted-host';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -352,8 +352,8 @@ describe('read-before-write staleness guard', () => {
             [hostRunId]
           );
         }
-        const originalHost = createDesktopDelegatedConversationHost(database, 'guard-run');
-        const host = createDesktopDelegatedConversationHost(database, hostRunId);
+        const originalHost = createBudgetedHost(database, 'guard-run');
+        const host = createBudgetedHost(database, hostRunId);
         await originalHost.persist({
           childResourceId: 'child-resource',
           childThreadId: 'child-cedar',

@@ -143,7 +143,7 @@ it.each([
     const reserveStep = vi.fn(async () => ({
       id: 'step-reservation',
       outputTokens: 2048,
-      synthesis: false,
+      synthesis: false as const,
     }));
     const parallelEffect = vi.fn(async ({ pattern }: { pattern: string }) => ({
       matches: [pattern],

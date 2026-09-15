@@ -10,7 +10,7 @@ import {
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { prepareDelegatedChildBranch } from '../../assistant-server/delegated-child-branch';
-import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
+import { createBudgetedHost } from './fixtures/budgeted-host';
 
 let database: PGlite;
 const scope = { ownerResourceId: 'owner', rootThreadId: 'root' };
@@ -86,7 +86,7 @@ it('pages backward to the required ancestors on admission and decision restart',
       return callback(tx);
     })
   );
-  const first = createDesktopDelegatedConversationHost(database, 'wake-host').continuation;
+  const first = createBudgetedHost(database, 'wake-host').continuation;
   const claimed = await first.prepareContinuation(input);
   expect(claimed.branchMessageIds).toHaveLength(81);
   const bound = await first.bindContinuation({ id: input.id, nativeRunId: 'paged-native' });
@@ -98,7 +98,7 @@ it('pages backward to the required ancestors on admission and decision restart',
   expect(bound.baseline.runEvents.map(({ id }) => id)).toEqual(['included-event']);
   await first.finishContinuation({ id: input.id, status: 'awaiting-approval' });
 
-  const restarted = createDesktopDelegatedConversationHost(database, 'wake-host').continuation;
+  const restarted = createBudgetedHost(database, 'wake-host').continuation;
   const resumed = await restarted.resolveContinuationDecision({
     id: input.id,
     kind: 'tool-approval',
@@ -126,7 +126,7 @@ it('fails closed when a required ancestor disappears from every bounded page', a
     return result;
   });
   await expect(
-    createDesktopDelegatedConversationHost(database, 'wake-host').continuation.prepareContinuation({
+    createBudgetedHost(database, 'wake-host').continuation.prepareContinuation({
       ...input,
       id: 'missing-paged-ancestor',
     })
@@ -184,7 +184,7 @@ it('does not read a capture page for an empty first-message edit prefix', async 
     }
     return query(sql, params);
   });
-  const claimed = await createDesktopDelegatedConversationHost(database, 'wake-host').continuation;
+  const claimed = await createBudgetedHost(database, 'wake-host').continuation;
   const prepared = await claimed.prepareContinuation({
     ...input,
     branch: { kind: 'edit', messageId: 'paged-branch-0' },

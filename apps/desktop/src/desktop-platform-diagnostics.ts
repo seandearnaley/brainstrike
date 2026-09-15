@@ -11,6 +11,8 @@ import { LogLevel } from '@brainstrike/logging';
 import type { BackgroundRuntimeProcessMetric } from './background-runtime-metrics';
 import type { DesktopRendererCrashRecoverySnapshot } from './desktop-crash-recovery';
 import type { DesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
+import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
+import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import type { EmbeddingHostBackfillInfo } from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
@@ -45,6 +47,7 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   readonly telemetry: {
     readonly backgroundRuntimeMetrics: readonly BackgroundRuntimeProcessMetric[];
     readonly embedding: EmbeddingTelemetrySnapshot;
+    readonly processCounters: ProcessCounterSnapshot;
   };
 }
 
@@ -81,6 +84,13 @@ export interface DesktopPlatformDiagnosticsProviders {
   readonly logging: {
     readonly getState: () => LoggingSettingsPayload;
   };
+  readonly mainLog: {
+    /** Throws when file logging is disabled; the IPC rejects visibly. */
+    readonly readWindow: (request: MainLogWindowRequest) => Promise<MainLogWindowResult>;
+  };
+  readonly processCounters: {
+    readonly getSnapshot: () => ProcessCounterSnapshot;
+  };
   readonly reset: {
     readonly getSnapshot: () => DesktopResetDiagnosticsSnapshot;
   };
@@ -99,6 +109,7 @@ type DesktopPlatformDiagnosticsProviderName =
   | 'embeddingTelemetry'
   | 'llmHost'
   | 'logging'
+  | 'processCounters'
   | 'reset'
   | 'telemetry';
 
@@ -279,6 +290,12 @@ export async function collectDesktopPlatformDiagnostics(
         'embeddingTelemetry',
         () => providers.embeddingHost.getTelemetrySnapshot(),
         createEmptyEmbeddingTelemetrySnapshot()
+      ),
+      processCounters: await readDiagnosticsProvider(
+        errors,
+        'processCounters',
+        () => providers.processCounters.getSnapshot(),
+        { installedAt: null, samples: [] }
       ),
     },
   };

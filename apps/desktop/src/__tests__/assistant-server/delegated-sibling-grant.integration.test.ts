@@ -730,6 +730,24 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
     );
     await expect(delivered).resolves.toBe('delivered');
     expect(fanout.readFile).toHaveBeenCalledTimes(3);
+    // Debug-pack evidence through the REAL host (migration 139): the running
+    // leg's delivered decision is durable under its host run, naming the one
+    // parked sibling the grant answered and the trusted grant it carried.
+    const liveDecisions = await database.query<Record<string, unknown>>(
+      `SELECT outcome, source, tool_call_id,
+        jsonb_array_length(answered_sibling_task_ids) AS answered,
+        policy_snapshot -> 'sessionGrants' AS grants
+       FROM brainstrike_delegated_live_decisions`
+    );
+    expect(liveDecisions.rows).toEqual([
+      {
+        answered: 1,
+        grants: ['read'],
+        outcome: 'delivered',
+        source: 'user',
+        tool_call_id: expect.stringMatching(/^delegate-[23]$/u),
+      },
+    ]);
     // MUTATION GUARD: a gate that ignores the remembered grant parks child 1's
     // later read — a third card ('delegate-1') and a third answered chunk.
     expect(cards.sort()).toEqual(['delegate-2', 'delegate-3']);

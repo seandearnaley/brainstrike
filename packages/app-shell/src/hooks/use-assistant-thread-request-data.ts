@@ -1,3 +1,4 @@
+import { useAssistantSubagentPreferencesStore } from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
 import type { HookTrustRequest, RuntimeData } from '@brainstrike/assistant-contract';
 import type {
   RuntimeAssistantMemorySettings,
@@ -108,6 +109,9 @@ export function useAssistantThreadRequestData({
   workspaceIndex,
   workspaceRootPath,
 }: UseAssistantThreadRequestDataArgs): UseAssistantThreadRequestDataResult {
+  // Per-child subagent budgets ride every request (`runtimeData.subagentSettings`).
+  // Read here, not in the panel wrapper, which holds a shrink-only line budget.
+  const subagentSettings = useAssistantSubagentPreferencesStore((state) => state.settings);
   const runtimeMemorySettings = useMemo(
     () => ({
       observationalMemory: observationalMemorySettings,
@@ -140,6 +144,7 @@ export function useAssistantThreadRequestData({
         workspaceContext: runtimeWorkspaceContext,
         ...(skillsPreference ? { skillsPreference } : {}),
         ...(subagentPersonasRequest ? { subagentPersonasRequest } : {}),
+        subagentSettings,
         ...(workspaceInstructionsPreference ? { workspaceInstructionsPreference } : {}),
         workspaceIndex,
         workspaceRootPath,
@@ -166,6 +171,7 @@ export function useAssistantThreadRequestData({
       selfImprovementSignalPreference,
       skillsPreference,
       subagentPersonasRequest,
+      subagentSettings,
       workspaceInstructionsPreference,
       workspaceIndex,
       workspaceRootPath,

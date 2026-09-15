@@ -1,4 +1,5 @@
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { type DelegationStartContext, type MastraDBMessage, MessageList } from '@mastra/core/agent';
 import { RequestContext } from '@mastra/core/request-context';
@@ -79,6 +80,7 @@ describe('createDelegationConfig', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     const result = await config.onDelegationStart?.(startContext({ params: { maxSteps: 50 } }));
     expect(result).toEqual({
@@ -94,6 +96,7 @@ describe('createDelegationConfig', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     const result = await config.onDelegationStart?.(startContext());
     expect(result).toEqual({
@@ -109,6 +112,7 @@ describe('createDelegationConfig', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     const result = await config.onDelegationStart?.(startContext({ primitiveId: 'ghost' }));
     expect(result).toMatchObject({ proceed: false });
@@ -119,6 +123,7 @@ describe('createDelegationConfig', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
     expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
@@ -133,6 +138,7 @@ describe('createDelegationConfig', () => {
         abortSignal: new AbortController().signal,
         logger: silentLogger,
         personasById,
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
         ...(withQueue ? { workQueue: new DelegatedWorkQueue() } : {}),
         conversationBinding: {
           ...createDelegatedConversationBinding(async () => undefined),
@@ -180,6 +186,7 @@ describe('createDelegationConfig', () => {
       delegationOutcomes: outcomes,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workQueue: new DelegatedWorkQueue(),
     });
     const admitted = await config.onDelegationStart?.(
@@ -220,6 +227,7 @@ describe('createDelegationConfig', () => {
       delegationOutcomes: outcomes,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workQueue: new DelegatedWorkQueue(),
     });
     const refused = await config.onDelegationStart?.(
@@ -264,6 +272,7 @@ describe('createDelegationConfig', () => {
       },
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workQueue: new DelegatedWorkQueue(),
     });
     const start = (toolCallId: string) =>
@@ -297,6 +306,7 @@ describe('createDelegationConfig', () => {
       delegationOutcomes: outcomes,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     await config.onDelegationStart?.(startContext({ primitiveId: 'ghost', toolCallId: 'ghost' }));
     expect(outcomes.rejected('ghost', 'run-1')).toBe(true);
@@ -315,6 +325,7 @@ describe('createDelegationConfig', () => {
       },
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workQueue: new DelegatedWorkQueue(),
     });
     await expect(config.onDelegationStart?.(startContext())).rejects.toThrow(/parent thread/i);
@@ -325,6 +336,7 @@ describe('createDelegationConfig', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     await config.onDelegationStart?.(startContext());
     await config.onDelegationStart?.(startContext());
@@ -341,6 +353,7 @@ describe('createDelegationConfig', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     expect(await config.onDelegationStart?.(startContext({ toolCallId: 'call-1' }))).toMatchObject({
       proceed: true,
@@ -370,6 +383,7 @@ describe('createDelegationConfig', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     // Unknown persona rejected — must not increment inFlight.
     await config.onDelegationStart?.(startContext({ primitiveId: 'ghost' }));
@@ -385,6 +399,7 @@ describe('createDelegationConfig', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     for (let index = 0; index < MAX_DELEGATIONS_PER_RUN; index += 1) {
       expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
@@ -407,6 +422,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     config.onDelegationStart?.(startContext());
     const result = await config.onDelegationComplete?.(
@@ -436,6 +452,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     config.onDelegationStart?.(startContext());
     const result = await config.onDelegationComplete?.(
@@ -450,6 +467,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     config.onDelegationStart?.(startContext());
     const result = await config.onDelegationComplete?.(
@@ -468,6 +486,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
       delegationOutcomes: outcomes,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     config.onDelegationStart?.(startContext());
     await config.onDelegationComplete?.(
@@ -492,6 +511,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
       delegationOutcomes: outcomes,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     config.onDelegationStart?.(startContext());
     const result = await config.onDelegationComplete?.(
@@ -518,6 +538,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     config.onDelegationStart?.(startContext());
     const result = await config.onDelegationComplete?.(
@@ -536,6 +557,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     config.onDelegationStart?.(startContext());
     const result = await config.onDelegationComplete?.(completeContext({ result: { text: '' } }));
@@ -551,6 +573,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     await config.onDelegationStart?.(startContext());
     await config.onDelegationStart?.(startContext());
@@ -608,6 +631,7 @@ describe('delegated instruction and context authority', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
   it('keeps model-authored instructions in the user task instead of system authority', async () => {
     const result = await config().onDelegationStart?.(
@@ -660,5 +684,122 @@ describe('delegated instruction and context authority', () => {
     expect(() => filter?.({ ...startContext(), messages: [trusted] })).toThrow(
       'Trusted delegated context exceeds'
     );
+  });
+});
+
+describe('child prompt manifests', () => {
+  const builtFacts = {
+    byPersonaId: new Map([
+      [
+        'explore',
+        {
+          instructions: 'Explore.\n\nAvailable tools: brainstrike.grepSearch.',
+          toolNames: ['brainstrike.grepSearch'],
+        },
+      ],
+    ]),
+    dispatchingAgentId: 'parent',
+  };
+
+  function recordingConfig() {
+    const records: unknown[] = [];
+    const warnings: unknown[][] = [];
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      childPromptFacts: builtFacts,
+      conversationBinding: {
+        ...createDelegatedConversationBinding(async () => undefined),
+        // The native `afterToolCall` hook releases a prepared address; a start
+        // hook re-entered without it (a resume) must not trip the binding here.
+        prepare: () => undefined,
+        recordPromptManifest: async (record) => {
+          records.push(record);
+        },
+      },
+      logger: {
+        ...silentLogger,
+        warn: (...args: unknown[]) => {
+          warnings.push(args);
+        },
+      } as unknown as ScopedLogger,
+      personasById,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+    });
+    return { config, records, warnings };
+  }
+
+  it('records what the child is told: the prompt it receives, its built instructions and kept tools', async () => {
+    const { config, records } = recordingConfig();
+    const result = await config.onDelegationStart?.(
+      startContext({
+        params: { instructions: 'Start with src/' },
+        prompt: 'Survey the repo',
+        resourceId: 'owner',
+        runId: 'root-run',
+        threadId: 'root',
+        toolCallId: 'call-survey',
+      })
+    );
+    expect(result).toMatchObject({ proceed: true });
+    // MUTATION: recording `context.prompt` drops the delegated task details the
+    // child actually receives in its user prompt.
+    expect(records).toEqual([
+      {
+        delegationPrompt: 'Survey the repo\n\nDelegated task details:\nStart with src/',
+        kind: 'child-first-step',
+        nativeRunId: 'root-run',
+        parentToolCallId: 'call-survey',
+        personaId: 'explore',
+        personaInstructions: 'Explore.\n\nAvailable tools: brainstrike.grepSearch.',
+        systemContextSource: 'root-leg',
+        systemMessages: [],
+        threadId: 'root',
+        toolNames: ['brainstrike.grepSearch'],
+      },
+    ]);
+    // A parked child resumed inside the leg re-enters the hook at the same
+    // address. MUTATION: recording resumed addresses adds a second
+    // child-first-step row for a first step that already happened.
+    expect(
+      await config.onDelegationStart?.(
+        startContext({
+          prompt: 'Survey the repo',
+          resourceId: 'owner',
+          runId: 'root-run',
+          threadId: 'root',
+          toolCallId: 'call-survey',
+        })
+      )
+    ).toMatchObject({ proceed: true });
+    expect(records).toHaveLength(1);
+  });
+
+  it('records nothing and says so when the facts describe another agent build (a nested delegation)', async () => {
+    const { config, records, warnings } = recordingConfig();
+    const result = await config.onDelegationStart?.(
+      startContext({
+        parentAgentId: 'worker',
+        resourceId: 'owner',
+        runId: 'child-run',
+        threadId: 'child',
+        toolCallId: 'call-nested',
+      })
+    );
+    expect(result).toMatchObject({ proceed: true });
+    // MUTATION: looking the persona up without the dispatching agent records
+    // the ROOT build's tools and instructions for a grandchild built from a
+    // narrower tool map.
+    expect(records).toEqual([]);
+    expect(warnings).toEqual([
+      [
+        'Child prompt manifest not recorded: no build facts describe this delegation',
+        expect.objectContaining({
+          code: 'subagent_prompt_manifest_unrecorded',
+          parentAgentId: 'worker',
+          personaId: 'explore',
+          toolCallId: 'call-nested',
+        }),
+      ],
+    ]);
   });
 });

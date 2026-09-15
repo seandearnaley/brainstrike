@@ -43,7 +43,7 @@ export const FAMILY_ICONS: Readonly<Record<VerbFamily, LucideIcon>> = {
  * and its child work is real and browsable under the row — only the summary
  * is missing. Red is reserved for `failed`, where something actually broke.
  */
-export type StepGlyphState = ActivityStepState | 'no-answer' | 'rejected';
+export type StepGlyphState = ActivityStepState | 'no-answer' | 'rejected' | 'truncated';
 
 /** Accessible names for `StepStateGlyph`; also the strings e2e specs query. */
 export const STEP_STATE_LABELS: Readonly<Record<StepGlyphState, string>> = {
@@ -53,5 +53,6 @@ export const STEP_STATE_LABELS: Readonly<Record<StepGlyphState, string>> = {
   'no-answer': 'No answer',
   rejected: 'Rejected',
   running: 'Running',
+  truncated: 'Completed (truncated summary)',
   waiting: 'Waiting for approval',
 };

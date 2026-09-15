@@ -1,4 +1,5 @@
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
 import type { Agent, ToolsInput } from '@mastra/core/agent';
@@ -85,6 +86,7 @@ const budget = resolveScaledToolResultBudget(131_072);
 
 function baseOptions(provider: string) {
   return {
+    subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     ...makeGuardedTools(TOOL_IDS),
     languageModel: fakeModel,
     logger: noopLogger,
@@ -138,5 +140,27 @@ describe('persona child provider compat', () => {
       personas: [workerPersona],
     });
     expect(await compatCount(built.subAgents['worker'])).toBe(1);
+  });
+});
+
+describe('persona child prompt facts', () => {
+  it('reports the exact instructions each child Agent was built with and the tools it kept', async () => {
+    const built = await buildPersonaSubAgents({
+      ...baseOptions('openai'),
+      personas: [explorePersona],
+    });
+    const child = built.subAgents['explore'];
+    if (!child) {
+      throw new Error('Expected the persona child');
+    }
+    const facts = built.childPromptFacts.get('explore');
+    // The permission gate keeps every read tool the persona names; the facts
+    // are the gated set, never the persona's declared list.
+    expect(facts?.toolNames).toEqual(built.personasById.get('explore')?.allowedToolIds);
+    // MUTATION: recording `persona.instructions` instead of the string the
+    // child was constructed with loses the "Available tools:" suffix.
+    expect(facts?.instructions).toBe(await child.getInstructions());
+    expect(facts?.instructions).toContain('Available tools: brainstrike.queryEmbeddingSpace');
+    expect([...built.childPromptFacts.keys()]).toEqual([...built.personasById.keys()]);
   });
 });

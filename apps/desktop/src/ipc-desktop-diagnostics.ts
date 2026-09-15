@@ -5,6 +5,12 @@ import {
   type DesktopPlatformDiagnosticsProviders,
   type DesktopPlatformDiagnosticsSnapshot,
 } from './desktop-platform-diagnostics';
+import {
+  assertMainLogWindowRequest,
+  type MainLogWindowResult,
+} from './diagnostics/main-log-window';
+import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
+import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 const UNAUTHENTICATED_SENDER_POLICY = {
@@ -23,6 +29,23 @@ export function registerDesktopDiagnosticsIpcHandlers(
     UNAUTHENTICATED_SENDER_POLICY,
     async (): Promise<DesktopPlatformDiagnosticsSnapshot> =>
       collectDesktopPlatformDiagnostics(providers)
+  );
+
+  // The window is validated BEFORE the provider is touched: a malformed or
+  // oversized request rejects here and never opens a log file.
+  registry.registerUnauthenticatedInvoke(
+    'diagnostics',
+    DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow,
+    UNAUTHENTICATED_SENDER_POLICY,
+    async (_event, request: unknown): Promise<MainLogWindowResult> =>
+      await providers.mainLog.readWindow(assertMainLogWindowRequest(request, Date.now()))
+  );
+
+  registry.registerUnauthenticatedInvoke(
+    'diagnostics',
+    DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters,
+    UNAUTHENTICATED_SENDER_POLICY,
+    (): ProcessCounterSnapshot => providers.processCounters.getSnapshot()
   );
 
   return () => registry.unregisterAll();

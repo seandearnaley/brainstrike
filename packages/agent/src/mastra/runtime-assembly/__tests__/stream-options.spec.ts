@@ -36,7 +36,11 @@ import {
 
 function makeRuntime(overrides: Partial<MastraAgentRuntime> = {}): MastraAgentRuntime {
   return {
+    // Runtime shape: `agent` and `childPromptFacts` are required fields the
+    // delegation fragment reads (child prompt manifests, debug pack Task 4).
+    agent: { id: 'root-agent' },
     askTools: new Map(),
+    childPromptFacts: new Map(),
     permissionEnforced: false,
     personasById: new Map(),
     toolHistoryFilter: undefined,
@@ -302,6 +306,7 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
     expect(createDelegationConfigSpy).toHaveBeenCalledTimes(1);
     expect(createDelegationConfigSpy).toHaveBeenCalledWith({
       abortSignal,
+      childPromptFacts: { byPersonaId: runtime.childPromptFacts, dispatchingAgentId: 'root-agent' },
       delegationOutcomes,
       logger: expect.anything(),
       onChildUsage,

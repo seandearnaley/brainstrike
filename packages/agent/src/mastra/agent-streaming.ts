@@ -92,6 +92,7 @@ import { readChildContinuationUserMessage } from './child-continuation-user-mess
 import { withDelegatedPersonaSnapshots } from './delegated-persona-snapshots';
 import { DELEGATED_STEP_USAGE_PART } from './delegated-step-usage';
 import { createDelegatedStreamProjection } from './delegated-stream-projection';
+import { DELEGATED_SYNTHESIS_PART } from './delegated-synthesis-outcomes';
 import { captureDelegatedSystemContext } from './delegated-system-context';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import {
@@ -109,6 +110,7 @@ import {
 } from './mastra-chunk-decoding';
 import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
 import type { PermissionAskToolMetadata } from './permission-tool-gate';
+import { buildRootLegPromptManifest } from './prompt-manifest-root-leg';
 import { drainProviderCallWarningChunks } from './provider-warning-run-events';
 import { withRootPauseNotices } from './root-pause-notices';
 import { assertNoUnsupportedDirectStreamOptions } from './runtime-assembly/stream-options';
@@ -486,6 +488,9 @@ export async function processMastraStreamPart(
   switch (p.type) {
     // The delegated projection has already validated and metered this published child.
     case DELEGATED_STEP_USAGE_PART:
+    // ...and turned this reserved-synthesis outcome into the owner child's
+    // `delegation.budget.exhausted` run event; the root stream carries nothing.
+    case DELEGATED_SYNTHESIS_PART:
       return { chunks: [], finished: false };
     // A background child's task is parked in storage; its withheld card is
     // released by `releaseParkedNotices` on this same part. Its resume drops
@@ -1145,7 +1150,11 @@ export function createAttemptDelegatedProjection({
   delegationUsage?: DelegationUsageCapture | undefined;
   runtime: Pick<
     MastraAgentRuntime,
-    'conversationBinding' | 'personasById' | 'delegationToolPersonas' | 'askTools'
+    | 'conversationBinding'
+    | 'personasById'
+    | 'delegationToolPersonas'
+    | 'askTools'
+    | 'delegatedExecutionOptions'
   >;
   runtimeData: RuntimeData | undefined;
   lifecycleState: ToolLifecycleState;
@@ -1169,6 +1178,12 @@ export function createAttemptDelegatedProjection({
       );
       if (lifecycleState.delegationOutcomes) {
         childState.delegationOutcomes = lifecycleState.delegationOutcomes;
+      }
+      // A `length` finish on this child's reserved synthesis is a truncated
+      // completion only when the budget processor recorded it here.
+      const synthesisOutcomes = runtime.delegatedExecutionOptions?.synthesisOutcomes;
+      if (synthesisOutcomes) {
+        childState.synthesisOutcomes = synthesisOutcomes;
       }
       return childState;
     },
@@ -1773,6 +1788,16 @@ export async function streamMastraAgent(
     },
     runtimeResolution
   );
+  // Debug-pack evidence for a FRESH turn only: resume legs replay the prompt
+  // their snapshot carries. The host logs a failed write and resolves.
+  const rootManifest = buildRootLegPromptManifest({
+    messages: initialSystemMessages,
+    registeredToolNames: runtime.registeredToolNames,
+    runtime: runtimeResolution.runtime,
+  });
+  if (rootManifest) {
+    await runtime.conversationBinding?.recordPromptManifest?.(rootManifest);
+  }
 
   // Per-call approval for `'ask'` tools comes from each ask tool's FUNCTION-form
   // `requireApproval` (approval-gate.ts, evaluated by Mastra on every call),

@@ -94,7 +94,7 @@ it('four specialist Explorer children complete under a read:ask posture with one
       reserveStep: async (_scope: { threadId: string; resourceId: string }) => {
         const id = `reservation-${reservations.length}`;
         reservations.push(id);
-        return { id, outputTokens: 8192, synthesis: false };
+        return { id, outputTokens: 8192, synthesis: false as const };
       },
       settleStep: async (_id: string, _outputTokens: number | undefined) => undefined,
     },

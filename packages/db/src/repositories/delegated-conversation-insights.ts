@@ -25,7 +25,22 @@ export interface DelegatedCapturedUsage {
   readonly totalInputTokens: number;
   readonly totalOutputTokens: number;
 }
+/** The durable per-child budget row (`brainstrike_delegation_child_budgets`) for the child tab header. */
+export interface DelegatedChildBudgetInsight {
+  readonly chargedOutputTokens: number;
+  /** The turn's per-child output allocation, copied from the request's subagent settings at admission. */
+  readonly maxChildOutputTokens: number;
+  readonly maxSteps: number;
+  readonly steps: number;
+  readonly synthesisUsed: boolean;
+}
 export interface DelegatedConversationInsights {
+  /**
+   * Durable child budget of the LATEST host turn that budgeted this child
+   * (ordered by that turn's run rows); null for a legacy delegation with no
+   * budget row. Refreshed at leg / pause / terminal boundaries, not per token.
+   */
+  readonly budget: DelegatedChildBudgetInsight | null;
   readonly configuration: unknown;
   readonly depth: number;
   /** Only captured rows with retained exact identity; absence is not zero spending. */
@@ -67,6 +82,15 @@ SELECT selected.thread_id, selected.configuration, selected.delegation_depth,
   (SELECT jsonb_build_object('model', model, 'provider', provider, 'modelSettings', model_settings, 'providerOptions', provider_options)
    FROM brainstrike_assistant_thread_runs run WHERE run.thread_id=selected.thread_id AND run.resource_id=selected.resource_id
    ORDER BY run.started_at DESC, run.created_at DESC, run.id DESC LIMIT 1) AS latest_run,
+  (SELECT jsonb_build_object('chargedOutputTokens', child.charged_output_tokens, 'maxChildOutputTokens', tree.max_child_output_tokens,
+     'maxSteps', child.max_steps, 'steps', child.steps, 'synthesisUsed', child.synthesis_used)
+   FROM brainstrike_delegation_child_budgets child
+   JOIN brainstrike_delegation_budgets tree ON tree.root_thread_id=child.root_thread_id
+     AND tree.turn_message_id=child.turn_message_id AND tree.owner_resource_id=$1
+   JOIN brainstrike_assistant_thread_runs run ON run.turn_message_id=child.turn_message_id
+     AND run.thread_id=child.root_thread_id AND run.resource_id=$1
+   WHERE child.child_thread_id=selected.thread_id AND child.root_thread_id=$2
+   ORDER BY run.started_at DESC, run.created_at DESC, run.id DESC LIMIT 1) AS budget,
   COALESCE((SELECT jsonb_agg(to_jsonb(attributed) ORDER BY id) FROM attributed), '[]'::jsonb) AS usage
 FROM selected`;
 
@@ -108,6 +132,23 @@ function modelUsage(row: Record<string, unknown>): DelegatedCapturedModelUsage {
     outputTokens: count(row['output_tokens']),
     provider: text(row['provider']),
     runKind: 'subagent',
+  };
+}
+function childBudget(value: unknown): DelegatedChildBudgetInsight | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const row = record(value);
+  const synthesisUsed = row['synthesisUsed'];
+  if (typeof synthesisUsed !== 'boolean') {
+    throw new Error('Stored child budget is malformed.');
+  }
+  return {
+    chargedOutputTokens: count(row['chargedOutputTokens']),
+    maxChildOutputTokens: count(row['maxChildOutputTokens']),
+    maxSteps: count(row['maxSteps']),
+    steps: count(row['steps']),
+    synthesisUsed,
   };
 }
 function totals(perModel: readonly DelegatedCapturedModelUsage[]): DelegatedCapturedUsage | null {
@@ -157,6 +198,7 @@ export async function readDelegatedConversationInsights(
   }
   const latest = selected['latest_run'] === null ? null : record(selected['latest_run']);
   return {
+    budget: childBudget(selected['budget']),
     configuration: selected['configuration'],
     depth: count(selected['delegation_depth']),
     directUsage: totals(direct),

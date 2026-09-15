@@ -332,6 +332,30 @@ it('a session grant answers every parked background sibling in the same approval
     const parked = await runtime.backgroundTaskManager?.listTasks({ status: 'suspended' });
     expect(parked?.tasks).toEqual([]);
     expect(JSON.stringify(chunks)).toContain('PARENT_FINAL_OUTCOME');
+    // Debug-pack evidence (swarm diagnostics): the approval leg's resume stream
+    // recorded ONE resume-leg wakeup naming both returned siblings, carrying the
+    // exact text the parent then received, before that inference ran.
+    // MUTATION: recording after `agent.stream` moves `promptsAtRecord` past the
+    // wakeup prompt.
+    const wakeupPrompt = fixture.model.prompts.findIndex((call) =>
+      JSON.stringify(call.prompt).includes('Background invocations of this turn')
+    );
+    const lastUser = fixture.model.prompts[wakeupPrompt]?.prompt
+      .filter((message) => message.role === 'user')
+      .at(-1);
+    const sent =
+      lastUser && Array.isArray(lastUser.content)
+        ? lastUser.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
+        : undefined;
+    expect(fixture.wakeups.map((row) => row.kind)).toEqual(['resume-leg']);
+    expect(fixture.wakeups[0]?.directive).toBe(sent);
+    expect(fixture.wakeups[0]?.promptsAtRecord).toBe(wakeupPrompt);
+    expect(
+      fixture.wakeups[0]?.invocations.map((entry) => [entry.outcome, entry.toolCallId]).sort()
+    ).toEqual([
+      ['completed', 'background-child-1'],
+      ['completed', 'background-child-2'],
+    ]);
   } finally {
     release.resolve();
     await runtime.dispose();
@@ -463,6 +487,22 @@ it('a decision delivered into the running leg resumes the child there; its next 
       toolCallId: 'background-child-1',
     });
     expect(fixture.policyAnswers).toEqual(['background-child-1']);
+    // Debug-pack evidence (swarm diagnostics): the running leg recorded the
+    // user's live one-shot decision as delivered — its task, dispatch address
+    // and leaf call, no answered siblings and no policy snapshot.
+    expect(fixture.liveDecisions).toEqual([
+      {
+        answeredSiblingTaskIds: [],
+        decision: 'approve',
+        delegationToolCallId: 'background-read-1',
+        kind: 'approval',
+        outcome: 'delivered',
+        source: 'user',
+        taskId: expect.any(String),
+        toolCallId: 'background-child-1',
+        toolName: 'brainstrike.grepSearch',
+      },
+    ]);
     // One leg, two root cards for the same child: read 1, then read 2.
     const rootCards = chunks
       .flatMap((chunk) => (chunk.type === 'tool-approval-required' ? [chunk] : []))
@@ -589,6 +629,18 @@ it("after a live session grant the sibling's NEXT gated read runs without a paus
     expect(answered).toHaveLength(1);
     expect(answered[0]).toMatchObject({ reason: 'user', toolCallId: 'background-child-1' });
     expect(fixture.policyAnswers).toEqual(['background-child-1']);
+    // Debug-pack evidence: the live grant is recorded as delivered with the
+    // trusted snapshot it was delivered with; no parked sibling needed an answer.
+    // MUTATION: dropping the snapshot from the delivered record fails this.
+    expect(fixture.liveDecisions).toEqual([
+      expect.objectContaining({
+        answeredSiblingTaskIds: [],
+        outcome: 'delivered',
+        policySnapshot: expect.objectContaining({ sessionGrants: ['read'] }),
+        source: 'user',
+        toolCallId: 'background-child-1',
+      }),
+    ]);
     // Both gated reads of sibling 1 executed.
     expect(effect).toHaveBeenCalledTimes(2);
     const parked = await runtime.backgroundTaskManager?.listTasks({ status: 'suspended' });
@@ -741,6 +793,92 @@ it('the wakeup carries the whole ledger: a root that trusts it reports the final
     expect(new Set(rows.map(([label]) => label)).size).toBeGreaterThanOrEqual(2);
   } finally {
     hold.resolve();
+    release.resolve();
+    await runtime.dispose();
+    await database.close();
+  }
+});
+
+it('a child whose synthesis is cut returns a truncated summary the root can use', async () => {
+  // GLM pack 2026-09-15: three of four Explorers exhausted 16/16 steps and the
+  // fourth's 512-token synthesis finished with `length`, which the terminal
+  // mapper turned into run.failed and a "failed; do not retry" delegation. A
+  // cut summary is partial findings: the child COMPLETES (truncated), the root
+  // reads the text plus a truncation note, and the child tab records why.
+  const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
+    budget: { maxSteps: 4, synthesisOutputTokens: 2048 },
+  });
+  const { backing, runtime, runtimeData, release, database, model, effect } = fixture;
+  release.resolve();
+  try {
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [
+        { id: 'exhaust', parts: [{ text: 'Survey everything', type: 'text' }], role: 'user' },
+      ],
+      runtime,
+      runtimeData,
+    })) {
+      chunks.push(chunk);
+    }
+    // Three working steps, then the reserved synthesis (steps 4/4).
+    expect(effect).toHaveBeenCalledTimes(3);
+    const synthesisCall = model.prompts.find((prompt) => prompt.maxOutputTokens === 2048);
+    expect(synthesisCall).toBeDefined();
+    expect(synthesisCall?.tools ?? []).toEqual([]);
+    // No failure anywhere: not on the root, not on the child.
+    const failed = chunks.filter(
+      (chunk) =>
+        (chunk.type === 'run-event' && chunk.event.kind === 'run.failed') ||
+        (chunk.type === 'delegated-conversation-chunk' &&
+          chunk.chunk.type === 'run-event' &&
+          chunk.chunk.event.kind === 'run.failed')
+    );
+    expect(failed, JSON.stringify(failed)).toEqual([]);
+    const childEvents = chunks.flatMap((chunk) =>
+      chunk.type === 'delegated-conversation-chunk' && chunk.chunk.type === 'run-event'
+        ? [chunk.chunk.event]
+        : []
+    );
+    expect(childEvents).toContainEqual(
+      expect.objectContaining({
+        kind: 'delegation.budget.exhausted',
+        metadata: expect.objectContaining({
+          cap: 'steps',
+          limit: 4,
+          synthesisForced: true,
+          truncated: true,
+          used: 3,
+        }),
+        status: 'info',
+      })
+    );
+    expect(childEvents).toContainEqual(
+      expect.objectContaining({
+        kind: 'run.finished',
+        metadata: expect.objectContaining({ finishReason: 'length', outcome: 'truncated' }),
+      })
+    );
+    const subagentTerminal = chunks.flatMap((chunk) =>
+      chunk.type === 'run-event' && chunk.event.kind.startsWith('subagent.f') ? [chunk.event] : []
+    );
+    expect(subagentTerminal).toEqual([
+      expect.objectContaining({
+        kind: 'subagent.finished',
+        metadata: expect.objectContaining({ outcome: 'truncated' }),
+      }),
+    ]);
+    // The root's next model call sees the partial findings AND the note.
+    const parentPrompts = model.prompts.filter((prompt) =>
+      prompt.tools?.some((tool) => tool.name === 'agent-explore')
+    );
+    const last = JSON.stringify(parentPrompts.at(-1)?.prompt);
+    expect(last).toContain('PARTIAL_CHILD_FINDINGS');
+    expect(last).toContain('[Truncated summary]');
+    expect(last).not.toContain('do not retry it');
+    expect(JSON.stringify(chunks)).toContain('PARENT_FINAL_OUTCOME');
+  } finally {
     release.resolve();
     await runtime.dispose();
     await database.close();

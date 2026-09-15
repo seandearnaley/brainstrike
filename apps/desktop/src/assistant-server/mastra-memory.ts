@@ -19,6 +19,7 @@ import {
   type RuntimeData,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
+import { parseRuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import {
   type DesktopMemoryModelTargetDescriptor,
   type DesktopMemoryModelTargetResolution,
@@ -290,7 +291,9 @@ async function createDesktopMastraMemoryFromCacheState({
           threadId,
           runtimeData,
           memoryDependencies?.snapshots
-        )
+        ),
+      // Absent → defaults; malformed → throws before any child can be admitted.
+      parseRuntimeSubagentSettings(runtimeData?.subagentSettings)
     );
     return {
       ...memory,
@@ -302,7 +305,10 @@ async function createDesktopMastraMemoryFromCacheState({
         continuation: host.continuation,
         finishToolActions: host.finishToolActions,
         prepareToolAction: host.prepareToolAction,
+        recordLiveDecision: host.recordLiveDecision,
+        recordPromptManifest: host.recordPromptManifest,
         recordToolActionAnswer: host.recordToolActionAnswer,
+        recordWakeup: host.recordWakeup,
         registerCancellation: (control) => registerDesktopDelegatedCancellation(runId, control),
         registerDecisionControl: (control) => registerDesktopDelegatedDecision(runId, control),
         registerFollowup: (control) =>

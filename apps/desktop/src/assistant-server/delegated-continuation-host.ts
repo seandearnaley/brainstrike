@@ -1,5 +1,6 @@
 import type { ChildContinuationHostPort } from '@brainstrike/agent';
 import type { DelegatedConversationBaseline } from '@brainstrike/assistant-contract';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import {
   createDelegatedContinuationRepository,
   createDelegatedConversationRepository,
@@ -25,7 +26,8 @@ export function createDesktopDelegatedContinuationHost(
   ) => Promise<DelegatedConversationBaseline>,
   resolveDelegatedDecision?: (
     input: Parameters<ChildContinuationHostPort['claimContinuationDecision']>[0]
-  ) => Promise<void>
+  ) => Promise<void>,
+  subagentSettings?: RuntimeSubagentSettings
 ): ChildContinuationHostPort {
   const baselines = new Map<string, DelegatedConversationBaseline>();
   const claims = new Set<string>();
@@ -124,7 +126,8 @@ export function createDesktopDelegatedContinuationHost(
           claimed.parentThreadId,
           false,
           claimed.threadId,
-          claimed.configuration
+          claimed.configuration,
+          subagentSettings
         );
         return await prepareDelegatedChildBranch(
           tx,

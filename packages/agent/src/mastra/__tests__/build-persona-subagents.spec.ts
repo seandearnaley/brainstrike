@@ -4,6 +4,7 @@ import {
   type AssistantPersonaDefinition,
   PersonaToolRiskViolationError,
 } from '@brainstrike/assistant-contract/personas';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
 import { type Agent, MessageList, type ToolsInput } from '@mastra/core/agent';
@@ -163,6 +164,7 @@ function workerOptions(persona = workerPersona) {
     personas: [persona],
     provider: 'openai',
     resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+    subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
   };
 }
 async function workerCatalog(child: Agent) {
@@ -398,6 +400,7 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
 
@@ -438,6 +441,7 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
 
@@ -457,6 +461,7 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
     expect(result.subAgents['explore']).toBeUndefined();
@@ -491,6 +496,7 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     };
     const child = assertDefined(
@@ -559,6 +565,7 @@ describe('buildPersonaSubAgents', () => {
         personas: [{ ...explorePersona, allowedToolIds: ids }],
         provider: 'openai',
         resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
         toolNameMap,
       });
       const child = assertDefined(
@@ -597,6 +604,7 @@ describe('buildPersonaSubAgents', () => {
         personas: [hostilePersona],
         provider: 'openai',
         resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
         toolNameMap,
       })
     ).rejects.toThrow(PersonaToolRiskViolationError);
@@ -612,6 +620,7 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
     const keys = await childToolKeys(
@@ -636,6 +645,7 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
     const keys = await childToolKeys(
@@ -666,6 +676,7 @@ describe('buildPersonaSubAgents', () => {
         resolvedPins.push(persona.model);
         return pinnedModel;
       },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
 
@@ -690,6 +701,7 @@ describe('buildPersonaSubAgents', () => {
         resolverCalls += 1;
         return fakeModel;
       },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
     expect(resolverCalls).toBe(0);
@@ -725,6 +737,7 @@ describe('buildPersonaSubAgents', () => {
       resolvePinnedModel: () => {
         throw new Error('missing_api_key');
       },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
     expect(result.subAgents['broken-pin']).toBeUndefined();
@@ -756,6 +769,7 @@ describe('buildPersonaSubAgents', () => {
       personas: [pinned],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
     expect(result.subAgents['pinned-no-resolver']).toBeUndefined();
@@ -851,6 +865,7 @@ describe('buildPersonaSubAgents', () => {
         provider: 'openai',
         resolvedToolResultBudget: largeParentBudget,
         resolvePinnedModel: () => fakeModel,
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
         toolNameMap,
       });
       const child = assertDefined(
@@ -875,6 +890,7 @@ describe('buildPersonaSubAgents', () => {
         provider: 'openai',
         resolvedToolResultBudget: smallParentBudget,
         resolvePinnedModel: () => pinnedLargeModel,
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
         toolNameMap,
       });
       const child = assertDefined(
@@ -897,6 +913,7 @@ describe('buildPersonaSubAgents', () => {
         personas: [makeDomainPersona()],
         provider: 'openai',
         resolvedToolResultBudget: parentBudget,
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
         toolNameMap,
       });
       const child = assertDefined(
@@ -946,6 +963,7 @@ it('passes the admitted child effort and output budget through the actual Mastra
     personas: [explorePersona],
     provider: 'openai',
     resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+    subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
   });
   const child = assertDefined(result.subAgents['explore'], 'Child missing');
   const stream = await child.stream('Use your admitted settings.');
@@ -975,6 +993,7 @@ it('does not apply generation options for one child model to a differently pinne
     provider: 'openai',
     resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
     resolvePinnedModel: () => model.model,
+    subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
   });
   const child = assertDefined(result.subAgents['explore'], 'Child missing');
   await (await child.stream('Use the pinned model defaults.')).consumeStream();

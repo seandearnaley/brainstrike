@@ -22,11 +22,9 @@ import { createDelegatedConversationRepository, migrate } from '@brainstrike/db'
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import { z } from 'zod';
 import { cancelDelegatedContinuations } from '../../../assistant-server/delegated-continuation-cancellation.ts';
-import {
-  createDesktopDelegatedConversationHost,
-  createDesktopDelegatedSuspensionResolver,
-} from '../../../assistant-server/delegated-conversation-host.ts';
+import { createDesktopDelegatedSuspensionResolver } from '../../../assistant-server/delegated-conversation-host.ts';
 import { reapOrphanedThreadRuns } from '../../../assistant-server/thread-run-startup-reaper.ts';
+import { createBudgetedHost } from './budgeted-host';
 
 const directory = z.string().min(1).parse(process.argv[2]);
 const phase = z.enum(['initial', 'resume', 'recover']).parse(process.argv[3]);
@@ -136,7 +134,7 @@ async function createBacking(runId: string) {
     },
     runId,
   });
-  const host = createDesktopDelegatedConversationHost(database, runId);
+  const host = createBudgetedHost(database, runId);
   const binding = {
     ...createDelegatedConversationBinding(host.persist),
     bindRun: host.bindRun,
