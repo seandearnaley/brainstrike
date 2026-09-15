@@ -338,18 +338,31 @@ describe('AssistantToolApprovalNotice', () => {
     expect(screen.getByText('Pending')).toBeInTheDocument();
   });
 
-  it('reenables approval actions after an asynchronous append failure', async () => {
-    appendMessageMock.mockImplementationOnce(() => Promise.reject(new Error('append failed')));
+  it('shows why the decision was not sent after a synchronous append failure', async () => {
+    appendMessageMock.mockImplementationOnce(() => {
+      throw new Error('append failed');
+    });
     const user = userEvent.setup();
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
 
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled()
-    );
-    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
-    expect(screen.getByText('Pending')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
+  });
+
+  it('clears the send error once a retried decision is sent', async () => {
+    appendMessageMock.mockImplementationOnce(() => {
+      throw new Error('append failed');
+    });
+    const user = userEvent.setup();
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await expandApprovalRow(user);
+
+    expect(appendMessageMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('does not reenable approval actions after the matching run completes successfully', async () => {
@@ -754,6 +767,9 @@ describe('AssistantToolApprovalNotice while a run is active', () => {
       undefined
     );
     expect(screen.getByText('Pending')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Decision not sent: The decision was not applied: refused'
+    );
   });
 
   it('appends immediately when no run is active', async () => {

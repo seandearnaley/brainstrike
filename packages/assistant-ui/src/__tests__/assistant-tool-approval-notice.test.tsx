@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({
-    thread: () => ({ append: vi.fn().mockResolvedValue(undefined) }),
+    thread: () => ({ append: vi.fn() }),
   }),
   useAuiState: (selector: (state: { thread: { messages: readonly unknown[] } }) => unknown) =>
     selector({ thread: { messages: [] } }),

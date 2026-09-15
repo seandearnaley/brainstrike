@@ -2962,7 +2962,15 @@ Flow (desktop assistant server → agent runtime):
    dispatched one per run end by `FollowUpQueueBridge` exactly like a typed
    follow-up. The host serializes the resulting legs. `submitDecisionOrQueue`
    is async and reports `'delivered' | 'queued' | 'sent'`; a transport
-   rejection (409 host refusal, 500) propagates so the card unlocks and warns. Paired: `follow-up-queue-store.test.ts`,
+   rejection (409 host refusal, 500) propagates so the card unlocks and shows
+   `Decision not sent: <reason>` inline (`sendError`, `role="alert"`). The
+   installed assistant-ui `thread().append` returns `void` and rethrows a
+   failed run or history write from a detached handler (it reaches
+   `unhandledrejection`), so the approval notice never wraps it in a promise:
+   a failed resumed run is observed through thread state (`incomplete` →
+   `retryable` unlocks the card; `ErrorPrimitive` renders the error) and only
+   a synchronous throw (e.g. an unavailable thread scope) is caught, with the
+   same inline alert. Paired: `follow-up-queue-store.test.ts`,
    `assistant-tool-approval-notice-panel.test.tsx` ("while a run is active"),
    `follow-up-queue.behavior.test.tsx` (real local runtime dispatch of a queued
    decision) and app-shell `delegated-conversation-root.test.ts`. SETTLED

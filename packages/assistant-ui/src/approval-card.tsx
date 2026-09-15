@@ -265,6 +265,11 @@ export function ApprovalCard({ approval, presentation, state }: ApprovalCardProp
               toolName={approval.toolName}
             />
           </div>
+          {state.sendError === null ? null : (
+            <p className="mt-2 text-destructive text-xs" role="alert">
+              Decision not sent: {state.sendError}
+            </p>
+          )}
         </div>
         <Button
           aria-controls={isExpanded ? detailsId : undefined}

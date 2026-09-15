@@ -5,6 +5,7 @@ import type {
   AssistantToolApprovalRequest,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { createLogger } from '@brainstrike/logging';
+import { getErrorMessage } from '@brainstrike/utils/error-utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { buildApprovalDecisionMessage } from './approval-decision-message';
 import {
@@ -58,6 +59,11 @@ export interface ApprovalNoticeState {
   readonly delegationOwner: string | null;
   readonly hostAnswer: AssistantToolApprovalAnswered | null;
   readonly rediscovered: RediscoveredPauseDisplay | null;
+  /**
+   * Why the user's last decision was not sent (the append threw, or the host
+   * refused the live decision); null once a new submit starts.
+   */
+  readonly sendError: string | null;
   /** The header chip text (Pending / Queued / Approved / Declined / Allowed by session grant / …). */
   readonly status: string;
   readonly submitApprovalAction: (action: AssistantToolApprovalDecision) => void;
@@ -78,6 +84,7 @@ export function useApprovalNoticeState(
   const [submittedAction, setSubmittedAction] = useState<AssistantToolApprovalDecision | null>(
     null
   );
+  const [sendError, setSendError] = useState<string | null>(null);
   const rediscovered = readRediscoveredPauseDisplay(approval);
   const approvalRunOutcomeKey = useAuiState((state) =>
     toApprovalRunOutcomeKey(resolveApprovalRunOutcome(state.thread.messages, approval))
@@ -98,20 +105,19 @@ export function useApprovalNoticeState(
       if (!(submittedAction === null && !actionLockedByRun && !decisionLocked)) {
         return;
       }
+      setSendError(null);
       const decision = buildApprovalDecisionMessage(approval, action);
       const sendNow = (queuedMessage: typeof decision.message): void => {
         setSubmittedAction(action);
+        // `append` returns void in the installed assistant-ui: a failed run
+        // arrives as thread state (`retryable` below), never as a rejection
+        // here. Only a synchronous throw (e.g. an unavailable thread scope)
+        // is ours to report.
         try {
-          void Promise.resolve(aui.thread().append(queuedMessage)).catch((error: unknown) => {
-            setSubmittedAction(null);
-            logger.warn('Failed to append tool approval action', {
-              error,
-              runId: approval.runId,
-              toolCallId: approval.toolCallId,
-            });
-          });
+          aui.thread().append(queuedMessage);
         } catch (error) {
           setSubmittedAction(null);
+          setSendError(getErrorMessage(error));
           logger.warn('Failed to append tool approval action', {
             error,
             runId: approval.runId,
@@ -141,6 +147,7 @@ export function useApprovalNoticeState(
         },
         (error: unknown) => {
           setSubmittedAction(null);
+          setSendError(getErrorMessage(error));
           logger.warn('Failed to deliver tool approval action', {
             error,
             runId: approval.runId,
@@ -184,6 +191,7 @@ export function useApprovalNoticeState(
     delegationOwner,
     hostAnswer,
     rediscovered,
+    sendError,
     status,
     submitApprovalAction,
   };
