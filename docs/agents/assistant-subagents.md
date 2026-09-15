@@ -1941,7 +1941,13 @@ next read asks again. The same persona-only
 eligibility makes every row a delegation the graph can answer for; a new
 background-capable tool must revisit this too. Without a host the key is
 undefined and the capture answers alone: no other leg can read those rows,
-because every delegated decision needs `resolveToolAction`. Never sniff the
+because every delegated decision needs `resolveToolAction`. Reading `undefined`
+as "refused" makes DURABILITY part of the binding contract, stated on
+`resolveParkedInvocation`: an invocation, once persisted, must stay resolvable
+from its dispatch address for the life of the parent thread. No code prunes
+`brainstrike_delegated_invocations` today; a host that added pruning would not
+answer late — the ledger would quietly stop counting a child that ran, the
+mirror of the defect above and a silent one. Never sniff the
 `[Delegation Rejected]` result text — a child can echo it. Paired:
 `background-rejected-delegation.integration.spec.ts` (nine task rows, eight
 wakeups, 18 root prompts, "8 of 8 specialists returned"; RED: 20 rows and 20

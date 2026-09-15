@@ -106,13 +106,16 @@ it('a delegation rejected at start is no returned invocation and wakes no parent
  * the refusal.
  */
 it('a resume leg leaves a sibling refused in the same parent run out of its ledger', async () => {
+  // Positional: requireApproval, signal, question, background, asWorker,
+  // gatedReads, fanout. The third sibling is refused by the HOST limit
+  // (`maxConcurrentWork` is 2), never by a fixture argument.
   const fixture = await createBackgroundFixture(true, undefined, false, undefined, false, 1, {
     siblings: 3,
   });
   const { backing, database, discoveryOptions, release, runtime, runtimeData, scope, wakeups } =
     fixture;
   release.resolve();
-  const resumedRuntimes: Awaited<ReturnType<typeof createMastraAgentRuntime>>[] = [];
+  let resumedRuntime: Awaited<ReturnType<typeof createMastraAgentRuntime>> | undefined;
   try {
     await drain(
       await createStreamIteratorFromRuntime({
@@ -151,8 +154,7 @@ it('a resume leg leaves a sibling refused in the same parent run out of its ledg
     if (!approval) {
       throw new Error(`No pending approval for ${leaf}`);
     }
-    const resumedRuntime = await createMastraAgentRuntime(discoveryOptions);
-    resumedRuntimes.push(resumedRuntime);
+    resumedRuntime = await createMastraAgentRuntime(discoveryOptions);
     const chunks = await drain(
       await createToolApprovalIteratorFromRuntime({
         action: {
@@ -179,10 +181,13 @@ it('a resume leg leaves a sibling refused in the same parent run out of its ledg
     expect(resumeWakeups[0]?.directive).not.toContain(refusedCall);
     expect(ledgerLabels(chunks).at(-1)).toBe('1 of 2 specialists returned · 1 running');
   } finally {
-    for (const resumedRuntime of resumedRuntimes) {
-      await resumedRuntime.dispose();
+    // The root runtime and its database close even if the resumed runtime's
+    // dispose throws: a stranded PGlite handle fails the whole lane.
+    try {
+      await resumedRuntime?.dispose();
+    } finally {
+      await runtime.dispose();
+      await database.close();
     }
-    await runtime.dispose();
-    await database.close();
   }
 });

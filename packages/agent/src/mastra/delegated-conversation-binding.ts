@@ -190,7 +190,11 @@ export interface DelegatedConversationBinding {
    * refuses a bare address by design: `tool-action-leaf-identity-required`).
    * The background ledger asks it too: a delegation refused at start persists
    * no invocation, so a completed task whose address delegated nothing is no
-   * invocation of any leg (REJECTED ADMISSION IS NO INVOCATION).
+   * invocation of any leg (REJECTED ADMISSION IS NO INVOCATION). Durability is
+   * therefore part of this contract: an invocation, once persisted, MUST stay
+   * resolvable from its dispatch address for the life of the parent thread. A
+   * host that pruned one would not merely answer late — the ledger reads
+   * `undefined` as "refused" and would quietly stop counting a child that ran.
    */
   readonly resolveParkedInvocation?: (parent: {
     readonly parentRuntimeRunId: string;
