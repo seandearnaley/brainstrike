@@ -71,8 +71,12 @@ export function installWebAssemblyCounter(
   ): Promise<unknown> {
     counts.instantiate += 1;
     const result = Reflect.apply(originalInstantiate, this, args) as Promise<unknown>;
-    result.catch((error: unknown) => fail('instantiate', error));
-    return result;
+    // Hand back the DERIVED promise: a handler marks `result` handled, so
+    // returning `result` would hide a rejection the caller ignores.
+    return result.catch((error: unknown) => {
+      fail('instantiate', error);
+      throw error;
+    });
   };
   target.instantiate = countedInstantiate as typeof WebAssembly.instantiate;
 
@@ -83,8 +87,10 @@ export function installWebAssemblyCounter(
   ): Promise<WebAssembly.Module> {
     counts.compile += 1;
     const result = Reflect.apply(originalCompile, this, args) as Promise<WebAssembly.Module>;
-    result.catch((error: unknown) => fail('compile', error));
-    return result;
+    return result.catch((error: unknown) => {
+      fail('compile', error);
+      throw error;
+    });
   };
   target.compile = countedCompile as typeof WebAssembly.compile;
 
