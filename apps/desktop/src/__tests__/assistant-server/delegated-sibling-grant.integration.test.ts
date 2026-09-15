@@ -362,6 +362,37 @@ function deliverLive(
   });
 }
 
+/**
+ * Stand in for a concurrent answer to `card`'s leaf that landed first: its
+ * ledger row is consumed while its background task is still suspended (Mastra
+ * flips the task row only when its worker picks the resume up).
+ */
+async function answerLeafConcurrently(
+  database: PGlite,
+  card: { readonly delegation?: { readonly toolCallId: string }; readonly toolCallId: string }
+): Promise<void> {
+  const inserted = await database.query(
+    `INSERT INTO brainstrike_delegated_tool_decisions
+      (id, owner_resource_id, root_thread_id, parent_runtime_run_id, parent_tool_call_id,
+       child_thread_id, child_runtime_run_id, tool_call_id, host_run_id, state, finished_at)
+     SELECT 'concurrent-answer', 'owner', 'root', parent_runtime_run_id, parent_tool_call_id,
+       thread_id, child_runtime_run_id, $1, 'host-leg', 'consumed', NOW()
+     FROM brainstrike_delegated_invocations
+     WHERE root_thread_id = 'root' AND parent_tool_call_id = $2
+     RETURNING id`,
+    [card.delegation?.toolCallId, card.toolCallId]
+  );
+  expect(inserted.rows).toHaveLength(1);
+}
+
+async function decisionRows(database: PGlite) {
+  return (
+    await database.query<{ parent_tool_call_id: string; state: string }>(
+      'SELECT parent_tool_call_id, state FROM brainstrike_delegated_tool_decisions ORDER BY parent_tool_call_id'
+    )
+  ).rows;
+}
+
 describe('desktop multi-approval scenarios through the real host ledger', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -766,6 +797,81 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
       .flatMap((chunk) => (chunk.type === 'text-delta' ? [chunk.value] : []))
       .join('');
     expect(text).toContain('Parent: ALL-FLAGS');
+  });
+
+  it("a live grant refused on a sibling's answer records nothing: the user's own card stays answerable", async () => {
+    // BST-1749 review: the running leg recorded the user's answer as consumed,
+    // then the sibling's insert hit the unique leaf key (answered concurrently)
+    // and the decision was refused — leaving the user's pause consumed, never
+    // resumed, and refused on every retry and after reload.
+    const hold = Promise.withResolvers<void>();
+    const cards = new Map<string, Parameters<typeof getToolActionTarget>[0]>();
+    const settle = (delivery: Promise<'delivered' | 'no-live-run'>): Promise<unknown> =>
+      delivery.then(
+        (value) => value,
+        (error: unknown) => error
+      );
+    let outcome:
+      | Promise<{
+          readonly refusal: unknown;
+          readonly retried: unknown;
+          readonly rowsAfterRefusal: Awaited<ReturnType<typeof decisionRows>>;
+        }>
+      | undefined;
+    const fanout = await setupFanout(
+      database,
+      [
+        { id: '1', tool: 'brainstrike_grepSearch' },
+        { id: '2', tool: 'brainstrike_readWorkspaceFile' },
+        { id: '3', tool: 'brainstrike_readWorkspaceFile' },
+      ],
+      {
+        holdGrep: hold.promise,
+        onInitialChunk: (chunk) => {
+          if (chunk.type !== 'tool-approval-required') {
+            return;
+          }
+          cards.set(chunk.toolCallId, chunk);
+          const user = cards.get('delegate-2');
+          const sibling = cards.get('delegate-3');
+          if (!(user && sibling) || outcome) {
+            return;
+          }
+          outcome = (async () => {
+            await answerLeafConcurrently(database, sibling);
+            const refusal = await settle(
+              deliverLive(user, {
+                ...READ_ASK,
+                perToolOverrides: { 'brainstrike.grepSearch': 'allow' },
+                sessionGrants: ['read'],
+              })
+            );
+            const rowsAfterRefusal = await decisionRows(database);
+            return { refusal, retried: await settle(deliverLive(user)), rowsAfterRefusal };
+          })().finally(() => hold.resolve());
+        },
+        persona,
+        policy: { ...READ_ASK, perToolOverrides: { 'brainstrike.grepSearch': 'allow' } },
+      }
+    );
+    const result = await outcome;
+    expect(result?.refusal).toMatchObject({ reason: 'tool-action-already-consumed-or-root-busy' });
+    // MUTATION GUARD: recording the user's answer before the sibling's (or
+    // outside one transaction) leaves a consumed delegate-2 row here.
+    expect(result?.rowsAfterRefusal).toEqual([
+      { parent_tool_call_id: 'delegate-3', state: 'consumed' },
+    ]);
+    expect(result?.retried).toBe('delivered');
+    expect(fanout.readFile).toHaveBeenCalledTimes(1);
+    expect(
+      fanout.initial.flatMap((chunk) =>
+        chunk.type === 'tool-approval-answered' ? [[chunk.toolCallId, chunk.reason]] : []
+      )
+    ).toEqual([['delegate-2', 'user']]);
+    expect(await fanout.decisions()).toEqual([
+      { parent_tool_call_id: 'delegate-2', state: 'consumed' },
+      { parent_tool_call_id: 'delegate-3', state: 'consumed' },
+    ]);
   });
 
   it('a live session grant during an approval leg: one claimed decision, zero further policy rows, the resumed child reads on without a card', async () => {
