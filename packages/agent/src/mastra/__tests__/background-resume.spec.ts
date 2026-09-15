@@ -295,6 +295,37 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
     expect(native.calls.filter((call) => call.startsWith('deregister'))).toEqual([]);
   }, 2000);
 
+  it('owns the live decision seam before it registers its executors', async () => {
+    // Registration awaits `getToolsForExecution`. The leg must already own the
+    // seam by then: its first run event streams immediately, and a decision
+    // delivered from then on — a live session grant answering a sibling parked
+    // on an earlier leg — must reach this leg instead of queueing as
+    // 'no-live-run' (desktop `delegated-sibling-grant.integration.test.ts`).
+    const tools = Promise.withResolvers<ToolMap>();
+    const channel = createLiveDecisionChannel();
+    const native = createNativeManager();
+    const sibling = native.add('t2');
+    const { ended } = startLeg({
+      channel,
+      manager: native.manager,
+      resumes: [native.add('t1')],
+      tools: tools.promise,
+    });
+    try {
+      await macrotask();
+      // Registration is still pending, so ownership cannot wait on it.
+      expect(native.calls).toEqual([]);
+      const owner = channel.owner;
+      if (!owner) {
+        throw new Error('The leg registered its executors before it owned the live seam.');
+      }
+      expect(() => owner.reserve([sibling]).release()).not.toThrow();
+    } finally {
+      tools.resolve({ [TOOL]: parkingTool() });
+    }
+    await expect(ended).resolves.toEqual({ error: undefined });
+  }, 2000);
+
   it('fails the leg before any resume when a resumed executor is unavailable, keeping no context', async () => {
     // Siblings carry different delegation tools, so registration can fail on
     // the SECOND task: the first task's context is already registered and must
