@@ -95,13 +95,14 @@ function createNativeManager(
     publish('background-task-cancelled', update(taskId, 'cancelled'), { completedAt: new Date() });
   };
   const dispatch = async (taskId: string, resumeData: unknown) => {
-    if (rows.get(taskId)?.status !== 'suspended') {
+    const row = rows.get(taskId);
+    if (row?.status !== 'suspended') {
       return;
     }
     const context = contexts.get(taskId);
     if (!context) {
       publish('background-task-failed', update(taskId, 'failed'), {
-        error: { message: `No executor registered for tool "${TOOL}".` },
+        error: { message: `No executor registered for tool "${row.toolName}".` },
       });
       return;
     }
@@ -146,7 +147,13 @@ function createNativeManager(
         cancel(taskId);
       }
       setTimeout(() => {
-        void dispatch(taskId, resumeData);
+        // A rejected dispatch is recorded, never swallowed: it then reads as a
+        // call in the assertion instead of an invisible unhandled rejection.
+        dispatch(taskId, resumeData).catch((error: unknown) => {
+          calls.push(
+            `dispatch-failed:${taskId}:${error instanceof Error ? error.message : String(error)}`
+          );
+        });
       }, 0);
       return rows.get(taskId);
     },
@@ -168,7 +175,7 @@ function createNativeManager(
         },
       }),
   };
-  const add = (taskId: string): BackgroundTask => {
+  const add = (taskId: string, toolName: string = TOOL): BackgroundTask => {
     const task: BackgroundTask = {
       agentId: 'root',
       args: { prompt: `find ${taskId}` },
@@ -183,7 +190,7 @@ function createNativeManager(
       threadId: SCOPE.threadId,
       timeoutMs: 1000,
       toolCallId: `call-${taskId}`,
-      toolName: TOOL,
+      toolName,
     };
     rows.set(taskId, task);
     return task;
@@ -284,18 +291,43 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
       'resume:t1',
       'resume:t2',
     ]);
+    // Mastra accepted both resumes, so both keep their context.
+    expect(native.calls.filter((call) => call.startsWith('deregister'))).toEqual([]);
   }, 2000);
 
-  it('fails the leg before any resume when a resumed executor is unavailable', async () => {
+  it('fails the leg before any resume when a resumed executor is unavailable, keeping no context', async () => {
+    // Siblings carry different delegation tools, so registration can fail on
+    // the SECOND task: the first task's context is already registered and must
+    // not outlive the leg that never resumed it.
     const native = createNativeManager();
     const { ended } = startLeg({
       manager: native.manager,
-      resumes: [native.add('t1')],
-      tools: Promise.resolve({}),
+      resumes: [native.add('t1'), native.add('t2', 'agent-review')],
+      tools: Promise.resolve({ [TOOL]: parkingTool() }),
     });
     const { error } = await ended;
     expect(error).toMatchObject({ message: 'The original background executor is unavailable.' });
-    expect(native.calls).toEqual([]);
+    expect(native.calls).toEqual(['register:t1', 'deregister:t1']);
+  }, 2000);
+
+  it('deregisters the tail Mastra never resumed when a resume fails part-way through the leg', async () => {
+    const native = createNativeManager({ refuseResume: new Set(['t1']) });
+    const { ended } = startLeg({
+      manager: native.manager,
+      resumes: [native.add('t1'), native.add('t2')],
+      tools: Promise.resolve({ [TOOL]: parkingTool() }),
+    });
+    const { error } = await ended;
+    expect(error).toMatchObject({
+      message: "Cannot resume task in status 'cancelled' (expected 'suspended')",
+    });
+    expect(native.calls).toEqual([
+      'register:t1',
+      'register:t2',
+      'resume:t1',
+      'deregister:t1',
+      'deregister:t2',
+    ]);
   }, 2000);
 
   it('a live resume Mastra refuses joins nothing: the leg still closes as a pause and keeps no executor for it', async () => {
@@ -334,6 +366,36 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
     await expect(ended).resolves.toEqual({ error: undefined });
     expect(leg.status).toBe('suspended');
     expect(native.calls).not.toContain('execute:t1');
+  }, 2000);
+
+  it('a task cancelled while its resumed executor is still in flight settles the join', async () => {
+    // Mastra publishes `task.cancelled` BEFORE the execution settles (it joins
+    // that execution itself, under its 5s grace: `#joinTaskCancellation`), and
+    // an in-flight `execute` settles only if the tool honours the abort signal
+    // Mastra hands it. The leg's own join must not depend on that: the
+    // terminal settles it, and `manager.shutdown()` performs the bounded join.
+    const stuck = Promise.withResolvers<void>();
+    const native = createNativeManager();
+    const { ended, leg } = startLeg({
+      manager: native.manager,
+      resumes: [native.add('t1')],
+      tools: Promise.resolve({
+        [TOOL]: {
+          execute: async () => {
+            await stuck.promise;
+          },
+        },
+      }),
+    });
+    try {
+      await until(() => native.calls.includes('execute:t1'));
+      native.cancel('t1');
+      await expect(ended).resolves.toEqual({ error: undefined });
+      expect(leg.status).toBe('suspended');
+      expect(native.calls).toContain('shutdown');
+    } finally {
+      stuck.resolve();
+    }
   }, 2000);
 
   it('the pause branch still joins a resumed executor whose host join outlives its suspension', async () => {
