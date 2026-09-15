@@ -11,5 +11,5 @@ export {
   excludeApprovalActionMessages,
   isActionRunConfig,
   isApprovalActionMessage,
-  readActionMessageRunId,
+  readActionMessageHostRunId,
 } from '@brainstrike/assistant-contract/approval-action-message';

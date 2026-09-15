@@ -227,6 +227,9 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
       const action: AssistantToolResumeAction = {
         resumeData,
         ...getToolActionTarget(request),
+        // Mirrors the approval echo: the pause's durable host leg is what the
+        // history topology adapter anchors the suspended message on.
+        ...(request.hostRunId ? { hostRunId: request.hostRunId } : {}),
         toolName: request.toolName,
       };
       const message = {

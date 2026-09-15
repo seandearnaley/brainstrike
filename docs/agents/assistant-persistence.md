@@ -370,12 +370,40 @@ accepted by normal storage is not rejected merely by `structuredClone`.
    backfills that durable edge so the reload group keys to the ALIGNED
    assistant id rather than a snapshot row id. The backfill parent, in order
    of authority: the hydrated graph parent when the suspended message was
-   loaded; else the suspending run's `turn_message_id` (BST-1163 — the echo
-   marker carries the runId, and every leg of a turn stamps the same link, so
+   loaded; else the DURABLE HOST LEG the pause named (`hostRunId`) and its
+   `turn_message_id` (BST-1163 — every leg of a turn stamps the same link, so
    this stays exact when other sends land during the suspension and when the
-   suspended run is a regeneration branched from an older prompt); else the
-   live session tail only as a legacy last resort for runs predating the turn
-   link. Invalid action markers remain ordinary prompts and keep their edges
+   suspended run is a regeneration branched from an older prompt). There is NO
+   third fallback: a live pause always names its host leg, so a missing one is
+   a producer defect and throws.
+
+   **THE ANCHOR IS THE HOST LEG, NEVER THE MARKER'S `runId` (2026-09-15, do
+   not relitigate).** The action marker's `runId` is the NATIVE Mastra run the
+   resume routes address. Mastra mints it (`options?.runId ||
+   generateId()`) and no leg passes the host id in, so it NEVER equals a
+   `brainstrike_assistant_thread_runs` id; one host leg can also hold several
+   native runs, because a background wake-up continuation mints another
+   (`background-idle-loop.ts`). Keying the lookup on it therefore missed on
+   every live backfill from the day it shipped, and the session tail silently
+   answered instead — right only when the tail happened to be the suspended
+   message's own turn, and wrong for exactly the regeneration/mid-suspension
+   cases the turn link was introduced to fix. The paired tests hid it by
+   seeding the marker `runId` equal to a thread-run id, a shape the runtime
+   never produces. Evidence: the live fan-out verifier run 24 (a root
+   `manageCanvas` approval carried `2cc9a50d-…` while the thread's runs were
+   `run-ffcdbd6d-…` / `run-6172a925-…`), reproduced against the real Mastra
+   loop on BOTH an initial leg and an idle-loop wake-up continuation.
+   The host stamps `hostRunId` on the pauses of its own turn at the same seam
+   that stamps `runId` on run events (`observeDesktopAssistantRunEvents`) — the
+   root's own pause and a delegated child's card, whose decision the root
+   runtime appends. A CHILD-CONTINUATION pause is deliberately NOT stamped: a
+   continuation leg's `turn_message_id` is the continuation id, not a root
+   message, so anchoring a root edge on it would persist exactly the dangling
+   parent this invariant forbids. A REDISCOVERED pause carries none either (its
+   leg ended at the restart) and never needs one — its echo resolves through
+   the hydrated graph or the alias chain instead. `hostRunId` is an optional
+   own bounded identifier on both action markers, validated by the SAME strict
+   guards as `toolName`. Invalid action markers remain ordinary prompts and keep their edges
    (strict-guard symmetry with the wire). Two adjacent stances are SETTLED
    (PR #2392 review): approving a REDISCOVERED pause anchors the follow-up at
    the durable thread head — the resumed run's continuation rows land
@@ -391,8 +419,16 @@ accepted by normal storage is not rejected merely by `structuredClone`.
    Read-side hydration is deliberately untouched: re-rooting and the
    conflicting-edge throw stay as-is — fix producers, never coerce at read.
    Paired tests: packages/assistant-data
-   `assistant-approval-topology.integration.test.ts` and the desktop E2E
-   `assistant-approval-reload-linearity.desktop.test.ts`.
+   `assistant-approval-topology.integration.test.ts` (its fixtures deliver the
+   RUNTIME marker shape — a native `runId` plus the pause's `hostRunId` — and
+   pin the loud refusal when a live echo names no host leg), the producer chain
+   (`packages/agent` `root-pause-run-identity.integration.spec.ts` for what a
+   root pause reports on an initial leg and on a wake-up continuation,
+   `data-stream-session.spec.ts` for the transport, `apps/desktop`
+   `run-persistence-direct.test.ts` for the host stamp and the deliberate
+   continuation exclusion, `approval-decision-message.test.ts` +
+   `assistant-tool-suspend-notice.test.tsx` for both echoes), and the desktop
+   E2E `assistant-approval-reload-linearity.desktop.test.ts`.
    **Aborted-leg backfill race (2026-09-15, fan-out verifier runs 19 and 24):**
    an approval can arrive while its root leg is still streaming (background
    children returned and the parent continued). Approving appends the echo and
@@ -403,7 +439,9 @@ accepted by normal storage is not rejected merely by `structuredClone`.
    re-validated, never trusted: the stale tail read wrote a self-parent edge and
    threw `conflicting branch topology`. In both runs the echo marker carried the
    native run id, which named no `brainstrike_assistant_thread_runs` row, so the
-   turn-link lookup missed. The throw reached the renderer's global
+   turn-link lookup missed — that miss is what the `hostRunId` anchor above
+   removes; the re-validation stays, because resolving the host leg is still an
+   await the aborted leg can win. The throw reached the renderer's global
    unhandled-rejection hook because assistant-ui's public `ThreadRuntime.append`
    returns void and rethrows non-`MessageNotSentError` failures from a detached
    `.catch`; callers cannot observe it. Paired test: "keeps the edge an aborted

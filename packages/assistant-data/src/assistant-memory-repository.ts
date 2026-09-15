@@ -18,7 +18,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import {
   isApprovalActionMessage,
-  readActionMessageRunId,
+  readActionMessageHostRunId,
 } from '@brainstrike/assistant-contract/approval-action-message';
 import {
   DEFAULT_THREAD_TITLE,
@@ -3635,7 +3635,6 @@ export function createAssistantThreadHistoryAdapter({
   const transientParentByAliasId = new Map<string, string | null>();
   const hydratedParentById = new Map<string, string | null>();
   const persistedEdgeIds = new Set<string>();
-  let durableTailId: string | null = null;
 
   const resolveDurableParentId = (parentId: string | null): string | null => {
     let current = parentId;
@@ -3660,16 +3659,26 @@ export function createAssistantThreadHistoryAdapter({
 
   // The echo is transport bookkeeping with no durable row — never an edge.
   // Its parent is the SUSPENDED assistant message, whose own runEnd append
-  // never fires (suspension interrupts it), so backfill that durable edge
-  // here; otherwise the reload group keys to a snapshot row id and every
-  // descendant edge dangles. The backfill parent, in order of authority: the
-  // hydrated graph parent when the suspended message was loaded; else the
-  // suspending run's durable turn anchor (BST-1163 `turn_message_id`, stamped
-  // identically on every leg of the turn — exact even when other sends landed
-  // during the suspension or the suspended run was a regeneration branched
-  // from an older prompt); else the live session tail as a legacy last resort
-  // (runs predating the turn link). The repository upsert stays loud on
-  // conflicting topology.
+  // never fires (assistant-ui writes a `requires-action` message only through a
+  // history `update`, which this adapter deliberately does not expose), so
+  // backfill that durable edge here; otherwise the reload group keys to a
+  // snapshot row id and every descendant edge dangles.
+  //
+  // The backfill parent, in order of authority: the hydrated graph parent when
+  // the suspended message was loaded; else the DURABLE HOST LEG the pause named
+  // (`hostRunId`) and its `turn_message_id` (BST-1163 — every leg of a turn
+  // stamps the same link, so this stays exact when other sends land during the
+  // suspension and when the suspended run is a regeneration branched from an
+  // older prompt).
+  //
+  // NEVER the marker's `runId`, and never the session tail. `runId` is the
+  // NATIVE Mastra run the resume routes address: Mastra mints it
+  // (`options?.runId || generateId()`), no leg passes the host id in, and one
+  // host leg can hold several native runs (a background wake-up mints another),
+  // so it never matched a `thread_runs` row — the lookup missed on EVERY live
+  // backfill and the tail silently answered instead, guessing wrong whenever
+  // the tail was not the suspended message's own turn. A live pause always
+  // names its host leg; anything else is a producer defect and throws.
   const recordActionEchoAppend = async (
     message: unknown,
     resolvedParentId: string | null
@@ -3677,25 +3686,35 @@ export function createAssistantThreadHistoryAdapter({
     if (resolvedParentId === null || persistedEdgeIds.has(resolvedParentId)) {
       return;
     }
-    let suspendedParentId: string | null;
     if (hydratedParentById.has(resolvedParentId)) {
-      suspendedParentId = hydratedParentById.get(resolvedParentId) ?? null;
-    } else {
-      const actionRunId = readActionMessageRunId(message);
-      const turnMessageId =
-        actionRunId !== undefined && repository.getThreadRunTurnMessageId
-          ? await repository.getThreadRunTurnMessageId(actionRunId, threadId)
-          : null;
-      // An approval on a still-streaming leg aborts that leg, and its terminal
-      // runEnd append can persist the suspended message's own edge (advancing
-      // the tail to that message) while the lookup is pending. That edge is
-      // authoritative; backfilling from the advanced tail would self-parent.
-      if (persistedEdgeIds.has(resolvedParentId)) {
-        return;
-      }
-      suspendedParentId = turnMessageId ?? durableTailId;
+      await recordParentEdge(resolvedParentId, hydratedParentById.get(resolvedParentId) ?? null);
+      return;
     }
-    await recordParentEdge(resolvedParentId, suspendedParentId);
+    const hostRunId = readActionMessageHostRunId(message);
+    if (!hostRunId) {
+      throw new Error(
+        `Assistant history cannot anchor suspended message ${resolvedParentId}: its pause named no durable host leg.`
+      );
+    }
+    if (!repository.getThreadRunTurnMessageId) {
+      throw new Error(
+        `Assistant history repository cannot resolve the turn anchor of host leg ${hostRunId}.`
+      );
+    }
+    const turnMessageId = await repository.getThreadRunTurnMessageId(hostRunId, threadId);
+    // An approval on a still-streaming leg aborts that leg, and its terminal
+    // runEnd append can persist the suspended message's own edge while this
+    // lookup is pending. That edge is authoritative, so session state read
+    // across the await is re-validated, never trusted (PR #3201).
+    if (persistedEdgeIds.has(resolvedParentId)) {
+      return;
+    }
+    if (turnMessageId === null) {
+      throw new Error(
+        `Assistant history cannot anchor suspended message ${resolvedParentId}: host leg ${hostRunId} records no turn message.`
+      );
+    }
+    await recordParentEdge(resolvedParentId, turnMessageId);
   };
 
   return {
@@ -3734,7 +3753,6 @@ export function createAssistantThreadHistoryAdapter({
         return;
       }
       await recordParentEdge(item.message.id, resolvedParentId);
-      durableTailId = item.message.id;
     },
     async load() {
       // Discovery and history run concurrently. The discovery fetch has a
@@ -3762,7 +3780,6 @@ export function createAssistantThreadHistoryAdapter({
       for (const hydrated of base.messages) {
         hydratedParentById.set(hydrated.message.id, hydrated.parentId);
       }
-      durableTailId = base.headId ?? null;
       const result = appendSuspendedDiscoveryError(
         appendSuspendedPauseMessages(base, discovery.approvals, discovery.suspends),
         'error' in discovery ? discovery.error : undefined,

@@ -953,6 +953,11 @@ export class DataStreamMapper {
 
     const data: AssistantToolApprovalRequest = {
       ...(chunk.delegation ? { delegation: chunk.delegation } : {}),
+      // The host leg the pause was streamed by (see the field-by-field warning
+      // below): the ONLY anchor the history topology adapter can resolve a
+      // suspended message's parent with — `runId` beside it is the native
+      // Mastra run, which never matches a thread-run row.
+      ...(chunk.hostRunId === undefined ? {} : { hostRunId: chunk.hostRunId }),
       runId: chunk.runId,
       toolCallId: callId,
       toolName: chunk.toolName,
@@ -1024,6 +1029,9 @@ export class DataStreamMapper {
 
     const data: AssistantToolSuspendRequest = {
       ...(chunk.delegation ? { delegation: chunk.delegation } : {}),
+      // Same host-leg anchor as the approval part above; this rebuild is
+      // field-by-field, so an unspread field is silently dropped.
+      ...(chunk.hostRunId === undefined ? {} : { hostRunId: chunk.hostRunId }),
       runId: chunk.runId,
       toolCallId: callId,
       toolName: chunk.toolName,

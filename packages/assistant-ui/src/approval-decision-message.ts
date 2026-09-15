@@ -29,6 +29,11 @@ export function buildApprovalDecisionMessage(
   const approvalAction: AssistantToolApprovalAction = {
     action,
     ...getToolActionTarget(approval),
+    // The host leg the pause named, verbatim: the history topology adapter
+    // anchors the suspended message on its turn, and the native `runId` that
+    // addresses the resume route never matches a thread-run row. Omitted when
+    // the pause named none (a rediscovered pause), never fabricated.
+    ...(approval.hostRunId ? { hostRunId: approval.hostRunId } : {}),
     toolName: approval.toolName,
   };
   const text = `${action === 'approve' ? 'Approved' : 'Declined'} ${approval.toolName}.`;
