@@ -18,6 +18,7 @@ import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/backgro
 import type { AssistantRunEventMetadata } from '../run-events';
 import type { StreamChunk } from '../types';
 import { makeRunDetailEventChunk } from './stream-run-event-chunks';
+import type { DelegationOutcomeCapture } from './subagent-delegation';
 
 const logger = createLogger('BackgroundLedger');
 
@@ -109,6 +110,13 @@ function countEntries(entries: readonly BackgroundLedgerEntry[]): BackgroundLedg
 export function createBackgroundLedgerSource(params: {
   readonly manager: Pick<BackgroundTaskManager, 'listTasks'>;
   readonly personaLabel: (toolName: string) => string | undefined;
+  /**
+   * The leg's delegation outcomes (BST-1751). Mastra answers a refusal at
+   * start INSIDE the background task it already created, so the refused call
+   * completes as a task row exactly like a returned child. No child ran: it is
+   * no invocation of this ledger (REJECTED ADMISSION IS NO INVOCATION).
+   */
+  readonly rejectedDelegations: Pick<DelegationOutcomeCapture, 'rejected'> | undefined;
   readonly scope: { readonly resourceId: string; readonly threadId: string };
 }): BackgroundLedgerSource {
   return {
@@ -121,7 +129,11 @@ export function createBackgroundLedgerSource(params: {
         threadId: params.scope.threadId,
       });
       const entries = tasks
-        .filter((task) => runIds.has(task.runId))
+        .filter(
+          (task) =>
+            runIds.has(task.runId) &&
+            !params.rejectedDelegations?.rejected(task.toolCallId, task.runId)
+        )
         .map(
           (task): BackgroundLedgerEntry => ({
             persona: params.personaLabel(task.toolName),

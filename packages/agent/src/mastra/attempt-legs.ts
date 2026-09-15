@@ -282,7 +282,8 @@ async function createInitialTurnAttempt(
           ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
           : await runtime.agent.stream(streamInput),
       resolvedStreamOptions ?? streamOptions,
-      streamAbortContext.signal
+      streamAbortContext.signal,
+      delegationOutcomes
     );
     await bindStartedNativeBranch(streamResult, onNativeStart, streamAbortContext.abort);
     await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
@@ -589,6 +590,7 @@ async function createToolApprovalTurnAttempt({
         ? createBackgroundResumeStream({
             attachParent: (stream) => attachAbortedTurnMessageList(abortedTurnPersistence, stream),
             channel: runtime.liveDecisions,
+            delegationOutcomes,
             memory,
             options: approvalOptions,
             resumes,
@@ -601,7 +603,8 @@ async function createToolApprovalTurnAttempt({
               ? await runtime.agent.approveToolCall(resumedOptions as AgentToolApprovalOptions)
               : await runtime.agent.declineToolCall(resumedOptions as AgentToolApprovalOptions),
             resumedOptions,
-            streamAbortContext.signal
+            streamAbortContext.signal,
+            delegationOutcomes
           );
     if ('messageList' in streamResult) {
       await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
@@ -955,6 +958,7 @@ async function createToolResumeTurnAttempt({
         ? createBackgroundResumeStream({
             attachParent: (stream) => attachAbortedTurnMessageList(abortedTurnPersistence, stream),
             channel: runtime.liveDecisions,
+            delegationOutcomes,
             memory,
             options: resumeOptions,
             resumes: [{ resumeData, task: backgroundTask }],
@@ -968,7 +972,8 @@ async function createToolResumeTurnAttempt({
               resumedOptions as AgentResumeStreamOptions
             ),
             resumedOptions,
-            streamAbortContext.signal
+            streamAbortContext.signal,
+            delegationOutcomes
           );
     if ('messageList' in streamResult) {
       await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);

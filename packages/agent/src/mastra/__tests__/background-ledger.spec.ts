@@ -41,7 +41,12 @@ function sourceOf(tasks: BackgroundTask[]) {
   const listTasks = vi.fn(async () => ({ tasks, total: tasks.length }));
   return {
     listTasks,
-    source: createBackgroundLedgerSource({ manager: { listTasks } as never, personaLabel, scope }),
+    source: createBackgroundLedgerSource({
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: undefined,
+      scope,
+    }),
   };
 }
 
@@ -81,6 +86,26 @@ describe('createBackgroundLedgerSource', () => {
     ]);
     expect(ledger.entries[0]).toMatchObject({ persona: 'Explorer', toolName: 'agent-explore' });
     expect(ledger.entries[0]?.prompt).toHaveLength(120);
+  });
+
+  it('leaves out a delegation rejected at start: no child ran, so it is no invocation', async () => {
+    // BST-1751: the refused call still completes as a background task row.
+    const listTasks = vi.fn(async () => ({
+      tasks: [task('c1', 'completed'), task('c2', 'completed')],
+      total: 2,
+    }));
+    const source = createBackgroundLedgerSource({
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: {
+        rejected: (toolCallId, runId) => toolCallId === 'c2' && runId === 'root-run',
+      },
+      scope,
+    });
+    const ledger = await source.read(new Set(['root-run']));
+    // MUTATION: ignoring the capture counts the refusal as returned.
+    expect(ledger.counts).toEqual({ cancelled: 0, failed: 0, returned: 1, running: 0, total: 1 });
+    expect(ledger.entries.map((entry) => entry.toolCallId)).toEqual(['c1']);
   });
 
   it('names a timed-out task as failed with the reason "timed out"', async () => {
