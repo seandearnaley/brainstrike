@@ -393,6 +393,21 @@ accepted by normal storage is not rejected merely by `structuredClone`.
    Paired tests: packages/assistant-data
    `assistant-approval-topology.integration.test.ts` and the desktop E2E
    `assistant-approval-reload-linearity.desktop.test.ts`.
+   **Aborted-leg backfill race (2026-09-15, fan-out verifier runs 19 and 24):**
+   an approval can arrive while its root leg is still streaming (background
+   children returned and the parent continued). Approving appends the echo and
+   starts the resume run, which aborts that leg, so the suspended message's own
+   terminal runEnd append DOES fire and races the echo backfill. The backfill
+   re-checks `persistedEdgeIds` after its turn-link lookup and defers to that
+   authoritative edge. Adapter session state read across an await is
+   re-validated, never trusted: the stale tail read wrote a self-parent edge and
+   threw `conflicting branch topology`. In both runs the echo marker carried the
+   native run id, which named no `brainstrike_assistant_thread_runs` row, so the
+   turn-link lookup missed. The throw reached the renderer's global
+   unhandled-rejection hook because assistant-ui's public `ThreadRuntime.append`
+   returns void and rethrows non-`MessageNotSentError` failures from a detached
+   `.catch`; callers cannot observe it. Paired test: "keeps the edge an aborted
+   leg persists while the echo turn lookup is pending" in the same topology file.
    The UI transport preserves each assistant-ui user message id through the
    generic-message conversion, and the desktop request parser preserves
    assistant-ui's `unstable_assistantMessageId`; the stream session and Mastra
