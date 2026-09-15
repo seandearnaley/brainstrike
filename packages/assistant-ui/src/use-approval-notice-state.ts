@@ -44,6 +44,17 @@ function fromApprovalRunOutcomeKey(key: ApprovalRunOutcomeKey): ApprovalRunOutco
   return { action: action === 'none' ? null : action, state };
 }
 
+/**
+ * A decision this notice could not send, stamped with the run outcome it
+ * happened in. The stamp is what makes the message spend itself: any later
+ * answer for this pause moves the outcome on, and a failure from before that
+ * no longer describes the card.
+ */
+interface SendFailure {
+  readonly message: string;
+  readonly outcomeKey: ApprovalRunOutcomeKey;
+}
+
 export interface ApprovalNoticeState {
   /** Approve / Decline / grant buttons disabled (queued, locked, in flight, or already run). */
   readonly actionButtonsDisabled: boolean;
@@ -84,7 +95,7 @@ export function useApprovalNoticeState(
   const [submittedAction, setSubmittedAction] = useState<AssistantToolApprovalDecision | null>(
     null
   );
-  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendFailure, setSendFailure] = useState<SendFailure | null>(null);
   const rediscovered = readRediscoveredPauseDisplay(approval);
   const approvalRunOutcomeKey = useAuiState((state) =>
     toApprovalRunOutcomeKey(resolveApprovalRunOutcome(state.thread.messages, approval))
@@ -105,7 +116,7 @@ export function useApprovalNoticeState(
       if (!(submittedAction === null && !actionLockedByRun && !decisionLocked)) {
         return;
       }
-      setSendError(null);
+      setSendFailure(null);
       const decision = buildApprovalDecisionMessage(approval, action);
       const sendNow = (queuedMessage: typeof decision.message): void => {
         setSubmittedAction(action);
@@ -117,7 +128,7 @@ export function useApprovalNoticeState(
           aui.thread().append(queuedMessage);
         } catch (error) {
           setSubmittedAction(null);
-          setSendError(getErrorMessage(error));
+          setSendFailure({ message: getErrorMessage(error), outcomeKey: approvalRunOutcomeKey });
           logger.warn('Failed to append tool approval action', {
             error,
             runId: approval.runId,
@@ -147,7 +158,7 @@ export function useApprovalNoticeState(
         },
         (error: unknown) => {
           setSubmittedAction(null);
-          setSendError(getErrorMessage(error));
+          setSendFailure({ message: getErrorMessage(error), outcomeKey: approvalRunOutcomeKey });
           logger.warn('Failed to deliver tool approval action', {
             error,
             runId: approval.runId,
@@ -159,6 +170,7 @@ export function useApprovalNoticeState(
     [
       actionLockedByRun,
       approval,
+      approvalRunOutcomeKey,
       aui,
       decisionLocked,
       deliverLive,
@@ -169,15 +181,20 @@ export function useApprovalNoticeState(
   );
 
   useEffect(() => {
-    if (approvalRunOutcome.state !== 'retryable') {
+    if (submittedAction === null || approvalRunOutcome.state !== 'retryable') {
       return;
     }
     setSubmittedAction(null);
-    // The card unlocks for a retry, so a failure from an earlier attempt is
-    // spent: it must not reappear beside the re-enabled buttons.
-    setSendError(null);
-  }, [approvalRunOutcome.state]);
+  }, [approvalRunOutcome.state, submittedAction]);
 
+  // Derived, not adjusted in an effect: a notice the user can no longer act on
+  // has an authoritative status, and a failure from an earlier attempt beside
+  // it would contradict it. Deriving also avoids a frame of stale text.
+  const sendError =
+    sendFailure?.outcomeKey === approvalRunOutcomeKey &&
+    !(queued || decisionLocked || actionLockedByRun)
+      ? sendFailure.message
+      : null;
   const displayedAction = submittedAction ?? (actionLockedByRun ? approvalRunOutcome.action : null);
   const status = resolveNoticeStatus({
     actionLockedByRun,
@@ -194,11 +211,7 @@ export function useApprovalNoticeState(
     delegationOwner,
     hostAnswer,
     rediscovered,
-    // Only a notice the user can still act on reports a send failure. Once the
-    // pause is answered by any other route — the composer's approval strip, a
-    // host answer, a durable decision — the status is authoritative and a
-    // stale failure beside it would contradict it.
-    sendError: queued || decisionLocked || actionLockedByRun ? null : sendError,
+    sendError,
     status,
     submitApprovalAction,
   };

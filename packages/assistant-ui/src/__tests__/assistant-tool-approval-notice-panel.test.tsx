@@ -433,6 +433,39 @@ describe('AssistantToolApprovalNotice', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('shows a send error from a retry made after an earlier run failed', async () => {
+    // The card is unlocked for a retry (`retryable`), so a fresh failure here
+    // describes the thread as it stands and must be visible.
+    threadMessagesMock.push({
+      metadata: {
+        custom: {
+          brainstrikeToolApproval: {
+            action: 'approve',
+            runId: 'run-approval-1',
+            toolCallId: 'tool-call-1',
+            toolName: 'workspace.writeFile',
+          },
+        },
+      },
+      role: 'user',
+    });
+    threadMessagesMock.push({
+      role: 'assistant',
+      status: { error: 'resume_failed', reason: 'error', type: 'incomplete' },
+    });
+    appendMessageMock.mockImplementationOnce(() => {
+      throw new Error('append failed again');
+    });
+    const user = userEvent.setup();
+    // An unanswered, unlocked notice renders as the full card, so the actions
+    // are on screen without expanding a row.
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed again');
+  });
+
   it('does not reenable approval actions after the matching run completes successfully', async () => {
     const user = userEvent.setup();
     const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
