@@ -200,11 +200,25 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'worktree.created',
     'worktree.setup',
   ] as const;
+  // A kind emitted `status: 'running'` that is closed by a LATER ROW OF ITS
+  // OWN KIND (same `metadata.ledgerId`), which the render plan shows in its
+  // place — no terminal list: the newest row carries its own status.
+  const SELF_SUPERSEDING = ['delegation.ledger'] as const;
 
   it('tables exactly the non-.started kinds the contract declares', () => {
     expect([...NON_STARTED_KINDS].sort()).toEqual(
-      [...RUNNING_WITH_EXPLICIT_TERMINALS.map(([kind]) => kind), ...NEVER_RUNNING].sort()
+      [
+        ...RUNNING_WITH_EXPLICIT_TERMINALS.map(([kind]) => kind),
+        ...NEVER_RUNNING,
+        ...SELF_SUPERSEDING,
+      ].sort()
     );
+  });
+
+  it('gives a self-superseding kind no terminal list; the newest row carries its own status', () => {
+    for (const kind of SELF_SUPERSEDING) {
+      expect(getTerminalKinds(kind)).toEqual([]);
+    }
   });
 
   it.each(RUNNING_WITH_EXPLICIT_TERMINALS)(

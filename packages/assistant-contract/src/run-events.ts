@@ -27,6 +27,20 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // load-bearing reason spelled out on `mcp.tools.unavailable`, and carries no
   // `toolCallId`, so it needs no exemption from the card-suppression rule.
   'compaction.failed',
+  // The ledger of a run's background (delegated) invocations, settled
+  // 2026-09-15: "3 of 4 specialists returned · 1 running". Emitted by the
+  // host idle loop and the resume stream on every task lifecycle change, with
+  // a FRESH id each time and the same `metadata.ledgerId` (the parent run
+  // that dispatched the work); the renderer shows the LATEST row of a ledger
+  // and hides the earlier ones, and the desktop persists every row like any
+  // run event, so reload shows the final state. `status` is `'running'`
+  // while anything runs and `'completed'` otherwise — a failed specialist is
+  // a count in the label, not a failed turn (deliberately NOT `run.failed`).
+  // Content-free: persona labels and states only; prompts and failure
+  // reasons stay in the model-facing wakeup. It is in
+  // `isAlwaysVisibleRunEvent`: it IS the user-facing status the approach plan
+  // asked for and must show at default detail.
+  'delegation.ledger',
   'hook.blocked',
   'hook.notice',
   'memory.configured',

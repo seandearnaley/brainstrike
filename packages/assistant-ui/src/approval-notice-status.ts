@@ -11,6 +11,7 @@ import type {
   AssistantToolApprovalDecision,
   AssistantToolApprovalRequest,
 } from '@brainstrike/assistant-contract/tool-approval';
+import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-metadata';
 import { use } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { useAnsweredApprovals } from './answered-approvals-index';
@@ -25,21 +26,47 @@ import { personaLabelForToolName } from './subagent-persona-label';
 const DELEGATION_PROMPT_PREVIEW_CHARS = 96;
 
 /**
+ * User-facing plural nouns for the session-grant actions ("Allow commands
+ * this session"), shared by the card's grant button and the composer strip.
+ */
+export const RISK_CATEGORY_GRANT_NOUN: Record<ToolRiskCategory, string> = {
+  edit: 'edits',
+  execute: 'commands',
+  mcp: 'MCP tools',
+  read: 'reads',
+};
+
+/** Singular forms for counts ("1 read", "1 MCP tool"). */
+export const RISK_CATEGORY_GRANT_NOUN_SINGULAR: Record<ToolRiskCategory, string> = {
+  edit: 'edit',
+  execute: 'command',
+  mcp: 'MCP tool',
+  read: 'read',
+};
+
+/** "Explorer" for depth 1, "Explorer › Analyst" for a grandchild: the persona chain, outermost first. */
+export function describeDelegationChain(
+  delegation: NonNullable<AssistantToolApprovalRequest['delegation']>
+): string {
+  return delegation.path
+    .map((edge) => personaLabelForToolName(`${SUBAGENT_DELEGATION_TOOL_PREFIX}${edge.personaId}`))
+    .join(' › ');
+}
+
+/**
  * "Explorer · Act as the frontend specialist…": the child this approval belongs
- * to, named by its persona and by the prompt the root gave it (read from the
- * thread's answered-approvals index, keyed by the root delegation call). Four
- * identical `queryEmbeddingSpace` cards from four Explorer specialists are
- * otherwise indistinguishable (thread-1dab3290, 2026-09-14).
+ * to, named by its persona chain (`describeDelegationChain`, so a grandchild
+ * reads "Explorer › Analyst") and by the prompt the root gave it (read from
+ * the thread's answered-approvals index, keyed by the root delegation call).
+ * Four identical `queryEmbeddingSpace` cards from four Explorer specialists
+ * are otherwise indistinguishable (thread-1dab3290, 2026-09-14).
  */
 export function describeDelegationOwner(
   prompts: ReadonlyMap<string, string>,
   delegation: NonNullable<AssistantToolApprovalRequest['delegation']>
 ): string {
-  const leaf = delegation.path.at(-1);
   const root = delegation.path[0];
-  const label = leaf
-    ? personaLabelForToolName(`${SUBAGENT_DELEGATION_TOOL_PREFIX}${leaf.personaId}`)
-    : 'Subagent';
+  const label = root ? describeDelegationChain(delegation) : 'Subagent';
   const prompt = root ? prompts.get(root.parentToolCallId) : undefined;
   if (!prompt) {
     return label;

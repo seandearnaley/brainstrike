@@ -87,6 +87,12 @@ export async function createBackgroundFixture(
      * while background work runs (the live-app verifier's canvas write).
      */
     readonly rootGate?: boolean;
+    /**
+     * The ROOT reports the final outcome only when its LAST user message (the
+     * wakeup) says nothing is still running — it trusts the ledger, never its
+     * own count of tool results (the GLM root mis-counted, 2026-09-15).
+     */
+    readonly rootReadsLedger?: boolean;
   } = {}
 ): Promise<BackgroundFixture> {
   const database = await createEnginePglite();
@@ -155,6 +161,16 @@ export async function createBackgroundFixture(
         return toolCallParts('brainstrike_writeWorkspaceFile', 'root-write', {
           pattern: 'report',
         });
+      }
+      if (fanout.rootReadsLedger) {
+        const lastUser = JSON.stringify(
+          options.prompt.filter((message) => message.role === 'user').at(-1)
+        );
+        return textParts(
+          lastUser.includes('Nothing is still running')
+            ? 'PARENT_FINAL_OUTCOME'
+            : 'PARENT_USEFUL_PROGRESS'
+        );
       }
       // Count RETURNED children by their tool-result parts: the prompt spells
       // one result's text several times (output, provider modelOutput), so a

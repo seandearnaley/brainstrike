@@ -4,6 +4,7 @@ export * from './assistant-auth.js';
 export * from './assistant-stream-session.js';
 export * from './assistant-task-list.js';
 export * from './bedrock-defaults.js';
+export * from './canvas-link.js';
 export * from './child-execution-configuration.js';
 export * from './child-followup.js';
 export * from './child-input.js';

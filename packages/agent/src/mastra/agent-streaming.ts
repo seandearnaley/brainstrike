@@ -33,6 +33,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import {
   AdmittedChildConfigurationError,
   readAssistantChildSignalContents,
+  readAssistantRunEvent,
 } from '@brainstrike/assistant-contract';
 import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
@@ -447,6 +448,19 @@ function absorbEmptyAttemptSpend(part: unknown, lifecycleState: ToolLifecycleSta
   lifecycleState.sawStepWithoutBilledCost = true;
 }
 
+/**
+ * A host-owned run event published into the running leg (the background
+ * ledger row, `background-ledger.ts`). Mastra never emits this type; a
+ * malformed one is refused rather than forwarded.
+ */
+function mapHostRunEventPart(rawEvent: unknown): ProcessStreamPartResult {
+  const event = readAssistantRunEvent(rawEvent);
+  if (!event) {
+    throw new Error('A host run-event chunk is malformed.');
+  }
+  return { chunks: [{ event, type: 'run-event' }], finished: false };
+}
+
 export async function processMastraStreamPart(
   part: unknown,
   toolNames: Map<string, string>,
@@ -489,6 +503,8 @@ export async function processMastraStreamPart(
       }
       return { chunks: [{ ...answered, type: 'tool-approval-answered' }], finished: false };
     }
+    case 'run-event':
+      return mapHostRunEventPart((p as { event?: unknown }).event);
     case 'data-signal':
       // Native notifications are persisted as model context. Their actual model
       // response follows on this stream; they are not an extra user/assistant row.
@@ -1758,10 +1774,10 @@ export async function streamMastraAgent(
     runtimeResolution
   );
 
-  // Per-call approval for `'ask'` tools comes from the PER-TOOL `requireApproval`
-  // flag the permission gate set (see permission-tool-gate.ts), NOT from the
-  // run-wide `requireToolApproval` — the global flag would suspend EVERY tool
-  // call, including allowed read/mcp tools. We therefore only pass
+  // Per-call approval for `'ask'` tools comes from each ask tool's FUNCTION-form
+  // `requireApproval` (approval-gate.ts, evaluated by Mastra on every call),
+  // NOT from the run-wide `requireToolApproval` — a truthy run-wide gate would
+  // suspend EVERY tool call and force sequential steps. We therefore only pass
   // `requireToolApproval` when the caller explicitly set it (e.g. a deliberate
   // approve-all run); an unset option leaves the run on the per-tool gate.
   const requireToolApproval = options.requireToolApproval;

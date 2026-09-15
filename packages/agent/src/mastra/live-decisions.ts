@@ -99,12 +99,16 @@ async function publishAndResume(params: {
  * claim already), its parked siblings that the request's fresh snapshot now
  * allows are recorded the same way, the answers are published on the leg's
  * own stream so every card locks, and the owning phase resumes the tasks
- * in-process. A lasting grant is remembered for the rest of the leg.
+ * in-process. A lasting grant is remembered once the records succeed and
+ * BEFORE the in-process resume; from then on every ask tool's function-form
+ * flag (approval-gate.ts) lets each later call the grant allows run without
+ * a pause — the user granted reads for the session; a fifth specialist's
+ * read is not a new question (Claude Code applies lasting grants to every
+ * later prompt).
  *
- * `suspended`: a task that parks later under a remembered grant is answered
- * by it — the user granted reads for the session; a fifth specialist asking
- * for a read is not a new question (Claude Code applies lasting grants to
- * every later prompt). A pause the grant does not cover keeps its card.
+ * `suspended`: remains for a pause the flag did not lift under a remembered
+ * grant (a category the grant does not cover keeps its card; a task that
+ * parked before the grant was remembered is answered by it).
  */
 export function armLiveDecisions(
   runtime: LiveRuntime,
@@ -133,7 +137,8 @@ export function armLiveDecisions(
       readonly answered: StreamChunkToolApprovalAnswered | undefined;
       readonly resume: { readonly resumeData: unknown; readonly task: BackgroundTask };
       readonly record: () => Promise<void>;
-    }
+    },
+    remember?: () => void
   ) => {
     const reservation = owner.reserve([
       ...(explicit ? [explicit.resume.task] : []),
@@ -150,6 +155,12 @@ export function armLiveDecisions(
       reservation.release();
       throw error;
     }
+    // The grant is remembered only once the host has recorded the user's
+    // decision (a refused record must not widen the gate), and BEFORE the
+    // resumed child runs: its next call reads `remembered` through its
+    // function-form flag (approval-gate.ts), and a child resumed in-process
+    // reaches that call within the same tick chain as `manager.resume`.
+    remember?.();
     await publishAndResume({
       answered,
       owner,
@@ -199,29 +210,31 @@ export function armLiveDecisions(
             select: (candidate) => candidate.id !== task.id,
           })
         : [];
-      await answerGranted(owner, granted, {
-        answered: approval
-          ? {
-              decision: action.action,
-              delegation,
-              reason: 'user',
-              runId: action.runId,
-              toolCallId: action.toolCallId,
-              toolName,
-              type: 'tool-approval-answered',
-            }
-          : undefined,
-        record: () => record({ delegation, runId: action.runId, toolCallId: action.toolCallId }),
-        resume: {
-          resumeData: approval
-            ? { approved: action.action === 'approve' }
-            : withApprovalRider(action, runtime.askTools.has(leaf.toolName), leaf.toolName),
-          task,
+      await answerGranted(
+        owner,
+        granted,
+        {
+          answered: approval
+            ? {
+                decision: action.action,
+                delegation,
+                reason: 'user',
+                runId: action.runId,
+                toolCallId: action.toolCallId,
+                toolName,
+                type: 'tool-approval-answered',
+              }
+            : undefined,
+          record: () => record({ delegation, runId: action.runId, toolCallId: action.toolCallId }),
+          resume: {
+            resumeData: approval
+              ? { approved: action.action === 'approve' }
+              : withApprovalRider(action, runtime.askTools.has(leaf.toolName), leaf.toolName),
+            task,
+          },
         },
-      });
-      if (grantedPolicy) {
-        channel.remember(grantedPolicy);
-      }
+        grantedPolicy ? () => channel.remember(grantedPolicy) : undefined
+      );
       logger.info('Decision delivered into the running leg', {
         answeredSiblings: granted.map((entry) => entry.task.id),
         code: 'live_decision_delivered',

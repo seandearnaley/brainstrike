@@ -146,7 +146,13 @@ async function setupFanout(
     const lastUser = JSON.stringify(
       options.prompt.filter((message) => message.role === 'user').at(-1)
     );
-    const child = children.find((candidate) => lastUser.includes(`find flag ${candidate.id}`));
+    // A root wakeup is the whole ledger and QUOTES each child's prompt
+    // (WAKEUP LEDGER, 2026-09-15), so it is told apart by its header before
+    // the prompt text is used to pick a child.
+    const wakeup = lastUser.includes('Background invocations of this turn');
+    const child = wakeup
+      ? undefined
+      : children.find((candidate) => lastUser.includes(`find flag ${candidate.id}`));
     if (!child) {
       if (!hasToolResult(options, delegationTool)) {
         return parallelToolCallParts(
@@ -279,7 +285,8 @@ async function setupFanout(
   const decide = async (
     target: Parameters<typeof getToolActionTarget>[0],
     action: 'approve' | 'decline',
-    policy: Policy = shape.policy
+    policy: Policy = shape.policy,
+    observe?: (chunk: StreamChunk, hostRunId: string) => void
   ) => {
     const hostRunId = await openLeg();
     const chunks = await drain(
@@ -287,7 +294,8 @@ async function setupFanout(
         { ...getToolActionTarget(target), action },
         { ...(await leg(hostRunId)), runtime: { ...baseOptions.runtime, permissionPolicy: policy } }
       ),
-      hostRunId
+      hostRunId,
+      observe ? (chunk) => observe(chunk, hostRunId) : undefined
     );
     const failures = chunks.filter(
       (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
@@ -296,6 +304,10 @@ async function setupFanout(
     return {
       answered: chunks.flatMap((chunk) =>
         chunk.type === 'tool-approval-answered' ? [chunk.toolCallId] : []
+      ),
+      /** Root cards this leg published — a resumed child that parks again adds one. */
+      cards: chunks.flatMap((chunk) =>
+        chunk.type === 'tool-approval-required' ? [chunk.toolCallId] : []
       ),
       text: chunks.flatMap((chunk) => (chunk.type === 'text-delta' ? [chunk.value] : [])).join(''),
     };
@@ -341,9 +353,10 @@ async function setupFanout(
 /** Deliver a decision into the RUNNING initial leg through the desktop registry. */
 function deliverLive(
   target: Parameters<typeof getToolActionTarget>[0],
-  permissionPolicy?: Policy
+  permissionPolicy?: Policy,
+  hostRunId = 'host-leg'
 ): Promise<'delivered' | 'no-live-run'> {
-  return deliverDesktopDelegatedDecision('host-leg', {
+  return deliverDesktopDelegatedDecision(hostRunId, {
     action: { ...getToolActionTarget(target), action: 'approve' },
     ...(permissionPolicy ? { permissionPolicy } : {}),
   });
@@ -386,6 +399,18 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
     ]);
     expect(fanout.execute).not.toHaveBeenCalled();
     expect(await fanout.parkedTasks()).toEqual(['delegate-1', 'delegate-2']);
+    // The user's status row (WAKEUP LEDGER, settled 2026-09-15) reached the
+    // root thread through the real host stream, and the desktop persisted it.
+    expect(
+      fanout.initial.some((c) => c.type === 'run-event' && c.event.kind === 'delegation.ledger')
+    ).toBe(true);
+    expect(
+      (
+        await database.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM brainstrike_assistant_run_events WHERE kind = 'delegation.ledger'"
+        )
+      ).rows[0]?.n
+    ).toBeGreaterThan(0);
   });
 
   it('"Allow reads this session" on one card answers the sibling in the same leg', async () => {
@@ -666,12 +691,13 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
     expect(text).toContain('Parent: ALL-FLAGS');
   });
 
-  it('a live "Allow reads this session" answers the parked sibling and a child that parks afterwards', async () => {
+  it('a live "Allow reads this session" answers the parked sibling, and a child that reads afterwards never parks', async () => {
     // Child 1: allowed held grep, then an ask-gated read AFTER the grant
     // arrived. Child 2: ask-gated read, parked when the grant is delivered on
     // its card. Child 3: parked sibling answered by the grant. A lasting grant
-    // applies to every later prompt in the session (Claude Code), so child 1's
-    // later read is answered by the remembered grant, never re-asked.
+    // applies to every later call (Claude Code): child 1's later read RUNS —
+    // no card, no policy answer, no ledger row (it parked-then-auto-answered
+    // before 2026-09-15, one suspension + resume per read: 70 cards on GLM).
     const hold = Promise.withResolvers<void>();
     let delivered: Promise<'delivered' | 'no-live-run'> | undefined;
     const cards: string[] = [];
@@ -704,21 +730,16 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
     );
     await expect(delivered).resolves.toBe('delivered');
     expect(fanout.readFile).toHaveBeenCalledTimes(3);
+    // MUTATION GUARD: a gate that ignores the remembered grant parks child 1's
+    // later read — a third card ('delegate-1') and a third answered chunk.
+    expect(cards.sort()).toEqual(['delegate-2', 'delegate-3']);
     const answered = fanout.initial
       .flatMap((chunk) => (chunk.type === 'tool-approval-answered' ? [chunk] : []))
-      .map((chunk) => [chunk.toolCallId, chunk.reason]);
-    expect(answered).toHaveLength(3);
-    // The card the user answered is the user's; the two others are the grant's.
+      .map((chunk) => [chunk.toolCallId, chunk.reason] as const);
+    expect(answered.map(([id]) => id).sort()).toEqual(['delegate-2', 'delegate-3']);
     expect(answered.filter(([, reason]) => reason === 'user')).toHaveLength(1);
-    expect(
-      answered
-        .filter(([, reason]) => reason === 'session-grant')
-        .map(([id]) => id)
-        .sort()
-    ).toHaveLength(2);
-    expect(answered.map(([id]) => id).sort()).toEqual(['delegate-1', 'delegate-2', 'delegate-3']);
+    expect(answered.filter(([, reason]) => reason === 'session-grant')).toHaveLength(1);
     expect(await fanout.decisions()).toEqual([
-      { parent_tool_call_id: 'delegate-1', state: 'consumed' },
       { parent_tool_call_id: 'delegate-2', state: 'consumed' },
       { parent_tool_call_id: 'delegate-3', state: 'consumed' },
     ]);
@@ -727,6 +748,56 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
       .flatMap((chunk) => (chunk.type === 'text-delta' ? [chunk.value] : []))
       .join('');
     expect(text).toContain('Parent: ALL-FLAGS');
+  });
+
+  it('a live session grant during an approval leg: one claimed decision, zero further policy rows, the resumed child reads on without a card', async () => {
+    // Both children park on the initial leg. The user one-shot-approves card
+    // 1 on a NEW leg (the ledger `claims` it; `finishToolActions` consumes it
+    // when the leg ends). While that leg runs child 1's held grep, "Allow
+    // reads this session" is delivered LIVE on card 2: child 2 resumes under
+    // the grant (consumed), and child 1's NEXT read runs with no card and no
+    // third ledger row.
+    // MUTATION GUARD: the old flag-based gate parks child 1's next read on
+    // this leg — `cards` gains 'delegate-1'.
+    const hold = Promise.withResolvers<void>();
+    const fanout = await setupFanout(
+      database,
+      [
+        { id: '1', next: 'brainstrike_readWorkspaceFile', tool: 'brainstrike_grepSearch' },
+        { id: '2', tool: 'brainstrike_readWorkspaceFile' },
+      ],
+      { holdGrep: hold.promise, persona, policy: READ_ASK }
+    );
+    expect(await fanout.parkedTasks()).toEqual(['delegate-1', 'delegate-2']);
+    let delivered: Promise<'delivered' | 'no-live-run'> | undefined;
+    const result = await fanout.decide(
+      fanout.notice('1'),
+      'approve',
+      READ_ASK,
+      (chunk, hostRunId) => {
+        // The resumed child publishes no new frame until its held grep
+        // returns; the leg's first run event is streamed after the runtime
+        // armed its live decision seam, so the leg is live from here on.
+        if (chunk.type === 'run-event' && !delivered) {
+          delivered = deliverLive(
+            fanout.notice('2'),
+            { ...READ_ASK, sessionGrants: ['read'] },
+            hostRunId
+          ).finally(() => hold.resolve());
+        }
+      }
+    );
+    await expect(delivered).resolves.toBe('delivered');
+    expect(result.cards).toEqual([]);
+    expect(result.answered).toEqual(['delegate-2']);
+    expect(fanout.execute).toHaveBeenCalledTimes(1);
+    expect(fanout.readFile).toHaveBeenCalledTimes(2);
+    expect(await fanout.decisions()).toEqual([
+      { parent_tool_call_id: 'delegate-1', state: 'consumed' },
+      { parent_tool_call_id: 'delegate-2', state: 'consumed' },
+    ]);
+    expect(await fanout.parkedTasks()).toEqual([]);
+    expect(result.text).toContain('Parent: ALL-FLAGS');
   });
 
   it('a decision delivered after the leg settled is not live and changes nothing', async () => {

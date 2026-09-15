@@ -21,6 +21,7 @@ import type { DelegationPersonaSummary } from '../default-instructions';
 import type { DelegatedConversationBinding } from '../delegated-conversation-binding';
 import { personasAtDelegationDepth } from '../delegated-persona-snapshots';
 import type { DelegatedSystemContextSource } from '../delegated-system-context';
+import type { LiveDecisionChannel } from '../live-decision-channel';
 import type { PermissionToolGateSnapshot } from '../permission-tool-gate';
 import { shouldEnablePersonas } from '../subagent-delegation';
 import type { ModelOutputProjectionObserver } from '../tool-model-output';
@@ -82,6 +83,7 @@ export async function resolvePersonaRuntimeParts(params: {
   localToolIds: ReadonlySet<string>;
   workspaceSkills?: RuntimeData['workspaceSkills'];
   languageModel: MastraModelConfig;
+  liveDecisions: Pick<LiveDecisionChannel, 'remembered'>;
   permissionSnapshot: PermissionToolGateSnapshot | undefined;
   personas: readonly AssistantPersonaDefinition[] | undefined;
   planModeActive: boolean;
@@ -130,6 +132,7 @@ export async function resolvePersonaRuntimeParts(params: {
     ...(params.workspaceSkills ? { workspaceSkills: params.workspaceSkills } : {}),
     hasStorage: Boolean(params.hasStorage),
     languageModel: params.languageModel,
+    liveDecisions: params.liveDecisions,
     logger,
     permissionSnapshot: params.permissionSnapshot,
     personas: params.personas ?? [],

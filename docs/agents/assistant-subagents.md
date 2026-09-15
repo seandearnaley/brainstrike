@@ -1695,7 +1695,8 @@ not pass `untilIdle`; every parent inference (initial, approval, resume, native
 wake and the child-resume continuation) passes `_skipBgTaskWait` and is wrapped
 by `withBackgroundIdleLoop` (`background-idle-loop.ts`), which mirrors Mastra's
 loop except that only a returned, failed or cancelled task queues a wakeup
-(`describeBackgroundWakeup` is the host's directive). A suspension is a
+(`describeBackgroundWakeup` in `background-ledger.ts` is the host's directive
+— see WAKEUP LEDGER below). A suspension is a
 host-surfaced approval prompt, exactly as Claude Code surfaces a subagent's
 permission prompt in the main session; the model is not the messenger. Silence
 from running work past `backgroundIdleMs` (default: the longest a task may run)
@@ -1703,6 +1704,42 @@ closes the stream unfinished and the projection reports it. Paired:
 `background-worker-policy.integration.spec.ts` ("wakes no parent turn"; mutating
 the wakeup guard to include suspensions fails it) and the idle-expiry case in
 `background-worker-stream.integration.spec.ts`.
+SETTLED 2026-09-15, WAKEUP LEDGER (do not relitigate): a parent wakeup is
+the whole LEDGER of this turn's background invocations, not one line per
+event. The GLM root (thread-debug pack 2026-09-15T03-31-15Z) received
+"Background invocation X has returned" four times over four continuations,
+mis-counted, and ended "waiting on the remaining subagents" after all four
+had finished. The ledger is read from the DURABLE task rows
+(`manager.listTasks` in the thread scope, filtered to the parent run ids the
+leg observed on its lifecycle events — `background-ledger.ts`,
+`createBackgroundLedgerSource`), never from the loop's `running`/`settled`
+sets alone, and lists every invocation as returned (persona, the first 120
+chars of its prompt, "use its saved outcome"), failed (with the recorded
+reason; a timeout reads "timed out"), cancelled, or still running. When
+nothing is still running it says so in one sentence — "All N background
+invocations have finished. Nothing is still running. Continue with the task
+using the saved outcomes." — and only then. A SUSPENDED task is "still
+running" to the ledger: the pause is the host's card, the model is never
+its messenger (the 2026-09-14 ruling above stands). The idle loop
+(`runContinuation`), the resume stream's parent wakeup and the parked-root
+deferral all read the same source. The same ledger reaches the USER as the
+`delegation.ledger` run event (assistant-persistence.md, DELEGATION LEDGER
+KIND): one live row in the root thread — "3 of 4 specialists returned · 1
+running" — published on every task lifecycle change, joined before the leg
+closes so the final row is never lost (`settle` waits on
+`publisher.inFlight`; the parked-parent close is where that join is
+load-bearing, since no continuation keeps the leg open), persisted like
+every run event. Because the wakeup QUOTES each child's prompt, a scripted
+harness must tell the root's wakeup apart by its header ("Background
+invocations of this turn") before it uses prompt text to pick a child.
+Paired: `background-ledger.spec.ts` (mutations: the closing sentence while
+something runs; omitting it when nothing runs), `background-idle-loop.spec.ts`
+("carrying the durable ledger", "publishes a delegation.ledger row …",
+"a parked parent leg publishes the final ledger row before it closes" —
+mutation: dropping the join from `settle`), and the harness row "the wakeup
+carries the whole ledger: a root that trusts it reports the final outcome
+exactly once nothing is still running" (`fanout.rootReadsLedger`; the
+scripted root answers from the LAST user message, never its own count).
 SETTLED 2026-09-14 (do not relitigate): EVERY parked leaf decision has a card in
 the ROOT thread. A foreground child's pause suspends the parent run on the
 delegation call, so Mastra's parent-level pause becomes that card once
@@ -1769,6 +1806,12 @@ REAL desktop host, ledger and background store in
   queued decision the host meanwhile answered is dropped at dispatch with a
   log line (`dequeueDispatchable`), never sent stale. The card locks for the
   round trip; a host refusal (409) unlocks it with a warning.
+- Presentation (assistant-ui, settled 2026-09-15): N parked children of one
+  category → ONE full root card and N−1 rows behind it; a grant collapses
+  every answered card into a row ("Allowed by session grant") and promotes
+  the next pending card of another category; a grandchild's card indents
+  under its ancestor with the ancestor's rail. Contract and tests in
+  `assistant-runtime.md` (PERMISSION ENGINE, SWARM-AWARE PRESENTATION).
 SETTLED 2026-09-14 (canonical, after reading Claude Code v2.1.186+, Codex and
 Cursor behaviour): a BACKGROUND child's pause publishes LIVE — its scoped
 notice and the synthesized root card leave the leg the moment its TASK is
@@ -1799,8 +1842,9 @@ records the answer with the host as consumed — never the root's single active
 claim, the leg may hold that already — answers parked siblings the request's
 FRESH snapshot allows via `allowedBySnapshot`, publishes the
 `tool-approval-answered` chunks on the leg's own stream, resumes in-process
-through `manager.resume`, and REMEMBERS a lasting grant so a child that parks
-later is answered by it); desktop `delegated-execution-controls.ts`
+through `manager.resume`, and REMEMBERS a lasting grant so every ask tool's
+live flag lets each later call the grant allows run without parking (SESSION
+GRANT STOPS ASKING, below)); desktop `delegated-execution-controls.ts`
 (`registerDesktopDelegatedDecision` keyed by the steerable host run id,
 `deliverDesktopDelegatedDecision` → `'no-live-run'` on
 `LiveDecisionUnavailableError`) and `decide-endpoint.ts` (400 shape / 404 no
@@ -1814,6 +1858,57 @@ continuation re-enters (`parked`; a completed child's late parts stay
 dropped). The parent still wakes only on returned/failed/cancelled work; the
 idle loop keeps closing when nothing runs, so a decision on an all-parked turn
 takes the ordinary new-leg path (404 → queue/append).
+SETTLED 2026-09-15, SESSION GRANT STOPS ASKING (do not relitigate): after a
+live "Allow <category> this session" the next gated call of EVERY child in
+the leg simply runs — no suspension, no card, no resume. The remembered
+grant used to answer each later pause after the fact (park → card →
+auto-answer → resume): 70 cards and 70 resumes for reads the user had
+allowed (GLM run, thread-debug pack 2026-09-15T03-31-15Z). Mechanism: the
+permission gate no longer clones an ask tool with a STATIC
+`requireApproval: true` (Mastra copies that boolean once per stream call,
+`agent-DsRUDsS_.js:34955` → `utils-C9npriyv.js:682-709`, so nothing could
+lift it mid-stream). `applyLiveApprovalGate` (`approval-gate.ts`) clones each
+kept ask tool with the PUBLIC FUNCTION form of the per-tool flag
+(`dist/tools/types.d.ts:551`); `CoreToolBuilder.build()` turns it into
+`requireApproval: true` + `needsApprovalFn` (`utils-C9npriyv.js:684-686`) and
+Mastra evaluates `needsApprovalFn` on EVERY tool call
+(`agent-DsRUDsS_.js:26437-26444`, overriding both the run-wide gate and the
+boolean). The function forwards to the runtime's single decision point,
+`createApprovalGate` — the agent's OWN ask set (the root's in
+`resolveGatedToolMap`, each child's re-gated set in `buildPersonaSubAgents`,
+grandchildren re-gate the raw child map) AND `runtime.liveDecisions.remembered`,
+read per call — so a mid-stream child is lifted on its very next call. NO
+run-wide `requireToolApproval` predicate is ever synthesized: any truthy
+run-wide gate forces Mastra to run every step with concurrency 1
+(`agent-DsRUDsS_.js:24054`, `toolCallConcurrency` ignored), which would have
+serialized foreground fan-out and the root's parallel reads under the default
+posture (proven by the fanout harness: HEAD parks four foreground children in
+leg 0, a run-wide predicate parks one). The converted boolean is `true`,
+exactly the old static clone, so per-step concurrency classification is
+unchanged. `live-decisions.ts` remembers the grant once the host has recorded
+the user's decision and BEFORE the in-process resume (`remember` strictly
+precedes every `manager.resume` the decision issues), so the resumed child's
+next call already sees it; `suspended` still answers a pause the flag did not
+lift. Persisted "Always allow" policies work through the same flag (the
+rebuilt leg's snapshot resolves the tool to allow → not in the ask set → no
+clone). Paired: `approval-gate.spec.ts` (mutation: ignoring `remembered`
+fails "lifts the gate for every tool a remembered session grant allows"; a
+clone captured at clone time fails "the clone reads the gate on EVERY call"),
+`build-persona-subagents-approval-gate.spec.ts` ("child approval gate": the
+converted child tool carries `requireApproval: true` + `needsApprovalFn`,
+lifted by `channel.remember`, and `defaultOptions.requireToolApproval` is
+undefined), `background-worker-policy.integration.spec.ts` ("after a live
+session grant the sibling's NEXT gated read runs without a pause": exactly one
+root card for the leg, `effect` called for every read — mutation:
+`needsApprovalFn` → `() => true` fails it; "a live session grant is remembered
+BEFORE the parked child is resumed": call order `['remember',
+'resume:remembered']` — mutation: remembering after the resume records
+`['resume:forgotten', 'remember']`), and the desktop rows "a live 'Allow
+reads this session' answers the parked sibling, and a child that reads
+afterwards never parks" and "a live session grant during an approval leg: one
+claimed decision, zero further policy rows" (mutation: a gate that never lifts
+adds `delegate-1` to both rows' cards). Verifier: `e2e-subagents.mjs` verdict
+`cardsAfterGrant` must be 0.
 SETTLED 2026-09-14, PAUSE TERMINAL (proven by the live-app verifier, do not
 relitigate): a background child's pause FINISH (`message-finish`,
 `tool-calls`) is the child view's TERMINAL frame — the renderer's

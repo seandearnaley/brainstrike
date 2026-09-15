@@ -499,8 +499,13 @@ describe('buildPersonaSubAgents', () => {
     );
     const tools = await child.getToolsForExecution({});
     expect(Object.keys(tools)).toHaveLength(5);
+    // Every kept ask tool carries the FUNCTION-form per-tool flag (settled
+    // 2026-09-15): Mastra converts it to `requireApproval: true` plus a
+    // per-call `needsApprovalFn` that reads the child's own live gate.
+    expect((await child.getDefaultOptions({})).requireToolApproval).toBeUndefined();
     for (const tool of Object.values(tools)) {
       expect(tool).toHaveProperty('requireApproval', true);
+      expect(typeof (tool as { needsApprovalFn?: unknown }).needsApprovalFn).toBe('function');
     }
     expect(
       (await buildPersonaSubAgents({ ...options, hasStorage: false })).subAgents['explore']

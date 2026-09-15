@@ -8,6 +8,7 @@ import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/backgro
 import type { RuntimeData, StreamChunkToolApprovalAnswered } from '../types';
 import type { MastraAgentRuntime } from './agent-runtime';
 import { withBackgroundIdleLoop } from './background-idle-loop';
+import { createBackgroundLedgerSource, personaLabelFor } from './background-ledger';
 import type { BackgroundResume } from './background-resume';
 import type { DelegatedToolActionScope } from './delegated-conversation-binding';
 import { assertDelegatedToolActionPending } from './delegated-tool-actions';
@@ -270,6 +271,11 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
     abortSignal,
     agent: runtime.agent,
     channel: runtime.liveDecisions,
+    ledger: createBackgroundLedgerSource({
+      manager,
+      personaLabel: personaLabelFor(runtime),
+      scope,
+    }),
     manager,
     maxIdleMs: runtime.backgroundIdleMs,
     options,

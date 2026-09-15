@@ -42,6 +42,11 @@ import {
   createToolExecutionDurations,
   type ToolExecutionDurations,
 } from '../../tools/tool-execution-durations';
+import {
+  applyLiveApprovalGate,
+  createApprovalGate,
+  type RuntimeApprovalGate,
+} from '../approval-gate';
 import { createMastraAgentError } from '../mastra-agent-error';
 import {
   createMcpAppToolAdmissionCapability,
@@ -83,9 +88,10 @@ interface ResolvedAskTools {
  * Reconcile the gate result with whether the run can suspend-then-resume for
  * approval (i.e. whether Mastra workflow storage is configured).
  *
- * The gate already marked each `'ask'` tool with the PER-TOOL `requireApproval`
- * flag (only the ask tool suspends; allowed tools run free). This function only
- * decides whether those ask tools may STAY:
+ * The gate recorded each `'ask'` tool in `askTools`; `applyLiveApprovalGate`
+ * (approval-gate.ts) then clones the ones that stay with the FUNCTION-form
+ * per-tool `requireApproval` (only the ask tool suspends; allowed tools run
+ * free). This function only decides whether those ask tools may STAY:
  * - With storage: keep them (their per-tool flag suspends on call) and carry
  *   `askTools` for the approval-pause risk hint. Logged so the gate is observable.
  * - Without storage: the resume path (`streamMastraToolApprovalAction`) throws,
@@ -127,8 +133,8 @@ function resolveAskToolsForRun(
     return { askTools: new Map(), tools: reducedTools as ToolsInput };
   }
 
-  // Each ask tool carries the per-tool requireApproval flag and will suspend ONLY
-  // when actually called. Logged so the gated tools are observable.
+  // Each ask tool gets the function-form per-tool requireApproval flag and will
+  // suspend ONLY when actually called. Logged so the gated tools are observable.
   logger.info('Permission policy requires per-call approval for ask tools', {
     askToolCount: gateResult.askToolIds.size,
     askTools: Array.from(gateResult.askTools.values()).map((meta) => ({
@@ -145,16 +151,19 @@ interface GatedToolMapParams {
   readonly hookedTools: ToolsInput;
   readonly permissionSnapshot: PermissionToolGateSnapshot | undefined;
   readonly planModeActive: boolean;
+  /** The leg's remembered live grant (`liveDecisions.remembered`), read per call. */
+  readonly remembered: () => PermissionToolGateSnapshot | undefined;
   readonly toolNameMap: Map<string, string>;
 }
 
 /**
  * Assemble the FINAL tool map the Agent receives: plan-mode filter → permission
- * gate → suspend-storage gate. The plan/permission/suspend conditionals live in
- * one cohesive place. Each stage only omits tools; see the inline invariants in
- * `composeRuntimeToolMap`.
+ * gate → suspend-storage gate → live approval gate. The plan/permission/suspend
+ * conditionals live in one cohesive place. Each stage only omits tools (the
+ * live gate clones); see the inline invariants in `composeRuntimeToolMap`.
  */
 function resolveGatedToolMap(params: GatedToolMapParams): {
+  readonly approvalGate: RuntimeApprovalGate;
   readonly gatedTools: ToolsInput;
   readonly askTools: ResolvedAskTools['askTools'];
 } {
@@ -177,16 +186,30 @@ function resolveGatedToolMap(params: GatedToolMapParams): {
     gateResult,
     params.hasStorage
   );
+  // The live gate (approval-gate.ts): every ask tool that STAYS is cloned with
+  // the function-form per-tool flag, evaluated by Mastra on each call against
+  // this ask set and the leg's remembered grant.
+  const approvalGate = createApprovalGate({
+    askTools,
+    permissionEnforced: params.permissionSnapshot !== undefined,
+    remembered: params.remembered,
+    toolNameMap: params.toolNameMap,
+  });
+  const liveGatedTools = applyLiveApprovalGate(
+    askResolvedTools,
+    new Set(askTools.keys()),
+    approvalGate
+  );
   // Fail-safe: a tool that pauses via suspend() cannot resume without workflow
   // storage, so omit the suspending tools when storage is absent (never run one
   // that would wedge the run — no-silent-fallbacks).
   const gatedTools = resolveSuspendToolsForRun(
-    askResolvedTools,
+    liveGatedTools,
     params.hasStorage,
     params.toolNameMap,
     logger
   );
-  return { askTools, gatedTools };
+  return { approvalGate, askTools, gatedTools };
 }
 
 /**
@@ -450,12 +473,16 @@ export interface RuntimeToolMapParams {
   planModeActive: boolean;
   preserveExecuteBackedWebSearch: boolean | undefined;
   provider: ResolvedRuntimeConfiguration['provider'];
+  /** The leg's remembered live grant (`liveDecisions.remembered`), read per call. */
+  remembered: () => PermissionToolGateSnapshot | undefined;
   resolvedToolResultBudget: ScaledToolResultBudget;
   toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined;
   workspaceSkills: WorkspaceSkills | undefined;
 }
 
 export interface RuntimeToolMapResult {
+  /** The live approval gate the ask tools' function-form flags forward to. */
+  approvalGate: RuntimeApprovalGate;
   /** Post-settlement tool map — the discovery/projection phase's input. */
   artifactSettledTools: ToolsInput;
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
@@ -567,9 +594,10 @@ export async function composeRuntimeToolMap(
 
   // Permission gate: filter the tool map by the user's policy BEFORE the Agent
   // is constructed (the Agent is immutable after `new Agent`). 'deny' omits the
-  // tool from the map the model sees; 'ask' KEEPS a CLONE of the tool carrying
-  // Mastra's PER-TOOL `requireApproval: true` (and records its id in `askTools`)
-  // so Mastra suspends for approval ONLY when that tool is actually called —
+  // tool from the map the model sees; 'ask' records the tool in `askTools` and
+  // the live gate (approval-gate.ts) clones it with the FUNCTION-form per-tool
+  // `requireApproval`, which Mastra evaluates on every call, so it suspends
+  // ONLY when that tool is actually called and no remembered grant allows it —
   // allowed read/mcp tools in the same run still run free. We do NOT force the
   // run-wide requireToolApproval (see permission-tool-gate.ts + streamMastraAgent).
   // When no policy is threaded the map is returned unchanged (production-default)
@@ -580,11 +608,12 @@ export async function composeRuntimeToolMap(
   // askUser) and omit every edit/execute tool, BEFORE the permission gate (a
   // dropped mutation tool is dropped regardless of allow/ask/deny). The risk map
   // is the authoritative static registry classification (never client-supplied).
-  const { gatedTools, askTools } = resolveGatedToolMap({
+  const { approvalGate, gatedTools, askTools } = resolveGatedToolMap({
     hasStorage: params.hasStorage,
     hookedTools,
     permissionSnapshot: params.permissionSnapshot,
     planModeActive: params.planModeActive,
+    remembered: params.remembered,
     toolNameMap,
   });
   const mcpAppToolAdmission = createMcpAppToolAdmissionCapability({
@@ -625,6 +654,7 @@ export async function composeRuntimeToolMap(
   });
 
   return {
+    approvalGate,
     artifactSettledTools,
     askTools,
     // Children retain the same lifecycle hooks before their independent permission gate.

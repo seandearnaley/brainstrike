@@ -36,6 +36,7 @@ import {
   type CacheAwareInstructions,
   composeCacheAwareInstructions,
 } from './anthropic-instruction-cache';
+import type { RuntimeApprovalGate } from './approval-gate';
 import { requireBackgroundResultDelivery } from './background-result-delivery';
 import type { DelegatedExecutionOptions } from './build-persona-subagents';
 import type { ChildContinuationRuntimeScope } from './child-continuation-usage';
@@ -211,12 +212,19 @@ export interface McpAppAdmissionObserver {
 export interface MastraAgentRuntime {
   agent: Agent;
   /**
+   * The live approval gate (approval-gate.ts): the single decision point for
+   * this run's `ask` tools. Each ask tool's function-form `requireApproval`
+   * forwards to it per call; the approval leg resolves the resume API's
+   * `requireToolApproval: true` through it (`resolveRequireToolApproval`).
+   */
+  approvalGate: RuntimeApprovalGate;
+  /**
    * Sanitized id → risk metadata for every tool the permission gate resolved to
-   * `'ask'` and KEPT in the map (each carrying the per-tool `requireApproval`
-   * flag). Non-empty when the run has approval-gated mutation tools; used for the
-   * approval-pause risk hint and observability. Empty when no policy is enforced,
-   * every tool resolved to allow/deny, or ask tools were fail-safe-omitted for
-   * lack of resume storage.
+   * `'ask'` and KEPT in the map. Non-empty when the run has approval-gated
+   * mutation tools; the live gate suspends exactly this set, and it feeds the
+   * approval-pause risk hint and observability. Empty when no policy is
+   * enforced, every tool resolved to allow/deny, or ask tools were
+   * fail-safe-omitted for lack of resume storage.
    */
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
   /** Fail-loud completion check for the client-provided persisted assistant id. */
@@ -269,7 +277,7 @@ export interface MastraAgentRuntime {
    * WAS enforced but resolved nothing to `'ask'` (every remaining tool is
    * allowed — e.g. after "Allow all tools this session" grants all categories)
    * vs. empty because NO policy was enforced at all. The approval-resume gate
-   * (`resolveResumeApprovalGate`) needs this: the former is an all-allowed
+   * (`resolveRequireToolApproval`, approval-gate.ts) needs this: the former is an all-allowed
    * posture (gate nothing), the latter with run-wide `requireToolApproval: true`
    * is a genuine explicit GLOBAL approval (gate every non-internal tool).
    */
@@ -721,8 +729,12 @@ export async function createMastraAgentRuntime(
   // window; runtime-discovered Ollama/LM Studio ids share the conservative
   // 32,768-token declaration from @brainstrike/assistant-contract.
   const resolvedToolResultBudget = resolveToolResultBudgetForModel(normalizedProvider, modelName);
+  // Created before the tool map: the root's live gate and every child's gate
+  // read this channel's remembered grant on each call (approval-gate.ts).
+  const liveDecisions = createLiveDecisionChannel();
   let registeredDelegationToolNames: readonly string[] = [];
   const {
+    approvalGate,
     artifactSettledTools,
     askTools,
     hookedTools,
@@ -749,10 +761,12 @@ export async function createMastraAgentRuntime(
     planModeActive,
     preserveExecuteBackedWebSearch,
     provider: normalizedProvider,
+    remembered: () => liveDecisions.remembered,
     resolvedToolResultBudget,
     toolOutputArtifactStore,
     workspaceSkills: sanitizedRuntime.workspaceSkills,
   });
+  const permissionEnforced = permissionSnapshot !== undefined;
   const persistedDiscoveryMessages = createPersistedDiscoveryMessageLoader({
     enabled: hydrateToolDiscoveryFromMemory,
     memory,
@@ -844,6 +858,7 @@ export async function createMastraAgentRuntime(
     hasStorage: Boolean(storage),
     hydrateToolDiscoveryFromMemory,
     languageModel: observedLanguageModel,
+    liveDecisions,
     localToolIds: sanitizedLocalToolIds,
     memory,
     modelName,
@@ -946,7 +961,6 @@ export async function createMastraAgentRuntime(
   let unregisterCancellation: (() => void) | undefined;
   let unregisterDecisions: (() => void) | undefined;
   let unregisterFollowup: (() => void) | undefined;
-  const liveDecisions = createLiveDecisionChannel();
   let invalidateMcpAppAdmission: (() => void) | undefined;
   const dispose = async () => {
     const failures: unknown[] = [];
@@ -1014,6 +1028,7 @@ export async function createMastraAgentRuntime(
       hasSubAgents
     ),
     ...assistantIdentityRuntime,
+    approvalGate,
     askTools,
     backgroundIdleMs: options.backgroundIdleMs,
     conversationBinding: options.conversationBinding,
@@ -1027,8 +1042,8 @@ export async function createMastraAgentRuntime(
     mcpDiscoverySkips,
     // Present iff a policy snapshot gated this run's tool map — the signal the
     // resume gate uses to tell all-allowed (empty askTools) from a genuine
-    // global-approval run (see resolveResumeApprovalGate / MastraAgentRuntime).
-    permissionEnforced: permissionSnapshot !== undefined,
+    // global-approval run (see resolveRequireToolApproval / MastraAgentRuntime).
+    permissionEnforced,
     personasById,
     providerCallWarnings,
     resilienceConfig,

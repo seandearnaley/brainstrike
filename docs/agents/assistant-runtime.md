@@ -1994,18 +1994,23 @@ paging).
 
 Parallel tool calls: Mastra executes tool calls within a step concurrently
 (default concurrency 10; `toolCallConcurrency` loop option). Mastra forces
-sequential execution when the run-wide `requireToolApproval` is set OR any active
+sequential execution when the run-wide `requireToolApproval` is set (ANY truthy
+value, checked before the tools — `agent-DsRUDsS_.js:24054`) OR any active
 tool carries the per-tool `requireApproval` flag / a suspend schema. The
 permission engine (see PERMISSION ENGINE below) marks `'ask'` tools with the
-PER-TOOL `requireApproval`, so a run that includes any ask tool executes its step
-sequentially (the price of the per-tool gate), but only the ask tool actually
-suspends — allowed tools still run. A run with no ask tools stays parallel. The
-approval-resume path sets the run-wide `requireToolApproval` (the function-form
-gate is truthy, so the ROOT's resumed step is always sequential). DELEGATED
-CHILDREN get no run-wide gate on their nested resume (Mastra's agent-tool
-wrapper passes none), so their mode comes from the CALLED tools' flags alone —
-and the approved tool has lost its `ask` flag whenever a root grant lifted it
-between the pause and the resume (deny-only child ceiling). A parallel foreach
+PER-TOOL flag in its FUNCTION form (`approval-gate.ts`), which Mastra converts
+to `requireApproval: true` + a per-call `needsApprovalFn`; the classification
+reads the boolean, so it is exactly what the old static flag gave it, and only
+the ask tool actually suspends — allowed tools still run. A run with no ask
+tools stays parallel. NEVER synthesize a run-wide predicate on the initial leg
+(settled 2026-09-15: it serialized every step of every run with an ask tool —
+see assistant-subagents.md SESSION GRANT STOPS ASKING). The approval-resume
+path sets the run-wide `requireToolApproval` (the function-form gate is
+truthy, so the ROOT's resumed step is always sequential). DELEGATED CHILDREN
+get no run-wide gate on their nested resume (Mastra's agent-tool wrapper
+passes none), so their mode comes from the CALLED tools' flags alone — and
+the child's function-form flag answers `false` whenever a remembered session
+grant or the rebuilt leg's snapshot allows the tool. A parallel foreach
 resume in Mastra 1.64 re-raises the step's approval for every allowed sibling,
 so the two approval entry points (`streamMastraToolApprovalAction`, and the
 tool-approval kind of `createChildContinuationDecisionStream` — exhaustive; a
@@ -2805,12 +2810,20 @@ Flow (desktop assistant server → agent runtime):
    snapshot inherited from `requestData`, not skip it.
 2. `filterToolsByPermissionWithMetadata` (`packages/agent/src/mastra/permission-tool-gate.ts`)
    gates the tool map BEFORE the immutable `Agent` is built: `'deny'`→omit;
-   `'allow'`→keep unchanged; `'ask'`→keep a CLONE with Mastra's PER-TOOL
-   `requireApproval: true` and record in `askToolIds`.
+   `'allow'`→keep unchanged; `'ask'`→keep unchanged and record in
+   `askToolIds`/`askTools`; the composition site (`resolveGatedToolMap` for
+   the root, `buildPersonaSubAgents` for each child) then clones every kept
+   ask tool through `applyLiveApprovalGate` (`approval-gate.ts`) with the
+   FUNCTION form of Mastra's PER-TOOL `requireApproval`, evaluated by Mastra
+   on every call against the runtime's live gate (the agent's own ask set +
+   the leg's remembered session grant). Never a static `true` (settled
+   2026-09-15: Mastra copies that boolean once per stream call, so a
+   remembered session grant could never lift it — see assistant-subagents.md
+   SESSION GRANT STOPS ASKING).
    SUSPENDING tools included (`brainstrike.runPython`; BST-1097, mechanism
    re-based at the @mastra/core ^1.57 adoption — the old SELF-APPROVING
    exception and its registry are gone): an `'ask'` decision takes the SAME
-   `requireApproval` clone as every other ask tool — the framework's
+   function-form clone as every other ask tool — the framework's
    pre-execution approval is Gate A. The 1.56 approval rework made the old
    self-raised in-tool suspension unworkable (the framework consumes the
    `{approved}` resume before the tool can read it — an unfinishable loop)
@@ -2821,11 +2834,14 @@ Flow (desktop assistant server → agent runtime):
    same risk lookup, cannot drift) is still injected at the composition root,
    now ONLY for the direct-invocation guard: an `'ask'` call outside an agent
    run refuses rather than running unprompted.
-3. PER-TOOL, not global: marking each ask tool with `requireApproval` (Mastra
-   >=1.37) makes Mastra suspend ONLY when that tool is actually called — allowed
-   `read`/`mcp` tools in the same run still run free. We deliberately do NOT force
-   the run-wide `requireToolApproval` (it would suspend EVERY tool call, breaking
-   the read-only default). `resolveAskToolsForRun` (in the tool pipeline,
+3. PER-TOOL, not global: marking each ask tool with the per-tool flag makes
+   Mastra suspend ONLY when that tool is actually called and its per-call
+   `needsApprovalFn` answers true — allowed `read`/`mcp` tools in the same run
+   still run free, and a tool a remembered session grant allows runs free from
+   its next call on. We deliberately do NOT force the run-wide
+   `requireToolApproval` (it would suspend EVERY tool call, breaking the
+   read-only default, and any truthy value forces sequential steps).
+   `resolveAskToolsForRun` (in the tool pipeline,
    `runtime-assembly/tool-pipeline.ts`)
    only decides whether ask tools may STAY: WITH Mastra workflow storage they stay
    (their per-tool flag suspends + the resume path can restore the run); WITHOUT
@@ -2993,6 +3009,53 @@ Flow (desktop assistant server → agent runtime):
    background sibling" / "one-shot approval answers only its own"; mutating the
    gate either way fails one of them), `data-stream-approval-answered.spec.ts`,
    `assistant-tool-approval-notice-panel.test.tsx` ("for a delegated child").
+   SWARM-AWARE PRESENTATION (settled 2026-09-15 with Sean, do not
+   relitigate): the thread shows ONE full approval card per risk category
+   while a decision is pending; every approval already answered — the host's
+   `tool-approval-answered` (`session-grant` or `user`), a durable
+   `decisionState`, the user's own appended decision, a decision queued
+   behind the run, or a click in flight — and every pending approval BEHIND
+   its category's card renders as a one-line row (`approval-row.tsx`) whose
+   expanded body is the full card (locked when answered, actionable when
+   merely behind the card). The choice is pure (`approval-presentation.ts`:
+   `resolveApprovalPresentation` over `answered` + the per-category pending
+   rank) and the rank is computed ONCE per thread change by
+   `ApprovalRanksProvider` (`approval-presentation-context.tsx`) from the
+   SAME incremental index, which now also records every request part and
+   user decision — never a per-card walk. Delegation identity is a colour
+   rail hashed from the delegation call id (`delegation-colour.ts`,
+   `--bs-delegation-1..8`), one rail per ancestor edge plus a depth indent,
+   NOT DOM re-parenting: approval parts stay standalone in the assistant
+   message (ACTIVITY GROUPS ruling). Both forms carry
+   `data-testid="assistant-tool-approval-notice"` and
+   `data-approval-presentation="card|row"`; `approval-delegation-owner`
+   names the persona chain ("Explorer › Analyst") on the row and the same
+   chain + the root prompt excerpt on the card (`describeDelegationOwner`
+   builds its label from `describeDelegationChain`, so a depth-1 card still
+   reads "Explorer · <prompt>"). The notice file is a chooser;
+   `use-approval-notice-state.ts` owns the outcome/lock/submit logic and
+   `approval-preview.tsx` the structured previews. Paired:
+   `approval-presentation.test.ts`, `approval-presentation-context.test.tsx`,
+   `approval-row.test.tsx` (card→row on a host answer, promotion of the next
+   pending card, nesting depth/rails/chain, an answered click collapses),
+   `approval-row.browser.test.tsx` (per-theme rail colour), and the
+   expand-before-assert edits in the existing approval tests.
+   APPROVALS STRIP (same ruling): `approval-queue-strip.tsx` sits at the
+   composer beside the follow-up chips and lists the PENDING approvals per
+   risk category from `usePendingApprovalsByCategory` (the same ranks
+   provider). "Allow <category> this session" records the session grant
+   FIRST and then submits ONE approve — for the first pending approval of
+   that category — through `submitDecisionOrQueue`, byte-identical to the
+   card's button (`buildApprovalDecisionMessage`): the runtime answers the
+   siblings (PARKED SIBLINGS / `allowedBySnapshot`) and their
+   `tool-approval-answered` parts collapse their rows. It never submits N
+   decisions (one active ledger claim per root). Capability-gated like the
+   card: no `ToolApprovalGrantProvider` → counts only. Non-policy `tool:*`
+   buckets are never listed. Its button label ends "…for the N waiting
+   approvals" on purpose: the live verifier selects a CARD's grant by
+   `[aria-label$="for this session"]`. Paired:
+   `approval-queue-strip.test.tsx` (counts, one decision, idle append,
+   round-trip lock, capability gating).
    An OpenRouter approval pause terminates its transport leg with zero-token
    usage and no claimed cost: Mastra emits the pause before that model step's
    `step-finish`. Approval resume emits the deferred step finish before later
@@ -3023,9 +3086,9 @@ Flow (desktop assistant server → agent runtime):
    `requireToolApproval: true` (the resume API needs it); the gate runs again on
    resume so the ask tools keep their per-tool flag. Because run-wide
    `requireToolApproval: true` would suspend EVERY tool call on the resumed leg,
-   `resolveResumeApprovalGate` (`attempt-legs.ts`, moved out of `agent-streaming.ts`
-   by BST-1649) substitutes the FUNCTION form of
-   the gate backed by the rebuilt runtime's authoritative `askTools` set. Allowed
+   `resolveRequireToolApproval` (`approval-gate.ts`) substitutes the runtime's
+   live predicate (`runtime.approvalGate`), backed by the rebuilt runtime's
+   authoritative `askTools` set and the leg's remembered grant. Allowed
    read/internal-state tools keep running, ask-gated mutations may suspend again,
    and the canonical Mastra internal ids (`internal-approval-exempt-tools.ts`:
    `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt — as are
@@ -3182,7 +3245,7 @@ overrides (`setToolOverride` from "Always allow"), and the notice label. The
 bridges:
 - `askTools` stays SINGLE-keyed by sanitized id (dual-keying would inflate
   `askTools.size`, corrupting the empty-ask-set posture check in
-  `resolveResumeApprovalGate` — disambiguated by `permissionEnforced`, see above —
+  `resolveRequireToolApproval` — disambiguated by `permissionEnforced`, see above —
   and duplicate the gate's per-tool logs — do not
   relitigate). `resolveAskToolMetadata(askTools, name)` (permission-tool-gate.ts)
   resolves metadata under EITHER form: `get(name)` first, else a scan over

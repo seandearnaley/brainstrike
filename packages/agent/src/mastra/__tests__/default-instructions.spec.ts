@@ -111,12 +111,15 @@ describe('manageCanvas advertisement', () => {
     expect(withTool).toContain('update');
     expect(withTool).toContain('rewrite');
     expect(withTool).toContain('list');
+    expect(withTool).toContain('only when its content is ready');
+    expect(withTool).toContain('never an empty placeholder');
 
     const withoutTool = buildDefaultInstructions(
       new Map<string, string>([['brainstrike_grepSearch', 'brainstrike.grepSearch']])
     );
     expect(withoutTool).not.toContain('manageCanvas');
     expect(withoutTool).not.toContain('canvas documents');
+    expect(withoutTool).not.toContain('placeholder');
   });
 });
 

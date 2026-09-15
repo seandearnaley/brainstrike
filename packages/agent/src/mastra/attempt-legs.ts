@@ -33,6 +33,7 @@ import {
   type ResumedToolCallStart,
   streamAttemptChunks,
 } from './agent-streaming';
+import { resolveRequireToolApproval } from './approval-gate';
 import { claimGrantedBackgroundResumes, driveBackgroundWork } from './background-granted-approvals';
 import { repairBackgroundResults, restoreLateBackgroundResults } from './background-results';
 import { createBackgroundResumeStream, findPendingBackgroundTask } from './background-resume';
@@ -41,7 +42,6 @@ import {
   assertDelegatedToolActionPending,
   claimDelegatedToolAction,
 } from './delegated-tool-actions';
-import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import {
   readLateBackgroundResults,
   withLateBackgroundResults,
@@ -49,9 +49,8 @@ import {
 import { armLiveDecisions } from './live-decisions';
 import { createMastraAgentError, isMastraAgentError, MastraAgentError } from './mastra-agent-error';
 import { makeMcpDiscoverySkipChunks } from './mcp-discovery-diagnostics';
-import type { PermissionAskToolMetadata } from './permission-tool-gate';
 import { computePromptBreakdown } from './prompt-breakdown';
-import { type ApprovalGate, buildStreamOptions } from './runtime-assembly/stream-options';
+import { buildStreamOptions } from './runtime-assembly/stream-options';
 import { createDelegationOutcomeCapture } from './subagent-delegation';
 import { resolveDiscoveredApprovalToolName } from './suspended-run-discovery';
 import { createDelegationUsageCapture, type ToolLifecycleState } from './tool-lifecycle-processors';
@@ -234,6 +233,10 @@ async function createInitialTurnAttempt(
       delegationUsage,
       leg: 'initial',
       memoryOption,
+      // The caller's explicit option passes through untouched; per-call
+      // approval rides on each ask tool's function-form flag (approval-gate.ts).
+      // Never synthesize a run-wide gate here: a truthy one forces concurrency
+      // 1 on every step (agent-DsRUDsS_.js:24054).
       requireToolApproval,
       runtime,
       runtimeData,
@@ -347,50 +350,6 @@ export function validateToolApprovalAction(action: AssistantToolApprovalAction):
       detail: 'tool approval action requires toolCallId',
     });
   }
-}
-
-/**
- * The approval RESUME leg passes Mastra's run-wide `requireToolApproval: true`
- * (the resume API needs it — see docs/agents/assistant-runtime.md PERMISSION ENGINE). A blanket `true`
- * gates EVERY tool call on the resumed run. Substitute the FUNCTION form so the
- * rebuilt runtime reuses the permission gate's authoritative `askTools` set:
- * allowed read/state tools run free, ask-gated mutations can suspend again, and
- * Mastra's internal memory tools remain exempt. A caller-supplied function or a
- * non-`true` value passes through unchanged.
- *
- * An empty `askTools` is AMBIGUOUS and MUST be disambiguated by `permissionEnforced`:
- *  - `permissionEnforced === true` → a policy WAS enforced but resolved nothing
- *    to `'ask'`, i.e. every remaining tool is ALLOWED (e.g. "Allow all tools
- *    this session" granted all categories; denied tools were already omitted
- *    from the map). This is an all-allowed posture → gate NOTHING, so a later
- *    mutation tool in the same resumed run is NOT re-prompted.
- *  - `permissionEnforced === false` → NO policy was enforced yet the caller set
- *    run-wide `requireToolApproval: true` → a genuine explicit GLOBAL approval
- *    request → keep gating every non-internal tool (the pre-permission-engine
- *    behavior). Per-tool DENY still wins in both cases: a denied tool never
- *    reaches the map, so it never reaches this gate.
- */
-function resolveResumeApprovalGate(
-  requireToolApproval: ApprovalGate | undefined,
-  askTools: ReadonlyMap<string, PermissionAskToolMetadata>,
-  permissionEnforced: boolean
-): ApprovalGate {
-  if (requireToolApproval !== true) {
-    return requireToolApproval ?? false;
-  }
-  // Global-gate ONLY when the empty ask set is a genuine global-approval request
-  // (no policy enforced). An empty ask set UNDER an enforced policy is the
-  // all-allowed posture: the function below then gates nothing (askTools.has is
-  // always false), honoring "Allow all tools this session".
-  const isExplicitGlobalApproval = askTools.size === 0 && !permissionEnforced;
-  // Since the @mastra/core 1.56 approval rework there is no self-approving
-  // exemption: run_python is an ordinary ask-set tool (the permission gate's
-  // `requireApproval` clone is its Gate A), so re-gating it on a resumed leg
-  // is exactly the framework's own idiom — approve is consumed pre-execution
-  // and the tool runs once, never a loop. Only Mastra-INTERNAL bookkeeping
-  // tools stay exempt (the D4 defect).
-  return ({ toolName }: { toolName: string }): boolean =>
-    !isApprovalExemptInternalTool(toolName) && (isExplicitGlobalApproval || askTools.has(toolName));
 }
 
 export async function readResumedApprovalToolCall(
@@ -566,14 +525,16 @@ async function createToolApprovalTurnAttempt({
       runtime.personasById.size > 0
         ? createDelegationUsageCapture(runtime.personasById, runtimeData)
         : undefined;
-    // Reapply the per-tool permission decisions instead of letting Mastra's
-    // run-wide resume flag gate every subsequent tool call.
+    // The resume API's blanket `true` would gate EVERY tool call on the
+    // resumed run; the live gate substitutes its predicate (allowed tools run
+    // free, ask tools suspend per call, a remembered grant lifts them). A
+    // caller that set nothing gets nothing, exactly as before.
     const resolvedApprovalGate =
       requireToolApproval === undefined
         ? undefined
-        : resolveResumeApprovalGate(
+        : resolveRequireToolApproval(
             requireToolApproval,
-            runtime.askTools,
+            runtime.approvalGate,
             runtime.permissionEnforced
           );
     const approvalOptions = buildStreamOptions({

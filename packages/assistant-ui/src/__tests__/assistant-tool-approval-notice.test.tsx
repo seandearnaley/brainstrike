@@ -56,10 +56,9 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ),
 }));
 
-import {
-  APPROVAL_PREVIEW_CHAR_CAP,
-  AssistantToolApprovalNotice,
-} from '../assistant-tool-approval-notice';
+import { APPROVAL_PREVIEW_CHAR_CAP } from '../approval-preview';
+import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
+import { expandApprovalRow } from './approval-row-helpers';
 
 beforeAll(() => {
   global.ResizeObserver = class {
@@ -411,7 +410,7 @@ describe('AssistantToolApprovalNotice skill script preview', () => {
 describe('durable delegated approval recovery', () => {
   it.each(['claimed', 'consumed', 'interrupted', 'cancelled', 'unknown', undefined])(
     'keeps the original tool preview but blocks a %s decision',
-    (decisionState) => {
+    async (decisionState) => {
       renderNotice({
         ...baseRequest,
         args: { command: 'pnpm build' },
@@ -431,6 +430,10 @@ describe('durable delegated approval recovery', () => {
         suspendedAt: '2026-09-10T00:00:00Z',
         toolName: 'brainstrike.executeCommand',
       });
+      // Every case carries a `decisionState` own key (the `undefined` one reads
+      // as 'invalid'), so the notice is locked and collapses into a row; the
+      // preview and buttons live in its expanded body.
+      await expandApprovalRow(userEvent.setup());
       expect(screen.getByTestId('approval-command-code')).toHaveTextContent('pnpm build');
       expect(
         screen.getByRole('button', { name: 'Approve brainstrike.executeCommand' })

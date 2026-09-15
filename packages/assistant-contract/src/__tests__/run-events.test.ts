@@ -101,6 +101,17 @@ describe('ASSISTANT_RUN_EVENT_KINDS', () => {
     expect(providerKinds).toEqual(['provider.request.warned']);
     expect(providerKinds.some((kind) => kind.endsWith('.started'))).toBe(false);
   });
+
+  it('declares the delegation ledger kind (settled 2026-09-15)', () => {
+    expect(ASSISTANT_RUN_EVENT_KINDS).toContain('delegation.ledger');
+  });
+
+  it('keeps the delegation ledger OUT of the `.started` lifecycle namespace', () => {
+    // A self-superseding row: every change emits a fresh row for the same
+    // `metadata.ledgerId`; the renderer shows the latest. No pair to close.
+    const kinds = ASSISTANT_RUN_EVENT_KINDS.filter((kind) => kind.startsWith('delegation.'));
+    expect(kinds).toEqual(['delegation.ledger']);
+  });
 });
 
 describe('boundRunEventReason', () => {

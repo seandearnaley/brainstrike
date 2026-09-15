@@ -392,6 +392,11 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
       await window.getByRole('button', { exact: true, name: title }).click();
       await expect(window.getByText(reply).first()).toBeVisible();
       const approval = window.getByTestId('assistant-tool-approval-notice');
+      // A rediscovered approval with a durable decision state is answered, so
+      // it renders as a collapsed row; open it before reading the recovery
+      // status and the locked buttons.
+      await expect(approval).toHaveAttribute('data-approval-presentation', 'row');
+      await approval.getByRole('button', { name: /show approval details/i }).click();
       const question = window.getByTestId('assistant-ask-user-notice');
       const label = {
         claimed: 'Decision in progress',

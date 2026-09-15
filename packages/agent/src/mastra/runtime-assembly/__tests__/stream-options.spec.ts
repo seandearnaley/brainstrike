@@ -104,7 +104,7 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
 
     // Literal copy of createToolApprovalTurnAttempt's `approvalOptions`
     // expression (the gate is resolved BEFORE this spread, by
-    // resolveResumeApprovalGate — buildStreamOptions receives the already-
+    // resolveRequireToolApproval — buildStreamOptions receives the already-
     // resolved value, matching today's factory).
     const expected = {
       ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),

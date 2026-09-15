@@ -38,6 +38,7 @@ import {
   type ScaledToolResultBudget,
 } from '../stream/tool-output-limits';
 import type { RuntimeData } from '../types';
+import { applyLiveApprovalGate, createApprovalGate } from './approval-gate';
 import type { ChildContinuationRuntimeScope } from './child-continuation-usage';
 import { createChildInputContextProcessor } from './child-input-context';
 import { executionForPersona } from './child-run-configuration';
@@ -57,6 +58,7 @@ import {
   resolveDelegatedWorkBudget,
 } from './delegated-work-budget';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
+import type { LiveDecisionChannel } from './live-decision-channel';
 import { buildOpenAIDuplicateItemCompatInputProcessor } from './openai-duplicate-item-compat';
 import {
   filterToolsByPermissionWithMetadata,
@@ -117,6 +119,13 @@ export interface BuildPersonaSubAgentsParams {
   readonly hasStorage?: boolean;
   /** Parent's resolved model instance (D5 — children reuse it). */
   readonly languageModel: MastraModelConfig;
+  /**
+   * The leg's live decision channel: a session grant delivered into the
+   * running leg is remembered here and lifts every child's gate on its next
+   * call (settled 2026-09-15). Optional only for the direct unit harness;
+   * the runtime always passes it.
+   */
+  readonly liveDecisions?: Pick<LiveDecisionChannel, 'remembered'> | undefined;
   readonly localToolIds?: ReadonlySet<string>;
   readonly logger: PermissionToolGateLogger;
   readonly memory?: MastraMemory | undefined;
@@ -884,6 +893,28 @@ export async function buildPersonaSubAgents(
       keptOriginalNames.push(candidateNameMap.get(sanitizedId) ?? sanitizedId);
     }
 
+    // The child's OWN gate: only the ask tools it actually kept (an ask tool
+    // omitted for lack of durable host control must not be gated as if it
+    // were registered), reading the leg's remembered grant on every call.
+    // Mastra passes NO run-wide gate to a child it invokes as a tool
+    // (agent-DsRUDsS_.js:27426); the per-tool function-form flag is what
+    // makes the child's ask tools suspend, and a remembered grant lifts it on
+    // the child's very next call. `childTools` stays RAW for grandchildren,
+    // which re-gate it with their own gate.
+    const childAskTools = new Map(
+      Array.from(gateResult.askTools).filter(([sanitizedId]) => sanitizedId in childTools)
+    );
+    const gatedChildTools = applyLiveApprovalGate(
+      childTools,
+      new Set(childAskTools.keys()),
+      createApprovalGate({
+        askTools: childAskTools,
+        permissionEnforced: permissionSnapshot !== undefined,
+        remembered: () => params.liveDecisions?.remembered,
+        toolNameMap: params.toolNameMap,
+      })
+    );
+
     if (keptOriginalNames.length === 0) {
       params.logger.warn('Persona has no available tools after gating; not registering', {
         code: 'subagent_persona_empty_toolset',
@@ -903,8 +934,8 @@ export async function buildPersonaSubAgents(
     }
     const childNameMap = new Map(candidateNameMap);
     const settledChildTools = params.settleChildToolOutputs
-      ? params.settleChildToolOutputs(childTools as ToolsInput, childToolResultBudget)
-      : (childTools as ToolsInput);
+      ? params.settleChildToolOutputs(gatedChildTools as ToolsInput, childToolResultBudget)
+      : (gatedChildTools as ToolsInput);
     childBuilders.push(
       async () =>
         [

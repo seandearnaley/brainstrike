@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expandApprovalRow } from './approval-row-helpers';
 
 const appendMock = vi.fn().mockResolvedValue(undefined);
 
@@ -151,6 +152,8 @@ describe('AssistantToolApprovalNotice grant actions', () => {
     renderNotice(baseApproval, makeHandlers());
 
     await userEvent.click(screen.getByRole('button', { name: /^approve /i }));
+    // An answered notice collapses into a row; its buttons live in the expanded body.
+    await expandApprovalRow(userEvent.setup());
 
     expect((screen.getByTestId('approval-grant-overflow') as HTMLButtonElement).disabled).toBe(
       true
@@ -161,6 +164,7 @@ describe('AssistantToolApprovalNotice grant actions', () => {
     renderNotice(baseApproval, makeHandlers());
 
     await userEvent.click(screen.getByRole('button', { name: /^approve /i }));
+    await expandApprovalRow(userEvent.setup());
 
     expect((screen.getByTestId('approval-grant-tool-always') as HTMLButtonElement).disabled).toBe(
       true

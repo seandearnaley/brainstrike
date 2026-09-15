@@ -2,10 +2,17 @@ import { useAuiState } from '@assistant-ui/react';
 import { getToolActionIdentityKey } from '@brainstrike/assistant-contract';
 import {
   type AssistantToolApprovalAnswered,
+  type AssistantToolApprovalDecision,
+  type AssistantToolApprovalRequest,
+  isAssistantToolApprovalAction,
   isAssistantToolApprovalAnswered,
   TOOL_APPROVAL_ANSWERED_DATA_NAME,
+  TOOL_APPROVAL_DATA_NAME,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { createContext, type ReactNode, use, useState } from 'react';
+import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
+import { isAssistantToolApprovalRequest } from './tool-decision-run-outcome';
 
 /**
  * One incremental index over the thread for every approval card, instead of
@@ -19,17 +26,46 @@ import { createContext, type ReactNode, use, useState } from 'react';
  * Parts only ever append while a message streams, so this index scans each
  * message from the count it last saw and resets when the thread's shape
  * changes (rewind, branch switch).
+ *
+ * Since 2026-09-15 it also records every approval REQUEST part and the
+ * user's own appended decisions, so the card-vs-row ranking
+ * (`approval-presentation-context.tsx`) and the composer strip read one
+ * index rather than walking the thread again.
  */
+export interface IndexedApprovalRequest {
+  /** A durable decision state rode on the part (rediscovered, already admitted). */
+  readonly decided: boolean;
+  readonly request: AssistantToolApprovalRequest;
+}
+
 export interface AnsweredApprovalsIndex {
   /** The host's answer per identity key (`getToolActionIdentityKey`): decision and reason. */
   readonly answers: ReadonlyMap<string, AssistantToolApprovalAnswered>;
   /** The prompt the root gave each delegation call, keyed by that call's id. */
   readonly delegationPrompts: ReadonlyMap<string, string>;
+  /** Every approval request in the thread, in part order, keyed like its notice. */
+  readonly requests: ReadonlyMap<string, IndexedApprovalRequest>;
+  /** The user's own appended decisions (idle-thread clicks), keyed like the request. */
+  readonly userDecisions: ReadonlyMap<string, AssistantToolApprovalDecision>;
+}
+
+/** The mutable working set `advanceAnsweredApprovalsIndex` folds into. */
+export interface MutableApprovalsIndex {
+  readonly answers: Map<string, AssistantToolApprovalAnswered>;
+  readonly prompts: Map<string, string>;
+  readonly requests: Map<string, IndexedApprovalRequest>;
+  readonly userDecisions: Map<string, AssistantToolApprovalDecision>;
+}
+
+export function createMutableApprovalsIndex(): MutableApprovalsIndex {
+  return { answers: new Map(), prompts: new Map(), requests: new Map(), userDecisions: new Map() };
 }
 
 const EMPTY_INDEX: AnsweredApprovalsIndex = {
   answers: new Map(),
   delegationPrompts: new Map(),
+  requests: new Map(),
+  userDecisions: new Map(),
 };
 
 const AnsweredApprovalsContext = createContext<AnsweredApprovalsIndex>(EMPTY_INDEX);
@@ -49,11 +85,7 @@ function messageKey(message: unknown, index: number): string {
 }
 
 /** Fold one part into the index; returns true when the index changed. */
-function indexPart(
-  part: unknown,
-  answers: Map<string, AssistantToolApprovalAnswered>,
-  prompts: Map<string, string>
-): boolean {
+function indexPart(part: unknown, index: MutableApprovalsIndex): boolean {
   if (!isRecord(part)) {
     return false;
   }
@@ -61,85 +93,130 @@ function indexPart(
     const args = part['args'];
     const prompt = isRecord(args) ? args['prompt'] : undefined;
     if (typeof prompt === 'string' && prompt.trim().length > 0) {
-      prompts.set(part['toolCallId'], prompt);
+      index.prompts.set(part['toolCallId'], prompt);
       return true;
     }
     return false;
   }
+  if (part['type'] !== 'data') {
+    return false;
+  }
   if (
-    part['type'] === 'data' &&
     part['name'] === TOOL_APPROVAL_ANSWERED_DATA_NAME &&
     isAssistantToolApprovalAnswered(part['data'])
   ) {
-    answers.set(getToolActionIdentityKey(part['data']), part['data']);
+    index.answers.set(getToolActionIdentityKey(part['data']), part['data']);
+    return true;
+  }
+  if (part['name'] === TOOL_APPROVAL_DATA_NAME && isAssistantToolApprovalRequest(part['data'])) {
+    const request = part['data'];
+    index.requests.set(getToolActionIdentityKey(request), {
+      decided: readRediscoveredPauseDisplay(request)?.decisionState !== undefined,
+      request,
+    });
     return true;
   }
   return false;
 }
 
 /**
+ * A user message appended by an approval click carries the action under
+ * `metadata.custom[TOOL_APPROVAL_RUN_CONFIG_KEY]` (APPROVAL ACTION MESSAGES
+ * ARE BOOKKEEPING, assistant-runtime.md). Read once per message: metadata
+ * never changes after the append. A malformed marker is ignored, never
+ * guessed into a decision.
+ */
+function indexUserDecision(message: unknown, index: MutableApprovalsIndex): boolean {
+  if (!(isRecord(message) && message['role'] === 'user')) {
+    return false;
+  }
+  const metadata = message['metadata'];
+  const custom = isRecord(metadata) ? metadata['custom'] : undefined;
+  const action = isRecord(custom) ? custom[TOOL_APPROVAL_RUN_CONFIG_KEY] : undefined;
+  if (!isAssistantToolApprovalAction(action)) {
+    return false;
+  }
+  index.userDecisions.set(getToolActionIdentityKey(action), action.action);
+  return true;
+}
+
+/**
  * Advance the cursor over `messages`. A message whose key moved or vanished
  * means the thread was rewritten, so the whole index is rebuilt from scratch;
- * otherwise only the parts appended since the last pass are read.
+ * otherwise only the parts appended since the last pass are read, and a
+ * message's decision marker is read only when the message is new.
  */
 export function advanceAnsweredApprovalsIndex(
   messages: readonly unknown[],
   cursor: ScanCursor,
-  answers: Map<string, AssistantToolApprovalAnswered>,
-  prompts: Map<string, string>
+  index: MutableApprovalsIndex
 ): { readonly changed: boolean; readonly cursor: ScanCursor } {
   const keys = messages.map(messageKey);
   const rewritten =
-    keys.length < cursor.keys.length || cursor.keys.some((key, index) => keys[index] !== key);
+    keys.length < cursor.keys.length || cursor.keys.some((key, position) => keys[position] !== key);
   if (rewritten) {
-    answers.clear();
-    prompts.clear();
+    index.answers.clear();
+    index.prompts.clear();
+    index.requests.clear();
+    index.userDecisions.clear();
   }
   const scanned = rewritten ? keys.map(() => 0) : [...cursor.scanned, ...keys.map(() => 0)];
   let changed = rewritten;
-  for (const [index, message] of messages.entries()) {
+  for (const [position, message] of messages.entries()) {
+    const isNewMessage = rewritten || position >= cursor.keys.length;
+    if (isNewMessage && indexUserDecision(message, index)) {
+      changed = true;
+    }
     const content = isRecord(message) ? message['content'] : undefined;
     if (!Array.isArray(content)) {
       continue;
     }
-    const from = scanned[index] ?? 0;
+    const from = scanned[position] ?? 0;
     for (let partIndex = from; partIndex < content.length; partIndex += 1) {
-      if (indexPart(content[partIndex], answers, prompts)) {
+      if (indexPart(content[partIndex], index)) {
         changed = true;
       }
     }
-    scanned[index] = content.length;
+    scanned[position] = content.length;
   }
   return { changed, cursor: { keys, scanned: scanned.slice(0, keys.length) } };
 }
 
 interface IndexState {
-  readonly answers: Map<string, AssistantToolApprovalAnswered>;
   readonly cursor: ScanCursor;
+  readonly index: MutableApprovalsIndex;
   readonly messages: readonly unknown[];
-  readonly prompts: Map<string, string>;
   readonly value: AnsweredApprovalsIndex;
 }
 
 function advanceIndexState(previous: IndexState, messages: readonly unknown[]): IndexState {
-  const answers = new Map(previous.answers);
-  const prompts = new Map(previous.prompts);
-  const result = advanceAnsweredApprovalsIndex(messages, previous.cursor, answers, prompts);
+  const index: MutableApprovalsIndex = {
+    answers: new Map(previous.index.answers),
+    prompts: new Map(previous.index.prompts),
+    requests: new Map(previous.index.requests),
+    userDecisions: new Map(previous.index.userDecisions),
+  };
+  const result = advanceAnsweredApprovalsIndex(messages, previous.cursor, index);
   return {
-    answers,
     cursor: result.cursor,
+    index,
     messages,
-    prompts,
     // An unchanged index keeps its identity so consumers do not re-render.
-    value: result.changed ? { answers, delegationPrompts: prompts } : previous.value,
+    value: result.changed
+      ? {
+          answers: index.answers,
+          delegationPrompts: index.prompts,
+          requests: index.requests,
+          userDecisions: index.userDecisions,
+        }
+      : previous.value,
   };
 }
 
 const INITIAL_STATE: IndexState = {
-  answers: new Map(),
   cursor: { keys: [], scanned: [] },
+  index: createMutableApprovalsIndex(),
   messages: [],
-  prompts: new Map(),
   value: EMPTY_INDEX,
 };
 
