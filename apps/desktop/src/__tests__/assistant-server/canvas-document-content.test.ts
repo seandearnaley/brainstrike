@@ -35,8 +35,24 @@ describe('isEmptyCanvasDocument', () => {
       'doctype, meta and link before the head',
       '<!DOCTYPE html>\n<html><head><meta charset="utf-8"><link rel="stylesheet" href="x.css"><title>Report</title><body></body></html>',
     ],
-    // Mutation: dropping the comment strip fails this row.
+    // A raw-text element the document never closes runs to end of input, as
+    // the parser reads it, so a truncated head is still a head.
+    ['head with a truncated title', '<head><title>Report'],
+    ['truncated script inside an explicit head', '<head><script>render()'],
+    // The `style` ruling: a style-only document has nothing to read or see.
+    ['style only', '<style>body{margin:0}</style>'],
+    // HTML_TAG alone swallows a comment that contains no `>`, so this row does
+    // NOT pin the comment strip — the two rows below it do.
     ['comment only', '<body><!-- report goes here --></body>'],
+    // Mutation: deleting the comment alternative from HEAD_TOKEN stops the
+    // head scan here and leaves the title text, failing this row.
+    [
+      'comment before the head',
+      '<!-- report --><html><head><title>Report</title></head><body></body></html>',
+    ],
+    // Commented-out markup renders nothing. Mutation: dropping the comment
+    // strip makes the `<img` inside it read as content, failing this row.
+    ['comment containing markup', '<body><!-- <img src="x.png"> --></body>'],
     ['non-breaking spaces only', '<p>&nbsp;&nbsp;</p><div>&#160;</div>'],
     ['empty wrappers', '<div><section><p></p></section></div>'],
   ])('treats %s as empty', (_label, html) => {
@@ -72,6 +88,9 @@ describe('isEmptyCanvasDocument', () => {
     // head. Mutation: dropping either from that guard fails its row.
     ['a template-only document', '<template><canvas id="c"></canvas></template>'],
     ['noscript with an image', '<noscript><img src="chart.png"></noscript>'],
+    // The unclosed-to-EOF rule must not swallow a script the guard protects.
+    // Mutation: dropping the guard consumes this as an implied head.
+    ['truncated script outside a head', '<script>render()'],
   ])('treats %s as content', (_label, html) => {
     expect(isEmptyCanvasDocument(html)).toBe(false);
   });
