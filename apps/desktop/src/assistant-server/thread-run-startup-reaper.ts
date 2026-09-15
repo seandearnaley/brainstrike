@@ -80,20 +80,6 @@ export async function reapOrphanedThreadRuns(
   bootedAt: Date
 ): Promise<ThreadRunReapReport> {
   const report = await reapOrphanedAssistantThreadRuns(db, bootedAt);
-  // BST-1749: no worker survives a process, so a background task created
-  // before boot that is still pending/running never finishes. Mastra's own
-  // stale-task recovery is thread-scoped and waits for that thread's next run,
-  // while unpreemptable maintenance admission reads these rows across every
-  // thread (database.md). Same boot evidence rule as the runs above; a task
-  // suspended on the user stays resumable. `delivered_at` stays NULL so the
-  // thread's next turn delivers the failure once.
-  const backgroundTasks = await db.query<{ id: string }>(
-    `UPDATE ${MASTRA_BACKGROUND_TASKS_TABLE}
-     SET status = 'failed', error = jsonb_build_object('message', $2::text), "completedAt" = NOW()
-     WHERE status IN ('pending', 'running') AND "createdAt" < $1::timestamptz
-     RETURNING id`,
-    [new Date(bootedAt.getTime() - REAP_CLOCK_SKEW_MARGIN_MS), ORPHANED_BACKGROUND_TASK_ERROR]
-  );
   // A dead execution leg cannot still own native resume admission. Retain the
   // leaf identity as interrupted: an unknown effect must never be replayed.
   await db.query(
@@ -111,5 +97,24 @@ export async function reapOrphanedThreadRuns(
     SET state = 'interrupted' FROM brainstrike_assistant_thread_runs host
     WHERE decision.host_run_id = host.id AND decision.state = 'claimed'
       AND host.status IN ('completed', 'failed', 'cancelled')`);
+  // BST-1749: no worker survives a process, so a background task created
+  // before boot that is still pending/running never finishes. Mastra's own
+  // stale-task recovery is thread-scoped and waits for that thread's next run,
+  // while unpreemptable maintenance admission reads these rows across every
+  // thread (database.md). Same boot evidence rule as the runs above; a task
+  // suspended on the user stays resumable. `delivered_at` stays NULL so the
+  // thread's next turn delivers the failure once.
+  //
+  // LAST on purpose (PR #3206 review): these statements share no transaction,
+  // and the decision repair above predates this sweep. A throw here must never
+  // cost that repair, which is what stops a dead leg from owning native resume
+  // admission. Pinned by the reaper suite's statement-order case.
+  const backgroundTasks = await db.query<{ id: string }>(
+    `UPDATE ${MASTRA_BACKGROUND_TASKS_TABLE}
+     SET status = 'failed', error = jsonb_build_object('message', $2::text), "completedAt" = NOW()
+     WHERE status IN ('pending', 'running') AND "createdAt" < $1::timestamptz
+     RETURNING id`,
+    [new Date(bootedAt.getTime() - REAP_CLOCK_SKEW_MARGIN_MS), ORPHANED_BACKGROUND_TASK_ERROR]
+  );
   return { ...report, reapedBackgroundTaskIds: backgroundTasks.rows.map((row) => row.id) };
 }
