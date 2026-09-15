@@ -12,6 +12,12 @@ import { describe, expectTypeOf, it } from 'vitest';
  * If a version bump ever returns a promise from `append`, this assertion fails
  * at type-check, and the notice's failure path has to be revisited rather than
  * silently losing the rejection.
+ *
+ * THE LANE: `expectTypeOf` is a runtime no-op, so `vitest run` asserts nothing
+ * here. This file bites through the package's `type-check` script
+ * (`tsc --noEmit --project tsconfig.test.json`, which covers `src/__tests__`)
+ * — the same script CI runs. Control-perturbed: changing the assertion to
+ * `toBeString()` fails that lane with TS2349.
  */
 describe('assistant-ui thread().append contract', () => {
   it('returns void, so there is no rejection for the approval notice to catch', () => {

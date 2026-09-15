@@ -45,10 +45,15 @@ function fromApprovalRunOutcomeKey(key: ApprovalRunOutcomeKey): ApprovalRunOutco
 }
 
 /**
- * A decision this notice could not send, stamped with the run outcome it
- * happened in. The stamp is what makes the message spend itself: any later
- * answer for this pause moves the outcome on, and a failure from before that
- * no longer describes the card.
+ * A decision this notice could not send, stamped with the run outcome the
+ * ATTEMPT was made in — the same instant for a synchronous throw, while a live
+ * delivery can be refused after the thread has moved on, and that message is
+ * then dropped because the new status is authoritative.
+ *
+ * The stamp is what makes a message spend itself: any later answer for this
+ * pause moves the outcome on, and a failure from before it no longer describes
+ * the card. The derivation MASKS a spent failure rather than clearing it —
+ * clearing would take an effect, which is the thing this shape avoids.
  */
 interface SendFailure {
   readonly message: string;

@@ -2968,12 +2968,14 @@ Flow (desktop assistant server → agent runtime):
    failed run or history write from a detached handler (it reaches
    `unhandledrejection`), so the approval notice never wraps it in a promise:
    a failed resumed run is observed through thread state (`incomplete` →
-   `retryable` unlocks the card; `ErrorPrimitive` renders the error) and only
-   a synchronous throw (e.g. an unavailable thread scope) is caught, with the
-   same inline alert, which is DERIVED (the failure carries the run-outcome key
-   it happened in) so no effect adjusts it after the fact and no frame shows a
-   spent message. Paired: `follow-up-queue-store.test.ts`,
-   `assistant-tool-approval-notice-panel.test.tsx` ("while a run is active"),
+   `retryable` unlocks the card; `ErrorPrimitive` renders the error). The only
+   failure the notice itself catches is a SYNCHRONOUS throw (e.g. an
+   unavailable thread scope); that and the transport refusal above are what the
+   inline alert reports, and it is DERIVED (the failure carries the run-outcome
+   key the attempt was made in) so no effect adjusts it after the fact and no
+   frame shows a spent message. Paired: `follow-up-queue-store.test.ts`,
+   `assistant-tool-approval-notice-panel.test.tsx` (the top-level describe for
+   the derived alert; "while a run is active" for the queue/transport paths),
    `assistant-ui-append-contract.test.ts` (the `void` return itself — a version
    bump that returns a promise fails type-check, not at runtime),
    `follow-up-queue.behavior.test.tsx` (real local runtime dispatch of a queued
