@@ -22,11 +22,13 @@ import {
   REAP_CLOCK_SKEW_MARGIN_MS,
   reapOrphanedThreadRuns,
 } from '../../assistant-server/thread-run-startup-reaper';
+import { readInFlightAssistantWork } from '../../maintenance-admission';
 import {
   cleanupTempDirs,
   createRewindFixture,
   insertRun,
   makeTempDir,
+  RESOURCE_ID,
   THREAD_ID,
 } from './rewind-service-test-support';
 
@@ -44,6 +46,20 @@ async function makeFixtureDb(databaseName: string): Promise<PGlite> {
 
 function asHandle(db: PGlite): EditCheckpointDatabase {
   return db as unknown as EditCheckpointDatabase;
+}
+
+async function insertBackgroundTask(
+  db: PGlite,
+  args: { readonly createdAt: string; readonly id: string; readonly status: string }
+): Promise<void> {
+  await db.query(
+    `INSERT INTO mastra_background_tasks
+       (id, tool_call_id, tool_name, agent_id, run_id, thread_id, resource_id, status,
+        args, retry_count, max_retries, timeout_ms, "createdAt")
+     VALUES ($1, $1, 'agent-explore', 'brainstrike-assistant', 'native-run', $2, $3, $4,
+             '{}', 0, 0, 60000, $5::timestamptz)`,
+    [args.id, THREAD_ID, RESOURCE_ID, args.status, args.createdAt]
+  );
 }
 
 describe('reapOrphanedThreadRuns (BST-1162)', () => {
@@ -186,6 +202,79 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     // Unknown status still counts as in flight — refusing is the fail-safe
     // direction, and the reaper must not silently widen its own mandate.
     expect(await hasInFlightThreadRun(asHandle(db), THREAD_ID)).toBe(true);
+  });
+
+  /**
+   * BST-1749 review: unpreemptable maintenance (database.md, maintenance
+   * admission) skips every pass while any `pending`/`running` background task
+   * row exists, in ANY thread. Mastra's own stale-task recovery only runs
+   * inside a later run of the SAME thread (its store is thread-scoped), so a
+   * crash-stranded row in a thread the user never revisits held VACUUM and the
+   * HNSW build off forever. The boot evidence rule clears it; a task this boot
+   * created and a task suspended on the user are left alone.
+   */
+  it('fails pre-boot pending and running background tasks so maintenance admission no longer reads them as in flight', async () => {
+    const db = await makeFixtureDb('reaper-background-tasks');
+    await insertBackgroundTask(db, {
+      createdAt: '2026-01-01T10:00:00Z',
+      id: 'task-orphan-pending',
+      status: 'pending',
+    });
+    await insertBackgroundTask(db, {
+      createdAt: '2026-01-01T10:00:00Z',
+      id: 'task-orphan-running',
+      status: 'running',
+    });
+    await insertBackgroundTask(db, {
+      createdAt: '2026-01-02T00:00:00.005Z',
+      id: 'task-live',
+      status: 'running',
+    });
+    await insertBackgroundTask(db, {
+      createdAt: '2026-01-01T10:00:00Z',
+      id: 'task-suspended',
+      status: 'suspended',
+    });
+
+    await reapOrphanedThreadRuns(asHandle(db), BOOTED_AT);
+
+    await expect(readInFlightAssistantWork(db)).resolves.toEqual({ backgroundTasks: 1, runs: 0 });
+    const { rows } = await db.query<{
+      completedAt: string | null;
+      deliveredAt: string | null;
+      error: unknown;
+      id: string;
+      status: string;
+    }>(
+      `SELECT id, status, error, "completedAt"::text AS "completedAt", delivered_at::text AS "deliveredAt"
+       FROM mastra_background_tasks ORDER BY id`
+    );
+    const orphanError = { message: expect.stringContaining('earlier app session') };
+    expect(rows).toEqual([
+      { completedAt: null, deliveredAt: null, error: null, id: 'task-live', status: 'running' },
+      // Undelivered on purpose: the thread's next turn delivers the failure once.
+      {
+        completedAt: expect.any(String),
+        deliveredAt: null,
+        error: orphanError,
+        id: 'task-orphan-pending',
+        status: 'failed',
+      },
+      {
+        completedAt: expect.any(String),
+        deliveredAt: null,
+        error: orphanError,
+        id: 'task-orphan-running',
+        status: 'failed',
+      },
+      {
+        completedAt: null,
+        deliveredAt: null,
+        error: null,
+        id: 'task-suspended',
+        status: 'suspended',
+      },
+    ]);
   });
 
   /**
