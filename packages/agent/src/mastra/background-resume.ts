@@ -160,6 +160,8 @@ interface ResumedExecutors {
    * task, and fails a task it finds none for ("No executor registered").
    */
   readonly register: (task: BackgroundTask) => Promise<ResumedExecutor>;
+  /** Register every task the leg resumes, before any of them is resumed. */
+  readonly registerAll: (resumes: readonly BackgroundResume[]) => Promise<void>;
   /**
    * Resume a registered task. Only a task Mastra accepted joins the leg: a
    * refused resume would never run its executor, so it keeps no context and no
@@ -172,6 +174,8 @@ interface ResumedExecutors {
     executor: ResumedExecutor,
     resumeData: unknown
   ) => Promise<void>;
+  /** Resume every registered task, in the order the leg registered them. */
+  readonly resumeAll: () => Promise<void>;
   /** Report a terminal the leg recorded for a task. */
   readonly terminal: (taskId: string, event: TaskEvent) => void;
 }
@@ -189,6 +193,30 @@ function createResumedExecutors(params: {
   /** Registered contexts Mastra has not accepted a resume for. */
   const unresumed = new Set<string>();
   const settled: Promise<void>[] = [];
+  /** The leg's own resumes, registered before any of them is resumed. */
+  const registered: { readonly executor: ResumedExecutor; readonly resume: BackgroundResume }[] =
+    [];
+  const register = async (task: BackgroundTask): Promise<ResumedExecutor> => {
+    const executor = await registerResumedExecutor({ ...params, task });
+    executors.set(task.id, executor);
+    unresumed.add(task.id);
+    return executor;
+  };
+  const resume = async (
+    task: BackgroundTask,
+    executor: ResumedExecutor,
+    resumeData: unknown
+  ): Promise<void> => {
+    try {
+      await params.manager.resume(task.id, resumeData);
+    } catch (error) {
+      unresumed.delete(task.id);
+      params.manager.deregisterTaskContext(task.id);
+      throw error;
+    }
+    unresumed.delete(task.id);
+    settled.push(executor.executed);
+  };
   return {
     deregisterUnresumed: () => {
       for (const taskId of unresumed) {
@@ -199,22 +227,17 @@ function createResumedExecutors(params: {
     join: async () => {
       await Promise.all(settled);
     },
-    register: async (task) => {
-      const executor = await registerResumedExecutor({ ...params, task });
-      executors.set(task.id, executor);
-      unresumed.add(task.id);
-      return executor;
-    },
-    resume: async (task, executor, resumeData) => {
-      try {
-        await params.manager.resume(task.id, resumeData);
-      } catch (error) {
-        unresumed.delete(task.id);
-        params.manager.deregisterTaskContext(task.id);
-        throw error;
+    register,
+    registerAll: async (resumes) => {
+      for (const entry of resumes) {
+        registered.push({ executor: await register(entry.task), resume: entry });
       }
-      unresumed.delete(task.id);
-      settled.push(executor.executed);
+    },
+    resume,
+    resumeAll: async () => {
+      for (const { executor, resume: entry } of registered) {
+        await resume(entry.task, executor, entry.resumeData);
+      }
     },
     terminal: (taskId, event) => executors.get(taskId)?.terminal(event),
   };
@@ -392,13 +415,6 @@ export function createBackgroundResumeStream(params: {
           scope,
         });
         deregisterUnresumed = resumed.deregisterUnresumed;
-        const registered: {
-          readonly executor: ResumedExecutor;
-          readonly resume: BackgroundResume;
-        }[] = [];
-        for (const resume of resumes) {
-          registered.push({ executor: await resumed.register(resume.task), resume });
-        }
         const events = manager.stream({
           abortSignal: options.abortSignal
             ? AbortSignal.any([watching.signal, options.abortSignal])
@@ -465,9 +481,12 @@ export function createBackgroundResumeStream(params: {
         const releaseOwner = params.channel?.own(owner);
         let terminals: ReadonlyMap<string, TaskEvent>;
         try {
-          for (const { executor, resume } of registered) {
-            await resumed.resume(resume.task, executor, resume.resumeData);
-          }
+          // Registration is awaited before any resume — but only now that the
+          // leg OWNS the live seam above. `getToolsForExecution` is async, and
+          // the leg's first run event streams at once: a decision delivered
+          // while it runs must reach this leg, not queue as 'no-live-run'.
+          await resumed.registerAll(resumes);
+          await resumed.resumeAll();
           const reading = (async () => {
             for await (const event of events) {
               controller.enqueue(event);

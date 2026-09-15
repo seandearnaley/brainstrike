@@ -2214,9 +2214,14 @@ read-only child. `buildChildProcessors` now carries it for non-worker
 personas, resolved against the child's OWN provider like its error
 processors. Paired: `build-persona-subagents.spec.ts` ("exactly once; other
 providers get none").
-RESUMED EXECUTORS (BST-1749 review of #3197): a resume leg registers every
+RESUMED EXECUTORS (BST-1749 review of #3197): a resume leg OWNS its live
+decision seam (`channel.own`) before it registers anything, and registers every
 executor it resumes (`registerResumedExecutor`, awaited) BEFORE it asks Mastra
-to resume any task. Mastra looks the executor up only when its workflow runs
+to resume any task. Ownership cannot wait on registration: `getToolsForExecution`
+is async while the leg's first run event streams at once, so a leg that
+registered first answered a live session grant with `'no-live-run'` (desktop
+`delegated-sibling-grant.integration.test.ts`, "a live session grant during an
+approval leg"; unit pin: "owns the live decision seam before it registers"). Mastra looks the executor up only when its workflow runs
 the task, so a resume issued first raced that lookup ("No executor
 registered"). A registration failure fails the leg before any task is resumed,
 and every context the leg registered but Mastra never accepted — a registration
