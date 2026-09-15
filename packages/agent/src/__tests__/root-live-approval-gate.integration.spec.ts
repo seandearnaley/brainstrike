@@ -116,8 +116,12 @@ async function loadDeferredTools(
     throw new Error('Hosted runtime did not install its tool-search processor');
   }
   const first = await processor.processInputStep(createDiscoveryStepArgs(threadId, 0));
+  const loadTool = first.tools.load_tool;
+  if (!loadTool?.execute) {
+    throw new Error('Tool-search step exposed no executable load_tool; deferred tools cannot load');
+  }
   for (const toolName of sanitizedIds) {
-    await first.tools.load_tool.execute?.({ toolName }, { observe: noopObserve });
+    await loadTool.execute({ toolName }, { observe: noopObserve });
   }
   const second = await processor.processInputStep(createDiscoveryStepArgs(threadId, 1));
   return second.tools;
@@ -132,9 +136,13 @@ describe('root live approval gate on the executed tool map', () => {
   });
 
   afterEach(async () => {
-    await runtime?.dispose();
+    const disposing = runtime;
     runtime = undefined;
-    await database.close();
+    try {
+      await disposing?.dispose();
+    } finally {
+      await database.close();
+    }
   });
 
   async function buildRootRuntime(): Promise<MastraAgentRuntime> {
@@ -209,11 +217,14 @@ describe('root live approval gate on the executed tool map', () => {
   it('an ask-gated web search on anthropic keeps the approval-gated Tavily clone, never the provider-native tool', async () => {
     const root = await buildRootRuntime();
     const sanitizedId = sanitizeToolName(WEB_SEARCH_TOOL_ID);
-    const onCoreSurface = (root.toolDiscovery?.coreToolIds ?? []).includes(WEB_SEARCH_TOOL_ID);
-    const surface = onCoreSurface
-      ? ((await root.agent.listTools()) as Record<string, unknown>)
-      : await loadDeferredTools(root, [sanitizedId], 'root-ask-gate-web-search');
-    const webSearch = flagsOf(surface[sanitizedId], sanitizedId);
+    // The Tavily tool is deferred-tier, so on anthropic it lives behind tool
+    // search. If it ever moves surfaces this row must fail, never weaken.
+    expect(
+      root.toolDiscovery?.deferredToolIds ?? [],
+      'ask-gated web search must stay on the deferred tool-search surface for anthropic'
+    ).toContain(WEB_SEARCH_TOOL_ID);
+    const loaded = await loadDeferredTools(root, [sanitizedId], 'root-ask-gate-web-search');
+    const webSearch = flagsOf(loaded[sanitizedId], sanitizedId);
 
     expect(webSearch.type, 'provider-native web search cannot suspend').not.toBe('provider');
     expect(typeof webSearch.execute).toBe('function');
