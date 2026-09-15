@@ -210,8 +210,13 @@ function createResumedExecutors(params: {
     try {
       await params.manager.resume(task.id, resumeData);
     } catch (error) {
-      unresumed.delete(task.id);
-      params.manager.deregisterTaskContext(task.id);
+      // Only a context this leg still owns is dropped. A task another caller
+      // resumed meanwhile — a live decision reaching the seam during this
+      // leg's registration window — is already running under the context
+      // Mastra is about to look up, and a refusal here must not remove it.
+      if (unresumed.delete(task.id)) {
+        params.manager.deregisterTaskContext(task.id);
+      }
       throw error;
     }
     unresumed.delete(task.id);
@@ -644,6 +649,28 @@ async function registerResumedExecutor(params: {
 }): Promise<ResumedExecutor> {
   const { controller, manager, memory, options, runtime, scope, task } = params;
   const executed = Promise.withResolvers<void>();
+  // The leg's stream can close before a resumed executor settles: a cancel
+  // settles this task's join, and `manager.shutdown()` only bounds the wait
+  // (Mastra's grace period), so a tool that runs past it would otherwise throw
+  // "Controller is already closed" into its own execution. Its chunk has no
+  // consumer left; the drop is reported once for the task.
+  let closed = false;
+  const publish = (chunk: unknown): void => {
+    if (closed) {
+      return;
+    }
+    try {
+      controller.enqueue(chunk);
+    } catch (error) {
+      closed = true;
+      logger.warn('A resumed background executor wrote after its leg closed', {
+        code: 'background_resume_output_after_close',
+        error: error instanceof Error ? error.message : String(error),
+        taskId: task.id,
+        toolName: task.toolName,
+      });
+    }
+  };
   const tools = await runtime.agent.getToolsForExecution({
     methodType: 'stream',
     resourceId: scope.resourceId,
@@ -651,7 +678,7 @@ async function registerResumedExecutor(params: {
     threadId: scope.threadId,
     ...(options.delegation ? { delegation: options.delegation } : {}),
     outputWriter: async (chunk: unknown) => {
-      controller.enqueue(chunk);
+      publish(chunk);
     },
   });
   const execute = tools[task.toolName]?.execute;
@@ -667,7 +694,7 @@ async function registerResumedExecutor(params: {
           output = await execute(args, {
             messages: [],
             outputWriter: async (chunk: unknown) => {
-              controller.enqueue(chunk);
+              publish(chunk);
             },
             toolCallId: task.toolCallId,
             ...(nativeOptions?.abortSignal ? { abortSignal: nativeOptions.abortSignal } : {}),

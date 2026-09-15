@@ -2221,20 +2221,33 @@ to resume any task. Ownership cannot wait on registration: `getToolsForExecution
 is async while the leg's first run event streams at once, so a leg that
 registered first answered a live session grant with `'no-live-run'` (desktop
 `delegated-sibling-grant.integration.test.ts`, "a live session grant during an
-approval leg"; unit pin: "owns the live decision seam before it registers"). Mastra looks the executor up only when its workflow runs
-the task, so a resume issued first raced that lookup ("No executor
-registered"). A registration failure fails the leg before any task is resumed,
+approval leg"; unit pin: "owns the live decision seam before it registers").
+Mastra looks the executor up only when its workflow runs the task, so a resume
+issued first raced that lookup ("No executor registered"). A registration
+failure fails the leg before any task is resumed,
 and every context the leg registered but Mastra never accepted — a registration
 or resume that failed part-way through the leg's tasks, or an abort before its
 resumes — is deregistered when the leg ends (Mastra 1.64 throws from `resume`
-only before it publishes `task.resume`, so a refusal dispatched nothing).
+only before it publishes `task.resume`, so a refusal dispatched nothing). A
+refusal drops ONLY a context the leg still owns: because the leg owns the seam
+across its whole registration window, a live decision can register and resume a
+task this leg is about to resume (nothing rejects that —
+`findGrantedBackgroundApprovals` selects on `status: 'suspended'` alone), and
+the leg's duplicate resume then fails; removing that context would strand the
+running task on the "No executor registered" failure this contract exists to
+prevent.
 The leg's pause branch joins each resumed execution (`Promise.all(settled)`),
 and a join exists only for a task Mastra accepted. A join settles when its
-executor settles, or when Mastra publishes a terminal that ends the task:
-completed, failed and timed-out follow the execution, and a cancel precedes it
-(Mastra joins the aborted execution itself under its 5s grace, as this leg's
-`manager.shutdown()` does — an in-flight `execute` returns only if the tool
-honours the abort signal). A SUSPENSION never settles a join: only a running
+executor settles, or when Mastra publishes a terminal that ends the task.
+Completed, failed and timed-out are published only AFTER the execution settled
+(`classify-outcome` runs once `run-attempt` awaited it, with no race, so a
+timeout whose tool never honours the abort publishes no terminal at all); only
+a CANCEL is published while the execution is still in flight, and Mastra then
+joins that execution under its 5s grace, as this leg's `manager.shutdown()`
+does. Because the leg can therefore close while a tool still runs, output that
+tool writes afterwards is dropped with `background_resume_output_after_close`,
+never thrown back into its execution. A SUSPENSION never settles a join: only
+a running
 executor parks, so the executor that parked is still joined after its host
 join. Before, a refused resume, a cancel before the executor ran and a cancel
 while it ran each hung the leg forever. Paired: `background-resume.spec.ts`
