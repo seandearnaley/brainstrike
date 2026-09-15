@@ -165,19 +165,22 @@ describe('readMainLogWindow', () => {
 
   it('accepts only the millisecond instants the log sink writes, so string order is time order', () => {
     const now = Date.parse('2026-09-15T03:00:00.000Z');
+    // Assert the FORMAT message: 'since'/'until' alone also appear in the
+    // ordering error, which would pass these for the wrong reason.
+    const format = 'millisecond ISO-8601 UTC instant';
     // `…00.500Z` < `…00Z` as strings: a whole-second bound would misplace sink lines.
     expect(() =>
       assertMainLogWindowRequest(
         { since: '2026-09-15T02:19:00Z', until: '2026-09-15T02:20:00.000Z' },
         now
       )
-    ).toThrow('since');
+    ).toThrow(format);
     expect(() =>
       assertMainLogWindowRequest(
         { since: '2026-09-15T02:19:00.000Z', until: '2026-09-15T02:20:00.5Z' },
         now
       )
-    ).toThrow('until');
+    ).toThrow(format);
     // Expanded-year instants round-trip through toISOString but are 27 chars,
     // and sort before every line the sink writes.
     expect(() =>
@@ -185,7 +188,7 @@ describe('readMainLogWindow', () => {
         { since: '+275760-09-13T00:00:00.000Z', until: '2026-09-15T02:20:00.000Z' },
         now
       )
-    ).toThrow('since');
+    ).toThrow(format);
   });
 
   it('rejects malformed or oversized windows', () => {
