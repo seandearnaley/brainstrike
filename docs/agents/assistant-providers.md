@@ -4858,8 +4858,10 @@ SETTLED 2026-09-15, CREATE REQUIRES CONTENT (live-app verifier runs 6 and 7,
 do not relitigate): the root created an empty titled shell "ready to receive
 the report" 25 s into the turn and wrote the report behind a SECOND approval,
 breaking the user's reading of card → approve → document appears. `create`
-now refuses a document that `isEmptyCanvasDocument` (head and comments
-stripped; svg/canvas/img/script count as content) judges empty, BEFORE any DB
+now refuses a document that `isEmptyCanvasDocument` (leading head and comments
+stripped, the head ending at `</head>` or the first non-head token since both
+head tags are optional; svg/canvas/img count as content, and script does too
+unless inside an explicit `<head>`) judges empty, BEFORE any DB
 call and at no approval cost, with the structured `empty_document` failure
 and `EMPTY_CANVAS_DOCUMENT_HINT` ("create the canvas when the content is
 ready — there is nothing to prepare"). `update`/`rewrite`/`list` are
