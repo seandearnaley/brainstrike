@@ -13,13 +13,12 @@ import { describe, expectTypeOf, it } from 'vitest';
  * at type-check, and the notice's failure path has to be revisited rather than
  * silently losing the rejection.
  */
-declare const client: AssistantClient;
-
 describe('assistant-ui thread().append contract', () => {
   it('returns void, so there is no rejection for the approval notice to catch', () => {
-    // Pinned through the call the notice actually makes — `aui.thread()` with
-    // no arguments — rather than `ReturnType<...>`, which would silently
-    // resolve the last overload if this accessor ever gained one.
-    expectTypeOf(client.thread().append).returns.toBeVoid();
+    // Type-only: `expectTypeOf` evaluates its argument, and a client exists
+    // only at runtime inside a provider. `thread` is a scope accessor on
+    // `AssistantClient` (`ClientScopes & { ... }`), not an overload set, so
+    // `ReturnType` resolves the same signature the notice calls.
+    expectTypeOf<ReturnType<AssistantClient['thread']>['append']>().returns.toBeVoid();
   });
 });
