@@ -31,6 +31,13 @@ export interface DelegatedConversationIdentity {
   readonly personaId: string;
 }
 
+/** A delegated leaf decision the host records as answered (`recordToolActionAnswers`). */
+export interface DelegatedToolActionAnswer {
+  readonly delegation: DelegatedToolActionIdentity;
+  readonly runId: string;
+  readonly toolCallId: string;
+}
+
 export interface DelegatedToolActionScope {
   /** Admission-time profile and effective budget, read from the authorized child record. */
   readonly configuration?: unknown;
@@ -163,17 +170,19 @@ export interface DelegatedConversationBinding {
   readonly recordLiveDecision?: (record: DelegatedLiveDecisionRecord) => Promise<void>;
   readonly recordPromptManifest?: (record: DelegatedPromptManifestRecord) => Promise<void>;
   /**
-   * Record a decision the HOST answered by policy (a session grant covering a
-   * parked sibling) as consumed at once. It is not a pending user decision, so
-   * it never takes the root's single active claim; the unique leaf key still
-   * forbids answering the same pause twice (settled 2026-09-14, thread-796a942d:
-   * claiming siblings hit `tool-action-already-consumed-or-root-busy`).
+   * Record the decisions a RUNNING leg answers at once — a live user decision
+   * and every parked sibling a session grant covers — as consumed, ALL OR
+   * NONE: one write that records nothing when any answer is refused, so a
+   * sibling answered concurrently can never leave the user's own pause
+   * consumed and unresumed (BST-1749 review). They are not pending user
+   * decisions, so they never take the root's single active claim; the unique
+   * leaf key still forbids answering the same pause twice (settled 2026-09-14,
+   * thread-796a942d: claiming siblings hit
+   * `tool-action-already-consumed-or-root-busy`).
    */
-  readonly recordToolActionAnswer?: (action: {
-    readonly delegation: DelegatedToolActionIdentity;
-    readonly runId: string;
-    readonly toolCallId: string;
-  }) => Promise<void>;
+  readonly recordToolActionAnswers?: (
+    actions: readonly DelegatedToolActionAnswer[]
+  ) => Promise<void>;
   readonly recordWakeup?: (record: DelegatedWakeupRecord) => Promise<void>;
   readonly registerCancellation?: (control: DelegatedCancellationControl) => () => void;
   readonly registerDecisionControl?: (control: DelegatedDecisionControl) => () => void;

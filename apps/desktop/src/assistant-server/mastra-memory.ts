@@ -310,7 +310,7 @@ async function createDesktopMastraMemoryFromCacheState({
         prepareToolAction: host.prepareToolAction,
         recordLiveDecision: host.recordLiveDecision,
         recordPromptManifest: host.recordPromptManifest,
-        recordToolActionAnswer: host.recordToolActionAnswer,
+        recordToolActionAnswers: host.recordToolActionAnswers,
         recordWakeup: host.recordWakeup,
         registerCancellation: (control) => registerDesktopDelegatedCancellation(runId, control),
         registerDecisionControl: (control) => registerDesktopDelegatedDecision(runId, control),

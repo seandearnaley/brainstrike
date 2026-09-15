@@ -432,8 +432,8 @@ export async function createBackgroundFixture(
       recordLiveDecision: async (record: DelegatedLiveDecisionRecord) => {
         liveDecisions.push(record);
       },
-      recordToolActionAnswer: async (action: { toolCallId: string; delegation: unknown }) => {
-        policyAnswers.push(action.toolCallId);
+      recordToolActionAnswers: async (actions: readonly { toolCallId: string }[]) => {
+        policyAnswers.push(...actions.map((action) => action.toolCallId));
       },
       recordWakeup: async (record: DelegatedWakeupRecord) => {
         wakeups.push({ ...record, promptsAtRecord: model.prompts.length });

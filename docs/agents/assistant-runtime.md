@@ -2970,9 +2970,16 @@ Flow (desktop assistant server → agent runtime):
    row per root (partial unique index, the serialization rule for user resumes
    across reconstructed runtimes), so claiming siblings in the same leg is
    refused with `tool-action-already-consumed-or-root-busy`. The host records
-   a policy answer through `recordToolActionAnswer` directly as `consumed`
+   a policy answer through `recordToolActionAnswers` directly as `consumed`
    under the leg (same admission guards; the unique leaf key still refuses a
    second answer; the child's history is frozen as `prepareToolAction` does).
+   ALL OR NONE (BST-1749 review): every answer a leg records at once — a live
+   user decision and each sibling its grant answers, after every leaf passes
+   the native freshness check — is ONE host transaction. A sibling refused by
+   the unique leaf key (answered concurrently) records nothing, so the user's
+   own pause stays answerable instead of consumed, unresumed and refused on
+   every retry. Paired: desktop row "a live grant refused on a sibling's
+   answer records nothing: the user's own card stays answerable".
    The agent fixture now holds one active claim and refuses a second, exactly
    like the host, and `delegated-runtime.integration.test.ts` ("a session
    grant answers the parked background sibling through the real host ledger")

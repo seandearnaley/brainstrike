@@ -10,7 +10,10 @@ import type { MastraAgentRuntime } from './agent-runtime';
 import { withBackgroundIdleLoop } from './background-idle-loop';
 import { createBackgroundLedgerSource, personaLabelFor } from './background-ledger';
 import type { BackgroundResume } from './background-resume';
-import type { DelegatedToolActionScope } from './delegated-conversation-binding';
+import type {
+  DelegatedToolActionAnswer,
+  DelegatedToolActionScope,
+} from './delegated-conversation-binding';
 import { assertDelegatedToolActionPending } from './delegated-tool-actions';
 import type { buildStreamOptions } from './runtime-assembly/stream-options';
 import type { DelegationOutcomeCapture } from './subagent-delegation';
@@ -208,20 +211,28 @@ export async function findGrantedBackgroundApprovals(params: {
 }
 
 /**
- * Record every granted approval with the host, after the same native
- * freshness check a click gets, and return the notice updates that lock
- * their cards. A policy answer is recorded as consumed outright
- * (`recordToolActionAnswer`), never as the root's single active claim:
- * claiming it too would collide with the ledger's one-active-claim-per-root
- * rule (thread-796a942d, 2026-09-14).
+ * Validate every granted approval with the same native freshness check a
+ * click gets, then record them — and a live leg's own user answer, already
+ * validated by its caller — with the host in ONE all-or-none write
+ * (`recordToolActionAnswers`), and return the notice updates that lock the
+ * siblings' cards. A refused answer (a sibling answered concurrently) records
+ * nothing, so the user's own pause stays answerable (BST-1749 review). An
+ * answer is recorded as consumed outright, never as the root's single active
+ * claim: claiming it too would collide with the ledger's
+ * one-active-claim-per-root rule (thread-796a942d, 2026-09-14).
  */
 export async function recordGrantedBackgroundApprovals(params: {
+  /** A live leg's own user answer, recorded in the same write as the siblings. */
+  readonly explicit?: DelegatedToolActionAnswer;
   readonly granted: readonly GrantedBackgroundApproval[];
   readonly runtime: Pick<MastraAgentRuntime, 'agent' | 'conversationBinding'>;
 }): Promise<readonly StreamChunkToolApprovalAnswered[]> {
-  const { granted, runtime } = params;
-  const record = runtime.conversationBinding?.recordToolActionAnswer;
-  if (granted.length > 0 && !record) {
+  const { explicit, granted, runtime } = params;
+  if (!explicit && granted.length === 0) {
+    return [];
+  }
+  const record = runtime.conversationBinding?.recordToolActionAnswers;
+  if (!record) {
     throw new Error('Granted background approvals require host-owned answer records.');
   }
   for (const entry of granted) {
@@ -231,12 +242,15 @@ export async function recordGrantedBackgroundApprovals(params: {
       binding: runtime.conversationBinding,
       requiresApproval: true,
     });
-    await record?.({
-      delegation: entry.action.delegation,
-      runId: entry.action.runId,
-      toolCallId: entry.action.toolCallId,
-    });
   }
+  await record([
+    ...(explicit ? [explicit] : []),
+    ...granted.map(({ action }) => ({
+      delegation: action.delegation,
+      runId: action.runId,
+      toolCallId: action.toolCallId,
+    })),
+  ]);
   if (granted.length > 0) {
     logger.info('Session grant answers parked background children', {
       code: 'background_granted_approvals',
