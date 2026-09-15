@@ -1010,4 +1010,27 @@ describe('desktop delegated conversation authority', () => {
     );
     error.mockRestore();
   });
+
+  it('refuses a batch that answers the same leaf twice and records nothing', async () => {
+    // BST-1749, PR #3209 review: the batch is built as `[explicit, ...granted]`
+    // with no dedupe, so one write could carry the same leaf twice — the second
+    // row hit the unique leaf key and rolled back the user's own answer under a
+    // reason that reads like a concurrent answer.
+    const host = createBudgetedHost(database, 'initial-leg');
+    await host.persist(identity);
+    await host.bindRun(run);
+    const answer = {
+      delegation: { path: [run], toolCallId: 'read-1' },
+      runId: run.parentRuntimeRunId,
+      toolCallId: run.parentToolCallId,
+    };
+    await expect(host.recordToolActionAnswers([answer, answer])).rejects.toMatchObject({
+      reason: 'tool-action-answer-duplicate',
+    });
+    expect(
+      (await database.query('SELECT id FROM brainstrike_delegated_tool_decisions')).rows
+    ).toEqual([]);
+    // The same leaf answered once still records.
+    await expect(host.recordToolActionAnswers([answer])).resolves.toBeUndefined();
+  });
 });

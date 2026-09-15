@@ -158,12 +158,13 @@ function rememberedDecisionRecord(input: {
  *
  * `deliver`: the explicit decision is validated against the live native
  * snapshot exactly as a click on a new leg would be, as is every parked
- * sibling the request's fresh snapshot now allows; then the decision and
- * those siblings are recorded with the host as consumed in ONE all-or-none
- * write (never the root's single active claim — the leg may hold that claim
- * already; a refused sibling records nothing), the answers are published on the leg's
- * own stream so every card locks, and the owning phase resumes the tasks
- * in-process. A lasting grant is remembered once the records succeed and
+ * sibling the request's fresh snapshot now allows (one a durable decision
+ * already answered is skipped, not refused); then the decision and those
+ * siblings are recorded with the host as consumed in ONE all-or-none write
+ * (never the root's single active claim — the leg may hold that claim
+ * already; a refused answer records nothing), the answers are published on
+ * the leg's own stream so every card locks, and the owning phase resumes the
+ * tasks in-process. A lasting grant is remembered once the records succeed and
  * BEFORE the in-process resume; from then on every ask tool's function-form
  * flag (approval-gate.ts) lets each later call the grant allows run without
  * a pause — the user granted reads for the session; a fifth specialist's

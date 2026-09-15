@@ -31,6 +31,12 @@ export interface DelegatedConversationIdentity {
   readonly personaId: string;
 }
 
+/** The native leaf a delegated decision addresses, as the ledger keys it. */
+export interface DelegatedToolActionLeaf {
+  readonly childRuntimeRunId: string;
+  readonly toolCallId: string;
+}
+
 /** A delegated leaf decision the host records as answered (`recordToolActionAnswers`). */
 export interface DelegatedToolActionAnswer {
   readonly delegation: DelegatedToolActionIdentity;
@@ -167,14 +173,25 @@ export interface DelegatedConversationBinding {
    * authority. The host logs a failed write with a code and resolves — a
    * diagnostic record never fails the leg (swarm diagnostics plan, ruling 4).
    */
+  /**
+   * The leaves among `leaves` that already carry a durable decision (claimed,
+   * consumed or interrupted — none can be answered again, BST-1720). A session
+   * grant skips such a sibling instead of refusing the user's own click over
+   * it: an answered leaf is a legitimate state that needs no second answer
+   * (BST-1749, PR #3209 review).
+   */
+  readonly readAnsweredToolActionLeaves?: (
+    leaves: readonly DelegatedToolActionLeaf[]
+  ) => Promise<readonly DelegatedToolActionLeaf[]>;
   readonly recordLiveDecision?: (record: DelegatedLiveDecisionRecord) => Promise<void>;
   readonly recordPromptManifest?: (record: DelegatedPromptManifestRecord) => Promise<void>;
   /**
    * Record the decisions a RUNNING leg answers at once — a live user decision
    * and every parked sibling a session grant covers — as consumed, ALL OR
    * NONE: one write that records nothing when any answer is refused, so a
-   * sibling answered concurrently can never leave the user's own pause
-   * consumed and unresumed (BST-1749 review). They are not pending user
+   * refused sibling can never leave the user's own pause consumed and
+   * unresumed (BST-1749 review). The batch names each leaf at most once, and
+   * the host requires a transaction. They are not pending user
    * decisions, so they never take the root's single active claim; the unique
    * leaf key still forbids answering the same pause twice (settled 2026-09-14,
    * thread-796a942d: claiming siblings hit

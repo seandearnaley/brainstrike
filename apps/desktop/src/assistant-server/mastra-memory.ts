@@ -308,6 +308,7 @@ async function createDesktopMastraMemoryFromCacheState({
         continuation: host.continuation,
         finishToolActions: host.finishToolActions,
         prepareToolAction: host.prepareToolAction,
+        readAnsweredToolActionLeaves: host.readAnsweredToolActionLeaves,
         recordLiveDecision: host.recordLiveDecision,
         recordPromptManifest: host.recordPromptManifest,
         recordToolActionAnswers: host.recordToolActionAnswers,

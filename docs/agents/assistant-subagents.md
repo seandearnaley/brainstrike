@@ -1193,11 +1193,15 @@ The record describes admission, not whether a tool effect succeeded. If the
 post-admission snapshot recheck fails before native resume is invoked, the host
 rolls back only that binding's matching unexecuted claim and propagates the
 failure; so does any later failure before the approval leg invokes native
-resume — locating the parked task or answering the parked siblings its grant
-covers (`claimGrantedBackgroundResumes`). Left to disposal, `finishToolActions`
-consumed the never-executed claim and refused the still-parked card for good
-(BST-1749 review; desktop row "an approval leg whose granted sibling is refused
-releases the user's claim"). Subsequent native failures or cancellation do not release the leaf:
+resume — locating the parked task or answering the parked siblings its
+grant covers (`beforeDelegatedToolActionResume` around
+`claimGrantedBackgroundResumes`, which releases through the owner that took
+the claim: the continuation host for a child continuation decision, the
+delegated ledger otherwise). Left to disposal, `finishToolActions` consumed
+the never-executed claim and refused the still-parked card for good
+(BST-1749 review; desktop row "an approval leg whose granted sibling is
+refused releases the user's claim", `delegated-tool-actions.spec.ts`).
+Subsequent native failures or cancellation do not release the leaf:
 the effect may already have occurred. Disposal attempts all cleanup owners in
 order and preserves multiple failures in an `AggregateError`; it never logs
 and swallows a failed decision settlement. Construction failures on every
@@ -2042,10 +2046,11 @@ resumed or released); `live-decisions.ts` `armLiveDecisions` (every leg arms
 it: validates against the live native snapshot exactly as a click would,
 validates the parked siblings the request's FRESH snapshot allows via
 `allowedBySnapshot` the same way, records the answer and theirs with the host
-as consumed in ONE all-or-none write (`recordToolActionAnswers`: a sibling
-refused by the unique leaf key records nothing, so the user's pause stays
-answerable; BST-1749 review) — never the root's single active claim, the leg
-may hold that already — publishes the
+as consumed in ONE all-or-none write (`recordToolActionAnswers`: a refused
+answer records nothing, so the user's pause stays answerable; a sibling whose
+leaf a durable decision already answered is SKIPPED by discovery rather than
+refusing the leg; BST-1749 and PR #3209 reviews) — never the root's single
+active claim, the leg may hold that already — publishes the
 `tool-approval-answered` chunks on the leg's own stream, resumes in-process
 through `manager.resume`, and REMEMBERS a lasting grant so every ask tool's
 live flag lets each later call the grant allows run without parking (SESSION

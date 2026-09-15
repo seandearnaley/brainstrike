@@ -34,7 +34,7 @@ import {
   streamAttemptChunks,
 } from './agent-streaming';
 import { resolveRequireToolApproval } from './approval-gate';
-import { claimGrantedBackgroundResumes, driveBackgroundWork } from './background-granted-approvals';
+import { driveBackgroundWork, prepareApprovalResume } from './background-granted-approvals';
 import { repairBackgroundResults, restoreLateBackgroundResults } from './background-results';
 import { createBackgroundResumeStream, findPendingBackgroundTask } from './background-resume';
 import { stopBackgroundTree } from './background-stop';
@@ -564,40 +564,21 @@ async function createToolApprovalTurnAttempt({
     });
     // Native resume is not invoked until the stream below, so a failure here
     // releases the claim rather than letting disposal consume it.
-    const { answeredApprovals, backgroundTask, resumes } = await beforeDelegatedToolActionResume(
-      action,
-      runtime.conversationBinding,
-      async () => {
-        streamAbortContext.signal.throwIfAborted();
-        const task = await findPendingBackgroundTask(
-          runtime.backgroundTaskManager,
-          runtimeData?.memory,
-          action
-        );
-        if (!task) {
-          return { answeredApprovals: [], backgroundTask: undefined, resumes: [] };
-        }
-        if (!memory) {
-          throw new Error('Background resume requires durable memory.');
-        }
-        // A session grant recorded with this approval reaches the runtime as its
-        // permission snapshot; every parked sibling that snapshot now allows is
-        // answered and resumed in this same leg (see background-granted-approvals).
-        return {
-          backgroundTask: task,
-          ...(await claimGrantedBackgroundResumes({
-            decision: { resumeData: { approved: action.action === 'approve' }, task },
+    const { answeredApprovals, backgroundTask, late, resumes } =
+      await beforeDelegatedToolActionResume(
+        action,
+        runtime.conversationBinding,
+        { requiresApproval: true },
+        () =>
+          prepareApprovalResume({
+            action,
+            hasDurableMemory: Boolean(memory),
             runtime,
             runtimeData,
-          })),
-        };
-      }
-    );
-    const late = backgroundTask
-      ? []
-      : await readLateBackgroundResults(runtime, runtimeData, action.runId);
+            signal: streamAbortContext.signal,
+          })
+      );
     const resumedOptions = withLateBackgroundResults(approvalOptions, late);
-    await recordLateOverlayWakeup(runtime, late);
     const streamResult =
       backgroundTask && memory
         ? createBackgroundResumeStream({

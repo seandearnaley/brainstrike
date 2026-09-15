@@ -304,6 +304,9 @@ export function createDesktopDelegatedConversationHost(
   resolveToolAction: NonNullable<DelegatedConversationBinding['resolveToolAction']>;
   resolveParkedInvocation: NonNullable<DelegatedConversationBinding['resolveParkedInvocation']>;
   recordToolActionAnswers: NonNullable<DelegatedConversationBinding['recordToolActionAnswers']>;
+  readAnsweredToolActionLeaves: NonNullable<
+    DelegatedConversationBinding['readAnsweredToolActionLeaves']
+  >;
   recordPromptManifest(record: PromptManifestRecord): Promise<void>;
   recordWakeup(record: WakeupRecord): Promise<void>;
   recordLiveDecision(record: LiveDecisionRecord): Promise<void>;
@@ -638,6 +641,31 @@ export function createDesktopDelegatedConversationHost(
         baselines.set(baseline.threadId, baseline);
       }
     },
+    async readAnsweredToolActionLeaves(leaves) {
+      if (leaves.length === 0) {
+        return [];
+      }
+      const scope = await readScope();
+      // Any durable state answers the leaf: claimed, consumed and interrupted
+      // all mean the decision cannot be submitted again (BST-1720).
+      const answered = await database.query(
+        `SELECT decision.child_runtime_run_id AS "childRuntimeRunId",
+           decision.tool_call_id AS "toolCallId"
+         FROM brainstrike_delegated_tool_decisions AS decision
+         JOIN jsonb_array_elements($3::jsonb) AS probe(leaf)
+           ON decision.child_runtime_run_id = probe.leaf->>0
+           AND decision.tool_call_id = probe.leaf->>1
+         WHERE decision.owner_resource_id = $1 AND decision.root_thread_id = $2`,
+        [
+          scope.ownerResourceId,
+          scope.rootThreadId,
+          JSON.stringify(leaves.map((leaf) => [leaf.childRuntimeRunId, leaf.toolCallId])),
+        ]
+      );
+      return z
+        .array(z.object({ childRuntimeRunId: identityString, toolCallId: identityString }))
+        .parse(answered.rows);
+    },
     recordLiveDecision: (record) =>
       recordSwarmDiagnostic(hostRunId, 'live-decision', () =>
         recordLiveDecision(database, hostRunId, record)
@@ -651,26 +679,43 @@ export function createDesktopDelegatedConversationHost(
         return;
       }
       if (!database.transaction) {
-        throw new Error('Delegated answers require the database transaction capability.');
+        throw new DelegatedConversationIdentityError('host-transaction-unavailable');
       }
-      const scope = await readScope();
-      const answers = await Promise.all(
-        actions.map(async (action) => {
-          const scopes = await host.resolveToolAction(action);
-          const leaf = scopes.at(-1);
-          if (!leaf) {
-            throw new DelegatedConversationIdentityError('tool-action-leaf-identity-required');
-          }
-          return { action, leaf, scopes };
-        })
-      );
+      const [scope, answers] = await Promise.all([
+        readScope(),
+        Promise.all(
+          actions.map(async (action) => {
+            const scopes = await host.resolveToolAction(action);
+            const leaf = scopes.at(-1);
+            if (!leaf) {
+              throw new DelegatedConversationIdentityError('tool-action-leaf-identity-required');
+            }
+            return { action, leaf, scopes };
+          })
+        ),
+      ]);
+      // One batch answers each leaf at most once: a repeated leaf would refuse
+      // itself on the unique key and roll back every other answer with it.
+      const answeredLeaves = new Set<string>();
+      const threads = new Map<string, DelegatedToolActionScope>();
+      for (const { action, leaf, scopes } of answers) {
+        const key = JSON.stringify([leaf.identity.childRuntimeRunId, action.delegation.toolCallId]);
+        if (answeredLeaves.has(key)) {
+          throw new DelegatedConversationIdentityError('tool-action-answer-duplicate');
+        }
+        answeredLeaves.add(key);
+        for (const target of scopes) {
+          threads.set(target.threadId, target);
+        }
+      }
       // Freeze each child's history at the answer, as `prepareToolAction` does
       // for the claimed decision, so its resumed leg starts from a boundary. A
       // parked child's history does not move, so it is read BEFORE the rows
-      // commit and kept only after: a failed read records nothing.
+      // commit and kept only after: a failed read records nothing. Each thread
+      // is read once, however many answers name it.
       const captured = await Promise.all(
-        answers.flatMap(({ scopes }) =>
-          scopes.map((target) => captureHistory(target.threadId, target.resourceId, false))
+        [...threads.values()].map((target) =>
+          captureHistory(target.threadId, target.resourceId, false)
         )
       );
       // An answer is terminal the moment it is recorded: it joins the ledger
