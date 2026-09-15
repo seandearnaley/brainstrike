@@ -1,3 +1,4 @@
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { createDelegatedConversationRepository, runDrizzleMigrations } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import { createLogger } from '@brainstrike/logging';
@@ -320,6 +321,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
             },
           ],
         ]),
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       });
       const { parent, effect } = tree({
         childInputProcessor: binding.inputProcessor,
@@ -620,7 +622,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
             return {
               ...result,
               chunks: result.chunks.map((chunk) => {
-                if (chunk.type === 'delegated-conversation-chunk') {
+                if (
+                  chunk.type === 'delegated-conversation-chunk' ||
+                  chunk.type === 'child-continuation-chunk'
+                ) {
                   throw new Error('Child projection cannot contain an already-scoped chunk.');
                 }
                 return chunk;
@@ -651,7 +656,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       expect(
         pausedProjection?.finalize((state) =>
           makeDelegatedStreamTermination(state, false).map((chunk) => {
-            if (chunk.type === 'delegated-conversation-chunk') {
+            if (
+              chunk.type === 'delegated-conversation-chunk' ||
+              chunk.type === 'child-continuation-chunk'
+            ) {
               throw new Error('Child terminal cannot contain an already-scoped chunk.');
             }
             return chunk;
@@ -728,6 +736,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
           },
         ],
       ]),
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     const { parent } = tree({ delegation: config });
     const output = await parent.stream('Find evidence');

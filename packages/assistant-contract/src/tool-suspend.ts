@@ -109,6 +109,7 @@ export const UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND =
  * narrows it by `toolName`.
  */
 export interface AssistantToolSuspendRequest {
+  continuationId?: string;
   delegation?: DelegatedToolActionIdentity;
   /** Optional JSON-schema echo of the tool's resumeSchema, for UX/debugging. */
   resumeSchema?: unknown;
@@ -179,6 +180,7 @@ export function isRediscoveredToolSuspend(value: unknown): value is Rediscovered
  * as `unknown`; Mastra validates it against the tool's `resumeSchema` on resume.
  */
 export interface AssistantToolResumeAction {
+  continuationId?: string;
   delegation?: DelegatedToolActionIdentity;
   resumeData: unknown;
   runId: string;
@@ -191,6 +193,7 @@ export type ToolResumeRunConfigActionReadResult =
   | { readonly invalid: true };
 
 const TOOL_RESUME_ACTION_OWN_KEYS = new Set<PropertyKey>([
+  'continuationId',
   'delegation',
   'resumeData',
   'runId',

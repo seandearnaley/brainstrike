@@ -319,6 +319,19 @@ Windowing and performance:
   previous build's row objects — and the previous rows ARRAY when nothing
   changed — so untouched rows keep identity across expansion/loading rebuilds.
   Do not reintroduce per-build `{ ...node }` spreads in the row builders.
+- Explicit file-tree selection prepares absolute/root-relative/bare-relative
+  composite lookup keys once per node identity, shared by file rows and loaded
+  child traversal (`optimized-file-tree-selection-store.test.ts`). Its WeakMap
+  retains at most one projection per live node and replaces that projection
+  when its folder or path changes; removed and reloaded nodes do not accumulate
+  in a strong path cache. Callers must pass the stable source/materialized node
+  identity. Retaining its small key array for the node's lifetime is an
+  intentional memory trade for avoiding repeated allocation. Each read still
+  checks the current selection Set; parity with the core
+  `isPathSelectedInFolder` predicate is pinned in the selection-counts tests.
+  Never cache checkbox membership in the alias projection or change the path
+  candidates used by deselection. The 10,000-node operation-count regression
+  pins that selection changes do not repeat unchanged nodes' path preparation.
 - Expansion state is one workspace-global set across all forest roots. Each
   tree section selects it THROUGH `scopeExpandedPathsToRoot` (settled
   root-scoping semantics shared with persisted-expansion restoration, see
@@ -834,17 +847,38 @@ never carries the state.
 
 ---
 
+### Approval surfaces
+
+Approval cards and rows (`approval-card.tsx`, `approval-row.tsx`) follow the
+step-row grammar for the collapsed form — rail(s) · persona · requested action
+· target chip · status chip · chevron — with geometry owned by
+`overrides.css` (`.bs-approval*`), never utilities. Delegation identity is a
+colour rail from the eight `--bs-delegation-N` tokens (light on `:root`, dark
+under `.dark`, `packages/ui/src/globals.css`), picked by a stable FNV-1a hash
+of the delegation call id (`delegation-colour.ts`) so a reloaded thread keeps
+its colours. Colour is never the only signal: the persona chain text and the
+status chip text always accompany a rail, and a root pause has no rail at
+all. Nesting is `--bs-approval-depth` (1.25rem per level) plus one rail per
+ancestor edge; it never re-parents DOM. The row's toggle is named by its
+visible content with the affordance trailing ("Explorer listed apps/desktop,
+show approval details"), the same Label-in-Name rule as step rows.
+
+---
+
 ## Delegated conversation navigation (BST-1724 / BST-1725)
 
 - Navigation slice: child cards/tab titles use durable callsigns, with persona role kept separate.
 - Breadcrumbs follow validated native owner/root/parent bindings; returning focuses the originating delegation button while mounted, otherwise the canonical destination tab.
-- Root thread filters/search/sort and folders choose the visible roots; child rows remain beneath those roots in durable creation order, never independently selected/reparented by root bulk actions.
+- Root thread filters/sort and folders choose the visible roots; child rows remain beneath those roots in durable creation order, never independently selected/reparented by root bulk actions.
+- Search includes owned descendants, with one keyboard-selectable option per matched message. Activation revalidates native ancestry and message ownership, activates the owning root through the saved-workspace coordinator, then opens the singleton child tab. Child titles use the durable callsign.
+- An older child search match explicitly pages native history backwards in 80-row pages; default hydration stays at 80. The shared transcript focuses the rendered message containing the exact native hit, including coalesced assistant snapshots. Search never appends a message or restarts work.
 - Child disclosure is lazy in the shared virtual TreeTable, fifty children initially with explicit Show more.
 - Closing a disclosure releases its descendant subscriptions and reopening revalidates metadata.
 - Listing rows never mounts child transcripts; only explicitly activated workspace tabs do, using the existing keep-alive/close semantics.
 - Read receipts belong to the ephemeral root store, so virtual row unmount does not invent unread activity.
 - Reload derives pending decisions from the existing authoritative discovery path; opening/closing/reopening never starts a model.
-- Archive/delete remain the native root-scoped persistence operations and closed/reopened child tabs reauthorize before reading history.
+- Expanded sidebar parents use that same discovery result, validated against each native invocation, to restore Needs input after renderer restart without mounting transcripts. Only pauses without a durable decision mark Needs input; claimed, consumed, interrupted and cancelled decisions are non-actionable even when stale. Each expanded parent makes one discovery request, and unavailable or conflicting discovery renders an explicit list error. Current live child status takes precedence over the saved attention snapshot.
+- Closing a child tab is reversible and reauthorizes before reading history on reopen. Native thread deletion permanently removes the selected subtree and saved conversation data. Neither root nor child threads currently offer an archive operation.
 - Free-form steering remains BST-1723 acceptance, not claimed by this slice.
 
 Paired acceptance: `delegated-workspace-reload.desktop.test.ts`, `delegated-worker-write.desktop.test.ts`, `delegated-sidebar-lifecycle.test.tsx`, `delegated-sidebar-rows.test.ts`, `delegated-conversation-ancestry.test.ts`, and `delegated-conversation-store.test.ts`.

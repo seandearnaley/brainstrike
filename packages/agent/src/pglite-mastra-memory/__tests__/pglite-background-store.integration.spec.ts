@@ -125,9 +125,11 @@ it('limits native manager recovery and every task operation to its conversation 
     expect(await store.getRunningCount()).toBe(0);
     expect(await store.getRunningCountByAgent('parent')).toBe(0);
     await expect(store.createTask(task('foreign-create'))).rejects.toThrow(/owner/);
-    await expect(
-      store.createTask({ ...task('replayed-write'), maxRetries: 1, threadId: 'root-b' })
-    ).rejects.toThrow(/retries/);
+    // A model-requested retry count (Mastra's prompt advertises it) is pinned
+    // to the host policy of none, so the delegation still dispatches (BST-1749).
+    await store.createTask({ ...task('replayed-write'), maxRetries: 1, threadId: 'root-b' });
+    expect(await store.getTask('replayed-write')).toMatchObject({ maxRetries: 0 });
+    // No host path may re-arm retries on an existing task.
     await expect(store.updateTask('own-root', { maxRetries: 1 })).rejects.toThrow(/retries/);
     await store.deleteTasks({ threadId: 'root' });
     await store.dangerouslyClearAll();

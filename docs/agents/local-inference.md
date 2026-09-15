@@ -440,6 +440,37 @@ Embedding runtime telemetry (BST-402):
   A validated request-scoped worker error is
   terminal: the workerpool adapter emits it for diagnostics, cancels the RPC, and rejects
   the task even if the worker later tries to return vectors.
+  Embedding-host Stop joins any pending startup before acknowledging `stopped`.
+  A startup that finishes during Stop yields its controller to that stop owner;
+  startup failures remain logged but cannot publish a competing terminal status
+  for an operation Stop is still draining. New starts await the tracked stop, and
+  no stop acknowledgement leaves a late-starting worker behind.
+  A database-owner change joins the previous worker's Stop. A failed join reports
+  an error and does not start the replacement worker. Effect disposal logs its
+  rejection, and reset reports its failure; neither leaves a detached rejected
+  lifecycle promise.
+  Stop terminal reports echo the existing control request ID. Main matches that
+  ID, so a queued startup error or prior stop cannot settle another command;
+  an actual stop failure reports the same identity and fails visibly.
+  Reset drain failures also echo their exact request ID under the original runtime
+  ID: main accepts that owned failure while awaiting the proposed next runtime,
+  preserves the original error, and destroys the failed owner before any new start.
+  A reported replacement-start failure also retires that renderer. A later Start
+  creates a fresh host; an unsuccessful Stop never authorizes reusing uncertain work.
+  The renderer's command subscription survives database-worker Effect replacement.
+  Stop joins the last worker's drain even while no DB is mounted, and an explicit
+  Stop fences later DB-driven starts until an authorized reset or a fresh renderer.
+  Reset requires a current DB owner; it never restarts through a retired DB Effect.
+  An unrelated old-runtime error cannot settle reset. Closing or destroying an
+  owned host rejects its pending lifecycle waits immediately with an explicit
+  window-closed error; disappearance is not a fabricated successful Stop ack.
+  The shared vector UI projects out only the host's `commandId` acknowledgement
+  when storing desktop status (initial read, subscription, start/reset/stop).
+  Host acknowledgement matching retains the field; unknown UI status extensions
+  still fail canonical validation, and embedding metadata remains intact.
+  A trusted status report also proves the renderer registered its control listener.
+  Disposal cooperatively drains that renderer even while worker startup is pending;
+  only a startup that has never reported readiness is destroyed without an ack.
   Controlled host restarts publish a metadata-free `starting`
   transition and retain the latest valid snapshot, while terminal `stopped` and `error`
   states clear it. The
@@ -748,7 +779,10 @@ Disposing an embedding host during `starting` cancels its lifecycle directly:
 the renderer may still be awaiting DB setup and have no command listener yet.
 Do not send Stop and wait for its acknowledgement in that state. The existing
 lifecycle disposal destroys the owned window and rejects startup/status waiters;
-a running host still uses its normal worker Stop protocol. Manager/lifecycle
+a running host still uses its normal worker Stop protocol with a 3s acknowledgement
+bound inside the application's unchanged 5s shutdown deadline. Missing acknowledgement
+or an explicit renderer error destroys the owned renderer and remains a reported
+stop failure. Manager/lifecycle
 unit tests and the delegated worker's real restart test cover this boundary;
 the latter requires both Electron processes to exit cleanly with code zero.
 

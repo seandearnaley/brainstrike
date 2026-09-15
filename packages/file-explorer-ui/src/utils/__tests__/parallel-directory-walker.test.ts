@@ -312,6 +312,7 @@ describe('walkDirectoryParallel', () => {
   });
 
   it('uses canonical entry handle paths for web child directory reads while preserving relative node paths', async () => {
+    const rawDirectory = { kind: 'directory', name: 'docs' };
     const webRootHandle: DirectoryHandle = {
       _internal: undefined,
       kind: 'directory',
@@ -325,11 +326,12 @@ describe('walkDirectoryParallel', () => {
           {
             ...createDirectoryEntry('docs', 'web-root/docs'),
             handle: {
+              _internal: rawDirectory,
               kind: 'directory',
               name: 'docs',
               path: 'web-root/docs',
               platform: 'web',
-            } as unknown as IFileNode['handle'],
+            },
           },
         ];
       }
@@ -341,7 +343,9 @@ describe('walkDirectoryParallel', () => {
 
     const tree = await walkDirectoryParallel(createFileSystemAdapter(readDirectory), webRootHandle);
 
-    expect(readDirectory).toHaveBeenCalledWith(expect.objectContaining({ path: 'web-root/docs' }));
+    expect(readDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({ _internal: rawDirectory, path: 'web-root/docs' })
+    );
     expect(tree).toEqual([
       expect.objectContaining({
         children: [

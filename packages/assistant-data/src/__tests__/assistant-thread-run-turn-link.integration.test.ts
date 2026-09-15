@@ -11,7 +11,11 @@
  * docs/agents/assistant-persistence.md § RUN-EVENT / THREAD-RUN SCHEMA
  * OWNERSHIP).
  */
-import { migrate } from '@brainstrike/db';
+import {
+  createDelegatedContinuationRepository,
+  createDelegatedConversationRepository,
+  migrate,
+} from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';
 import { createPgliteAssistantThreadRepository } from '../assistant-memory-repository';
@@ -49,6 +53,67 @@ describe('assistant thread run turn link (real PGlite, BST-1163)', () => {
       ['run-1']
     );
     expect(row.rows[0]?.turnMessageId).toBe('msg-user-1');
+  });
+
+  it('resolves a resumed child decision from its authorized receipt before inserting the new host run', async () => {
+    const db = await createMigratedTestPGlite(createPgliteTestDataDir('continuation-turn'));
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const root = await repository.createThread('owner');
+    const child = await repository.createThread('child-resource');
+    const scope = { ownerResourceId: 'owner', rootThreadId: root.id };
+    const graph = createDelegatedConversationRepository(db);
+    await graph.registerRoot(scope);
+    await graph.createChild(scope, {
+      color: 'blue',
+      configuration: { maxSteps: 5 },
+      displayName: 'Child',
+      parentThreadId: root.id,
+      resourceId: 'child-resource',
+      threadId: child.id,
+    });
+    const base = {
+      model: 'test',
+      provider: 'openai',
+      resourceId: 'owner',
+      runtimeKind: 'hosted' as const,
+      threadId: root.id,
+    };
+    await repository.createThreadRun({
+      ...base,
+      id: 'original-host',
+      turnMessageId: 'original-child-input',
+    });
+    const receipts = createDelegatedContinuationRepository(db, scope, 'original-host');
+    await receipts.prepare({ id: 'receipt', text: 'Continue', threadId: child.id });
+    await receipts.bind('receipt', 'native-child');
+    await receipts.finish('receipt', 'awaiting-approval');
+    await repository.completeThreadRun('original-host', { status: 'completed' });
+    const target = { id: 'receipt', nativeRunId: 'native-child' };
+    const resumed = await repository.createThreadRun({
+      ...base,
+      childContinuation: target,
+      id: 'resume-host',
+      turnMessageId: 'unrelated-parent-message',
+    });
+    expect(resumed.turnMessageId).toBe('original-child-input');
+    expect(
+      (
+        await db.query(
+          "SELECT turn_message_id FROM brainstrike_assistant_thread_runs WHERE id='resume-host'"
+        )
+      ).rows
+    ).toEqual([{ turn_message_id: 'original-child-input' }]);
+    await expect(
+      repository.createThreadRun({
+        ...base,
+        childContinuation: { ...target, nativeRunId: 'wrong-native' },
+        id: 'forged-host',
+      })
+    ).rejects.toThrow();
+    expect(
+      (await db.query("SELECT id FROM brainstrike_assistant_thread_runs WHERE id='forged-host'"))
+        .rows
+    ).toEqual([]);
   });
 
   it('persists NULL when no turn message id is in hand (legacy/edge callers)', async () => {

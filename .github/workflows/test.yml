@@ -1031,8 +1031,17 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
 
-  desktop-e2e:
-    name: Desktop E2E
+  # BST-1762: desktop smoke runs as two lanes on separate runners. One serial
+  # lane of 47 passing cases took 722-871 s of its 900 s Playwright ceiling
+  # across 24 green runs (2026-09-12..15) and timed out at 898 s in run
+  # 34988958978. Per-case CI means summed to 466 s for the delegated specs and
+  # 337 s for every other spec, so each lane gets its own runner and 900 s
+  # ceiling. The required `Desktop E2E` check is the fan-in after them, so the
+  # ruleset is unchanged.
+  # Lane spec lists and this job graph are pinned by
+  # scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs.
+  desktop-e2e-smoke:
+    name: Desktop E2E (smoke)
     if: >-
       always() &&
       (
@@ -1055,7 +1064,7 @@ jobs:
       - name: Require successful admission
         if: needs.admission.result != 'success'
         run: |
-          echo "::error::Quiet-head admission failed; refusing to skip the required Desktop E2E check."
+          echo "::error::Quiet-head admission failed; refusing to skip the desktop smoke lane."
           exit 1
 
       - name: Checkout
@@ -1127,6 +1136,119 @@ jobs:
           path: apps/desktop/blob-report/
           retention-days: 1
           if-no-files-found: warn
+
+  # Same provisioning as desktop-e2e-smoke; its step comments explain each step.
+  desktop-e2e-delegated:
+    name: Desktop E2E (delegated smoke)
+    if: >-
+      always() &&
+      (
+        needs.admission.result != 'success' ||
+        (
+          github.event_name != 'workflow_dispatch' &&
+          needs.admission.outputs.admitted == 'true' &&
+          needs.build.result == 'success'
+        )
+      )
+    needs: [admission, build]
+    runs-on: ubicloud-standard-4
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      CI: "true"
+      ELECTRON_ENABLE_STACK_DUMPING: "false"
+      ELECTRON_DISABLE_GPU: "1"
+    steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the desktop delegated smoke lane."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
+      - name: Install Chromium system dependencies
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Provision Electron binary
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
+          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
+
+      - name: Run desktop delegated smoke
+        working-directory: apps/desktop
+        run: dbus-run-session -- pnpm run test:e2e:lane:smoke-delegated
+
+      - name: Upload desktop delegated smoke traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-smoke-delegated-test-results
+          path: apps/desktop/blob-report/
+          retention-days: 1
+          if-no-files-found: warn
+
+  # Fan-in job preserving the required-check name "Desktop E2E" over both smoke
+  # lanes, like `unit` over `unit-shard`. It carries the lanes' exact condition,
+  # so it skips exactly when they skip (not admitted, failed build, manual
+  # dispatch) and fails when admission failed or any lane did not succeed.
+  desktop-e2e:
+    name: Desktop E2E
+    if: >-
+      always() &&
+      (
+        needs.admission.result != 'success' ||
+        (
+          github.event_name != 'workflow_dispatch' &&
+          needs.admission.outputs.admitted == 'true' &&
+          needs.build.result == 'success'
+        )
+      )
+    needs: [admission, build, desktop-e2e-smoke, desktop-e2e-delegated]
+    # Reads two dependency results and completes in seconds, so it uses the
+    # same slim runner as the Unit fan-in.
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the required Desktop E2E check."
+          exit 1
+
+      - name: Check lane results
+        env:
+          LANE_RESULTS: ${{ needs.desktop-e2e-smoke.result }} ${{ needs.desktop-e2e-delegated.result }}
+        run: |
+          echo "Desktop smoke lane results: $LANE_RESULTS"
+          if [ "$LANE_RESULTS" != "success success" ]; then
+            echo "::error::Desktop smoke lanes did not all succeed: $LANE_RESULTS"
+            exit 1
+          fi
 
   # BST-1301: make a red `main` announce itself.
   #

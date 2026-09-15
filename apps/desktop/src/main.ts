@@ -1,7 +1,11 @@
+// Side-effect import, deliberately FIRST: wraps WebAssembly before any other
+// import (PGlite, tokenizers, xxhash-wasm) can instantiate a module.
+import './diagnostics/install-webassembly-counter';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
+import { MASTRA_BACKGROUND_TASKS_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import {
@@ -48,6 +52,7 @@ import { createBrowserIpcHandlers } from './browser-ipc-handlers';
 import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
+import { closeDesktopRenderers } from './close-desktop-renderers';
 import { createWindow, noteNextWindowReload } from './create-window';
 import {
   createDesktopDatabaseMaintenanceScheduler,
@@ -83,6 +88,7 @@ import {
   listErrorLogFilePaths,
 } from './diagnostics/error-log-sink';
 import { resolveMainLogTransportPath } from './diagnostics/main-log-transport-path';
+import { readMainLogWindow } from './diagnostics/main-log-window';
 import { MAIN_WATCHDOG_CHECK_INTERVAL_MS } from './diagnostics/main-watchdog-core';
 import { resolveMainWatchdogWorkerPath } from './diagnostics/main-watchdog-path';
 import {
@@ -91,7 +97,13 @@ import {
   createMainWatchdogRuntime,
   runMainWatchdogPowerTransition,
 } from './diagnostics/main-watchdog-runtime';
+import {
+  PROCESS_COUNTER_RING_CAPACITY,
+  ProcessCounterRing,
+  type ProcessCounterSample,
+} from './diagnostics/process-counter-ring';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-file-sink';
+import { installWebAssemblyCounter } from './diagnostics/webassembly-counter';
 import {
   type DimensionIndexBuildStrategy,
   probeDimensionIndexRuntimeCapabilities,
@@ -345,6 +357,46 @@ const mainProcessStartedAt = new Date();
 configureDesktopCommandSessionManager({ resolver: createDatabaseRootResolver(getDatabase) });
 logger.debug('Main process started');
 const mainLogBuffer = new LogBuffer({ size: 3000 });
+// Same counter the first-import side-effect module installed (idempotent).
+const mainWebAssemblyCounter = installWebAssemblyCounter();
+const processCounterRing = new ProcessCounterRing(PROCESS_COUNTER_RING_CAPACITY);
+
+/**
+ * One `main-process-health` sample. The database read is deliberately kept
+ * OFF the health line's own path: that line must be logged unconditionally
+ * (its absence is the freeze signal), so it carries this tick's WebAssembly
+ * counts plus the LAST completed background-task count, never an await.
+ */
+async function sampleProcessCounters(mem: NodeJS.MemoryUsage): Promise<void> {
+  const wasm = mainWebAssemblyCounter.snapshot();
+  let backgroundTasks: ProcessCounterSample['backgroundTasks'] = null;
+  let backgroundTasksUnavailableReason: string | undefined;
+  try {
+    const db = await getDbHostManager().getDatabase();
+    const rows = (
+      await db.query<{ count: number; status: 'pending' | 'running' | 'suspended' }>(
+        `SELECT status, COUNT(*)::int AS count FROM ${MASTRA_BACKGROUND_TASKS_TABLE}
+         WHERE status IN ('pending', 'running', 'suspended') GROUP BY status`
+      )
+    ).rows;
+    const counts = { pending: 0, running: 0, suspended: 0 };
+    for (const row of rows) {
+      counts[row.status] = row.count;
+    }
+    backgroundTasks = counts;
+  } catch (error) {
+    backgroundTasksUnavailableReason = error instanceof Error ? error.message : String(error);
+  }
+  processCounterRing.push({
+    at: new Date().toISOString(),
+    backgroundTasks,
+    ...(backgroundTasksUnavailableReason === undefined ? {} : { backgroundTasksUnavailableReason }),
+    heapUsedKb: Math.round(mem.heapUsed / 1024),
+    rssKb: Math.round(mem.rss / 1024),
+    wasm: wasm.counts,
+    wasmRecentFailures: wasm.recentFailures,
+  });
+}
 const removeLogBufferListener = addLogListener((record) => {
   mainLogBuffer.push(record);
 });
@@ -512,6 +564,21 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
 
     const stopServer = stopAssistantServer;
     let assistantServerDrained = stopServer === null;
+    // before-quit postpones Electron's own window close. Join the renderer
+    // producers first, while their DB/chunking/assistant dependencies still live.
+    // Hidden renderer hosts must retain command listeners until their own stop.
+    recordFailure(
+      await runShutdownStep('renderers', () =>
+        closeDesktopRenderers(
+          BrowserWindow.getAllWindows(),
+          (window) =>
+            chunkingHostManager.isHostWindow(window) ||
+            embeddingHostManager.isHostWindow(window) ||
+            llmHostManager.isHostWindow(window)
+        )
+      )
+    );
+
     recordFailure(
       await runShutdownStep('assistant-server', async () => {
         // Start every process reaper in the same settlement batch as the server
@@ -671,7 +738,7 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     const steps = shutdownSteps.completed();
     logger.info('Graceful shutdown completed', {
       steps,
-      totalMs: steps.reduce((total, step) => total + step.elapsedMs, 0),
+      stepsMs: steps.reduce((total, step) => total + step.elapsedMs, 0),
       trigger,
     });
   })().finally(() => {
@@ -849,6 +916,15 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     },
     { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
     { name: 'chunking-host', stop: () => chunkingHostManager.stop() },
+    // In-memory diagnostics ring: a factory reset must not carry the previous
+    // profile's process samples into the next one.
+    {
+      name: 'process-counter-ring',
+      stop: () => {
+        processCounterRing.clear();
+        return Promise.resolve();
+      },
+    },
     { name: 'llm-host', stop: () => llmHostManager.stop() },
     // Reap any shell command the assistant left running so a factory reset is a
     // true fresh start with no orphaned subprocess surviving the wipe.
@@ -914,6 +990,8 @@ desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler(
   getDatabase,
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   logger,
+  // Corruption found by a pass takes the same recovery path as db:query.
+  onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
   runScheduledWork: runDesktopScheduledDatabaseWork,
   // BST-1333: lets the scheduler require SUSTAINED idle before starting an
   // unpreemptable maintenance statement, instead of trusting a single sample.
@@ -927,6 +1005,10 @@ desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenan
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   logger,
   runScheduledWork: runDesktopScheduledDatabaseWork,
+  // The HNSW build cannot be preempted: it starts only after sustained
+  // scheduler quiet with no assistant work in flight (database.md).
+  subscribeToSchedulerSnapshots: (listener) =>
+    getDesktopDatabaseWorkScheduler().subscribe(listener),
 });
 
 ipcDisposers.add(
@@ -1012,6 +1094,21 @@ ipcDisposers.add(
     llmHost: llmHostManager,
     logging: {
       getState: loggingPreferences.getSettingsPayload,
+    },
+    mainLog: {
+      readWindow: (request) => {
+        const mainLogFilePath = getLogFilePath();
+        if (mainLogFilePath === null) {
+          throw new Error('Main log file logging is disabled; no log window is available.');
+        }
+        return readMainLogWindow({ logFilePath: mainLogFilePath, request });
+      },
+    },
+    processCounters: {
+      getSnapshot: () => ({
+        installedAt: mainWebAssemblyCounter.snapshot().installedAt,
+        samples: processCounterRing.list(),
+      }),
     },
     reset: {
       getSnapshot: () => getDesktopResetDiagnosticsSnapshot(app.getPath('userData')),
@@ -1172,6 +1269,9 @@ if (singleInstanceLockAcquired) {
   // way this entry point is observable end to end.
   app.on('open-file', (event, openedPath) => {
     event.preventDefault();
+    if (isDesktopShuttingDown()) {
+      return;
+    }
     enqueueFolderCandidates(
       workspaceOpenQueue,
       filterDirectoryOpenCandidates([openedPath], 'open-file'),
@@ -1196,6 +1296,9 @@ if (singleInstanceLockAcquired) {
     // its delivery path is the SAME queue + channel the open-file e2e
     // exercises end to end. No e2e is invented for it.
     app.on('second-instance', (_event, secondInstanceArgv, workingDirectory) => {
+      if (isDesktopShuttingDown()) {
+        return;
+      }
       enqueueFolderCandidates(
         workspaceOpenQueue,
         filterDirectoryOpenCandidates(
@@ -2083,8 +2186,10 @@ if (singleInstanceLockAcquired) {
               process as NodeJS.Process & { _getActiveRequests?: () => unknown[] }
             )._getActiveRequests?.()?.length ?? -1;
 
+          void sampleProcessCounters(mem);
           const payload = {
             backgroundRuntimeMetrics: collectBackgroundRuntimeMetrics(),
+            backgroundTasks: processCounterRing.list().at(-1)?.backgroundTasks ?? null,
             cpuPercent: (cpuPercent * 100).toFixed(1),
             handles,
             heapUsedKb: (mem.heapUsed / 1024).toFixed(0),
@@ -2093,6 +2198,7 @@ if (singleInstanceLockAcquired) {
             loopLagP99Ms: p99.toFixed(1),
             requests,
             rssKb: (mem.rss / 1024).toFixed(0),
+            wasm: mainWebAssemblyCounter.snapshot().counts,
           };
 
           // Always log — if entries stop appearing, the event loop is stuck.
@@ -2233,6 +2339,9 @@ if (singleInstanceLockAcquired) {
       });
 
       app.on('activate', async () => {
+        if (isDesktopShuttingDown()) {
+          return;
+        }
         const hasVisibleWindow = BrowserWindow.getAllWindows().some(
           (window) =>
             !(

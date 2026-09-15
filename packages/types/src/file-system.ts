@@ -36,7 +36,8 @@ export type DirectoryLoadState = 'unloaded' | 'loading' | 'loaded' | 'error';
 export interface IFileNode {
   children?: IFileNode[];
   depth: number;
-  handle: FileSystemFileHandle | FileSystemDirectoryHandle;
+  /** Browser capabilities or canonical descriptors consumed by the platform adapter. */
+  handle: FileSystemFileHandle | FileSystemDirectoryHandle | FileHandle | DirectoryHandle;
   isDepthTruncated?: boolean;
   isSymbolicLink?: boolean;
   isVisible?: boolean;

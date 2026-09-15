@@ -1,6 +1,7 @@
 import type { ManageCanvasInput, RuntimeData } from '@brainstrike/agent';
 import { CANVAS_HTML_MAX_BYTES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
+import { isEmptyCanvasDocument } from './canvas-document-content';
 import {
   applyUpdate,
   type CanvasDatabase,
@@ -50,6 +51,24 @@ export interface ManageCanvasTooLargeFailure {
 }
 
 /**
+ * A `create` whose document is empty (see `isEmptyCanvasDocument`). Tool-level
+ * because it is policy about WHEN to create, not storage: the repository
+ * happily stores an empty version 1, and `rewrite` may still produce one.
+ * Live-app verifier runs 6 and 7 (2026-09-15): the root created a shell 25 s
+ * into the turn and wrote the report behind a second approval; the user
+ * reads card → approve → document appears, and the empty pre-create breaks
+ * that reading.
+ */
+export interface ManageCanvasEmptyDocumentFailure {
+  readonly error: 'empty_document';
+  readonly hint: string;
+  readonly ok: false;
+}
+
+export const EMPTY_CANVAS_DOCUMENT_HINT =
+  'Nothing was created: the document has no content. Create the canvas when the content is ready — there is nothing to prepare. One create call carrying the finished document is the deliverable, and the only approval the user should see for it.';
+
+/**
  * `too_large` is deliberately EXCLUDED from the repository shape here and
  * re-admitted only in its hinted form, so a future call site cannot return the
  * bare code and silently drop the recovery the model depends on.
@@ -57,6 +76,7 @@ export interface ManageCanvasTooLargeFailure {
 export type ManageCanvasToolResult =
   | CanvasListResult
   | Exclude<CanvasMutationResult, { readonly error: 'too_large' }>
+  | ManageCanvasEmptyDocumentFailure
   | ManageCanvasNoThreadFailure
   | ManageCanvasTooLargeFailure;
 
@@ -96,6 +116,12 @@ export async function runManageCanvas(
   const db = dependencies.database ?? (await resolveDesktopDatabase());
   switch (input.action) {
     case 'create':
+      // Refused BEFORE any DB call: an empty version 1 must never exist, and
+      // the refusal must cost the model no approval.
+      if (isEmptyCanvasDocument(input.html)) {
+        logger.info('manageCanvas create refused: empty document', { threadId });
+        return { error: 'empty_document', hint: EMPTY_CANVAS_DOCUMENT_HINT, ok: false };
+      }
       return withSizeHint(
         await createCanvas(db, {
           createdBy: 'assistant',

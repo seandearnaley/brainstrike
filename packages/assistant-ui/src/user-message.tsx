@@ -26,6 +26,7 @@ import { MessageRewindAction } from './message-rewind-action';
 // __tests__/assistant-chat-polish.browser.test.tsx (BST-898 hover-float
 // geometry) alongside __tests__/user-action-bar-copy.test.tsx.
 export const UserMessage = () => {
+  const messageId = useAuiState((state) => state.message.id);
   const threadKey = use(ActiveThreadKeyContext);
   const childInputDelivery = useAuiState(
     (state) => state.message.metadata.custom[CHILD_INPUT_DELIVERY_METADATA_KEY]
@@ -50,13 +51,21 @@ export const UserMessage = () => {
   if (approvalChipKey) {
     const chipProps = fromApprovalActionChipKey(approvalChipKey);
     return (
-      <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2">
+      <MessagePrimitive.Root
+        className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2"
+        data-message-id={messageId}
+        tabIndex={-1}
+      >
         <ApprovalActionChip {...chipProps} />
       </MessagePrimitive.Root>
     );
   }
   return (
-    <MessagePrimitive.Root className="aui-user-message-root relative grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2">
+    <MessagePrimitive.Root
+      className="aui-user-message-root relative grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2"
+      data-message-id={messageId}
+      tabIndex={-1}
+    >
       <UserActionBar />
 
       {/* Attachments sit ABOVE the bubble, outside ExpandableMessageContent:

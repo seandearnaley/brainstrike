@@ -133,6 +133,11 @@ import { migration131DelegatedToolDecisions } from './131-delegated-tool-decisio
 import { migration132DelegationBudgets } from './132-delegation-budgets.js';
 import { migration133MastraBackgroundTasks } from './133-mastra-background-tasks.js';
 import { migration134DelegatedCancellationAdmission } from './134-delegated-cancellation-admission.js';
+import { migration135DelegatedContinuations } from './135-delegated-continuations.js';
+import { migration136DelegatedInputPayload } from './136-delegated-input-payload.js';
+import { migration137ChildExecutionConfiguration } from './137-child-execution-configuration.js';
+import { migration138IndependentChildContinuationPauses } from './138-independent-child-continuation-pauses.js';
+import { migration139SwarmDiagnostics } from './139-swarm-diagnostics.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -272,6 +277,11 @@ export const migrations: Migration[] = [
   migration132DelegationBudgets,
   migration133MastraBackgroundTasks,
   migration134DelegatedCancellationAdmission,
+  migration135DelegatedContinuations,
+  migration136DelegatedInputPayload,
+  migration137ChildExecutionConfiguration,
+  migration138IndependentChildContinuationPauses,
+  migration139SwarmDiagnostics,
 ];
 
 // Export base migrations (without chunks table) for test environments

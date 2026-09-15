@@ -144,11 +144,10 @@ describe('resolveReasoningControlsAvailability', () => {
     });
   });
 
-  it('keeps the full effort list for undeclared OpenRouter models', () => {
+  it('does not invent an effort list for undeclared OpenRouter models', () => {
     expect(resolveReasoningControlsAvailability('openrouter', 'qwen/qwen3.7-max')).toEqual({
-      available: true,
-      efforts: OPENAI_FAMILY_DEFAULT_EFFORTS,
-      family: 'openrouter',
+      available: false,
+      reason: 'no-reasoning-controls',
     });
   });
 

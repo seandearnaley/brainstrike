@@ -111,14 +111,29 @@ noise in the same log (git-inventory drain abandonment, `DB host closed.`,
 `the worker is ending`) is per-test teardown chatter that also appears in green
 runs, and timestamps place it minutes away from the interruption. Raise a
 lane's budget when you add work to it, not after the next interruption. The
-desktop smoke ceiling is now 900000 ms: the 43-case suite measured 11.8
-minutes on main (Test 34646256371, 43 passed) and 12.0 minutes with cases still
-unrun on PR heads (Tests 34651826896 and 34659815421 both ended in "Timed out
-waiting 720s" with every delegated case green), so the earlier 720000 ms ceiling
-(set when 35 cases ran in 5.2 minutes, job `103147368385`) was being reached by
-a passing suite. Fifteen minutes leaves headroom inside the unchanged 25-minute
-job ceiling with roughly three minutes of install/build ahead of Playwright. The
-exact lane commands are pinned by
+desktop smoke lane's 900000 ms ceiling (raised from 720000 ms when 43 cases
+measured 11.8 minutes on main, Test 34646256371) was being reached again by a
+passing suite by 2026-09-15: 47 cases took 722-871 s across 24 green Test runs
+(2026-09-12..15), and run `34988958978` interrupted `worktree-mode` at 898 s
+with the same missing-artifact shape. BST-1762 split the suite rather than
+raising the ceiling a third time. `test:e2e:lane:smoke` (17 specs whose
+per-case CI means sum to 337 s) and `test:e2e:lane:smoke-delegated` (the four
+`delegated-*` specs, 466 s) run on separate `ubicloud-standard-4` runners,
+each with a 900000 ms ceiling inside the unchanged 25-minute job boundary.
+Their first run (Test 34997197693) took 367 s and 440 s of Playwright, 41% and
+49% of that ceiling, in 496 s and 573 s jobs, so the required check now lands in
+under 10 minutes instead of 14-16. A failure in one lane does not cancel the
+other (`--max-failures=1` stops only its own lane), so a red PR can spend both
+lanes' runner time. The required `Desktop E2E` check is a fan-in over
+the `desktop-e2e-smoke` and `desktop-e2e-delegated` jobs, like `Unit` over
+`unit-shard`: it carries their condition and fails unless both succeed, so the
+ruleset did not change. Moving the delegated specs to nightly regression was
+rejected on measurement: that lane had failed its last ten scheduled runs and,
+under `--max-failures=1`, left 87-120 cases unrun. Add a smoke spec to the lane
+whose measured headroom absorbs it and record the measurement here. Why these
+specs run 4.6-9.5x slower on Linux CI than locally, while launch-only specs run
+1.6-2.5x slower, is tracked separately by BST-1763. The exact lane commands and
+the fan-in are pinned by
 `scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs`, which is the guard
 that forces the change to be deliberate.
 
@@ -337,7 +352,7 @@ required PR checks.
 
 ### Desktop Electron provisioning (BST-563, BST-1252)
 
-The Desktop E2E smoke job in `test.yml` and both regression jobs in
+Both Desktop E2E smoke lane jobs in `test.yml` and both regression jobs in
 `desktop-e2e.yml` download Electron directly from GitHub Releases and extract
 it immediately before launch. Electron 43 declares no install lifecycle;
 `install.js` is exposed only as the `install-electron` bin, so `pnpm install`
@@ -345,8 +360,8 @@ does not provision the executable or populate `~/.cache/electron`. The former
 version lookup and Actions cache steps therefore persisted an unused path. Each
 download uses `${RUNNER_TEMP:-/tmp}/electron.zip`; the fallback is required
 because a future `container:` job may not define `RUNNER_TEMP`. The paired
-`desktop-electron-provisioning-contract.test.mjs` keeps all three sites aligned,
-pins the no-lifecycle premise, requires all three jobs to use the shared
+`desktop-electron-provisioning-contract.test.mjs` keeps all four sites aligned,
+pins the no-lifecycle premise, requires all four jobs to use the shared
 `setup-workspace` action, and fails if the unused cache or raw `RUNNER_TEMP`
 path returns.
 
@@ -1348,6 +1363,28 @@ from disk; only the step's own `outcome` travels as an environment variable.
 Carrying the review text back through one would reintroduce the same class of
 limit in the other direction.
 
+**The published body reaches `gh` on stdin too (BST-1743).** The reporter
+posts with `gh pr comment --body-file -` and hands the body to `execFileSync`
+as `input`, never as a `--body` argument. Node refuses any argv element that
+contains a NUL byte (`ERR_INVALID_ARG_VALUE: The argument 'args[6]' must be a
+string without null bytes`), and a reviewer that faithfully quotes the diff
+will produce one: twice on #3119 the review had completed and validated at the
+exact head, then destroyed itself by reproducing the PR's own `\u0000` latch
+separator in its prose. Any control character in reviewed code can do this,
+and reviewing such code is normal. A pipe carries every byte sequence, so the
+reviewer's text is published exactly as written — do not "fix" this by
+stripping or escaping, which would alter the review, and do not move the body
+back to argv. It is the same lesson as the prompt's 128 KiB `MAX_ARG_STRLEN`
+ceiling (BST-1666) at a different limit; `gh` 2.91.0 documents `-F,
+--body-file file … (use "-" to read from standard input)`. The unit test's
+`gh` mock mirrors Node's argv contract and refuses NUL, so reverting to
+`--body` fails the suite with the production error text. When publication
+does fail, the reporter writes the cause to **stderr** with the stable prefix
+`CLAUDE_REVIEW_PUBLICATION_FAILED:` as well as to the step summary — grep the
+job log for that prefix; before this the log showed only a bare exit code and
+the reason lived in the summary alone. The exit code is unchanged: nothing
+published is still **incomplete** and red.
+
 Automatic review retains the `opened`, `ready_for_review`, and `reopened`
 lifecycle and omits `synchronize`. Changes to the workflow or its orchestration
 script receive an explicit **skipped** disposition; a maintainer can request
@@ -1668,12 +1705,16 @@ constant.
 
 #### A worker with a blocked event loop is killed and named (BST-1221)
 
-`LostTestFileReporter` below needs the worker to DIE. The Node 26.8.2 PGlite
-wedge does the opposite: PGlite 0.5.8's synchronous protocol loop retries
+`LostTestFileReporter` below needs the worker to DIE. The PGlite wedge does
+the opposite: PGlite 0.5.8's synchronous protocol loop retries
 `_PostgresMainLoopOnce` forever after a WASM trap (`function signature
 mismatch` in `$palloc`), so the worker spins at 100% CPU with its event loop
-blocked. `testTimeout` is a timer in that loop and never fires, the worker never
-reports, turbo prints nothing, and the job is cancelled at its 30-minute limit
+blocked. (The trap that reached that loop was the BST-1320 close race — a
+Mastra statement floating into `close()` — not a Node or V8 defect; see
+`docs/agents/assistant-persistence.md`. The watchdog stays because any blocked
+loop, whatever reaches it, must fail by name.) `testTimeout` is a timer in
+that loop and never fires, the worker never reports, turbo prints nothing,
+and the job is cancelled at its 30-minute limit
 with no verdict (`Unit (rest)`, run 34653237231, PR #3141).
 
 Every lane that hosts real PGlite (`agent`, `app-shell`, `assistant-data`,
@@ -1685,9 +1726,22 @@ because its heartbeat interval is captured at module evaluation and must be a
 real timer, ahead of any setup that could install fake timers. It runs a
 `worker_threads` watchdog with its own event loop; the main thread heartbeats
 every second, `beforeEach` labels the running test, and after
-`BRAINSTRIKE_VITEST_EVENT_LOOP_STALL_MS` (default 60 s, above every lane's
-`testTimeout`) of silence the watchdog writes one stderr line naming the test
-and SIGKILLs the worker.
+`BRAINSTRIKE_VITEST_EVENT_LOOP_STALL_MS` (default 60 s — at or above every
+lane's `testTimeout`; `db-explorer` integration ties at 60 s, which is
+harmless because a slow-but-async test keeps heartbeating and only a genuinely
+blocked loop can reach the stall) of silence the watchdog writes one stderr
+line naming the test and SIGKILLs the worker. The lane list is enforced:
+`scripts/verify-event-loop-watchdog.mjs` (paired test in `scripts/__tests__`,
+run by `pnpm test:scripts` in the Static job) loads all 16 listed configs,
+including the actual `test:integration` configs independently of their base,
+and requires the setup to be the FIRST effective `setupFiles` entry (or the
+sole string value). Override/reordering fixtures prove that the guard rejects an
+integration config that removes the inherited watchdog. A config declaring
+projects requires an explicit project in the lane contract; top-level setup
+cannot stand in for the setup that its project files run. Load failures are reported by
+config path alongside every other failing lane. A new
+PGlite-hosting lane is added to that list, and a second-position or missing
+entry fails Static rather than silently reintroducing the hang.
 
 Outcome by pool: in a `forks` lane (`agent`, `db`, `embeddings`, `db-explorer`
 integration) the child worker dies, the vitest process survives, and the
@@ -1704,10 +1758,12 @@ Debugging: the watchdog does not start when the process was launched with
 
 Paired tests: `packages/test-utils/__tests__/vitest-event-loop-watchdog.test.ts`
 (blocked loop killed and labelled; responsive worker exits on its own; inspector
-opt-out; impossible heartbeat budget and non-integer budgets refused) and its
-two-file vitest fixture run proving no spurious kill across files in a reused
-worker and a named kill of a blocking file. Proof against the real wedge is on
-BST-1221.
+opt-out — `inspector.url()` first, then the `--inspect`/`--inspect-brk` flags;
+impossible heartbeat budget and non-integer budgets refused, under a debugger
+too) and its vitest fixture runs: two healthy files under isolated forks and
+under a REUSED worker (`isolate: false`, the registry-reuse path) with no
+spurious kill, and a named kill of a blocking file under both `forks` and
+`threads`. Proof against the real wedge is on BST-1221.
 
 #### A test file with no verdict fails the lane (BST-1221)
 
@@ -2208,8 +2264,9 @@ substitute retries, a global promise pin, or a timeout increase.
 The original smoke failure occurred during the second assistant setup, after
 the folder fixture's thread-seeding reload. Its trace was created but never
 uploaded: the workflow looked in `test-results` while desktop Playwright writes
-to `blob-report`. The required Desktop E2E and both nightly desktop uploads now target
-`apps/desktop/blob-report/`, matching the already-correct packaged MCP uploader.
+to `blob-report`. Both required desktop smoke lanes and both nightly desktop
+uploads now target `apps/desktop/blob-report/`, matching the already-correct
+packaged MCP uploader.
 Both Playwright test attachments (`outputDir`) and its blob reporter use that
 directory. Uploaders warn if it is missing: `failure()` also covers setup/build
 failures before Playwright has run, when no test artifacts exist. This absence
@@ -2251,6 +2308,20 @@ launches; a skipped test or a launch that already threw is not replaced by a
 fixture-teardown error. Restart uses the same close/guard path and must surface
 close failures; if close and process health both fail, both errors are retained.
 Do not restore the former warn-and-relaunch behavior.
+
+The interactive delegated-child decision fixture uses
+`runInteractiveChildFixture` to preserve the original scenario failure alongside
+diagnostic and teardown failures. Failure-text extraction or attachment must not
+replace the assertion. Provider close and environment restoration still run
+when Electron disposal fails. Capture the owned process before Playwright
+disposal, observe its exit separately from `app.close()`, and only remove the
+disposable workspace after confirmed exit; a sent signal is not proof of exit.
+If exit cannot be confirmed, retain the workspace and report its path. These
+decision scenarios additionally require a zero exit code, so forced termination
+is a test failure even after the UI assertions pass. The real consumer remains
+`delegated-child-interactive.desktop.test.ts`; injected diagnostic, disposal,
+provider, launch and process-exit failures are covered by
+`interactive-child-fixture.test.ts` (BST-1728).
 
 **A harness-owned app may only be closed through the harness.** Tests that seed
 on-disk userData (`electron-storage.json`) need the app down mid-test so no
@@ -3178,6 +3249,22 @@ contract instead of parsing the table into JavaScript. Both package build
 scripts run `verify-tokenizer-asset-bundle.mjs`; do not remove that post-build
 guard when changing their bundle topology.
 
+Both app worker builds install `preserveWorkerEntryPlugin`. Vite's worker
+bundler options force `preserveEntrySignatures: false`; the bundler options hook
+restores a strict entry facade. Without that facade, a lazy CommonJS dependency
+can import worker startup from its own entry chunk without the managed instance
+URL fragment and initialize it twice. The real Vite build regression executes
+both the broken stock output and the preserved-entry output. Production web
+also configures Zod's public `jitless` option in its small entry module before
+dynamically configuring the host capability and then importing the application.
+The previous static configuration module was bundled with application schemas,
+whose initialization ran before configuration; this is a compiled chunk-ordering
+failure, not a general claim about ESM dependency evaluation. The compiled
+strict-CSP test is the ordering guard. `jitless` disables Zod parse code generation
+in the window realm, preserving strict CSP at the cost of that optimization;
+worker realms remain separate and their real startup/embedding paths must pass
+the same CSP qualification before changing their schema initialization.
+
 Both app builds install the shared
 `createCspQualifiedEvalWarningFilter`. It suppresses Rolldown's `EVAL` warning
 only for the exact web-tree-sitter 0.25.10 and PGlite 0.5.3 files whose real
@@ -3373,28 +3460,38 @@ The rule:
 
 Apply the same shape to any new file-size guard rather than reintroducing a cap.
 
-## REACT DOCTOR (LINT + DEAD CODE)
+## REACT DOCTOR (LINT)
 
 `.github/workflows/react-doctor.yml` runs **React Doctor** (`millionco/react-doctor@v2`,
-pinned `0.9.11`) on every PR and on push to `main`. It supersedes running standalone knip in
-CI: React Doctor performs knip-style dead-code analysis (the bundled `deslop` engine) **and**
-its React/JS lint rules (Security / Bugs / Performance / Accessibility / Maintainability).
+pinned `0.9.13`) on every PR and on push to `main`. It was adopted to supersede standalone knip
+in CI by pairing knip-style dead-code analysis (the `deslop` engine, a separate `deslop-js`
+dependency through 0.9.12) with its React/JS lint rules (Security / Bugs / Performance /
+Accessibility / Maintainability). At 0.9.13 dead-code analysis is not active in this
+repository — see the knip bullet below.
 It uses `ubicloud-standard-2`; provider allocation has no GitHub fallback.
-Config lives in `doctor.config.ts`. Plan + baseline: `docs/react-doctor-migration-2026-06-15.md`.
+Config lives in `doctor.config.ts`. Plan + baseline: `docs/react-doctor-migration-2026-06-15.md`
+(historical: it predates `deslop`'s removal, and this section wins where they differ).
 
 Invariants (do not regress without updating this section, `doctor.config.ts`, and the doc):
 - **Telemetry OFF.** `noScore` + `share:false` in config; `REACT_DOCTOR_NO_TELEMETRY=1` in the
   workflow `env` (the Action exposes no flag). Nothing is sent to the hosted score API / Sentry.
 - **Gate = `scope: changed` + `blocking: error`.** Only NEWLY introduced error-severity issues
-  fail a PR; the pre-existing backlog is advisory and is burned down in stacked PRs. Version
-  0.9.11 carries [upstream's rename-aware baseline comparison](https://github.com/millionco/react-doctor/pull/1376),
-  so moving unchanged code does not reclassify its diagnostics as new. CAVEAT (BST-981,
-  2026-08-06): that pairing failed on a ~200-file rename PR — byte-identical renamed files
-  had their pre-existing diagnostics reclassified as new, both in CI and in a local
-  `--scope changed` run. Precedent: prove pre-existence with a full scan of the base at the
-  old paths, then suppress narrowly via `ignore.overrides` with a follow-up ticket to fix
-  the findings and drop the override. BST-1182 completed that cleanup for the three
-  assistant-ui ref mutations and removed the temporary override; the caveat remains for
+  fail a PR; the pre-existing backlog is advisory and is burned down in stacked PRs. The pinned
+  version carries [upstream's rename-aware baseline comparison](https://github.com/millionco/react-doctor/pull/1376),
+  so moving unchanged code does not reclassify its diagnostics as new. Re-checked for 0.9.13
+  (2026-09-15) against upstream source, not re-run here: the `baseline-pure-rename` regression
+  test is byte-identical at the `react-doctor@0.9.11` and `react-doctor@0.9.13` tags.
+  `compute-diagnostic-delta.ts` also gained detector-provided identities that take precedence
+  over source evidence. Across both the `react-doctor` and `oxlint-plugin-react-doctor` 0.9.13
+  `dist/` trees the only detector that sets one is `duplicate-jsx-subtree`, keyed on its
+  JSX-family fingerprint and occurrence count rather than a path; whether that interacts with a
+  BST-981-style rename set is untested. CAVEAT (BST-981,
+  2026-08-06, not re-tested since): that pairing failed on a ~200-file rename PR —
+  byte-identical renamed files had their pre-existing diagnostics reclassified as new, both in
+  CI and in a local `--scope changed` run. Precedent: prove pre-existence with a full scan of
+  the base at the old paths, then suppress narrowly via `ignore.overrides` with a follow-up
+  ticket to fix the findings and drop the override. BST-1182 completed that cleanup for the
+  three assistant-ui ref mutations and removed the temporary override; the caveat remains for
   future large rename sets, not as an active exception.
   `scripts/__tests__/react-doctor-version-contract.test.mjs` keeps the local and Action pins equal
   and rejects downgrade below the 0.8.2 fix. It also pins the exact reviewed version in
@@ -3402,13 +3499,22 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   `.github/workflows/react-doctor.yml`, and that constant.
 - **Keep lint enabled when reading JSON coverage.** React Doctor's `analyzedFiles`,
   `analyzedFileCount`, and `complete` fields describe its lint pass, not dead-code enumeration.
-  Passing `--no-lint` therefore reports zero analyzed files and `complete:false` even when the
-  command scans every project for dead code; that output is expected, not a repository config or
-  environment failure (BST-1142, verified against 0.9.11 on 2026-08-23 and upstream's
+  Passing `--no-lint` therefore reports zero analyzed files and `complete:false`; through 0.9.12
+  it still scanned every project for dead code, and that output is expected, not a repository
+  config or environment failure (BST-1142, verified against 0.9.11 on 2026-08-23 and upstream's
   [JSON report contract](https://github.com/millionco/react-doctor/blob/main/docs/json-report.md)).
-  The root `react-doctor` script pins `--scope full` and deliberately omits `--no-lint`;
+  Re-measured at 0.9.13 (2026-09-15, `cf2d8db86`): `--no-lint` reports `analyzedFileCount` 0,
+  empty `analyzedFiles`, and `complete:false` for all 23 projects while `scannedFileCount`
+  totals 4360; the lint-enabled full scan reports 4360 analyzed with `complete:true` for every
+  project. At the `react-doctor@0.9.13` tag the contract still defines `complete` by the
+  planned lint files. At 0.9.13 `--no-lint` runs no dead-code rules (see the knip bullet). It
+  still reported one `duplicate-jsx-subtree` warning: that detector is tagged `project-analysis`
+  and runs outside the per-file lint pass, so it reports even with zero analyzed files.
+  The root `react-doctor` script pins `--scope full` and deliberately omits `--no-lint` — at
+  0.9.13 that protects lint coverage, not dead-code scanning;
   `scripts/__tests__/react-doctor-version-contract.test.mjs` guards both properties.
-- **0.9.11 activates four error-severity rules that 0.9.3 did not** (2026-08-15, BST-1273).
+- **0.9.11 activated four error-severity rules that 0.9.3 did not** (measured at 0.9.11 on
+  2026-08-15, BST-1273; historical — the 0.9.13 re-measurement follows).
   Measured on the same tree, same 3366 scanned files: full-scan errors go 85 → 95 while total
   issues go 641 → 594. The additions are `react-hooks-js/todo` (×4), `react-doctor/
   no-prop-callback-in-render` (×3), `react-hooks-js/refs` (×1),
@@ -3418,67 +3524,136 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   under `scope: changed` they join the advisory backlog rather than blocking; none sit in a
   file the bump itself touched. Concentrations to expect when burning them down:
   `root-layout-content.tsx` (all three copies) and `hooks/use-resize-observer.ts`.
-- **Do NOT bump past 0.9.11 without re-measuring `react-doctor/no-multi-comp`** (2026-08-15,
-  BST-1273). 0.9.12 expands that rule toward a one-component-per-file contract: the id's
-  occurrence count in `dist/` goes 6 → 15 between 0.9.11 and 0.9.12. Under this repo's
-  `scope: changed` + `blocking: error` gate that would newly fail any changed file holding
-  two components, which is a common shape here. 0.9.11 was taken instead; before adopting
-  0.9.12+, scan the repo for multi-component files and decide the rule's severity
-  deliberately rather than discovering it as a red PR check.
-- **knip is retained, NOT replaced.** `deslop` is not knip: it reads knip's `entry`/`ignore`
-  (only from strict-JSON `knip.json` or `package.json#knip`, never `knip.jsonc`) but ignores
-  knip's `ignoreDependencies` and has no per-dependency allowlist. So `deslop/unused-dependency`
-  + `deslop/unused-dev-dependency` are disabled in `doctor.config.ts`, and `pnpm knip`
-  (driven by `knip.jsonc`, with the curated false-positive allowlist) stays the dependency auditor.
+  **Re-measured at 0.9.13** (2026-09-15, `cf2d8db86` — `main`, 132 commits after #3038's squash
+  merge, not #3038's head `3e50c70cd`; 23 projects / 4360 files / 608 issues):
+  the 85 errors are `no-ref-current-in-render` ×67, `effect-needs-cleanup` ×10,
+  `no-impure-state-updater` ×4, `no-prop-callback-in-render` ×3, and
+  `effect-observer-needs-disconnect` ×1. This is a larger tree than the 3366-file one above,
+  so the two sets of counts are not a before/after, and 0.9.13's 85 matching 0.9.3's 85 does not
+  mean the rule set reverted. Of the four 0.9.11 additions, the two `react-doctor/*` rules still
+  report; the two `react-hooks-js/*` rules report nothing — see the next bullet.
+- **`react-hooks-js/*` rules do not run in this repository** (2026-09-15, 0.9.13; tracked in
+  BST-1760). The full scan has **zero `react-hooks-js/*` findings of any severity**:
+  `react-hooks-js/todo` and `react-hooks-js/refs` are not clean, they are not loaded (the same
+  `refs` compiler rule holds a 123-warning ESLint budget in `eslint-warning-baseline.json`).
+  React Doctor loads `eslint-plugin-react-hooks` as `react-hooks-js` only for a project it
+  detects as using the React Compiler, and all 23 projects report `hasReactCompiler:false`. The
+  bump did not cause this: the detection code is identical in 0.9.11 and 0.9.13, and in an
+  isolated directory holding only `apps/web`'s `package.json` + `vite.config.mts` and one
+  component, 0.9.13 reports `hasReactCompiler:true` for the files before BST-1659 (#3017, which
+  moved the compiler from a Babel preset to `oxc-transform-react`) and `false` for the current
+  ones. #3017 is an ancestor of #3038's head, so #3038's 0.9.11-vs-0.9.13 comparison (85 → 85
+  errors) already ran without the plugin. BST-1273's 0.9.11 counts of `react-hooks-js/todo` ×4
+  and `react-hooks-js/refs` ×1 (2026-08-15) predate #3017's 2026-09-06 merge, which is why those
+  rules were still observable then. **Unresolved:** nothing in this repository has been changed
+  to restore these rules; BST-1760 tracks the decision.
+- **`react-doctor/no-multi-comp` re-measured for 0.9.13** (2026-09-15). BST-1273 said not to
+  bump past 0.9.11 without re-measuring it. #3038 took 0.9.13 without measuring this rule
+  specifically; its full-scope 0.9.11-vs-0.9.13 comparison (85 → 85 errors, "Crowded component
+  file ×7" among the new warnings) covered it only incidentally. Upstream 0.9.12
+  ([#1641](https://github.com/millionco/react-doctor/pull/1641)) split the rule:
+  `react-doctor/no-multi-comp` is now the strict one-component-per-file port,
+  `defaultEnabled: false` at severity `warn` (`react/no-multi-comp` aliases to it), and the
+  previous lower-noise policy moved to `react-doctor/no-multi-component-file`, on by default at
+  `warn` and reported as "Crowded component file". The 0.9.13 full scan reports `no-multi-comp`
+  ×0 and `no-multi-component-file` ×7 warnings in 2 files; no repo config sets either id, so
+  neither can trip `blocking: error`. The id's occurrence count in `react-doctor/dist/` is 6 at
+  0.9.11 (reproduced from the published tarball), 15 at 0.9.12 (BST-1273, not re-measured), and
+  10 at 0.9.13 — a proxy, not a severity signal, and `dist/`-only: the rule itself ships in
+  `oxlint-plugin-react-doctor`. Enabling `no-multi-comp`, or raising either id
+  to `error`, is the change that needs a fresh multi-component scan first.
+- **knip is retained (NOT replaced), but CI never runs it.** Before 0.9.13, `deslop` was not
+  knip: it read knip's `entry`/`ignore` (only from strict-JSON `knip.json` or
+  `package.json#knip`, never `knip.jsonc`) but ignored knip's `ignoreDependencies` and had no
+  per-dependency allowlist, so `deslop/unused-dependency` + `deslop/unused-dev-dependency` were
+  disabled in `doctor.config.ts`. 0.9.13 removed `deslop`
+  ([#1624](https://github.com/millionco/react-doctor/pull/1624)): whole-project analysis is now
+  `react-doctor/unused-{file,export,type,dependency,dev-dependency}` +
+  `react-doctor/circular-dependency`, all opt-in (`defaultEnabled: false`) and, per #1624, kept
+  out of changed and staged scans. The config's `deslop/*` keys still resolve through upstream's
+  `LEGACY_RULE_KEY_TO_NATIVE_RULE_KEY` alias table, but they only switch off rules that are
+  already off, and nothing opts a graph rule in. So at 0.9.13 **neither CI (`scope: changed`)
+  nor the root full scan runs dead-code analysis**, and the "Left active: … unused-file +
+  circular-dependency" comment in `doctor.config.ts` is stale. That comment and the inert
+  `deslop/*` disables are deliberately left in place by the docs-only 0.9.13 re-measurement
+  (BST-1759 records them as out of scope). Opting `unused-file` + `circular-dependency` in
+  (2026-09-15) produced 0 graph findings and an unchanged 608-issue report; that alone does not
+  prove the rules are live. `pnpm knip` (driven by `knip.jsonc`, with the curated false-positive
+  allowlist) stays the dependency auditor, but CI never reaches it: no file under
+  `.github/workflows/` invokes knip, and neither the turbo config nor any root or `scripts/`
+  command those workflows run (`check`, `lint:ci`, `boundaries`, `type-check`, `test`, `build`,
+  `test:scripts`) references it (2026-09-15). So at 0.9.13 CI runs no dead-code or
+  unused-dependency analysis at all. BST-1761 tracks that gap.
 - **No broad `ignore.files` exclusions.** The old 0.5.5/0.7.1 implementation silently dropped
-  roughly half the monorepo when that key was present. Upstream 0.9.11 fixes enumeration by
-  listing all supported sources before filtering, but Brainstrike still needs no whole-file
-  ignores: build artifacts are gitignored and test-file noise is handled natively. Prefer the
-  narrow `ignore.overrides` / `rules` surfaces for a proved exception.
+  roughly half the monorepo when that key was present. Upstream fixed enumeration by listing
+  all supported sources before filtering (0.9.3, per `doctor.config.ts`; the 0.9.13 full scan
+  analyzes all 4360 scanned files with every project `complete:true`), but Brainstrike still
+  needs no whole-file ignores: build artifacts are gitignored and test-file noise is handled
+  natively. Prefer the narrow `ignore.overrides` / `rules` surfaces for a proved exception.
 - **`Accessibility` + `Security` categories are OFF.** a11y is already enforced by the
   biome a11y rules (and react-doctor can't read `biome-ignore`, so it re-flagged every
   documented exception + custom ARIA widget — an audit of 28 findings found 1 genuine
   gap). Security produced 0 genuine issues across 6 real-source findings; secret detection
   stays covered by the lefthook `secrets-scan`. react-doctor's unique value here is its
   React-Compiler-correctness rules (`react-hooks-js/*`, `react-compiler-*`) + dead-code,
-  which is where remediation effort is focused.
+  which is where remediation effort is focused. At 0.9.13 none of that runs here: the
+  `react-hooks-js/*` rules and dead-code analysis are inactive (see the `react-hooks-js` and knip
+  bullets; BST-1760 and BST-1761 track restoring them), and the only `react-compiler-*` id,
+  `react-compiler-no-manual-memoization`, is off by config and, per its upstream source, active
+  only when the React Compiler is detected, which no project here is. What still reports is
+  React Doctor's native set: 53 `react-doctor/*` rule ids in the 2026-09-15 full scan, and all
+  85 errors come from that set.
 - **`react-compiler-no-manual-memoization` is OFF.** Manual `useMemo`/`useCallback`/
   `React.memo` is intentional here (guards non-React work, external-store identity,
-  referential stability for consumers outside the compiled tree). The rule fired 1211× (54%
-  of the original backlog) demanding removal — disabled per team decision.
-  `react-hooks-js/preserve-manual-memoization` stays ON (it protects memo the compiler needs).
+  referential stability for consumers outside the compiled tree). The rule fired 1211× in the
+  2026-06-15 baseline (react-doctor 0.5.5; 54% of that 2258-finding backlog) demanding removal —
+  disabled per team decision.
+  `react-hooks-js/preserve-manual-memoization` stays ON in config (it protects memo the
+  compiler needs), but at 0.9.13 the `react-hooks-js` plugin is not loaded here; see the
+  `react-hooks-js` bullet.
 - **An unimplemented rule id is accepted SILENTLY — 0 findings means "gone" OR "clean".**
   `doctor.config.ts` emits no "unknown rule" error, so a config that believes it enabled
   (or disabled) a rule is indistinguishable from one that did not, and that rule's zero
-  findings read as a passing gate. Proved on `react-doctor/only-export-components`
-  (2026-08-09, pinned 0.9.3; still true at 0.9.11): the id appears in the bundle ONLY as a *value* in the
-  oxlint→react-doctor alias tables (`react-refresh/only-export-components` and
-  `react/only-export-components` both map to it) with no rule implementation behind it,
-  and adding `rules: { 'react-doctor/only-export-components': 'warn' }` left counts
-  byte-identical (149 → 149 on `packages/file-explorer-ui`). **Before citing a
+  findings read as a passing gate. Re-proved at 0.9.13 (2026-09-15) with a deliberately
+  nonexistent id: adding `'react-doctor/zz-nonexistent-rule-probe': 'error'` produced no
+  warning and an identical 608-issue summary. The original example no longer holds:
+  `react-doctor/only-export-components` (2026-08-09, pinned 0.9.3) was judged alias-only from a
+  grep of `react-doctor/dist/` alone, where it appears as a *value* in the oxlint→react-doctor
+  alias tables (`react-refresh/only-export-components` and `react/only-export-components` both
+  map to it). The separately published `oxlint-plugin-react-doctor` carries a registry entry for
+  the id at 0.9.11 and 0.9.13, and at 0.9.13 the rule reports ×45 warnings in the default full
+  scan. That example's control — adding `rules: { 'react-doctor/only-export-components': 'warn' }`
+  left counts byte-identical (149 → 149 on `packages/file-explorer-ui`) — remains a 0.9.3
+  measurement, not re-run. An unchanged count could never prove absence: it is also what an
+  already-enabled `warn` rule, or a rule with no violations in that package, produces. Reuse
+  the nonexistent-id probe above as the silent-acceptance control. **Before citing a
   react-doctor rule id as a contract, prove it fires on a known violation** — a
   package-scoped scan returning 0 is not evidence.
   `scripts/__tests__/lint-rule-liveness-contract.test.mjs` mechanizes that proof — **for
   ESLint rules only.** It drives `new ESLint({ cwd: repoRoot })` against `eslint.config.js`,
   so it exercises **zero react-doctor rules** and confers no coverage on any
-  `react-doctor/*`, `react-hooks-js/*`, or `deslop/*` id. Do not read a green
-  `test:scripts` as evidence that a react-doctor id is live; that engine remains
+  `react-doctor/*` or `react-hooks-js/*` id, or on the legacy `deslop/*` aliases. Do not
+  read a green `test:scripts` as evidence that a react-doctor id is live; that engine remains
   unmechanized, and it is the one with the silent-acceptance defect.
-- **Two other cited react-doctor ids are also absent from the bundle** (2026-08-09,
-  #2372; re-measured unchanged at 0.9.11 on 2026-08-15, BST-1273).
-  `react-hooks-js/preserve-manual-memoization` — asserted above to "stay ON" — and
-  `react-doctor/async-parallel`, the rule in `doctor.config.ts`'s lone `ignore.overrides`
-  entry, each appear **0 times** across `node_modules/react-doctor/dist/`, while real ids
-  appear literally (`only-export-components` 12, `react-compiler-no-manual-memoization`
-  10). Those four counts are byte-identical on 0.9.3 and 0.9.11. Neither has been
-  *empirically* confirmed dead: a local `npx react-doctor packages/db` emitted no findings
-  summary, while BST-1142's separate full-repository JSON reproduction ran with `--no-lint`
-  and therefore reported zero lint coverage. Neither observation proves rule liveness.
-  **Nothing was changed on grep evidence alone** — the override stays until a separate
-  lint-enabled planted-violation control proves whether the rule is live. Note the
-  manual-memoization protection does
-  still exist, just not via the engine the bullet above names: eslint-plugin-react-hooks'
-  own `react-hooks/preserve-manual-memoization` is live, reporting 2 warnings, and is now
+- **The two ids once "absent from the bundle" were a grep-scope miss; only `async-parallel` is
+  proved live** (2026-08-09, #2372;
+  re-measured at 0.9.11 on 2026-08-15, BST-1273; re-measured at 0.9.13 on 2026-09-15).
+  `react-hooks-js/preserve-manual-memoization` and `react-doctor/async-parallel` (the rule in
+  `doctor.config.ts`'s lone `ignore.overrides` entry) still appear **0 times** across
+  `node_modules/react-doctor/dist/` at 0.9.13. Occurrence counts there by `grep -o | wc -l`,
+  at 0.9.3/0.9.11 then 0.9.13: `only-export-components` 12 then 8;
+  `react-compiler-no-manual-memoization` 10 then 7; `preserve-manual-memoization` 0 then 0;
+  `async-parallel` 0 then 0. The 0.9.11 figures reproduce from the published tarball. But
+  rule metadata ships in the separate `oxlint-plugin-react-doctor` package (`async-parallel`
+  ×10 at 0.9.11, ×12 at 0.9.13), and the compiler rules come from `eslint-plugin-react-hooks`,
+  loaded as `react-hooks-js`. Liveness at 0.9.13: **`react-doctor/async-parallel` is live** —
+  the default full scan reports it ×4 in files other than `db-provider.tsx` — so the override
+  targets a real rule. `react-hooks-js/preserve-manual-memoization` is registered (severity
+  `error` in the plugin's compiler-rule table) but reports nothing here because the
+  `react-hooks-js` plugin is not loaded (see the `react-hooks-js` bullet). Registry presence is
+  not firing evidence, and no planted violation has proved this id live. The manual-memoization
+  protection still exists via eslint-plugin-react-hooks' own
+  `react-hooks/preserve-manual-memoization`, which is live, reporting 2 warnings, and is
   tracked in `eslint-warning-baseline.json`.
 - **The Fast Refresh module-boundary contract is NOT react-doctor's — it is
   `react-refresh/only-export-components` in `eslint.config.js`** (BST-1220, #2372, plugin
@@ -3680,13 +3855,13 @@ Two react-doctor CLI constraints worth knowing before you script around it:
 
 ### Delegated workspace smoke coverage
 
-The required desktop smoke command includes
-`delegated-workspace-reload.desktop.test.ts` and its `@smoke` case. It restores
-two native child histories through the real workspace coordinator, switches by
-keyboard, closes a sibling tab, and verifies that inspection neither executes
-inference nor advertises unsupported edit/regenerate actions. Its screenshot
-uses disabled finite animations for stable evidence. The case measured 4.2s
-locally (not the complete lane). On head bf8d50b, required Desktop E2E job
-103119913725 completed in 6m19s including setup and this new smoke case. This
-is an observed total, not a measured before/after lane delta. The existing lane
-deadline and zero-retry policy remain unchanged.
+The required delegated desktop smoke lane (`test:e2e:lane:smoke-delegated`,
+BST-1762) includes `delegated-workspace-reload.desktop.test.ts` and its `@smoke`
+case. It restores two native child histories through the real workspace
+coordinator, switches by keyboard, closes a sibling tab, and verifies that
+inspection neither executes inference nor advertises unsupported edit/regenerate
+actions. Its screenshot uses disabled finite animations for stable evidence. The
+case measured 4.2s locally (not the complete lane). On head bf8d50b, required
+Desktop E2E job 103119913725 completed in 6m19s including setup and this new
+smoke case. This is an observed total, not a measured before/after lane delta.
+The existing lane deadline and zero-retry policy remain unchanged.

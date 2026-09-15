@@ -1,5 +1,9 @@
 import type { McpHostPort } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import {
+  parseRuntimeSubagentSettings,
+  type RuntimeSubagentSettings,
+} from '@brainstrike/assistant-contract/subagent-settings';
 import { createLogger } from '@brainstrike/logging';
 import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
 import type { AgentBackgroundConfig, BackgroundTaskManager } from '@mastra/core/background-tasks';
@@ -15,6 +19,7 @@ import {
   type BackgroundTaskScope,
   MAX_BACKGROUND_TASK_TIMEOUT_MS,
 } from '../pglite-mastra-memory/background-store';
+import { isListingOnlyModel } from '../providers/listing-only-model';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import {
   createProviderCallWarningSink,
@@ -35,8 +40,11 @@ import {
   type CacheAwareInstructions,
   composeCacheAwareInstructions,
 } from './anthropic-instruction-cache';
+import type { RuntimeApprovalGate } from './approval-gate';
 import { requireBackgroundResultDelivery } from './background-result-delivery';
 import type { DelegatedExecutionOptions } from './build-persona-subagents';
+import type { ChildContinuationRuntimeScope } from './child-continuation-usage';
+import { captureRuntimeChildExecution } from './child-run-configuration';
 import {
   buildContextBudgetNote,
   buildCurrentDateNote,
@@ -59,10 +67,12 @@ import {
   type DelegatedTurnPersistence,
 } from './delegated-turn-persistence';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
+import { createLiveDecisionChannel, type LiveDecisionChannel } from './live-decision-channel';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import type { McpAppToolAdmissionCapability } from './mcp-app-tool-call';
 import type { McpDiscoverySkip } from './mcp-discovery-diagnostics';
 import type { McpRuntimeClient } from './mcp-runtime-client';
+import type { PermissionGateSummary } from './permission-gate-run-events';
 import type { PermissionAskToolMetadata, PermissionToolGateSnapshot } from './permission-tool-gate';
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
 import type { ProjectionSafeToolCallFilter } from './projection-safe-tool-call-filter';
@@ -78,11 +88,31 @@ import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
+import type { ChildPromptFacts } from './subagent-delegation';
 import type { RunTokenDiagnostics } from './token-measurement';
 import type { ToolOutputArtifactSettlementStore } from './tool-output-artifact-settlement';
 import type { BrainstrikeToolSearchProcessor, ToolDiscoveryMetadata } from './tool-search-runtime';
 
 export interface MastraAgentRuntimeOptions {
+  /**
+   * This runtime resumes a paused APPROVAL. Persona children built for it run
+   * their tool calls sequentially (see `build-persona-subagents.ts`,
+   * `resolveChildToolCallConcurrency`): a delegated child's resume inherits no
+   * run-wide approval gate from the parent, so when the approved tool's own
+   * `ask` was lifted by a grant in the meantime the child's suspended step would
+   * otherwise resume in PARALLEL mode, and Mastra 1.64's parallel foreach resume
+   * re-raises the step's approval for every allowed sibling (2026-09-13,
+   * thread-05251b3f: `globWorkspace` paused right after `readWorkspaceDirectory`
+   * was approved, and approving that pause failed with "multiple pending
+   * calls"). The root leg never hits this because its function-form gate is
+   * truthy and already forces sequential execution. Set by the two approval
+   * entry points — `streamMastraToolApprovalAction` and the tool-approval kind
+   * of `createChildContinuationDecisionStream` — which are exhaustive; a
+   * generic suspend resume needs no flag (a suspending tool carries a suspend
+   * schema, which already forces sequential execution). Effect is run-level:
+   * see `resolveChildToolCallConcurrency`.
+   */
+  approvalResumeLeg?: boolean;
   /**
    * Provider auth input for the run's language model (BST-1352). A DIRECT
    * option by contract — never read from `runtime`: RuntimeData must not carry
@@ -91,10 +121,27 @@ export interface MastraAgentRuntimeOptions {
    * the legacy runtime/env key resolution.
    */
   authInput?: ProviderAuthInput;
+  /**
+   * Silence budget for running background work before the parent stream
+   * closes unfinished (`withBackgroundIdleLoop`); defaults to the longest a
+   * task may run. Tests shorten it to prove the expiry is reported.
+   */
+  backgroundIdleMs?: number;
   /** Host-owned durable background scope; never client RuntimeData. */
   backgroundTaskScope?: BackgroundTaskScope;
+  /** Host-admitted settings for the exact resumed child, never renderer authority. */
+  childExecutionConfiguration?: import('@brainstrike/assistant-contract').ChildExecutionConfiguration;
+  /** Actual ancestor depth retained when an existing child becomes the managed native root. */
+  continuationChildScope?: ChildContinuationRuntimeScope | undefined;
   /** Host-owned native identity persistence; never serialized through RuntimeData. */
   conversationBinding?: DelegatedConversationBinding | undefined;
+  delegatedDepthOffset?: number | undefined;
+  delegatedExecutionSnapshots?: readonly (
+    | import('@brainstrike/assistant-contract').ChildExecutionConfiguration
+    | undefined
+  )[];
+  /** Host-authorized admission profiles, indexed by delegation depth for a resumed path. */
+  delegatedPersonaSnapshots?: readonly AssistantPersonaDefinition[];
   /** @internal Initial host system context; native child snapshots own resumption. */
   getDelegatedSystemContext?: DelegatedSystemContextSource;
   /**
@@ -147,6 +194,8 @@ export interface MastraAgentRuntimeOptions {
   preserveExecuteBackedWebSearch?: boolean;
   requireToolApproval?: boolean;
   resolved?: ResolvedRuntimeConfiguration;
+  /** Trusted host credential lookup for an admitted persona removed from the live registry. */
+  resolvePersonaApiKey?: (provider: string) => Promise<string | undefined>;
   runtime?: RuntimeData;
   storage?: MastraCompositeStore;
   /**
@@ -169,17 +218,34 @@ export interface McpAppAdmissionObserver {
 export interface MastraAgentRuntime {
   agent: Agent;
   /**
+   * The live approval gate (approval-gate.ts): the single decision point for
+   * this run's `ask` tools. Each ask tool's function-form `requireApproval`
+   * forwards to it per call; the approval leg resolves the resume API's
+   * `requireToolApproval: true` through it (`resolveRequireToolApproval`).
+   */
+  approvalGate: RuntimeApprovalGate;
+  /**
    * Sanitized id → risk metadata for every tool the permission gate resolved to
-   * `'ask'` and KEPT in the map (each carrying the per-tool `requireApproval`
-   * flag). Non-empty when the run has approval-gated mutation tools; used for the
-   * approval-pause risk hint and observability. Empty when no policy is enforced,
-   * every tool resolved to allow/deny, or ask tools were fail-safe-omitted for
-   * lack of resume storage.
+   * `'ask'` and KEPT in the map. Non-empty when the run has approval-gated
+   * mutation tools; the live gate suspends exactly this set, and it feeds the
+   * approval-pause risk hint and observability. Empty when no policy is
+   * enforced, every tool resolved to allow/deny, or ask tools were
+   * fail-safe-omitted for lack of resume storage.
    */
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
   /** Fail-loud completion check for the client-provided persisted assistant id. */
   assertAssistantMessageIdPersisted?: () => void;
+  /** See `MastraAgentRuntimeOptions.backgroundIdleMs`. */
+  backgroundIdleMs?: number | undefined;
   backgroundTaskManager?: BackgroundTaskManager | undefined;
+  /** Direct child legs retain the child's native default processors and admitted step cap. */
+  childExecution?: { readonly maxSteps: number; readonly inputProcessors?: unknown[] };
+  /**
+   * Persona id → the exact instructions and kept tool names each child Agent of
+   * THIS runtime's persona build was constructed with (debug-pack prompt
+   * manifests). Describes only delegations dispatched by `agent`.
+   */
+  childPromptFacts: ReadonlyMap<string, ChildPromptFacts>;
   conversationBinding?: DelegatedConversationBinding | undefined;
   delegatedExecutionOptions?: DelegatedExecutionOptions;
   delegatedTurnPersistence?: DelegatedTurnPersistence | undefined;
@@ -197,6 +263,12 @@ export interface MastraAgentRuntime {
    * `brainstrike.context-breakdown` data part.
    */
   instructionBreakdown: InstructionBreakdown;
+  /**
+   * The leg's live decision seam: the host delivers a decision into this
+   * RUNNING leg through it (`registerDecisionControl`), and the background
+   * phase driving the stream owns it while it runs (`live-decision-channel.ts`).
+   */
+  liveDecisions: LiveDecisionChannel;
   /** App-originated admission captured from this runtime's admitted tool map. */
   mcpAppToolAdmission: McpAppToolAdmissionCapability;
   mcpClient?: McpRuntimeClient;
@@ -217,11 +289,18 @@ export interface MastraAgentRuntime {
    * WAS enforced but resolved nothing to `'ask'` (every remaining tool is
    * allowed — e.g. after "Allow all tools this session" grants all categories)
    * vs. empty because NO policy was enforced at all. The approval-resume gate
-   * (`resolveResumeApprovalGate`) needs this: the former is an all-allowed
+   * (`resolveRequireToolApproval`, approval-gate.ts) needs this: the former is an all-allowed
    * posture (gate nothing), the latter with run-wide `requireToolApproval: true`
    * is a genuine explicit GLOBAL approval (gate every non-internal tool).
    */
   permissionEnforced: boolean;
+  /**
+   * The permission gate this runtime's Agent was built with, minted ONCE as
+   * `permission.gate.resolved` on the fresh-turn prelude (attempt-legs.ts).
+   * REQUIRED: null means no policy snapshot gated the run, which must stay
+   * distinguishable from a runtime that never computed it.
+   */
+  permissionGate: PermissionGateSummary | null;
   /** Persona id → definition for the registered delegation tools (delegation caps). */
   personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
   /**
@@ -234,10 +313,21 @@ export interface MastraAgentRuntime {
    * into this same run sink.
    */
   providerCallWarnings: ProviderCallWarningSink;
+  /**
+   * Original names of the tools `agent` registered after the plan-mode filter,
+   * the permission gate and the suspend-storage gate — the same set its
+   * instructions advertise (`effectiveToolNameMap`). Debug-pack evidence only.
+   */
+  registeredToolNames: readonly string[];
   resilienceConfig: AssistantResilienceConfig;
   /** Per-run budget shared by fresh producers and runtime projection guards. */
   resolvedToolResultBudget: ScaledToolResultBudget;
   rootDelegatedContextProcessor?: InputProcessor | undefined;
+  /**
+   * Validated request budgets (`runtimeData.subagentSettings`, absent →
+   * defaults); the delegation config clamps every child with them.
+   */
+  subagentSettings: RuntimeSubagentSettings;
   /** Bounded, content-free token measurements for this concrete run/tool map. */
   tokenDiagnostics: RunTokenDiagnostics;
   /** Content-free discovery surface metadata for traces, tests, and diagnostics. */
@@ -375,7 +465,9 @@ export function convertMessagesToMastra(
  * tool this run. Order: instructions, budget note, task list LAST (most recent).
  */
 function composeRuntimeInstructions(params: {
+  backgroundTaskScope: BackgroundTaskScope | undefined;
   budgetNote: string | null;
+  hasSubAgents: boolean;
   instructionsOverride: string | undefined;
   /**
    * Prompt-assembly clock. Injected rather than read inside the builder so the
@@ -395,6 +487,7 @@ function composeRuntimeInstructions(params: {
     (params.provider === 'local'
       ? buildLocalDefaultInstructions(params.toolNameMap)
       : buildDefaultInstructions(params.toolNameMap, {
+          backgroundDelegation: Boolean(params.backgroundTaskScope) && params.hasSubAgents,
           planMode: params.planModeActive,
           toolDiscoveryEnabled: params.toolDiscoveryEnabled,
           ...(params.personaSummaries ? { personas: params.personaSummaries } : {}),
@@ -556,6 +649,17 @@ function assertBackgroundScope(options: MastraAgentRuntimeOptions): void {
   }
 }
 
+function continuationPersonaTools(
+  options: MastraAgentRuntimeOptions,
+  planModeActive: boolean,
+  artifactSettledTools: ToolsInput,
+  hookedTools: ToolsInput
+): ToolsInput {
+  // Resuming an existing child in plan mode retains only the plan-filtered
+  // tools; new delegations continue using the ordinary persona admission path.
+  return options.continuationChildScope && planModeActive ? artifactSettledTools : hookedTools;
+}
+
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
@@ -573,6 +677,7 @@ export async function createMastraAgentRuntime(
     mcpTimeoutMs,
     permissionPolicy,
     preserveExecuteBackedWebSearch,
+    approvalResumeLeg,
     personas,
     hookRunner: hookRunnerOption,
     resolved,
@@ -654,14 +759,19 @@ export async function createMastraAgentRuntime(
   // window; runtime-discovered Ollama/LM Studio ids share the conservative
   // 32,768-token declaration from @brainstrike/assistant-contract.
   const resolvedToolResultBudget = resolveToolResultBudgetForModel(normalizedProvider, modelName);
+  // Created before the tool map: the root's live gate and every child's gate
+  // read this channel's remembered grant on each call (approval-gate.ts).
+  const liveDecisions = createLiveDecisionChannel();
   let registeredDelegationToolNames: readonly string[] = [];
   const {
+    approvalGate,
     artifactSettledTools,
     askTools,
     hookedTools,
     mcpAppToolAdmission,
     mcpClient,
     mcpDiscoverySkips,
+    permissionGate,
     resilienceConfig,
     sanitizedLocalToolIds,
     settleChildToolOutputs,
@@ -682,10 +792,12 @@ export async function createMastraAgentRuntime(
     planModeActive,
     preserveExecuteBackedWebSearch,
     provider: normalizedProvider,
+    remembered: () => liveDecisions.remembered,
     resolvedToolResultBudget,
     toolOutputArtifactStore,
     workspaceSkills: sanitizedRuntime.workspaceSkills,
   });
+  const permissionEnforced = permissionSnapshot !== undefined;
   const persistedDiscoveryMessages = createPersistedDiscoveryMessageLoader({
     enabled: hydrateToolDiscoveryFromMemory,
     memory,
@@ -734,18 +846,36 @@ export async function createMastraAgentRuntime(
 
   // Subagent personas (D10): built BEFORE the instructions so guidance only
   // names personas that actually registered a delegation tool this run.
+  // Validated ONCE per runtime; a malformed request field fails construction
+  // loudly rather than admitting a child under an unknown budget.
+  const subagentSettings = parseRuntimeSubagentSettings(sanitizedRuntime.subagentSettings);
   const delegatedExecutionOptions: DelegatedExecutionOptions = {};
   const delegatedTurnPersistence = createDelegatedTurnPersistence(memory, sanitizedRuntime.memory);
   const {
     artifactReaderDelegationTools,
+    childPromptFacts,
     delegationToolPersonas,
     hasSubAgents,
     instructionPersonaSummaries,
     personasById,
     subAgents,
   } = await resolvePersonaRuntimeParts({
+    approvalResumeLeg,
+    childExecutionConfiguration: captureRuntimeChildExecution(
+      sanitizedRuntime,
+      normalizedProvider,
+      modelName,
+      planModeActive,
+      permissionSnapshot,
+      options.childExecutionConfiguration,
+      isListingOnlyModel(languageModel)
+    ),
+    continuationChildScope: options.continuationChildScope,
     conversationBinding: options.conversationBinding,
+    delegatedDepthOffset: options.delegatedDepthOffset,
     delegatedExecutionOptions,
+    delegatedExecutionSnapshots: options.delegatedExecutionSnapshots,
+    delegatedPersonaSnapshots: options.delegatedPersonaSnapshots,
     getDelegatedSystemContext: options.getDelegatedSystemContext,
     // BST-1206 review (P2): a persona that pins its OWN model must project
     // its tools against THAT model's resolved budget, not the parent's — so
@@ -754,10 +884,16 @@ export async function createMastraAgentRuntime(
     // `applyToolModelOutputProjections` themselves, per persona, choosing the
     // pinned model's own resolved budget when one is pinned and the parent's
     // `resolvedToolResultBudget` otherwise (see build-persona-subagents.ts).
-    guardedTools: hookedTools,
+    guardedTools: continuationPersonaTools(
+      options,
+      planModeActive,
+      artifactSettledTools,
+      hookedTools
+    ),
     hasStorage: Boolean(storage),
     hydrateToolDiscoveryFromMemory,
     languageModel: observedLanguageModel,
+    liveDecisions,
     localToolIds: sanitizedLocalToolIds,
     memory,
     modelName,
@@ -770,6 +906,7 @@ export async function createMastraAgentRuntime(
       // The parent's FULL auth input (not just its key string), so a
       // same-provider pin reuses custom_fetch/aws auth intact (BST-1352).
       auth: runtimeResolution.authInput,
+      inheritedModel: { model: observedLanguageModel, name: modelName },
       instantiate: (provider, auth, pinnedModelName, runtime) =>
         observeProviderCallWarnings(
           instantiateLanguageModel(provider, auth, pinnedModelName, runtime),
@@ -781,6 +918,7 @@ export async function createMastraAgentRuntime(
     }),
     rootMemoryContext: sanitizedRuntime.memory,
     settleChildToolOutputs,
+    subagentSettings,
     toolNameMap,
     // Persona agents get the same raw/model split. Their independent policy
     // gate clones full tool descriptors, so `toModelOutput` survives intact.
@@ -800,7 +938,9 @@ export async function createMastraAgentRuntime(
   registeredDelegationToolNames = [...artifactReaderDelegationTools];
 
   const composedInstructions = composeRuntimeInstructions({
+    backgroundTaskScope: options.backgroundTaskScope,
     budgetNote,
+    hasSubAgents,
     instructionsOverride: instructions,
     now: new Date(),
     personaSummaries: instructionPersonaSummaries,
@@ -855,6 +995,7 @@ export async function createMastraAgentRuntime(
     Boolean(backgroundAgentOptions.backgroundTasks)
   );
   let unregisterCancellation: (() => void) | undefined;
+  let unregisterDecisions: (() => void) | undefined;
   let unregisterFollowup: (() => void) | undefined;
   let invalidateMcpAppAdmission: (() => void) | undefined;
   const dispose = async () => {
@@ -865,6 +1006,7 @@ export async function createMastraAgentRuntime(
       () => invalidateMcpAppAdmission?.(),
       () => mastra?.shutdown(),
       () => unregisterCancellation?.(),
+      () => unregisterDecisions?.(),
       () => unregisterFollowup?.(),
       () => mcpClient?.disconnect(),
       () => options.conversationBinding?.finishToolActions?.(),
@@ -906,6 +1048,9 @@ export async function createMastraAgentRuntime(
   };
   await initializeRuntimeLifetime(() => {
     unregisterCancellation = options.conversationBinding?.registerCancellation?.(cancelInvocations);
+    unregisterDecisions = options.conversationBinding?.registerDecisionControl?.((request) =>
+      liveDecisions.deliver(request)
+    );
     unregisterFollowup = options.conversationBinding?.registerFollowup?.(
       createDelegatedFollowupControl(subAgents)
     );
@@ -919,23 +1064,30 @@ export async function createMastraAgentRuntime(
       hasSubAgents
     ),
     ...assistantIdentityRuntime,
+    approvalGate,
     askTools,
+    backgroundIdleMs: options.backgroundIdleMs,
+    childPromptFacts,
     conversationBinding: options.conversationBinding,
     delegatedExecutionOptions,
     delegatedTurnPersistence,
     delegationToolPersonas,
     dispose,
     instructionBreakdown,
+    liveDecisions,
     mcpAppToolAdmission,
     mcpDiscoverySkips,
     // Present iff a policy snapshot gated this run's tool map — the signal the
     // resume gate uses to tell all-allowed (empty askTools) from a genuine
-    // global-approval run (see resolveResumeApprovalGate / MastraAgentRuntime).
-    permissionEnforced: permissionSnapshot !== undefined,
+    // global-approval run (see resolveRequireToolApproval / MastraAgentRuntime).
+    permissionEnforced,
+    permissionGate,
     personasById,
     providerCallWarnings,
+    registeredToolNames: [...effectiveToolNameMap.values()],
     resilienceConfig,
     resolvedToolResultBudget,
+    subagentSettings,
     tokenDiagnostics,
     ...(discoverySurface ? { toolDiscovery: discoverySurface.metadata } : {}),
     toolExecutionDurations,

@@ -37,6 +37,7 @@
 // setup files load in the vitest worker before any package build, so this
 // must not depend on `dist/`.
 import { writeSync } from 'node:fs';
+import inspector from 'node:inspector';
 import { Worker } from 'node:worker_threads';
 
 const STALL_ENV = 'BRAINSTRIKE_VITEST_EVENT_LOOP_STALL_MS';
@@ -85,8 +86,21 @@ function assertPositiveInteger(value, label) {
 }
 
 function isInspectorAttached() {
+  // `inspector.url()` is the authoritative answer (it also covers a debugger
+  // attached later via SIGUSR1); the flag scan keeps `--inspect-brk` covered
+  // before the session is active, and ignores `--inspect-port`, which only
+  // configures a port.
+  if (inspector.url() !== undefined) {
+    return true;
+  }
   const flags = [...process.execArgv, ...(process.env['NODE_OPTIONS'] ?? '').split(/\s+/)];
-  return flags.some((flag) => flag.startsWith('--inspect'));
+  return flags.some(
+    (flag) =>
+      flag === '--inspect' ||
+      flag.startsWith('--inspect=') ||
+      flag === '--inspect-brk' ||
+      flag.startsWith('--inspect-brk=')
+  );
 }
 
 function resolveStallMs(explicit) {
@@ -127,6 +141,11 @@ export function startEventLoopWatchdog(options = {}) {
     options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS,
     'heartbeatMs'
   );
+  // Validation is independent of the runtime environment: a mis-tuned budget
+  // fails loudly under a debugger too, instead of only in CI.
+  if (heartbeatMs >= stallMs) {
+    throw new Error(`heartbeatMs (${heartbeatMs}) must be shorter than stallMs (${stallMs}).`);
+  }
   if (isInspectorAttached()) {
     writeSync(
       2,
@@ -135,9 +154,6 @@ export function startEventLoopWatchdog(options = {}) {
     const inert = { setLabel: () => {}, stop: () => {} };
     globalThis[REGISTRY] = inert;
     return inert;
-  }
-  if (heartbeatMs >= stallMs) {
-    throw new Error(`heartbeatMs (${heartbeatMs}) must be shorter than stallMs (${stallMs}).`);
   }
   const worker = new Worker(WATCHDOG_THREAD_SOURCE, {
     eval: true,

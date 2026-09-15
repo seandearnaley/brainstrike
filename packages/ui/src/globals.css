@@ -86,6 +86,19 @@
   /* Radius - Slightly larger for modern feel */
   --bs-radius: 0.5rem;
 
+  /* Delegation identity rails (swarm-aware approval cards/rows). Eight
+     curated hues picked by a stable hash of the delegation call id
+     (`packages/assistant-ui/src/delegation-colour.ts`). Never the only
+     signal: the persona label always accompanies the rail. */
+  --bs-delegation-1: 215 70% 46%; /* blue */
+  --bs-delegation-2: 172 60% 34%; /* teal */
+  --bs-delegation-3: 268 55% 52%; /* violet */
+  --bs-delegation-4: 32 90% 44%; /* amber */
+  --bs-delegation-5: 342 65% 48%; /* rose */
+  --bs-delegation-6: 140 50% 36%; /* green */
+  --bs-delegation-7: 238 55% 58%; /* indigo */
+  --bs-delegation-8: 18 60% 42%; /* ochre */
+
   --background: var(--bs-background);
   --foreground: var(--bs-foreground);
   --card: var(--bs-card);
@@ -198,6 +211,16 @@
   --bs-info-foreground: 0 0% 100%; /* White text */
 
   --bs-radius: 0.5rem;
+
+  /* Delegation rails, lifted for dark surfaces (same hue order as light). */
+  --bs-delegation-1: 215 75% 66%;
+  --bs-delegation-2: 172 55% 52%;
+  --bs-delegation-3: 268 65% 72%;
+  --bs-delegation-4: 36 90% 62%;
+  --bs-delegation-5: 342 75% 68%;
+  --bs-delegation-6: 140 50% 56%;
+  --bs-delegation-7: 238 70% 76%;
+  --bs-delegation-8: 22 70% 62%;
 
   --background: var(--bs-background);
   --foreground: var(--bs-foreground);

@@ -4,10 +4,14 @@ import {
   getToolActionIdentityKey,
   isDelegatedToolDecisionState,
 } from '@brainstrike/assistant-contract';
-import type { DelegatedConversationDatabase } from '@brainstrike/db';
+import {
+  createDelegatedConversationRepository,
+  type DelegatedConversationDatabase,
+} from '@brainstrike/db';
 import { z } from 'zod';
 
 interface DiscoveredDecision {
+  readonly continuationId?: string;
   readonly delegation?: DelegatedToolActionIdentity;
   readonly runId: string;
   readonly toolCallId: string;
@@ -32,6 +36,9 @@ export async function readDelegatedDecisionStates(
     { key: string; tuple: readonly [string, string, string, string]; path: readonly string[] }
   >();
   for (const request of requests) {
+    if (request.continuationId) {
+      continue;
+    }
     const leaf = request.delegation?.path.at(-1);
     if (!(leaf && request.delegation)) {
       continue;
@@ -48,7 +55,7 @@ export async function readDelegatedDecisionStates(
       tuple,
     });
   }
-  const states = new Map<string, DelegatedToolDecisionState>();
+  const states = await readContinuationDecisionStates(database, scope, requests);
   if (requested.size === 0) {
     return states;
   }
@@ -98,6 +105,112 @@ export async function readDelegatedDecisionStates(
     )?.key;
     if (key !== undefined) {
       states.set(key, row.state);
+    }
+  }
+  return states;
+}
+
+interface PendingChildContinuation {
+  readonly continuationId: string;
+  readonly nativeRunId: string;
+  readonly personaId: string;
+  readonly resourceId: string;
+  readonly threadId: string;
+}
+
+/** Durable candidate enumeration only; the native reader must verify the actual pending pause. */
+export async function readPendingChildContinuations(
+  database: DelegatedConversationDatabase,
+  scope: { ownerResourceId: string; rootThreadId: string }
+): Promise<PendingChildContinuation[]> {
+  const rows = await database.query(
+    "SELECT id FROM brainstrike_delegated_continuations WHERE owner_resource_id=$1 AND root_thread_id=$2 AND state IN ('awaiting-approval','awaiting-input')",
+    [scope.ownerResourceId, scope.rootThreadId]
+  );
+  const graph = createDelegatedConversationRepository(database);
+  const candidates = await Promise.all(
+    z
+      .array(z.object({ id: z.string().min(1) }))
+      .parse(rows.rows)
+      .map(async ({ id }): Promise<PendingChildContinuation | null> => {
+        const receipt = await graph.getContinuation(scope, id);
+        if (!receipt) {
+          throw new Error('Pending child continuation no longer has authorized native ancestry.');
+        }
+        if (receipt.state !== 'awaiting-approval' && receipt.state !== 'awaiting-input') {
+          return null;
+        }
+        if (!receipt.nativeRunId) {
+          throw new Error('Pending child continuation is missing its native run.');
+        }
+        const persona = z
+          .object({ persona: z.object({ id: z.string().trim().min(1) }) })
+          .parse(receipt.configuration).persona;
+        return {
+          continuationId: receipt.id,
+          nativeRunId: receipt.nativeRunId,
+          personaId: persona.id,
+          resourceId: receipt.resourceId,
+          threadId: receipt.threadId,
+        };
+      })
+  );
+  return candidates.filter(
+    (candidate): candidate is PendingChildContinuation => candidate !== null
+  );
+}
+
+async function readContinuationDecisionStates(
+  database: DelegatedConversationDatabase,
+  scope: { ownerResourceId: string; rootThreadId: string },
+  requests: readonly DiscoveredDecision[]
+): Promise<Map<string, DelegatedToolDecisionState>> {
+  const states = new Map<string, DelegatedToolDecisionState>();
+  for (const request of requests) {
+    if (!request.continuationId) {
+      continue;
+    }
+    const receipt = await createDelegatedConversationRepository(database).getContinuation(
+      scope,
+      request.continuationId
+    );
+    if (!receipt || receipt.nativeRunId !== request.runId) {
+      throw new Error('Discovered child continuation identity is unauthorized.');
+    }
+    const targetRunId = request.delegation?.path.at(-1)?.childRuntimeRunId ?? request.runId;
+    const toolCallId = request.delegation?.toolCallId ?? request.toolCallId;
+    const result = await database.query(
+      `SELECT decision.state FROM brainstrike_delegated_continuation_decisions decision
+      WHERE decision.continuation_id=$1 AND decision.native_run_id=$2 AND decision.target_runtime_run_id=$3 AND decision.tool_call_id=$4
+      UNION ALL SELECT 'cancelled' WHERE EXISTS (
+        SELECT 1 FROM brainstrike_delegated_continuations receipt WHERE receipt.id=$1 AND receipt.cancellation_requested_at IS NOT NULL
+      ) OR EXISTS (
+        SELECT 1 FROM brainstrike_delegated_invocations stopped
+        JOIN jsonb_array_elements_text($5::jsonb) path(run_id) ON path.run_id=stopped.child_runtime_run_id
+        WHERE stopped.owner_resource_id=$6 AND stopped.root_thread_id=$7 AND stopped.turn_message_id=$8 AND stopped.cancellation_requested_at IS NOT NULL
+      )`,
+      [
+        receipt.id,
+        request.runId,
+        targetRunId,
+        toolCallId,
+        JSON.stringify(request.delegation?.path.map((edge) => edge.childRuntimeRunId) ?? []),
+        scope.ownerResourceId,
+        scope.rootThreadId,
+        receipt.turnMessageId,
+      ]
+    );
+    for (const row of z
+      .array(
+        z.object({ state: z.custom<DelegatedToolDecisionState>(isDelegatedToolDecisionState) })
+      )
+      .parse(result.rows)) {
+      const key = getToolActionIdentityKey(request);
+      // UNION ALL has no row ordering guarantee. A cancellation fence always
+      // wins over an earlier decision claim, regardless of the query plan.
+      if (states.get(key) !== 'cancelled') {
+        states.set(key, row.state);
+      }
     }
   }
   return states;

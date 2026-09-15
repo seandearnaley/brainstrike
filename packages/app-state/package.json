@@ -66,6 +66,10 @@
       "types": "./dist/stores/assistant-budget-preferences-store.d.ts",
       "import": "./dist/stores/assistant-budget-preferences-store.js"
     },
+    "./stores/assistant-subagent-preferences-store": {
+      "types": "./dist/stores/assistant-subagent-preferences-store.d.ts",
+      "import": "./dist/stores/assistant-subagent-preferences-store.js"
+    },
     "./stores/assistant-memory-preferences-store": {
       "types": "./dist/stores/assistant-memory-preferences-store.d.ts",
       "import": "./dist/stores/assistant-memory-preferences-store.js"

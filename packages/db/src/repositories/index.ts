@@ -1,4 +1,6 @@
 export * from './assistant-history-repository.js';
+export * from './delegated-continuation-repository.js';
+export * from './delegated-conversation-insights.js';
 // Interfaces
 
 // Re-export preset types from @brainstrike/types for convenience
@@ -122,6 +124,11 @@ export {
 } from './prompt-item-repository.js';
 // Factory functions
 export { createFileRecordRepository, isPGlite } from './repository-factory.js';
+export {
+  readThreadDebugSnapshot,
+  type ThreadDebugDatabase,
+  type ThreadDebugSnapshot,
+} from './thread-debug-snapshot.js';
 export { ThreadSearchRepository } from './thread-search-repository.js';
 export {
   type PurgeExpiredToolOutputArtifactsOptions,

@@ -4,7 +4,7 @@ export function delegatedUpdate(
   child: string,
   hostRunId = 'initial',
   text = child
-): DelegatedConversationUpdate {
+): Extract<DelegatedConversationUpdate, { readonly identity: unknown }> {
   const parts = [
     { status: { reason: 'stop' as const, type: 'complete' as const }, text, type: 'text' as const },
   ];

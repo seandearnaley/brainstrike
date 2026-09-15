@@ -1,6 +1,6 @@
 import { once } from 'node:events';
 // Keep foreground decisions covered explicitly; delegated-worker-write covers background mode.
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
@@ -18,7 +18,8 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-child-control-'));
   await writeFile(path.join(workspace, 'evidence.txt'), 'CHILD_EVIDENCE_1720');
   const observed = { childRead: false, parentResult: false };
-  const provider = await startModelProviderShim(({ messages }) => {
+  const executedConfigurations: { isParent: boolean; body: unknown }[] = [];
+  const provider = await startModelProviderShim(({ messages, toolNames, requestBody }) => {
     // Children now advertise delegation too; identify the actual root task.
     const isParent = JSON.stringify(
       messages
@@ -29,6 +30,9 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
         .at(-1)
     ).includes('Delegate to Explorer to read evidence.txt.');
     const history = JSON.stringify(messages);
+    if (toolNames.length > 0) {
+      executedConfigurations.push({ body: requestBody, isParent });
+    }
     if (isParent && history.includes('CHILD_READ_COMPLETE_1720')) {
       observed.parentResult = true;
     }
@@ -71,6 +75,9 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       .selectOption('ask');
     await ensureAssistantShellVisible(window);
     const root = window.getByTestId('chat-panel');
+    await root.getByTestId('composer-effort-trigger').click();
+    await window.getByRole('slider', { name: 'Reasoning effort' }).press('End');
+    await window.keyboard.press('Escape');
     await root
       .getByRole('textbox', { name: 'Message input' })
       .fill('Delegate to Explorer to read evidence.txt.');
@@ -91,10 +98,33 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     await expect(
       child.getByRole('button', { exact: true, name: 'Approve brainstrike.readWorkspaceFile' })
     ).toBeVisible();
+    const firstChild = executedConfigurations.find((entry) => !entry.isParent);
+    expect(firstChild?.body).toMatchObject({
+      model: 'openai/gpt-5.4',
+      reasoning: { effort: 'xhigh' },
+    });
+    // Change the parent's actual model control while its child decision is pending.
+    await root.getByTestId('composer-model-menu-trigger').click();
+    const moreModels = window.getByTestId('composer-more-models-trigger');
+    await moreModels.focus();
+    await moreModels.press('ArrowRight');
+    const openRouterModels = window.getByRole('menuitem', { name: /OpenRouter/u });
+    await openRouterModels.focus();
+    await openRouterModels.press('ArrowRight');
+    await expect(openRouterModels).toHaveAttribute('aria-controls', /.+/u);
+    const submenuId = await openRouterModels.getAttribute('aria-controls');
+    const terra = window
+      .locator(`[id="${submenuId}"]`)
+      .getByRole('menuitemradio')
+      .filter({ hasText: 'GPT-5.6 Terra (OpenRouter)' });
+    await expect(terra).toBeVisible();
+    await expect(terra).toBeEnabled();
+    await terra.click();
+    await expect(root.getByTestId('composer-model-menu-trigger')).toContainText('GPT-5.6 Terra');
     const pausedRequests = provider.requestCount();
     await window.reload();
     await configureAssistantProvider(window, {
-      compositeModelKey: 'openrouter::openai/gpt-5.4',
+      compositeModelKey: 'openrouter::openai/gpt-5.6-terra',
       provider: 'openrouter',
     });
     await ensureAssistantShellVisible(window);
@@ -102,12 +132,34 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       child.getByRole('button', { exact: true, name: 'Approve brainstrike.readWorkspaceFile' })
     ).toBeVisible();
     expect(provider.requestCount()).toBe(pausedRequests);
+    // The recreated sidebar must recover the same native pending decision without
+    // relying on a live-stream publication from before the renderer reload.
+    const sidebarRoot = window
+      .getByRole('row')
+      .filter({ has: window.getByTestId('thread-row') })
+      .first();
+    await sidebarRoot.getByRole('button', { name: /Expand/u }).click();
+    const pendingSidebarChild = window.getByRole('button', {
+      exact: true,
+      name: `${childName} Needs input`,
+    });
+    await expect(pendingSidebarChild).toBeVisible();
+    expect(provider.requestCount()).toBe(pausedRequests);
     await child
       .getByRole('button', { exact: true, name: 'Approve brainstrike.readWorkspaceFile' })
       .click();
     await expect(child.getByText('CHILD_READ_COMPLETE_1720', { exact: true })).toBeVisible();
     await expect(root.getByText('PARENT_RECEIVED_CHILD_1720', { exact: true })).toBeVisible();
     expect(observed).toEqual({ childRead: true, parentResult: true });
+    const childExecutions = executedConfigurations.filter((entry) => !entry.isParent);
+    expect(childExecutions).toHaveLength(2);
+    expect(childExecutions[1]?.body).toMatchObject({
+      model: 'openai/gpt-5.4',
+      reasoning: { effort: 'xhigh' },
+    });
+    expect(executedConfigurations.filter((entry) => entry.isParent).at(-1)?.body).toMatchObject({
+      model: 'openai/gpt-5.6-terra',
+    });
     await expect(child.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
     const completedRequests = provider.requestCount();
     const closeChild = window.getByRole('button', {
@@ -178,11 +230,25 @@ test('sends human input to the active child and reloads its rich conversation', 
 }, testInfo) => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-child-input-'));
   await writeFile(path.join(workspace, 'evidence.txt'), 'FOLLOWUP_FILE_EVIDENCE');
+  await writeFile(path.join(workspace, 'context.txt'), 'CHILD_MENTION_CONTEXT_1724');
+  await mkdir(path.join(workspace, '.brainstrike', 'commands'), { recursive: true });
+  await writeFile(
+    path.join(workspace, '.brainstrike', 'commands', 'child-evidence.md'),
+    'HUMAN_FOLLOWUP_1723\n\n@context.txt'
+  );
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let childCalls = 0;
+  const childGenerationRequests: unknown[] = [];
   let receivedInput = false;
-  const provider = await startModelProviderShim(({ messages, toolNames }) => {
+  let receivedImage = false;
+  let receivedFileContext = false;
+  const imageBytes = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgaGAAAAEEAIFw9selAAAAAElFTkSuQmCC',
+    'base64'
+  );
+  const imageMarker = imageBytes.toString('base64');
+  const provider = await startModelProviderShim(({ messages, toolNames, requestBody }) => {
     if (toolNames.length === 0) {
       return { finalText: 'Child input task' };
     }
@@ -194,6 +260,12 @@ test('sends human input to the active child and reloads its rich conversation', 
       )
     );
     if (!userMessages.includes('CHILD_ACTIVE_INPUT_TASK')) {
+      if (history.includes('CHILD_IDLE_APPROVAL_COMPLETE')) {
+        return { finalText: 'PARENT_IDLE_APPROVAL_OUTCOME' };
+      }
+      if (history.includes('CHILD_IDLE_CONTINUATION_RECEIVED')) {
+        return { finalText: 'PARENT_IDLE_CONTINUATION_OUTCOME' };
+      }
       if (history.includes('CHILD_FOLLOWUP_RECEIVED')) {
         return { finalText: 'PARENT_FOLLOWUP_OUTCOME' };
       }
@@ -212,11 +284,30 @@ test('sends human input to the active child and reloads its rich conversation', 
       };
     }
     childCalls += 1;
+    childGenerationRequests.push(requestBody);
     if (childCalls === 1) {
       entered.resolve();
     }
+    if (history.includes('HUMAN_IDLE_APPROVAL_1723')) {
+      return {
+        finalText: 'CHILD_IDLE_APPROVAL_COMPLETE',
+        toolCall: { arguments: { path: 'evidence.txt' }, name: 'brainstrike_readWorkspaceFile' },
+      };
+    }
+    if (childCalls === 3 && history.includes(imageMarker)) {
+      return { finalText: 'CHILD_IDLE_CONTINUATION_RECEIVED' };
+    }
     if (history.includes('HUMAN_FOLLOWUP_1723')) {
       receivedInput = true;
+      receivedImage = history.includes(imageMarker);
+      receivedFileContext = messages.some(
+        (message) =>
+          message &&
+          typeof message === 'object' &&
+          'role' in message &&
+          message.role === 'system' &&
+          JSON.stringify(message).includes('CHILD_MENTION_CONTEXT_1724')
+      );
       return { finalText: 'CHILD_FOLLOWUP_RECEIVED' };
     }
     return {
@@ -267,7 +358,17 @@ test('sends human input to the active child and reloads its rich conversation', 
     const child = window.getByRole('region', { exact: true, name: childName });
     const input = child.getByRole('textbox', { name: 'Message input' });
     await expect(input).toBeEnabled();
-    await input.fill('HUMAN_FOLLOWUP_1723');
+    await input.fill('/child-evidence');
+    await child.getByRole('option', { exact: true, name: 'child-evidence' }).click();
+    await expect(input).toHaveValue(/HUMAN_FOLLOWUP_1723/u);
+    await expect(input).toHaveValue(/:file\[context\.txt\]/u);
+    const activeChooser = window.waitForEvent('filechooser');
+    await child.getByRole('button', { exact: true, name: 'Attach image' }).click();
+    await (await activeChooser).setFiles({
+      buffer: imageBytes,
+      mimeType: 'image/png',
+      name: 'evidence.png',
+    });
     await child.getByRole('button', { exact: true, name: 'Send to child' }).click();
     await expect(input).toHaveValue('');
     release.resolve();
@@ -275,6 +376,9 @@ test('sends human input to the active child and reloads its rich conversation', 
     await expect(child.getByText('CHILD_FOLLOWUP_RECEIVED', { exact: true })).toBeVisible();
     await expect(root.getByText('PARENT_FOLLOWUP_OUTCOME', { exact: true })).toBeVisible();
     expect(receivedInput).toBe(true);
+    expect(receivedImage).toBe(true);
+    expect(receivedFileContext).toBe(true);
+    await expect(child.locator('img[src^="data:image/png"]')).toHaveCount(1);
     expect(childCalls).toBe(2);
     const completedRequests = provider.requestCount();
     await window.reload();
@@ -282,6 +386,73 @@ test('sends human input to the active child and reloads its rich conversation', 
     await expect(child.getByText('HUMAN_FOLLOWUP_1723', { exact: true })).toBeVisible();
     await expect(child.getByText('CHILD_FOLLOWUP_RECEIVED', { exact: true })).toBeVisible();
     expect(provider.requestCount()).toBe(completedRequests);
+    await expect(input).toBeEnabled();
+    await child.getByTestId('composer-effort-trigger').click();
+    await window.getByRole('slider', { name: 'Reasoning effort' }).press('End');
+    await window.keyboard.press('Escape');
+    await expect(child.getByTestId('composer-effort-trigger')).toContainText('Extra');
+    const idleChooser = window.waitForEvent('filechooser');
+    await child.getByRole('button', { exact: true, name: 'Attach image' }).click();
+    await (await idleChooser).setFiles({
+      buffer: imageBytes,
+      mimeType: 'image/png',
+      name: 'idle-evidence.png',
+    });
+    await child.getByRole('button', { exact: true, name: 'Send' }).click();
+    await expect(input).toHaveValue('');
+    await expect(child.locator('img[src^="data:image/png"]')).toHaveCount(2);
+    await expect(
+      child.getByText('CHILD_IDLE_CONTINUATION_RECEIVED', { exact: true })
+    ).toBeVisible();
+    await expect(root.getByText('PARENT_IDLE_CONTINUATION_OUTCOME', { exact: true })).toBeVisible();
+    expect(childCalls).toBe(3);
+    expect(childGenerationRequests[2]).toMatchObject({ reasoning: { effort: 'xhigh' } });
+    const continuedRequests = provider.requestCount();
+    await window.reload();
+    await ensureAssistantShellVisible(window);
+    await expect(child.locator('img[src^="data:image/png"]')).toHaveCount(2);
+    await expect(
+      child.getByText('CHILD_IDLE_CONTINUATION_RECEIVED', { exact: true })
+    ).toBeVisible();
+    expect(provider.requestCount()).toBe(continuedRequests);
+    await new HomePage(window).openSettings();
+    await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+    await window
+      .getByRole('combobox', { exact: true, name: 'Read permission' })
+      .selectOption('ask');
+    await ensureAssistantShellVisible(window);
+    await child.getByTestId('composer-effort-trigger').click();
+    await window.getByRole('slider', { name: 'Reasoning effort' }).press('End');
+    await window.keyboard.press('Escape');
+    await input.fill('HUMAN_IDLE_APPROVAL_1723');
+    await child.getByRole('button', { exact: true, name: 'Send' }).click();
+    const approve = child.getByRole('button', {
+      exact: true,
+      name: 'Approve brainstrike.readWorkspaceFile',
+    });
+    await expect(approve).toBeVisible();
+    expect(childCalls).toBe(4);
+    expect(childGenerationRequests[3]).toMatchObject({ reasoning: { effort: 'xhigh' } });
+    // A draft for a future child run must not mutate the suspended invocation.
+    await child.getByTestId('composer-effort-trigger').click();
+    await window.getByRole('slider', { name: 'Reasoning effort' }).press('Home');
+    await window.keyboard.press('Escape');
+    const suspendedRequests = provider.requestCount();
+    await window.reload();
+    await ensureAssistantShellVisible(window);
+    await expect(approve).toBeVisible();
+    expect(provider.requestCount()).toBe(suspendedRequests);
+    await approve.click();
+    await expect(child.getByText('CHILD_IDLE_APPROVAL_COMPLETE', { exact: true })).toBeVisible();
+    await expect(root.getByText('PARENT_IDLE_APPROVAL_OUTCOME', { exact: true })).toBeVisible();
+    expect(childCalls).toBe(5);
+    expect(childGenerationRequests[4]).toMatchObject({ reasoning: { effort: 'xhigh' } });
+    const approvedRequests = provider.requestCount();
+    await window.reload();
+    await ensureAssistantShellVisible(window);
+    await expect(child.getByText('CHILD_IDLE_APPROVAL_COMPLETE', { exact: true })).toBeVisible();
+    await expect(approve).toHaveCount(0);
+    expect(provider.requestCount()).toBe(approvedRequests);
     await window.screenshot({
       animations: 'disabled',
       path: testInfo.outputPath('child-followup-reloaded.png'),

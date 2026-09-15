@@ -4,6 +4,7 @@ import {
   type DelegatedToolDecisionState,
   hasValidDelegatedDecisionState,
   hasValidDelegatedToolActionTarget,
+  isDelegatedToolActionIdentity,
 } from './delegated-tool-actions.js';
 import type { ToolRiskCategory } from './tool-risk.js';
 
@@ -141,6 +142,7 @@ export function isCodeExecutionApprovalContext(
 
 export interface AssistantToolApprovalRequest {
   args?: unknown;
+  continuationId?: string;
   delegation?: DelegatedToolActionIdentity;
   /**
    * Present only for code-execution tools (today: `brainstrike.runPython`);
@@ -257,8 +259,55 @@ export function isDeclinedToolCallResult(value: unknown): value is DeclinedToolC
 
 export type AssistantToolApprovalDecision = 'approve' | 'decline';
 
+export const TOOL_APPROVAL_ANSWERED_DATA_NAME = 'brainstrike.tool-approval-answered';
+
+/**
+ * A parked approval the HOST answered on the user's behalf, streamed on the
+ * leg that answered it (BST-1723, settled 2026-09-14). Today the only reason
+ * is a session grant: when the user allows a risk category for the session
+ * while approving one call, every sibling background child parked on a tool
+ * that category now allows is resumed in the same leg, and the notice for each
+ * locks as "Allowed by session grant". Keyed like the notice it answers
+ * (`getToolActionIdentityKey`), so the card finds it by scanning the thread.
+ */
+/**
+ * Why the host answered a card without a user message on the thread:
+ * `'session-grant'` — a lasting grant on a sibling's card answered it by
+ * policy; `'user'` — the user's own decision was delivered into the running
+ * leg (POST /assistant/decide), so no action message follows it.
+ */
+export type AssistantToolApprovalAnsweredReason = 'session-grant' | 'user';
+
+export interface AssistantToolApprovalAnswered {
+  readonly decision: AssistantToolApprovalDecision;
+  readonly delegation?: DelegatedToolActionIdentity;
+  readonly reason: AssistantToolApprovalAnsweredReason;
+  readonly runId: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+}
+
+export function isAssistantToolApprovalAnswered(
+  value: unknown
+): value is AssistantToolApprovalAnswered {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    (candidate['decision'] === 'approve' || candidate['decision'] === 'decline') &&
+    (candidate['reason'] === 'session-grant' || candidate['reason'] === 'user') &&
+    typeof candidate['runId'] === 'string' &&
+    typeof candidate['toolCallId'] === 'string' &&
+    typeof candidate['toolName'] === 'string' &&
+    (candidate['delegation'] === undefined ||
+      isDelegatedToolActionIdentity(candidate['delegation']))
+  );
+}
+
 export interface AssistantToolApprovalAction {
   action: AssistantToolApprovalDecision;
+  continuationId?: string;
   delegation?: DelegatedToolActionIdentity;
   runId: string;
   toolCallId: string;
@@ -270,6 +319,7 @@ export type ToolApprovalRunConfigActionReadResult =
   | { readonly invalid: true };
 
 const TOOL_APPROVAL_ACTION_OWN_KEYS = new Set<PropertyKey>([
+  'continuationId',
   'delegation',
   'action',
   'runId',

@@ -19,7 +19,15 @@ describe('StepStateGlyph', () => {
     const { rerender } = render(<StepStateGlyph state="running" />);
     expect(screen.getByRole('img', { name: STEP_STATE_LABELS.running })).toBeInTheDocument();
     expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(1);
-    for (const state of ['done', 'failed', 'cancelled', 'waiting', 'no-answer'] as const) {
+    for (const state of [
+      'done',
+      'failed',
+      'cancelled',
+      'waiting',
+      'no-answer',
+      'rejected',
+      'truncated',
+    ] as const) {
       rerender(<StepStateGlyph state={state} />);
       expect(screen.getByRole('img', { name: STEP_STATE_LABELS[state] })).toBeInTheDocument();
       expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(0);
@@ -44,7 +52,9 @@ describe('StepStateGlyph', () => {
       done: 'Completed',
       failed: 'Failed',
       'no-answer': 'No answer',
+      rejected: 'Rejected',
       running: 'Running',
+      truncated: 'Completed (truncated summary)',
       waiting: 'Waiting for approval',
     });
   });

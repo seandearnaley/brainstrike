@@ -92,6 +92,10 @@ const MCP_AUDIO_DATA = 'YXVkaW8tYnl0ZXM=';
 const MCP_IMAGE_DATA = 'aW1hZ2UtYnl0ZXM=';
 const MCP_TEXT_RAW_ONLY_TAIL = 'mcp-multimodal-raw-only-tail';
 const MCP_STDIO_TEXT_RAW_ONLY_TAIL = 'mcp-stdio-multimodal-raw-only-tail';
+const ARTIFACT_FIXTURE_NOW = new Date('2026-09-05T12:00:00.000Z');
+const ARTIFACT_FIXTURE_EXPIRES_AT = new Date(
+  ARTIFACT_FIXTURE_NOW.getTime() + 7 * 24 * 60 * 60 * 1000
+).toISOString();
 function createStoredArtifactReaderTool(stored: readonly StoreSettledToolOutputInput[]) {
   return createTool({
     description: 'Read the saved tool output by its cursor.',
@@ -99,6 +103,8 @@ function createStoredArtifactReaderTool(stored: readonly StoreSettledToolOutputI
       readToolOutputArtifact(
         { cursor, mode: 'cursor' },
         {
+          // The stored fixture has a fixed lifetime; real transport timers stay live.
+          now: () => new Date(ARTIFACT_FIXTURE_NOW),
           reader: {
             readRange: async ({ artifactId, offsetByte, limitBytes }) => {
               const entry = stored[0];
@@ -113,7 +119,7 @@ function createStoredArtifactReaderTool(stored: readonly StoreSettledToolOutputI
                 offsetByte,
                 reference: {
                   byteLength: complete.length,
-                  expiresAt: '2026-09-12T12:00:00.000Z',
+                  expiresAt: ARTIFACT_FIXTURE_EXPIRES_AT,
                   format: entry.format,
                   id: artifactId,
                 },
@@ -1131,7 +1137,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
                 stored.push(input);
                 return {
                   byteLength: new TextEncoder().encode(input.content).byteLength,
-                  expiresAt: '2026-09-12T12:00:00.000Z',
+                  expiresAt: ARTIFACT_FIXTURE_EXPIRES_AT,
                   format: input.format,
                   id: '019f7d67-7165-7c23-8e99-d70c2a2f168d',
                 };

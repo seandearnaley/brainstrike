@@ -25,7 +25,6 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { type MutableRefObject, useEffect, useRef } from 'react';
 import {
-  assertEmbeddingHostCommand,
   assertEmbeddingHostQueryEmbeddingRequest,
   createEmbeddingHostQueryEmbeddingErrorReport,
   createEmbeddingHostQueryEmbeddingResultReport,
@@ -36,6 +35,16 @@ import {
   type EmbeddingHostStatus,
   type EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
+import {
+  createEmbeddingHostCommandHandler,
+  createEmbeddingHostLifecycleFailureHandler,
+  createQueryEmbeddingRequestParseErrorReport,
+  runEmbeddingHostCleanupStep,
+} from './embedding-host-lifecycle';
+import {
+  createEmbeddingHostStatus,
+  type EmbeddingHostStatusOptions,
+} from './embedding-host-status';
 import { startEmbeddingTelemetryReporter } from './embedding-telemetry-reporter';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
@@ -105,66 +114,10 @@ function reportQueryEmbeddingResponse(response: EmbeddingHostQueryEmbeddingRespo
   getEmbeddingHostBridge()?.reportQueryEmbeddingResponse?.(response);
 }
 
-function getEnvelopeStringField(value: unknown, field: 'requestId' | 'runtimeId'): string | null {
-  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
-    return null;
-  }
-  const candidate = (value as Record<string, unknown>)[field];
-  return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate.trim() : null;
-}
-
-function createQueryEmbeddingRequestParseErrorReport(
-  rawRequest: unknown,
-  error: unknown
-): EmbeddingHostQueryEmbeddingResponseReport | null {
-  const requestId = getEnvelopeStringField(rawRequest, 'requestId');
-  const runtimeId = getEnvelopeStringField(rawRequest, 'runtimeId');
-  if (!(requestId && runtimeId)) {
-    return null;
-  }
-  return {
-    channel: 'query-embedding-error',
-    payload: {
-      message:
-        error instanceof Error && error.message.trim().length > 0
-          ? error.message
-          : 'Invalid embedding host query embedding request.',
-      name: error instanceof Error && error.name.trim().length > 0 ? error.name : 'Error',
-      ...(error instanceof Error && typeof error.stack === 'string' ? { stack: error.stack } : {}),
-    },
-    requestId,
-    runtimeId,
-    type: 'error',
-  };
-}
-
-function createEmbeddingHostStatus(
-  runtimeId: string,
-  state: EmbeddingHostStatus['state'],
-  options?: {
-    active?: boolean;
-    embeddingRuntime?: EmbeddingHostRuntimeMetadata | null;
-    lastError?: string | null;
-  }
-): EmbeddingHostStatus {
-  return {
-    active: options?.active ?? false,
-    lastError: options?.lastError ?? null,
-    runtimeId,
-    runtimeKind: 'embedding-host',
-    state,
-    ...(options?.embeddingRuntime ? { embeddingRuntime: options.embeddingRuntime } : {}),
-  };
-}
-
 function reportEmbeddingHostRuntimeStatus(
   runtimeIdRef: MutableRefObject<string>,
   state: EmbeddingHostStatus['state'],
-  options?: {
-    active?: boolean;
-    embeddingRuntime?: EmbeddingHostRuntimeMetadata | null;
-    lastError?: string | null;
-  }
+  options?: EmbeddingHostStatusOptions
 ): void {
   reportStatus(createEmbeddingHostStatus(runtimeIdRef.current, state, options));
 }
@@ -172,11 +125,7 @@ function reportEmbeddingHostRuntimeStatus(
 function reportEmbeddingHostRuntimeStatusForRuntimeId(
   runtimeId: string,
   state: EmbeddingHostStatus['state'],
-  options?: {
-    active?: boolean;
-    embeddingRuntime?: EmbeddingHostRuntimeMetadata | null;
-    lastError?: string | null;
-  }
+  options?: EmbeddingHostStatusOptions
 ): void {
   reportStatus(createEmbeddingHostStatus(runtimeId, state, options));
 }
@@ -234,25 +183,6 @@ function createFatalErrorHandler(
       lastError: message,
     });
   };
-}
-
-function runEmbeddingHostCleanupStep(
-  runtimeIdRef: MutableRefObject<string>,
-  label:
-    | 'Embedding host command cleanup failed'
-    | 'Embedding host query embedding cleanup failed'
-    | 'Embedding host power cleanup failed'
-    | 'Embedding host telemetry cleanup failed',
-  cleanup: () => void
-): void {
-  try {
-    cleanup();
-  } catch (error) {
-    logger.error(label, {
-      error: error instanceof Error ? error.message : String(error),
-      runtimeId: runtimeIdRef.current,
-    });
-  }
 }
 
 interface DbModelRow {
@@ -592,6 +522,7 @@ interface StartEmbeddingHostWorkerOptions {
   readonly fatalErrorRef: MutableRefObject<string | null>;
   readonly gate: ForegroundEmbeddingGate;
   readonly isDisposed: () => boolean;
+  readonly isStopping: () => boolean;
   readonly onFatalError: (error: Error) => void;
   readonly onWorkerActivityChange: (active: boolean) => void;
   readonly runtimeIdRef: MutableRefObject<string>;
@@ -607,6 +538,7 @@ async function startEmbeddingHostWorkerRuntime({
   fatalErrorRef,
   gate,
   isDisposed,
+  isStopping,
   onFatalError,
   onWorkerActivityChange,
   runtimeIdRef,
@@ -643,6 +575,9 @@ async function startEmbeddingHostWorkerRuntime({
         if (backendMismatchError) {
           fatalErrorRef.current = backendMismatchError;
         }
+        if (isStopping()) {
+          return;
+        }
         reportEmbeddingHostRuntimeStatus(runtimeIdRef, backendMismatchError ? 'error' : 'running', {
           active: backendMismatchError ? false : activeRef.current,
           embeddingRuntime: embeddingRuntimeRef.current,
@@ -665,6 +600,9 @@ async function startEmbeddingHostWorkerRuntime({
       return;
     }
     controllerRef.current = controller;
+    if (isStopping()) {
+      return;
+    }
     const fatalError = fatalErrorRef.current;
     reportEmbeddingHostRuntimeStatus(runtimeIdRef, fatalError ? 'error' : 'running', {
       active: fatalError ? false : activeRef.current,
@@ -678,9 +616,11 @@ async function startEmbeddingHostWorkerRuntime({
       runtimeId: runtimeIdRef.current,
     });
     fatalErrorRef.current = message;
-    reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
-      lastError: message,
-    });
+    if (!isStopping()) {
+      reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+        lastError: message,
+      });
+    }
   } finally {
     startingRef.current = false;
   }
@@ -692,9 +632,15 @@ export function EmbeddingHostRuntime(): null {
   const embeddingRuntimeRef = useRef<EmbeddingHostRuntimeMetadata | null>(null);
   const fatalErrorRef = useRef<string | null>(null);
   const startingRef = useRef(false);
+  const startPromiseRef = useRef<Promise<void> | null>(null);
   const activeRef = useRef(false);
   const runtimeIdRef = useRef<string>(resolveEmbeddingHostRuntimeId());
   const stopPromiseRef = useRef<Promise<void> | null>(null);
+  const stoppedByCommandRef = useRef(false);
+  const controlsRef = useRef<{
+    stop(): Promise<void>;
+    reset(nextRuntimeId: string): Promise<void>;
+  } | null>(null);
   const queryEmbeddingActiveCountRef = useRef(0);
   const queryEmbeddingServiceStateRef = useRef<QueryEmbeddingServiceState | null>(null);
   const gateRef = useRef<ForegroundEmbeddingGate>(createForegroundEmbeddingGate());
@@ -729,8 +675,34 @@ export function EmbeddingHostRuntime(): null {
       },
     });
 
-    const startWorker = async (): Promise<void> =>
-      startEmbeddingHostWorkerRuntime({
+    const reportLifecycleFailure = createEmbeddingHostLifecycleFailureHandler(
+      runtimeIdRef,
+      () => disposed,
+      (message) => {
+        fatalErrorRef.current = message;
+        activeRef.current = false;
+        reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+          embeddingRuntime: embeddingRuntimeRef.current,
+          lastError: message,
+        });
+      }
+    );
+
+    const startWorker = async (): Promise<void> => {
+      if (stoppedByCommandRef.current) {
+        return;
+      }
+      // Join Stop before registering a new start, so Stop never waits on itself.
+      if (stopPromiseRef.current) {
+        await stopPromiseRef.current;
+      }
+      if (stoppedByCommandRef.current) {
+        return;
+      }
+      if (startPromiseRef.current) {
+        return startPromiseRef.current;
+      }
+      const started = startEmbeddingHostWorkerRuntime({
         activeRef,
         controllerRef,
         db,
@@ -738,12 +710,22 @@ export function EmbeddingHostRuntime(): null {
         fatalErrorRef,
         gate: gateRef.current,
         isDisposed: () => disposed,
+        isStopping: () => stopPromiseRef.current !== null,
         onFatalError,
         onWorkerActivityChange,
         runtimeIdRef,
         startingRef,
         stopPromiseRef,
       });
+      startPromiseRef.current = started;
+      try {
+        await started;
+      } finally {
+        if (startPromiseRef.current === started) {
+          startPromiseRef.current = null;
+        }
+      }
+    };
 
     const stopWorker = (
       reason:
@@ -764,6 +746,9 @@ export function EmbeddingHostRuntime(): null {
           reportRuntimeId,
           runtimeId: runtimeIdRef.current,
         });
+        if (startPromiseRef.current) {
+          await startPromiseRef.current;
+        }
         const controller = controllerRef.current;
         controllerRef.current = null;
         fatalErrorRef.current = null;
@@ -866,31 +851,15 @@ export function EmbeddingHostRuntime(): null {
         previousRuntimeId,
       });
       await stopWorker('command-reset', previousRuntimeId);
+      if (disposed) {
+        throw new Error('Embedding host database is unavailable for reset.');
+      }
+      stoppedByCommandRef.current = false;
       runtimeIdRef.current = nextRuntimeId;
       await startWorker();
     };
 
-    const unsubscribeCommand = getEmbeddingHostBridge()?.onCommand?.((command) => {
-      const nextCommand = assertEmbeddingHostCommand(command);
-      if (nextCommand.runtimeId !== runtimeIdRef.current) {
-        logger.warn('Ignored embedding host command for stale runtime', {
-          action: nextCommand.payload.action,
-          commandRuntimeId: nextCommand.runtimeId,
-          runtimeId: runtimeIdRef.current,
-        });
-        return;
-      }
-      if (nextCommand.payload.action === 'stop') {
-        void stopWorker('command-stop');
-        return;
-      }
-      if (nextCommand.payload.action === 'reset') {
-        if (nextCommand.payload.nextRuntimeId === runtimeIdRef.current) {
-          throw new Error('Embedding host reset requires a fresh nextRuntimeId.');
-        }
-        void resetWorker(nextCommand.payload.nextRuntimeId);
-      }
-    });
+    controlsRef.current = { reset: resetWorker, stop: () => stopWorker('command-stop') };
 
     const unsubscribeQueryEmbedding = getEmbeddingHostBridge()?.onQueryEmbeddingRequest?.(
       (rawRequest) => {
@@ -937,7 +906,9 @@ export function EmbeddingHostRuntime(): null {
       channel?.postMessage(state);
     });
 
-    void startWorker();
+    void startWorker().catch((error: unknown) => {
+      reportLifecycleFailure('Embedding host startup could not join the previous worker', error);
+    });
 
     return () => {
       disposed = true;
@@ -946,9 +917,6 @@ export function EmbeddingHostRuntime(): null {
       });
       runEmbeddingHostCleanupStep(runtimeIdRef, 'Embedding host power cleanup failed', () => {
         cleanupPower?.();
-      });
-      runEmbeddingHostCleanupStep(runtimeIdRef, 'Embedding host command cleanup failed', () => {
-        unsubscribeCommand?.();
       });
       runEmbeddingHostCleanupStep(
         runtimeIdRef,
@@ -968,9 +936,45 @@ export function EmbeddingHostRuntime(): null {
           runtimeId: runtimeIdRef.current,
         });
       }
-      void stopWorker('dispose');
+      void stopWorker('dispose').catch((error: unknown) => {
+        reportLifecycleFailure('Embedding host disposal failed', error);
+      });
     };
   }, [db]);
+
+  useEffect(() => {
+    let disposed = false;
+    const unsubscribe = getEmbeddingHostBridge()?.onCommand?.(
+      createEmbeddingHostCommandHandler({
+        getRuntimeId: () => runtimeIdRef.current,
+        isDisposed: () => disposed,
+        report: (runtimeId, state, commandId, lastError) =>
+          reportEmbeddingHostRuntimeStatusForRuntimeId(runtimeId, state, {
+            commandId,
+            embeddingRuntime: embeddingRuntimeRef.current,
+            ...(lastError === undefined ? {} : { lastError }),
+          }),
+        reset: async (nextRuntimeId) => {
+          stoppedByCommandRef.current = true;
+          const controls = controlsRef.current;
+          if (!controls) {
+            throw new Error('Embedding host database is unavailable for reset.');
+          }
+          await controls.reset(nextRuntimeId);
+        },
+        stop: async () => {
+          stoppedByCommandRef.current = true;
+          await controlsRef.current?.stop();
+        },
+      })
+    );
+    return () => {
+      disposed = true;
+      runEmbeddingHostCleanupStep(runtimeIdRef, 'Embedding host command cleanup failed', () =>
+        unsubscribe?.()
+      );
+    };
+  }, []);
 
   return null;
 }

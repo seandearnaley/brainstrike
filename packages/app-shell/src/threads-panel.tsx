@@ -141,6 +141,8 @@ import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
 import { useDelegatedSidebar } from './use-delegated-sidebar';
 import { type ThreadPanelSelection, useThreadPanelSelection } from './use-thread-panel-selection';
 import { useThreadSearchController } from './use-thread-search-controller';
+import { useThreadSearchResultNavigation } from './use-thread-search-result-navigation';
+import { useThreadSearchTitles } from './use-thread-search-titles';
 
 // Stable fallback so `threads` keeps referential identity across renders when
 // the resource has no entry yet (the membership/view useMemos depend on it).
@@ -1063,7 +1065,7 @@ function ThreadRowDisplay({
       {pendingDelete ? (
         <div className="mt-2 mb-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
           <p className="text-[11px] text-destructive">
-            Delete this thread and its Mastra memory rows permanently?
+            Delete this thread, its delegated children, and saved conversation data permanently?
           </p>
           {deleteError ? <p className="mt-1 text-[11px] text-destructive">{deleteError}</p> : null}
           <div className="mt-2 flex justify-end gap-2">
@@ -3087,6 +3089,8 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     repository: threadSearchRepository,
     resourceId,
   });
+  const searchResultTitles = useThreadSearchTitles(threadSearchRepository, resourceId);
+  const selectSearchResult = useThreadSearchResultNavigation(threadSearchRepository, resourceId);
   const searchActive = useThreadSearchStore((state) => state.status !== 'idle');
   // The count and the select-visible toggle describe the treegrid. Withdraw
   // them whenever something else stands in for it — a state card, or search
@@ -3130,8 +3134,8 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     if (groupsRepository && placementsByThreadId[threadId]) {
       await removeThreadPlacement(groupsRepository, threadId);
     }
-    // Search-index rows for a deleted thread are inert (query-time join by
-    // id) and swept by the sync GC, but clear them eagerly like placements.
+    // Native repositories atomically clear the entire delegated subtree.
+    // Also clear requested IDs for adapters without that native cascade.
     if (threadSearchRepository) {
       await threadSearchRepository.deleteThreads([threadId]);
     }
@@ -3335,8 +3339,9 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
       <ThreadsPanelSearch
         groupNameByThreadId={groupNameByThreadId}
         onRetry={retrySearch}
-        onSelectThread={handleSelectThread}
+        onSelectThread={selectSearchResult}
         threadsById={threadsById}
+        titlesByThreadId={searchResultTitles}
       />
 
       {groupActionError ? (

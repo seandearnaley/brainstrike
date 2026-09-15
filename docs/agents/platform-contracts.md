@@ -793,6 +793,18 @@ BST-1392 Layer 2 Step 0: `resetBackgroundIndexingPreferencesStoreToDefaults()`
 action) is now called from `clearPersistentUiState`, covered by
 `packages/app-state/src/__tests__/factory-reset-background-indexing-preferences.test.ts`.
 
+`assistant-subagent-preferences-store` (`assistant-subagent-preferences.v1`,
+the per-child subagent budgets edited in Settings → Models → Subagents and sent
+as `runtimeData.subagentSettings`) is wired the same way from the start: its
+persisted slice is purged with the rest of browser storage, and its LIVE store
+is re-defaulted by `resetAssistantSubagentPreferencesStoreToDefaults()` (clears
+persisted storage, then sets the defaults), called through
+`resetLiveStoreSafely` inside `clearBrowserStorage()` — the step
+`clearPersistentUiState` runs via `collectPersistentUiStateResetFailures`.
+Covered by
+`packages/app-state/src/__tests__/factory-reset-assistant-subagent-preferences.test.ts`
+(drives `clearPersistentUiState` and asserts the defaults are back in memory).
+
 Mastra owns six assistant-persistence relations, and a true fresh start clears
 ALL SIX:
 
@@ -864,6 +876,20 @@ the database and recursively deletes the active profile directory, so it
 removes the relations with the whole database rather than issuing
 table-by-table `DELETE`s. Do not add a redundant SQL purge to that
 directory-delete path.
+
+Closing the default DB host manager permanently retires that owner before its
+close handshake. Retained RemoteDbClient methods reject after retirement and
+cannot fork a competing utility process against the replacement profile. An
+explicit manager `close()` remains reusable by `reinitializeDatabase()`.
+Desktop Mastra memory's two bounded caches are scoped to the actual database
+object: completed memory and pending credential resolutions from the old owner
+cannot become the replacement owner's storage. Database object identity is the
+cache invalidation key; both reinitialization and default-manager retirement
+create a fresh client. Run-scoped memory also pins its original owner before
+credential resolution; a retired owner's operations fail visibly rather than
+writing into the replacement profile. The paired manager tests and
+`mastra-memory-database-owner.integration.test.ts` pin retirement, same-owner
+reuse, and identical native thread IDs isolated across two real databases.
 
 Two of these relations are still application-created lazily rather than
 guaranteed by the migration chain: the vector store creates `mastra_vectors` and
@@ -1155,12 +1181,31 @@ seven-day copy of memory-only PTY data.
 ### Graceful shutdown ownership (hidden hosts and background indexing)
 
 `main.ts` runs its ordered shutdown steps under ONE forced-exit budget
-(`SIGNAL_SHUTDOWN_TIMEOUT_MS`, 5s). Do not raise that budget to absorb a slow
+(`SIGNAL_SHUTDOWN_TIMEOUT_MS`, 5s), armed for both signals and `before-quit`.
+Do not raise that budget to absorb a slow
 step; fix the owner. Settled rulings, each with a paired test:
 
 - The forced-exit log names the step still awaiting completion and its elapsed
   time (`shutdown-step-tracker.ts`). That record is the only actionable fact a
   CI runner leaves behind, so it is a product log, not temporary instrumentation.
+- `before-quit` delays Electron's normal window closing while app cleanup runs.
+  After retiring embedding-backfill admission, the first tracked step closes
+  and joins ordinary renderer windows
+  with `BrowserWindow.close()` / `closed`, while their IPC dependencies still
+  exist (`close-desktop-renderers.ts`). Hidden chunking/embedding/LLM windows
+  stay alive for their owning stop commands. Normal close preserves unload and
+  window-state hooks; macOS activation cannot recreate a producer and
+  second-instance and macOS `open-file` requests cannot enqueue work or show a
+  window during this drain.
+  Already-admitted database work then drains through the existing
+  scheduler before database closure. The new `joins renderer IPC producers before
+  closing their hosts` case in `app-launch.test.ts` keeps real renderer DB/chunking
+  requests active across quit and rejects observed renderer console errors and
+  main-process IPC failures. Renderer console capture is observational until the
+  page closes; process output and the owned-process exit assertion remain available
+  through shutdown.
+  Its owned-process close assertion uses a 5s test deadline; the application retains
+  the separate existing `SIGNAL_SHUTDOWN_TIMEOUT_MS` 5s forced-exit budget above.
 - Shutdown retires embedding-backfill admission FIRST
   (`cancelAllDesktopEmbeddingBackfills()` before any host step), and a backfill
   that arrives after `markDesktopShuttingDown()` is refused before it touches
@@ -1171,15 +1216,24 @@ step; fix the owner. Settled rulings, each with a paired test:
   stop awaits the renderer (`embedding-host-manager.test.ts`), and
   `RendererHostLifecycle.ensureStarted()` lets a `stopping` host settle instead
   of replacing its window (`renderer-host-lifecycle.test.ts`). Replacing the
-  window mid-stop orphaned the stop wait for its full 10s timeout and then let
-  the timed-out stop destroy the replacement.
-- The embedding worker's claim loop wakes for `stop()` from every wait (idle
-  backoff, inter-batch delay, claim-size retry, error backoff) via a stop
-  signal (`embedding-worker-stop-idle.integration.test.ts`). The first
+  window mid-stop used to orphan the stop wait and let a timed-out stop destroy
+  the replacement. Shutdown disposal waits at most 3s (`EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS`),
+  below the unchanged 5s application deadline. Ordinary Stop and factory reset
+  retain their existing 10s wait. Timeout or an explicit renderer
+  error still destroys the owned renderer and retires its lifecycle, but rejects
+  so the shutdown tracker records the failure instead of reporting a successful stop.
+- The embedding worker wakes for `stop()` while awaiting a background permit,
+  idle backoff, inter-batch delay, claim-size retry, or error backoff via a stop
+  signal (`embedding-worker-stop-idle.integration.test.ts`). A stopped permit
+  waiter returns before claiming any job, even if its permit never arrives.
+  Already-running batch work remains bounded by the existing `leaseMs` stop join;
+  the stop signal does not cancel an embedding already executing. The first
   attributed local forced exit named `embedding-host` at 4998 ms: the host's
   cooperative stop was waiting for a worker parked in a 30 s idle poll.
 - The assistant HTTP server's shutdown stop ends live connections after
-  `close()` (`close-http-server.ts`, paired test). Plain `server.close()`
+  `close()` (`close-http-server.ts`, paired real-socket integration test). An
+  already-closed listener (`ERR_SERVER_NOT_RUNNING`) is a successful repeated
+  stop; other close failures remain visible. Plain `server.close()`
   waits for every in-flight response, and the first attributed CI forced exit
   named `assistant-server` at 5000 ms in the bare app-launch smoke case.
 
@@ -1235,6 +1289,28 @@ hosts are excluded from visible-window reload routing. Do not replace this with
 an unbounded blocking dialog; a recovered IPC call rejects with
 `DatabaseCorruptionRecoveredError` and the already-scheduled reload remounts
 all renderer state.
+
+Scheduled database maintenance is an entry point too, not just IPC. A
+maintenance pass that fails with an error `isCorruptionError` accepts (the same
+rule `db:query` uses, never a copy) logs `Corruption detected in maintenance;
+replacing the database without retrying.` and enters this path with context
+`'maintenance'`. It does that inside its background-lane operation, before the
+lane is released, exactly like `db:query`, and the pass rejects with
+`DatabaseCorruptionRecoveredError`. `createDesktopDatabaseMaintenanceScheduler`
+takes `onRuntimeCorruption` as a required option with no default, so a
+composition cannot keep serving a database a pass has proven corrupt.
+The maintenance timer logs every rejected pass as `Scheduled database
+maintenance failed`. For a recovered pass the logged error is
+`DatabaseCorruptionRecoveredError`; a non-corruption failure logs its own error
+and never resets. A background trigger does not narrow the response.
+Classification uses the same deliberately narrow rule (`XX000` stays excluded),
+and the visible-window reload is still required, because live queries and
+queued work belong to the database that was replaced. Measured case
+(2026-09-15): an `XX001` found by
+maintenance was only logged, and the app kept serving that database for about
+nine hours until a `db:query` hit `XX001` and recovered. Paired tests: the
+corruption-recovery block in
+`apps/desktop/src/__tests__/database-maintenance-scheduler.test.ts`.
 
 ---
 
@@ -1664,6 +1740,43 @@ implemented in P1 — this self-disable-after-repeated-flush-failures behavior,
 with its visible `onDisabled` log, is the deliberate P1 substitute; revisit
 once P2 surfaces sink health.
 
+**Unstorable characters are rewritten at the repository boundary, visibly.**
+PostgreSQL `text` cannot hold NUL (22021), and `jsonb` rejects both a NUL
+escape (22P05) and a lone-surrogate escape (22P02). `insertBatch` is one
+multi-row `INSERT` and the writer re-queues a failed batch whole, so one such
+row fails every retry until `maxConsecutiveFailures` disables the writer and
+drops everything pending. On 2026-09-15 forge-service logged its NUL-joined
+in-memory PR cache key as `context.key`; each occurrence produced a burst of
+five 22P05 failures, 2 s apart, and ended that writer. `insertBatch` therefore
+rewrites every string it stores — each text column and every JSON key and
+string value in `cause_chain`/`context` — replacing NUL with U+2400 (`␀`,
+SYMBOL FOR NULL) and each lone surrogate with U+FFFD. U+FFFD is the
+replacement `String.prototype.toWellFormed` makes, but the code uses a `u`-mode
+regex because the record needs a count; `boundWithMarker` slices by UTF-16 code
+unit and can split a pair. The row records the rewrite as
+`context.storageReplacements`, a per-field count such as
+`{ "context": 1, "stack": 2 }`, creating `context` when the event had none; the
+key is reserved at this boundary. Each JSON field is serialized once, and only
+text containing a `\u` escape (how `JSON.stringify` emits NUL and lone
+surrogates) is parsed and walked. `toJSON` values are therefore rewritten
+exactly as stored, and a storable row takes the same single-serialization path
+as before, with no record. A non-string value passes through unchanged
+(PGlite binds `undefined` as NULL): the rewrite must never throw itself, or it
+recreates the retry loop it exists to end.
+
+The rewrite is not injective. A JSON key or id that differs from another only
+by a rewritten character versus its stand-in collapses into it: the later key
+wins in `context`, and `ON CONFLICT (id) DO NOTHING` keeps the first row. This
+is accepted rather than encoded, because an injective scheme would also have
+to rewrite genuine `␀`/U+FFFD in storable rows, and producers mint ids with
+`crypto.randomUUID()`. A rewritten row also no longer matches its NDJSON
+backstop line byte for byte: the file keeps the original characters (JSON
+escapes them), and the record says where they differ. `insertBatch` is the
+only writer to this table. Do not replace this with per-row retry after a
+batch failure (a fallback that still loses the row) or with silent stripping.
+Paired: `diagnostic-events-repository.test.ts` (`characters PostgreSQL text
+and jsonb cannot store`).
+
 **Retention**: `DiagnosticEventsRepository.purge()`
 (`packages/db/src/repositories/diagnostic-events-repository.ts`) is a bounded,
 oldest-first `DELETE ... WHERE id IN (SELECT ... ORDER BY occurred_at ASC
@@ -1682,7 +1795,75 @@ paths — desktop `db-ipc.ts` `OptionalRelationTable` list
 `pglite-direct-transport.ts`'s reset table lists. Both currently include
 `brainstrike_diagnostic_events`.
 
-**Debug bundle**: `packages/app-shell/src/diagnostics/debug-bundle.ts`
+**Full thread debug pack**: persisted root and child conversations expose
+`Debug pack` → `Download debug pack` through the shared conversation renderer.
+The expanded control names included content before download. This explicit local
+export includes conversation/file content, tool arguments/results, captured
+settings, approvals and live decisions, the prompts each leg and specialist
+received, parent wakeups and diagnostics, and on desktop the main-process log
+window and process counters; it never uploads. Review the JSON locally
+before sharing. This is the feature-specific content opt-in under
+`docs/diagnostics-privacy-contract.md`, not new background telemetry.
+
+`readThreadDebugSnapshot` in `packages/db` resolves the native thread and
+revalidates the canonical authorized delegated graph. Its `SECTIONS` inventory
+is the source of truth for included tables and columns. A single SQL statement
+captures every listed section from the selected subtree, including retained
+messages/branch edges, runs, events, errors, usage, diagnostics, verdicts,
+projection rewrites, delegation budgets, invocations, decisions, continuations,
+prompt manifests, wakeups, live decisions and complete stored tool artifacts.
+Child usage follows exact invocation/continuation attribution; artifacts follow
+`execution_thread_id`. A child-first-step prompt manifest is named by its
+dispatching thread and follows its invocation into the child's subtree; wakeups
+and live decisions follow the root host run, so a child-only export omits them. No status filter, row window
+or output elision applies. Missing/deleted threads, invalid selected ancestry
+and read failures fail the download visibly. Unauthorized descendants are excluded.
+
+`packages/app-shell/src/diagnostics/thread-debug-pack.ts` emits versioned JSON
+with section counts, snapshot time, canonical active run IDs, unknown run
+statuses, retained artifact bytes and accounting completeness, artifact failures,
+structural-elision counts, correlation instructions
+and explicit evidence limitations. Retention/deletion, already-shortened stored
+projections and unsaved active transcripts cannot be reconstructed. Empty
+sections never claim that nothing happened. Artifact bytes are decoded before
+key-name and value-shape secret redaction. Value scanning precedes JSON
+serialization so multiline secrets remain detectable and JSON remains valid.
+Deep and repeated/cyclic values receive visible bounded markers and manifest
+counts. One corrupt artifact retains its identity and a typed failure in the pack
+while other evidence stays available; malformed byte lengths are excluded from
+the total and make its accounting explicitly incomplete. Collection and save
+errors produce no partial success. The UI uses the
+existing `downloadBlobFile` route and regenerates on each click. Child panels
+inject their own thread binding. No new persistence is introduced.
+
+Derived sections and host evidence (2026-09-15): `legs` (one row per run with
+provider/model, the child persona from its admitted configuration, OpenRouter
+upstreams, the last terminal `finishReason`, `lastStepFinishReason`, and step and
+length-cut counts) and
+`childFirstSteps` (the earliest child-first-step manifest per dispatch address,
+later re-entries listed) are computed by `thread-debug-legs.ts` from the
+snapshot and sit inside `sections`, so both redaction passes cover them; a row
+missing an identity column fails the download. Host evidence is fetched when the
+user clicks Download and is never persisted: `hostLog` and `processCounters`
+come from the desktop main process through the capability probe
+`readThreadDebugHostProbe`, and `manifest.host` records each as `included` or
+`unavailable: <reason>` (no bridge, a rejected read, a malformed result, or no
+run start to bound the window). The log window runs from the earliest run start,
+clamped to 24 hours before capture, to capture. `manifest.permissionGates` lists
+the redacted `permission.gate.resolved` events. `formatThreadDebugPack(snapshot,
+host)` and `buildThreadDebugPack(db, threadId, probe)` take those inputs
+explicitly.
+
+Paired proofs: `thread-debug-snapshot.integration.test.ts` (real migrated
+PGlite, prior-cap overflow, ownership, child approvals/usage/root and child
+artifacts, swarm diagnostics with the child and grandchild first-step joins),
+`thread-debug-pack.test.ts` (full output, corruption isolation, redaction, host
+evidence and each missing-evidence reason), `thread-debug-legs.test.ts`,
+`thread-debug-host-probe.test.ts`, `use-debug-bundle.test.ts`,
+`thread-debug-pack-button.test.tsx` and `thread-debug-pack.browser.test.tsx`
+(successful conversation, download failure and shared renderer at two widths).
+
+**Failure debug bundle**: `packages/app-shell/src/diagnostics/debug-bundle.ts`
 (collector `collectThreadDebugBundleData` + pure formatter
 `formatThreadDebugBundle`, convenience wrapper `buildThreadDebugBundle`),
 consumed through the `DebugBundleProvider` seam
@@ -2026,6 +2207,44 @@ the reset diagnostic table. Shutdown still owns no new main-thread sink handle:
 Pino's worker lifecycle is unchanged, while the warn+ NDJSON sink remains the
 explicit last graceful-shutdown writer described above.
 
+**Swarm diagnostics IPC and process counters (2026-09-15)**: two read-only calls
+on the `desktopDiagnostics` preload bridge feed the thread debug pack when it is
+built; nothing new is written to disk for them.
+`desktop-diagnostics:read-main-log-window` (`readMainLogWindow` in
+`diagnostics/main-log-window.ts`) validates `{ since, until }` with
+`assertMainLogWindowRequest` BEFORE the provider runs: ISO-8601 UTC instants,
+`until` not before `since`, at most 24 hours, not in the future. The handler is
+async, so a malformed request always rejects. It returns the warn-and-above lines
+of `brainstrike.log` and its rotated siblings inside the window, oldest file
+first, capped at 2000 lines and 2 MiB keeping the newest (`droppedLineCount`,
+`truncated`), plus marker counts over EVERY level in the window
+(`unhandledRejections`, `wasmAllocationFailures`, `toolTimeouts`,
+`emptyChildResults`). The rotated slot count derives from the rotating sink's
+`DEFAULT_MAX_FILES`, so the reader cannot drift from the transport. A
+crash-truncated line is counted in `malformedLineCount`, never thrown; a missing
+live log file rejects, and the provider rejects when file logging is disabled.
+Lines were already redacted by `logInternal` before pino.
+
+`desktop-diagnostics:read-process-counters` returns `{ installedAt, samples }`:
+the last 240 samples (2 hours at the 30 s `main-process-health` cadence) of heap
+and RSS, WebAssembly `instantiate` / `compile` / `Instance` / `Memory` counts with
+the last 20 failure messages, and native background task counts by status (or
+`backgroundTasksUnavailableReason` when that read failed). The counter wraps the
+main process's `WebAssembly` once, installed by the bare side-effect import on
+the first line of `main.ts` so later imports (PGlite, tokenizers, xxhash-wasm)
+are counted; results and errors pass through unchanged. The `main-process-health`
+log line carries each tick's WebAssembly counts and the last completed
+background-task counts. The ring is session state cleared by the
+`process-counter-ring` factory-reset runtime entry, and `processCounters` is a
+`DesktopPlatformDiagnosticsProviderName`, so a throwing provider is reported like
+the others. The pack reaches both calls ONLY through `readThreadDebugHostProbe`
+(capability probe, never `isElectron()`); a web build or an older preload
+records `unavailable: no desktop diagnostics bridge …`. Paired:
+`main-log-window.test.ts`, `ipc-desktop-diagnostics.test.ts`,
+`webassembly-counter.test.ts`, `process-counter-ring.test.ts`,
+`desktop-platform-diagnostics.test.ts`, `thread-debug-host-probe.test.ts` and
+`thread-debug-pack.test.ts`.
+
 **Main-thread freeze watchdog (BST-342)**: the watchdog is a typed worker entry
 at `apps/desktop/src/diagnostics/main-watchdog-worker.ts`, bundled as the flat
 main-process output `dist/main-watchdog-worker.js`. It is never constructed from
@@ -2285,3 +2504,16 @@ Both direct-transport reset paths and desktop IPC reset clear them, and the
 shared reset registry classifies all three. There is no separate persistent
 queue or filesystem accounting store. Native host shutdown drains active work
 before reset; unresolved output remains charged on ordinary restart.
+
+`delegated-factory-reset.desktop.test.ts` exercises Settings Cancel and confirmed
+factory reset against 14 populated, migrated relations: native thread/message
+history, delegated ancestry/invocations/decisions, host runs/events, root/child
+budgets and step reservations, continuations/continuation decisions, attributed
+usage and saved child tabs. Cancel preserves the exact seeded records and disabled
+delegation preference. Confirmed reset replaces the renderer; a subsequent full
+process restart still cannot recover those identities or tabs, and the actual
+Subagents switch returns to its default. A disposable user workspace outside the
+profile retains its file contents. This is whole-profile no-resurrection coverage,
+not a replacement for table-by-table `db:clearAll` integration proofs. The seeded
+completed continuations and consumed decisions are durable-state fixtures, not
+claims that an active native worker was stopped by this particular test.

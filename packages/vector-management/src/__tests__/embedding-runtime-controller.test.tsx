@@ -128,6 +128,57 @@ describe('useEmbeddingRuntimeController', () => {
     Reflect.deleteProperty(window, 'embeddingHost');
   }
 
+  it('projects host control acknowledgements into canonical status on every public path', async () => {
+    const canonical = {
+      active: false,
+      embeddingRuntime: {
+        actualWorkerMetadata: null,
+        backendMismatch: false,
+        selectedDevicePreference: 'webgpu' as const,
+      },
+      lastError: 'Worker stopped',
+      runtimeId: 'embedding-host:acknowledged',
+      runtimeKind: 'embedding-host' as const,
+      state: 'stopped' as const,
+    };
+    const acknowledged = { ...canonical, commandId: 'exact-control-request' };
+    getStatusMock.mockResolvedValue({ ...acknowledged, state: 'stopping' });
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db: null,
+        devicePreference: 'webgpu',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+    await act(async () => {});
+    const listener = vi.fn();
+    const unsubscribe = result.current.onStatus(listener);
+    const onStatus = onStatusMock.mock.calls.at(-1)?.[0];
+    if (!onStatus) {
+      throw new Error('Expected the desktop status subscription');
+    }
+    act(() => onStatus(acknowledged));
+    expect(listener).toHaveBeenLastCalledWith(canonical);
+    getStatusMock.mockResolvedValue(acknowledged);
+    ensureStartedMock.mockResolvedValue(acknowledged);
+    resetMock.mockResolvedValue(acknowledged);
+    stopMock.mockResolvedValue(acknowledged);
+    for (const read of [
+      result.current.getStatus,
+      result.current.ensureStarted,
+      result.current.start,
+      result.current.reset,
+      result.current.stop,
+    ]) {
+      await expect(read()).resolves.toEqual(canonical);
+    }
+    expect(acknowledged.commandId).toBe('exact-control-request');
+    const invalidStatus = { ...acknowledged, phase: 'unsupported' };
+    expect(() => onStatus(invalidStatus)).toThrow('non-canonical status field "phase"');
+    unsubscribe();
+  });
+
   it('starts the desktop host without resetting it before desktop backfill', async () => {
     const { result } = renderHook(() =>
       useEmbeddingRuntimeController({

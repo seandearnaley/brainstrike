@@ -3,7 +3,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { claudeReviewToolArgs, prepareReview, reportReview, runReview } from '../claude-review.mjs';
+import {
+  claudeReviewToolArgs,
+  PUBLICATION_FAILURE_PREFIX,
+  prepareReview,
+  reportReview,
+  runReview,
+} from '../claude-review.mjs';
 
 const head = 'a'.repeat(40);
 const base = 'b'.repeat(40);
@@ -69,8 +75,17 @@ function fixture(
   };
   recordResult(JSON.stringify(defaultReview));
   const calls = [];
-  const gh = (args) => {
+  // Every body handed to `gh pr comment` on stdin, byte for byte.
+  const published = [];
+  const gh = (args, options = {}) => {
     calls.push(args);
+    // Node's own argv contract (execFileSync): any element holding a NUL byte
+    // is refused before the child exists. This is the exact refusal that
+    // discarded two completed reviews on #3119 (BST-1743).
+    const nulIndex = args.findIndex((arg) => arg.includes('\u0000'));
+    if (nulIndex !== -1) {
+      throw new Error(`The argument 'args[${nulIndex}]' must be a string without null bytes.`);
+    }
     if (args[0] === 'pr' && args[1] === 'diff') {
       if (diffText !== null) {
         return diffText;
@@ -103,6 +118,7 @@ function fixture(
       return diffBytes > 0 ? `${small}+${'x'.repeat(diffBytes)}\n` : small;
     }
     if (args[0] === 'pr' && args[1] === 'comment') {
+      published.push(options.input);
       return 'https://github.com/owner/repo/pull/42#issuecomment-99';
     }
     if (args[1] === 'repos/owner/repo/pulls/42') {
@@ -123,6 +139,7 @@ function fixture(
     noReview: () => recordResult(''),
     pr,
     prompt: () => readFileSync(path.join(dir, 'claude-review-capture', 'prompt.txt'), 'utf8'),
+    published,
     recordResult,
     summary: () => readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8'),
     updateEvent: () => writeFileSync(env.GITHUB_EVENT_PATH, JSON.stringify(event)),
@@ -417,11 +434,8 @@ for (const invalid of [
     f.recordResult(JSON.stringify({ ...f.defaultReview, ...invalid }));
     assert.equal(reportReview(f), 1);
     assert.match(f.summary(), /did not return a complete structured review/);
-    assert.ok(
-      f.calls
-        .filter((call) => call[0] === 'pr' && call[1] === 'comment')
-        .every((call) => !call.at(-1).includes('## Claude review completed'))
-    );
+    assert.ok(f.published.length > 0, 'the incomplete disposition must still be published');
+    assert.ok(f.published.every((body) => !body.includes('## Claude review completed')));
   });
 }
 
@@ -441,6 +455,70 @@ test('publication failure cannot become completed coverage and does not blindly 
   assert.equal(publications, 1);
   assert.match(f.summary(), /Publication failed/);
   assert.doesNotMatch(f.summary(), /## Claude review completed/);
+});
+
+// The reviewer quotes what it reads. On #3119 it reproduced a NUL separator
+// from the PR's own latch key, and Node refused the argv before gh ever ran.
+// The body must therefore reach gh on stdin, exactly as written (BST-1743).
+const CONTROL_CHARACTER_REVIEW =
+  'The latch key joins threadId and reason with \u0000; \u0001 and \u001b[0m appear in the fixture,\r\nand the CRLF above is content too.';
+
+test('a review quoting a NUL byte publishes on stdin, byte for byte, with nothing in argv', (t) => {
+  const f = fixture(t);
+  prepareReview(f);
+  f.recordResult(JSON.stringify({ ...f.defaultReview, review: CONTROL_CHARACTER_REVIEW }));
+  // On failure the summary names the cause, so it is the assertion message.
+  assert.equal(reportReview(f), 0, f.summary());
+  assert.match(f.summary(), /Claude review completed/);
+  assert.match(f.summary(), /issuecomment-99/);
+  const [publish] = f.calls.filter((call) => call[0] === 'pr' && call[1] === 'comment');
+  assert.deepEqual(publish.slice(-2), ['--body-file', '-']);
+  assert.ok(!publish.includes('--body'), 'the body must not be an argument');
+  assert.ok(
+    publish.every((arg) => !arg.includes('latch key')),
+    'no argv element may carry review text'
+  );
+  assert.equal(f.published.length, 1);
+  const [body] = f.published;
+  assert.ok(body.includes(CONTROL_CHARACTER_REVIEW), 'the review text must be published verbatim');
+  // Byte for byte: every control character survives, none is stripped or escaped.
+  for (const byte of ['\u0000', '\u0001', '\u001b[0m', '\r\n']) {
+    assert.ok(body.includes(byte), `control sequence ${JSON.stringify(byte)} was altered`);
+  }
+  assert.equal(
+    Buffer.byteLength(body, 'utf8'),
+    Buffer.byteLength(f.summary().split('\nPublished disposition:')[0], 'utf8')
+  );
+});
+
+test('a publication failure names its cause on stderr and in the summary, and stays red', (t) => {
+  const f = fixture(t);
+  prepareReview(f);
+  const originalGh = f.gh;
+  f.gh = (args, options) => {
+    if (args[0] === 'pr' && args[1] === 'comment') {
+      throw new Error('GitHub unavailable');
+    }
+    return originalGh(args, options);
+  };
+  const lines = [];
+  const stderr = { write: (chunk) => lines.push(chunk) };
+  assert.equal(reportReview({ ...f, stderr }), 1);
+  assert.equal(lines.length, 1, 'the cause must be written to stderr, where the job log is');
+  assert.equal(lines[0], `${PUBLICATION_FAILURE_PREFIX} GitHub unavailable\n`);
+  assert.match(f.summary(), /Publication failed: GitHub unavailable/);
+  assert.doesNotMatch(f.summary(), /## Claude review completed/);
+});
+
+test('a successful publication writes nothing to stderr', (t) => {
+  const f = fixture(t);
+  prepareReview(f);
+  const lines = [];
+  const stderr = { write: (chunk) => lines.push(chunk) };
+  assert.equal(reportReview({ ...f, stderr }), 0);
+  assert.deepEqual(lines, []);
+  assert.equal(f.published.length, 1);
+  assert.match(f.published[0], /Claude review completed/);
 });
 
 test('optional CLI probe is import-safe and does not require Claude in default tests', async () => {

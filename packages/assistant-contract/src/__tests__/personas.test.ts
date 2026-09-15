@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   type AssistantPersonaDefinition,
+  type AssistantPersonaScope,
   assertReadOnlyPersona,
   BUILT_IN_PERSONAS,
   delegationDescriptionForPersona,
   delegationToolNameForPersona,
+  effectiveChildStepBudget,
   PersonaToolRiskViolationError,
+  personaMode,
+  personaScope,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '../personas';
 import { ASSISTANT_RUN_EVENT_KINDS, type AssistantRunEventKind } from '../run-events';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '../subagent-settings';
 import { MAX_USER_PERSONA_MAX_STEPS } from '../user-personas';
 
 const baseDefinition = (
@@ -21,6 +26,63 @@ const baseDefinition = (
   label: 'Explorer',
   maxSteps: 8,
   ...overrides,
+});
+
+describe('effectiveChildStepBudget', () => {
+  it('is the declared budget capped by the SETTINGS ceiling, and is what the model is told', () => {
+    const within = { description: 'd', maxSteps: 4 };
+    const over = { description: 'd', maxSteps: 99 };
+    const settings = { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 40 };
+    expect(effectiveChildStepBudget(within, settings)).toBe(4);
+    expect(effectiveChildStepBudget(over, settings)).toBe(40);
+    expect(delegationDescriptionForPersona(within, settings)).toContain('Runs at most 4 steps');
+    expect(delegationDescriptionForPersona(over, settings)).toContain('Runs at most 40 steps');
+    expect(delegationDescriptionForPersona(over, settings)).toContain(
+      `${settings.maxChildOutputTokens} output tokens per child`
+    );
+  });
+
+  it('raises the read-only built-ins to 32 declared steps and keeps the worker at 16', () => {
+    const byId = new Map(BUILT_IN_PERSONAS.map((persona) => [persona.id, persona.maxSteps]));
+    expect(byId.get('explore')).toBe(32);
+    expect(byId.get('analyze')).toBe(32);
+    expect(byId.get('worker')).toBe(16);
+  });
+});
+
+describe('personaMode', () => {
+  it('defaults an absent mode to read-only and preserves explicit modes', () => {
+    expect(personaMode({})).toBe('read-only');
+    expect(personaMode({ mode: 'read-only' })).toBe('read-only');
+    expect(personaMode({ mode: 'worker' })).toBe('worker');
+  });
+});
+
+describe('personaScope', () => {
+  it('copies the declared tools so a captured scope cannot change with its source', () => {
+    const allowedToolIds = ['brainstrike.readWorkspaceFile'];
+    const scope: AssistantPersonaScope = personaScope(baseDefinition({ allowedToolIds }));
+    allowedToolIds.push('brainstrike.grepSearch');
+    expect(scope.allowedToolIds).toEqual(['brainstrike.readWorkspaceFile']);
+  });
+
+  it('reports read-only for legacy personas without a mode and worker for explicit workers', () => {
+    const explore = BUILT_IN_PERSONAS.find((persona) => persona.id === 'explore');
+    const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
+    if (!(explore && worker)) {
+      throw new Error('built-ins missing');
+    }
+    expect(personaScope(explore)).toEqual({
+      allowedToolIds: explore.allowedToolIds,
+      maxSteps: explore.maxSteps,
+      mode: 'read-only',
+    });
+    expect(personaScope(worker)).toEqual({
+      allowedToolIds: ['*'],
+      maxSteps: worker.maxSteps,
+      mode: 'worker',
+    });
+  });
 });
 
 describe('assertReadOnlyPersona', () => {
@@ -141,8 +203,24 @@ describe('delegationDescriptionForPersona', () => {
     // and nothing else — it becomes the `agent-<id>` tool description. Deriving
     // it here rather than writing "16 steps" into each persona's prose removes
     // the drift entirely: there is no second copy to fall out of sync.
-    expect(delegationDescriptionForPersona(persona(16))).toContain('at most 16 steps');
-    expect(delegationDescriptionForPersona(persona(4))).toContain('at most 4 steps');
+    expect(
+      delegationDescriptionForPersona(persona(16), DEFAULT_RUNTIME_SUBAGENT_SETTINGS)
+    ).toContain('at most 16 steps');
+    expect(
+      delegationDescriptionForPersona(persona(4), DEFAULT_RUNTIME_SUBAGENT_SETTINGS)
+    ).toContain('at most 4 steps');
+  });
+
+  it('does not promise a reserved summary for a one-step persona', () => {
+    const description = delegationDescriptionForPersona(
+      persona(1),
+      DEFAULT_RUNTIME_SUBAGENT_SETTINGS
+    );
+    expect(description).toContain('at most 1 step —');
+    expect(description).not.toContain('reserved');
+    expect(
+      delegationDescriptionForPersona(persona(2), DEFAULT_RUNTIME_SUBAGENT_SETTINGS)
+    ).toContain('2 steps, one of which is reserved');
   });
 
   it('covers USER-defined personas, whose frontmatter never mentions a cap', () => {
@@ -150,16 +228,20 @@ describe('delegationDescriptionForPersona', () => {
     // so it can never disclose its own budget. Hardcoding the sentence in the
     // built-ins would have left exactly this case with the original bug.
     const userPersona: AssistantPersonaDefinition = { ...persona(4), source: 'user' };
-    expect(delegationDescriptionForPersona(userPersona)).toContain('at most 4 steps');
+    expect(
+      delegationDescriptionForPersona(userPersona, DEFAULT_RUNTIME_SUBAGENT_SETTINGS)
+    ).toContain('at most 4 steps');
   });
 
   it('keeps the persona own description intact', () => {
-    expect(delegationDescriptionForPersona(persona(16))).toContain('Delegate exploration.');
+    expect(
+      delegationDescriptionForPersona(persona(16), DEFAULT_RUNTIME_SUBAGENT_SETTINGS)
+    ).toContain('Delegate exploration.');
   });
 
   it('discloses a cap for every built-in', () => {
     for (const builtIn of BUILT_IN_PERSONAS) {
-      expect(delegationDescriptionForPersona(builtIn)).toContain(
+      expect(delegationDescriptionForPersona(builtIn, DEFAULT_RUNTIME_SUBAGENT_SETTINGS)).toContain(
         `at most ${builtIn.maxSteps} steps`
       );
     }
@@ -171,13 +253,16 @@ describe('delegationDescriptionForPersona', () => {
     // At the previous cap of 8 that left 7 tool steps for a persona whose own
     // description invites surveying many files.
     //
-    // The built-ins sit AT the user ceiling, never above it: a budget users
-    // cannot declare would make the shipped Explorer unreplicable by a user
-    // persona, and would leave MAX_USER_PERSONA_MAX_STEPS describing a limit
-    // the app itself ignores.
+    // No built-in sits ABOVE the user ceiling: a budget users cannot declare
+    // would make the shipped Explorer unreplicable by a user persona, and
+    // would leave MAX_USER_PERSONA_MAX_STEPS describing a limit the app itself
+    // ignores. The read-only built-ins sit AT it (32); the worker stays at 16.
     for (const builtIn of BUILT_IN_PERSONAS) {
-      expect(builtIn.maxSteps).toBe(MAX_USER_PERSONA_MAX_STEPS);
+      expect(builtIn.maxSteps).toBeLessThanOrEqual(MAX_USER_PERSONA_MAX_STEPS);
     }
+    expect(
+      BUILT_IN_PERSONAS.some((builtIn) => builtIn.maxSteps === MAX_USER_PERSONA_MAX_STEPS)
+    ).toBe(true);
   });
 });
 

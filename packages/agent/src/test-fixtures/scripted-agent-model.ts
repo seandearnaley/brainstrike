@@ -21,6 +21,28 @@ export function toolCallParts(
   ];
 }
 
+/** One model step issuing several tool calls at once (a fan-out). */
+export function parallelToolCallParts(
+  calls: readonly {
+    readonly args: Record<string, unknown>;
+    readonly toolCallId: string;
+    readonly toolName: string;
+  }[]
+): LanguageModelV2StreamPart[] {
+  return [
+    { type: 'stream-start', warnings: [] },
+    ...calls.map(
+      (call): LanguageModelV2StreamPart => ({
+        input: JSON.stringify(call.args),
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        type: 'tool-call',
+      })
+    ),
+    { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+  ];
+}
+
 export function textParts(text: string): LanguageModelV2StreamPart[] {
   return [
     { type: 'stream-start', warnings: [] },
@@ -28,6 +50,21 @@ export function textParts(text: string): LanguageModelV2StreamPart[] {
     { delta: text, id: 'answer', type: 'text-delta' },
     { id: 'answer', type: 'text-end' },
     { finishReason: 'stop', type: 'finish', usage: USAGE },
+  ];
+}
+
+/** A text answer the provider CUT at its output limit (`finishReason: 'length'`). */
+export function lengthParts(text: string): LanguageModelV2StreamPart[] {
+  return [
+    { type: 'stream-start', warnings: [] },
+    { id: 'answer', type: 'text-start' },
+    { delta: text, id: 'answer', type: 'text-delta' },
+    { id: 'answer', type: 'text-end' },
+    {
+      finishReason: 'length',
+      type: 'finish',
+      usage: { inputTokens: 1, outputTokens: 512, totalTokens: 513 },
+    },
   ];
 }
 

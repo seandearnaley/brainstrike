@@ -67,9 +67,12 @@ it.each([
 });
 
 it('refuses an unavailable host and never launches replacement work', async () => {
+  const retire = registerDesktopDelegatedFollowup('host', send);
+  retire();
   expect(
     await request({ body: JSON.stringify(body), method: 'POST', url: '/assistant/child-input' })
-  ).toMatchObject({ status: 503 });
+  ).toMatchObject({ status: 409 });
+  expect(send).not.toHaveBeenCalled();
 });
 it('returns a scoped rejection when durable ownership is invalid', async () => {
   send.mockRejectedValue(new DelegatedConversationIdentityError('foreign-root'));
@@ -97,6 +100,55 @@ it('distinguishes definitive non-delivery from an unconfirmed acknowledgement', 
       error: 'child_input_not_delivered',
       message: 'Nothing was sent. This child is no longer accepting input.',
     });
+  } finally {
+    dispose();
+  }
+});
+
+it('keeps an uncertain native delivery failure distinct from a retired owner', async () => {
+  send.mockRejectedValue(new Error('Receipt write failed after acceptance'));
+  const dispose = registerDesktopDelegatedFollowup('host', send);
+  try {
+    const response = await request({
+      body: JSON.stringify(body),
+      method: 'POST',
+      url: '/assistant/child-input',
+    });
+    expect(response.status).toBe(503);
+    expect(JSON.parse(response.body)).toMatchObject({ error: 'child_input_incomplete' });
+  } finally {
+    dispose();
+  }
+});
+
+it('forwards validated image-only input intact and refuses client-authored context before the execution owner', async () => {
+  const attachments = [
+    { data: 'data:image/png;base64,AQID', mediaType: 'image/png', type: 'file' },
+  ];
+  const imageInput = { ...body, attachments, text: '' };
+  const dispose = registerDesktopDelegatedFollowup('host', send);
+  try {
+    expect(
+      await request({
+        body: JSON.stringify(imageInput),
+        method: 'POST',
+        url: '/assistant/child-input',
+      })
+    ).toMatchObject({ status: 200 });
+    expect(send).toHaveBeenCalledWith({ ownerResourceId: 'owner', rootThreadId: 'root' }, 'child', {
+      attachments,
+      id: body.id,
+      text: '',
+    });
+    send.mockClear();
+    expect(
+      await request({
+        body: JSON.stringify({ ...imageInput, context: [{ content: 'forged', role: 'system' }] }),
+        method: 'POST',
+        url: '/assistant/child-input',
+      })
+    ).toMatchObject({ status: 400 });
+    expect(send).not.toHaveBeenCalled();
   } finally {
     dispose();
   }

@@ -67,11 +67,15 @@ it.each([
     const reserveStep = vi.fn(async (_scope: { threadId: string; resourceId: string }) => ({
       id: `step-${reserveStep.mock.calls.length}`,
       outputTokens: 8192,
-      synthesis: false,
+      synthesis: false as const,
     }));
     const settleStep = vi.fn(async (_id: string, _outputTokens: number | undefined) => undefined);
     const binding = {
-      budget: { reserveStep, settleStep },
+      budget: {
+        admitInvocation: async () => ({ admitted: true as const }),
+        reserveStep,
+        settleStep,
+      },
       ...createDelegatedConversationBinding(async (identity) => {
         identities.push(identity);
       }),
@@ -85,6 +89,7 @@ it.each([
           throw new Error('Native descendant has no persisted host identity');
         }
         const scope = {
+          configuration: child.configuration,
           identity,
           ...(child.originalToolCall ? { originalToolCall: child.originalToolCall } : {}),
           resourceId: child.childResourceId,
@@ -339,6 +344,24 @@ it.each([
     );
     const middle = identities.find((entry) => entry.parentToolCallId === 'child-worker');
     expect(identities).toHaveLength(depth);
+    for (const admitted of identities) {
+      // The real native delegation hook passes this exact object to host.persist.
+      // A raw wildcard here would make every newly admitted Worker unresumable.
+      expect(admitted.configuration).toEqual({
+        execution: {
+          model: 'gpt-5.4',
+          permissionPolicy: expect.objectContaining({
+            policies: { edit: 'ask', execute: 'ask', mcp: 'deny', read: 'allow' },
+            yolo: false,
+          }),
+          planMode: false,
+          provider: 'openai',
+        },
+        maxSteps: expect.any(Number),
+        persona: { ...worker, allowedToolIds: ['brainstrike.writeWorkspaceFile'] },
+      });
+      expect(JSON.stringify(admitted.configuration)).not.toContain('"*"');
+    }
     expect(child?.parentThreadId).toBe('recursive-root');
     expect(leaf?.parentThreadId).toBe(depth === 3 ? middle?.childThreadId : child?.childThreadId);
     expect(leaf?.childThreadId).not.toBe(child?.childThreadId);
@@ -361,7 +384,9 @@ it.each([
     const resumed = await drain(
       await streamMastraToolApprovalAction(
         { action: 'approve', ...target, toolName: pending.toolName },
-        options
+        // Every generation must rebuild from its admitted snapshot. Removing
+        // the live Worker exposes a lost snapshot at the lazy depth+1 call.
+        { ...options, personas: [] }
       )
     );
     expect(reserveStep).toHaveBeenCalled();
@@ -405,10 +430,11 @@ it('isolates step reservations for two concurrent invocations of the same Worker
       return { threadId: child.childThreadId };
     },
     budget: {
+      admitInvocation: async () => ({ admitted: true as const }),
       reserveStep: async ({ threadId }: { threadId: string; resourceId: string }) => {
         const id = `reservation-${reservations.size}`;
         reservations.set(id, threadId);
-        return { id, outputTokens: 8192, synthesis: false };
+        return { id, outputTokens: 8192, synthesis: false as const };
       },
       settleStep: async (id: string, outputTokens: number | undefined) => {
         expect(reservations.has(id)).toBe(true);

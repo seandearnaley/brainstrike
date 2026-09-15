@@ -158,6 +158,11 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
 * **Search panel (optional):** state lives in `search-panel-store`; keep it persistent and small (query + a few flags). Don’t move search execution here—call into repositories/services instead.
 * **Database tab:** lazy-loaded chunk that initializes PGlite when the database tab is opened or preloaded by the host app.
 
+Background managed-cache imports consume the `baseImportRunner` callback's
+selected content map rather than closing over the earlier processor output.
+Empty content is valid; a missing descriptor remains an explicit per-file error.
+Paired tests: `src/background-indexing/__tests__/workspace-collection-sync-import.test.ts`.
+
 ## CSV export expectations
 
 Utilities in `csv-export-core.ts` and `csv-export-utils.ts` generate consistent CSV with BOM (Excel-safe), provide timestamped filenames, and include **chunk/embedding** projections when available.

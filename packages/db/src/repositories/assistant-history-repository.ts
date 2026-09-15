@@ -34,7 +34,11 @@ export interface AssistantHistoryMessage {
 }
 
 export interface AssistantThreadMessageListOptions {
+  /** Exclusive native message cursor, scoped to the same thread and resource. */
+  readonly beforeMessageId?: string;
   readonly limitLatest?: number;
+  /** Stop a targeted read if its same-owner native message was deleted or hidden. */
+  readonly targetMessageId?: string;
 }
 
 export interface AssistantThreadRunEventListOptions {
@@ -56,6 +60,18 @@ export async function readAssistantHistoryMessages(
     throw new Error('Assistant message history limit must be a positive safe integer.');
   }
   const params: (string | number | null)[] = [threadId, resourceId];
+  if (options?.beforeMessageId && limitLatest === undefined) {
+    throw new Error('Assistant message history pagination requires a bounded page size.');
+  }
+  // Legacy Mastra rows may omit the message resource. Only the native thread's
+  // actual resource can supply it, matching search admission without widening ownership.
+  const nativeResourceSql = `(SELECT native."resourceId" FROM ${MASTRA_MEMORY_TABLES.threads} native WHERE native.id = $1)`;
+  const cursorClause = options?.beforeMessageId
+    ? `AND ("createdAt", id) < (
+    SELECT cursor."createdAt", cursor.id FROM ${MASTRA_MEMORY_TABLES.messages} cursor
+    WHERE cursor.id = $4 AND cursor.thread_id = $1 AND COALESCE(cursor."resourceId", ${nativeResourceSql}) = $2
+  )`
+    : '';
   const limitClause =
     limitLatest === undefined
       ? ''
@@ -63,6 +79,14 @@ export async function readAssistantHistoryMessages(
                -- insertion-order ties need a future monotonic schema column.
                ORDER BY "createdAt" DESC, id DESC
                LIMIT $3`;
+  const targetParameter = options?.beforeMessageId ? 5 : limitLatest === undefined ? 3 : 4;
+  const targetClause = options?.targetMessageId
+    ? `AND EXISTS (
+    SELECT 1 FROM ${MASTRA_MEMORY_TABLES.messages} target
+    WHERE target.id = $${targetParameter} AND target.thread_id = $1 AND COALESCE(target."resourceId", ${nativeResourceSql}) = $2
+      AND NOT EXISTS (SELECT 1 FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} hidden WHERE hidden.message_id = target.id)
+  )`
+    : '';
   // Soft-rewind exclusion (BST-1115) sits INSIDE the windowing subquery, so
   // it applies before `limitLatest` — the hydration window is the latest N
   // VISIBLE messages, not N rows of which some are then dropped. Reload
@@ -78,11 +102,13 @@ export async function readAssistantHistoryMessages(
         FROM (
           SELECT id, role, content, "createdAt"
           FROM ${MASTRA_MEMORY_TABLES.messages}
-          WHERE thread_id = $1 AND "resourceId" = $2
+          WHERE thread_id = $1 AND COALESCE("resourceId", ${nativeResourceSql}) = $2
             AND NOT EXISTS (
               SELECT 1 FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} AS tombstones
               WHERE tombstones.message_id = ${MASTRA_MEMORY_TABLES.messages}.id
             )
+          ${cursorClause}
+          ${targetClause}
           ${limitClause}
         ) AS recent_messages
         LEFT JOIN ${ASSISTANT_MESSAGE_PARENTS_TABLE} AS message_parents
@@ -92,6 +118,12 @@ export async function readAssistantHistoryMessages(
         ORDER BY recent_messages."createdAt" ASC, recent_messages.id ASC`;
   if (limitLatest !== undefined) {
     params.push(limitLatest);
+  }
+  if (options?.beforeMessageId) {
+    params.push(options.beforeMessageId);
+  }
+  if (options?.targetMessageId) {
+    params.push(options.targetMessageId);
   }
   const result = await database.query(sql, params);
   return result.rows.map((row) => mapAssistantHistoryMessageRow(requireHistoryRow(row)));
@@ -292,4 +324,38 @@ function requireHistoryRow(value: unknown): Record<string, unknown> {
     throw new Error('Invalid assistant history row.');
   }
   return value as Record<string, unknown>;
+}
+
+/** Shared topology writer; native Mastra remains the sole message-content writer. */
+export async function recordAssistantHistoryParent(
+  database: AssistantHistoryDatabase,
+  input: {
+    readonly messageId: string;
+    readonly threadId: string;
+    readonly resourceId: string;
+    readonly parentId: string | null;
+  }
+): Promise<void> {
+  for (const [name, value] of Object.entries(input)) {
+    if (name === 'parentId' && value === null) {
+      continue;
+    }
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new Error(`Assistant message topology ${name} must be a non-empty string.`);
+    }
+  }
+  const result = await database.query(
+    `INSERT INTO ${ASSISTANT_MESSAGE_PARENTS_TABLE}
+    (message_id, thread_id, resource_id, parent_id, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, NOW(), NOW())
+    ON CONFLICT (message_id) DO UPDATE SET updated_at = EXCLUDED.updated_at
+    WHERE ${ASSISTANT_MESSAGE_PARENTS_TABLE}.thread_id = EXCLUDED.thread_id
+      AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.resource_id = EXCLUDED.resource_id
+      AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.parent_id IS NOT DISTINCT FROM EXCLUDED.parent_id
+    RETURNING message_id`,
+    [input.messageId, input.threadId, input.resourceId, input.parentId]
+  );
+  if (result.rows.length !== 1) {
+    throw new Error(`Assistant message ${input.messageId} has conflicting branch topology.`);
+  }
 }

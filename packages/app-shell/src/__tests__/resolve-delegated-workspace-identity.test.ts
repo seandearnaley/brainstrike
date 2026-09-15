@@ -11,6 +11,7 @@ import type {
 import { describe, expect, it, vi } from 'vitest';
 import { createDelegatedWorkspaceDiscovery } from '../delegated-workspace-discovery';
 import {
+  resolveChildContinuationIdentity,
   resolveDelegatedWorkspaceDecision,
   resolveDelegatedWorkspaceIdentity,
 } from '../resolve-delegated-workspace-identity';
@@ -182,5 +183,151 @@ describe('restored child invocation authority', () => {
     await expect(
       resolveDelegatedWorkspaceIdentity({ getInvocation: async () => stored }, node, [edge])
     ).rejects.toThrow(/binding/i);
+  });
+});
+
+describe('restored child continuation authority', () => {
+  const receipt = {
+    configuration: {},
+    depth: 1,
+    id: 'input-one',
+    nativeRunId: 'continuation-run',
+    parentThreadId: 'root',
+    resourceId: 'native-child',
+    state: 'awaiting-approval' as const,
+    threadId: 'child',
+    turnMessageId: 'input-one',
+  };
+  it.each(['approval', 'question'] as const)(
+    'routes the exact restored %s without an invented invocation',
+    async (kind) => {
+      const target = {
+        continuationId: receipt.id,
+        runId: receipt.nativeRunId,
+        toolCallId: 'write',
+      };
+      const custom =
+        kind === 'approval'
+          ? { [TOOL_APPROVAL_RUN_CONFIG_KEY]: { ...target, action: 'approve' } }
+          : { [TOOL_SUSPEND_RUN_CONFIG_KEY]: { ...target, resumeData: { answer: 'yes' } } };
+      const getInvocation = vi.fn(async () => null);
+      const getContinuation = vi.fn(async () => ({
+        ...receipt,
+        state: kind === 'approval' ? ('awaiting-approval' as const) : ('awaiting-input' as const),
+      }));
+      await expect(
+        resolveDelegatedWorkspaceDecision({ getContinuation, getInvocation }, node, {
+          attachments: [],
+          content: [{ text: 'Decision', type: 'text' }],
+          createdAt: new Date(),
+          metadata: { custom },
+          parentId: 'saved-row',
+          role: 'user',
+          runConfig: { custom },
+          sourceId: null,
+          startRun: true,
+        })
+      ).resolves.toEqual({
+        continuationId: receipt.id,
+        nativeRunId: receipt.nativeRunId,
+        threadId: 'child',
+      });
+      expect(getContinuation).toHaveBeenCalledWith(
+        { ownerResourceId: 'owner', rootThreadId: 'root' },
+        receipt.id
+      );
+      expect(getInvocation).not.toHaveBeenCalled();
+    }
+  );
+  it('binds a descendant decision to both its saved continuation and observed native ancestry', async () => {
+    const descendant = {
+      ...edge,
+      childRuntimeRunId: 'leaf-run',
+      parentRuntimeRunId: receipt.nativeRunId,
+    };
+    const target = {
+      continuationId: receipt.id,
+      delegation: { path: [descendant], toolCallId: 'write' },
+      runId: receipt.nativeRunId,
+      toolCallId: 'call',
+    };
+    const getInvocation = vi.fn(async () => ({ ...invocation, ...descendant }));
+    const repository = {
+      getContinuation: async () => ({ ...receipt, threadId: 'continued-parent' }),
+      getInvocation,
+    };
+    const custom = { [TOOL_APPROVAL_RUN_CONFIG_KEY]: { ...target, action: 'approve' } };
+    const message = {
+      attachments: [],
+      content: [{ text: 'Decision', type: 'text' as const }],
+      createdAt: new Date(),
+      metadata: { custom },
+      parentId: 'leaf-message',
+      role: 'user' as const,
+      runConfig: { custom },
+      sourceId: null,
+      startRun: true,
+    };
+    await expect(resolveDelegatedWorkspaceDecision(repository, node, message)).resolves.toEqual({
+      ...descendant,
+      continuationId: receipt.id,
+    });
+    const foreign = {
+      ...target,
+      delegation: {
+        ...target.delegation,
+        path: [{ ...descendant, parentRuntimeRunId: 'foreign-run' }],
+      },
+    };
+    await expect(
+      resolveDelegatedWorkspaceDecision(repository, node, {
+        ...message,
+        runConfig: {
+          custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: { ...foreign, action: 'approve' } },
+        },
+      })
+    ).rejects.toThrow(/unambiguous/);
+    expect(getInvocation).toHaveBeenCalledOnce();
+  });
+
+  it.each(['completed', 'cancelled', 'failed', 'interrupted', 'claimed', 'running'] as const)(
+    'rejects a %s receipt before showing restored controls',
+    async (state) => {
+      await expect(
+        resolveChildContinuationIdentity(
+          { getContinuation: async () => ({ ...receipt, state }), getInvocation: async () => null },
+          node,
+          { continuationId: receipt.id, runId: receipt.nativeRunId }
+        )
+      ).rejects.toThrow(/pending decision/);
+    }
+  );
+  it('filters a sibling continuation and surfaces a revoked exact native binding', async () => {
+    const pause = {
+      continuationId: receipt.id,
+      runId: receipt.nativeRunId,
+      stale: false,
+      suspendedAt: '2026-09-12T00:00:00.000Z',
+      toolCallId: 'write',
+      toolName: 'write',
+    };
+    const sibling = { ...pause, continuationId: 'sibling-input' };
+    const discover = createDelegatedWorkspaceDiscovery(
+      {
+        getContinuation: async (_scope, id) =>
+          id === receipt.id ? receipt : { ...receipt, id, threadId: 'sibling' },
+        getInvocation: async () => null,
+      },
+      node,
+      async () => ({
+        approvals: [pause, sibling, { ...pause, runId: 'revoked-run' }],
+        suspends: [],
+      })
+    );
+    await expect(discover('child', 'native-child')).resolves.toEqual({
+      approvals: [pause],
+      error: { reason: 'invalid-response' },
+      suspends: [],
+    });
   });
 });

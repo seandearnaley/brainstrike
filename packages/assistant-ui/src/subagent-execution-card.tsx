@@ -1,5 +1,9 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import { SUBAGENT_NO_ANSWER_OUTCOME } from '@brainstrike/assistant-contract/personas';
+import {
+  SUBAGENT_NO_ANSWER_OUTCOME,
+  SUBAGENT_REJECTED_OUTCOME,
+  SUBAGENT_TRUNCATED_OUTCOME,
+} from '@brainstrike/assistant-contract/personas';
 import { Button } from '@brainstrike/ui';
 import { AlertCircle, ArrowUpRight, CheckCircle, CircleDashed, CircleSlash } from 'lucide-react';
 import {
@@ -70,7 +74,9 @@ const STEP_VERB: Record<StepGlyphState, (label: string) => string> = {
   done: (label) => `${label} finished`,
   failed: (label) => `${label} failed`,
   'no-answer': (label) => `${label} gave no answer`,
+  rejected: (label) => `${label} delegation rejected`,
   running: (label) => `Delegating to ${label}`,
+  truncated: (label) => `${label} finished with a truncated summary`,
   waiting: (label) => `Delegating to ${label}`,
 };
 
@@ -124,6 +130,15 @@ function resolveDelegationState(
   const generic = toolStepStateFor({ isError, result, status });
   if (generic !== 'done') {
     return generic;
+  }
+  if (outcome === SUBAGENT_REJECTED_OUTCOME) {
+    // BST-1751: refused before the child ran; the tool call itself succeeded.
+    return 'rejected';
+  }
+  if (outcome === SUBAGENT_TRUNCATED_OUTCOME) {
+    // The child's reserved summary was cut at its synthesis budget: a
+    // completion with partial findings, named as such.
+    return 'truncated';
   }
   return outcome === SUBAGENT_NO_ANSWER_OUTCOME ? 'no-answer' : 'done';
 }

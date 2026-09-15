@@ -52,7 +52,7 @@ import {
   setNormalizedNodeLoadState,
 } from '../utils/normalized-file-tree';
 import type { RecursiveSelectionDirectoryUpdate } from '../utils/recursive-selection-query';
-import { type FileSystemHandle, toWorkerFileNodes } from '../utils/worker-node-conversion';
+import { type FileNodeHandle, toWorkerFileNodes } from '../utils/worker-node-conversion';
 import type { InFlightRootLoad, PendingExpandAllUpdate } from './use-lazy-file-tree-root-load';
 import {
   applyWorkerExpandAllResult,
@@ -142,7 +142,7 @@ async function enforceForcedRootLoadBoundary(args: {
 }
 
 async function loadSpecificPathsWithWorker(args: {
-  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
+  handleMapRef: React.RefObject<Map<string, FileNodeHandle>>;
   normalizedTreeRef: React.RefObject<NormalizedFileTreeState>;
   onNodesIndexedRef: React.RefObject<
     ((nodes: IFileNode[], parentPath: string | null) => void) | undefined

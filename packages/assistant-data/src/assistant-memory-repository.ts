@@ -12,6 +12,7 @@ import {
   childInputDeliveryStateSchema,
   getToolActionIdentityKey,
   isGuardedToolError,
+  NATIVE_MESSAGE_IDS_METADATA_KEY,
   SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME,
   type SuspendedRunDiscoveryError,
 } from '@brainstrike/assistant-contract';
@@ -53,8 +54,10 @@ import {
   type AssistantHistoryMessage,
   type AssistantThreadMessageListOptions,
   type AssistantThreadRunEventListOptions,
+  createDelegatedConversationRepository,
   readAssistantHistoryMessages,
   readAssistantHistoryRunEvents,
+  recordAssistantHistoryParent,
 } from '@brainstrike/db';
 
 import type { DbHandle } from '@brainstrike/db/react';
@@ -187,6 +190,8 @@ export interface AssistantThreadRunRecord {
 }
 
 export interface CreateAssistantThreadRunInput {
+  /** Resolve the original turn from the owned durable continuation before insertion. */
+  readonly childContinuation?: { readonly id: string; readonly nativeRunId: string };
   readonly completedAt?: Date | null;
   readonly error?: string | null;
   readonly id: string;
@@ -724,7 +729,6 @@ const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints
 /** Workspace roots (migration 039); joined by the cross-root usage rollup. */
 const ROOTS_TABLE = 'roots';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
-const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
 /**
  * Every relation the repository reads or writes, and therefore every relation
  * whose absence means this database was never migrated.
@@ -2086,7 +2090,10 @@ function appendAssistantGroupMessage(args: {
       createdAt: firstRow.createdAt,
       id: messageId,
       metadata: {
-        custom: readHistoryCustomMetadata(lastRow.content),
+        custom: {
+          ...readHistoryCustomMetadata(lastRow.content),
+          [NATIVE_MESSAGE_IDS_METADATA_KEY]: args.group.rows.map((row) => row.id),
+        },
         steps: [],
         // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
         unstable_annotations: [],
@@ -2581,7 +2588,7 @@ function orderHistoryGraphForImport(
 export function restoreDelegatedConversationHistory(
   baseline: DelegatedConversationBaseline
 ): Awaited<ReturnType<AssistantUiThreadHistoryAdapter['load']>> {
-  return toHistoryRepository(
+  const history = toHistoryRepository(
     baseline.messages.map(({ parentId, ...message }) => ({
       ...message,
       createdAt: normalizeDate(message.createdAt),
@@ -2589,6 +2596,7 @@ export function restoreDelegatedConversationHistory(
     })),
     baseline.runEvents
   );
+  return baseline.headId === undefined ? history : { ...history, headId: baseline.headId };
 }
 
 function toHistoryRepository(
@@ -2997,6 +3005,23 @@ export function createPgliteAssistantThreadRepository(
     },
     async createThreadRun(input: CreateAssistantThreadRunInput): Promise<AssistantThreadRunRecord> {
       await initialize();
+      let turnMessageId = input.turnMessageId ?? null;
+      if (input.childContinuation) {
+        const receipt = await createDelegatedConversationRepository(database).getContinuation(
+          { ownerResourceId: input.resourceId, rootThreadId: input.threadId },
+          input.childContinuation.id
+        );
+        if (
+          !receipt ||
+          receipt.nativeRunId !== input.childContinuation.nativeRunId ||
+          !['awaiting-approval', 'awaiting-input'].includes(receipt.state)
+        ) {
+          throw new Error(
+            'Child continuation decision is no longer pending or does not belong to this root.'
+          );
+        }
+        turnMessageId = receipt.turnMessageId;
+      }
       const now = new Date();
       const startedAt = input.startedAt ?? now;
       const completedAt = input.completedAt ?? null;
@@ -3012,7 +3037,7 @@ export function createPgliteAssistantThreadRepository(
         startedAt,
         status: input.status ?? 'running',
         threadId: input.threadId,
-        turnMessageId: input.turnMessageId ?? null,
+        turnMessageId,
         updatedAt: now,
         ...(input.modelSettings ? { modelSettings: { ...input.modelSettings } } : {}),
         ...(input.providerOptions ? { providerOptions: { ...input.providerOptions } } : {}),
@@ -3066,10 +3091,10 @@ export function createPgliteAssistantThreadRepository(
       // clearThreadPlacement round trip; the CTE now owns the full cascade
       // (placements without a live thread were already inert by contract).
       const sidecarStages = THREAD_DELETE_SIDECAR_TABLES.map(
-        ({ table, threadColumn }) => `deleted_${table} AS (
+        ({ table, threadColumns }) => `deleted_${table} AS (
             DELETE FROM ${table}
-            WHERE ${threadColumn} IN (SELECT id FROM deletion_threads)
-            RETURNING ${threadColumn}
+            WHERE (${threadColumns.map((column) => `${column} IN (SELECT id FROM deletion_threads)`).join(' OR ')})
+            RETURNING 1
           )`
       ).join(',\n          ');
       const sidecarCounts = THREAD_DELETE_SIDECAR_TABLES.map(
@@ -3144,11 +3169,11 @@ export function createPgliteAssistantThreadRepository(
             RETURNING id
           ),
           ${THREAD_DELETE_SIDECAR_TABLES.map(
-            ({ table, threadColumn }) => `deleted_${table} AS (
+            ({ table, threadColumns }) => `deleted_${table} AS (
             DELETE FROM ${table}
             WHERE (SELECT all_found FROM validation)
-              AND ${threadColumn} IN (SELECT id FROM deletion_threads)
-            RETURNING ${threadColumn}
+              AND (${threadColumns.map((column) => `${column} IN (SELECT id FROM deletion_threads)`).join(' OR ')})
+            RETURNING 1
           )`
           ).join(',\n          ')},
           deleted_threads AS (
@@ -3364,22 +3389,7 @@ export function createPgliteAssistantThreadRepository(
       const parentId =
         input.parentId === null ? null : requireNonEmptyTopologyId(input.parentId, 'parentId');
       await initialize();
-      const now = new Date();
-      const result = await database.query(
-        `INSERT INTO ${ASSISTANT_MESSAGE_PARENTS_TABLE}
-          (message_id, thread_id, resource_id, parent_id, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $5)
-         ON CONFLICT (message_id) DO UPDATE
-           SET updated_at = EXCLUDED.updated_at
-           WHERE ${ASSISTANT_MESSAGE_PARENTS_TABLE}.thread_id = EXCLUDED.thread_id
-             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.resource_id = EXCLUDED.resource_id
-             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.parent_id IS NOT DISTINCT FROM EXCLUDED.parent_id
-         RETURNING message_id`,
-        [messageId, threadId, resourceId, parentId, now]
-      );
-      if (result.rows.length !== 1) {
-        throw new Error(`Assistant message ${messageId} has conflicting branch topology.`);
-      }
+      await recordAssistantHistoryParent(database, { messageId, parentId, resourceId, threadId });
     },
     async recordRunOutcome(input: RecordRunOutcomeInput): Promise<void> {
       requireString(input.runId, 'runId');
@@ -3555,11 +3565,49 @@ export function createPgliteAssistantThreadRepository(
   return repository;
 }
 
+async function loadHistoryThroughSearchTarget(
+  repository: AssistantThreadRepository,
+  threadId: string,
+  resourceId: string,
+  targetMessageId?: string,
+  signal?: AbortSignal
+): Promise<readonly AssistantHistoryMessage[]> {
+  signal?.throwIfAborted();
+  let messages = await repository.listMessages(threadId, resourceId, {
+    limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    ...(targetMessageId ? { targetMessageId } : {}),
+  });
+  if (!targetMessageId) {
+    return messages;
+  }
+  // Explicit search navigation pages backwards; ordinary hydration remains bounded.
+  while (!messages.some((message) => message.id === targetMessageId)) {
+    signal?.throwIfAborted();
+    const first = messages[0];
+    if (!first) {
+      throw new Error('The selected message is no longer available in this conversation.');
+    }
+    const older = await repository.listMessages(threadId, resourceId, {
+      beforeMessageId: first.id,
+      limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+      ...(targetMessageId ? { targetMessageId } : {}),
+    });
+    if (older.length === 0) {
+      throw new Error('The selected message is no longer available in this conversation.');
+    }
+    messages = [...older, ...messages];
+  }
+  signal?.throwIfAborted();
+  return messages;
+}
+
 export function createAssistantThreadHistoryAdapter({
   discoverSuspendedRuns,
   repository,
   resourceId,
   threadId,
+  targetMessageId,
+  signal,
 }: {
   /**
    * Desktop-only capability: rediscover approvals AND suspend() pauses
@@ -3568,6 +3616,9 @@ export function createAssistantThreadHistoryAdapter({
    * where its absence means "no suspended pauses" and hydration is
    * byte-identical to today.
    */
+  /** Explicit search navigation only; ordinary hydration retains its 80-row bound. */
+  readonly targetMessageId?: string;
+  readonly signal?: AbortSignal;
   readonly discoverSuspendedRuns?: SuspendedRunDiscovery;
   readonly repository: AssistantThreadRepository;
   readonly resourceId: string;
@@ -3683,9 +3734,7 @@ export function createAssistantThreadHistoryAdapter({
       // deadline and explicit recovery errors (assistant-suspended-approvals.ts);
       // endpoint/auth resolution retains its bridge-owned lifecycle.
       const [messages, runEvents, discovery] = await Promise.all([
-        repository.listMessages(threadId, resourceId, {
-          limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
-        }),
+        loadHistoryThroughSearchTarget(repository, threadId, resourceId, targetMessageId, signal),
         repository.listThreadRunEvents(threadId, resourceId, {
           limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
         }),

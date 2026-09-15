@@ -2,6 +2,17 @@
 
 > Extracted from AGENTS.md (2026-07-12). Read before adding migrations, models, PGlite construction sites, or touching browser bootstrap. Keep updated with the code.
 
+## ATOMIC CHUNK AND JOB WRITES
+
+`insertChunksAndEnqueueEmbeddingJobs` inserts chunks and enqueues their jobs
+inside one database transaction. The callback's `IDatabase` requires `query`
+and makes `transaction` optional: a query-only callback handle is valid, and
+must not be cast into a database that guarantees nested transactions.
+Construct the chunk repository from the outer transactional connection and
+pass the callback's query surface to `insertManyWithTx`. The real-PGlite
+`job-queue-transactional-enqueue.test.ts` pins atomic success and rollback and
+rejects outer-connection queries or nested transactions while the callback is active.
+
 ## QUERY TELEMETRY BOUNDARY
 
 Database performance instrumentation uses the typed, memory-only collector in
@@ -171,6 +182,15 @@ up to one coarse bucket after its individual event crosses the strict duration-
 sample cutoff. A nonzero count with zero retained percentile inputs at that
 boundary is therefore expected.
 
+## MANAGED-CACHE BATCH ADMISSION
+
+Managed-cache batch admission counts every SQL bind before opening a transaction.
+Imports bind one value per import column; replacements additionally bind one
+embedding-set id outside their per-record VALUES list. Keep the batch limit and
+the actual emitted parameter array aligned when adding columns. The current
+replacement boundary is 6,553 rows (65,531 parameters); 6,554 rows must reject
+before any mutation. Paired coverage: `packages/db/__tests__/managed-cache-batch-parameter-limit.test.ts`.
+
 ## DATABASE WORK SCHEDULER FAIRNESS
 
 `DatabaseWorkScheduler` is the single-process admission boundary around each
@@ -230,6 +250,45 @@ observed via `subscribeToSchedulerSnapshots`) before a pass may begin, and
 logged with reason `database-scheduler-recently-busy` and simply retry on the
 next interval — never widen this gate to "idle right now" for a statement whose
 duration is unbounded.
+
+**Unpreemptable maintenance never starts while assistant work is in flight (2026-09-15).**
+Sustained scheduler quiet cannot see a run waiting on its model. In live GLM run 22,
+`createDesktopDimensionIndexMaintenanceScheduler` still sampled idle once, and it started an 82 s HNSW
+`CREATE INDEX` 24 s into a four-child fan-out, during a gap between run-scoped queries. Every
+run-scoped query behind the build hit the 30 s DB host request timeout, and two children failed.
+Both desktop maintenance schedulers now share `maintenance-admission.ts`:
+
+- The BST-1333 sustained-quiet window applies to both. The HNSW scheduler REQUIRES the snapshot
+  subscription; there is no single-sample mode.
+- Inside the background lane, immediately before the statement, `readInFlightAssistantWork` runs.
+  Any `brainstrike_assistant_thread_runs` row in `running`/`cancelling`, or `mastra_background_tasks`
+  row in `pending`/`running`, skips the pass with reason `assistant-work-in-flight`. The skip is
+  logged at info, so a pass held off by a stuck row is visible.
+- A malformed read throws; it never reads as idle.
+- A task suspended on the user does not block. Its decision resumes it as a new run.
+
+The work scheduler is serial, so run-scoped work submitted after that read queues behind the
+statement rather than racing it. One window stays open: a run started while a statement is
+already running. The host cannot preempt the statement, so that run WAITS in the scheduler.
+Run-scoped work must therefore be on the scheduler, so it waits instead of timing out at the host
+(assistant-persistence.md, run-critical lane).
+
+Paired:
+- `dimension-index-maintenance-scheduler.test.ts` ("admission")
+- `database-maintenance-scheduler.test.ts` ("assistant work admission")
+- `maintenance-admission.test.ts` (malformed reads)
+- `maintenance-admission.integration.test.ts` (statuses against migrated tables)
+
+Removing the in-flight skip, the quiet gate, the busy seed at start, or the subscription each
+fails its own rows.
+
+**Corruption found by maintenance recovers the database; the app never keeps
+running on it.** A maintenance pass that fails with a corruption-class error
+(`isCorruptionError`, the same rule as `db:query`) enters runtime corruption
+recovery with context `'maintenance'`: backup before reset, DB host
+replacement, window reload. Any other maintenance failure is only logged. The
+full contract is in `docs/agents/platform-contracts.md`, under RUNTIME DATABASE
+CORRUPTION RECOVERY.
 
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
@@ -346,6 +405,78 @@ loaded in a new engine, and production-ledger upgrade/replay. The desktop host
 uses this graph together with invocation identity, lifecycle correlation and
 usage attribution below.
 
+### Human continuation admission (BST-1723)
+
+Migration 135 adds `brainstrike_delegated_continuations` and its exact leaf
+`brainstrike_delegated_continuation_decisions` claims. A human wake reuses the
+existing authorized native child/resource and immutable profile but has a new
+request receipt, managed root host leg, and native run. It never invents a
+parent tool call or rewrites the original delegation invocation. The shared
+outward graph walk checks every native resource and reports the actual depth.
+Read-only `getContinuation(scope, id)` discovery needs no execution host ID.
+There is currently no persisted conversation archive field; worktree archive
+is a separate contract and must not be mistaken for conversation ownership.
+
+Admission and the existing durable tree/child budget reservation share one
+transaction. Input IDs are global immutable request identities (the shared
+composer creates a UUID and retains it through uncertain acknowledgement).
+Reusing one under another root is an explicit admission refusal and never
+reveals, replaces, or replays the other receipt. Duplicate input IDs and overlapping active root admissions fail;
+ambiguous crash receipts never automatically resend user input. An existing
+identical receipt fails with `continuation-input-already-admitted`; changing
+its child/text fails with `continuation-input-id-conflict`. Neither means the
+input was undelivered. Only a fresh admission refusal reports
+`continuation-input-not-admitted`. The startup
+reaper marks dead claimed/running receipts and their decision claims interrupted.
+An unclaimed persisted approval/question remains pending for an explicit exact
+native decision. A saved native pause after a claimed resume is not proof that
+its effect did not run: the crash may precede snapshot acknowledgement. Such
+ambiguous claims remain non-actionable; only the owning live host may release
+a claim before native execution.
+Decision resumes retain the receipt’s originating turn and its existing budget;
+the database refuses a claim from a managed host attached to another turn.
+Managed run creation resolves that saved turn before inserting a resume host;
+a new child input instead anchors its stable request ID. Decision claims retain
+the outer native continuation run but consume the exact leaf native run/tool
+call, so sibling leaves with identical tool-call IDs remain distinct. Nested
+paths start at the continuation child, never the original root invocation;
+only the current host may release an unexecuted claim. A claimed resume settles
+the previous paused projection header; releasing before execution restores it. Cancellation
+fences native binding/resume before joining the existing managed host owner;
+a failed join remains a failed Stop, never successful cancellation. A new
+explicit message after Stop is eligible for admission; old approval events on
+cancelled/failed child runs no longer represent live pending decisions.
+
+Receipt settlement atomically settles the current child projection header,
+even when native consumption fails before emitting its terminal event. Stop
+preserves already completed native headers and creates cancellation metadata
+from continuation identity alone, never from a previous tool event. Cancelled
+decision state takes precedence independently of database result ordering.
+
+Ordinary child run headers/events retain rich history. Metadata carries the
+continuation ID and native run separately from the display message ID. Usage
+uses the existing root-attributed table, one row per continuation/current host
+leg with an unambiguous JSON-tuple row identity; cumulative redelivery within a
+leg takes maxima and separate resume legs remain additive. The pinned native
+runtime reports zero usage at approval/question pauses and its accumulated
+usage at completion: two pauses then completion produce 0, 0, 3 tokens for
+three one-token model steps. These are observed native finish totals, not
+invented per-model-step deltas. Its nullable continuation FK uses `ON DELETE SET NULL` so
+child deletion retains spent root tokens. Both receipt tables cascade from the
+native graph and are registered in every reset path; reset clears usage too.
+Suspended-run HTTP discovery enumerates owned pending receipts even if the
+original root has no native pause. Each candidate is reauthorized through the
+graph, then an inert native reader verifies its exact saved pending decision;
+receipt rows alone never manufacture a resumable control. Independent receipt
+and native reads run concurrently; ancestry traversal within each read remains
+dependent. Unauthorized/malformed saved state or invalid suspension timestamps
+fail discovery visibly rather than return an apparently complete partial list.
+Responses preserve
+the continuation anchor and annotate durable leaf claim/cancellation state.
+Real DB and desktop-host continuation integration tests cover transactional
+admission, dumped-engine reconstruction, exact decisions, cancellation join,
+usage, child deletion, and production-ledger upgrade/replay.
+
 ### Native invocation identity (BST-1718)
 
 Migration 127 adds `brainstrike_delegated_invocations`. Its immutable key is
@@ -360,8 +491,9 @@ Mastra mints its own run ids, and approval/suspension creates new host legs.
 invocation before recording the native child run. This applies to both the
 initial bind and duplicate/resume authorization; a mismatch never changes the
 record. The method records the observed native child run once; exact duplicate
-delivery is idempotent and a different child run is rejected. A follow-up gets a
-new invocation key and child run while retaining its conversation. Reads and
+delivery is idempotent and a different child run is rejected. A subsequent native delegation gets a
+new invocation key and child run while retaining its conversation. Human idle
+wakes use the separate continuation admission described above. Reads and
 run binding revalidate the whole native ancestry and the original host row's
 owner/root/turn. Desktop passes its current host leg into the same SQL mutation,
 which rechecks the current owner/root/turn atomically; a stale preliminary scope
@@ -1344,6 +1476,16 @@ host admission, immutable input and reset coverage tests protect these rules.
 
 ## Shared assistant history readers
 
+`repositories/thread-debug-snapshot.ts` is a local user-initiated export reader.
+It reuses the canonical delegated graph and captures all selected-subtree
+sections in one statement snapshot, with no schema writes or row caps. Child
+usage is selected by exact invocation/continuation attribution and full tool
+artifacts by `execution_thread_id`. Invalid selected ancestry rejects; unrelated
+threads and unauthorized descendants are excluded. Every exported column is
+explicitly allowlisted in the section inventory; schema additions stay excluded
+until that inventory receives an export-privacy review. See `platform-contracts.md` for formatting,
+redaction and the paired real-PGlite tests.
+
 `repositories/assistant-history-repository.ts` owns the ordinary message/event
 queries and row conversion used by renderer hydration and delegated pre-resume
 baselines. It requires a migrated handle and performs no DDL. Keep rewind
@@ -1402,3 +1544,43 @@ The column is covered by the existing invocation deletion/reset paths; upgrade,
 replay and full-engine dump/reload preserve existing invocation identities.
 Revoking admission alone never acknowledges Stop: the control host must still
 join the selected native executors and workflow cleanup before reporting success.
+
+
+### Independent paused child continuations (BST-1723)
+
+Migration 138 splits continuation admission ownership: the root unique index
+covers only claimed/running receipts, while a second root/child index covers
+claimed/running/awaiting-approval/awaiting-input receipts. Pending sibling
+decisions do not block one another's admission. Decision claims still require
+the receipt's original turn and a current owned root host with no other
+running/cancelling root leg. These checks also cover ordinary parent execution,
+which has no continuation row. Failed concurrent claims roll back the decision
+insert together with the receipt transition. Existing receipts survive upgrade
+and replay unchanged; the existing continuation table reset/delete ownership
+covers both indexes without another persistent store.
+
+### Swarm diagnostics evidence (migration 139)
+
+`custom-139-swarm-diagnostics` adds `brainstrike_assistant_prompt_manifests`,
+`brainstrike_delegated_wakeups` and `brainstrike_delegated_live_decisions`:
+append-only debug-pack evidence written by the desktop host, never runtime
+authority. Each references `brainstrike_assistant_thread_runs` (the ROOT host
+run) with `ON DELETE CASCADE`, and host runs cascade from `mastra_threads`, so all
+three sit in `RESET_EXCLUDED_TABLES` with that reason and need no clear-path
+entry; `reset-table-coverage.integration.test.ts` fails if one is missing.
+Prompt manifests are also in `THREAD_DELETE_SIDECAR_TABLES` by `thread_id`. A
+`child-first-step` row is named by the thread that DISPATCHED it (the child
+thread does not exist yet when the start hook runs), so deleting a delegated
+branch removes the follow-up and nested-dispatch manifests named by that branch
+but not the child's own first-step row, which goes with its dispatching thread or
+with the root host run. `CHECK` constraints bound every kind, source and outcome
+vocabulary. `thread-debug-snapshot.ts` exports all three with explicit column
+allowlists: wakeups and live decisions through their host run's thread in the
+selected subtree; prompt manifests by `thread_id` in the subtree or, for a
+child-first-step row, through the invocation whose `parent_runtime_run_id` /
+`parent_tool_call_id` equal its `native_run_id` / `parent_tool_call_id` under the
+same root. Paired: `migration-139-swarm-diagnostics.integration.test.ts` (DDL,
+cascade, kind check, replay and rollback),
+`thread-debug-snapshot.integration.test.ts` (runtime-shaped rows, the child and
+grandchild joins, a foreign-root address) and
+`reset-table-coverage.integration.test.ts`.

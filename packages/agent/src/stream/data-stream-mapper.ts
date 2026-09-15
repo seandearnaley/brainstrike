@@ -3,6 +3,10 @@ import {
   type OpenAiReasoningEffort,
   type ProviderId,
 } from '@brainstrike/assistant-contract';
+import {
+  CHILD_CONTINUATION_DATA_NAME,
+  type ChildContinuationStreamData,
+} from '@brainstrike/assistant-contract/child-followup';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
 import {
   CHILD_USER_MESSAGE_DATA_NAME,
@@ -13,6 +17,7 @@ import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-u
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract/shell-output';
 import {
   type AssistantToolApprovalRequest,
+  TOOL_APPROVAL_ANSWERED_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
 import {
@@ -23,6 +28,7 @@ import { createLogger } from '@brainstrike/logging';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
+  StreamChunkChildContinuation,
   StreamChunkChildRunUsage,
   StreamChunkContextBreakdown,
   StreamChunkDelegatedConversation,
@@ -33,6 +39,7 @@ import type {
   StreamChunkShellOutput,
   StreamChunkText,
   StreamChunkTool,
+  StreamChunkToolApprovalAnswered,
   StreamChunkToolApprovalRequired,
   StreamChunkToolSuspendRequired,
   StreamFinishReason,
@@ -414,7 +421,12 @@ export class DataStreamMapper {
         const encoded = {
           code: DataStreamCode.auiDataPart,
           value: {
-            data: { createdAt: chunk.createdAt, id: chunk.id, text: chunk.text },
+            data: {
+              ...(chunk.attachments ? { attachments: chunk.attachments } : {}),
+              createdAt: chunk.createdAt,
+              id: chunk.id,
+              text: chunk.text,
+            },
             name: CHILD_USER_MESSAGE_DATA_NAME,
           },
         };
@@ -427,6 +439,9 @@ export class DataStreamMapper {
         yield encoded;
         return;
       }
+      case 'child-continuation-chunk':
+        yield* this.handleChildContinuation(chunk);
+        return;
       case 'delegated-conversation-chunk':
         yield* this.handleDelegatedConversation(chunk);
         return;
@@ -462,6 +477,9 @@ export class DataStreamMapper {
       case 'tool-approval-required':
         yield* this.handleToolApprovalRequired(chunk);
         return;
+      case 'tool-approval-answered':
+        yield* this.handleToolApprovalAnswered(chunk);
+        return;
       case 'tool-suspend-required':
         yield* this.handleToolSuspendRequired(chunk);
         return;
@@ -483,6 +501,36 @@ export class DataStreamMapper {
         return;
       }
     }
+  }
+
+  private *handleChildContinuation(chunk: StreamChunkChildContinuation): Generator<EncodedChunk> {
+    const key = JSON.stringify(['continuation', chunk.continuationId, chunk.nativeRunId]);
+    let mapper = this.delegatedMappers.get(key);
+    const frames: EncodedChunk[] = [];
+    if (!mapper) {
+      mapper = new DataStreamMapper(chunk.messageId);
+      this.delegatedMappers.set(key, mapper);
+      frames.push(...mapper.initialChunks());
+    }
+    frames.push(...mapper.handleChunk(chunk.chunk));
+    if (chunk.chunk.type === 'message-finish' || chunk.chunk.type === 'finish') {
+      this.delegatedMappers.delete(key);
+    }
+    if (frames.length === 0) {
+      return;
+    }
+    const data: ChildContinuationStreamData = {
+      continuationId: chunk.continuationId,
+      frames,
+      messageId: chunk.messageId,
+      nativeRunId: chunk.nativeRunId,
+      threadId: chunk.threadId,
+      ...(chunk.baseline ? { baseline: chunk.baseline } : {}),
+    };
+    yield {
+      code: DataStreamCode.data,
+      value: [{ data: toJsonSafe(data), name: CHILD_CONTINUATION_DATA_NAME }],
+    };
   }
 
   private *handleDelegatedConversation(
@@ -514,6 +562,7 @@ export class DataStreamMapper {
       return;
     }
     const data: DelegatedConversationStreamData = {
+      ...(chunk.continuationId ? { continuationId: chunk.continuationId } : {}),
       frames,
       ...(chunk.baseline ? { baseline: chunk.baseline } : {}),
       identity: chunk.identity,
@@ -842,6 +891,26 @@ export class DataStreamMapper {
       default:
         break;
     }
+  }
+
+  /**
+   * A parked sibling approval the host answered under a session grant: a
+   * plain aui-data part keyed like the notice it answers, so that card locks
+   * live and after reload (the part persists with the assistant message).
+   */
+  private *handleToolApprovalAnswered(
+    chunk: StreamChunkToolApprovalAnswered
+  ): Generator<EncodedChunk> {
+    const { type: _type, ...data } = chunk;
+    const encoded = {
+      code: DataStreamCode.auiDataPart,
+      value: { data, name: TOOL_APPROVAL_ANSWERED_DATA_NAME },
+    } satisfies EncodedChunk;
+    if (this.mustDeferDataParts()) {
+      this.pendingRunEventChunks.push(encoded);
+      return;
+    }
+    yield encoded;
   }
 
   private *handleToolApprovalRequired(

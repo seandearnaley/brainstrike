@@ -11,6 +11,10 @@ boundary and composer input identity; callbacks and `threadKey` must name the
 same conversation. See `assistant-subagents.md` for the host integration limits
 and paired runtime/browser tests. Main runtime construction is unchanged.
 
+Child provider errors share a bounded flex column with the conversation. The
+error row must reserve its own height while the transcript/composer takes the
+remaining space; an error cannot push the composer below the pane.
+
 ## Native suspension completion
 
 Initial, approval-resume and suspended-tool-resume legs await Mastra's public
@@ -24,6 +28,44 @@ snapshot write fails the stream instead of exposing an unresumable decision.
 The real PGlite verifier
 `resumed-worker-context.integration.spec.ts` immediately resumes both a parent
 approval and a parent question before opening a new worker, without timing waits.
+
+A PAUSE PART DOES NOT END THE LEG'S READ (SETTLED 2026-09-14, do not
+relitigate). Mastra's foreach kills only its QUEUED calls when one suspends;
+calls already running carry on inside the same native stream, and a delegation
+step runs its `agent-*` calls that way, so four parallel Explorers pause in ONE
+leg. Stopping at the first `tool-call-approval` lost every later sibling's first
+output (the projection's binding point) and pause: the resume leg then met a
+child it had never bound ("Delegated stream requires observed native identity")
+and three delegations never finished (thread-f6be9761). `streamAttemptChunks`
+now reads to native close. Each pause's decision-exposing chunks
+(`tool-approval-required` / `tool-suspend-required`, its `tool.approval.requested`
+row, a paused child's projected `tool-calls` finish) are WITHHELD
+(`isPauseNoticeChunk`) and published together behind the completion join, so
+the rule above holds for every pause; the leg then ends ONCE with a `tool-calls`
+finish (`resolveLegPart` strips the per-pause finish, `concludeClosedStream`
+emits the leg's). Mastra closes a suspended run's stream with no finish part,
+and a resumed leg whose sibling calls stay suspended closes the same way with no
+pause part of its own (the earlier leg surfaced those notices): its synchronous
+`MastraModelOutput.status` is `suspended` there, restored from the snapshot,
+while `getFullOutput()` REJECTS ("promise 'suspendPayload' was not resolved" —
+that payload was resolved by the earlier stream), so that leg skips the join
+(`readNativeStreamStatus`) and still ends as the pause it is, never as a missing
+finish. Exit rules for withheld notices (each drained where published, so no
+exit repeats one): a rejected completion join DISCARDS them (a failed snapshot
+write must not expose an unresumable decision); an explicit root Stop drops
+them (paused work is cancelled, so no "awaiting your approval" row may surface);
+any other failure later in the leg — a sibling's stream or projection — and a
+genuinely missing finish PUBLISH them ahead of the failure or synthetic ending,
+because the pause already reached Mastra and is parked durably, and hiding it
+behind reload rediscovery is the stuck thread this rule exists to end. Scoped
+chunks never nest at this seam: a child leg withholds its own children's
+notices in its own loop, and the continuation layer wraps only published
+chunks. A pause raised by a gated DIRECT tool in a sequential step is unchanged:
+the queue is killed, so the stream closes right behind it ("PAUSES ONE CALL AT A
+TIME"). The renderer keeps every notice actionable across legs and locks the
+buttons while a leg streams (`actionLockedByRun`). Scenario proof:
+`specialist-fanout.integration.spec.ts` (every pause live, `rediscovered === 0`,
+one pause per child, intermediate legs end `tool-calls`, the last `stop`).
 
 ## ASSISTANT RESILIENCE (CRITICAL)
 
@@ -1952,13 +1994,39 @@ paging).
 
 Parallel tool calls: Mastra executes tool calls within a step concurrently
 (default concurrency 10; `toolCallConcurrency` loop option). Mastra forces
-sequential execution when the run-wide `requireToolApproval` is set OR any active
+sequential execution when the run-wide `requireToolApproval` is set (ANY truthy
+value, checked before the tools — `agent-DsRUDsS_.js:24054`) OR any active
 tool carries the per-tool `requireApproval` flag / a suspend schema. The
 permission engine (see PERMISSION ENGINE below) marks `'ask'` tools with the
-PER-TOOL `requireApproval`, so a run that includes any ask tool executes its step
-sequentially (the price of the per-tool gate), but only the ask tool actually
-suspends — allowed tools still run. A run with no ask tools stays parallel. The
-approval-resume path sets the run-wide `requireToolApproval`. The data-stream
+PER-TOOL flag in its FUNCTION form (`approval-gate.ts`), which Mastra converts
+to `requireApproval: true` + a per-call `needsApprovalFn`; the classification
+reads the boolean, so it is exactly what the old static flag gave it, and only
+the ask tool actually suspends — allowed tools still run. A run with no ask
+tools stays parallel. NEVER synthesize a run-wide predicate on the initial leg
+(settled 2026-09-15: it serialized every step of every run with an ask tool —
+see assistant-subagents.md SESSION GRANT STOPS ASKING). The approval-resume
+path sets the run-wide `requireToolApproval` (the function-form gate is
+truthy, so the ROOT's resumed step is always sequential). DELEGATED CHILDREN
+get no run-wide gate on their nested resume (Mastra's agent-tool wrapper
+passes none), so their mode comes from the CALLED tools' flags alone — and
+the child's function-form flag answers `false` whenever a remembered session
+grant or the rebuilt leg's snapshot allows the tool. A parallel foreach
+resume in Mastra 1.64 re-raises the step's approval for every allowed sibling,
+so the two approval entry points (`streamMastraToolApprovalAction`, and the
+tool-approval kind of `createChildContinuationDecisionStream` — exhaustive; a
+suspend resume already runs sequentially through its suspend schema) pass
+`approvalResumeLeg: true`, and `resolveChildToolCallConcurrency`
+(`build-persona-subagents.ts`) builds that leg's children with
+`toolCallConcurrency.limit = 1`. BLAST RADIUS: that option is run-level, so the
+WHOLE resumed leg runs its child tool calls sequentially — every later step of
+the resumed child and any persona delegated fresh after the resume — until the
+leg ends; a per-step scope needs Mastra to expose per-step concurrency. SETTLED
+2026-09-13 (do not relitigate by re-flagging the approved tool: that re-prompts
+its next call and recreates the loop the grant ended). Paired tests:
+`build-persona-subagents.spec.ts` (the mapping) and
+`worker-delegation.integration.spec.ts` ("approving one delegated call leaves an
+allowed sibling in the same step ungated"; the `true`/`edit-only` grant variants
+are the regression cases, `false`/`read-only` the controls). The data-stream
 mapper and UI key all per-call state by toolCallId and handle interleaving.
 
 When changing this flow, update this section and the related tests.
@@ -2041,6 +2109,8 @@ module pair — `assistant-thread-messages.tsx` (`ThreadMessagesRegion`,
 `ThreadScrollRegion`, `ThreadScrollToBottom`) + `thread-scroll-follow.tsx`,
 re-exported from assistant-ui-panel.tsx. The panel only composes them and
 hands over the message components.
+
+Explicit message navigation is supplied by `ThreadMessageNavigationContext`, scoped to one conversation. `ThreadMessagesRegion` waits for loaded history, resolves raw native IDs through the mapper's source-ID metadata, and focuses the corresponding message root. Static navigation calls the existing follow engine's `scrollToMessage` (which disengages following); virtual navigation uses the existing TanStack instance's `scrollToIndex`. Both use an instant opening position and `focus({ preventScroll: true })`, so browser focus is not another scroll owner. A mounted-range observer waits for an offscreen virtual row; no timer or polling loop is involved. The browser virtualization contract covers exact focus and geometry at 40 and 600 rows with the compiled styles, then verifies appending does not repin the reader.
 
 - **Jump-to-latest** (`ThreadScrollToBottom`) is the follow engine's button
   (`ThreadStaticScrollToBottom`): DISABLED
@@ -2740,12 +2810,20 @@ Flow (desktop assistant server → agent runtime):
    snapshot inherited from `requestData`, not skip it.
 2. `filterToolsByPermissionWithMetadata` (`packages/agent/src/mastra/permission-tool-gate.ts`)
    gates the tool map BEFORE the immutable `Agent` is built: `'deny'`→omit;
-   `'allow'`→keep unchanged; `'ask'`→keep a CLONE with Mastra's PER-TOOL
-   `requireApproval: true` and record in `askToolIds`.
+   `'allow'`→keep unchanged; `'ask'`→keep unchanged and record in
+   `askToolIds`/`askTools`; the composition site (`resolveGatedToolMap` for
+   the root, `buildPersonaSubAgents` for each child) then clones every kept
+   ask tool through `applyLiveApprovalGate` (`approval-gate.ts`) with the
+   FUNCTION form of Mastra's PER-TOOL `requireApproval`, evaluated by Mastra
+   on every call against the runtime's live gate (the agent's own ask set +
+   the leg's remembered session grant). Never a static `true` (settled
+   2026-09-15: Mastra copies that boolean once per stream call, so a
+   remembered session grant could never lift it — see assistant-subagents.md
+   SESSION GRANT STOPS ASKING).
    SUSPENDING tools included (`brainstrike.runPython`; BST-1097, mechanism
    re-based at the @mastra/core ^1.57 adoption — the old SELF-APPROVING
    exception and its registry are gone): an `'ask'` decision takes the SAME
-   `requireApproval` clone as every other ask tool — the framework's
+   function-form clone as every other ask tool — the framework's
    pre-execution approval is Gate A. The 1.56 approval rework made the old
    self-raised in-tool suspension unworkable (the framework consumes the
    `{approved}` resume before the tool can read it — an unfinishable loop)
@@ -2756,11 +2834,14 @@ Flow (desktop assistant server → agent runtime):
    same risk lookup, cannot drift) is still injected at the composition root,
    now ONLY for the direct-invocation guard: an `'ask'` call outside an agent
    run refuses rather than running unprompted.
-3. PER-TOOL, not global: marking each ask tool with `requireApproval` (Mastra
-   >=1.37) makes Mastra suspend ONLY when that tool is actually called — allowed
-   `read`/`mcp` tools in the same run still run free. We deliberately do NOT force
-   the run-wide `requireToolApproval` (it would suspend EVERY tool call, breaking
-   the read-only default). `resolveAskToolsForRun` (in the tool pipeline,
+3. PER-TOOL, not global: marking each ask tool with the per-tool flag makes
+   Mastra suspend ONLY when that tool is actually called and its per-call
+   `needsApprovalFn` answers true — allowed `read`/`mcp` tools in the same run
+   still run free, and a tool a remembered session grant allows runs free from
+   its next call on. We deliberately do NOT force the run-wide
+   `requireToolApproval` (it would suspend EVERY tool call, breaking the
+   read-only default, and any truthy value forces sequential steps).
+   `resolveAskToolsForRun` (in the tool pipeline,
    `runtime-assembly/tool-pipeline.ts`)
    only decides whether ask tools may STAY: WITH Mastra workflow storage they stay
    (their per-tool flag suspends + the resume path can restore the run); WITHOUT
@@ -2847,7 +2928,192 @@ Flow (desktop assistant server → agent runtime):
    precisely because the grant + approve happen in one synchronous handler
    with no re-render in between (the same fresh-read pattern as plan-mode
    exit). The wrapper's reactive subscription additionally keeps later
-   requests in sync.
+   requests in sync. The same holds for a DELEGATED child's pause: the child's
+   admitted permission snapshot contributes only its denies, so the grant lifts
+   the child's `ask` on its next resume leg too (see `assistant-subagents.md`,
+   deny-only ceiling, settled 2026-09-12).
+   PARKED SIBLINGS (settled 2026-09-14, BST-1723): a session grant is a policy
+   change, and the canonical behaviour (Claude Code's queued permission
+   prompts) is that every prompt the new rule answers is answered. The approval
+   leg therefore resumes, in the SAME leg, every parked BACKGROUND sibling whose
+   pending leaf tool the runtime's fresh snapshot now allows
+   (`findGrantedBackgroundApprovals`: enforced policy, tool registered, not in
+   the ask set). Each sibling is walked from its DISPATCH address through the
+   binding's `resolveParkedInvocation` (the desktop's read-only reload
+   discovery, `createDesktopDelegatedSuspensionResolver`) because no leaf
+   identity exists yet and `resolveToolAction` refuses a bare address by
+   design (`tool-action-leaf-identity-required`; thread-22c3279b, where the
+   agent fixture's lenient resolver hid exactly that refusal — the fixture now
+   refuses like the host). Each is then durably claimed exactly as a click
+   would be — EXCEPT that a policy answer never takes a claim. DECISIONS
+   DURING A RUN (settled 2026-09-14, thread-b3cea1f6): the installed
+   assistant-ui runtime CANCELS the in-flight run when a message is appended,
+   so answering a second card while the first card's resume leg ran aborted
+   that leg three seconds in (`mastra_agent_stream_aborted`) and lost the
+   second click. Every decision — the approval notice, the typed-resume
+   notice, and a child view's decision routed through the owning root — now
+   goes through `submitDecisionOrQueue` (`decision-dispatch.ts`): idle thread
+   → append; running thread → the host's LIVE transport first
+   (`LiveDecisionProvider` / `useDeliverLiveDecision` → desktop
+   `POST /assistant/decide`, which applies the decision INSIDE the running leg:
+   see assistant-subagents.md "LIVE DECISIONS"), and only when no leg is live
+   for it (404) or the host has none (web) → the follow-up queue
+   (`enqueueMessage`, chip + "Queued" chip on the card, removable = veto),
+   dispatched one per run end by `FollowUpQueueBridge` exactly like a typed
+   follow-up. The host serializes the resulting legs. `submitDecisionOrQueue`
+   is async and reports `'delivered' | 'queued' | 'sent'`; a transport
+   rejection (409 host refusal, 500) propagates so the card unlocks and warns. Paired: `follow-up-queue-store.test.ts`,
+   `assistant-tool-approval-notice-panel.test.tsx` ("while a run is active"),
+   `follow-up-queue.behavior.test.tsx` (real local runtime dispatch of a queued
+   decision) and app-shell `delegated-conversation-root.test.ts`. SETTLED
+   2026-09-14 (thread-796a942d): the decision ledger permits ONE `claimed`
+   row per root (partial unique index, the serialization rule for user resumes
+   across reconstructed runtimes), so claiming siblings in the same leg is
+   refused with `tool-action-already-consumed-or-root-busy`. The host records
+   a policy answer through `recordToolActionAnswer` directly as `consumed`
+   under the leg (same admission guards; the unique leaf key still refuses a
+   second answer; the child's history is frozen as `prepareToolAction` does).
+   The agent fixture now holds one active claim and refuses a second, exactly
+   like the host, and `delegated-runtime.integration.test.ts` ("a session
+   grant answers the parked background sibling through the real host ledger")
+   runs the whole flow through the REAL desktop host, ledger and background
+   store — the proof every host-boundary change must carry from now on (three
+   lenient-fixture misses in one day: resolve, claim, background scope). The
+   leg streams
+   one `tool-approval-answered` chunk per sibling. The mapper ships it as the
+   `brainstrike.tool-approval-answered` data part; the notice scans the thread
+   for a part with its own identity key and locks as "Allowed by session grant".
+   Neither the request part nor the answer part is stored with the message:
+   after a reload of a finished turn the answered rows are gone, and only a
+   leaf that rediscovery still finds suspended gets a card back, rebuilt with
+   its durable decision state (`assistant-memory-repository.ts`; verified live
+   2026-09-15 on run 21: 755 hydrated parts, no approval parts). A mid-run
+   reload replays the session buffer, answers included. A
+   one-shot Approve changes no policy, so the ask set still holds the tool and
+   siblings stay parked. Foreground siblings (no background scope: web) remain
+   one Mastra `approveToolCall` leg each by the framework's own resume model.
+   The root card itself exists for BACKGROUND children only because the leg's
+   publish seam synthesizes it (`withRootPauseNotices`, see
+   `assistant-subagents.md`): nothing native suspends the parent run when a
+   background task parks, and the parent-level pause Mastra writes on a
+   still-open dispatching turn is dropped as a second delivery (ONE DELIVERY
+   PER BACKGROUND CALL, `assistant-subagents.md`).
+   The delegated notice also NAMES its child — persona label plus the prompt
+   the root gave it (`describeDelegationOwner`) — so four identical read
+   prompts from four specialists are distinguishable. Both the name and the
+   host answer come from ONE incremental thread index
+   (`answered-approvals-index.tsx`, mounted over the thread in
+   `assistant-ui-panel.tsx`), never from a per-card selector that walks every
+   message part on every store update: during a fan-out the root assistant
+   message accumulates one data part per child chunk, so a per-card walk is
+   O(parts) × cards × updates and the renderer stalls while four children
+   stream (2026-09-14, "the app locks up while processing"; the main process
+   kept serving and the durable log showed nothing). The main process now logs
+   `renderer_unresponsive` / `renderer_responsive_again` with timing
+   (`create-window.ts`) so a hang is durable evidence next time. Grants are offered in the child views too
+   (`useToolApprovalGrantHandlers` mounts the provider over the workspace).
+   Paired: `background-worker-policy.integration.spec.ts` ("answers every parked
+   background sibling" / "one-shot approval answers only its own"; mutating the
+   gate either way fails one of them), `data-stream-approval-answered.spec.ts`,
+   `assistant-tool-approval-notice-panel.test.tsx` ("for a delegated child").
+   SWARM-AWARE PRESENTATION (settled 2026-09-15 with Sean, do not
+   relitigate): the thread shows ONE full approval card per risk category
+   while a decision is pending; every approval already answered — the host's
+   `tool-approval-answered` (`session-grant` or `user`), a durable
+   `decisionState`, the user's own appended decision, a decision queued
+   behind the run, or a click in flight — and every pending approval BEHIND
+   its category's card renders as a one-line row (`approval-row.tsx`) whose
+   expanded body is the full card (locked when answered, actionable when
+   merely behind the card). A row for a durable `decisionState` (claimed,
+   consumed, interrupted, cancelled, invalid) ALSO renders its recovery status
+   (`RediscoveredPauseLines`, `delegated-decision-recovery-status`) under the
+   collapsed line, and the embedded card omits it so it renders once: that
+   status is safety information ("Processing stopped and the outcome is
+   unknown. Check the workspace before starting another action.") with no
+   control beside it, so it must be readable without opening the row. The
+   first row cut rendered it only inside the expanded body, hiding an
+   interrupted decision's warning (2026-09-15; the reload integration test
+   caught it). Pending-since and stale lines stay in the card, beside the
+   actionable controls. The choice is pure (`approval-presentation.ts`:
+   `resolveApprovalPresentation` over `answered` + the per-category pending
+   rank) and the rank is computed ONCE per thread change by
+   `ApprovalRanksProvider` (`approval-presentation-context.tsx`) from the
+   SAME incremental index, which now also records every request part and
+   user decision — never a per-card walk. Delegation identity is a colour
+   rail hashed from the delegation call id (`delegation-colour.ts`,
+   `--bs-delegation-1..8`), one rail per ancestor edge plus a depth indent,
+   NOT DOM re-parenting: approval parts stay standalone in the assistant
+   message (ACTIVITY GROUPS ruling). Both forms carry
+   `data-testid="assistant-tool-approval-notice"` and
+   `data-approval-presentation="card|row"`; `approval-delegation-owner`
+   names the persona chain ("Explorer › Analyst") on the row and the same
+   chain + the root prompt excerpt on the card (`describeDelegationOwner`
+   builds its label from `describeDelegationChain`, so a depth-1 card still
+   reads "Explorer · <prompt>"). The notice file is a chooser;
+   `use-approval-notice-state.ts` owns the outcome/lock/submit logic and
+   `approval-preview.tsx` the structured previews. Paired:
+   `approval-presentation.test.ts`, `approval-presentation-context.test.tsx`,
+   `approval-row.test.tsx` (card→row on a host answer, promotion of the next
+   pending card, nesting depth/rails/chain, an answered click collapses, a
+   durable decision state keeps its recovery status on the collapsed row
+   exactly once), app-shell `delegated-child-reload.integration.test.tsx`
+   ("keeps rich persisted history visible while an interrupted exact decision
+   stays non-actionable": the status before the row opens, the locked buttons
+   after),
+   `approval-row.browser.test.tsx` (per-theme rail colour), and the
+   expand-before-assert edits in the existing approval tests.
+   APPROVALS STRIP (same ruling): `approval-queue-strip.tsx` sits at the
+   composer beside the follow-up chips and lists the PENDING approvals per
+   risk category from `usePendingApprovalsByCategory` (the same ranks
+   provider). "Allow <category> this session" records the session grant
+   FIRST and then submits ONE approve — for the first pending approval of
+   that category — through `submitDecisionOrQueue`, byte-identical to the
+   card's button (`buildApprovalDecisionMessage`): the runtime answers the
+   siblings (PARKED SIBLINGS / `allowedBySnapshot`) and their
+   `tool-approval-answered` parts collapse their rows. It never submits N
+   decisions (one active ledger claim per root). Capability-gated like the
+   card: no `ToolApprovalGrantProvider` → counts only. Non-policy `tool:*`
+   buckets are never listed. Its button label ends "…for the N waiting
+   approvals" on purpose: the live verifier selects a CARD's grant by
+   `[aria-label$="for this session"]`. Paired:
+   `approval-queue-strip.test.tsx` (counts, one decision, idle append,
+   round-trip lock, capability gating).
+   CHILD VIEWS READ THE ROOT'S ANSWERS (settled 2026-09-15): a delegated
+   child tab renders its OWN copy of a leaf approval (the child stream's
+   notice), but the host publishes `tool-approval-answered` on the ROOT leg
+   only (`live-decisions.ts`, `recordGrantedBackgroundApprovals`); a child's
+   task channel carries child output, never host facts (ONE DELIVERY PER
+   BACKGROUND CALL, `assistant-subagents.md`). An index over the child's
+   thread alone left every read the grant answered "Pending" with live
+   buttons in each child tab while the root showed "Allowed by session
+   grant" rows (GLM fan-out of four Explorers, 2026-09-15). The child view
+   therefore reads its owning root's answers BY IDENTITY (the child notice,
+   the root card and the answer share `getToolActionIdentityKey`): the
+   delegated conversation root publishes its registered runtime thread
+   (`getOwnerThread` / `subscribeOwner`, `delegated-conversation-owner.ts`),
+   `ChildView` passes it as `ownerThread` to `AssistantConversationPanel`
+   (`ApprovalOwnerThreadContext`), and `AnsweredApprovalsProvider` indexes
+   the owner's messages incrementally beside its own and folds in ONLY
+   their answers — requests, delegation prompts and user decisions stay the
+   view's own, so a child's ranks and strip never list root or sibling
+   approvals. No second writer and no second delivery: the root stream
+   stays the only place an answer is published, native memory the only
+   child transcript writer. A genuinely pending child card keeps its
+   buttons (its decision routes through the owning root). A child view with
+   no registered owning runtime reads no root answers; its decisions already
+   fail at dispatch ("The owning conversation is not available"). After a
+   reload a child has no live leg and shows a leaf approval only while
+   child rediscovery finds it suspended, locked by its durable
+   `decisionState`. Paired: `child-view-owner-approval-answers.test.tsx`
+   (two real external-store runtimes; the child view is memoized, so a root
+   update reaches it only through the subscription — mutations: dropping
+   the owner merge fails the three answered rows, an owner subscription
+   that never notifies fails only the live row), app-shell
+   `delegated-conversation-root.test.ts` ("publishes the registered owning
+   thread…"; mutations: no notify on register, no notify on retire) and
+   `delegated-child-reload.integration.test.tsx` ("shows a child approval
+   its owning root already answered…" through the real `ChildView`;
+   mutation: no `ownerThread` renders the pending card).
    An OpenRouter approval pause terminates its transport leg with zero-token
    usage and no claimed cost: Mastra emits the pause before that model step's
    `step-finish`. Approval resume emits the deferred step finish before later
@@ -2878,9 +3144,9 @@ Flow (desktop assistant server → agent runtime):
    `requireToolApproval: true` (the resume API needs it); the gate runs again on
    resume so the ask tools keep their per-tool flag. Because run-wide
    `requireToolApproval: true` would suspend EVERY tool call on the resumed leg,
-   `resolveResumeApprovalGate` (`attempt-legs.ts`, moved out of `agent-streaming.ts`
-   by BST-1649) substitutes the FUNCTION form of
-   the gate backed by the rebuilt runtime's authoritative `askTools` set. Allowed
+   `resolveRequireToolApproval` (`approval-gate.ts`) substitutes the runtime's
+   live predicate (`runtime.approvalGate`), backed by the rebuilt runtime's
+   authoritative `askTools` set and the leg's remembered grant. Allowed
    read/internal-state tools keep running, ask-gated mutations may suspend again,
    and the canonical Mastra internal ids (`internal-approval-exempt-tools.ts`:
    `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt — as are
@@ -3037,7 +3303,7 @@ overrides (`setToolOverride` from "Always allow"), and the notice label. The
 bridges:
 - `askTools` stays SINGLE-keyed by sanitized id (dual-keying would inflate
   `askTools.size`, corrupting the empty-ask-set posture check in
-  `resolveResumeApprovalGate` — disambiguated by `permissionEnforced`, see above —
+  `resolveRequireToolApproval` — disambiguated by `permissionEnforced`, see above —
   and duplicate the gate's per-tool logs — do not
   relitigate). `resolveAskToolMetadata(askTools, name)` (permission-tool-gate.ts)
   resolves metadata under EITHER form: `get(name)` first, else a scan over
@@ -3236,6 +3502,11 @@ reconnect it; unrelated resolution faults retain the redacted correlation-id
 Catalogued tools that are intentionally unavailable for the active provider
 (for example suspend/task/session tools under the built-in local model) are a
 capability omission, debug-logged separately, and are not mislabeled unknown.
+Admitted-child configuration failures retain their typed identity through runtime
+construction. An unavailable admitted model/tool returns the same actionable HTTP
+409 as a rejected persisted profile, including approval and question resume; it
+is never rewrapped as a generic runtime-initialization 502. The service initializer
+and real native revoked-tool regression cover this boundary.
 Other initialization failures return only a safe stage
 (`provider_model_bootstrap` or `stream_construction`) plus a correlation id;
 the structured main-process log retains the same pair and the redacted error.
@@ -4206,6 +4477,10 @@ Active child input reuses the main composer's draft, button and Enter behavior
 through `ActiveConversationInputProvider`. It invokes the selected child's
 host-authorized transport; it never calls root `onNew` or the root follow-up queue.
 A failed acknowledgement retains the draft and request id for an explicit repeat.
+The provider keeps pending acknowledgement and error controls visible after a child
+becomes idle or its transport owner retires. `canSend` represents active transport
+admission separately from that retained feedback: ordinary idle Send and Enter remain
+blocked until the acknowledgement settles or the user explicitly discards the draft.
 The host verifies owner/root, live host leg, observed native child identity and
 cancellation admission before the native child signal owner can accept input.
 Closing a child panel still neither cancels nor starts execution. The actual
@@ -4215,5 +4490,26 @@ input receipt contract in assistant-persistence.md for interruption semantics.
 Follow-up admission is rechecked inside the per-child delivery queue after native
 receipt lookup and again after signal persistence, immediately before native
 enqueue. If durable Stop revoked admission in either await, no signal is sent;
-a persisted but never-enqueued signal is removed. Native and actual PGlite host
+a persisted but never-enqueued signal is removed. Both admission rejection and
+native discard preserve the original non-delivery error alongside any failed
+memory deletion; cleanup failure never overwrites the rejection or becomes success.
+Native and actual PGlite host
 fixtures pin both timing windows and preserve the tool execution Stop barrier.
+
+Explicit search focus has a two-second failure boundary if the requested row
+never enters the shared renderer. A failed focus reports through the navigation
+alert and disconnects its observer; it does not crash or unmount the transcript.
+In the static tier, targets taller than the viewport align their start rather
+than centering it above the visible frame. The virtual tier retains its existing
+center alignment through the virtualizer; both tiers keep their own scroll owners.
+
+### Cancellation at queued native file mutations (BST-1726)
+
+The native workspace executor forwards `ToolExecutionContext.abortSignal` for
+write, string replacement, delete and rename. The operation checks both this
+selected-child signal and the host-leg signal inside the canonical path lock,
+immediately before filesystem mutation. It does not substitute the root signal
+for the child's signal. A mutation already started completes ordinary checkpoint
+and index settlement, preserving inspectable completed work. Real lock-contention
+integration cases verify all four cancelled mutations and an unaffected sibling;
+this boundary does not itself claim UI selective-Stop acceptance.

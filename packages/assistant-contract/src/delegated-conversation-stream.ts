@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assistantChildAttachmentsSchema } from './child-input.js';
 import { type AssistantRunEvent, isAssistantRunEvent } from './run-events.js';
 
 /** Native execution coordinates; ownership is resolved by the authenticated host. */
@@ -14,6 +15,7 @@ export const childInputDeliveryStateSchema = z.enum(['pending', 'delivered']);
 
 export const CHILD_USER_MESSAGE_DATA_NAME = 'brainstrike.child-user-message';
 export const childUserMessageSchema = z.object({
+  attachments: assistantChildAttachmentsSchema.optional(),
   createdAt: z.iso.datetime(),
   id: z.string().min(1),
   text: z.string(),
@@ -24,6 +26,7 @@ export const DELEGATED_CONVERSATION_DATA_NAME = 'brainstrike.delegated-conversat
 /** Uses the same encoded conversation frames and decoder as the parent stream. */
 export interface DelegatedConversationStreamData {
   readonly baseline?: DelegatedConversationBaseline;
+  readonly continuationId?: string;
   readonly frames: readonly { readonly code: string; readonly value: unknown }[];
   readonly identity: DelegatedRunIdentity;
   readonly messageId: string;
@@ -32,6 +35,7 @@ export interface DelegatedConversationStreamData {
 
 /** Immutable history before one host stream leg; replay carries the same boundary. */
 export const delegatedConversationBaselineSchema = z.object({
+  headId: z.string().min(1).nullable().optional(),
   hostRunId: z.string().min(1),
   messages: z.array(
     z.object({

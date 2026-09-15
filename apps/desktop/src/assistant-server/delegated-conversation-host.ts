@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type {
+  ChildContinuationHostPort,
   DelegatedConversationBinding,
   DelegatedConversationIdentity,
   DelegatedFollowupControl,
@@ -13,7 +14,10 @@ import type {
   DelegatedBudgetPort,
   DelegatedConversationBaseline,
 } from '@brainstrike/assistant-contract';
-import { hasValidDelegatedToolActionTarget } from '@brainstrike/assistant-contract';
+import {
+  hasValidDelegatedToolActionTarget,
+  readAdmittedPersonaConfiguration,
+} from '@brainstrike/assistant-contract';
 import {
   type AssistantRunEvent,
   sanitizeAssistantRunEventMetadata,
@@ -22,8 +26,10 @@ import {
   type AssistantChildRunUsage,
   isAssistantDelegatedUsageIdentity,
 } from '@brainstrike/assistant-contract/run-usage';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+  createDelegatedContinuationRepository,
   createDelegatedConversationRepository,
   type DelegatedConversationColor,
   type DelegatedConversationDatabase,
@@ -35,11 +41,54 @@ import {
 } from '@brainstrike/db';
 import { z } from 'zod';
 import { assertDelegatedConversationAdmission } from './delegated-cancellation-admission';
+import { createDesktopDelegatedContinuationHost } from './delegated-continuation-host';
+import { delegatedHostRunId } from './delegated-host-run-id';
 import { createDelegatedStepBudget } from './delegated-step-budget';
 import {
   assertDelegationRootRunning,
   reserveDelegatedInvocation,
 } from './delegated-tree-admission';
+import { desktopAssistantServerLogger as logger } from './logger';
+import {
+  type LiveDecisionRecord,
+  type PromptManifestRecord,
+  type RecordOutcome,
+  recordLiveDecision,
+  recordPromptManifest,
+  recordWakeup,
+  type WakeupRecord,
+} from './swarm-diagnostics-records';
+
+type SwarmDiagnosticRecordName = 'prompt-manifest' | 'wakeup' | 'live-decision';
+
+/**
+ * Debug-pack evidence is never runtime authority (swarm diagnostics ruling 4):
+ * a missing host run or a failed insert is logged at `error` with a code — it
+ * lands in the main log the pack captures — and the leg continues. Never
+ * reported as recorded, never swallowed silently.
+ */
+async function recordSwarmDiagnostic(
+  hostRunId: string,
+  record: SwarmDiagnosticRecordName,
+  write: () => Promise<RecordOutcome>
+): Promise<void> {
+  try {
+    if ((await write()) === 'run-missing') {
+      logger.error('Swarm diagnostic record has no host run', {
+        code: 'swarm_diagnostic_record_run_missing',
+        hostRunId,
+        record,
+      });
+    }
+  } catch (error) {
+    logger.error('Swarm diagnostic record failed to persist', {
+      code: 'swarm_diagnostic_record_failed',
+      error,
+      hostRunId,
+      record,
+    });
+  }
+}
 
 const identityString = z.string().refine((value) => value.trim().length > 0);
 const hostScopeSchema = z.object({
@@ -47,6 +96,50 @@ const hostScopeSchema = z.object({
   rootThreadId: identityString,
   turnMessageId: identityString,
 });
+
+async function readRequiredBranchHistory(
+  database: DelegatedConversationDatabase,
+  threadId: string,
+  resourceId: string,
+  requiredMessageIds: readonly string[]
+): Promise<Awaited<ReturnType<typeof readAssistantHistoryMessages>>> {
+  if (requiredMessageIds.length === 0) {
+    return [];
+  }
+  const required = new Set(requiredMessageIds);
+  const captured = new Map<
+    string,
+    Awaited<ReturnType<typeof readAssistantHistoryMessages>>[number]
+  >();
+  let page = await readAssistantHistoryMessages(database, threadId, resourceId, {
+    limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+  });
+  while (required.size > 0) {
+    for (const message of page) {
+      if (required.delete(message.id)) {
+        captured.set(message.id, message);
+      }
+    }
+    if (required.size === 0) {
+      break;
+    }
+    const cursor = page[0]?.id;
+    if (!cursor) {
+      throw new DelegatedConversationIdentityError('continuation-branch-history-incomplete');
+    }
+    page = await readAssistantHistoryMessages(database, threadId, resourceId, {
+      beforeMessageId: cursor,
+      limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    });
+  }
+  return requiredMessageIds.map((id) => {
+    const message = captured.get(id);
+    if (!message) {
+      throw new DelegatedConversationIdentityError('continuation-branch-history-incomplete');
+    }
+    return message;
+  });
+}
 
 function assertActionInvocation(
   invocation: DelegatedInvocation | null,
@@ -71,6 +164,7 @@ function toolActionKey(
   return JSON.stringify([
     action.runId,
     action.toolCallId,
+    action.continuationId,
     action.delegation?.toolCallId,
     action.delegation?.path.map((edge) => [
       edge.parentRuntimeRunId,
@@ -79,6 +173,28 @@ function toolActionKey(
       edge.personaId,
     ]),
   ]);
+}
+
+async function resolveActionParentThreadId(
+  database: DelegatedConversationDatabase,
+  scope: z.infer<typeof hostScopeSchema>,
+  action: Parameters<NonNullable<DelegatedConversationBinding['resolveToolAction']>>[0]
+): Promise<string> {
+  if (!action.continuationId) {
+    return scope.rootThreadId;
+  }
+  const continuation = await createDelegatedConversationRepository(database).getContinuation(
+    scope,
+    action.continuationId
+  );
+  if (
+    !continuation ||
+    continuation.nativeRunId !== action.runId ||
+    continuation.turnMessageId !== scope.turnMessageId
+  ) {
+    throw new DelegatedConversationIdentityError('continuation-ancestry-mismatch');
+  }
+  return continuation.threadId;
 }
 
 const DISPLAY_IDENTITIES = [
@@ -107,15 +223,73 @@ function createDisplayIdentity(threadId: string): {
 }
 
 /**
+ * Every `DelegatedConversationIdentityError` that escapes the host carries a
+ * bounded `reason`, but the message the run row records is generic. Log the
+ * reason at the boundary so a debug pack can say WHICH admission rule refused
+ * (BST-1751: none of the five failed runs in thread-f6be9761 recorded one).
+ */
+function withIdentityLogging<Args extends unknown[], Result>(
+  hostRunId: string,
+  method: string,
+  operation: (...args: Args) => Promise<Result>
+): (...args: Args) => Promise<Result> {
+  return async (...args: Args): Promise<Result> => {
+    try {
+      return await operation(...args);
+    } catch (error) {
+      if (error instanceof DelegatedConversationIdentityError) {
+        // A stopped root refuses every sibling in the same storm; that is the
+        // expected shape of a cancel, not an error-rate signal.
+        const level = error.reason === 'delegation-root-not-running' ? 'warn' : 'error';
+        logger[level]('Delegated conversation identity rejected', {
+          code: 'delegated_conversation_identity_rejected',
+          hostRunId,
+          method,
+          reason: error.reason,
+        });
+      }
+      throw error;
+    }
+  };
+}
+
+function logIdentityRejections(hostRunId: string, target: object, prefix = ''): void {
+  const members = target as Record<string, unknown>;
+  for (const key of Object.keys(members)) {
+    const value = members[key];
+    if (typeof value === 'function') {
+      members[key] = withIdentityLogging(
+        hostRunId,
+        `${prefix}${key}`,
+        value as (...args: unknown[]) => Promise<unknown>
+      );
+    }
+  }
+}
+
+/**
  * Per-host-leg authority. Native resource ids are execution scopes; the owner
  * and originating turn come exclusively from the server's persisted run row.
  * Recreated resume legs authorize the original invocation without replacing it.
  */
 export function createDesktopDelegatedConversationHost(
   database: DelegatedConversationDatabase,
-  hostRunId: string
+  hostRunId: string,
+  prepareInputContext?: (
+    input: DelegatedFollowupInput,
+    configuration: unknown
+  ) => Promise<{ role: 'system'; content: string }[]>,
+  captureWorkspaceStart?: (threadId: string) => Promise<void>,
+  /**
+   * The request's validated per-child budgets. A streaming leg passes them so
+   * the turn's budget row can be OPENED from the settings; legs that never
+   * open a row (run persistence, cancel/status) pass nothing and read the row
+   * the first leg stored.
+   */
+  subagentSettings?: RuntimeSubagentSettings
 ): {
   budget: DelegatedBudgetPort;
+  continuation: ChildContinuationHostPort;
   sendFollowup(
     scope: DelegatedConversationScope,
     threadId: string,
@@ -128,6 +302,11 @@ export function createDesktopDelegatedConversationHost(
     readonly baseline?: DelegatedConversationBaseline;
   }>;
   resolveToolAction: NonNullable<DelegatedConversationBinding['resolveToolAction']>;
+  resolveParkedInvocation: NonNullable<DelegatedConversationBinding['resolveParkedInvocation']>;
+  recordToolActionAnswer: NonNullable<DelegatedConversationBinding['recordToolActionAnswer']>;
+  recordPromptManifest(record: PromptManifestRecord): Promise<void>;
+  recordWakeup(record: WakeupRecord): Promise<void>;
+  recordLiveDecision(record: LiveDecisionRecord): Promise<void>;
   prepareToolAction: NonNullable<DelegatedConversationBinding['prepareToolAction']>;
   claimToolAction: NonNullable<DelegatedConversationBinding['claimToolAction']>;
   finishToolActions(): Promise<void>;
@@ -172,12 +351,16 @@ export function createDesktopDelegatedConversationHost(
   const captureHistory = async (
     threadId: string,
     resourceId: string,
-    initial: boolean
+    initial: boolean,
+    requiredMessageIds?: readonly string[],
+    excludedOriginatingTurnMessageId?: string
   ): Promise<DelegatedConversationBaseline> => {
     const [messages, runEvents] = await Promise.all([
-      readAssistantHistoryMessages(database, threadId, resourceId, {
-        limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
-      }),
+      requiredMessageIds
+        ? readRequiredBranchHistory(database, threadId, resourceId, requiredMessageIds)
+        : readAssistantHistoryMessages(database, threadId, resourceId, {
+            limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+          }),
       readAssistantHistoryRunEvents(database, threadId, resourceId, {
         limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
       }),
@@ -189,12 +372,34 @@ export function createDesktopDelegatedConversationHost(
       }
       history.push({ ...message, createdAt: message.createdAt.toISOString() });
     }
+    let retainedRunEvents = runEvents;
+    if (initial || requiredMessageIds?.length === 0) {
+      retainedRunEvents = [];
+    } else if (requiredMessageIds) {
+      const branchMessageIds = new Set(requiredMessageIds);
+      retainedRunEvents = runEvents.filter((event) => {
+        const nativeMessageId = event.metadata?.['nativeMessageId'];
+        const originatingTurnMessageId = event.metadata?.['originatingTurnMessageId'];
+        if (typeof nativeMessageId === 'string') {
+          return branchMessageIds.has(nativeMessageId);
+        }
+        if (typeof originatingTurnMessageId === 'string') {
+          return (
+            originatingTurnMessageId !== excludedOriginatingTurnMessageId &&
+            branchMessageIds.has(originatingTurnMessageId)
+          );
+        }
+        // Legacy rows without durable ownership still need the ordinary
+        // chronological assignment path; absence is not evidence of exclusion.
+        return true;
+      });
+    }
     return structuredClone({
       hostRunId,
       // Mastra generates a fresh child thread per delegation invocation. Native
       // input rows are history; this invocation's output belongs to its decoder.
       messages: history,
-      runEvents: initial ? [] : [...runEvents],
+      runEvents: [...retainedRunEvents],
       threadId,
     });
   };
@@ -239,7 +444,7 @@ export function createDesktopDelegatedConversationHost(
         ...(invocation.messageId ? { messageId: invocation.messageId } : {}),
       };
     },
-    budget: createDelegatedStepBudget(database, hostRunId, readScope),
+    budget: createDelegatedStepBudget(database, hostRunId, readScope, subagentSettings),
     async claimToolAction(action) {
       const scopes = await host.resolveToolAction(action);
       const leaf = scopes.at(-1);
@@ -293,6 +498,21 @@ export function createDesktopDelegatedConversationHost(
       claims.add(id);
       claimedActionKey = toolActionKey(action);
     },
+    continuation: createDesktopDelegatedContinuationHost(
+      database,
+      hostRunId,
+      readScope,
+      captureHistory,
+      async (input) => {
+        await host.resolveToolAction({
+          continuationId: input.id,
+          runId: input.nativeRunId,
+          toolCallId: input.toolCallId,
+          ...(input.delegation ? { delegation: input.delegation } : {}),
+        });
+      },
+      subagentSettings
+    ),
     async finishToolActions() {
       for (const id of claims) {
         const result = await database.query(
@@ -327,7 +547,8 @@ export function createDesktopDelegatedConversationHost(
           identity.parentThreadId,
           duplicate !== null,
           identity.childThreadId,
-          identity.configuration
+          identity.configuration,
+          subagentSettings
         );
         await admissionRepository.createChild(scope, {
           ...createDisplayIdentity(identity.childThreadId),
@@ -346,21 +567,13 @@ export function createDesktopDelegatedConversationHost(
           threadId: identity.childThreadId,
         });
       });
+      await captureWorkspaceStart?.(identity.childThreadId);
     },
     async persistEvent(identity, messageId, event, sequence) {
       const scope = await readScope();
       identityString.parse(messageId);
       // Opaque host-leg identity, never parsed for ancestry or authorization.
-      const childRunId = `delegated-run-${createHash('sha256')
-        .update(
-          JSON.stringify([
-            hostRunId,
-            identity.parentRuntimeRunId,
-            identity.parentToolCallId,
-            identity.childRuntimeRunId,
-          ])
-        )
-        .digest('hex')}`;
+      const childRunId = delegatedHostRunId(hostRunId, identity);
       const persisted = {
         ...event,
         metadata:
@@ -401,7 +614,17 @@ export function createDesktopDelegatedConversationHost(
       );
     },
     async prepareToolAction(action) {
-      if (claims.size !== 1 || claimedActionKey !== toolActionKey(action)) {
+      if (action.continuationId) {
+        const scope = await readScope();
+        await createDelegatedContinuationRepository(database, scope, hostRunId).assertDecisionClaim(
+          {
+            id: action.continuationId,
+            nativeRunId: action.runId,
+            toolCallId: action.toolCallId,
+            ...(action.delegation ? { delegation: action.delegation } : {}),
+          }
+        );
+      } else if (claims.size !== 1 || claimedActionKey !== toolActionKey(action)) {
         throw new DelegatedConversationIdentityError('history-requires-admission');
       }
       // Publish the boundary only when every ancestor read succeeds. A failed
@@ -415,6 +638,76 @@ export function createDesktopDelegatedConversationHost(
         baselines.set(baseline.threadId, baseline);
       }
     },
+    recordLiveDecision: (record) =>
+      recordSwarmDiagnostic(hostRunId, 'live-decision', () =>
+        recordLiveDecision(database, hostRunId, record)
+      ),
+    recordPromptManifest: (record) =>
+      recordSwarmDiagnostic(hostRunId, 'prompt-manifest', () =>
+        recordPromptManifest(database, hostRunId, record)
+      ),
+    async recordToolActionAnswer(action) {
+      const scopes = await host.resolveToolAction(action);
+      const leaf = scopes.at(-1);
+      if (!leaf) {
+        throw new DelegatedConversationIdentityError('tool-action-leaf-identity-required');
+      }
+      const scope = await readScope();
+      // A policy answer is terminal the moment it is recorded: it joins the
+      // ledger as `consumed` under this leg, never as the root's active claim
+      // (one claimed decision per root is the serialization rule for USER
+      // resumes across reconstructed runtimes). The same admission guards as a
+      // claim apply, and the unique leaf key refuses a second answer.
+      const result = await database.query(
+        `INSERT INTO brainstrike_delegated_tool_decisions
+          (id, owner_resource_id, root_thread_id, parent_runtime_run_id,
+           parent_tool_call_id, child_thread_id, child_runtime_run_id,
+           tool_call_id, host_run_id, state, finished_at)
+         SELECT $1, $2, $3, $4, $5, $6, $7, $8, runs.id, 'consumed', NOW()
+         FROM brainstrike_assistant_thread_runs runs
+         JOIN mastra_threads root ON root.id = runs.thread_id AND root."resourceId" = runs.resource_id
+         WHERE runs.id = $9 AND runs.resource_id = $2 AND runs.thread_id = $3
+           AND runs.turn_message_id = $10 AND runs.status = 'running'
+           AND NOT EXISTS (
+             SELECT 1 FROM brainstrike_assistant_thread_runs cancelled
+             WHERE cancelled.resource_id = runs.resource_id AND cancelled.thread_id = runs.thread_id
+               AND cancelled.turn_message_id = runs.turn_message_id AND cancelled.status IN ('cancelling', 'cancelled')
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM brainstrike_delegated_invocations stopped
+             JOIN jsonb_array_elements_text($11::jsonb) target(thread_id) ON target.thread_id = stopped.thread_id
+             WHERE stopped.owner_resource_id = $2 AND stopped.root_thread_id = $3
+               AND stopped.turn_message_id = $10 AND stopped.cancellation_requested_at IS NOT NULL
+           )
+         ON CONFLICT DO NOTHING RETURNING id`,
+        [
+          randomUUID(),
+          scope.ownerResourceId,
+          scope.rootThreadId,
+          action.runId,
+          action.toolCallId,
+          leaf.threadId,
+          leaf.identity.childRuntimeRunId,
+          action.delegation.toolCallId,
+          hostRunId,
+          scope.turnMessageId,
+          JSON.stringify(scopes.map((target) => target.threadId)),
+        ]
+      );
+      if (result.rows.length !== 1) {
+        throw new DelegatedConversationIdentityError('tool-action-already-consumed-or-root-busy');
+      }
+      // Freeze the child's history at the answer, as `prepareToolAction` does
+      // for the claimed decision, so its resumed leg starts from a boundary.
+      const captured = await Promise.all(
+        scopes.map((target) => captureHistory(target.threadId, target.resourceId, false))
+      );
+      for (const baseline of captured) {
+        baselines.set(baseline.threadId, baseline);
+      }
+    },
+    recordWakeup: (record) =>
+      recordSwarmDiagnostic(hostRunId, 'wakeup', () => recordWakeup(database, hostRunId, record)),
     async releaseUnexecutedToolAction(action) {
       const leaf = action.delegation?.path.at(-1);
       if (!(leaf && action.delegation && hasValidDelegatedToolActionTarget(action))) {
@@ -450,6 +743,11 @@ export function createDesktopDelegatedConversationHost(
       baselines.clear();
       initialBaselines.clear();
     },
+    async resolveParkedInvocation(parent) {
+      // The same read-only discovery reload uses, bound to this leg's root.
+      const scope = await readScope();
+      return await createDesktopDelegatedSuspensionResolver(database, scope)(parent);
+    },
     async resolveToolAction(action) {
       const scope = await readScope();
       if (!hasValidDelegatedToolActionTarget(action)) {
@@ -469,7 +767,7 @@ export function createDesktopDelegatedConversationHost(
         throw new DelegatedConversationIdentityError('tool-action-leaf-identity-required');
       }
       const result: DelegatedToolActionScope[] = [];
-      let parentThreadId = scope.rootThreadId;
+      let parentThreadId = await resolveActionParentThreadId(database, scope, action);
       for (const edge of action.delegation.path) {
         const invocation = await repository.getInvocation(scope, edge);
         assertActionInvocation(invocation, edge, parentThreadId, scope.turnMessageId);
@@ -478,12 +776,20 @@ export function createDesktopDelegatedConversationHost(
           throw new DelegatedConversationIdentityError('tool-action-conversation-missing');
         }
         result.push({
+          configuration: child.configuration,
           identity: edge,
           ...(invocation.originalToolCall ? { originalToolCall: invocation.originalToolCall } : {}),
           resourceId: child.resourceId,
           threadId: child.threadId,
         });
         parentThreadId = child.threadId;
+      }
+      if (action.continuationId) {
+        await assertDelegatedConversationAdmission(
+          database,
+          scope,
+          result.map((child) => child.threadId)
+        );
       }
       return result;
     },
@@ -502,12 +808,46 @@ export function createDesktopDelegatedConversationHost(
         throw new DelegatedConversationIdentityError('followup-child-owner-unavailable');
       }
       await assertDelegatedConversationAdmission(database, scope, [threadId]);
-      await control(target, input, async () => {
-        await assertDelegationRootRunning(database, scope, hostRunId);
-        await assertDelegatedConversationAdmission(database, scope, [threadId]);
-      });
+      // The context the child is actually sent is captured when the control
+      // prepares it, and recorded only once the control accepted the input: a
+      // refused follow-up told the child nothing.
+      const sent: { context?: { role: 'system'; content: string }[] } = {};
+      await control(
+        target,
+        input,
+        async () => {
+          await assertDelegationRootRunning(database, scope, hostRunId);
+          await assertDelegatedConversationAdmission(database, scope, [threadId]);
+        },
+        prepareInputContext
+          ? async () => {
+              sent.context = await prepareInputContext(input, node.configuration);
+              return sent.context;
+            }
+          : undefined
+      );
+      const systemMessages = sent.context;
+      if (systemMessages) {
+        await recordSwarmDiagnostic(hostRunId, 'prompt-manifest', () =>
+          recordPromptManifest(database, hostRunId, {
+            delegationPrompt: input.text,
+            kind: 'continuation',
+            personaId: target.personaId,
+            systemContextSource: systemMessages.length > 0 ? 'captured' : 'none',
+            systemMessages,
+            threadId,
+            toolNames: readAdmittedPersonaConfiguration(node.configuration).allowedToolIds,
+          })
+        );
+      }
     },
   };
+  // Every function-valued member is wrapped by key, so a method added later
+  // cannot escape unlogged. The members never use `this`; the detached
+  // wrappers rely on that, and so must any future member.
+  logIdentityRejections(hostRunId, host);
+  logIdentityRejections(hostRunId, host.budget, 'budget.');
+  logIdentityRejections(hostRunId, host.continuation, 'continuation.');
   return host;
 }
 

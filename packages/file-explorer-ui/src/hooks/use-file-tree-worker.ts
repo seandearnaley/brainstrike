@@ -25,7 +25,7 @@ import { fileNodeCollator } from '../utils/file-node-collator';
 import { loadDirectoryChildren } from '../utils/lazy-tree-loader';
 import {
   addHandlesToMap,
-  type FileSystemHandle,
+  type FileNodeHandle,
   toWorkerFileNodes,
 } from '../utils/worker-node-conversion';
 import { buildNodeFromPath } from './build-node-from-path';
@@ -63,7 +63,7 @@ async function loadSingleDirectory(
   rootPath: string,
   rootFolderId: string,
   parentRootId: DirectoryHandle['rootId'],
-  handleMap: Map<string, FileSystemHandle>,
+  handleMap: Map<string, FileNodeHandle>,
   fileSystemAdapter: FileSystemAdapter,
   abortSignal: AbortSignal
 ): Promise<BatchLoadResult> {
@@ -72,7 +72,7 @@ async function loadSingleDirectory(
     return { error: 'Handle not found', path };
   }
 
-  const node = buildNodeFromPath(path, rootPath, rootFolderId, handle as FileSystemDirectoryHandle);
+  const node = buildNodeFromPath(path, rootPath, rootFolderId, handle);
 
   try {
     const children = await loadDirectoryChildren(fileSystemAdapter, node, {
@@ -110,7 +110,7 @@ export interface UseFileTreeWorkerOptions {
 
 export interface UseFileTreeWorkerReturn {
   /** Handle map for file system handles */
-  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
+  handleMapRef: React.RefObject<Map<string, FileNodeHandle>>;
   /** Worker port for sending commands */
   portRef: React.RefObject<FileTreeWorkerPort | null>;
   /** Current root directory handle ref (for use in handlers) */
@@ -142,8 +142,8 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
   // Worker port ref
   const portRef = useRef<FileTreeWorkerPort | null>(null);
 
-  // Handle map for FileSystemHandle references
-  const handleMapRef = useRef<Map<string, FileSystemHandle>>(new Map());
+  // Handle map for FileNodeHandle references
+  const handleMapRef = useRef<Map<string, FileNodeHandle>>(new Map());
 
   // Root directory handle ref (used in worker handlers)
   const rootHandleRef = useRef<DirectoryHandle | null>(null);
@@ -195,7 +195,7 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
     // Collect unsubscribe functions for cleanup
     const unsubscribes: (() => void)[] = [];
 
-    // Handle load requests from worker - perform I/O with FileSystemHandles
+    // Handle load requests from worker - perform I/O with FileNodeHandles
     unsubscribes.push(
       port.onRequestLoad(async (_requestId, paths, abortSignal) => {
         abortSignal.throwIfAborted();

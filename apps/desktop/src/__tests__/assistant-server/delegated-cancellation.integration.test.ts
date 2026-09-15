@@ -10,12 +10,12 @@ import {
   completeDelegatedConversationCancellation,
   revokeDelegatedConversationAdmission,
 } from '../../assistant-server/delegated-cancellation-admission';
-import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
 import { readDelegatedDecisionStates } from '../../assistant-server/delegated-decision-discovery';
 import {
   joinDesktopDelegatedCancellation,
   registerDesktopDelegatedCancellation,
 } from '../../assistant-server/delegated-execution-controls';
+import { createBudgetedHost } from './fixtures/budgeted-host';
 
 describe('desktop delegated cancellation', () => {
   let database: PGlite;
@@ -71,7 +71,7 @@ describe('desktop delegated cancellation', () => {
     timestamp: '2026-09-10T01:00:00.000Z',
   } as const;
   it('authorizes human input only for the observed child in its owning live host', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     const send = vi.fn(async () => {});
     const input = { id: 'human-input', text: 'Inspect the second file' };
     await host.persist(identity);
@@ -95,7 +95,8 @@ describe('desktop delegated cancellation', () => {
         threadId: 'child',
       },
       input,
-      expect.any(Function)
+      expect.any(Function),
+      undefined
     );
     await revokeDelegatedConversationAdmission(database, scope, 'child', false);
     await expect(
@@ -105,7 +106,7 @@ describe('desktop delegated cancellation', () => {
   });
 
   it('rejects a follow-up queued before durable Stop when its serialized admission resumes', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await host.bindRun(run);
     const queued = Promise.withResolvers<void>();
@@ -170,7 +171,7 @@ describe('desktop delegated cancellation', () => {
     await expect(joinDesktopDelegatedCancellation(database, scope, [])).resolves.toBeUndefined();
   });
   it('settles stopped child projections once while preserving sibling and completed runs', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await host.bindRun(run);
     const event = await host.persistEvent(run, 'child-message', childStarted, 0);
@@ -193,10 +194,7 @@ describe('desktop delegated cancellation', () => {
       { ...childStarted, id: 'sibling-start' },
       0
     );
-    const completed = await createDesktopDelegatedConversationHost(
-      database,
-      'resume-leg'
-    ).persistEvent(
+    const completed = await createBudgetedHost(database, 'resume-leg').persistEvent(
       run,
       'completed-message',
       { ...childStarted, id: 'child-finished', kind: 'run.finished', status: 'completed' },
@@ -239,7 +237,7 @@ describe('desktop delegated cancellation', () => {
       ['initial-leg', 'parent-one'],
       ['other-turn-leg', 'parent-two'],
     ] as const) {
-      const host = createDesktopDelegatedConversationHost(database, hostId);
+      const host = createBudgetedHost(database, hostId);
       await host.persist({ ...identity, parentRuntimeRunId });
       const childRun = {
         ...run,
@@ -273,7 +271,7 @@ describe('desktop delegated cancellation', () => {
   it.each([false, true])(
     'revokes only the selected invocation scope (descendants: %s)',
     async (includeDescendants) => {
-      const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+      const host = createBudgetedHost(database, 'initial-leg');
       await host.persist(identity);
       await host.bindRun(run);
       const descendant = {
@@ -328,7 +326,7 @@ describe('desktop delegated cancellation', () => {
   );
 
   it('rejects a stopped child decision after host reconstruction while admitting its sibling', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await host.bindRun(run);
     const siblingIdentity = {
@@ -374,7 +372,7 @@ describe('desktop delegated cancellation', () => {
         },
       ])
     ).toEqual(new Map([[JSON.stringify([run.childRuntimeRunId, 'read-1']), 'cancelled']]));
-    const restored = createDesktopDelegatedConversationHost(database, 'resume-leg');
+    const restored = createBudgetedHost(database, 'resume-leg');
     await expect(
       restored.budget.reserveStep({
         resourceId: identity.childResourceId,
@@ -399,5 +397,58 @@ describe('desktop delegated cancellation', () => {
       'SELECT child_thread_id, state FROM brainstrike_delegated_tool_decisions'
     );
     expect(rows.rows).toEqual([{ child_thread_id: 'sibling', state: 'consumed' }]);
+  });
+
+  it('records a continuation prompt manifest for a follow-up the child accepted, and none for one it refused', async () => {
+    const context = [{ content: 'Referenced file: src/a.ts', role: 'system' as const }];
+    const host = createBudgetedHost(database, 'initial-leg', async () => context);
+    await host.persist({
+      ...identity,
+      configuration: {
+        maxSteps: 8,
+        persona: {
+          allowedToolIds: ['brainstrike.grepSearch'],
+          description: 'Explore',
+          id: 'explore',
+          instructions: 'Explore.',
+          label: 'Explorer',
+          maxSteps: 8,
+        },
+      },
+    });
+    await host.bindRun(run);
+    const refuse: DelegatedFollowupControl = async (_target, _input, _admission, prepare) => {
+      await prepare?.();
+      throw new Error('The selected child is no longer running.');
+    };
+    await expect(
+      host.sendFollowup(scope, 'child', { id: 'refused', text: 'Too late' }, refuse)
+    ).rejects.toThrow('no longer running');
+    const deliver: DelegatedFollowupControl = async (_target, _input, _admission, prepare) => {
+      await prepare?.();
+    };
+    await host.sendFollowup(
+      scope,
+      'child',
+      { id: 'accepted', text: 'Inspect the second file' },
+      deliver
+    );
+    const rows = await database.query(
+      `SELECT kind, thread_id, persona_id, delegation_prompt, system_context_source,
+        system_messages, tool_names FROM brainstrike_assistant_prompt_manifests`
+    );
+    // MUTATION: recording when the context is prepared (before the child
+    // accepts the input) adds a row for the refused follow-up.
+    expect(rows.rows).toEqual([
+      {
+        delegation_prompt: 'Inspect the second file',
+        kind: 'continuation',
+        persona_id: 'explore',
+        system_context_source: 'captured',
+        system_messages: context,
+        thread_id: 'child',
+        tool_names: ['brainstrike.grepSearch'],
+      },
+    ]);
   });
 });

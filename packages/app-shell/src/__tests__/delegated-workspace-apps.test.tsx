@@ -4,10 +4,12 @@ import '@testing-library/jest-dom/vitest';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { SubagentConversationNavigationContext } from '@brainstrike/assistant-ui';
 import type { DelegatedConversationNode } from '@brainstrike/db';
+import { FileExplorerProvider } from '@brainstrike/file-explorer-ui/shell';
 import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -20,15 +22,18 @@ import { useDelegatedConversationRoot } from '../use-delegated-conversation-root
 import { useDelegatedWorkspaceApps } from '../use-delegated-workspace-apps';
 import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 
-const mocks = vi.hoisted(() => ({ db: { query: vi.fn() }, get: vi.fn() }));
+const mocks = vi.hoisted(() => ({ db: { query: vi.fn() }, get: vi.fn(), insights: vi.fn() }));
 vi.mock('@brainstrike/db/react', () => ({
   useDbProviderError: () => null,
+  useOptionalPGliteDatabase: () => mocks.db,
   usePGliteDatabase: () => mocks.db,
 }));
 vi.mock('@brainstrike/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/db')>()),
   createDelegatedConversationRepository: () => ({ get: mocks.get }),
+  readDelegatedConversationInsights: mocks.insights,
 }));
+const workspaceStorage = new MemoryStorageAdapter();
 const address = { ownerResourceId: 'owner', rootThreadId: 'root', threadId: 'child' };
 const node: DelegatedConversationNode = {
   ...address,
@@ -110,7 +115,31 @@ describe('delegated workspace app registration', () => {
   });
 
   it('opens the real child panel, closes it without execution, and reopens host output received while closed', async () => {
-    mocks.get.mockResolvedValue(node);
+    mocks.get.mockResolvedValue({ ...node, workspaceRootId: 'private-root-id' });
+    mocks.insights.mockResolvedValue({
+      configuration: {
+        maxSteps: 6,
+        persona: {
+          allowedToolIds: ['brainstrike.readWorkspaceFile'],
+          description: 'Inspect',
+          id: 'explore',
+          instructions: 'Read the workspace.',
+          label: 'Explorer',
+          maxSteps: 6,
+          mode: 'read-only',
+        },
+      },
+      depth: 1,
+      directUsage: null,
+      latestRun: {
+        model: 'child-model',
+        modelSettings: null,
+        provider: 'openai',
+        providerOptions: null,
+      },
+      subtreeUsage: null,
+      threadId: 'child',
+    });
     useWorkspaceTabSelectionStore.getState().hydrate([], { kind: 'empty' });
     let publish: ((text: string) => void) | undefined;
     function OpenChild() {
@@ -146,11 +175,13 @@ describe('delegated workspace app registration', () => {
       );
     }
     render(
-      <TooltipProvider>
-        <DelegatedConversationRootsProvider>
-          <Harness />
-        </DelegatedConversationRootsProvider>
-      </TooltipProvider>
+      <FileExplorerProvider storageAdapter={workspaceStorage}>
+        <TooltipProvider>
+          <DelegatedConversationRootsProvider>
+            <Harness />
+          </DelegatedConversationRootsProvider>
+        </TooltipProvider>
+      </FileExplorerProvider>
     );
     act(() => {
       publish?.('First live child transcript.');
@@ -158,6 +189,10 @@ describe('delegated workspace app registration', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Open Cedar' }));
     expect(await screen.findByText('First live child transcript.')).toBeVisible();
+    expect(screen.getByTestId('child-workspace-mode')).toHaveTextContent(
+      'Shared workspace: bound folder is no longer open'
+    );
+    expect(screen.getByTestId('child-workspace-mode')).not.toHaveTextContent('private-root-id');
     await user.click(screen.getByRole('button', { name: 'Close Cedar' }));
     expect(screen.queryByText('First live child transcript.')).not.toBeInTheDocument();
     act(() => {
@@ -165,6 +200,13 @@ describe('delegated workspace app registration', () => {
     });
     await user.click(screen.getByRole('button', { name: 'Open Cedar' }));
     expect(await screen.findByText('Finished while the child tab was closed.')).toBeVisible();
+    expect(mocks.insights).toHaveBeenCalledWith(
+      mocks.db,
+      { ownerResourceId: 'owner', rootThreadId: 'root' },
+      'child'
+    );
+    await user.click(screen.getByRole('button', { name: 'Child details' }));
+    expect(await screen.findByText('child-model')).toBeVisible();
     expect(mocks.db.query).not.toHaveBeenCalled();
   });
 

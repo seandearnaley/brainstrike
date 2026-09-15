@@ -1,3 +1,4 @@
+import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { type Mock, vi } from 'vitest';
 
 /**
@@ -191,6 +192,8 @@ export function makePgliteMastraMemoryMock() {
         workflows: {},
       })
     ),
+    // The run-critical database wrapper reads it to classify snapshot reads.
+    MASTRA_WORKFLOW_TABLE,
   };
 }
 

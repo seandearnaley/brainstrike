@@ -252,6 +252,24 @@ that used to read journal content restores from snapshots instead:
   disabled with a reason — never a click-time surprise, never silent
   removal.
 
+**Native conversation identity and Git refs:** root directory identifiers keep
+strict path validation. A thread ID is opaque native identity and is never
+truncated or renamed in the snapshot ledger. Existing safe short IDs keep
+`refs/snapshots/<threadId>` (excluding Git-invalid trailing dots); other IDs use
+`refs/snapshot-identities/v1/<sha256-of-exact-threadId>`. Snapshot commit JSON
+already stores the exact thread ID. That commit-subject field is required on every
+encoded-lineage write; delegated capture uses the same snapshot writer. Inventory
+decodes that metadata and verifies the canonical ref binding, so startup GC still receives actual thread identities.
+Appending or pruning an encoded lineage also verifies its existing head owner;
+malformed or mismatched metadata refuses the operation rather than deleting,
+reassigning or hiding a lineage. A corrupt ref makes that root's ref reconciliation
+fail visibly; it does not prevent valid lineages from being captured or individually
+pruned, and other roots still reconcile. No unidentified ref is silently skipped or
+automatically deleted. Both namespaces are inventoried in one Git call.
+No new persistence store or migration is needed. The real recursive 154-character
+native ID, legacy compatibility, corruption refusal, sibling-preserving restore
+and ref pruning are covered by the snapshot service and delegated admission tests.
+
 **Snapshot retention / GC** (`snapshot-startup-gc.ts`, run from main.ts's
 startup fire-and-forget block after `sweepOrphans`): dead-thread rows +
 refs purge (`mastra_threads` is the liveness source; a missing threads
@@ -345,6 +363,15 @@ Guarding tests, `apps/desktop/src/__tests__/assistant-server/git-inventory.integ
 - prunable (deleted, not GC'd) worktree is a trust state, not an inventory
   error — `'treats a merely-prunable ... linked worktree as trust state,
   not an inventory error'` (asserts `snapshot.errors` is `[]`).
+
+Fabricated admin fixtures publish their complete `worktrees` directory with an
+atomic rename, including Git's `locked` marker. The helper asserts that its
+repository has no existing worktree admin directory; these three attack cases
+each own a fresh repository. Publishing only an entry after creating an empty
+parent would expose that parent to Git's empty-directory pruning. They never expose an incomplete
+entry to background Git maintenance. The symlink attack runs real
+`git worktree prune --expire=now` before inventory and still asserts canonical
+outside-root containment and unvalidated trust; locking does not grant trust.
 
 ## THE `changes` IPC DOMAIN
 
@@ -1114,3 +1141,21 @@ pipeline.
 - ~~**No live push-to-renderer refresh exists**~~ — CLOSED by BST-1161:
   `changes:invalidated` + the renderer generation guard now exist. See
   REFRESH SEAMS above for exactly what refreshes on it.
+
+### Delegated child checkpoint baselines (BST-1726)
+
+Delegated admission captures a child-scoped turn-start row in the existing
+workspace snapshot ledger before native execution. Its run ID is initially
+null; the existing timestamp brackets associate subsequent child host legs.
+Resume does not replace the baseline, and existing runs without a baseline
+remain visibly unavailable. Capture failures retain the ordinary sentinel.
+Child tool checkpoints carry the child's durable run/thread/resource identity,
+so the shared Revert control resolves that child's snapshot and existing disk
+conflict gate. No automatic Git merge or commit is performed in the user checkout.
+
+`delegated-workspace-snapshot.integration.test.ts` and the real Electron worker
+undo case pair this contract with recovery, attribution and unrelated-file
+preservation checks. The parent `undoCheckpointRun` integration case restores
+only parent journaled paths and preserves child effects and independent user files.
+Full conversation rewind retains its existing preview/acknowledgment semantics;
+this change does not silently narrow or broaden that operation.

@@ -19,15 +19,32 @@
  * run_kind='subagent' usage row instead.
  */
 
-import { type AssistantRunEventMetadata, DELEGATION_LIMITS } from '@brainstrike/assistant-contract';
-import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import {
+  type AssistantRunEventMetadata,
+  DELEGATION_LIMITS,
+  type DelegatedBudgetPort,
+  type DelegatedInvocationAdmission,
+} from '@brainstrike/assistant-contract';
+import {
+  type AssistantPersonaDefinition,
+  effectiveChildStepBudget,
+} from '@brainstrike/assistant-contract/personas';
 import {
   type AssistantDelegatedUsageIdentity,
   isAssistantDelegatedUsageIdentity,
 } from '@brainstrike/assistant-contract/run-usage';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ScopedLogger } from '@brainstrike/logging';
-import type { DelegationConfig } from '@mastra/core/agent';
+import type {
+  DelegationConfig,
+  DelegationStartContext,
+  DelegationStartResult,
+} from '@mastra/core/agent';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
+import {
+  type DelegatedSynthesisOutcomes,
+  describeTruncatedSynthesis,
+} from './delegated-synthesis-outcomes';
 import { MAX_DELEGATED_CONTEXT_BYTES } from './delegated-system-context';
 import type { DelegatedTurnPersistence } from './delegated-turn-persistence';
 import { type DelegatedWorkQueue, resolveDelegatedWorkBudget } from './delegated-work-budget';
@@ -59,11 +76,26 @@ export interface DelegationOutcomeCapture {
   failed(parentToolCallId: string, parentRuntimeRunId?: string): boolean;
   recordFailure(parentToolCallId: string, parentRuntimeRunId?: string): void;
   recordNoAnswer(parentToolCallId: string, parentRuntimeRunId?: string): void;
+  /**
+   * The delegation was refused at start (BST-1751): no child ran, and the
+   * tool call still succeeds with Mastra's `[Delegation Rejected]` text, so
+   * only the hook can tell the mapper it was never a completion.
+   */
+  recordRejection(parentToolCallId: string, parentRuntimeRunId?: string): void;
+  /**
+   * The child answered, but its RESERVED summary was cut by the model's output
+   * limit: a completion with partial findings (`outcome: 'truncated'`), which
+   * the tool-result part cannot show because `resultText` already carries the
+   * note by then.
+   */
+  recordTruncation(parentToolCallId: string, parentRuntimeRunId?: string): void;
+  rejected(parentToolCallId: string, parentRuntimeRunId?: string): boolean;
   returnedNoAnswer(parentToolCallId: string, parentRuntimeRunId?: string): boolean;
+  truncated(parentToolCallId: string, parentRuntimeRunId?: string): boolean;
 }
 
 export function createDelegationOutcomeCapture(): DelegationOutcomeCapture {
-  const outcomes = new Map<string, 'failed' | 'no-answer'>();
+  const outcomes = new Map<string, 'failed' | 'no-answer' | 'rejected' | 'truncated'>();
   const key = (call: string, run?: string) => JSON.stringify([run, call]);
   return {
     failed(call, run) {
@@ -75,14 +107,94 @@ export function createDelegationOutcomeCapture(): DelegationOutcomeCapture {
     recordNoAnswer(call, run) {
       outcomes.set(key(call, run), 'no-answer');
     },
+    recordRejection(call, run) {
+      outcomes.set(key(call, run), 'rejected');
+    },
+    recordTruncation(call, run) {
+      outcomes.set(key(call, run), 'truncated');
+    },
+    rejected(call, run) {
+      return outcomes.get(key(call, run)) === 'rejected';
+    },
     returnedNoAnswer(call, run) {
       return outcomes.get(key(call, run)) === 'no-answer';
+    },
+    truncated(call, run) {
+      return outcomes.get(key(call, run)) === 'truncated';
     },
   };
 }
 
+/** The exact prompt facts one child Agent was constructed with (build-persona-subagents). */
+export interface ChildPromptFacts {
+  readonly instructions: string;
+  readonly toolNames: readonly string[];
+}
+
+/**
+ * The child facts of ONE persona build and the agent that dispatches those
+ * children. Nested workers reuse the root's delegation config
+ * (`delegatedExecutionOptions.delegation`), so a delegation dispatched by any
+ * other agent is NOT described by these facts: its child was built from a
+ * narrower tool map.
+ */
+export interface DelegationChildPromptFacts {
+  readonly byPersonaId: ReadonlyMap<string, ChildPromptFacts>;
+  readonly dispatchingAgentId: string;
+}
+
+/**
+ * Debug-pack evidence: what a delegated child is told on its first step
+ * (swarm diagnostics, migration 139) — the prompt it receives, the exact
+ * instructions its Agent was built with and the tools it kept. Its system
+ * context is the root leg's captured set (ruling 2). Recorded only from the
+ * facts of the build that constructed the addressed child; any other
+ * delegation is logged with a code, never recorded from another agent's facts.
+ */
+async function recordChildPromptManifest(
+  params: CreateDelegationConfigParams,
+  context: Pick<DelegationStartContext, 'parentAgentId' | 'runId' | 'threadId' | 'toolCallId'>,
+  personaId: string,
+  delegationPrompt: string
+): Promise<void> {
+  const record = params.conversationBinding?.recordPromptManifest;
+  if (!record) {
+    return;
+  }
+  const facts =
+    params.childPromptFacts?.dispatchingAgentId === context.parentAgentId
+      ? params.childPromptFacts.byPersonaId.get(personaId)
+      : undefined;
+  if (!(facts && context.threadId)) {
+    params.logger.warn(
+      'Child prompt manifest not recorded: no build facts describe this delegation',
+      {
+        code: 'subagent_prompt_manifest_unrecorded',
+        parentAgentId: context.parentAgentId,
+        personaId,
+        toolCallId: context.toolCallId,
+      }
+    );
+    return;
+  }
+  await record({
+    delegationPrompt,
+    kind: 'child-first-step',
+    nativeRunId: context.runId,
+    parentToolCallId: context.toolCallId,
+    personaId,
+    personaInstructions: facts.instructions,
+    systemContextSource: 'root-leg',
+    systemMessages: [],
+    threadId: context.threadId,
+    toolNames: facts.toolNames,
+  });
+}
+
 export interface CreateDelegationConfigParams {
   readonly abortSignal: AbortSignal;
+  /** The persona build's child facts, for the child-first-step prompt manifest. */
+  readonly childPromptFacts?: DelegationChildPromptFacts;
   readonly conversationBinding?: DelegatedConversationBinding;
   /** Optional sink for delegations that returned no answer (see above). */
   readonly delegationOutcomes?: DelegationOutcomeCapture;
@@ -97,6 +209,17 @@ export interface CreateDelegationConfigParams {
   readonly onChildUsage?: (report: SubagentChildUsageReport) => void;
   /** Persona id → definition; the `primitiveId` Mastra passes is the persona id. */
   readonly personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
+  /**
+   * The request's validated per-child budgets: every child's step cap is
+   * `effectiveChildStepBudget(persona, subagentSettings)`.
+   */
+  readonly subagentSettings: RuntimeSubagentSettings;
+  /**
+   * The runtime's reserved-synthesis registry, written by the child's budget
+   * processor. The hook reads it (never the projected stream: it runs before
+   * the parent consumer maps the child's parts) to name a truncated summary.
+   */
+  readonly synthesisOutcomes?: DelegatedSynthesisOutcomes | undefined;
   readonly turnPersistence?: DelegatedTurnPersistence | undefined;
   readonly workQueue?: DelegatedWorkQueue | undefined;
 }
@@ -227,7 +350,7 @@ async function resolveMissingAnswerResult(
   // from inside this hook would be a bad way to find out.
   const text = typeof context.result?.text === 'string' ? context.result.text : '';
   if (text.trim() !== '') {
-    return;
+    return resolveTruncatedAnswer(params, context, persona, text);
   }
   const toolCallCount = readChildToolCallCount(context.result);
   params.logger.warn('Subagent delegation returned no answer', {
@@ -247,15 +370,124 @@ async function resolveMissingAnswerResult(
 }
 
 /**
+ * A child whose RESERVED summary the model cut at its output limit returned
+ * partial findings: the parent reads them plus a `[Truncated summary]` note
+ * (never "failed; do not retry"), and the mapper records `outcome:
+ * 'truncated'`. Reached only for NON-empty text — an empty truncated summary
+ * is still a no-answer. `undefined` when the child's synthesis was not cut or
+ * never ran.
+ */
+function resolveTruncatedAnswer(
+  params: CreateDelegationConfigParams,
+  context: Parameters<NonNullable<DelegationConfig['onDelegationComplete']>>[0],
+  persona: AssistantPersonaDefinition,
+  text: string
+): { resultText: string } | undefined {
+  const childThreadId = context.result?.subAgentThreadId;
+  const synthesis = childThreadId ? params.synthesisOutcomes?.read(childThreadId) : undefined;
+  if (!synthesis?.truncated) {
+    return;
+  }
+  params.delegationOutcomes?.recordTruncation(context.toolCallId, context.runId);
+  params.logger.info('Subagent delegation returned a truncated summary', {
+    cap: synthesis.cap,
+    code: 'subagent_delegation_truncated',
+    limit: synthesis.limit,
+    personaId: context.primitiveId,
+    reservedOutputTokens: synthesis.reservedOutputTokens,
+    used: synthesis.used,
+  });
+  return { resultText: `${text}${describeTruncatedSynthesis(persona.id, synthesis)}` };
+}
+
+type RejectDelegation = (
+  message: string,
+  rejectionReason: string,
+  code: string,
+  fields?: Record<string, unknown>
+) => DelegationStartResult;
+
+/**
+ * The host's durable tree budget answers BEFORE the child exists. Its later
+ * reservation at persist time stays the authority; a refusal here is the same
+ * refusal the model would otherwise only meet as a dead root (BST-1751).
+ * Returns the rejection to hand Mastra, or undefined when admitted.
+ */
+async function consultDurableAdmission(
+  budget: DelegatedBudgetPort | undefined,
+  context: DelegationStartContext,
+  reject: RejectDelegation
+): Promise<DelegationStartResult | undefined> {
+  if (!budget) {
+    return;
+  }
+  const parentThreadId = context.threadId?.trim();
+  const parentResourceId = context.resourceId?.trim();
+  if (!(parentThreadId && parentResourceId)) {
+    throw new Error(
+      'Durable delegation admission requires the parent thread and resource identity.'
+    );
+  }
+  let admission: DelegatedInvocationAdmission;
+  try {
+    admission = await budget.admitInvocation({ parentResourceId, parentThreadId });
+  } catch (error) {
+    // The host refuses an identity it cannot authorize (root not running, a
+    // stopped ancestor, a parent outside this root) with a bounded reason it
+    // has already logged. Nothing has run yet, so that refusal costs this one
+    // delegation, never the root. Any other failure is a real fault and
+    // propagates.
+    const reason = readIdentityRefusalReason(error);
+    if (reason === undefined) {
+      throw error;
+    }
+    return reject(
+      'Rejecting delegation: durable admission identity refused',
+      `Delegation admission refused (${reason}).`,
+      'subagent_delegation_identity_refused',
+      { parentThreadId, reason }
+    );
+  }
+  if (admission.admitted) {
+    return;
+  }
+  return reject(
+    'Rejecting delegation: durable budget refused',
+    admission.reason,
+    'subagent_delegation_budget_refused',
+    { parentThreadId }
+  );
+}
+
+/**
  * Build a per-run delegation config. Call ONCE per run (the closure carries the
  * run's in-flight + total counters).
  */
+/**
+ * The host's identity error crosses the package boundary by name and its
+ * bounded `reason` field (`DelegatedConversationIdentityError` in `@brainstrike/db`,
+ * which this package does not depend on).
+ */
+function readIdentityRefusalReason(error: unknown): string | undefined {
+  if (!(error instanceof Error) || error.name !== 'DelegatedConversationIdentityError') {
+    return;
+  }
+  const reason = (error as { reason?: unknown }).reason;
+  return typeof reason === 'string' && reason.trim().length > 0 ? reason : undefined;
+}
+
 export function createDelegationConfig(params: CreateDelegationConfigParams): DelegationConfig {
   // This per-leg counter remains a backstop. Durable host admission counts the
   // original turn across all descendants and resume legs. With that capability,
   // the shared work queue owns runnable concurrency, not waiting delegations.
   let inFlight = 0;
   let total = 0;
+  // Invocations this leg admitted, by native address. A start for an address
+  // already admitted is a parked child RESUMED inside this same leg (a live
+  // decision): the same invocation continues and holds the slot it already
+  // took, so the per-leg caps do not count it again. Durable admission and
+  // the binding's own preparation still run, exactly as on a resume leg.
+  const admitted = new Set<string>();
 
   return {
     // All delegation-hook failures propagate, including diagnostics: silently
@@ -331,48 +563,91 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
       // exactly the case whose cost must still be attributed.
       return await resolveMissingAnswerResult(params, context);
     },
-    onDelegationStart: (context) => {
+    onDelegationStart: async (context) => {
+      // Every refusal is a tool result the model can read and a recorded
+      // outcome for the timeline; none of them starts a child (BST-1751).
+      const reject = (
+        message: string,
+        rejectionReason: string,
+        code: string,
+        fields: Record<string, unknown> = {}
+      ): DelegationStartResult => {
+        params.logger.warn(message, {
+          code,
+          personaId: context.primitiveId,
+          rejectionReason,
+          ...fields,
+        });
+        params.delegationOutcomes?.recordRejection(context.toolCallId, context.runId);
+        return { proceed: false, rejectionReason };
+      };
       const persona = params.personasById.get(context.primitiveId);
       if (!persona) {
-        params.logger.warn('Rejecting delegation to unknown persona', {
-          code: 'subagent_delegation_unknown_persona',
-          personaId: context.primitiveId,
-        });
-        return {
-          proceed: false,
-          rejectionReason: `Unknown subagent '${context.primitiveId}'.`,
-        };
+        return reject(
+          'Rejecting delegation to unknown persona',
+          `Unknown subagent '${context.primitiveId}'.`,
+          'subagent_delegation_unknown_persona'
+        );
       }
 
+      const address = JSON.stringify([context.runId, context.toolCallId]);
+      const resumed = admitted.has(address);
       if (
-        !resolveDelegatedWorkBudget(params.conversationBinding?.budget, params.workQueue) &&
+        !(
+          resumed ||
+          resolveDelegatedWorkBudget(params.conversationBinding?.budget, params.workQueue)
+        ) &&
         inFlight >= MAX_CONCURRENT_DELEGATIONS
       ) {
-        params.logger.warn('Rejecting delegation: concurrency cap reached', {
-          code: 'subagent_delegation_concurrency_capped',
-          inFlight,
-          personaId: context.primitiveId,
-        });
-        return {
-          proceed: false,
-          rejectionReason: `Too many concurrent subagents (max ${MAX_CONCURRENT_DELEGATIONS}); try again after the current ones finish.`,
-        };
+        return reject(
+          'Rejecting delegation: concurrency cap reached',
+          `Too many concurrent subagents (max ${MAX_CONCURRENT_DELEGATIONS}); try again after the current ones finish.`,
+          'subagent_delegation_concurrency_capped',
+          { inFlight }
+        );
       }
 
-      if (total >= MAX_DELEGATIONS_PER_RUN) {
-        params.logger.warn('Rejecting delegation: per-run cap reached', {
-          code: 'subagent_delegation_per_run_capped',
-          personaId: context.primitiveId,
-          total,
-        });
-        return {
-          proceed: false,
-          rejectionReason: `Subagent delegation limit reached (max ${MAX_DELEGATIONS_PER_RUN} per turn).`,
-        };
+      if (!resumed && total >= MAX_DELEGATIONS_PER_RUN) {
+        return reject(
+          'Rejecting delegation: per-run cap reached',
+          `Subagent delegation limit reached (max ${MAX_DELEGATIONS_PER_RUN} per turn).`,
+          'subagent_delegation_per_run_capped',
+          { total }
+        );
       }
+
+      // The caps are taken BEFORE awaiting the host: parallel starts interleave
+      // across that await, and a count read before it would let every sibling
+      // pass on the same stale value. A refusal or a failure gives them back.
+      if (!resumed) {
+        inFlight += 1;
+        total += 1;
+      }
+      const giveBack = () => {
+        if (!resumed) {
+          inFlight -= 1;
+          total -= 1;
+        }
+      };
+      let refusal: DelegationStartResult | undefined;
+      try {
+        refusal = await consultDurableAdmission(
+          params.conversationBinding?.budget,
+          context,
+          reject
+        );
+      } catch (error) {
+        giveBack();
+        throw error;
+      }
+      if (refusal) {
+        giveBack();
+        return refusal;
+      }
+      admitted.add(address);
 
       const maxSteps = clampMaxSteps(
-        Math.min(persona.maxSteps, DELEGATION_LIMITS.maxChildSteps),
+        effectiveChildStepBudget(persona, params.subagentSettings),
         context.params.maxSteps
       );
       params.conversationBinding?.prepare(context, { maxSteps, persona }, params.abortSignal);
@@ -381,16 +656,20 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         params.abortSignal,
         params.conversationBinding?.getAbortSignal?.(context.requestContext)
       );
-      inFlight += 1;
-      total += 1;
+      // Mastra's instructions tool argument is model-authored task content. Keep it
+      // in the delegated USER prompt; the child retains host/persona system authority.
+      const modifiedPrompt = context.params.instructions
+        ? `${context.prompt}\n\nDelegated task details:\n${context.params.instructions}`
+        : context.prompt;
+      // A parked child resumed inside this leg re-enters the hook at the same
+      // address; its first step was recorded when it was admitted.
+      if (!resumed) {
+        await recordChildPromptManifest(params, context, persona.id, modifiedPrompt);
+      }
       return {
-        // Mastra's instructions tool argument is model-authored task content. Keep it
-        // in the delegated USER prompt; the child retains host/persona system authority.
         modifiedInstructions: '',
         modifiedMaxSteps: maxSteps,
-        modifiedPrompt: context.params.instructions
-          ? `${context.prompt}\n\nDelegated task details:\n${context.params.instructions}`
-          : context.prompt,
+        modifiedPrompt,
         proceed: true,
       };
     },

@@ -3,6 +3,29 @@ import { createDelegatedConversationStore } from '../delegated-conversation-stor
 import { delegatedUpdate as update } from './helpers/delegated-conversation-fixtures';
 
 describe('host-owned delegated conversations', () => {
+  it('replaces a completed invocation with a fresh admitted continuation and ignores its late snapshots', () => {
+    const store = createDelegatedConversationStore('root');
+    const original = update('child');
+    store.publish(original);
+    store.publish(update('sibling'));
+    const sibling = store.getConversation('sibling');
+    const { identity: _identity, ...snapshot } = update('child', 'fresh-host', 'Follow-up');
+    const continuation = {
+      ...snapshot,
+      continuation: {
+        continuationId: 'input-1',
+        nativeRunId: 'fresh-native',
+        threadId: 'child',
+      },
+    };
+    expect(store.publish(continuation)).toBe(true);
+    expect(store.getConversation('child')?.update).toBe(continuation);
+    expect(store.publish(original)).toBe(false);
+    expect(store.getConversation('sibling')).toBe(sibling);
+    expect(() =>
+      store.publish({ ...continuation, baseline: { ...continuation.baseline!, threadId: 'other' } })
+    ).toThrow(/thread|identity/i);
+  });
   it('retires stopped publications before reload without rejecting a later admitted leg', () => {
     const store = createDelegatedConversationStore('root');
     store.publish(update('a'));
@@ -17,16 +40,22 @@ describe('host-owned delegated conversations', () => {
     expect(store.publish(update('a', 'resumed', 'Later admitted leg'))).toBe(true);
   });
   it('retains independent child snapshots after every view unsubscribes and publishes replay as replacement', () => {
+    vi.useFakeTimers();
     const store = createDelegatedConversationStore('root');
     const listener = vi.fn();
     const unsubscribe = store.subscribe(listener);
     expect(store.publish(update('a'))).toBe(true);
     const first = store.getConversation('a');
+    // Streaming snapshots notify once per coalescing window, never per frame.
+    vi.advanceTimersByTime(16);
     store.publish(update('b'));
+    vi.advanceTimersByTime(16);
     expect(store.getConversation('a')).toBe(first);
     expect(store.getConversation('b')?.update.message.parts).toMatchObject([{ text: 'b' }]);
     unsubscribe();
     store.publish(update('a', 'initial', 'Later full snapshot'));
+    vi.advanceTimersByTime(16);
+    vi.useRealTimers();
     expect(listener).toHaveBeenCalledTimes(2);
     expect(store.getConversation('a')?.update.message.parts).toMatchObject([
       { text: 'Later full snapshot' },
@@ -76,5 +105,48 @@ describe('host-owned delegated conversations', () => {
         identity: { ...changed.identity, parentToolCallId: 'other-call' },
       })
     ).toThrow(/identity/i);
+  });
+});
+
+describe('streaming notifications coalesce', () => {
+  // A streaming child publishes one snapshot per frame and every mounted child
+  // view re-converts the whole message per notification; per-frame notifying
+  // is quadratic in the stream and stalled the renderer once a few tabs were
+  // open (2026-09-14). Streaming snapshots notify once per window; a settled
+  // snapshot notifies at once.
+  it('notifies once per window while a child streams and immediately when it settles', () => {
+    vi.useFakeTimers();
+    try {
+      const store = createDelegatedConversationStore('root');
+      const listener = vi.fn();
+      store.subscribe(listener);
+      const streaming = (text: string) => {
+        const base = update('a', 'initial', text);
+        return { ...base, message: { ...base.message, status: { type: 'running' as const } } };
+      };
+      expect(store.publish(streaming('one'))).toBe(true);
+      expect(store.publish(streaming('two'))).toBe(true);
+      expect(store.publish(streaming('three'))).toBe(true);
+      expect(listener).not.toHaveBeenCalled();
+      // The snapshot itself is current before any notification.
+      expect(store.getConversation('a')?.update.message.parts).toMatchObject([{ text: 'three' }]);
+      vi.advanceTimersByTime(16);
+      expect(listener).toHaveBeenCalledTimes(1);
+      // A settled snapshot flushes the pending window and notifies at once.
+      store.publish(streaming('four'));
+      const settled = update('a', 'initial', 'done');
+      store.publish({
+        ...settled,
+        message: {
+          ...settled.message,
+          status: { reason: 'stop' as const, type: 'complete' as const },
+        },
+      });
+      expect(listener).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(50);
+      expect(listener).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

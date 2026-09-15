@@ -24,7 +24,9 @@ export interface ShutdownStepTracker {
  * Graceful shutdown runs its steps in a fixed order under one forced-exit
  * budget. When that budget fires, the only actionable fact is WHICH step was
  * still awaiting completion — every step is otherwise silent on success — so
- * the tracker records the in-flight step for the forced-exit log.
+ * the tracker records the in-flight step for the forced-exit log. Its single
+ * in-flight slot assumes callers await each ordered run; concurrent steps are
+ * not supported.
  */
 export function createShutdownStepTracker(now: () => number = Date.now): ShutdownStepTracker {
   let inFlight: { readonly startedAt: number; readonly step: string } | null = null;

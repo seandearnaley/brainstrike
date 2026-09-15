@@ -2,6 +2,21 @@
 
 > Extracted from AGENTS.md (2026-07-12). Read before changing provider config, MCP transport selection, or assistant native tools/registries. Keep updated with the code.
 
+## Production web runtime capability (BST-1728)
+
+The production web bootstrap configures local-runtime browser access before
+provider discovery. Its CSP does not permit arbitrary local/LAN endpoints, so
+the discovery service returns the existing visible `blocked_web` state before
+fetching, including when a caller overrides its surface to desktop. This is
+an immutable host capability, not a user preference cleared by factory reset.
+Both provider discovery and model catalogs use that same service.
+Desktop's native runtime bridge and development web direct probing keep their
+existing behavior. Do not widen the CSP or repeatedly issue forbidden probes
+as a substitute for the host's capability decision. The paired discovery and
+real catalog tests assert zero browser requests and an unchanged independently
+configured native probe; the compiled production CSP test exercises startup,
+PGlite and embedding workers.
+
 ## AI ASSISTANT INTEGRATION
 
 - Supports hosted providers OpenAI, Anthropic, Google, and OpenRouter, plus the
@@ -874,10 +889,10 @@
   controls and request construction. Optional models expose Off even when
   `none` is not an advertised effort, using `reasoning.enabled=false`. Its
   sibling `resolveModelReasoningSupport` is deliberately
-  separate: an UNDECLARED OpenRouter model keeps the full effort list for the
-  controls (the request boundary accepts `openrouter.reasoning` for any model)
-  while its capability badge resolves to a visible `unknown` ("unverified") —
-  never a silent yes/no. On an explicit model switch, clear an incompatible
+  separate: an UNDECLARED OpenRouter model exposes no reasoning controls and
+  the request boundary rejects an effort without a matching static or live
+  declaration, while its capability badge resolves to a visible `unknown`
+  ("unverified") — never a silent yes/no. On an explicit model switch, clear an incompatible
   provider-wide effort override so the newly selected model uses its documented
   default; do not map it to a guessed nearest level.
 - Reasoning-control placement: effort/level selection and the primary Thinking
@@ -2526,6 +2541,10 @@ request, rejects the same way; there is no zero-honored-ids success state left.
 Real stdio and real Streamable HTTP wire tests cover full, partial, and empty
 acknowledgements
 (`packages/agent/src/__tests__/mcp-tasks-subscription-acknowledgement.integration.spec.ts`).
+These wire fixtures and the modern stdio extension suite await cleanup in reverse
+acquisition order: the client must finish closing before its request-log directory
+is removed. Cleanup continues after a failure, preserving a sole original error
+or aggregating every failure in disposal order.
 Production registration is the BST-1566 layer below.
 
 BST-1564 adds the opt-in interaction coordinator without enabling Tasks in production. It deduplicates
@@ -4514,6 +4533,9 @@ identity or offset differs. The resolver reads through a server-created
 capability closed over resource+thread scope, returns contiguous fatal-UTF-8
 pages with reversible U+0000 encoding, and surfaces malformed, expired,
 wrong-scope, incoherent, non-progress, and storage failures as typed errors.
+Fixed-lifetime artifact fixtures must inject the reader's `now` clock as well as
+the stored expiry; real MCP transport timers remain live. Paired boundary tests
+require reads before expiry and rejection at expiry even if storage reports found.
 Settlement and continuation pages use the same cursor encoder. Desktop
 registers `brainstrike.readToolOutputArtifact` only when that scoped capability
 exists; web and requests without complete memory scope omit it instead of
@@ -4821,15 +4843,41 @@ and no fallback alias or partially registered tool.
 `brainstrike.manageCanvas` is desktop-only because its source of truth is the
 client-local `brainstrike_canvas_versions` ledger. It is a deferred workspace
 tool with an `action` discriminated union (`create`, `update`, `rewrite`,
-`list`) and explicit `read` risk: updates are DB-backed, versioned, and
-reversible, not workspace-file edits, so they must not enter the live Changes
-refresh stream. Web has no remote fallback. Conditional instructions advertise
+`list`) and explicit `edit` risk (PR #2294: create/update/rewrite persist durable
+state, so `read`'s plan-mode/default-allow posture would let the model write
+canvases while "only planning"; its completions ride the edit-activity stream,
+where `use-wrapper-rewind-wiring.ts` turns them into a Canvas panel re-query).
+Web has no remote fallback. Conditional instructions advertise
 the verbs only when the tool is registered. Settled ruling (2026-08-07, live
 gpt-5.6 failure — do not relitigate): the union branches TOLERATE cross-action
 extras among the six declared envelope keys (`action` fully determines
 semantics; real models bundle fields, and rejecting them broke the feature and
 burned retry tokens). Only genuinely unknown keys fail, at the strict provider
 envelope.
+SETTLED 2026-09-15, CREATE REQUIRES CONTENT (live-app verifier runs 6 and 7,
+do not relitigate): the root created an empty titled shell "ready to receive
+the report" 25 s into the turn and wrote the report behind a SECOND approval,
+breaking the user's reading of card → approve → document appears. `create`
+now refuses a document that `isEmptyCanvasDocument` (head and comments
+stripped; svg/canvas/img/script count as content) judges empty, BEFORE any DB
+call and at no approval cost, with the structured `empty_document` failure
+and `EMPTY_CANVAS_DOCUMENT_HINT` ("create the canvas when the content is
+ready — there is nothing to prepare"). `update`/`rewrite`/`list` are
+unchanged: an empty `newString` still deletes the match and a rewrite to
+empty still versions, because both act on a document the user already has.
+The description and the conditional instruction both say the write IS the
+deliverable and never an empty placeholder — the guard closes the literal
+shell, the prose closes the stub, and the verifier measures the live model.
+A settled create/update/rewrite card carries a `canvas://<canvasId>` chip
+(`canvas-link-chip.tsx`, shape read by `canvas-result-model.ts`, gated on the
+manageCanvas tool name in both wire forms); it goes through the assistant
+link seam, where the app-shell host routes `canvas:` to
+`useChangesNavigationStore.openCanvas` + the explorer route instead of
+`shell.openExternal`. Paired: `canvas-document-content.test.ts`,
+`manage-canvas-tool.test.ts` (refusal + unchanged update/rewrite),
+`tool-descriptions.test.ts` and `default-instructions.spec.ts` (prose pins),
+`canvas-link.test.ts`, `canvas-link-chip.test.tsx`,
+`use-assistant-link-capabilities.test.ts`, `canvas-panel.test.tsx`.
 
 **The canvas storage ceiling is `CANVAS_HTML_MAX_BYTES` (8 MB), and it is
 counted in UTF-8 BYTES.** Two places enforce it, in different packages, from one

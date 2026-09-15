@@ -6,6 +6,10 @@ import {
 import type { ToolsInput } from '@mastra/core/agent';
 import { parseMemoryRequestContext } from '@mastra/core/memory';
 import type { ErrorProcessor, InputProcessor, OutputProcessor } from '@mastra/core/processors';
+import {
+  DELEGATED_SYNTHESIS_PART,
+  type DelegatedSynthesisOutcomes,
+} from './delegated-synthesis-outcomes';
 
 /** FIFO permits for active model/tool work; native delegation waits own no permit. */
 export class DelegatedWorkQueue {
@@ -65,7 +69,8 @@ export function resolveDelegatedWorkBudget(
 export function createDelegatedWorkBudget(
   budget: DelegatedBudgetPort,
   queue: DelegatedWorkQueue,
-  rootSignal?: AbortSignal
+  rootSignal?: AbortSignal,
+  synthesisOutcomes?: DelegatedSynthesisOutcomes
 ): {
   processor: InputProcessor & OutputProcessor & ErrorProcessor;
   release(): void;
@@ -134,7 +139,14 @@ export function createDelegatedWorkBudget(
           throw error;
         }
       },
-      async processOutputStep({ usage, toolCalls, messages }) {
+      async processOutputStep({
+        usage,
+        toolCalls,
+        messages,
+        finishReason,
+        requestContext,
+        writer,
+      }) {
         try {
           if (!reservation) {
             throw new Error('Delegated output has no durable reservation.');
@@ -142,6 +154,36 @@ export function createDelegatedWorkBudget(
           await budget.settleStep(reservation.id, usage?.outputTokens);
           if (reservation.synthesis && toolCalls?.length) {
             throw new Error('Delegated synthesis cannot execute tools.');
+          }
+          if (reservation.synthesis) {
+            const native = parseMemoryRequestContext(requestContext);
+            if (!(native?.thread?.id && native.resourceId && writer)) {
+              throw new Error(
+                'Delegated synthesis outcome requires native child identity and stream ownership.'
+              );
+            }
+            const outcome = {
+              cap: reservation.cap,
+              limit: reservation.limit,
+              outputTokens: usage?.outputTokens,
+              reservedOutputTokens: reservation.outputTokens,
+              // The provider cut the reserved summary: a truncated COMPLETION, never a failure.
+              truncated: finishReason === 'length',
+              used: reservation.used,
+            };
+            synthesisOutcomes?.record(native.thread.id, outcome);
+            // Built so an unknown `outputTokens` is OMITTED: the part schema is strict.
+            const { outputTokens, ...known } = outcome;
+            await writer.custom({
+              data: {
+                ...known,
+                ...(outputTokens === undefined ? {} : { outputTokens }),
+                resourceId: native.resourceId,
+                threadId: native.thread.id,
+              },
+              transient: true,
+              type: DELEGATED_SYNTHESIS_PART,
+            });
           }
           return messages;
         } finally {

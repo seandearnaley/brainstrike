@@ -1,13 +1,27 @@
 import {
-  type DatabaseWorkPriority,
   type DatabaseWorkRunOptions,
   DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS,
   runScheduledDatabaseMaintenance,
   type ScheduledDatabaseMaintenanceOptions,
   type ScheduledDatabaseMaintenanceResult,
 } from '@brainstrike/db';
+import { isCorruptionError } from './db-main';
+import {
+  type RuntimeDatabaseCorruptionHandler,
+  recoverRuntimeDatabaseCorruption,
+} from './ipc-domains/runtime-database-corruption';
+import {
+  createSustainedIdleObserver,
+  DEFAULT_MAINTENANCE_QUIET_PERIOD_MS,
+  isDatabaseSchedulerBusy,
+  type MaintenanceSchedulerSnapshot,
+  readInFlightAssistantWork,
+} from './maintenance-admission';
 
 const DEFAULT_DATABASE_MAINTENANCE_INITIAL_DELAY_MS = 30_000;
+
+/** Runtime-recovery context for corruption found by a maintenance pass. */
+const MAINTENANCE_CORRUPTION_CONTEXT = 'maintenance';
 
 /**
  * BST-1333: how long the database scheduler must have been CONTINUOUSLY idle
@@ -26,12 +40,9 @@ const DEFAULT_DATABASE_MAINTENANCE_INITIAL_DELAY_MS = 30_000;
  * Requiring sustained quiet turns "the scheduler happens to be idle this
  * millisecond" into "the app has actually settled".
  */
-const DEFAULT_DATABASE_MAINTENANCE_QUIET_PERIOD_MS = 15_000;
+const DEFAULT_DATABASE_MAINTENANCE_QUIET_PERIOD_MS = DEFAULT_MAINTENANCE_QUIET_PERIOD_MS;
 
-interface SchedulerSnapshot {
-  readonly queued: Record<DatabaseWorkPriority, number>;
-  readonly runningPriority: DatabaseWorkPriority | null;
-}
+type SchedulerSnapshot = MaintenanceSchedulerSnapshot;
 
 type MaintenanceDb = Parameters<typeof runScheduledDatabaseMaintenance>[0];
 
@@ -49,10 +60,12 @@ interface MaintenanceLogger {
   readonly debug: (context: Record<string, unknown>, message: string) => void;
   readonly error: (context: Record<string, unknown>, message: string) => void;
   readonly info: (context: Record<string, unknown>, message: string) => void;
+  readonly warn: (context: Record<string, unknown>, message: string) => void;
 }
 
 export type DesktopDatabaseMaintenanceSkipReason =
   | 'already-running'
+  | 'assistant-work-in-flight'
   | 'database-scheduler-busy'
   | 'database-scheduler-recently-busy';
 
@@ -86,6 +99,12 @@ export interface DesktopDatabaseMaintenanceSchedulerOptions {
   readonly logger: MaintenanceLogger;
   readonly maintenanceOptions?: ScheduledDatabaseMaintenanceOptions;
   readonly now?: () => Date;
+  /**
+   * Runtime corruption recovery: backup, DB host replacement, window reload.
+   * Required, never defaulted: a pass that finds corruption must not leave the
+   * app serving the corrupt database.
+   */
+  readonly onRuntimeCorruption: RuntimeDatabaseCorruptionHandler;
   /**
    * Continuous idle required before a pass may start (BST-1333). Observed via
    * `subscribeToSchedulerSnapshots`; when that is not supplied the gate cannot
@@ -129,12 +148,6 @@ function resolveInitialDelayMs(initialDelayMs: number | undefined): number {
   return resolvedInitialDelayMs;
 }
 
-function hasQueuedDatabaseWork(snapshot: SchedulerSnapshot): boolean {
-  return (
-    snapshot.queued.background > 0 || snapshot.queued.foreground > 0 || snapshot.queued.normal > 0
-  );
-}
-
 function createSkippedResult(
   reason: DesktopDatabaseMaintenanceSkipReason,
   now: () => Date
@@ -167,16 +180,7 @@ export function createDesktopDatabaseMaintenanceScheduler(
   let initialTimer: ReturnType<typeof setTimeout> | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   let unsubscribeFromScheduler: (() => void) | null = null;
-  // Null means "no busy observation yet", which start() seeds so a scheduler
-  // that has been quiet since startup still has to serve out the quiet period
-  // rather than counting as quiet since the epoch.
-  let lastBusyAtMs: number | null = null;
-
-  const observeSnapshot = (snapshot: SchedulerSnapshot): void => {
-    if (snapshot.runningPriority !== null || hasQueuedDatabaseWork(snapshot)) {
-      lastBusyAtMs = now().getTime();
-    }
-  };
+  const idle = createSustainedIdleObserver(now);
 
   const runOnce = async (): Promise<DesktopDatabaseMaintenanceRunResult> => {
     if (maintenanceInFlight) {
@@ -185,8 +189,8 @@ export function createDesktopDatabaseMaintenanceScheduler(
     const snapshot = options.getSchedulerSnapshot();
     // Fold the current sample in first: the subscription only fires on change,
     // so a scheduler busy since the last event would otherwise go unrecorded.
-    observeSnapshot(snapshot);
-    if (snapshot.runningPriority !== null || hasQueuedDatabaseWork(snapshot)) {
+    idle.observe(snapshot);
+    if (isDatabaseSchedulerBusy(snapshot)) {
       options.logger.debug(
         {
           queued: snapshot.queued,
@@ -201,24 +205,50 @@ export function createDesktopDatabaseMaintenanceScheduler(
     // for seconds and cannot be preempted once dispatched, so require that the
     // scheduler has been continuously idle for the quiet period. Skipping is
     // free — the next interval tick retries.
-    if (quietPeriodMs > 0 && lastBusyAtMs !== null) {
-      const idleForMs = now().getTime() - lastBusyAtMs;
-      if (idleForMs < quietPeriodMs) {
-        options.logger.debug(
-          { idleForMs, quietPeriodMs },
-          'Skipped scheduled database maintenance because the database scheduler was recently busy'
-        );
-        return createSkippedResult('database-scheduler-recently-busy', now);
-      }
+    const idleForMs = idle.idleForMs();
+    if (quietPeriodMs > 0 && idleForMs !== null && idleForMs < quietPeriodMs) {
+      options.logger.debug(
+        { idleForMs, quietPeriodMs },
+        'Skipped scheduled database maintenance because the database scheduler was recently busy'
+      );
+      return createSkippedResult('database-scheduler-recently-busy', now);
     }
 
     maintenanceInFlight = options
       .runScheduledWork(MAINTENANCE_WORK_OPTIONS, async () => {
-        const db = await options.getDatabase();
-        return await runMaintenance(db, {
-          ...options.maintenanceOptions,
-          now,
-        });
+        try {
+          const db = await options.getDatabase();
+          // Read inside the lane: the work scheduler is serial, so any run-scoped
+          // query submitted after this read queues behind the pass.
+          const inFlight = await readInFlightAssistantWork(db);
+          if (inFlight.runs > 0 || inFlight.backgroundTasks > 0) {
+            options.logger.info(
+              { inFlight },
+              'Skipped scheduled database maintenance because assistant work is in flight'
+            );
+            return createSkippedResult('assistant-work-in-flight', now);
+          }
+          return await runMaintenance(db, {
+            ...options.maintenanceOptions,
+            now,
+          });
+        } catch (error) {
+          if (!isCorruptionError(error)) {
+            throw error;
+          }
+          // Same rule and path as db:query: recover while this operation still
+          // owns the lane, and never retry against the replacement database.
+          options.logger.warn(
+            { context: MAINTENANCE_CORRUPTION_CONTEXT, error },
+            'Corruption detected in maintenance; replacing the database without retrying.'
+          );
+          // Never resolves: rejects with DatabaseCorruptionRecoveredError once
+          // the replacement is in place.
+          return await recoverRuntimeDatabaseCorruption(
+            MAINTENANCE_CORRUPTION_CONTEXT,
+            options.onRuntimeCorruption
+          );
+        }
       })
       .then((result) => {
         if (result.status === 'skipped') {
@@ -265,8 +295,8 @@ export function createDesktopDatabaseMaintenanceScheduler(
       }
       // Treat start as a busy observation: the app is booting, which is
       // exactly the window the quiet period exists to protect.
-      lastBusyAtMs = now().getTime();
-      unsubscribeFromScheduler = options.subscribeToSchedulerSnapshots?.(observeSnapshot) ?? null;
+      idle.seedBusy();
+      unsubscribeFromScheduler = options.subscribeToSchedulerSnapshots?.(idle.observe) ?? null;
       initialTimer = setTimeout(() => {
         initialTimer = null;
         void runOnce().catch((error: unknown) => {

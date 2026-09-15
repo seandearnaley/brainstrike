@@ -23,15 +23,14 @@ import {
   resolveRequestPermissionPolicy,
   resolveScaledToolResultBudget,
   resolveToolResultBudgetForModel,
-  streamMastraToolApprovalAction,
-  streamMastraToolResumeAction,
   TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW,
-  toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { PgliteMastraMemoryResult } from '@brainstrike/agent/pglite-mastra-memory';
-import type { McpHostPort } from '@brainstrike/assistant-contract';
+import { AdmittedChildConfigurationError, type McpHostPort } from '@brainstrike/assistant-contract';
+import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
+import { resolveInitialAgentStream } from './initial-agent-stream.js';
 import {
   collectLocalLlmWarmupModelIds,
   isLocalChatProvider,
@@ -74,8 +73,6 @@ async function readThreadTaskListForTurn<K extends AgentStreamCapabilityKinds>(
     return [];
   }
 }
-
-type InitialStreamMemoryOptions = AssistantStreamRuntimeOptions;
 
 interface ToolOutputArtifactCapabilities {
   toolOutputArtifactReader?: ScopedToolOutputArtifactReader;
@@ -165,70 +162,6 @@ export function resolveToolBuildBudget(
   }
   const model = runtimeData?.model || getProviderDefaultModel(normalizedProvider) || '';
   return resolveToolResultBudgetForModel(normalizedProvider, model);
-}
-
-/**
- * Pick the initial stream for the turn: approval-resume, suspend-resume
- * (submitPlan/askUser), or a fresh generation. Both resume paths skip
- * `injectReferencedFilesContext` — there is no new user turn to scan — mirroring
- * the approval path's contract.
- */
-async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(args: {
-  deps: AgentStreamHelperDeps<K>;
-  messages: AgentMessage[];
-  runtime: RuntimeData;
-  memoryOptions: InitialStreamMemoryOptions;
-  toolApprovalAction: AssistantToolApprovalAction | undefined;
-  toolResumeAction: AssistantToolResumeAction | undefined;
-}): Promise<AsyncIterable<StreamChunk>> {
-  const {
-    deps: { capabilities },
-    messages,
-    runtime,
-    memoryOptions,
-    toolApprovalAction,
-    toolResumeAction,
-  } = args;
-  if (toolApprovalAction) {
-    capabilities.runPersistence.recordContinuationRunTreatment?.(runtime);
-    return streamMastraToolApprovalAction(toolApprovalAction, {
-      ...memoryOptions,
-      requireToolApproval: true,
-      runtime,
-    });
-  }
-  if (toolResumeAction) {
-    capabilities.runPersistence.recordContinuationRunTreatment?.(runtime);
-    return streamMastraToolResumeAction(toolResumeAction, { ...memoryOptions, runtime });
-  }
-  // Prepend the turn's `@file` references (referenced-files), then any explicit
-  // `:skill[name]` activations, then the opt-in self-improvement signal, then
-  // the mounted roots' workspace instructions (AGENTS.md/AGENT.md/CLAUDE.md).
-  // Instructions are applied LAST so the final front-to-back order is:
-  // instructions → signal → skills → referenced files → conversation. All are
-  // no-ops (same array identity) when nothing applies.
-  const withReferencedFiles = await capabilities.contextInjectors.referencedFiles(
-    messages,
-    runtime,
-    capabilities.readWorkspaceTextFile
-  );
-  const withSkillActivations = await capabilities.contextInjectors.activatedSkills(
-    withReferencedFiles,
-    runtime.workspaceSkills
-  );
-  const withSelfImprovementSignal = await capabilities.contextInjectors.selfImprovementSignal(
-    withSkillActivations,
-    runtime
-  );
-  return toAiSdkStyleStream(
-    await capabilities.contextInjectors.workspaceInstructions(
-      withSelfImprovementSignal,
-      runtime,
-      capabilities.readWorkspaceTextFile
-    ),
-    runtime,
-    memoryOptions
-  );
 }
 
 /**
@@ -343,6 +276,13 @@ function buildAgentStreamInitializationFailure<K extends AgentStreamCapabilityKi
   stage: AgentStreamInitializationStage,
   deps: AgentStreamHelperDeps<K>
 ): AgentStreamFailure {
+  if (error instanceof AdmittedChildConfigurationError) {
+    return {
+      ok: false,
+      payload: { code: error.reason, error: error.code, message: error.message },
+      status: 409,
+    };
+  }
   const secretReadErrorPayload = getSecretReadErrorPayload(error);
   if (secretReadErrorPayload) {
     return {
@@ -725,6 +665,7 @@ export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKind
    */
   readonly authInput?: ProviderAuthInput | undefined;
   readonly capabilities: AgentStreamCapabilities<K>;
+  readonly childFollowupAction?: AssistantChildFollowupAction | undefined;
   /** Trusted host-injected compaction overlay lookup; never client supplied. */
   readonly compactionOverlayLookup?: RuntimeData['compactionOverlayLookup'];
   readonly getDatabase: AgentStreamDatabaseProvider<K['database']>;
@@ -768,6 +709,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     mcpTaskTracking,
     signal,
     runId,
+    childFollowupAction,
     toolApprovalAction,
     toolResumeAction,
     toolDependencies,
@@ -1053,9 +995,11 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
 
     initializationStage = 'stream_construction';
     const initialStream = await resolveInitialAgentStream({
+      childFollowupAction,
       deps,
       memoryOptions,
       messages: upsGate.messages,
+      resolvePersonaApiKey: resolveProviderApiKey,
       runtime,
       toolApprovalAction,
       toolResumeAction,

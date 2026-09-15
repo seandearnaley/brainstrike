@@ -44,6 +44,7 @@ import {
   isAssistantCorsPreflight,
   respondForbiddenOrigin,
 } from './assistant-server/cors';
+import { handleDecideRequest } from './assistant-server/decide-endpoint';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import type { HookRunVerdict } from './assistant-server/hooks/run-verdict';
 import {
@@ -58,6 +59,7 @@ import {
   readRequestBody,
   streamResponse,
 } from './assistant-server/http';
+import { createLiveDecisionLog } from './assistant-server/live-decision-log';
 import { desktopAssistantServerLogger } from './assistant-server/logger';
 import {
   DesktopMemoryCredentialMissingError,
@@ -131,6 +133,8 @@ import { resolveDesktopPythonExecutable } from './python-runtime';
 const logger = desktopAssistantServerLogger;
 const compactionOverlayLookup = createCompactionRangeLookup(getDatabase);
 const toolProjectionRewriteLookup = createToolProjectionRewriteLookup(getDatabase);
+/** The /assistant/decide outcomes the running leg cannot see (swarm diagnostics). */
+const liveDecisionLog = createLiveDecisionLog(getDatabase);
 
 /**
  * Desktop's instantiation of the service's opaque capability kinds
@@ -388,6 +392,11 @@ export async function handleAssistantRequest(
     return;
   }
 
+  if (route === 'decide') {
+    await handleDecideRequest(req, res, { recordLiveDecision: liveDecisionLog });
+    return;
+  }
+
   if (route === 'cancel-child') {
     await handleDelegatedCancelRequest(req, res);
     return;
@@ -627,6 +636,7 @@ async function handleAssistantPost(
     messages,
     runtimeData,
     apiKey,
+    childFollowupAction,
     toolApprovalAction,
     toolResumeAction,
   } = prepared.request;
@@ -718,6 +728,7 @@ async function handleAssistantPost(
       apiKey,
       assistantMessageId,
       authInput,
+      ...(childFollowupAction ? { childFollowupAction } : {}),
       executionSignal: executionAbortController.signal,
       initializeStream: async (core) => {
         // runAssistantTurn admits this root only after its previous owner settles.
@@ -733,7 +744,19 @@ async function handleAssistantPost(
         const result = await initializeAgentStream({
           apiKey: core.apiKey,
           authInput: core.authInput,
-          capabilities: desktopAgentStreamCapabilities,
+          // Initial, approval and suspension-resume requests all enter this
+          // initializer; background work and active input retain its memory.
+          capabilities: {
+            ...desktopAgentStreamCapabilities,
+            memory: {
+              ...desktopAgentStreamCapabilities.memory,
+              create: (settings, memoryRunId, sink, data, dependencies) =>
+                getDesktopMastraMemory(settings, memoryRunId, sink, data, {
+                  ...dependencies,
+                  snapshots: options.snapshots ?? undefined,
+                }),
+            },
+          },
           compactionOverlayLookup,
           getDatabase,
           logger,
@@ -749,6 +772,7 @@ async function handleAssistantPost(
                 },
               }
             : {}),
+          childFollowupAction: core.childFollowupAction,
           mcpHost: getDesktopMcpHostRuntime().host,
           mcpTaskTracking: getDesktopMcpHostRuntime().taskHost,
           messages: core.messages,

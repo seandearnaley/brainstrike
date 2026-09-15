@@ -8,6 +8,7 @@ import type { AssistantMessage } from 'assistant-stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BrainstrikeDataStreamRuntimeAdapter } from '../data-stream-runtime';
 import type { DelegatedConversationUpdate } from '../delegated-conversation-receiver';
+import capturedContinuation from './fixtures/child-continuation-native-wire.json';
 
 const finish = {
   code: 'd',
@@ -59,6 +60,141 @@ function serve(lines: string[]): void {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('delegated conversations through the normal runtime adapter', () => {
+  it('decodes the captured real desktop-host native continuation with prior history', async () => {
+    // Captured from the real desktop memory factory + Mastra + production
+    // response mapper. The paired host integration pins one baseline per leg.
+    serve(capturedContinuation.lines);
+    const updates: DelegatedConversationUpdate[] = [];
+    await consume(
+      new BrainstrikeDataStreamRuntimeAdapter({
+        api: 'http://assistant.test',
+        onDelegatedConversation: (update) => updates.push(update),
+      })
+    );
+    const final = updates.at(-1);
+    expect(final?.baseline?.messages).toContainEqual(
+      expect.objectContaining({ id: 'prior-child-message' })
+    );
+    expect(final?.message.status.type).toBe('complete');
+    expect(final?.message.parts).toContainEqual(
+      expect.objectContaining({ text: 'REAL_CHILD_CONTINUATION', type: 'text' })
+    );
+    expect(JSON.stringify(final?.message.parts)).toContain('Continue the work.');
+  });
+
+  it('decodes an idle-child continuation without inventing a parent tool invocation', async () => {
+    const updates: DelegatedConversationUpdate[] = [];
+    serve([
+      frame('f', { messageId: 'parent-message' }),
+      frame('2', [
+        {
+          data: {
+            baseline: {
+              hostRunId: 'fresh-host',
+              messages: [],
+              runEvents: [],
+              threadId: 'existing-child',
+            },
+            continuationId: 'followup-1',
+            frames: [
+              { code: 'f', value: { messageId: 'fresh-message' } },
+              { code: '0', value: 'Follow-up answer' },
+              finish,
+            ],
+            messageId: 'fresh-message',
+            nativeRunId: 'fresh-child-run',
+            threadId: 'existing-child',
+          },
+          name: 'brainstrike.child-continuation',
+        },
+      ]),
+      frame('0', 'Parent received the outcome.'),
+      frame(finish.code, finish.value),
+    ]);
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test',
+      onDelegatedConversation: (update) => updates.push(update),
+    });
+    let parent: AssistantMessage | undefined;
+    for await (const snapshot of adapter.run(options())) {
+      parent = snapshot as AssistantMessage;
+    }
+    expect(updates.at(-1)).toMatchObject({
+      continuation: {
+        continuationId: 'followup-1',
+        nativeRunId: 'fresh-child-run',
+        threadId: 'existing-child',
+      },
+      message: {
+        parts: [{ text: 'Follow-up answer', type: 'text' }],
+        status: { type: 'complete' },
+      },
+    });
+    expect(updates.at(-1)).not.toHaveProperty('identity');
+    expect(parent?.parts.filter((part) => part.type === 'text')).toEqual([
+      expect.objectContaining({ text: 'Parent received the outcome.' }),
+    ]);
+  });
+
+  it('retains the durable continuation anchor on an observed nested delegation', async () => {
+    const updates: DelegatedConversationUpdate[] = [];
+    const nested = JSON.parse(
+      child('grandchild', [
+        { code: 'f', value: { messageId: 'native-grandchild' } },
+        { code: '0', value: 'Descendant answer' },
+        finish,
+      ]).slice('aui-data:'.length)
+    );
+    nested.data.continuationId = 'accepted-input';
+    serve([
+      frame('f', { messageId: 'parent-message' }),
+      frame('2', [nested]),
+      frame(finish.code, finish.value),
+    ]);
+    await consume(
+      new BrainstrikeDataStreamRuntimeAdapter({
+        api: 'http://assistant.test',
+        onDelegatedConversation: (update) => updates.push(update),
+      })
+    );
+    expect(updates.at(-1)).toMatchObject({
+      continuationId: 'accepted-input',
+      identity: { childRuntimeRunId: 'grandchild', parentRuntimeRunId: 'parent-run' },
+    });
+    expect(updates.at(-1)?.message.parts).toContainEqual(
+      expect.objectContaining({ text: 'Descendant answer', type: 'text' })
+    );
+  });
+
+  it.each(['nativeRunId', 'threadId'] as const)(
+    'rejects a continuation whose %s changes midstream',
+    async (key) => {
+      const first = {
+        baseline: { hostRunId: 'host', messages: [], runEvents: [], threadId: 'child' },
+        continuationId: 'input',
+        frames: [{ code: 'f', value: { messageId: 'answer' } }],
+        messageId: 'answer',
+        nativeRunId: 'child-run',
+        threadId: 'child',
+      };
+      const next = { ...first, [key]: 'different', baseline: undefined, frames: [finish] };
+      serve([
+        frame('f', { messageId: 'parent-message' }),
+        frame('2', [{ data: first, name: 'brainstrike.child-continuation' }]),
+        frame('2', [{ data: next, name: 'brainstrike.child-continuation' }]),
+        frame(finish.code, finish.value),
+      ]);
+      await expect(
+        consume(
+          new BrainstrikeDataStreamRuntimeAdapter({
+            api: 'http://assistant.test',
+            onDelegatedConversation: () => {},
+          })
+        )
+      ).rejects.toThrow(/native conversation identity/);
+    }
+  );
+
   it('receives out-of-band child updates while parent text and tool arguments remain open', async () => {
     const outOfBand = (line: string) => frame('2', [JSON.parse(line.slice(line.indexOf(':') + 1))]);
     const updates: AssistantMessage[] = [];
@@ -96,6 +232,41 @@ describe('delegated conversations through the normal runtime adapter', () => {
       args: { path: 'file' },
       result: 'read result',
     });
+  });
+
+  it('consumes routed child envelopes so the parent message neither retains nor re-emits them', async () => {
+    const outOfBand = (line: string): unknown => JSON.parse(line.slice(line.indexOf(':') + 1));
+    const unrelated = { data: { note: 'kept' }, name: 'brainstrike.other' };
+    const parentFrames = [frame('f', { messageId: 'parent-message' }), frame('0', 'Parent.')];
+    const tokens = Array.from({ length: 50 }, (_, index) => `t${index} `);
+    const run = async (lines: string[]) => {
+      serve(lines);
+      const updates: AssistantMessage[] = [];
+      const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+        api: 'http://assistant.test',
+        onDelegatedConversation: (update) => updates.push(update.message),
+      });
+      const snapshots: AssistantMessage[] = [];
+      for await (const snapshot of adapter.run(options())) {
+        snapshots.push(snapshot as AssistantMessage);
+      }
+      return { snapshots, updates };
+    };
+    const baseline = await run([...parentFrames, frame(finish.code, finish.value)]);
+    const fanOut = await run([
+      ...parentFrames,
+      frame('2', [outOfBand(child('a', [{ code: 'f', value: { messageId: 'native-a' } }]))]),
+      ...tokens.map((token) => frame('2', [outOfBand(child('a', [{ code: '0', value: token }]))])),
+      // One mixed entry list: the envelope is routed, the unrelated entry stays.
+      frame('2', [outOfBand(child('a', [finish])), unrelated]),
+      frame(finish.code, finish.value),
+    ]);
+    expect(fanOut.updates.at(-1)?.parts).toMatchObject([{ text: tokens.join(''), type: 'text' }]);
+    const parent = fanOut.snapshots.at(-1);
+    expect(parent?.metadata.unstable_data).toEqual([unrelated]);
+    // Only the unrelated entry is a parent change (2026-09-15: 8,146 routed
+    // envelopes each re-rendered all 860 root parts during a GLM fan-out).
+    expect(fanOut.snapshots).toHaveLength(baseline.snapshots.length + 1);
   });
 
   it('rejects a history row whose content disappeared at the JSON boundary', async () => {
@@ -194,7 +365,11 @@ describe('delegated conversations through the normal runtime adapter', () => {
     ]);
     const adapter = new BrainstrikeDataStreamRuntimeAdapter({
       api: 'http://assistant.test',
-      onDelegatedConversation: (update) => children.set(update.identity.childRuntimeRunId, update),
+      onDelegatedConversation: (update) =>
+        children.set(
+          update.continuation ? update.continuation.nativeRunId : update.identity.childRuntimeRunId,
+          update
+        ),
     });
     let parent: AssistantMessage | undefined;
     for await (const message of adapter.run(options())) {
@@ -257,7 +432,13 @@ describe('delegated receiver settlement and replay', () => {
     await consume(
       new BrainstrikeDataStreamRuntimeAdapter({
         api: 'http://assistant.test',
-        onDelegatedConversation: (update) => updates.set(update.identity.childRuntimeRunId, update),
+        onDelegatedConversation: (update) =>
+          updates.set(
+            update.continuation
+              ? update.continuation.nativeRunId
+              : update.identity.childRuntimeRunId,
+            update
+          ),
       })
     );
     expect(updates.get('grandchild')?.message.parts).toContainEqual(
@@ -312,7 +493,11 @@ describe('delegated receiver settlement and replay', () => {
     serve(lines);
     const adapter = new BrainstrikeDataStreamRuntimeAdapter({
       api: 'http://assistant.test',
-      onDelegatedConversation: (update) => updates.set(update.identity.childRuntimeRunId, update),
+      onDelegatedConversation: (update) =>
+        updates.set(
+          update.continuation ? update.continuation.nativeRunId : update.identity.childRuntimeRunId,
+          update
+        ),
     });
     await consume(adapter);
     for await (const _message of adapter.resume(options(), {

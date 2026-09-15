@@ -176,6 +176,11 @@
       "import": "./dist/secrets-bridge.js",
       "require": "./dist/secrets-bridge.js"
     },
+    "./subagent-settings": {
+      "types": "./dist/subagent-settings.d.ts",
+      "import": "./dist/subagent-settings.js",
+      "require": "./dist/subagent-settings.js"
+    },
     "./skills-bridge": {
       "types": "./dist/skills-bridge.d.ts",
       "import": "./dist/skills-bridge.js",
@@ -240,6 +245,11 @@
       "types": "./dist/delegated-conversation-stream.d.ts",
       "import": "./dist/delegated-conversation-stream.js",
       "require": "./dist/delegated-conversation-stream.js"
+    },
+    "./child-followup": {
+      "types": "./dist/child-followup.d.ts",
+      "import": "./dist/child-followup.js",
+      "require": "./dist/child-followup.js"
     }
   },
   "files": [

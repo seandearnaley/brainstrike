@@ -1,8 +1,15 @@
+export * from './admitted-child-configuration.js';
 export * from './assistant-attachments.js';
 export * from './assistant-auth.js';
 export * from './assistant-stream-session.js';
 export * from './assistant-task-list.js';
 export * from './bedrock-defaults.js';
+export * from './canvas-link.js';
+export * from './child-execution-configuration.js';
+export * from './child-followup.js';
+export * from './child-input.js';
+export * from './child-input-model.js';
+export * from './child-permission-ceiling.js';
 export * from './compaction-summary.js';
 export * from './context-breakdown.js';
 export * from './context-budget.js';
@@ -13,7 +20,9 @@ export * from './delegated-tool-actions.js';
 export {
   DELEGATION_LIMITS,
   type DelegatedBudgetPort,
+  type DelegatedInvocationAdmission,
   type DelegatedStepReservation,
+  type DelegationBudgetCap,
 } from './delegation-limits.js';
 export * from './edit-checkpoints.js';
 export * from './file-mention-directive.js';
@@ -55,6 +64,7 @@ export * from './secret-read-error.js';
 export * from './shell-git-correlation.js';
 export * from './shell-output.js';
 export * from './skills.js';
+export * from './subagent-settings.js';
 export * from './suspended-run-discovery.js';
 export * from './thread-history-adapter.js';
 export * from './tool-approval.js';

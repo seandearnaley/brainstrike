@@ -20,6 +20,7 @@ function ChildRow({ row }: { readonly row: Extract<DelegatedSidebarRow, { kind: 
     () => root?.store.hasUnread(row.node.threadId) ?? false
   );
   const status = snapshot?.update.message.status.type;
+  const needsInput = snapshot ? status === 'requires-action' : row.needsInput;
   return (
     <button
       className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted"
@@ -39,7 +40,7 @@ function ChildRow({ row }: { readonly row: Extract<DelegatedSidebarRow, { kind: 
         </span>
       ) : null}
       <span className="ml-auto shrink-0 text-muted-foreground">
-        {status === 'running' ? 'Working' : status === 'requires-action' ? 'Needs input' : 'Child'}
+        {status === 'running' ? 'Working' : needsInput ? 'Needs input' : 'Child'}
       </span>
     </button>
   );

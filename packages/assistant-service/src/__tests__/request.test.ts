@@ -846,3 +846,81 @@ describe('createProviderApiKeyReader adapter (BST-1352 migration shim)', () => {
     expect(shaped.message).not.toContain('secret-refresh-token');
   });
 });
+
+describe('managed idle-child continuation admission', () => {
+  const childFollowup = {
+    id: 'child-request',
+    text: 'Continue the existing work',
+    threadId: 'owned-child',
+  };
+  it('prepares a typed child followup without manufacturing another root user prompt', async () => {
+    const result = await prepare(
+      JSON.stringify({
+        data: { memory: { resourceId: 'owner', threadId: 'root' }, provider: 'openai' },
+        messages: [],
+        runConfig: { custom: { brainstrikeChildFollowup: childFollowup } },
+      })
+    );
+    expect(result).toMatchObject({ ok: true, request: { childFollowupAction: childFollowup } });
+  });
+
+  it('admits image-only child input without adding images to the parent prompt', async () => {
+    const action = {
+      ...childFollowup,
+      attachments: [{ data: 'data:image/png;base64,AQID', mediaType: 'image/png', type: 'file' }],
+      text: '',
+    };
+    const result = await prepare(
+      JSON.stringify({
+        data: { model: 'z-ai/glm-5.3', provider: 'openrouter' },
+        messages: [{ content: [{ text: '', type: 'text' }], role: 'user' }],
+        runConfig: { custom: { brainstrikeChildFollowup: action } },
+      })
+    );
+    expect(result).toMatchObject({ ok: true, request: { childFollowupAction: action } });
+    if (!result.ok) {
+      throw new Error('Image-only child action was rejected');
+    }
+    expect(JSON.stringify(result.request.messages)).not.toContain('data:image');
+  });
+
+  it.each([
+    { ...childFollowup, threadId: '' },
+    { ...childFollowup, resourceId: 'borrowed-owner' },
+    { ...childFollowup, text: '' },
+  ])(
+    'rejects invalid child continuation identity or caller-supplied authority %#',
+    async (action) => {
+      const result = await prepare(
+        JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [],
+          runConfig: { custom: { brainstrikeChildFollowup: action } },
+        })
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        rejection: { payload: { error: 'invalid_child_followup_action' }, status: 400 },
+      });
+    }
+  );
+
+  it('rejects mixed child input and pending decision actions', async () => {
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'openai' },
+        messages: [],
+        runConfig: {
+          custom: {
+            brainstrikeChildFollowup: childFollowup,
+            brainstrikeToolApproval: { action: 'approve', runId: 'run', toolCallId: 'call' },
+          },
+        },
+      })
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      rejection: { payload: { error: 'conflicting_tool_continuation_actions' }, status: 400 },
+    });
+  });
+});

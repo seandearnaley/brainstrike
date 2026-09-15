@@ -30,7 +30,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
-import type { Agent, AgentMemoryOption, MastraDBMessage } from '@mastra/core/agent';
+import type { Agent, AgentMemoryOption, AgentSignal, MastraDBMessage } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
 import type { StreamStalledError } from '../stream/with-inactivity-timeout';
 import { ToolCallInputStreamingTimeoutError } from '../stream/with-tool-call-input-timeout';
@@ -67,6 +67,12 @@ const logger = createLogger('MastraAgent');
 export interface StreamIterationParams {
   memory?: MastraMemory;
   messages: AgentMessage[];
+  nativeWake?: {
+    readonly signal: AgentSignal;
+    readonly maxSteps?: number;
+    readonly onWake: (nativeRunId: string) => Promise<void>;
+  };
+  onNativeStart?: (nativeRunId: string) => Promise<void>;
   requireToolApproval?: boolean;
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
@@ -138,6 +144,17 @@ export async function disposeStreamAfterFailure(
 }
 
 /**
+ * How long Mastra's native stream may take to close once this runtime has
+ * aborted it. The work being joined is Mastra's cancel persistence and two
+ * snapshot DELETEs; a stream that ignores its abort (a hung provider socket, a
+ * tool that never returns) must not hold the turn's disposal hostage — that is
+ * the failure the watchdog exists to contain. Past the deadline the join stops
+ * waiting and records a named error; the leaked pipeline is then bounded by
+ * the vitest event-loop watchdog and PGlite's fail-closed trap (BST-1221).
+ */
+export const NATIVE_STREAM_SETTLE_DEADLINE_MS = 30_000;
+
+/**
  * Join Mastra's own consumption of the native stream before the turn ends.
  *
  * On every terminal path the agentic loop awaits `deleteRunSnapshots()` — two
@@ -149,8 +166,10 @@ export async function disposeStreamAfterFailure(
  * (BST-1320), the in-flight Bind traps, and the stock loop spins the worker
  * forever (BST-1221; traced 2026-09-12 in
  * `mastra-memory-persistence.integration.spec.ts`). `consumeStream` is
- * idempotent — it returns the pump the first read started — and resolves once
- * the base stream has closed, i.e. after that cleanup.
+ * idempotent — `MastraModelOutput` memoises one `#consumeStreamPromise` that
+ * pumps its base stream, and `fullStream` is an evented view fed by that pump
+ * (its first `pull` is what starts it) — and resolves once the base stream has
+ * closed, i.e. after that cleanup.
  *
  * Ordering: this runs BEFORE the abort seam's awaited save. Mastra's cancel
  * persistence (`MessageHistory.processOutputResult`) writes inside this
@@ -164,17 +183,6 @@ export async function disposeStreamAfterFailure(
  * chunk path already surfaced, and is recorded rather than thrown a second
  * time.
  */
-/**
- * How long Mastra's native stream may take to close once this runtime has
- * aborted it. The work being joined is Mastra's cancel persistence and two
- * snapshot DELETEs; a stream that ignores its abort (a hung provider socket, a
- * tool that never returns) must not hold the turn's disposal hostage — that is
- * the failure the watchdog exists to contain. Past the deadline the join stops
- * waiting and records a named error; the leaked pipeline is then bounded by
- * the vitest event-loop watchdog and PGlite's fail-closed trap (BST-1221).
- */
-export const NATIVE_STREAM_SETTLE_DEADLINE_MS = 30_000;
-
 export async function settleNativeStream(
   streamResult: {
     consumeStream: (options?: { onError?: (error: unknown) => void }) => Promise<void>;
@@ -185,23 +193,53 @@ export async function settleNativeStream(
   const deadlineMs = options.deadlineMs ?? NATIVE_STREAM_SETTLE_DEADLINE_MS;
   // The join is only bounded if the stream has been told to stop: make that
   // structural here instead of trusting every caller's ordering. `abort` is a
-  // no-op once the context has already aborted.
-  streamAbortContext.abort(new Error('Native stream settlement started.'));
-  const consumption = streamResult.consumeStream({
-    onError: (error) => {
-      const record = {
-        aborted: streamAbortContext.signal.aborted,
-        code: 'mastra_native_stream_settled_with_error',
-        error: error instanceof Error ? error.message : String(error),
-      };
-      if (streamAbortContext.signal.aborted) {
-        // The abort raised above is the expected way an abandoned stream ends.
-        logger.debug(record, 'native Mastra stream ended with an error while being settled');
-        return;
-      }
-      logger.warn(record, 'native Mastra stream ended with an error while being settled');
-    },
-  });
+  // no-op once the context has already aborted (a normally finished attempt
+  // was aborted by its own `dispose()` before this runs).
+  const wasAlreadyAborted = streamAbortContext.signal.aborted;
+  const settlementAbort = new Error('Native stream settlement started.');
+  streamAbortContext.abort(settlementAbort);
+  let recorded = false;
+  let recordedUnexpected = false;
+  const recordConsumptionError = (error: unknown): void => {
+    // The abort is the expected way an abandoned stream ends — as the abort
+    // reason itself, one `cause` hop away, or as an `AbortError` (which also
+    // buckets an unrelated inner abort, a tool's own fetch for instance, as
+    // expected; abort-shaped failures do not reach warn). Anything else that
+    // surfaces only now — a failing snapshot DELETE, a persistence error in
+    // Mastra's cancel write — is a failure the chunk path never saw.
+    const reason: unknown = streamAbortContext.signal.reason;
+    const expectedEnding =
+      error === reason ||
+      error === settlementAbort ||
+      (error instanceof Error &&
+        (error.name === 'AbortError' || error.cause === reason || error.cause === settlementAbort));
+    // One failure, one record: a callee that both reports through `onError`
+    // and rejects is counted once — but a genuine failure that surfaces AFTER
+    // the expected abort record must still reach warn, so the latch only
+    // suppresses repeats of what has already been said.
+    if (recorded && (expectedEnding || recordedUnexpected)) {
+      return;
+    }
+    recorded = true;
+    recordedUnexpected ||= !expectedEnding;
+    const record = {
+      code: 'mastra_native_stream_settled_with_error',
+      error: error instanceof Error ? error.message : String(error),
+      wasAlreadyAborted,
+    };
+    if (expectedEnding) {
+      logger.debug(record, 'native Mastra stream ended by its abort while being settled');
+      return;
+    }
+    logger.warn(record, 'native Mastra stream failed while being settled');
+  };
+  // A `consumeStream` that rejects — or throws synchronously — instead of
+  // routing through `onError` is recorded the same way, so the "recorded,
+  // never thrown a second time" contract holds structurally rather than
+  // depending on the callee.
+  const consumption = Promise.resolve()
+    .then(() => streamResult.consumeStream({ onError: recordConsumptionError }))
+    .catch(recordConsumptionError);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<'deadline'>((resolve) => {
     timer = setTimeout(() => resolve('deadline'), deadlineMs);
@@ -324,9 +362,13 @@ export const resolveFullStream = (
 declare const RESOLVED_MEMORY_OPTION: unique symbol;
 /**
  * An `AgentMemoryOption` that `resolveMemoryOption` built: its `options`
- * carry the merged thread config's `readOnly`, so consumers may read that
- * field as the effective policy. The brand keeps a hand-built option from
- * reaching the abort seam, where an unstamped `readOnly` would fail open.
+ * carry `readOnly: true` whenever the merged thread config is read-only (a
+ * writable memory leaves the caller's options untouched, so a caller-supplied
+ * `readOnly: true` stays as it was). Consumers may therefore read
+ * `options?.readOnly === true` as "writes are off" — it is never false when
+ * the merged policy is read-only — and the brand keeps a hand-built option
+ * from reaching the abort seam, where an unstamped `readOnly` would fail
+ * open.
  */
 export type ResolvedAgentMemoryOption = AgentMemoryOption & {
   readonly [RESOLVED_MEMORY_OPTION]: true;
@@ -461,6 +503,20 @@ export interface TurnAttempt {
    * before the runtime is disposed; it is never skipped.
    */
   readonly settleNativeStream: () => Promise<void>;
+}
+
+/**
+ * Mastra's synchronous `MastraModelOutput.status`. `suspended` at native close
+ * means the run is parked on the user: a pause chunk in this leg set it, or a
+ * resumed leg restored it from the snapshot because sibling calls stay
+ * suspended (that leg closes with no finish and no pause part of its own).
+ */
+export function readNativeStreamStatus(streamResult: unknown): string | undefined {
+  if (typeof streamResult !== 'object' || streamResult === null) {
+    return;
+  }
+  const status = (streamResult as { status?: unknown }).status;
+  return typeof status === 'string' ? status : undefined;
 }
 
 /**

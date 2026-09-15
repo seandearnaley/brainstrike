@@ -80,6 +80,23 @@ describe('SubagentExecutionCard', () => {
     expect(screen.getByText('· 2 tool calls')).toBeTruthy();
   });
 
+  it('names a delegation whose reserved summary was cut as a truncated completion', () => {
+    // GLM pack 2026-09-15: the child hit its budget and the model cut its
+    // summary at the synthesis reservation. It COMPLETED with partial
+    // findings — never "failed", never plainly "finished".
+    renderCard({
+      outcome: 'truncated',
+      result: completedResult,
+      status: { type: 'complete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    expect(screen.getByText('Explorer finished with a truncated summary')).toBeTruthy();
+    expect(screen.queryByText('Explorer finished')).toBeNull();
+    expect(screen.getByRole('img', { name: 'Completed (truncated summary)' })).toBeTruthy();
+    expect(screen.getByText('· 2 tool calls')).toBeTruthy();
+  });
+
   it('renders a completed delegation summary with the persona label and tool-call count', () => {
     renderCard({
       result: completedResult,

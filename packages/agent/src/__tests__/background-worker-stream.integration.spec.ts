@@ -1,6 +1,5 @@
-import { TransformStream } from 'node:stream/web';
 import { setImmediate as nextEventLoopTurn } from 'node:timers/promises';
-import type { AgentExecutionOptionsBase } from '@mastra/core/agent';
+import { ChildInputNotDeliveredError } from '@brainstrike/assistant-contract';
 import { BACKGROUND_TASK_WORKFLOW_ID } from '@mastra/core/background-tasks';
 import { expect, it, vi } from 'vitest';
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
@@ -14,56 +13,79 @@ import { listSuspendedMastraRuns } from '../mastra/suspended-run-discovery';
 import type { StreamChunk } from '../types';
 import { createBackgroundFixture } from './fixtures/background-worker-runtime';
 
-it('removes a definitively discarded signal when the child finishes during durable admission', async () => {
-  const fixture = await createBackgroundFixture();
-  const { backing, runtime, runtimeData, entered, release, database, model } = fixture;
-  const saved = Promise.withResolvers<void>();
-  const continueDelivery = Promise.withResolvers<void>();
-  let consuming: Promise<void> | undefined;
-  let sending: Promise<void> | undefined;
-  const save = backing.memory.saveMessages.bind(backing.memory);
-  const persist = vi.spyOn(backing.memory, 'saveMessages').mockImplementation(async (input) => {
-    const result = await save(input);
-    if (input.messages.some((message) => message.id.startsWith('child-input:'))) {
-      saved.resolve();
-      await continueDelivery.promise;
+it.each([false, true])(
+  'preserves definitive discard and its cleanup outcome (cleanup fails=%s)',
+  async (cleanupFails) => {
+    const fixture = await createBackgroundFixture();
+    const { backing, runtime, runtimeData, entered, release, database, model } = fixture;
+    const cleanupFailure = new Error('Injected child signal cleanup failure');
+    const store = await backing.storage.getStore('memory');
+    if (!store) {
+      throw new Error('Missing native memory');
     }
-    return result;
-  });
-  try {
-    const iterator = await createStreamIteratorFromRuntime({
-      memory: backing.memory,
-      messages: [{ id: 'task', parts: [{ text: 'Inspect', type: 'text' }], role: 'user' }],
-      runtime,
-      runtimeData,
-    });
-    consuming = (async () => {
-      for await (const _chunk of iterator) {
-        /* Drain native output. */
+    const remove = store.deleteMessages.bind(store);
+    const deleteMessages = vi.spyOn(store, 'deleteMessages').mockImplementation((ids) => {
+      if (cleanupFails && ids.some((id) => id.startsWith('child-input:'))) {
+        return Promise.reject(cleanupFailure);
       }
-    })();
-    consuming.catch(() => {});
-    await entered.promise;
-    sending = fixture.followup({ id: 'late-input', text: 'MUST_NOT_RECALL_DISCARDED_INPUT' });
-    sending.catch(() => {});
-    await saved.promise;
-    release.resolve();
-    await consuming;
-    continueDelivery.resolve();
-    await expect(sending).rejects.toThrow('did not accept');
-    expect(
-      (await database.query("SELECT id FROM mastra_messages WHERE role = 'signal'")).rows
-    ).toEqual([]);
-    expect(JSON.stringify(model.prompts)).not.toContain('MUST_NOT_RECALL_DISCARDED_INPUT');
-  } finally {
-    release.resolve();
-    continueDelivery.resolve();
-    persist.mockRestore();
-    await Promise.allSettled([consuming, sending]);
-    await runtime.dispose();
-    await database.close();
+      return remove(ids);
+    });
+    const saved = Promise.withResolvers<void>();
+    const continueDelivery = Promise.withResolvers<void>();
+    let consuming: Promise<void> | undefined;
+    let sending: Promise<void> | undefined;
+    const save = backing.memory.saveMessages.bind(backing.memory);
+    const persist = vi.spyOn(backing.memory, 'saveMessages').mockImplementation(async (input) => {
+      const result = await save(input);
+      if (input.messages.some((message) => message.id.startsWith('child-input:'))) {
+        saved.resolve();
+        await continueDelivery.promise;
+      }
+      return result;
+    });
+    try {
+      const iterator = await createStreamIteratorFromRuntime({
+        memory: backing.memory,
+        messages: [{ id: 'task', parts: [{ text: 'Inspect', type: 'text' }], role: 'user' }],
+        runtime,
+        runtimeData,
+      });
+      consuming = (async () => {
+        for await (const _chunk of iterator) {
+          /* Drain native output. */
+        }
+      })();
+      consuming.catch(() => {});
+      await entered.promise;
+      sending = fixture.followup({ id: 'late-input', text: 'MUST_NOT_RECALL_DISCARDED_INPUT' });
+      sending.catch(() => {});
+      await saved.promise;
+      release.resolve();
+      await consuming;
+      continueDelivery.resolve();
+      if (cleanupFails) {
+        await expect(sending).rejects.toMatchObject({
+          errors: [expect.any(ChildInputNotDeliveredError), cleanupFailure],
+          name: 'AggregateError',
+        });
+      } else {
+        await expect(sending).rejects.toBeInstanceOf(ChildInputNotDeliveredError);
+        expect(
+          (await database.query("SELECT id FROM mastra_messages WHERE role = 'signal'")).rows
+        ).toEqual([]);
+      }
+      expect(JSON.stringify(model.prompts)).not.toContain('MUST_NOT_RECALL_DISCARDED_INPUT');
+    } finally {
+      release.resolve();
+      continueDelivery.resolve();
+      persist.mockRestore();
+      deleteMessages.mockRestore();
+      await Promise.allSettled([consuming, sending]);
+      await runtime.dispose();
+      await database.close();
+    }
   }
-});
+);
 
 it.each(['lookup', 'persist'])(
   'rechecks revoked admission after awaited %s before sending child input',
@@ -118,7 +140,10 @@ it.each(['lookup', 'persist'])(
               throw new Error('Durable admission revoked');
             }
           })
-        ).rejects.toThrow('Durable admission revoked');
+        ).rejects.toMatchObject({
+          cause: expect.objectContaining({ message: 'Durable admission revoked' }),
+          name: 'ChildInputNotDeliveredError',
+        });
       } finally {
         read.mockRestore();
         persisted.mockRestore();
@@ -605,42 +630,11 @@ it.each([
 );
 
 it('reports native idle expiry while a child still owns unfinished work', async () => {
-  const { database, backing, runtime, runtimeData, release, effect } =
-    await createBackgroundFixture();
-  const nativeStream = runtime.agent.stream.bind(runtime.agent);
-  const streamSpy = vi
-    .spyOn(runtime.agent, 'stream')
-    .mockImplementation(
-      async (
-        messages: Parameters<typeof nativeStream>[0],
-        options?: AgentExecutionOptionsBase<unknown>
-      ) => {
-        const result = options
-          ? await nativeStream(
-              messages,
-              options.untilIdle ? { ...options, untilIdle: { maxIdleMs: 1 } } : options
-            )
-          : await nativeStream(messages);
-        if (!options?.untilIdle) {
-          return result;
-        }
-        return new Proxy(result, {
-          get(target, property, receiver) {
-            if (property !== 'fullStream') {
-              return Reflect.get(target, property, receiver);
-            }
-            return target.fullStream.pipeThrough(
-              new TransformStream({
-                flush() {
-                  // Observe real native EOF before releasing the controlled child.
-                  release.resolve();
-                },
-              })
-            );
-          },
-        });
-      }
-    );
+  const fixture = await createBackgroundFixture();
+  const { database, backing, runtimeData, release, effect, discoveryOptions } = fixture;
+  // The host loop's silence budget, shortened so the running child (held on
+  // `release`) expires it; the expiry must surface, never a quiet finish.
+  const runtime = await createMastraAgentRuntime({ ...discoveryOptions, backgroundIdleMs: 1 });
   try {
     const iterator = await createStreamIteratorFromRuntime({
       memory: backing.memory,
@@ -661,9 +655,9 @@ it('reports native idle expiry while a child still owns unfinished work', async 
     expect(effect).toHaveBeenCalledTimes(1);
     expect(chunks.filter((chunk) => chunk.type === 'message-finish')).toEqual([]);
   } finally {
-    streamSpy.mockRestore();
     release.resolve();
     await runtime.dispose();
+    await fixture.runtime.dispose();
     await database.close();
   }
 });

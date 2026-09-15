@@ -1,11 +1,15 @@
 import type { RediscoveredToolApproval } from '@brainstrike/assistant-contract/tool-approval';
 import type { SuspendedRunDiscovery } from '@brainstrike/assistant-data';
-import type { DelegatedConversationNode, DelegatedConversationRepository } from '@brainstrike/db';
-import { resolveDelegatedWorkspaceIdentity } from './resolve-delegated-workspace-identity';
+import type { DelegatedConversationNode } from '@brainstrike/db';
+import {
+  resolveChildContinuationIdentity,
+  resolveDelegatedWorkspaceIdentity,
+  type WorkspaceDecisionRepository,
+} from './resolve-delegated-workspace-identity';
 
 /** Decisions are owned by the root; the child only displays its matching path. */
 export function createDelegatedWorkspaceDiscovery(
-  repository: Pick<DelegatedConversationRepository, 'getInvocation'>,
+  repository: WorkspaceDecisionRepository,
   node: DelegatedConversationNode,
   discoverRoot: SuspendedRunDiscovery
 ): SuspendedRunDiscovery {
@@ -16,12 +20,21 @@ export function createDelegatedWorkspaceDiscovery(
     const result = await discoverRoot(node.rootThreadId, node.ownerResourceId);
     let invalidBinding = false;
     const belongs = async (
-      pause: Pick<RediscoveredToolApproval, 'delegation'>
+      pause: Pick<RediscoveredToolApproval, 'delegation' | 'continuationId' | 'runId'>
     ): Promise<boolean> => {
-      if (!pause.delegation) {
-        return false;
-      }
       try {
+        if (pause.continuationId) {
+          return (
+            (await resolveChildContinuationIdentity(repository, node, {
+              continuationId: pause.continuationId,
+              runId: pause.runId,
+              ...(pause.delegation ? { path: pause.delegation.path } : {}),
+            })) !== undefined
+          );
+        }
+        if (!pause.delegation) {
+          return false;
+        }
         return (
           (await resolveDelegatedWorkspaceIdentity(repository, node, pause.delegation.path)) !==
           undefined

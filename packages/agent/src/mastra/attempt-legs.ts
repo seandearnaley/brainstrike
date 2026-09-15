@@ -23,7 +23,7 @@
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/logging';
-import type { Agent, MastraDBMessage } from '@mastra/core/agent';
+import type { Agent, AgentExecutionOptions, MastraDBMessage } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
 import type { RuntimeData, StreamIterator } from '../types';
 import { attachAbortedTurnMessageList } from './aborted-turn-persistence';
@@ -33,19 +33,26 @@ import {
   type ResumedToolCallStart,
   streamAttemptChunks,
 } from './agent-streaming';
-import { repairBackgroundResults } from './background-results';
+import { resolveRequireToolApproval } from './approval-gate';
+import { claimGrantedBackgroundResumes, driveBackgroundWork } from './background-granted-approvals';
+import { repairBackgroundResults, restoreLateBackgroundResults } from './background-results';
 import { createBackgroundResumeStream, findPendingBackgroundTask } from './background-resume';
 import { stopBackgroundTree } from './background-stop';
 import {
   assertDelegatedToolActionPending,
   claimDelegatedToolAction,
 } from './delegated-tool-actions';
-import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
+import {
+  readLateBackgroundResults,
+  recordLateOverlayWakeup,
+  withLateBackgroundResults,
+} from './late-background-results-processor';
+import { armLiveDecisions } from './live-decisions';
 import { createMastraAgentError, isMastraAgentError, MastraAgentError } from './mastra-agent-error';
 import { makeMcpDiscoverySkipChunks } from './mcp-discovery-diagnostics';
-import type { PermissionAskToolMetadata } from './permission-tool-gate';
+import { makePermissionGateResolvedChunks } from './permission-gate-run-events';
 import { computePromptBreakdown } from './prompt-breakdown';
-import { type ApprovalGate, buildStreamOptions } from './runtime-assembly/stream-options';
+import { buildStreamOptions } from './runtime-assembly/stream-options';
 import { createDelegationOutcomeCapture } from './subagent-delegation';
 import { resolveDiscoveredApprovalToolName } from './suspended-run-discovery';
 import { createDelegationUsageCapture, type ToolLifecycleState } from './tool-lifecycle-processors';
@@ -57,6 +64,7 @@ import {
   createTurnAttemptLifecycleState,
   disposeStreamAfterFailure,
   readAttemptProducedMessages,
+  readNativeStreamStatus,
   resolveFullStream,
   resolveMemoryOption,
   runTurnAttempts,
@@ -93,15 +101,79 @@ export async function createStreamIteratorFromRuntime(
         input.carriedLifecycleState,
         false
       ),
-    maxAttempts: runtime.resilienceConfig.streamStallAttempts,
+    maxAttempts: params.nativeWake ? 1 : runtime.resilienceConfig.streamStallAttempts,
     // BST-1602: a run whose MCP server contributed nothing says so. This is the
     // FRESH-TURN seam, which is exactly the scope the rows want — the resume
     // legs call `runTurnAttempts` directly, rebuild the runtime, re-run
-    // discovery, and still emit nothing.
-    preludeChunks: makeMcpDiscoverySkipChunks(runtime.mcpDiscoverySkips),
+    // discovery, and still emit nothing. The resolved permission gate (debug
+    // pack, 2026-09-15) rides the same seam for the same reason: once per leg.
+    preludeChunks: [
+      ...makeMcpDiscoverySkipChunks(runtime.mcpDiscoverySkips),
+      ...makePermissionGateResolvedChunks(runtime.permissionGate),
+    ],
     runtime,
     runtimeData,
   });
+}
+
+async function wakeNativeConversation(
+  agent: Agent,
+  wake: NonNullable<StreamIterationParams['nativeWake']>,
+  runtimeData: RuntimeData | undefined,
+  streamOptions: ReturnType<typeof buildStreamOptions>,
+  abort: (reason: Error) => void
+) {
+  const scope = runtimeData?.memory;
+  if (!scope) {
+    throw new Error('Native conversation wake requires its authorized memory scope.');
+  }
+  const accepted = await agent.sendSignal(wake.signal, {
+    ifActive: { behavior: 'discard' },
+    ifIdle: {
+      behavior: 'wake',
+      streamOptions: {
+        ...streamOptions,
+        ...(wake.maxSteps ? { maxSteps: wake.maxSteps } : {}),
+      } as AgentExecutionOptions<undefined>,
+    },
+    resourceId: scope.resourceId,
+    threadId: scope.threadId,
+  }).accepted;
+  if (accepted.action !== 'wake') {
+    throw new Error(`Native conversation wake was not started (${accepted.action}).`);
+  }
+  try {
+    await wake.onWake(accepted.runId);
+  } catch (error) {
+    abort(new Error('Native conversation wake binding failed.', { cause: error }));
+    try {
+      await accepted.output.consumeStream();
+    } catch (settleError) {
+      throw new AggregateError(
+        [error, settleError],
+        'Native conversation wake binding and settlement failed.'
+      );
+    }
+    throw error;
+  }
+  return accepted.output;
+}
+
+async function bindStartedNativeBranch(
+  stream: { readonly runId: string; consumeStream(): Promise<unknown> },
+  onNativeStart: StreamIterationParams['onNativeStart'],
+  abort: (reason: Error) => void
+): Promise<void> {
+  if (!onNativeStart) {
+    return;
+  }
+  try {
+    await onNativeStart(stream.runId);
+  } catch (error) {
+    abort(new Error('Native child branch binding failed.', { cause: error }));
+    await stream.consumeStream();
+    throw error;
+  }
 }
 
 async function createInitialTurnAttempt(
@@ -112,6 +184,8 @@ async function createInitialTurnAttempt(
     memory,
     requireToolApproval,
     sanitizedNameMap,
+    nativeWake,
+    onNativeStart,
   }: StreamIterationParams,
   continuationMessages: readonly MastraDBMessage[] | undefined,
   carriedLifecycleState?: ToolLifecycleState,
@@ -132,6 +206,9 @@ async function createInitialTurnAttempt(
     runtime.toolExecutionDurations,
     carriedLifecycleState
   );
+  // Every leg arms the runtime's live decision seam for its own scope: a
+  // decision reaches THIS running leg (live-decisions.ts).
+  armLiveDecisions(runtime, runtimeData);
 
   try {
     // A continuation re-sends the original request FOLLOWED BY everything the
@@ -162,6 +239,10 @@ async function createInitialTurnAttempt(
       delegationUsage,
       leg: 'initial',
       memoryOption,
+      // The caller's explicit option passes through untouched; per-call
+      // approval rides on each ask tool's function-form flag (approval-gate.ts).
+      // Never synthesize a run-wide gate here: a truthy one forces concurrency
+      // 1 on every step (agent-DsRUDsS_.js:24054).
       requireToolApproval,
       runtime,
       runtimeData,
@@ -186,9 +267,24 @@ async function createInitialTurnAttempt(
           ? streamOptions
           : undefined;
 
-    const streamResult = resolvedStreamOptions
-      ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
-      : await runtime.agent.stream(streamInput);
+    const streamResult = driveBackgroundWork(
+      runtime,
+      runtimeData,
+      nativeWake
+        ? await wakeNativeConversation(
+            runtime.agent,
+            nativeWake,
+            runtimeData,
+            streamOptions,
+            streamAbortContext.abort
+          )
+        : resolvedStreamOptions
+          ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
+          : await runtime.agent.stream(streamInput),
+      resolvedStreamOptions ?? streamOptions,
+      streamAbortContext.signal
+    );
+    await bindStartedNativeBranch(streamResult, onNativeStart, streamAbortContext.abort);
     await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
     logger.info(
       {
@@ -223,6 +319,7 @@ async function createInitialTurnAttempt(
       chunks: streamAttemptChunks({
         abortedTurnPersistence,
         completeNativeStream: () => streamResult.getFullOutput(),
+        readNativeStatus: () => readNativeStreamStatus(streamResult),
         ...(delegationUsage ? { delegationUsage } : {}),
         lifecycleState,
         ...(memory ? { memory } : {}),
@@ -259,50 +356,6 @@ export function validateToolApprovalAction(action: AssistantToolApprovalAction):
       detail: 'tool approval action requires toolCallId',
     });
   }
-}
-
-/**
- * The approval RESUME leg passes Mastra's run-wide `requireToolApproval: true`
- * (the resume API needs it — see docs/agents/assistant-runtime.md PERMISSION ENGINE). A blanket `true`
- * gates EVERY tool call on the resumed run. Substitute the FUNCTION form so the
- * rebuilt runtime reuses the permission gate's authoritative `askTools` set:
- * allowed read/state tools run free, ask-gated mutations can suspend again, and
- * Mastra's internal memory tools remain exempt. A caller-supplied function or a
- * non-`true` value passes through unchanged.
- *
- * An empty `askTools` is AMBIGUOUS and MUST be disambiguated by `permissionEnforced`:
- *  - `permissionEnforced === true` → a policy WAS enforced but resolved nothing
- *    to `'ask'`, i.e. every remaining tool is ALLOWED (e.g. "Allow all tools
- *    this session" granted all categories; denied tools were already omitted
- *    from the map). This is an all-allowed posture → gate NOTHING, so a later
- *    mutation tool in the same resumed run is NOT re-prompted.
- *  - `permissionEnforced === false` → NO policy was enforced yet the caller set
- *    run-wide `requireToolApproval: true` → a genuine explicit GLOBAL approval
- *    request → keep gating every non-internal tool (the pre-permission-engine
- *    behavior). Per-tool DENY still wins in both cases: a denied tool never
- *    reaches the map, so it never reaches this gate.
- */
-function resolveResumeApprovalGate(
-  requireToolApproval: ApprovalGate | undefined,
-  askTools: ReadonlyMap<string, PermissionAskToolMetadata>,
-  permissionEnforced: boolean
-): ApprovalGate {
-  if (requireToolApproval !== true) {
-    return requireToolApproval ?? false;
-  }
-  // Global-gate ONLY when the empty ask set is a genuine global-approval request
-  // (no policy enforced). An empty ask set UNDER an enforced policy is the
-  // all-allowed posture: the function below then gates nothing (askTools.has is
-  // always false), honoring "Allow all tools this session".
-  const isExplicitGlobalApproval = askTools.size === 0 && !permissionEnforced;
-  // Since the @mastra/core 1.56 approval rework there is no self-approving
-  // exemption: run_python is an ordinary ask-set tool (the permission gate's
-  // `requireApproval` clone is its Gate A), so re-gating it on a resumed leg
-  // is exactly the framework's own idiom — approve is consumed pre-execution
-  // and the tool runs once, never a loop. Only Mastra-INTERNAL bookkeeping
-  // tools stay exempt (the D4 defect).
-  return ({ toolName }: { toolName: string }): boolean =>
-    !isApprovalExemptInternalTool(toolName) && (isExplicitGlobalApproval || askTools.has(toolName));
 }
 
 export async function readResumedApprovalToolCall(
@@ -462,6 +515,7 @@ async function createToolApprovalTurnAttempt({
   // re-classified as an empty response, even when the resume stream itself
   // carries no further content parts.
   lifecycleState.sawModelContribution = true;
+  armLiveDecisions(runtime, runtimeData);
   try {
     validateToolApprovalAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
@@ -477,14 +531,16 @@ async function createToolApprovalTurnAttempt({
       runtime.personasById.size > 0
         ? createDelegationUsageCapture(runtime.personasById, runtimeData)
         : undefined;
-    // Reapply the per-tool permission decisions instead of letting Mastra's
-    // run-wide resume flag gate every subsequent tool call.
+    // The resume API's blanket `true` would gate EVERY tool call on the
+    // resumed run; the live gate substitutes its predicate (allowed tools run
+    // free, ask tools suspend per call, a remembered grant lifts them). A
+    // caller that set nothing gets nothing, exactly as before.
     const resolvedApprovalGate =
       requireToolApproval === undefined
         ? undefined
-        : resolveResumeApprovalGate(
+        : resolveRequireToolApproval(
             requireToolApproval,
-            runtime.askTools,
+            runtime.approvalGate,
             runtime.permissionEnforced
           );
     const approvalOptions = buildStreamOptions({
@@ -513,19 +569,40 @@ async function createToolApprovalTurnAttempt({
     if (backgroundTask && !memory) {
       throw new Error('Background resume requires durable memory.');
     }
+    // A session grant recorded with this approval reaches the runtime as its
+    // permission snapshot; every parked sibling that snapshot now allows is
+    // claimed and resumed in this same leg (see background-granted-approvals).
+    const { answeredApprovals, resumes } = backgroundTask
+      ? await claimGrantedBackgroundResumes({
+          decision: { resumeData: { approved: action.action === 'approve' }, task: backgroundTask },
+          runtime,
+          runtimeData,
+        })
+      : { answeredApprovals: [], resumes: [] };
+    const late = backgroundTask
+      ? []
+      : await readLateBackgroundResults(runtime, runtimeData, action.runId);
+    const resumedOptions = withLateBackgroundResults(approvalOptions, late);
+    await recordLateOverlayWakeup(runtime, late);
     const streamResult =
       backgroundTask && memory
         ? createBackgroundResumeStream({
             attachParent: (stream) => attachAbortedTurnMessageList(abortedTurnPersistence, stream),
+            channel: runtime.liveDecisions,
             memory,
             options: approvalOptions,
-            resumeData: { approved: action.action === 'approve' },
+            resumes,
             runtime,
-            task: backgroundTask,
           })
-        : action.action === 'approve'
-          ? await runtime.agent.approveToolCall(approvalOptions as AgentToolApprovalOptions)
-          : await runtime.agent.declineToolCall(approvalOptions as AgentToolApprovalOptions);
+        : driveBackgroundWork(
+            runtime,
+            runtimeData,
+            action.action === 'approve'
+              ? await runtime.agent.approveToolCall(resumedOptions as AgentToolApprovalOptions)
+              : await runtime.agent.declineToolCall(resumedOptions as AgentToolApprovalOptions),
+            resumedOptions,
+            streamAbortContext.signal
+          );
     if ('messageList' in streamResult) {
       await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
     }
@@ -563,6 +640,7 @@ async function createToolApprovalTurnAttempt({
       chunks: streamAttemptChunks({
         abortedTurnPersistence,
         completeNativeStream: () => streamResult.getFullOutput(),
+        readNativeStatus: () => readNativeStreamStatus(streamResult),
         ...(delegationUsage ? { delegationUsage } : {}),
         lifecycleState,
         promptBreakdown,
@@ -570,6 +648,7 @@ async function createToolApprovalTurnAttempt({
         stream: fullStream,
         streamAbortContext,
         ...(action.action === 'approve' ? { resumedApprovalToolCall } : {}),
+        ...(answeredApprovals.length > 0 ? { answeredApprovals } : {}),
         ...(runtimeData ? { runtimeData } : {}),
         ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
       }),
@@ -578,7 +657,13 @@ async function createToolApprovalTurnAttempt({
       // this is never consulted; `undefined` states that honestly rather than
       // implying an empty continuation would be safe.
       readProducedMessages: () => undefined,
-      settleNativeStream: () => settleNativeStream(streamResult, streamAbortContext),
+      settleNativeStream: async () => {
+        await settleNativeStream(streamResult, streamAbortContext);
+        // The resumed run's final save re-persisted its stale acknowledgements.
+        if (memory && late.length > 0) {
+          await restoreLateBackgroundResults(memory, late);
+        }
+      },
     };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra approval-resume stream construction failed.'));
@@ -769,6 +854,7 @@ async function createToolResumeTurnAttempt({
   // re-classified as an empty response, even when the resume stream itself
   // carries no further content parts.
   lifecycleState.sawModelContribution = true;
+  armLiveDecisions(runtime, runtimeData);
   try {
     validateToolResumeAction(action);
     const suspendedCall = await assertResumedCallIsSuspendPause(runtime, runtimeData, action);
@@ -859,19 +945,30 @@ async function createToolResumeTurnAttempt({
     if (backgroundTask && !memory) {
       throw new Error('Background resume requires durable memory.');
     }
+    const late = backgroundTask
+      ? []
+      : await readLateBackgroundResults(runtime, runtimeData, action.runId);
+    const resumedOptions = withLateBackgroundResults(resumeOptions, late);
+    await recordLateOverlayWakeup(runtime, late);
     const streamResult =
       backgroundTask && memory
         ? createBackgroundResumeStream({
             attachParent: (stream) => attachAbortedTurnMessageList(abortedTurnPersistence, stream),
+            channel: runtime.liveDecisions,
             memory,
             options: resumeOptions,
-            resumeData,
+            resumes: [{ resumeData, task: backgroundTask }],
             runtime,
-            task: backgroundTask,
           })
-        : await runtime.agent.resumeStream(
-            resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
-            resumeOptions as AgentResumeStreamOptions
+        : driveBackgroundWork(
+            runtime,
+            runtimeData,
+            await runtime.agent.resumeStream(
+              resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
+              resumedOptions as AgentResumeStreamOptions
+            ),
+            resumedOptions,
+            streamAbortContext.signal
           );
     if ('messageList' in streamResult) {
       await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
@@ -907,6 +1004,7 @@ async function createToolResumeTurnAttempt({
       chunks: streamAttemptChunks({
         abortedTurnPersistence,
         completeNativeStream: () => streamResult.getFullOutput(),
+        readNativeStatus: () => readNativeStreamStatus(streamResult),
         ...(delegationUsage ? { delegationUsage } : {}),
         lifecycleState,
         promptBreakdown,
@@ -920,7 +1018,12 @@ async function createToolResumeTurnAttempt({
       // See the approval-resume leg: a resume never recovers, so `undefined`
       // is the honest answer rather than an empty continuation.
       readProducedMessages: () => undefined,
-      settleNativeStream: () => settleNativeStream(streamResult, streamAbortContext),
+      settleNativeStream: async () => {
+        await settleNativeStream(streamResult, streamAbortContext);
+        if (memory && late.length > 0) {
+          await restoreLateBackgroundResults(memory, late);
+        }
+      },
     };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra suspended-tool stream construction failed.'));

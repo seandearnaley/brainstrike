@@ -266,9 +266,16 @@ last assistant message as an upsert of Mastra's own id, so the marker is the
 last thing the model reads. Saving first puts the marker on the completed
 tool-work row while Mastra's later partial-text rows order after it (measured
 2026-09-12). By the time the join runs the attempt's abort context is disposed,
-so the stream's abort is the expected ending and a consumption error is
-recorded (`mastra_native_stream_settled_with_error`, debug) rather than thrown
-a second time — the chunk path already surfaced any real failure. The spec case
+so the stream's abort is the expected ending and is recorded at debug
+(`mastra_native_stream_settled_with_error`); a failure that surfaces only
+during settlement — a failing snapshot DELETE, a persistence error in Mastra's
+cancel write, or a `consumeStream` that rejects outright — is recorded at warn
+under the same code, never thrown a second time. The expected ending is the
+abort reason itself, an error one `cause` hop from it, or any error named
+`AbortError` — a deliberate widening: an unrelated inner abort (a tool's own
+`fetch`, say) is bucketed as expected and lands at debug, so abort-shaped
+failures do not reach warn. One failure is recorded once, but a genuine
+failure that surfaces after the abort record still reaches warn. The spec case
 "settles Mastra snapshot cleanup before a watchdog-aborted turn ends" holds each
 cleanup statement open and asserts the turn cannot end while one is pending or
 still to be issued; removing the join makes it fail. The join also made the
@@ -1133,6 +1140,19 @@ typed, non-terminating host saturation. Snapshot retries emit `run.database.retr
 stamp sanitized `metadata.databaseRetry`. Serial host ordering plus same-id upsert prevents duplication
 after late completion. Retries are logged; arbitrary, wedged, terminating, and exhausted failures remain typed.
 
+The delegated conversation host is built on that same run-critical handle in `mastra-memory.ts`.
+That covers `createDesktopDelegatedConversationHost`: scope reads, step budget, tool-action
+claims, swarm diagnostics and continuation admission. Only workspace snapshot capture keeps the
+owner handle.
+
+On the owner handle, the host's queries skipped the scheduler and reached a DB host held by an 82 s
+maintenance statement. Two children failed on the 30 s request timeout (live GLM run 22,
+2026-09-15). Its transactions use only `tx` inside the callback, and history capture runs after them,
+so the serial scheduler never waits on itself.
+
+Paired: `delegated-host-run-lane.test.ts`. A held lane defers the host's scope read; the owner
+handle fails it.
+
 **`duration_ms` is an INTEGER column, and durations are rounded at the
 PRODUCER.** The guard wrapper measures tool execution with `performance.now()`,
 whose deltas are fractional; forwarding the raw float made every stamped
@@ -1324,6 +1344,144 @@ captured warnings before propagating the original failure (BST-1745).
 The capture-side contract — including why the warnings are
 read at the MODEL rather than off a Mastra chunk — is in
 `docs/agents/assistant-providers.md`.
+
+### DELEGATION LEDGER KIND (settled 2026-09-15)
+
+`delegation.ledger` is the user-facing status of a fan-out: "3 of 4
+specialists returned · 1 running". The host idle loop
+(`background-idle-loop.ts`) and the resume stream (`background-resume.ts`)
+publish one row on EVERY background task lifecycle change and before every
+parent wakeup, built by `makeBackgroundLedgerChunk` (`background-ledger.ts`)
+from the DURABLE task rows (`manager.listTasks` filtered to the parent run
+ids the leg observed), never from in-memory sets alone.
+
+Shape: a FRESH `id` per row and the same `metadata.ledgerId` (the parent run
+that dispatched the work) plus the counts (`returned`, `failed`,
+`cancelled`, `running`, `total`); `label` is the sentence, `detail` lists
+"<persona> <state>" per invocation. Content-free by construction: the
+delegation prompt and a failure's reason are workspace text and stay in the
+model-facing wakeup (the sanitizer would also drop a `prompt` key). `status`
+is `'running'` while anything runs and `'completed'` otherwise; a failed
+specialist is a count in the label, never `run.failed` (the turn is healthy
+and `data-stream-mapper` derives `thread_runs.error` from that kind).
+
+It reaches persistence through the ordinary run-event chunk path
+(`processMastraStreamPart` passes a host-published `run-event` through, the
+desktop writer upserts by id). Rendering is LATEST-ROW-WINS: the render plan
+hides every earlier row of the same `ledgerId` (`isSupersededLedgerRow` and
+the indexed `ledgerId` scope in `assistant-run-event-derivation.ts`), in the
+same message or a later one, so a live thread shows one row that updates in
+place and a reloaded thread shows the final state. The lookup is
+RUN-AGNOSTIC (`isRunAgnosticScopeKind`): live parts carry no `runId` but
+hydrated parts do, and the resume leg that publishes the final row is a
+different host run from the initial leg that published the stale one — a
+run-scoped index would keep "2 of 4 · 2 running" visible after reload
+(paired: "supersedes across host runs on reload" in
+`assistant-run-event-ledger.test.ts`). Why not one row updated in place: the
+aui data part carries no `id` (`handleRunEvent`), and the batched derivation
+keys statuses by event id, so a repeated id would give every copy the first
+copy's plan. The publisher joins in-flight reads before a leg closes
+(`createLedgerPublisher.idle`) so the "4 of 4" row is never lost to a fast
+close. Classified SELF_SUPERSEDING in
+`assistant-run-event-pairing-contract.test.ts` (no terminal list); in
+`isAlwaysVisibleRunEvent` (LOAD-BEARING — hidden at default detail it would
+report the status to nobody). A settled message whose newest ledger row is
+still `running` (a parked root that closed with a child parked) reads
+`interrupted` until the next leg's row supersedes it; the pending card on
+the thread says why.
+
+### DELEGATION BUDGET EXHAUSTED KIND (settled 2026-09-15)
+
+`delegation.budget.exhausted` is the breadcrumb that a delegated child's
+durable budget forced its reserved summary step; without it the child tab shows
+silence where the user needs "ran out of steps". The budget processor streams a
+transient `data-brainstrike-delegated-synthesis` part on the synthesis step;
+`delegated-stream-projection.ts` (`projectSynthesisOutcome`) turns it into ONE
+run event on the owning CHILD conversation — the single published, unfinished
+child on that native thread; none or several is a contract break that throws,
+never a dropped row — and `persistDelegatedRunEvent` stores it like every
+delegated run event, so the debug pack's `runEvents` section carries it.
+
+Shape: `status` is always `'info'` — nothing runs, nothing pairs, and the child
+still completes — so it is classified never-running in
+`assistant-run-event-pairing-contract.test.ts`, and it is deliberately neither a
+`.started` pair nor `run.failed`. `label` states the cap and the numbers
+("Subagent step budget exhausted (31 of 32); summary reserved and truncated");
+`metadata` carries `cap` (`steps` / `child-output` / `tree-output`), `limit`,
+`used` (in that cap's unit), `synthesisForced` (always `true` on this path),
+`truncated` (whether the model then cut the summary), `reservedOutputTokens`,
+`parentToolCallId`, `personaId`, and `outputTokens` when the provider reported
+it — ids and counts only. In `isAlwaysVisibleRunEvent`, LOAD-BEARING for the
+reason spelled out on `mcp.tools.unavailable`: hidden at default detail it would
+report the exhaustion to nobody. Paired: `run-events.test.ts`,
+`assistant-run-timeline.test.tsx`, `delegated-stream-projection.spec.ts`
+("projects a synthesis part") and the harness row "a child whose synthesis is
+cut returns a truncated summary the root can use"
+(`background-worker-policy.integration.spec.ts`). Contract:
+docs/agents/assistant-subagents.md ("Child budgets are USER SETTINGS").
+
+### PERMISSION GATE RESOLVED KIND AND PER-STEP FINISH REASON (2026-09-15)
+
+`permission.gate.resolved` is an additive `ASSISTANT_RUN_EVENT_KINDS` member:
+the permission gate a leg's Agent was BUILT with. It is emitted ONCE per fresh
+root leg on the stream prelude beside `mcp.tools.unavailable`
+(`makePermissionGateResolvedChunks` in `permission-gate-run-events.ts`, prelude
+in `attempt-legs.ts`), and only when a policy snapshot gated the run:
+`MastraAgentRuntime.permissionGate` is a REQUIRED `PermissionGateSummary | null`,
+where null means no policy. Resume legs pass `preludeChunks: []` and persona
+children re-gate inside `buildPersonaSubAgents`, so neither emits one.
+
+Metadata: `policies`, `grantedCategories` (the snapshot's session grants),
+`yolo`, `defaultRisk` (null when unset), `overrideCount`, `askTools` (the KEPT
+ask set the live gate suspends), `deniedTools`, and `omittedAskTools` (ask tools
+the storage fail-safe dropped because nothing could resume an approval). No key
+may contain `session`: `sanitizeAssistantRunEventMetadata` drops such keys at
+publication and at storage. Status `'completed'`, never `'running'`
+(`NEVER_RUNNING`). Deliberately NOT in `isAlwaysVisibleRunEvent`: it explains why
+an approval card appeared, and the card is the user-facing surface. Paired:
+`permission-gate-run-events.spec.ts` (shape, detail, sanitizer survival),
+`permission-gate-prelude.spec.ts` (real runtime assembly: gated turn,
+storage-less omission, no policy), `permission-tool-gate.spec.ts` (denied
+tools), `run-events.test.ts` and `assistant-run-timeline.test.tsx`.
+
+`run.step.finished` metadata carries the step's own `finishReason`
+(`readFinishReason` over Mastra's `payload.stepResult.reason`), so a
+`length`-cut step is visible without waiting for the terminal event. It is added
+at the `run.step.finished` mint (`makeStepFinishedMetadata`), NOT in
+`makeStepMetadata`: that helper also feeds `run.started`, `run.step.started`,
+`run.steered`, the steered `run.finished` and the stream-termination rows, and a
+steered `run.finished` must not report the step's `tool-calls` while its finish
+chunk reports `stop`. The reader's no-value sentinel `'absent'` is never
+written. Paired: `step-metadata-finish-reason.spec.ts` and
+`step-finish-reason-run-events.spec.ts` (including the steered turn).
+
+### SWARM DIAGNOSTICS TABLES (migration 139)
+
+`brainstrike_assistant_prompt_manifests`, `brainstrike_delegated_wakeups` and
+`brainstrike_delegated_live_decisions` are append-only debug-pack evidence. The
+runtime never reads them and they are never runtime authority. The desktop host
+writes them through `DelegatedConversationBinding.recordPromptManifest`,
+`recordWakeup` and `recordLiveDecision` (`delegated-conversation-host.ts` over
+`swarm-diagnostics-records.ts`); `createLiveDecisionLog` records the
+`/assistant/decide` outcomes only the endpoint sees. Writers cap text
+(`PROMPT_MANIFEST_LIMITS`, `WAKEUP_DIRECTIVE_MAX_CHARS`) and key-redact every
+jsonb value with `redactSensitiveLogValue` before insert; the pack scrubs value
+shapes at export. The host logs a failed or run-missing write with a code
+(`swarm_diagnostic_record_failed`, `swarm_diagnostic_record_run_missing`,
+`live_decision_log_failed`, `live_decision_log_run_missing`) and resolves, so a
+database failure never fails the leg: the same policy as run-event persistence.
+
+All three reference the ROOT host run with `ON DELETE CASCADE`. A
+`child-first-step` manifest is named by the DISPATCHING thread, and its
+`native_run_id` / `parent_tool_call_id` equal the invocation's
+`parent_runtime_run_id` / `parent_tool_call_id`; `thread-debug-snapshot.ts` joins
+it into a child's subtree through that invocation.
+`brainstrike_delegated_continuations` remains the HUMAN wake-admission ledger:
+never write a model wakeup into it. Storage, reset and deletion ownership:
+docs/agents/database.md ("Swarm diagnostics evidence"). Paired:
+`swarm-diagnostics-records.integration.test.ts`,
+`delegated-conversation-host.integration.test.ts`, `live-decision-log.test.ts`,
+`thread-debug-snapshot.integration.test.ts` and `thread-debug-pack.test.ts`.
 
 ### Threads-panel active-run projection (BST-1244)
 
@@ -1564,9 +1722,20 @@ emission — that is engine territory):
   to include descendant native threads and their sidecars. It validates the
   complete live ancestry and descendants before selecting any deletion target;
   a changed owner/resource rejects the whole command. Parent/sibling threads
-  outside a selected subtree survive. Overlapping bulk requests emit each
-  tombstone once. The desktop `delegated-thread-deletion.integration.test.ts`
-  exercises all three real-PGlite paths, including rejected deletions.
+  outside a selected subtree survive. Artifact bytes match either root read
+  ownership or native execution identity; both thread-search index/state tables
+  and saved workspaces are deleted in the same cascade. Run/event rows cascade
+  through native foreign keys. Numeric usage remains historical spend, not
+  saved transcript data. Queued workspace saves require the still-existing
+  exact native owner. Rejected outgoing saves evict the snapshot cache; a
+  still-active save failure reaches navigation with its exact resource/thread
+  identity. It invalidates only that owner's readiness and reports a matching
+  pending navigation error. A late rejection from an unmounted coordinator
+  cannot invalidate a different owner's ready workspace or pending navigation.
+  Other write failures remain errors. Overlapping bulk
+  requests emit each tombstone once. The desktop
+  `delegated-thread-deletion.integration.test.ts` exercises all three real-PGlite
+  paths, including rejected deletions.
 - **Reset:** registered in the reset registry — the op-log is cleared with
   the mind it describes on all three clear paths.
 
@@ -2453,7 +2622,12 @@ bubble path and mounts `CompactionSummaryCard` from
 `compaction-summary-card.tsx`. Desktop coverage lives in
 `apps/desktop/e2e/assistant-compaction.desktop.test.ts`; its fixed format-2
 history fixture verifies both the visible divider and a normal follow-up turn
-in the same thread.
+in the same thread, then the complete summary after a second reload. Select the
+hydrated target thread before configuring its mock provider. The captured
+memory-backed POST contains only the new user turn plus the exact durable thread
+ID and `mastra-memory-current-turn` metadata; it must not replay the summary.
+This test uses a mocked assistant endpoint: it proves the real renderer transport,
+shared divider and durable reload behavior, not a native Mastra recall/model run.
 
 ## CANVAS DOCUMENT VERSIONS (BST-1173)
 
@@ -2476,11 +2650,16 @@ and writes a new version for every update or rewrite. Exact updates require
 
 `brainstrike.manageCanvas` exposes `create`, `update`, `rewrite`, and `list` to
 the assistant. Runtime thread/resource identity is mandatory and missing
-identity returns a structured failure. This slice intentionally adds no Canvas
-tab or other Canvas UI.
+identity returns a structured failure. `create` requires content: an empty
+document (`isEmptyCanvasDocument`) returns `empty_document` with a hint and
+writes no version 1 — see the settled ruling in
+`docs/agents/assistant-providers.md`. The Canvas panel's selected canvas is
+`focusedCanvasId` on the Changes navigation store (written by its picker and
+by the `canvas://<canvasId>` chip on the tool card); reset clears it.
 
 Paired tests: `migration-082-canvas-documents.test.ts`,
-`canvas-repository.test.ts`, `manage-canvas-tool.test.ts`, the Canvas sidecar
+`canvas-repository.test.ts`, `canvas-document-content.test.ts`,
+`manage-canvas-tool.test.ts`, the Canvas sidecar
 case in `assistant-memory-repository.integration.test.ts`, and the reset
 registry/clear sentinels.
 
@@ -2728,6 +2907,14 @@ Per-run cost/outcome analytics over tables the assistant already writes.
   honest number to show. `perRunCapUsd` is DISPLAY-ONLY: the ledger panel
   badges runs whose exact-or-priced cost exceeds it (`isRunOverCap`; unpriced
   or zero-usage runs are never flagged on a fabricated number).
+- **Subagent budgets:** `packages/app-state/src/stores/assistant-subagent-preferences-store.ts`
+  (strict set validation through `parseRuntimeSubagentSettings` — an invalid
+  value THROWS and lands nothing; hydration sanitizes an invalid persisted
+  payload to the defaults; factory reset via
+  `resetAssistantSubagentPreferencesStoreToDefaults`), edited in Settings →
+  Models → Subagents (`subagent-settings-section.tsx`, the parser's message is
+  shown under the field — never coerced), sent on every request as
+  `runtimeData.subagentSettings`; see docs/agents/assistant-subagents.md.
 
 When changing this flow, update this section and the paired tests
 (`packages/db/__tests__/migration-062-assistant-run-outcomes.test.ts`,
@@ -3039,6 +3226,8 @@ The table stores results independently of Mastra message rows:
 - Range reads are byte-addressed and capped by the shared 8000-byte page
   maximum. The repository returns bytes; the future reader/resolver owns
   UTF-8-boundary adjustment and signed/opaque cursor validation.
+- Thread deletion clears artifacts when either their owning root or native execution
+  thread is in the deleted subtree; unrelated and sibling execution artifacts remain.
 - Retention is seven days. `purgeExpired` deletes an explicitly bounded batch
   in oldest-first order. Expired reads return metadata without content.
 - Storage, reads, and purge failures use a typed visible error. Settlement must
@@ -3162,6 +3351,8 @@ Where state lives (do not relitigate):
   everything else as plain text (persisted content is never HTML), with
   aria-activedescendant keyboard nav. While searching, the tree is hidden
   (not unmounted) so disclosure/selection state survives dismissal.
+- Delegated search scope (BST-1725): lexical, semantic, title and embedding-coverage reads walk the durable child graph from native roots owned by the requested resource. Every child edge checks owner/root identity and the native resource, including intermediate ancestors. Child native resource IDs remain unchanged; search does not broaden ordinary memory authorization. Activation rechecks the selected native message and rejects tombstoned/deleted/foreign hits visibly.
+- Explicit child search navigation uses the ordinary history mapper with an exclusive `(createdAt, id)` cursor. Each older-page read is capped at 80 and scoped to the same native thread/resource; ordinary opening still loads only the latest 80. A cancelled or superseded navigation stops paging. Hydrated assistant groups retain `brainstrikeNativeMessageIds` so raw search IDs select their actual rendered group. Older context supplements the host baseline; the host keeps its current head and live decision state. Navigation intent lives in the existing factory-reset-registered session search store, never in a new persistent store.
 - Cleanup: panel thread deletion clears index rows eagerly (like
   placements); missed paths self-heal via sync GC. Factory reset clears
   `brainstrike_thread_message_index` + `_state` on BOTH the desktop
@@ -3170,9 +3361,10 @@ Where state lives (do not relitigate):
   registers in `register-factory-reset-session-stores.ts`.
 
 Paired tests: `migration-067-thread-search-index.test.ts`,
-`search-thread-message-index.test.ts`, `search-thread-search-service.test.ts`
+`search-thread-message-index.test.ts`, `delegated-thread-search.test.ts`, `search-thread-search-service.test.ts`
 (packages/db); `thread-search-store.test.ts`, `thread-search-embedding.test.ts`,
-`use-thread-search-controller.test.ts`, `threads-panel-search.test.tsx`
+`use-thread-search-controller.test.ts`, `threads-panel-search.test.tsx`,
+`delegated-child-reload.integration.test.tsx`
 (packages/app-shell).
 
 ## ASSISTANT THREAD TABS
@@ -3574,7 +3766,13 @@ the previously observed exact invocation identity. A child human-input marker
 splits only that child's shared runtime into assistant/user/assistant rows. Native
 memory remains the durable transcript writer; the child composer never launches a
 second runtime, queues a root turn or reconstructs a background task on disconnect.
-The child input endpoint rejects missing/retired host owners explicitly. Reload
+The child input endpoint returns definitive non-delivery (409) for a missing or
+retired host owner. Rejected serialized admission checks also become definitive
+non-delivery with their original cause once any saved signal has been removed.
+Failed signal cleanup preserves both rejection and cleanup errors and remains an
+explicit 503; it cannot claim that rejected text is absent from future recall.
+Initial foreign-owner/scope checks remain 404 and uncertain acceptance remains 503.
+Reload
 preserves the receipt in user-message custom metadata: pending input shows an
 unconfirmed-delivery notice, while delivered input shows its accepted state.
 Neither state dispatches work from hydration. Human input retains the native
@@ -3584,7 +3782,10 @@ Production evidence: `background-worker-stream.integration.spec.ts`,
 `delegated-live-wire.spec.ts`, `delegated-conversation-receiver.test.ts`,
 `delegated-conversation-runtime.test.tsx`, and the active child composer case in
 `delegated-child-control.desktop.test.ts` (live send, parent result, reload with no
-additional model request). Idle child continuation is separate acceptance.
+additional model request). Idle input uses the separate managed continuation contract
+in assistant-subagents.md: a fresh root host run owns a durable continuation receipt,
+a distinct native child message ID and exact decision routing. The original
+delegation invocation remains immutable.
 
 Active child input retains the same request ID after an unconfirmed acknowledgement,
 even if the user edits the draft. Replacing that request requires the explicit
@@ -3593,4 +3794,67 @@ it does not stop the child or retract an already accepted instruction. The UI
 retains the request ID and reports unconfirmed delivery, ignores a late response
 from the abandoned wait, and permits only an explicit same-ID retry until discard.
 `assistant-conversation-panel.test.tsx` pins changed-draft refusal, late acknowledgement
-isolation, same-ID retry, and attachment-enabled focus preservation.
+isolation, same-ID retry, and attachment-enabled focus preservation. Pending feedback
+and Stop waiting / Discard draft controls survive running-to-idle and transport-owner
+removal without replaying through `onNew`. While the original wait is still active,
+a successful acknowledgement arriving after idle clears only an unchanged draft.
+Blank transport failures become an explicit unconfirmed-delivery receipt, with
+Discard draft still available. The Vitest browser cases load compiled styles and
+prove idle Send/Enter remain blocked; geometry and hit tests keep the receipt
+controls reachable at narrow and wide widths. Attachment paste uses the same
+admission gate without remounting the input frame or losing focus. A selected
+conversation-key switch remounts provider state, isolating its retained receipt
+and any late acknowledgement from the new conversation.
+
+### Search navigation correction boundaries (BST-1725)
+
+Targeted history pages recheck that the selected native message remains visible
+in the same thread/resource before each 80-row read. Deleted or tombstoned hits
+end navigation visibly; they do not replace an otherwise usable child transcript
+with a history failure. Legacy null message resources use the native thread's
+resource consistently at search admission, cursor lookup and hydration. Foreign
+explicit resources remain rejected. Extended search history adds only older
+non-overlapping groups; the host owns its head and overlapping group content,
+while their native source IDs are unioned for exact match focus. Ordinary live
+children do not run this search-only merge. Title labels are resolved in one
+owned-graph query per result set. No arbitrary depth cap hides valid old hits.
+
+A delegated search extension is scoped to the host run that owned its history
+read. A newly admitted host baseline replaces that extension, so deleted or
+rewound messages from an earlier read cannot reappear. Compaction alone keeps
+raw messages in durable scrollback; its provider overlay does not delete them.
+
+### Admitted child persona configuration on resume (BST-1727)
+
+Admitted child persona configuration is read from the existing delegated
+conversation record when a decision resumes. Reload discovery still uses inert
+identity-only Agents; execution reconstructs each admitted depth's profile before
+reading/resuming native snapshots. Missing or malformed configuration is fatal,
+not permission to use a changed live profile. The effective invocation step budget
+and admitted tool IDs are retained; current host permissions remain a ceiling.
+The native snapshot remains the owner of original task/system context and workflow
+progress. No new persistent store is introduced, so the existing delegated graph
+factory-reset registration remains authoritative. See assistant-subagents.md's
+admitted configuration boundary and its native/host regression tests.
+
+Compatibility: old children with missing/unsupported configuration or an unexpanded
+wildcard catalog cannot reconstruct their admitted permissions. Their pending
+native snapshot is retained and never replayed; the HTTP 409 response instructs
+the user to start a new delegation. A mismatched persona identity receives a
+distinct integrity error. Only fixed classified messages cross the HTTP boundary,
+never stored instructions or provider/credential error text.
+
+### Child scope usage read projection
+
+`readDelegatedConversationInsights` joins the existing authorized delegated graph
+with usage's native invocation key or continuation receipt, including each stored
+row once. It returns direct and inclusive subtree captured usage without changing
+any writer, root rollup, retention rule or schema. The selected child's latest
+run header provides its actual recorded model/provider; stored profile constraints
+are parsed by the same browser-safe contract used by native resume. Reads reject
+foreign/deleted owners and broken native ancestry. Missing usage remains null,
+and a model without pricing stays unpriced through the ordinary cumulative usage
+resolver. Real migrated database tests cover siblings, grandchildren, repeated
+finish reports, continuation usage, reported costs/cache classes and changed
+native ownership. Mounted toolbar tests reuse the main usage renderer and prove
+that selecting another child does not retain the previous child's totals.

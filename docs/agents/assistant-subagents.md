@@ -1,5 +1,12 @@
 # Assistant Subagents (Persona Delegation)
 
+Child conversation panels bind the shared thread debug export to the selected
+child ID, never an inherited root binding. The export includes only that child's
+authorized subtree; usage and full artifacts preserve their original root
+attribution and execution identities. The root export includes all authorized
+descendants. See `platform-contracts.md` for the export/retention contract and
+`thread-debug-snapshot.integration.test.ts` for ancestry and attribution proofs.
+
 > Extracted from AGENTS.md (2026-07-12). Read before changing persona delegation. Keep updated with the code.
 
 ## First-class subagent architecture gate (BST-1716)
@@ -15,7 +22,30 @@ Mastra runtime/stream regression is
 remain outside capture until BST-1740.
 
 The first-class subagent project extends this system in separate tickets.
-**Explorer/Analyst remain read-only and children still cannot delegate.**
+**Explorer/Analyst remain read-only and READ-ONLY children cannot delegate:
+only a `mode: worker` child receives `agent-*` tools.** SETTLED 2026-09-14 (do
+not relitigate): with recursion open to every persona, an Explorer delegated to
+more Explorers three levels deep, ignored "do not delegate further", consumed
+all eight invocations of the turn and the root's own three specialists were
+rejected (thread-f6be9761). Paired test: `persona-recursion-gate.spec.ts`
+("with durable budgets only a worker child may delegate"). A persona without an
+explicit `mode` is read-only by contract (`personaMode`), so it is a leaf too.
+
+**Every child pause surfaces in the leg that raised it, and the leg reads to
+native close.** SETTLED 2026-09-14: a parallel delegation step pauses several
+children in one native stream; the root loop no longer stops at the first
+pause (`docs/agents/assistant-runtime.md`, "Native suspension completion").
+Notices publish together behind the completion join; a resumed leg whose
+siblings stay suspended ends as a `tool-calls` pause. Scenario proof for the
+prompt that failed four times in production ("spin up 4 specialist
+subagents"): `specialist-fanout.integration.spec.ts` — four Explorer children
+under `read: ask`, every pause live (`rediscovered === 0`), one pause per
+child, no child delegates, the root reports. The harness admits delegations
+through a budget port because the desktop host does. LANDMINE: without that
+port the native in-flight backstop (`MAX_CONCURRENT_DELEGATIONS`) rejects the
+third parallel child, because Mastra fires no completion hook for a SUSPENDED
+child and the counter never releases within the leg.
+
 BST-1720 landed durable child decisions; BST-1721 enables explicit workers only
 with that complete host capability. Recursion remains gated by BST-1722.
 
@@ -79,7 +109,6 @@ Mastra returns the tool error to the supervisor so it can respond. Disabled
 delegation does not validate unused child context. Permission `allow`/YOLO permits
 worker effects without a new prompt; `ask` requires the exact durable child decision.
 
-
 Workers reuse permission filtering, output-artifact settlement, model projections,
 canonical catalog search/loading, skill injection, provider history compatibility,
 token limiting and error processors. Each child discovery catalog contains only
@@ -135,10 +164,14 @@ These prove the worker layer, not recursion/background/worktree coordination.
 - BST-1720 must connect native nested approval/suspension to the production
   host and UI before BST-1721 exposes write/execute/general-worker tools.
 - BST-1722 starts with **three descendant levels**, **two runnable children**
-  and **eight total invocations per root turn**, with **16 steps per child**
-  including its reserved synthesis step. `DELEGATION_LIMITS` is the shared source:
-  32,768 output tokens per child, 131,072 per original root turn, at most
-  8,192 per working step and one precharged 512-token synthesis allocation.
+  and **eight total invocations per root turn**, with **`maxChildSteps` per
+  child (user setting, default 32, ceiling 64)** including its reserved
+  synthesis step. `DELEGATION_LIMITS` is the TREE source (depth 3, invocations
+  8, two runnable, 131,072 output tokens per original turn); the per-child
+  allocations — `maxChildOutputTokens` (default 32,768), `maxStepOutputTokens`
+  (default 8,192) and the precharged `synthesisOutputTokens` (default 2,048) —
+  are `RuntimeSubagentSettings` (`subagent-settings.ts`), copied into the
+  turn's budget row at first admission.
   These output allocations are separate from each model's input context window.
   The host atomically admits invocations and reserves model steps before work,
   across descendants and resume legs. Unknown usage remains charged; reported
@@ -294,6 +327,34 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   broken agents dir must not take down chat. Settings UI:
   `packages/settings-ui/src/settings/system/subagent-personas-settings-section.tsx`;
   the store is factory-reset-registered in `packages/app-state/src/factory-reset.ts`.
+- **Settings states what the host enforces (BST-1727):** every loadable list
+  item (`AssistantPersonaListItem`, status `'ok'`) carries `personaScope`
+  of the SAME definition the child is built from — `allowedToolIds`
+  (`['*']` = the host catalog permitted by its mode), declared `maxSteps`, and the
+  effective `mode` (no explicit mode ⇒ `'read-only'`) — populated by
+  `apps/desktop/src/ipc-user-personas-handlers.ts` for built-ins and user
+  personas alike, and by the panel's own built-in fallback on web. The panel
+  renders each persona's scope line in plain terms ("Read-only" / "Worker
+  mode" — the mode only PERMITS edit/run tools to be declared, the declared
+  list decides — "Up to N steps", with "(1 reserved for its summary)" only
+  when N ≥ 2 because `buildChildIterationPolicy` reserves nothing for a
+  one-step child, then the tool count with the first ids or "every tool the
+  host permits, including edit and run tools" for a worker `*`; a read-only
+  wildcard represented by the bridge says "every read-only tool the host
+  permits"). Persona files still reject read-only and mixed wildcards; a
+  description-only file keeps its curated read-only defaults. `personaScope`
+  copies the declared tool ids so list consumers do not share the source
+  definition's array. N is `effectiveChildStepBudget` — the one helper `delegationDescriptionForPersona`
+  also uses, so the number a user reads is the number the model is told and
+  the host applies. The tree-wide block ("Limits on every turn") reads
+  `DELEGATION_LIMITS` directly. Paired tests:
+  `subagent-personas-delegation-limits.test.tsx` mocks the constant and the
+  helper with distinct values no build uses (the helper returns 3 while the
+  cap is 7), so a panel that repeats the arithmetic or types the numbers
+  fails; `ipc-user-personas-handlers.test.ts` pins the scope
+  fields on built-in and user items; `personas.test.ts` pins the helper
+  against the model-facing description. An older bridge that omits the fields
+  renders no scope line rather than a guess.
 - **Model pinning (v2):** a persona with `model: provider::modelId` builds its
   child on THAT model via `resolvePinnedModel`
   (`packages/agent/src/mastra/persona-pinned-model.ts`): same-provider pins
@@ -315,9 +376,11 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   retain native per-tool approval only when storage and the complete durable
   child-control binding are available; otherwise they are omitted. An empty post-gate
   map ⇒ the persona is NOT registered. With the durable host budget capability,
-  children lazily assemble native `agents` from their own narrowed tool map,
-  through three descendant levels. The shared Mastra memory is explicit so
-  grandchildren retain native persistence; native delegation still selects a
+  WORKER children lazily assemble native `agents` from their own narrowed tool
+  map, through three descendant levels; read-only children are leaves and never
+  receive `agent-*` tools (see the settled ruling above). The shared Mastra
+  memory is explicit so grandchildren retain native persistence; native
+  delegation still selects a
   fresh child thread. Without durable budgets, recursion is not advertised. The child `Agent` id EQUALS the persona id — Mastra
   sets `DelegationStartContext.primitiveId = agent.id`, and the caps resolve the
   persona by that id. Because the selected tools are the SAME parent-owned
@@ -410,6 +473,15 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
     a destructive-red state. `SUBAGENT_NO_ANSWER_OUTCOME` lives in
     `assistant-contract/personas.ts` because it is the wire between the
     agent-side emitter and the card.
+  - `SUBAGENT_REJECTED_OUTCOME` (BST-1751) is the sibling marker for a
+    delegation REFUSED before its child ran: an unknown persona, the in-memory
+    concurrency or per-turn backstop, or the host's durable tree budget answered
+    at delegation start. Mastra still returns a SUCCESSFUL tool call carrying
+    `[Delegation Rejected] …`, so `onDelegationStart` records the refusal in the
+    same outcome capture and the mapper emits `subagent.failed`/`failed` with
+    `outcome = 'rejected'` (card: `Rejected`, amber). Paired specs:
+    `subagent-delegation.spec.ts` ("asks the durable budget at start"),
+    `delegation-rejection.integration.spec.ts`.
   - **The child's LAST step is reserved for its summary — via Mastra's own
     `onIterationComplete` hook, not a bolt-on.** `buildChildIterationPolicy`
     (build-persona-subagents.ts) rides the child Agent's `defaultOptions`, so it
@@ -651,8 +723,10 @@ Paired runtime/DOM tests: `assistant-conversation-panel.test.tsx` proves isolate
 snapshots/running state/drafts, child-only send/stop/approval routing, chronology,
 reasoning disclosure, host result ownership and zero-part errors. Its browser
 suite exercises the complete component with 600 messages, bounded mounting,
-390/900px hosts, both theme classes, keyboard jump-to-latest and real Chromium
-reduced-motion emulation. This suite compiles Tailwind using the shared theme
+actual 390/900px browser viewports (800px high), both theme classes, keyboard
+jump-to-latest and real Chromium reduced-motion emulation. Composer and jump
+controls must fit inside the browser viewport and receive center-point hit tests;
+a sized wrapper alone does not prove narrow-screen reachability. This suite compiles Tailwind using the shared theme
 and package source directives, and asserts the actual grid layout is present.
 Application navigation and native child binding remain app-shell/E2E work.
 
@@ -727,7 +801,6 @@ A real native child-tool failure retains its native chunk identity and is covere
 by the production-stream guard test. With no `bindRun` capability, the guard is
 absent and the stream loop adds no authorization promise/microtask per chunk.
 
-
 ### Durable delegated usage (BST-1718)
 
 Bound completion reports carry the public Mastra parent run/tool call and child
@@ -736,13 +809,25 @@ the authorized, published invocation and its original host leg. Migration 128
 adds a nullable invocation join to the existing usage table; historical rows are
 left unattributed. Duplicate reports and cumulative resumed totals update one
 row with monotonic token maxima, never additive replay. Model/provider cannot
-change on that row. Recreated native approval/decline tests prove the completed
-child's usage is cumulative across its two model steps and absent at the pause;
-this is not intermediate provider billing coverage while a child is paused.
+change on that row. The public output-step processor reports actual model usage
+before tools can pause or be cancelled. Installed Mastra supplies prior completed
+`steps` separately from current `usage`; their sum is the cumulative invocation
+total, including across approval resumes. Missing counts do not fabricate rows.
+Metering uses a `transient: true` custom data part, so it cannot replace the native
+assistant message or alter its tool output, text, or parent outcome. The public
+native data-part path forwards these frames without delegation wrapper metadata;
+the projection requires one already published active child thread and derives
+its observed parent identity before the durable writer rechecks resource ownership.
+The real desktop runtime tests preserve 1/1 tokens on pause/Stop and 2/2 after an
+approved second model response, with artifact hydration and completed parent
+outcomes verified through the same native boundary.
 
 The completion hook can run ahead of a slow stream consumer. Bound reports stay
 queued until the matching parent result/error or finish, after native child
-publication has authorized its run. Empty queues return before decoding a part.
+publication has authorized its run. In-stream progress reports can drain only
+after that same published child identity is validated. Completion and progress
+reports coalesce by invocation and never replay unchanged cumulative totals.
+Empty queues return before decoding a part.
 Final draining still requires the durable binding at the writer; missing/changed identity or a failed write propagates
 before the transient usage refresh. The writer uses the existing run-critical
 foreground scheduler and its narrowly diagnosed saturated-host recovery. An
@@ -761,15 +846,15 @@ engine to verify durable identity/usage. This is host integration evidence, not
 packaged Electron E2E or a process-restart guarantee. The separate graph/host,
 branch deletion, contract and stream-ordering tests cover rejection and replay.
 
-
 Lifecycle stays in the existing `brainstrike_assistant_run_events` journal.
 Native delegation start/finish/failure events now carry `parentRuntimeRunId`
 alongside `parentToolCallId`, so the host run/root ownership plus this key joins
 the exact invocation, including repeated tool-call names in different runs.
 Legacy events lacking the key are not fabricated into child lifecycle history.
 The desktop production-loop test verifies this durable terminal correlation.
-Root archive is presentation state on the existing root, not a second copied
-child flag; child navigation must inherit root visibility (BST-1725). There is
+Neither root nor child conversations currently expose an archive action.
+Child navigation inherits root filter/folder visibility (BST-1725); closing a
+child tab remains reversible and does not delete or stop its work. There is
 no automatic invocation retention sweep. Host-run retention must preserve
 resumable invocations or explicitly remove the complete branch. Dedicated child
 transcript statuses, approval presentation and lifecycle controls remain in
@@ -809,6 +894,35 @@ finishes the parent, and replay uses the existing session's encoded event buffer
 without remapping or minting duplicate child events. Child frames obey the same
 parent text/input-stream deferral rules as other auxiliary data. No native
 transcript result or parent model projection is replaced by this transport.
+
+SETTLED 2026-09-15, CONSUMED CHILD ENVELOPES (do not relitigate): the renderer
+tap (`createDelegatedConversationTap`) consumes every out-of-band `data` entry
+named `brainstrike.delegated-conversation` or `brainstrike.child-continuation`
+once it has routed it to its child receiver; the parent accumulator never sees
+it. Other entries in the same list are forwarded. A `part-start` data part owns
+a parent part index and is still forwarded. Forwarding made assistant-stream's
+accumulator and assistant-ui's local runtime copy every child frame into the
+parent's `metadata.unstable_data` and publish a new parent message per frame,
+re-rendering every parent part. In one GLM fan-out the root held 8,146
+envelopes and 860 parts, React's development build retained 14.1 million
+performance measures, and the renderer grew to 15 GB. Paired:
+`delegated-conversation-receiver.test.ts` ("consumes routed child envelopes so
+the parent message neither retains nor re-emits them").
+
+SETTLED 2026-09-15, GROUPED PARTS RENDER ISOLATION (pnpm patch, do not
+relitigate without an upstream release that fixes it): a fan-out root message
+carries hundreds of run-event data parts (755–1,083 observed), and
+`MessagePrimitive.GroupedParts` in @assistant-ui/core 0.3.17 (unchanged in
+0.3.19 and on upstream main) handed every leaf a new render closure on every
+render, defeating `MessagePartChildren`'s cache. Every root token then
+re-rendered every part subtree (~1,000 parts at ~60 commits/s in run 17) and
+the dev renderer crashed at 17 GB. `patches/@assistant-ui__core@0.3.17.patch`
+builds one leaf closure per `children` identity. Paired:
+`grouped-parts-render-isolation.test.tsx` ("does not re-invoke unchanged leaf
+parts when another part streams" — 80 extra leaf renders before the patch, 0
+after; "renders leaves with the new render function when the caller replaces
+it" — fails when the memo ignores `children`). The upstream report is drafted,
+not filed; delete the patch when a release carries the fix.
 
 The decoder belongs to the native invocation, not to each observed native
 message id. A resumed turn may move from its persisted message id to a new
@@ -1140,7 +1254,6 @@ remaining BST-1720 production entry, question/plan, interrupted-state UI and
 end-to-end acceptance is green. This foundation does not enable mutation tools
 or unrestricted recursive workers.
 
-
 ### Durable delegated decision recovery display (BST-1720)
 
 The suspended-runs endpoint annotates each rediscovered native leaf with its
@@ -1153,7 +1266,9 @@ only reads admission records and never creates a pause from them.
 The existing approval, question and plan cards retain their original content
 and show the admission status with controls locked. Unknown present states
 fail wire validation and render an unavailable status if encountered directly
-in a card. Staleness without admission state remains advisory. Status refresh
+in a card. Only a pause without a durable decision is actionable; claimed,
+consumed, interrupted and cancelled pauses never mark sidebar attention, and
+staleness without admission state remains advisory. Status refresh
 uses the existing thread reload; no polling or auto-resume is introduced.
 The server's durable admission check remains authoritative if a claim races
 this read. Missing/ambiguous native snapshots still use the visible discovery
@@ -1320,6 +1435,7 @@ durable graph before supplying that history. A live host snapshot replaces the
 saved projection with its own baseline and continuation; opening either view
 never invokes `onNew`. The panel's regression test uses the real ordinary-history
 converter and proves both no execution on opening and the saved-to-live handoff.
+An explicit search hit can extend a child baseline backwards through bounded native history pages. The shared view merges older durable context while retaining the host's current head and live controls; it never imports another inference runtime or writes transcript rows. The saved-workspace coordinator opens the owning root before the singleton child tab, and the shared transcript resolves native snapshot IDs to their rendered assistant group. `delegated-child-reload.integration.test.tsx` exercises a grandchild hit older than the initial 80 rows, close/reopen, ancestry, unchanged parent draft, and no execution.
 The subagent card's optional Open conversation action is separate from its
 collapse toggle. Navigation binds the exact parent tool-call id to its host
 baseline thread id; contradictory addresses surface as card-local alerts, with
@@ -1467,6 +1583,44 @@ survive database reload. A turn created before budget admission existed cannot
 start fresh child inference or admit another sibling: the visible error asks for a new parent turn.
 Existing invocation rows without their original budget must never seed fresh counters.
 
+**Admission is answered at delegation START, and a refusal never kills the
+root.** SETTLED 2026-09-14 (BST-1751). The durable checks (depth, invocations,
+output summary reservation) used to run only inside `persist`, i.e. after Mastra
+had started the child; a refusal there threw through the projection's
+`authorize` and failed the root with the generic identity message while every
+sibling was cancelled (thread-f6be9761). Now `DelegatedBudgetPort.admitInvocation`
+(`delegated-tree-admission.ts`, `admitDelegatedInvocation`) evaluates the same
+rules before any native child exists — it RESERVES nothing, but it does open
+the root and the original turn's budget row idempotently and take the budget
+row lock, so a turn whose first delegation is refused keeps an empty budget row
+— and `createDelegationConfig` consults it in `onDelegationStart`: a refusal
+returns `proceed: false` with the host's reason, which Mastra hands the model as
+`[Delegation Rejected] …`. Only the deliberate budget refusals become that
+answer; a database or schema fault propagates. A host identity refusal at start
+(root not running, stopped ancestor, parent outside this root) is ALSO turned
+into a rejection by the hook — nothing has run, so it costs one delegation,
+never the root — while the host has already logged its reason; any other
+failure propagates. The reservation at persist time remains the authority (the
+same checks, now mutating), so a true sibling race can still refuse there — and
+that refusal is non-fatal too: it runs inside the child's input processing,
+before the child streams a single part, so the parent has nothing to bind and
+Mastra turns it into that delegation's tool error (`subagent.failed`, no
+`rejected` marker) while the root continues (scenario case "late reservation
+at persist"). Two more rules make
+any refusal survivable: Mastra streams a refused delegation's text through the
+PARENT's writer under the parent's run id, so `resolveChildDelegation`
+(`delegated-stream-projection.ts`) treats same-run-id nested output as not a
+child stream and binds nothing; and every `DelegatedConversationIdentityError`
+that escapes the desktop host is logged at error level with its bounded
+`reason` (`delegated_conversation_identity_rejected`, method, host run) before
+it propagates, so a debug pack names the refusing rule. The debug pack behind
+the ticket showed 8 invocation rows for 8 counted invocations; the three
+"missing" rows were admitted-but-never-bound (no child run id), not a counter
+mismatch. Paired tests: `delegated-tree-limits.integration.test.ts` ("answers
+admission at delegation start", "refuses a fourth descendant level"),
+`delegated-conversation-host.integration.test.ts` ("logs the identity reason"),
+`delegation-rejection.integration.spec.ts`.
+
 The runtime shares a FIFO queue of two active model/tool operations across all
 descendants. Model permits end before native tool/delegation execution; native
 delegation waits do not acquire a permit. Up to eight child streams may be
@@ -1476,6 +1630,65 @@ Ordinary and deferred discovered tools
 retain their native descriptors, projections, approval flags and guarded execution.
 Synthesis forces toolChoice none and no active tools, and rejects a provider tool
 call before execution even if the provider ignores that request.
+
+**Child budgets are USER SETTINGS; a cut synthesis is a truncated completion.**
+SETTLED 2026-09-15 (budgets plan, Workstream C; GLM pack 03-31-15Z; do not
+relitigate). The four per-child allocations live in `RuntimeSubagentSettings`
+(`assistant-contract/subagent-settings.ts`; defaults 32 steps / 2,048
+synthesis / 32,768 child / 8,192 step; ranges in `SUBAGENT_SETTINGS_LIMITS`),
+persisted by `assistant-subagent-preferences.v1`, edited in Settings → Models
+→ Subagents (`subagent-settings-section.tsx`), sent on EVERY request as
+`runtimeData.subagentSettings` (`buildAssistantRequestData`) and copied into
+the turn's `brainstrike_delegation_budgets` row at first admission.
+`parseRuntimeSubagentSettings` is the ONLY intake: absent → defaults, anything
+else malformed → throws (the desktop host in `mastra-memory.ts` and the agent
+runtime in `agent-runtime.ts` both call it). `DELEGATION_LIMITS` has no child
+keys — a consumer reading a constant instead of the request's settings is a
+compile error — and the admitted-configuration `maxSteps` ceiling is
+`SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max`. Read-only built-ins declare 32
+steps; the effective budget is `effectiveChildStepBudget(persona, settings)`
+and `delegationDescriptionForPersona` tells the model that number.
+
+The host's synthesis reservation (`DelegatedStepReservation` with
+`synthesis: true`) names its `cap` (`steps` / `child-output` / `tree-output`)
+and the numbers behind it (`used` of `limit`, in that cap's unit). The budget
+processor (`delegated-work-budget.ts`) sees Mastra's `finishReason` on
+`processOutputStep`; on a synthesis step it records `{ cap, limit, used,
+reservedOutputTokens, outputTokens, truncated: finishReason === 'length' }` in
+the per-runtime `DelegatedSynthesisOutcomes` registry (keyed by native child
+thread id) and streams the transient `data-brainstrike-delegated-synthesis`
+part. Three readers, none of which can see the reservation:
+`makeTerminalRunEvent` maps a `length` finish on a child whose synthesis was
+TRUNCATED to `run.finished` / `outcome: 'truncated'` (a mid-run `length`, a
+sibling's record, an untruncated synthesis and the root all still fail);
+`onDelegationComplete` reads the REGISTRY (never the projected stream: the hook
+runs before the parent consumer maps the child's parts), and
+`resolveTruncatedAnswer` appends the `[Truncated summary]` note to `resultText`
+— which Mastra applies on the foreground and background delegation paths alike
+— and records the outcome, so the parent mapper emits `subagent.finished` with
+`outcome: 'truncated'`; the projection turns the part into the persisted
+`delegation.budget.exhausted` run event on the child conversation
+(assistant-persistence.md, DELEGATION BUDGET EXHAUSTED KIND). Empty text stays
+`no-answer` even when a synthesis was truncated. The delegation card reads
+`outcome: 'truncated'` as "<persona> finished with a truncated summary" (amber
+check, "Completed (truncated summary)"); the child tab header shows `steps N/M ·
+used/limit tokens` from the durable child budget row
+(`readDelegatedConversationInsights().budget`, refreshed at leg / pause /
+terminal boundaries, not per token). Paired tests: `subagent-settings.test.ts`,
+`personas.test.ts`, `delegated-persona-snapshots.spec.ts` (admitted ceiling),
+`delegated-budget-settings.integration.test.ts`,
+`subagent-settings-runtime.spec.ts`, `delegated-work-budget.integration.spec.ts`
+("records a truncated synthesis outcome"), `delegated-synthesis-outcome.spec.ts`
+(mutations: any recorded synthesis read as truncated; truncation resolved
+before the empty-text check; the lifecycle outcome dropped),
+`delegated-stream-projection.spec.ts` ("projects a synthesis part"),
+`background-worker-policy.integration.spec.ts` ("a child whose synthesis is cut
+returns a truncated summary the root can use"; mutation: no truncated terminal
+branch), `assistant-ui-panel-wrapper-runtime.test.ts` ("carries the subagent
+budget settings"), `delegated-conversation-insights.integration.test.ts`
+("reads the child budget"), `delegated-conversation-toolbar.test.tsx`,
+`subagent-settings-section.test.tsx`, and the truncated rows in
+`subagent-tool-rows.test.ts` and `subagent-execution-card.test.tsx`.
 
 Every child stream creates its own budget processor. A native same-persona sibling
 barrier proves two models run concurrently with distinct child reservations and
@@ -1515,7 +1728,6 @@ Delegation cards resolve durable names and colors through the owning workspace r
 
 A child-open request made before the workspace repository is available fails visibly and clears its session intent. Boot hydration still restores the saved root, but cannot replay that rejected child-open request; the user may explicitly open the child after storage is ready. The shared coordinator test covers this boundary.
 
-
 ### Background worker execution and pending controls (BST-1723)
 
 Desktop run-scoped memory supplies `backgroundTaskScope` through assistant-service
@@ -1525,6 +1737,428 @@ argument retains foreground selection. Recursive descendants retain their native
 foreground execution inside the background child and use the same durable limits.
 A parent can emit useful text while a child works or waits for a decision. Live
 child content and exact approval controls use the existing rich conversation view.
+`projectBackgroundStream` (`background-stream.ts`) folds the native task events
+into the host stream: a `background-task-output` carries either a child envelope
+(`tool-output`, `data-user-message`, the delegated usage part) or a RAW `data-*`
+chunk — Mastra's `ToolStream.custom()` writes data parts without the envelope in
+the foreground too — and both are forwarded unchanged; only a non-data,
+non-envelope chunk is a contract break. SETTLED 2026-09-13: a background
+Explorer child's `data-om-buffering-start` hit the old allowlist, failed the root
+run and cancelled all four children. Paired test: `background-stream.spec.ts`.
+A forwarded `data-*` part keeps the CHILD's `runId`; consumers must attribute it
+by that id, never by its position in the host stream (the projection no longer
+tells child-origin data parts from the parent's). The delegated usage part is
+itself `data-*` and was always allowlisted, so its accounting is unchanged.
+SETTLED 2026-09-15, ONE DELIVERY PER BACKGROUND CALL (do not relitigate):
+while the turn that dispatched a background call is still open, Mastra's
+background executor delivered every child output and pause TWICE. Its
+`outputWriter` published the chunk as the task's output (`task.output` →
+`background-task-output`) and then wrote it through the dispatching step's own
+writer (a raw `tool-output` envelope on that turn); its `suspend` calls the
+step's `suspend` (a parent-level `tool-call-approval` / `tool-call-suspended`
+for the delegation call, on that turn) before parking the task (`@mastra/core`
+1.64, the background branch of the tool-call step in `agent-DsRUDsS_.js`;
+unchanged in 1.67.0, whose own `streamUntilIdle` merges both channels too).
+Live GLM run 19 (2026-09-15, a slow root first turn with parallel reads)
+projected both: every child view carried each frame twice, and the root thread
+showed eight cards for four decisions — four synthesized when the tasks parked,
+four native copies published when the leg ended at the root's canvas pause
+(`withRootPauseNotices` dedupes only within one publish). The TASK is the
+delivery: its copy exists for the call's whole life, the turn's only until that
+turn closes, and every leg with a background manager is idle-loop wrapped
+(`driveBackgroundWork`, the resume stream), so the task channel is always read.
+OUTPUTS are single at the source: a child's raw `data-*` part
+(observational-memory markers, the delegated usage part, the synthesis
+breadcrumb) reaches the executor through the subagent tool's `writer.custom()`
+with no call identity, so no host filter can tell its turn copy from the root's
+own data parts, and that turn copy also ran the ROOT's data-part pipeline,
+which stored a non-transient child part in the root's own message.
+`patches/@mastra__core@1.64.0.patch` therefore makes the executor's
+`outputWriter` publish to the task only, and `projectBackgroundStream` throws on
+a background call's `tool-output` on its dispatching turn (the patch no longer
+applies). The task output is now the only copy, so the background manager's
+`progressThrottleMs` must stay unset: a throttled chunk would be lost. PAUSES:
+`projectBackgroundStream` drops a turn's `tool-call-approval` /
+`tool-call-suspended` for a call known as background (`background-task-started`
+/ `-running`), logging `background_turn_copy_dropped` once per call. It throws
+if a turn copy was forwarded BEFORE the turn acknowledged that call's dispatch
+(Mastra enqueues the acknowledgement first; a violation would silently project
+the task's copy again). A resume leg's host executor (`registerResumedExecutor`)
+writes only to its own stream and publishes no task output, so resumed children
+are untouched. Paired: `mastra-background-contract.integration.spec.ts`
+("delivers a background child's raw data part once while the dispatching parent
+turn is still open"; RED unpatched: the part arrived as task AND turn, and one
+copy was stored in the parent thread), `background-stream.spec.ts` ("one
+delivery per background call": removing the output contract break, exempting
+pauses from the drop, or dropping the order guard each fails only its own rows)
+and `background-worker-policy.integration.spec.ts` ("reaches each view ONCE
+while the dispatching root turn is still open", fixture `slowRootTurn`; RED
+before the drop: four root cards for two decisions and every child frame twice).
+A root that answers instantly closes its turn before any child output exists,
+which is why the fixture never delivered this shape.
+The model may also request `_background.maxRetries` (Mastra's own system prompt
+advertises it, its resolver honours the model's value ahead of the host default,
+and no host knob removes the advertisement). SETTLED 2026-09-14 (BST-1749): the
+HOST owns the retry policy — none, ever — so `PgliteBackgroundTasksStore.createTask()`
+pins a scoped task's model-requested retries to 0 and logs
+`background_task_retries_pinned`; the delegation dispatches. This is host
+authority over an execution knob, not a fallback: rejecting the value failed all
+four specialists of the "spin up 4 subagents" prompt on every turn the model
+followed Mastra's guidance, and the model then reissued them as FOREGROUND
+delegations (thread-af25a110, 2026-09-14). `updateTask` still rejects a non-zero
+retry count — no host path may re-arm retries on an existing task. The root's
+delegation instruction also states that subagents run as background workers and
+that `_background` is host-owned (`buildDelegationInstruction`,
+`backgroundDelegation`). Pinned by `pglite-background-store.integration.spec.ts`
+(create pins, update rejects) and `background-worker-stream.integration.spec.ts`
+("dispatches a delegation whose _background carries the retries knob").
+A background child's SUSPENSION closes the parent stream for that iteration with
+no finish part. SETTLED 2026-09-14: the leg that observes it ends as a PAUSE.
+The initial leg's root output reports `suspended`; the resume leg
+(`createBackgroundResumeStream`) exposes the same synchronous `status` and
+reports `suspended` when the resumed task parks on a NEW decision, so
+`readNativeStreamStatus` ends the leg with a `tool-calls` finish and the withheld
+child notice publishes. Reading that close as a missing finish produced
+"Assistant stream ended without a normal stop signal" on every second approval
+of a background child (thread-8d471973). Paired:
+`background-worker-policy.integration.spec.ts` ("pauses again on its resumed
+leg").
+SETTLED 2026-09-14 (do not relitigate): the parent model is NEVER woken by a
+child's suspension. Mastra's own `untilIdle` loop counts
+`background-task-suspended` as a terminal and runs a parent continuation whose
+ephemeral directive reads "Do not attempt to resume them; let the user know they
+are waiting for explicit resume input" — the root parroted that line for every
+suspended specialist and refused to compile its report (thread-1dab3290), and no
+system-prompt wording beats a later user-role directive. The host therefore does
+not pass `untilIdle`; every parent inference (initial, approval, resume, native
+wake and the child-resume continuation) passes `_skipBgTaskWait` and is wrapped
+by `withBackgroundIdleLoop` (`background-idle-loop.ts`), which mirrors Mastra's
+loop except that only a returned, failed or cancelled task queues a wakeup
+(`describeBackgroundWakeup` in `background-ledger.ts` is the host's directive
+— see WAKEUP LEDGER below). A suspension is a
+host-surfaced approval prompt, exactly as Claude Code surfaces a subagent's
+permission prompt in the main session; the model is not the messenger. Silence
+from running work past `backgroundIdleMs` (default: the longest a task may run)
+closes the stream unfinished and the projection reports it. Paired:
+`background-worker-policy.integration.spec.ts` ("wakes no parent turn"; mutating
+the wakeup guard to include suspensions fails it) and the idle-expiry case in
+`background-worker-stream.integration.spec.ts`.
+SETTLED 2026-09-15, WAKEUP LEDGER (do not relitigate): a parent wakeup is
+the whole LEDGER of this turn's background invocations, not one line per
+event. The GLM root (thread-debug pack 2026-09-15T03-31-15Z) received
+"Background invocation X has returned" four times over four continuations,
+mis-counted, and ended "waiting on the remaining subagents" after all four
+had finished. The ledger is read from the DURABLE task rows
+(`manager.listTasks` in the thread scope, filtered to the parent run ids the
+leg observed on its lifecycle events — `background-ledger.ts`,
+`createBackgroundLedgerSource`), never from the loop's `running`/`settled`
+sets alone, and lists every invocation as returned (persona, the first 120
+chars of its prompt, "use its saved outcome"), failed (with the recorded
+reason; a timeout reads "timed out"), cancelled, or still running. When
+nothing is still running it says so in one sentence — "All N background
+invocations have finished. Nothing is still running. Continue with the task
+using the saved outcomes." — and only then. A SUSPENDED task is "still
+running" to the ledger: the pause is the host's card, the model is never
+its messenger (the 2026-09-14 ruling above stands). The idle loop
+(`runContinuation`), the resume stream's parent wakeup and the parked-root
+deferral all read the same source. The same ledger reaches the USER as the
+`delegation.ledger` run event (assistant-persistence.md, DELEGATION LEDGER
+KIND): one live row in the root thread — "3 of 4 specialists returned · 1
+running" — published on every task lifecycle change, joined before the leg
+closes so the final row is never lost (`settle` waits on
+`publisher.inFlight`; the parked-parent close is where that join is
+load-bearing, since no continuation keeps the leg open), persisted like
+every run event. Because the wakeup QUOTES each child's prompt, a scripted
+harness must tell the root's wakeup apart by its header ("Background
+invocations of this turn") before it uses prompt text to pick a child.
+Paired: `background-ledger.spec.ts` (mutations: the closing sentence while
+something runs; omitting it when nothing runs), `background-idle-loop.spec.ts`
+("carrying the durable ledger", "publishes a delegation.ledger row …",
+"a parked parent leg publishes the final ledger row before it closes" —
+mutation: dropping the join from `settle`), and the harness row "the wakeup
+carries the whole ledger: a root that trusts it reports the final outcome
+exactly once nothing is still running" (`fanout.rootReadsLedger`; the
+scripted root answers from the LAST user message, never its own count).
+SETTLED 2026-09-14 (do not relitigate): EVERY parked leaf decision has a card in
+the ROOT thread. A foreground child's pause suspends the parent run on the
+delegation call, so Mastra's parent-level pause becomes that card once
+`decorate()` addresses it to the leaf. A BACKGROUND child's pause parks a task
+and suspends nothing in the parent run (the parent-level copy Mastra writes on a
+still-open dispatching turn is dropped, ONE DELIVERY PER BACKGROUND CALL above),
+so the root stream carries only the child envelope and the root thread showed NO
+card while four specialists sat parked (thread-b629776b):
+`withRootPauseNotices` (`root-pause-notices.ts`) runs at
+every publish of the withheld notices and synthesizes, for each child-scoped
+notice whose leaf identity has no root-level notice, a root card addressed to
+the ROOT edge (`path[0]`, the transport target every resume already uses) with
+the leaf tool, args and risk metadata, preceded by the durable
+`tool.approval.requested` row for the delegation call; a foreground pause
+already carries the root notice and gets no duplicate. Paired:
+`root-pause-notices.spec.ts` and the root-notice assertions in
+`background-worker-policy.integration.spec.ts` (RED before the seam: zero root
+notices for a background child; "reaches each view ONCE" pins exactly one root
+card per decision while the dispatching turn is still open). The card names the child (persona label + the
+delegation prompt), and a
+session grant answers every parked BACKGROUND sibling in the same approval leg
+(`claimGrantedBackgroundResumes` → `createBackgroundResumeStream` with N
+resumes and ONE parent wakeup; `tool-approval-answered` locks the sibling
+cards; siblings are recorded as policy answers, never as a second ledger claim).
+Full contract in `assistant-runtime.md` (PERMISSION ENGINE, "PARKED
+SIBLINGS"). MULTI-APPROVAL MATRIX (2026-09-14), every row proven through the
+REAL desktop host, ledger and background store in
+`apps/desktop/.../delegated-sibling-grant.integration.test.ts` unless noted:
+- N children parked → N root cards, no tool ran before a decision.
+- "Allow reads this session" on one card → every sibling parked on a read tool
+  answered by policy in the same leg (`consumed`, no second claim), one parent
+  wakeup, `Parent: ALL-FLAGS`.
+- One-shot Approve → only that card; the next one-shot completes the turn.
+- Decline one, grant on the other → the declined tool never runs; the grant
+  finds nothing else parked.
+- "Always allow <tool>" → siblings parked on THAT tool answered; a sibling
+  parked on a different ask tool stays parked until its own decision.
+- Reload → rediscovered root cards carry the same identity; a grant from a
+  rediscovered card answers the sibling.
+- WORKER writes (`mode: 'worker'`, `edit: ask`): both children park on the
+  edit with `riskCategory: 'edit'` root cards; "Allow edits this session" on
+  one answers the sibling; declining one never runs its write; a READ grant on
+  the other answers no write (categories never cross).
+- Mixed kinds (agent `background-worker-policy.integration.spec.ts`): a read
+  grant never answers a sibling parked on a QUESTION.
+- Harness landmine: a scripted model must tell root from child by the LAST
+  user message ("find flag N" vs the task / a wakeup). Tool presence fails
+  (workers hold a delegation tool and fanned out again, nesting threads) and
+  a whole-prompt marker fails (the child receives the root's delegated
+  context).
+- LIVE decision rows (desktop `delegated-sibling-grant.integration.test.ts`):
+  a decision delivered while a sibling still works resumes the parked child
+  INSIDE the running leg (one leg, `reason: 'user'` answer chunk, ledger row
+  consumed, turn completes); a live "Allow reads this session" answers the
+  parked sibling AND a child that parks afterwards under the remembered grant
+  (`reason: 'session-grant'`); a decision after the leg settled is
+  `'no-live-run'` and changes nothing. Agent-level
+  (`background-worker-policy.integration.spec.ts`): a live one-shot approve
+  resumes the child in the same leg and its NEXT gated read parks that same
+  task again with a fresh root card (the loop forgets a resumed task's earlier
+  terminal — a mutation that keeps it dedupes the second pause away).
+- Decisions during a run (assistant-ui, `decision-dispatch.ts`): while the
+  thread runs, the decision is delivered INTO the run through the host's live
+  transport (`LiveDecisionProvider`, desktop `POST /assistant/decide`); when
+  no leg is live for it (404: settled, or not a parked background child) or
+  the host has no transport (web) it queues, dispatched one per run end; a
+  queued decision the host meanwhile answered is dropped at dispatch with a
+  log line (`dequeueDispatchable`), never sent stale. The card locks for the
+  round trip; a host refusal (409) unlocks it with a warning.
+- Presentation (assistant-ui, settled 2026-09-15): N parked children of one
+  category → ONE full root card and N−1 rows behind it; a grant collapses
+  every answered card into a row ("Allowed by session grant") and promotes
+  the next pending card of another category; a grandchild's card indents
+  under its ancestor with the ancestor's rail. Contract and tests in
+  `assistant-runtime.md` (PERMISSION ENGINE, SWARM-AWARE PRESENTATION).
+- Child views (assistant-ui + app-shell, settled 2026-09-15): a child tab
+  renders its own copy of a leaf approval, but the host answers it on the
+  ROOT leg only, so the child reads its owning root's answers by identity
+  and shows the same answered row ("Allowed by session grant" / "Approved");
+  a genuinely pending child card stays actionable. Contract and tests in
+  `assistant-runtime.md` (PERMISSION ENGINE, CHILD VIEWS READ THE ROOT'S
+  ANSWERS).
+SETTLED 2026-09-14 (canonical, after reading Claude Code v2.1.186+, Codex and
+Cursor behaviour): a BACKGROUND child's pause publishes LIVE — its scoped
+notice and the synthesized root card leave the leg the moment its TASK is
+durably parked: the child's pause chunk streams before the task's storage row
+is suspended, so the notice is parked (`withholdPauseNotices` → `parked`) and
+released by the native `background-task-suspended` part
+(`releaseParkedNotices`; `projectBackgroundStream` now forwards that part). A
+decision delivered in the window before the row is suspended would find
+nothing to resume ("stale or ambiguous") — the card must not exist before
+its decision can be applied. Only a FOREGROUND pause (the parent run itself
+suspended) is withheld to the completion join. thread-4f14436f held three
+cards for 77 s until the slowest sibling returned. Paired:
+`withhold-pause-notices.spec.ts` ("for background children") and the desktop
+row "a parked child's root card publishes while a sibling is still working".
+The child store also coalesces streaming notifications to one per 16 ms window
+(`delegated-conversation-store.ts`): per-frame notification re-converted every
+mounted child view per frame and stalled the renderer once a few tabs were
+open.
+SETTLED 2026-09-14, LIVE DECISIONS (do not relitigate): a decision reaches the
+RUNNING leg, as Claude Code answers a subagent's permission prompt inside the
+live session. Seam: `live-decision-channel.ts` (one channel per runtime,
+`runtime.liveDecisions`; the background phase driving the stream — the idle
+loop or the resume stream's terminal wait — owns it and hands out
+RESERVATIONS that keep the phase from settling until the reserved tasks are
+resumed or released); `live-decisions.ts` `armLiveDecisions` (every leg arms
+it: validates against the live native snapshot exactly as a click would,
+records the answer with the host as consumed — never the root's single active
+claim, the leg may hold that already — answers parked siblings the request's
+FRESH snapshot allows via `allowedBySnapshot`, publishes the
+`tool-approval-answered` chunks on the leg's own stream, resumes in-process
+through `manager.resume`, and REMEMBERS a lasting grant so every ask tool's
+live flag lets each later call the grant allows run without parking (SESSION
+GRANT STOPS ASKING, below)); desktop `delegated-execution-controls.ts`
+(`registerDesktopDelegatedDecision` keyed by the steerable host run id,
+`deliverDesktopDelegatedDecision` → `'no-live-run'` on
+`LiveDecisionUnavailableError`) and `decide-endpoint.ts` (400 shape / 404 no
+live run / 409 host refusal with reason / 500 resume failure; the renderer's
+policy request is resolved into the TRUSTED snapshot exactly as a stream
+request's). Two in-process facts a fresh resume leg never met: the delegation
+config's per-leg caps count a RESUMED address once (`admitted` set — the
+resume of a parked child was refused as a third concurrent subagent), and the
+delegated projection REOPENS a child that finished on a pause when its
+continuation re-enters (`parked`; a completed child's late parts stay
+dropped). The parent still wakes only on returned/failed/cancelled work; the
+idle loop keeps closing when nothing runs, so a decision on an all-parked turn
+takes the ordinary new-leg path (404 → queue/append).
+SETTLED 2026-09-15, SESSION GRANT STOPS ASKING (do not relitigate): after a
+live "Allow <category> this session" the next gated call of EVERY child in
+the leg simply runs — no suspension, no card, no resume. The remembered
+grant used to answer each later pause after the fact (park → card →
+auto-answer → resume): 70 cards and 70 resumes for reads the user had
+allowed (GLM run, thread-debug pack 2026-09-15T03-31-15Z). Mechanism: the
+permission gate no longer clones an ask tool with a STATIC
+`requireApproval: true` (Mastra copies that boolean once per stream call,
+`agent-DsRUDsS_.js:34955` → `utils-C9npriyv.js:682-709`, so nothing could
+lift it mid-stream). `applyLiveApprovalGate` (`approval-gate.ts`) clones each
+kept ask tool with the PUBLIC FUNCTION form of the per-tool flag
+(`dist/tools/types.d.ts:551`); `CoreToolBuilder.build()` turns it into
+`requireApproval: true` + `needsApprovalFn` (`utils-C9npriyv.js:684-686`) and
+Mastra evaluates `needsApprovalFn` on EVERY tool call
+(`agent-DsRUDsS_.js:26437-26444`, overriding both the run-wide gate and the
+boolean). The function forwards to the runtime's single decision point,
+`createApprovalGate` — the agent's OWN ask set (the root's in
+`resolveGatedToolMap`, each child's re-gated set in `buildPersonaSubAgents`,
+grandchildren re-gate the raw child map) AND `runtime.liveDecisions.remembered`,
+read per call — so a mid-stream child is lifted on its very next call. NO
+run-wide `requireToolApproval` predicate is ever synthesized: any truthy
+run-wide gate forces Mastra to run every step with concurrency 1
+(`agent-DsRUDsS_.js:24054`, `toolCallConcurrency` ignored), which would have
+serialized foreground fan-out and the root's parallel reads under the default
+posture (proven by the fanout harness: HEAD parks four foreground children in
+leg 0, a run-wide predicate parks one). The converted boolean is `true`,
+exactly the old static clone, so per-step concurrency classification is
+unchanged. `live-decisions.ts` remembers the grant once the host has recorded
+the user's decision and BEFORE the in-process resume (`remember` strictly
+precedes every `manager.resume` the decision issues), so the resumed child's
+next call already sees it; `suspended` still answers a pause the flag did not
+lift. Persisted "Always allow" policies work through the same flag (the
+rebuilt leg's snapshot resolves the tool to allow → not in the ask set → no
+clone). Paired: `approval-gate.spec.ts` (mutation: ignoring `remembered`
+fails "lifts the gate for every tool a remembered session grant allows"; a
+clone captured at clone time fails "the clone reads the gate on EVERY call"),
+`build-persona-subagents-approval-gate.spec.ts` ("child approval gate": the
+converted child tool carries `requireApproval: true` + `needsApprovalFn`,
+lifted by `channel.remember`, and `defaultOptions.requireToolApproval` is
+undefined), `background-worker-policy.integration.spec.ts` ("after a live
+session grant the sibling's NEXT gated read runs without a pause": exactly one
+root card for the leg, `effect` called for every read — mutation:
+`needsApprovalFn` → `() => true` fails it; "a live session grant is remembered
+BEFORE the parked child is resumed": call order `['remember',
+'resume:remembered']` — mutation: remembering after the resume records
+`['resume:forgotten', 'remember']`), and the desktop rows "a live 'Allow
+reads this session' answers the parked sibling, and a child that reads
+afterwards never parks" and "a live session grant during an approval leg: one
+claimed decision, zero further policy rows" (mutation: a gate that never lifts
+adds `delegate-1` to both rows' cards). Verifier: `e2e-subagents.mjs` verdict
+`cardsAfterGrant` must be 0.
+SETTLED 2026-09-14, PAUSE TERMINAL (proven by the live-app verifier, do not
+relitigate): a background child's pause FINISH (`message-finish`,
+`tool-calls`) is the child view's TERMINAL frame — the renderer's
+`delegated-conversation-receiver` closes the child on it and throws
+"Delegated conversation emitted frames after its terminal" on any later
+frame, which tears the whole root stream down; the host then records the run
+finished and every child dies with `delegation-root-not-running`
+(thread-834924c1: pause at :16, live resume at :23, resumed frames at :26,
+client abort at :26.4). A parked child is not finished, so the pause finish
+is never published with the card: `releaseParkedNotices` HOLDS it in the
+leg's held notices (published at the leg's end for a child still parked) and
+`dropHeldPauseFinish` discards it when the native `background-task-resumed`
+part arrives (`projectBackgroundStream` now forwards suspended AND resumed
+parts). Paired: desktop row "a live-resumed child's frames never follow a
+terminal" (mutation: publishing the finish with the card fails it) and
+`withhold-pause-notices.spec.ts`.
+SETTLED 2026-09-15, REPEATED SUSPENSIONS (live-app verifier run 5): one
+suspension of a background task reaches the host loop more than once (the
+manager's lifecycle event, the parent turn's own copy, a replay around the
+resume), while a task resumed in-process legitimately suspends AGAIN later.
+Treating the repeat as a new pause emptied the idle loop's running set while
+the child still worked; the loop closed, `projectBackgroundStream` failed the
+leg ("Background stream ended with unfinished child work"), the run row read
+`failed` and the renderer never received that child's terminal ("Parent
+stream ended before a delegated conversation terminal", root message
+"Failed"). `createSuspensionLedger` keys every suspension by Mastra's
+`suspendedAt` stamp: a repeat of the stamp already handled for that task is
+the same pause and is dropped; a new stamp is a new pause. Applied in the
+idle loop and the resume stream's terminal wait. Paired:
+`background-idle-loop.spec.ts` (mutation: no dedupe closes the loop early).
+SETTLED 2026-09-15, PARKED PARENT (live-app verifier run 6, do not
+relitigate): a parent turn that ends on the PARENT's own pause (native status
+`suspended`) parks the run on the user and NO wakeup ever runs a continuation
+on it. The root paused on its canvas write with one child's wakeup still
+queued; the host loop ran that wakeup as a fresh `agent.stream` on top of the
+parked run, the root proposed the write AGAIN, and the thread carried two
+canvas cards — the first orphaned for good (its run superseded), and the
+verifier's two clicks 130 ms apart cancelled one leg (assistant-ui `append`
+cancels an in-flight run before `isRunning` flips). `withBackgroundIdleLoop`
+reads each piped turn's status: parked + children running keeps the leg open
+until they return (their frames stay in this leg, their results are saved by
+Mastra's native `onResult`); parked + nothing running closes the leg as the
+pause it is, dropping queued wakeups with an info log
+(`background_parked_parent_wakeups_deferred`). Paired:
+`background-idle-loop.spec.ts` (mutation: continuing on a parked turn runs
+`agent.stream`) and the policy harness row "the root's own pause ends the
+leg once its children return" (`fanout.rootGate`; before the fix it recorded
+`['root-write', 'root-write']`).
+SETTLED 2026-09-15, LATE RESULTS AFTER A ROOT PAUSE (live-app verifier run
+7, do not relitigate): the root pre-created its canvas 25 s in, before any
+specialist returned; after every specialist had returned it approved that
+write and reported from its OWN inspection while telling the user it was
+"still waiting on the four analyses". Mastra's `approveToolCall`/
+`resumeStream` restore the message list snapshotted at the pause, in which
+every child still running at that moment is a dispatch acknowledgement; the
+restored list also replaces any `context` the resume is given, so no message
+reaches the resumed model. Three host rules close it. (1) The late results
+are exactly the finished tasks THIS run dispatched (`task.runId`) whose
+`completedAt` is not before the run's `AgentRun.suspendedAt`
+(`listLateBackgroundResults`). (2) A ROOT-level approval/typed resume
+overlays them onto the acknowledgement tool results at the provider
+boundary on every request of the resumed run
+(`late-background-results-processor.ts`, first in the leg's per-call
+processors so the stale-history filter and the limiter judge the real
+results) and, because the resumed run's final save re-persists its stale
+acknowledgements, restores the outcomes into memory from the task rows once
+the leg settles (`restoreLateBackgroundResults`, in the leg's
+`settleNativeStream`). (3) A child card answered on a NEW leg while the root
+is parked resumes the child only: the resume stream's `parentWakeups` finds
+a suspended run in scope and ends the leg as a pause
+(`background_parent_parked_wakeup_deferred`) — a fresh parent inference
+would propose the root's pending call again. Paired:
+`background-late-results.integration.spec.ts` (both rows: the resumed root
+reports `PARENT_FINAL_OUTCOME` from the overlay and memory holds the result
+afterwards; the child-card leg runs no parent prompt) and
+`late-background-results-processor.spec.ts`. Residual: a run that pauses
+AGAIN after consuming late results is resumed from a newer stamp, so those
+results are not overlaid a second time (they are in memory for every fresh
+inference); the model has already read them by then.
+SETTLED 2026-09-15, CHILD PROVIDER COMPAT (live-app verifier run 6): a
+live-resumed Explorer's response was persisted twice under two message ids
+1 ms apart (Mastra's sealed-boundary re-key) and its next request 400ed
+"Duplicate item found with id rs_…" — a failed specialist, "· 1 failed" on the
+root — because `OpenAIDuplicateItemCompat` reached only the root's per-call
+processors (`buildToolLoopOptions`) and a worker's loop options, never a
+read-only child. `buildChildProcessors` now carries it for non-worker
+personas, resolved against the child's OWN provider like its error
+processors. Paired: `build-persona-subagents.spec.ts` ("exactly once; other
+providers get none").
+KNOWN LIMITS: the root's OWN foreground pause (e.g. a canvas write) while
+children still run is not live-deliverable — it queues behind the leg (404);
+a queued decision whose pause was cancelled by a root Stop dispatches and
+fails visibly (`run.failed`), it is not silently discarded; foreground (web)
+siblings that have not paused when the parent suspends surface only on
+reload; in the gap between the resume stream's terminal wait ending and the
+parent wakeup starting, a decision is `'no-live-run'` and queues. OPEN (foreground children only, i.e. web): a sibling that has not
+yet paused when the parent run suspends on the first child's approval is not
+surfaced live — Mastra closes the parent stream at that suspension; its pause
+appears on reload through rediscovery. Seen in the desktop scenario before the
+background scope was wired; not exercised by the desktop product path. The foreground pin in `specialist-fanout.integration.spec.ts`
+("does not answer pauses already parked") describes foreground children only.
 Discovery supplies the same root scope and resolves the authorized native leaf;
 missing scope/address is not permission to resume an arbitrary wrapper.
 
@@ -1534,6 +2168,54 @@ recursive leaf approval, renderer reload and a distinct native host restart.
 plan pause, failed outcomes, lost parent-result delivery and root Stop with a
 queued effect. Native background follow-up/human composer and selective subtree
 controls remain separate acceptance within BST-1723.
+
+### Swarm diagnostics evidence (2026-09-15)
+
+Every model-facing wakeup, deferral and late overlay is durable evidence for the
+thread debug pack, recorded through the binding's `recordWakeup` (rows in
+`brainstrike_delegated_wakeups`). `withBackgroundIdleLoop` records `idle-loop`
+BEFORE the continuation streams, with the exact `describeBackgroundWakeup(ledger)`
+directive the parent receives and, as invocations, the terminal events that woke
+it. A parked parent leg records `deferred` and refuses to close while that record
+is pending, so a rejected record fails the leg instead of vanishing.
+`createBackgroundResumeStream` records `resume-leg` before `agent.stream`, and
+`deferred` for a parked root. Both `withLateBackgroundResults` call sites record
+`late-overlay` (`recordLateOverlayWakeup`) before approving or resuming.
+
+Prompt manifests (`brainstrike_assistant_prompt_manifests`): a fresh root turn
+records its system messages and registered tool names once (resume legs replay
+the snapshotted prompt and record none; deferred tool-search tools are not
+listed). The delegation-start hook records `child-first-step` with the prompt the
+child receives and the instructions and kept tool names from the DISPATCHING
+agent's `childPromptFacts`; a delegation dispatched by any other agent logs
+`subagent_prompt_manifest_unrecorded` and records nothing, so nested worker
+delegations have no first-step row yet. A child resumed within the same leg
+records nothing; a parked child resumed on a NEW leg records a second row for the
+same dispatch address, and the pack's `childFirstSteps` takes the earliest. A
+host-prepared follow-up records `continuation` only after the running child
+accepts it; waking an idle child records no continuation manifest.
+
+Live decisions (`brainstrike_delegated_live_decisions`): the decide endpoint
+records `no-live-run`, `refused` (with the host reason) and `failed` BEFORE it
+answers; the running leg records `delivered` with the answered sibling task ids
+and the request's policy snapshot; a remembered grant records
+`remembered-answered` or `remembered-failed` after its attempt, from the parked
+leaf captured once it is found. Exactly one row per outcome.
+
+These rows are evidence, never inputs to the loop. The loop awaits each record,
+and the host binding logs a failed or run-missing write with a code and resolves,
+so a database failure never fails a leg (the pack's host log window captures the
+code). Storage contract: docs/agents/assistant-persistence.md ("SWARM DIAGNOSTICS
+TABLES"). Paired: `background-idle-loop.spec.ts` (record before stream, deferral
+join), `background-late-results.integration.spec.ts` and
+`background-worker-policy.integration.spec.ts` (resume-leg, deferral and overlay
+rows), `late-background-results-processor.spec.ts`,
+`subagent-delegation.spec.ts`, `build-persona-subagents-compat.spec.ts`,
+`prompt-manifest-root-leg.spec.ts`, `live-decisions.spec.ts`,
+`decide-endpoint.test.ts`, `live-decision-log.test.ts`,
+`delegated-sibling-grant.integration.test.ts`,
+`delegated-cancellation.integration.test.ts` and
+`delegated-conversation-host.integration.test.ts`.
 
 ### Selected child cancellation (BST-1723)
 
@@ -1582,3 +2264,362 @@ user signals are durable chronological child turns; they do not become parent
 input or launch a second runtime. See the active-input receipt and interruption
 contract in assistant-persistence.md. Production coverage spans native foreground
 and background delivery and the shared Electron child-composer path.
+
+### Persona Settings host checks (BST-1727)
+
+Settings → Subagents refreshes the ordinary validated workspace/global persona
+scan and shows host preflight facts from the existing model catalog, typed
+credential reader and MCP tool registry. Missing/unreadable required credentials,
+catalogued non-language models, providers without LLM capability, and the built-in
+local model's unsupported Worker discovery are blockers. The local-worker rule
+is shared with actual agent admission. An unlisted model pin
+or missing/disabled MCP tool is actionable attention, not a claim that a custom
+model is invalid or that the entire persona is unavailable. Native capabilities,
+selected parent model, durable child controls and permission policy remain
+per-request checks; a passing preflight never promises effective access.
+
+Declared scope remains visible beside these facts. Refresh rereads profile edits
+and host facts with one scan in flight, without executing a model or changing
+running children. A failed scan/check shows a visible error and Retry, retaining
+any previous list as such;
+it does not silently substitute built-ins for a successful user-profile scan.
+No credentials enter the IPC response and no new state is persisted. Existing
+subagent-personas factory-reset registration remains authoritative.
+
+### Managed idle-child input (BST-1723)
+
+A user follow-up to an idle child starts a fresh managed root host leg and wakes
+that exact stored child with Mastra's public `createMessageSignal` / `sendSignal`
+API. The renderer supplies only the selected child, stable input ID and structured
+text/image payload;
+the host authorizes the actual resource/root/ancestry and claims a separate
+continuation receipt. It never changes the original invocation or manufactures
+parent tool-call coordinates. The receipt is claimed before native wake and binds
+the accepted native run before the first continuation envelope acknowledges input.
+A repeated admitted input ID never starts work again, including after an uncertain
+acknowledgement or restart. Different text or image content under that ID is a conflict.
+
+A pending decision owns its selected child, not the root's execution slot. Multiple
+idle children can therefore retain independent approvals/questions, including
+same-persona siblings with identical leaf tool-call IDs. Only one receipt may be
+claimed/running under a root, and only one active receipt may own each child.
+Both fresh input and decision consumption also reject another running/cancelling
+managed root leg, including ordinary parent input. Stopping one paused child
+preserves its sibling's exact pending receipt across host restart; neither restart
+nor a repeated input/decision may execute an effect again.
+`idle-grandchild-restart.integration.test.ts` proves depth-two continuation and
+sibling Stop isolation through three distinct processes, real native storage,
+parent outcome delivery, and unchanged original invocation identities.
+
+The selected child retains its admitted persona and step cap. Direct child legs
+must preserve the child's default budget and worker processors: root per-call
+`inputProcessors` replace those defaults in Mastra. The existing-child scope
+processor checks the exact authorized native memory identity; original delegation
+birth and aborted-delegation processors apply only to new descendants. The shared
+direct-turn runner owns the existing child's cancellation and aborted persistence.
+Actual depth is added to recursive availability checks, so waking a grandchild
+cannot reset its depth allowance. Every model step still charges the real child
+identity against the managed turn's durable budget.
+Fresh child input runs the ordinary workspace/reference/skill context injectors
+against that input, without copying client-supplied system-role request messages.
+Only host-injected system context crosses to the child, exactly once in the native
+model prompt. The selected
+child's default context processor also retains that context in native RequestContext,
+so a descendant first created after a resumed decision receives the same authority.
+
+Live frames use the shared conversation mapper with `brainstrike.child-continuation`
+metadata, not fake parent invocation keys. The host assigns the new child assistant
+message ID before native execution and supplies it to Mastra's public ID generator;
+live projection and reloaded native messages therefore share identity. Parent and
+child assistant IDs remain distinct. Exact approval/question decisions carry the
+continuation ID; descendants additionally retain their observed delegation path.
+A child pause keeps the managed turn open, and each resumed host leg reuses the
+receipt's original turn anchor rather than allocating another budget.
+The first direct envelope in each host leg carries its history baseline exactly
+once. Reload discovers pending decisions with an inert native agent at the admitted
+persona and exact stored child thread/run, then authorizes any descendant path;
+it does not require the current persona registry or execute a model to inspect it.
+
+Suspended-run discovery validates every root and child timestamp before
+staleness and capping, even when no continuation receipt exists. Invalid values
+fail the complete response visibly. Merged pauses remain oldest-first and keep
+the newest ten.
+
+Multiple approval or question calls emitted in one model step remain individually
+addressable. The installed Mastra scheduler forces concurrency one when a called
+tool requires approval or has a suspend schema; child agents use the native
+`strategy: 'called'` option. Reload therefore discovers one pending call, then
+the next after the exact first decision resumes. The native continuation test
+covers two approvals (each effect once) and two questions from the same model
+step. A multi-call suspended snapshot remains an explicit unsupported/ambiguous
+shape; do not remove its guard based only on parallel model emission.
+
+Completed child output reaches the managed root model through a public native
+notification signal and the normal root stream/persistence path. The notification
+contains the final completed leg's text; earlier paused-leg text remains in the
+child's durable transcript and is not concatenated into that result. This is an
+actual model response, not a synthetic assistant message or another transcript
+writer. Approval/question pauses and cancellation do not wake that root model.
+Binding failure aborts and joins native stream consumption before runtime disposal;
+all terminal paths settle the receipt and preserve cleanup failures. If initial
+history capture fails after admission commits, the host settles that receipt as
+failed before returning the error; the same input id cannot replay, while a new
+explicit input can be admitted. A settlement failure preserves both causes in an
+AggregateError. Decision disposal consumes only claims still owned by that host;
+validation before claim or an explicitly released unexecuted claim cannot replace
+the original error with a spurious lost-claim failure. Failed receipts
+retain the visible provider or thrown stream error. Completed model responses
+persist provider usage before a tool can suspend, as described below; terminal
+chunks project that same current-leg usage.
+Recognized human continuation signals use one decoder in both projection paths;
+malformed signals fail visibly instead of disappearing from child history. Restart does
+not automatically replay either the child input or the parent notification.
+
+`child-continuation.integration.spec.ts` exercises real Mastra/PGlite wake, saved
+child history, exact approve/decline/question/plan controls, cancellation, failed
+binding settlement, durable child step charging, depth limits and root notification
+consumption. Host/repository tests cover the separate authorization, duplicate,
+turn-link, replay/reset and atomic claim boundaries; UI production-path evidence
+is required alongside these native tests before delivery is complete.
+
+### Admitted persona configuration on decision resume (BST-1727)
+
+An admitted child's stored `configuration` contains its persona instructions,
+model pin, mode, effective tool IDs and the invocation's clamped step budget.
+The host returns this immutable configuration only after authorizing the entire
+decision ancestry. Both public approval and question/plan resume entry points
+restore those profiles before constructing discovery or execution Agents.
+Restoration is indexed by depth, so two admitted generations of the same persona
+ID cannot overwrite one another. Registry edits, disable preferences and removal
+apply to fresh root turns; a resumed native leg retains its admitted target
+profile through completion and does not rewrite an already-admitted decision.
+The resumed root leg may invoke that restored profile again; a new root turn
+uses current registry availability.
+Current host tool availability, permission rules and model credentials still gate
+execution. Missing/invalid snapshots or an unavailable admitted profile fail
+visibly before native resume; another persona or model is never substituted.
+The browser-safe `AdmittedChildConfigurationError` carries only a fixed reason and
+safe remediation. The shared HTTP initializer returns status 409 with that message;
+profile text and underlying errors stay private. Missing/legacy shapes request a
+fresh delegation, while a persona/path identity mismatch is a distinct integrity
+failure. Unknown fields, invalid model providers and empty tool catalogs reject.
+The schema exhaustively includes the persona contract's keys, modes and sources.
+
+Wildcard worker profiles are expanded to their effective admitted tool IDs when
+building the admission map. A later catalog addition cannot broaden that child's
+resume. This captures the full eligible catalog before discovery hides unloaded tools;
+`load_tool` can restore an admitted tool from child history after resume.
+Older records retaining an unexpanded `*` fail with an explicit request
+to start a new delegation; their original catalog cannot be inferred from today's
+registry. Cross-provider pins reacquire credentials through the trusted host reader,
+including when the live persona file has been deleted; credentials are not stored
+in child configuration. `assistant-service/stream-init.ts` is the sole production
+caller of the two public resume functions and injects that reader for both.
+Restoration without an authenticated root runtime rejects before reading
+secrets. Native Mastra snapshots retain the original delegated
+task and workspace/system context. This boundary does not change native workflow
+snapshot formats or create another execution owner.
+
+Production tests: `delegated-persona-snapshot.integration.spec.ts` disposes the
+original owner, discovers the stored approval/question after registry edits or
+removal, resumes through the public entry point, and checks one effect plus child
+and parent output. It also rejects when the admitted tools are no longer available at all.
+`recursive-worker.integration.spec.ts` removes the live Worker before depth-2/3
+resume and asserts that real admission receives expanded tool IDs, with no `*`.
+`agent-stream-init-and-memory.integration.test.ts` proves fixed remediation reaches
+the real HTTP response while unrelated initializer failures remain redacted.
+`delegated-conversation-host.integration.test.ts` verifies stored configuration is
+read only through the authorized root/turn path. Idle-child wake uses the managed
+continuation boundary above.
+
+The stored step budget must be a valid admitted value under this build's host
+ceiling. Current admission cannot write a value above that ceiling. A future host
+limit reduction must coordinate native snapshots and durable root/child counters;
+clamping only this parser would not prove the running workflow uses the new limit.
+Read-only `resolveToolAction` runs before profile reconstruction and again before
+native decision admission. The second authorization intentionally rechecks current
+ownership rather than caching authority across model/tool construction.
+
+### Settings inventory and reset release proof (BST-1727/BST-1728)
+
+`delegated-factory-reset.desktop.test.ts` toggles Settings' master delegation
+switch and observes the next real native Mastra request at the external model
+provider boundary. Enabled requests advertise `agent-worker`; disabled requests
+advertise no `agent-*` tools while retaining ordinary tool discovery. After
+Settings factory reset and process restart, the default switch and an actual
+subsequent worker-capable inventory return. The existing provider shim supplies
+model text only; the app's assistant endpoint, request preference propagation,
+persona resolution and tool catalog construction run unmodified. This case does
+not execute a delegated workspace effect; the worker fixtures own that proof.
+
+### Selected child scope and captured usage
+
+The selected child's details surface reads its authorized durable configuration,
+actual child run model/provider and tree depth. It uses the same admitted-profile
+parser as native resume; an invalid legacy profile remains an explicit error,
+never a different persona. The displayed tool list is the admitted maximum, still
+subject to current host permissions. A missing captured effort value is displayed
+as not recorded; it is not inferred from the parent's current selector. Continuation
+receipts with an execution snapshot display their actual model, generation effort,
+output limit, plan state and permission policy. The latest authorized receipt is
+read separately from the original admitted maximum.
+
+Direct captured usage and inclusive child-plus-descendant usage reuse the main
+conversation's cumulative usage component and pricing resolver. Inclusive totals
+already include the selected child and must not be added to direct totals. A
+missing usage record is not zero spend; unknown model pricing remains unavailable.
+The reader follows exact invocation and continuation attribution because ordinary
+child usage rows are stored under the root thread. It does not sum the root's
+entire bill into each child. Only retained conversation attribution is shown;
+ordinary root totals still retain numeric history after child deletion. Current
+work may not yet have reported its final usage.
+
+### Next idle child run controls (BST-1727)
+
+The child reuses the main composer's model picker, generation/effort controls,
+plan control and tool menu. Its draft is local to the exact child panel. Before
+an explicit override, the selected model comes from the admitted persona pin or
+its owning root's live per-thread selector; provider settings and plan mode come
+from that same root store, not another thread or global settings alone. Desktop
+children use the same shared provider-discovery resource as the parent even when
+the parent panel is not mounted.
+
+Historical Retry/Edit reads admission ancestry and restart capture in bounded
+80-message pages. An empty branch prefix reads no message page. Its baseline
+excludes events whose canonical native-message owner (or, when absent, turn
+owner) is outside the branch. Retry also excludes turn-owned events for the
+replaced answer, even though its user prompt remains in the prefix. Legacy
+ownerless events retain chronological
+assignment; an empty prefix has no events to project. The native branch
+history verifier observes transaction-handle queries as well as outer capture
+queries, and exercises missing targets and cycles directly.
+
+Idle input and historical branch actions wait for a valid admitted persona.
+A malformed latest execution receipt displays a concise, explicit error while
+retaining the original admitted persona and tool/step limits; raw schema issue
+JSON is not user-facing copy, and unreadable execution settings are not inferred.
+
+Changes apply only to a new idle-child input. Active input carries no next-run
+configuration. The shared composer captures the complete next-run request once;
+an unconfirmed retry keeps that exact receipt and settings despite later control
+changes. Changing text/images still requires explicit discard. Browser receipts
+exclude credentials and local endpoint configuration. The host resolves credentials
+through the existing admitted-persona provider path.
+
+Every new native child also records the actual generation options installed on
+its Agent through the existing trusted admission binding before native input is
+persisted. No new context registry or renderer-provided authority is introduced.
+Original decision resume restores execution snapshots alongside admitted persona
+profiles at each exact ancestry depth. A different pinned descendant model uses
+its own defaults instead of inheriting options intended for another model. The
+current root's permissions apply to that child's tool construction through
+`intersectChildPermissionCeilings` (`packages/assistant-contract/src/child-permission-ceiling.ts`):
+the admitted snapshot contributes ONLY its denies, so a root grant made after
+admission (a session grant, a per-tool "Always allow", yolo) lifts an admitted
+`ask` on the very next resume leg, while a later root reduction still applies and
+the admitted tool catalog stays frozen. SETTLED 2026-09-12 (do not relitigate):
+the earlier symmetric "stricter wins" rule froze every admitted `ask`, so the
+grant buttons on a child's approval notice could never end the prompting — one
+Explorer tree paused 87 times on `readWorkspaceDirectory` and exhausted its
+step budget without reading a file. Paired spec:
+`child-run-configuration.spec.ts` ("child permission ceiling honors root grants
+made after admission"). Because that grant removes the approved tool's `ask`
+flag before the child resumes, the approval-resume leg builds children with
+sequential tool calls (`approvalResumeLeg` → `resolveChildToolCallConcurrency`,
+see `assistant-runtime.md` "Parallel tool calls"); otherwise Mastra's parallel
+foreach resume re-raises approval for the allowed siblings of the approved call
+(2026-09-13 `globWorkspace` pause + "multiple pending calls" 502).
+Older rows without an execution snapshot remain explicitly unrecorded.
+
+Migration 137 persists an execution configuration on each continuation receipt.
+Admission validates the current host model and image capability, combines root
+permissions under the deny-only ceiling above, prevents disabling root plan mode,
+and permits only reductions of the original admitted tool catalog. Resume reads
+the receipt's exact profile and generation settings and applies the current root
+permissions (grants and reductions) under that same ceiling. A pending
+decision is not affected by future draft edits, reload or different parent effort.
+Child settings never replace the parent outcome leg's settings. Null legacy
+execution configurations retain the explicit original-profile compatibility path;
+migration rollback refuses to discard non-null execution snapshots.
+
+Verification: real PGlite upgrade/replay/reconstruction and receipt identity tests;
+actual first-delegation and continuation admission/decision resume with child high/777 while
+the parent uses low/42; public composer retry retains the original configuration;
+shared Electron child image/idle/reload/approval path observes selected xhigh on
+the real provider wire before and after pending-decision reload.
+
+### Structured child composer input
+
+The shared composer uses the same image adapter, file mentions and workspace slash
+commands as the root. Image-only drafts are valid in both active and idle children;
+Send and Enter share the same content-presence and delivery gates. The selected
+child's captured running model determines active vision availability. An idle child
+uses its admitted persona model pin, or its owning root's current per-thread model
+selection when unpinned. A previous run's model never overrides the next selection.
+Known unsupported models reject images visibly; unknown provider capabilities use
+the canonical root policy and surface actual provider errors.
+
+Only the authenticated host resolves file/skill references. Caller-supplied system
+context is rejected. Native message signals retain structured file parts and bounded
+host context; live frames and reloaded messages use the ordinary shared renderer.
+The latest native user signal replaces only its input-context tag; absent or empty
+context clears the older tag without altering admitted persona or workspace authority.
+A stable receipt binds the entire normalized payload, including image bytes, through
+acknowledgement loss and restart. Migration136 stores that payload on the existing
+reset-owned continuation receipt; legacy text-only receipts remain readable. Downgrade
+permits only payloads losslessly represented by the retained input text; image or
+conflicting-content payloads refuse downgrade.
+Acknowledgement clears only the sent attachment cohort and unchanged text, preserving
+newly staged input. An unconfirmed changed payload requires explicit discard rather
+than silently reusing its receipt or replaying the input.
+
+The shared effort control offers an OpenRouter ladder only from the selected
+model's declared or matching live metadata; it never borrows direct OpenAI
+defaults while routed-model metadata is pending. This keeps first-child admission
+and the visible root controls on the same capability contract.
+
+Continuation token accounting uses Mastra's public `processOutputStep`, which
+reports the completed model response before tool execution can pause. A paused
+native stream has no `step-finish` and its terminal usage is zero; a resumed
+terminal includes earlier paused model responses. Neither is a per-host-leg
+charge. The admitted child's processor persists cumulative provider-reported
+counts within the current managed host leg, and the continuation projection emits
+those same counts. A fresh decision leg starts a fresh meter; native cumulative
+finish values cannot duplicate earlier spend. Stopping an already paused child
+therefore retains its reported model usage. Missing provider counts do not create
+a fabricated usage row. The three-process sibling fixture checks 1/1 on each
+paused child and 1/1 on the surviving child's resumed leg, both live and durable.
+
+### Settings inventory and reset release proof (BST-1727/BST-1728)
+
+`delegated-factory-reset.desktop.test.ts` toggles Settings' master delegation
+switch and observes the next real native Mastra request at the external model
+provider boundary. Enabled requests advertise `agent-worker`; disabled requests
+advertise no `agent-*` tools while retaining ordinary tool discovery. After
+Settings factory reset and process restart, the default switch and an actual
+subsequent worker-capable inventory return. The existing provider shim supplies
+model text only; the app's assistant endpoint, request preference propagation,
+persona resolution and tool catalog construction run unmodified. This case does
+not execute a delegated workspace effect; the worker fixtures own that proof.
+
+### Native child workspace reads and checkpoint undo (BST-1726)
+
+The native tool execution thread, not the parent tool-factory closure, owns
+read-before-write timestamps and paged-read cursors. Per-file locks remain the
+existing serialization boundary. The authorized delegated invocation resolves
+the checkpoint's resource and host-leg run with the same `delegatedHostRunId`
+function used by event persistence.
+
+Desktop memory wiring supplies pre-execution snapshot capture to host admission.
+The shared child view reuses `EditCheckpointProvider`/`useEditCheckpoints` with
+the child's thread ID; terminal store events refresh the ledger. Browser views
+without the checkpoint bridge do not query or expose native checkpoint controls.
+The Electron worker test proves child restore after reopen, durable reverted
+state after reload, preservation of an independent user file, and no new model
+request. This does not complete all workspace coordination acceptance.
+
+Delegated native file mutations carry the selected execution's abort signal to
+the per-path mutation boundary. A child stopped while waiting for a shared file
+lock cannot mutate after the lock becomes available; completed child edits stay
+inspectable and a sibling retains its own execution signal. The four real queued
+write/replace/delete/rename cases live in the workspace staleness integration suite.

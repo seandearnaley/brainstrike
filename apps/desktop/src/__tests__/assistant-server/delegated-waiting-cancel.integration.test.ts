@@ -38,7 +38,6 @@ import type { PGlite } from '@electric-sql/pglite';
 import { expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { handleCancelRequest } from '../../assistant-server/control-endpoints';
-import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
 import { readDelegatedDecisionStates } from '../../assistant-server/delegated-decision-discovery';
 import {
   getDesktopMastraMemory,
@@ -48,6 +47,7 @@ import {
   observeDesktopAssistantRunEvents,
   recordDesktopAssistantThreadRunStatus,
 } from '../../assistant-server/run-persistence';
+import { createBudgetedHost } from './fixtures/budgeted-host';
 
 const holder = vi.hoisted(() => ({ database: undefined as PGlite | undefined }));
 vi.mock('../../db-main', () => ({
@@ -263,7 +263,7 @@ async function assertWaitingCancellation(
     // the native model/store. This is not packaged renderer or process-restart proof.
     const decisionBinding = {
       ...binding,
-      ...createDesktopDelegatedConversationHost(database, 'after-reload'),
+      ...createBudgetedHost(database, 'after-reload'),
     };
     if (damagedDecision) {
       await database.query(
@@ -366,7 +366,7 @@ async function assertWaitingCancellation(
         VALUES ('late-resume', 'owner', 'root', 'openai', 'test', 'desktop', 'running', NOW(), NOW(), NOW(), 'user-turn')`);
       const lateBinding = {
         ...binding,
-        ...createDesktopDelegatedConversationHost(database, 'late-resume'),
+        ...createBudgetedHost(database, 'late-resume'),
       };
       await expect(
         claimDelegatedToolAction(action, lateBinding, { agent: parent, requiresApproval: true })

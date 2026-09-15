@@ -1,4 +1,5 @@
 export { TooltipIconButton, type TooltipIconButtonProps } from '@brainstrike/ui';
+export type { ApprovalOwnerThread } from './approval-owner-thread-context';
 export {
   AssistantConversationPanel,
   type AssistantConversationPanelProps,
@@ -37,6 +38,7 @@ export {
   readCompactionSummaryPayload,
 } from './compaction-summary-message';
 export type { OmAwaitingObserverReason, OmMeterState } from './context-usage-meter';
+export { CumulativeUsageSection, type CumulativeUsageSectionProps } from './context-usage-popover';
 export {
   resetContextUsageStore,
   type ThreadTokenUsage,
@@ -48,7 +50,12 @@ export {
   DebugBundleProvider,
   useDebugBundleContext,
 } from './debug-bundle-context';
-export type { DelegatedConversationUpdate } from './delegated-conversation-receiver';
+export { type DecisionDispatchOutcome, submitDecisionOrQueue } from './decision-dispatch';
+export type {
+  ChildContinuationIdentity,
+  ChildConversationOwner,
+  DelegatedConversationUpdate,
+} from './delegated-conversation-receiver';
 export {
   type EditCheckpointContextValue,
   EditCheckpointProvider,
@@ -67,9 +74,12 @@ export {
 export {
   type FollowUpQueueItem,
   followUpQueueKey,
+  isDecisionQueued,
   resetFollowUpQueueStore,
   useFollowUpQueueStore,
 } from './follow-up-queue-store';
+export { LiveDecisionProvider } from './live-decision-context';
+export { type LiveDecisionTransport, useLiveDecisionTransport } from './live-decision-transport';
 export { hasDesktopLlmHost } from './local-runtime-adapter';
 export {
   McpTaskBridgeProvider,
@@ -106,6 +116,10 @@ export {
   SubagentConversationPresentationContext,
   SubagentInvocationResolverContext,
 } from './subagent-conversation-navigation';
+export {
+  type ThreadMessageNavigation,
+  ThreadMessageNavigationContext,
+} from './thread-message-navigation';
 export {
   type ToolApprovalGrantHandlers,
   ToolApprovalGrantProvider,

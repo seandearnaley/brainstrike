@@ -1,13 +1,24 @@
 // @vitest-environment jsdom
 import { fromThreadMessageLike, type ThreadMessageLike } from '@assistant-ui/react';
 import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
-import { cleanup, renderHook } from '@testing-library/react';
+import { TooltipProvider } from '@brainstrike/ui';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {
   type AssistantMessage,
   AssistantMessageAccumulator,
   DataStreamDecoder,
 } from 'assistant-stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AssistantConversationPanel } from '../assistant-conversation-panel';
 import type { DelegatedConversationUpdate } from '../delegated-conversation-receiver';
 import { useDelegatedConversationRuntime } from '../use-delegated-conversation-runtime';
 
@@ -56,6 +67,30 @@ const finish: [string, unknown] = [
   'd',
   { finishReason: 'stop', usage: { inputTokens: 0, outputTokens: 0 } },
 ];
+
+function BranchedConversation({
+  history,
+  onBranch,
+  prepareBranchInput,
+}: {
+  readonly history: History;
+  readonly onBranch: NonNullable<Parameters<typeof useDelegatedConversationRuntime>[0]['onBranch']>;
+  readonly prepareBranchInput?: NonNullable<
+    Parameters<typeof useDelegatedConversationRuntime>[0]['prepareBranchInput']
+  >;
+}) {
+  const runtime = useDelegatedConversationRuntime({
+    history,
+    onBranch,
+    onNew: async () => undefined,
+    ...(prepareBranchInput ? { prepareBranchInput } : {}),
+  });
+  return (
+    <TooltipProvider>
+      <AssistantConversationPanel label="Cedar" runtime={runtime} threadKey="child" />
+    </TooltipProvider>
+  );
+}
 afterEach(cleanup);
 
 describe('shared child conversation runtime', () => {
@@ -107,6 +142,48 @@ describe('shared child conversation runtime', () => {
     const previous = result.current.thread.getState().messages;
     rerender({ ...update, messageId: 'later-native-row' });
     expect(result.current.thread.getState().messages).toEqual(previous);
+    expect(onNew).not.toHaveBeenCalled();
+  });
+
+  it('retains live image-only child input in the ordinary user transcript across replay', async () => {
+    const update = await live('child', [
+      [
+        'aui-data',
+        {
+          data: {
+            attachments: [
+              {
+                data: 'data:image/png;base64,aW1hZ2U=',
+                filename: 'evidence.png',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            createdAt: '2026-09-12T12:00:00Z',
+            id: 'image-input',
+            text: '',
+          },
+          name: 'brainstrike.child-user-message',
+        },
+      ],
+      ['0', 'Image inspected.'],
+      finish,
+    ]);
+    const onNew = vi.fn(async () => {});
+    const { result, rerender } = renderHook(
+      (snapshot) =>
+        useDelegatedConversationRuntime({ history: { messages: [] }, onNew, update: snapshot }),
+      { initialProps: update }
+    );
+    const input = () =>
+      result.current.thread.getState().messages.find((message) => message.id === 'image-input');
+    expect(input()?.content).toMatchObject([
+      { image: 'data:image/png;base64,aW1hZ2U=', type: 'image' },
+    ]);
+    rerender({ ...update });
+    expect(input()?.content).toMatchObject([
+      { image: 'data:image/png;base64,aW1hZ2U=', type: 'image' },
+    ]);
     expect(onNew).not.toHaveBeenCalled();
   });
 
@@ -193,5 +270,118 @@ describe('shared child conversation runtime', () => {
     expect(
       exported.messages.find(({ message }) => message.id === 'inactive')?.message.content
     ).toEqual(history.messages[1]?.message.content);
+  });
+
+  it('dispatches Retry from the shared conversation DOM with the exact durable answer', async () => {
+    const history: History = {
+      headId: 'answer',
+      messages: [
+        { message: saved('prompt', 'Inspect the first file', 'user'), parentId: null },
+        { message: saved('answer', 'The first result'), parentId: 'prompt' },
+      ],
+    };
+    const onBranch = vi.fn<NonNullable<Parameters<typeof BranchedConversation>[0]['onBranch']>>(
+      async () => undefined
+    );
+    render(<BranchedConversation history={history} onBranch={onBranch} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Regenerate response' }));
+    await waitFor(() => expect(onBranch).toHaveBeenCalledTimes(1));
+    expect(onBranch.mock.calls[0]?.[0]).toMatchObject({
+      branch: { kind: 'retry', messageId: 'answer' },
+      text: 'Retry the selected child answer.',
+    });
+  });
+
+  it('reuses the Retry receipt after an uncertain delivery failure', async () => {
+    const history: History = {
+      headId: 'answer',
+      messages: [
+        { message: saved('prompt', 'Inspect the first file', 'user'), parentId: null },
+        { message: saved('answer', 'The first result'), parentId: 'prompt' },
+      ],
+    };
+    const uncertain = Promise.withResolvers<void>();
+    const onBranch = vi
+      .fn<NonNullable<Parameters<typeof BranchedConversation>[0]['onBranch']>>()
+      .mockImplementationOnce(() => uncertain.promise)
+      .mockResolvedValueOnce(undefined);
+    render(<BranchedConversation history={history} onBranch={onBranch} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate response' }));
+    await waitFor(() => expect(onBranch).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate response' }));
+    await waitFor(() => expect(onBranch).toHaveBeenCalledTimes(2));
+
+    expect(onBranch.mock.calls[1]?.[0].id).toBe(onBranch.mock.calls[0]?.[0].id);
+    uncertain.resolve();
+  });
+
+  it('prepares a historical Retry through the child next-run controls', async () => {
+    const history: History = {
+      headId: 'answer',
+      messages: [
+        { message: saved('prompt', 'Inspect the first file', 'user'), parentId: null },
+        { message: saved('answer', 'The first result'), parentId: 'prompt' },
+      ],
+    };
+    const onBranch = vi
+      .fn<NonNullable<Parameters<typeof BranchedConversation>[0]['onBranch']>>()
+      .mockResolvedValue(undefined);
+    const prepareBranchInput = vi.fn((input) => ({
+      ...input,
+      nextRun: { model: { modelId: 'gpt-5.6-terra', provider: 'openai' } },
+    }));
+    render(
+      <BranchedConversation
+        history={history}
+        onBranch={onBranch}
+        prepareBranchInput={prepareBranchInput}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Regenerate response' }));
+    await waitFor(() => expect(onBranch).toHaveBeenCalledOnce());
+    expect(prepareBranchInput).toHaveBeenCalledOnce();
+    expect(onBranch.mock.calls[0]?.[0].nextRun?.model).toEqual({
+      modelId: 'gpt-5.6-terra',
+      provider: 'openai',
+    });
+  });
+
+  it('dispatches Edit from the shared conversation DOM with the exact durable prompt', async () => {
+    const history: History = {
+      headId: 'answer',
+      messages: [
+        { message: saved('prompt', 'Inspect the first file', 'user'), parentId: null },
+        { message: saved('answer', 'The first result'), parentId: 'prompt' },
+      ],
+    };
+    const onBranch = vi.fn<NonNullable<Parameters<typeof BranchedConversation>[0]['onBranch']>>(
+      async () => undefined
+    );
+    render(<BranchedConversation history={history} onBranch={onBranch} />);
+    const user = userEvent.setup();
+
+    const prompt = document.querySelector('[data-message-id="prompt"]');
+    if (!prompt) {
+      throw new Error('Missing durable child prompt row.');
+    }
+    await user.hover(prompt);
+    await user.click(screen.getByRole('button', { name: 'Edit message' }));
+    const editor = screen.getByDisplayValue('Inspect the first file');
+    await user.clear(editor);
+    await user.type(editor, 'Inspect the second file');
+    const editForm = editor.closest('form');
+    if (!editForm) {
+      throw new Error('Missing child edit composer.');
+    }
+    await user.click(within(editForm).getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(onBranch).toHaveBeenCalledOnce());
+    expect(onBranch.mock.calls[0]?.[0]).toMatchObject({
+      branch: { kind: 'edit', messageId: 'prompt' },
+      text: 'Inspect the second file',
+    });
   });
 });

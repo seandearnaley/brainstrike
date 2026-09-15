@@ -72,6 +72,14 @@ test('restores distinct child tabs and native transcripts without executing a ru
       'INSERT INTO brainstrike_delegated_conversations (thread_id, owner_resource_id, root_thread_id, resource_id) VALUES ($1, $2, $1, $2)',
       [root['id'], root['resource']]
     );
+    const fixturePersona = {
+      allowedToolIds: ['brainstrike.readWorkspaceFile'],
+      description: 'Inspect the persisted child workspace fixture.',
+      id: 'workspace-reload-fixture',
+      instructions: 'Read the requested workspace context and report the result.',
+      label: 'Workspace fixture',
+      maxSteps: 16,
+    };
     const ids: string[] = [];
     for (const [name, color, parentName] of [
       ['Cedar', 'emerald'],
@@ -85,7 +93,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
         [child, resource, name]
       );
       await query(
-        `INSERT INTO brainstrike_delegated_conversations (thread_id, owner_resource_id, root_thread_id, parent_thread_id, resource_id, configuration, display_name, color) VALUES ($1, $2, $3, $7, $4, '{}'::jsonb, $5, $6)`,
+        'INSERT INTO brainstrike_delegated_conversations (thread_id, owner_resource_id, root_thread_id, parent_thread_id, resource_id, configuration, display_name, color) VALUES ($1, $2, $3, $7, $4, $8::jsonb, $5, $6)',
         [
           child,
           root['resource'],
@@ -94,6 +102,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
           name,
           color,
           parentName ? `${root['id']}-${parentName}` : root['id'],
+          JSON.stringify({ maxSteps: fixturePersona.maxSteps, persona: fixturePersona }),
         ]
       );
       await query(
@@ -184,6 +193,9 @@ test('restores distinct child tabs and native transcripts without executing a ru
   const flint = window.getByRole('tab', { exact: true, name: 'Flint' });
   await expect(cedar).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
+  // The first SVG is the tab's identity mark; trailing controls may add icons.
+  await expect(cedar.locator('svg').first()).toHaveClass(/text-emerald-500/u);
+  await expect(flint.locator('svg').first()).toHaveClass(/text-amber-500/u);
   await expect(window.getByText('Cedar saved native transcript', { exact: true })).toBeVisible();
   const rootDraft = rootPanel.getByRole('textbox', { name: 'Message input' });
   await rootDraft.fill('UNSENT_PARENT_DRAFT_1724');
@@ -196,6 +208,10 @@ test('restores distinct child tabs and native transcripts without executing a ru
     .toBe(true);
   await cedarViewport.evaluate((element) => element.scrollTo({ behavior: 'instant', top: 0 }));
   await expect.poll(() => cedarViewport.evaluate((element) => element.scrollTop)).toBe(0);
+  // Wait for the scroll owner to record that Cedar is reading history before
+  // hiding its kept-alive panel. A DOM scrollTop write precedes its scroll
+  // event; switching tabs before that event leaves the follow state pinned.
+  await expect(cedarPanel.getByTestId('assistant-scroll-to-bottom')).toBeEnabled();
   await cedar.focus();
   await cedar.press('ArrowRight');
   await expect(flint).toBeFocused();
@@ -217,11 +233,18 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(childPanel.getByText('Instructions for Cedar', { exact: true })).toBeVisible();
   await expect(
     childPanel.getByRole('button', { includeHidden: true, name: 'Regenerate response' })
-  ).toHaveCount(0);
+  ).toHaveCount(1);
+  await childPanel.getByText('Instructions for Cedar', { exact: true }).hover();
   await expect(
     childPanel.getByRole('button', { includeHidden: true, name: 'Edit message' })
-  ).toHaveCount(0);
-  await expect(childPanel.getByRole('textbox', { name: 'Message input' })).toBeDisabled();
+  ).toHaveCount(1);
+  // Reloaded idle children expose their branch controls and accept their own
+  // draft. Merely restoring the controls or editing the draft must not run a
+  // model or change the parent's composer. Delivery is covered separately.
+  const childInput = childPanel.getByRole('textbox', { name: 'Message input' });
+  await expect(childInput).toBeEnabled();
+  await childInput.fill('UNSENT_CHILD_DRAFT_1724');
+  await expect(rootDraft).toHaveValue('UNSENT_PARENT_DRAFT_1724');
   await expect(
     childPanel.getByRole('button', { includeHidden: true, name: 'Restore to before this message' })
   ).toHaveCount(0);
@@ -242,9 +265,12 @@ test('restores distinct child tabs and native transcripts without executing a ru
   ).toHaveCount(0);
   // Establish the reader's position before the sidebar navigation sequence.
   await cedarViewport.evaluate((element) => element.scrollTo({ behavior: 'instant', top: 0 }));
-  await expect.poll(() => cedarViewport.evaluate((element) => element.scrollTop)).toBe(0);
+  await expect
+    .poll(() => cedarViewport.evaluate((element) => element.scrollTop))
+    .toBeLessThanOrEqual(1);
   await window.getByRole('button', { exact: true, name: 'Flint Child' }).click();
   await expect(flint).toHaveAttribute('aria-selected', 'true');
+  await expect(flint.locator('svg').first()).toHaveClass(/text-amber-500/u);
   await sidebarCedar.getByRole('button', { name: /Expand/ }).click();
   const wrenRow = window.getByRole('row').filter({
     has: window.getByRole('button', { exact: true, name: 'Wren Child' }),
@@ -313,4 +339,63 @@ test('restores distinct child tabs and native transcripts without executing a ru
     contentType: 'image/png',
     path: testInfo.outputPath('restored-child-workspace.png'),
   });
+
+  // Delete through the actual sidebar action, then reload. The other root and
+  // its workspace survive; stale saved child tabs may never revive work.
+  await rootRow
+    .getByRole('button', { name: 'Thread actions Child workspace verification' })
+    .click();
+  await window.getByRole('button', { exact: true, name: 'Delete…' }).click();
+  await window
+    .getByRole('button', { name: 'Confirm delete thread Child workspace verification' })
+    .click();
+  await expect(rootRow).toHaveCount(0);
+  await expect(cedar).toHaveCount(0);
+  await expect(flint).toHaveCount(0);
+  await expect(window.getByRole('tab', { exact: true, name: 'Wren' })).toHaveCount(0);
+  const deletedRows = await window.evaluate(async (rootId) => {
+    const api = (
+      globalThis as typeof globalThis & {
+        electronAPI?: {
+          db?: {
+            query?: (
+              sql: string,
+              values: string[][]
+            ) => Promise<{ rows: Array<{ kind: string; count: string }> }>;
+          };
+        };
+      }
+    ).electronAPI;
+    if (!api?.db?.query) {
+      throw new Error('Native database bridge unavailable');
+    }
+    return (
+      await api.db.query(
+        `SELECT 'native' AS kind, count(*)::text FROM mastra_threads WHERE id = ANY($1::text[])
+       UNION ALL SELECT 'messages', count(*)::text FROM mastra_messages WHERE thread_id = ANY($1::text[])
+       UNION ALL SELECT 'graph', count(*)::text FROM brainstrike_delegated_conversations WHERE thread_id = ANY($1::text[])
+       UNION ALL SELECT 'workspace', count(*)::text FROM brainstrike_assistant_thread_workspaces WHERE thread_id = ANY($1::text[])
+       ORDER BY kind`,
+        [[rootId, `${rootId}-Cedar`, `${rootId}-Flint`, `${rootId}-Wren`]]
+      )
+    ).rows;
+  }, memory.threadId);
+  expect(deletedRows).toEqual([
+    { count: '0', kind: 'graph' },
+    { count: '0', kind: 'messages' },
+    { count: '0', kind: 'native' },
+    { count: '0', kind: 'workspace' },
+  ]);
+
+  await window.reload();
+  await mockFileSystemOperations(window);
+  await setupAssistantMock(window, { message: 'Deleted children must never execute.' });
+  await ensureAssistantShellVisible(window);
+  await expect(
+    window.getByRole('button', { exact: true, name: 'Other root navigation' })
+  ).toBeVisible();
+  await expect(window.getByRole('tab', { exact: true, name: 'Cedar' })).toHaveCount(0);
+  await expect(window.getByRole('button', { exact: true, name: 'Cedar Child' })).toHaveCount(0);
+  expect(await readAssistantMockRequests(window)).toHaveLength(0);
+  expect(unexpectedModelRequests).toHaveLength(0);
 });

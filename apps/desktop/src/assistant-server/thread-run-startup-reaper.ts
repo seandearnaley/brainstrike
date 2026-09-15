@@ -83,5 +83,13 @@ export async function reapOrphanedThreadRuns(
      WHERE decisions.host_run_id = runs.id AND decisions.state = 'claimed'
        AND runs.status IN ('completed', 'failed', 'cancelled')`
   );
+  await db.query(`UPDATE brainstrike_delegated_continuations continuation
+    SET state = 'interrupted', error = 'The execution host stopped before confirming completion.', updated_at = NOW()
+    FROM brainstrike_assistant_thread_runs host WHERE continuation.active_host_run_id = host.id
+      AND continuation.state IN ('claimed', 'running') AND host.status IN ('completed', 'failed', 'cancelled')`);
+  await db.query(`UPDATE brainstrike_delegated_continuation_decisions decision
+    SET state = 'interrupted' FROM brainstrike_assistant_thread_runs host
+    WHERE decision.host_run_id = host.id AND decision.state = 'claimed'
+      AND host.status IN ('completed', 'failed', 'cancelled')`);
   return report;
 }

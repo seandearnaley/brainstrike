@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto';
-import type { DelegatedBudgetPort } from '@brainstrike/assistant-contract';
+import type {
+  DelegatedBudgetPort,
+  DelegatedStepReservation,
+} from '@brainstrike/assistant-contract';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import {
   createDelegatedConversationRepository,
   type DelegatedConversationDatabase,
+  DelegatedConversationIdentityError,
   type DelegatedConversationScope,
 } from '@brainstrike/db';
 import { z } from 'zod';
 import { assertDelegatedConversationAdmission } from './delegated-cancellation-admission';
-import { assertDelegationRootRunning } from './delegated-tree-admission';
+import { admitDelegatedInvocation, assertDelegationRootRunning } from './delegated-tree-admission';
 
 const treeSchema = z.object({
   chargedOutputTokens: z.number().int().nonnegative(),
@@ -24,6 +29,37 @@ const childSchema = z.object({
 });
 type Scope = DelegatedConversationScope & { turnMessageId: string };
 
+type ExhaustedCap = Pick<
+  Extract<DelegatedStepReservation, { synthesis: true }>,
+  'cap' | 'limit' | 'used'
+>;
+
+/**
+ * The cap that forces the reserved synthesis step, with the numbers behind it
+ * (`used` of `limit`), or null while the child may still work. Named so the
+ * child's `delegation.budget.exhausted` run event and the parent-facing
+ * truncation note can state WHY the child stopped.
+ */
+function exhaustedCap(
+  tree: z.infer<typeof treeSchema>,
+  child: z.infer<typeof childSchema>
+): ExhaustedCap | null {
+  if (child.steps === child.maxSteps - 1) {
+    return { cap: 'steps', limit: child.maxSteps, used: child.steps };
+  }
+  if (tree.maxOutputTokens - tree.chargedOutputTokens <= 0) {
+    return { cap: 'tree-output', limit: tree.maxOutputTokens, used: tree.chargedOutputTokens };
+  }
+  if (tree.maxChildOutputTokens - child.chargedOutputTokens <= 0) {
+    return {
+      cap: 'child-output',
+      limit: tree.maxChildOutputTokens,
+      used: child.chargedOutputTokens,
+    };
+  }
+  return null;
+}
+
 function readChildBudget(rows: readonly unknown[]): z.infer<typeof childSchema> {
   if (rows.length !== 1) {
     throw new Error('Delegated child has no budget in this original turn.');
@@ -34,7 +70,8 @@ function readChildBudget(rows: readonly unknown[]): z.infer<typeof childSchema> 
 export function createDelegatedStepBudget(
   database: DelegatedConversationDatabase,
   hostRunId: string,
-  readScope: () => Promise<Scope>
+  readScope: () => Promise<Scope>,
+  subagentSettings?: RuntimeSubagentSettings
 ): DelegatedBudgetPort {
   async function transact<T>(
     operation: (tx: DelegatedConversationDatabase, scope: Scope) => Promise<T>
@@ -60,6 +97,25 @@ export function createDelegatedStepBudget(
     return treeSchema.parse(tree.rows[0]);
   }
   return {
+    async admitInvocation(parentScope) {
+      return await transact(async (tx, scope) => {
+        const repository = createDelegatedConversationRepository(tx);
+        // The root joins the graph on its first admission question, exactly as
+        // it does on its first persisted child.
+        await repository.registerRoot(scope);
+        const parent = await repository.get(scope, parentScope.parentThreadId);
+        if (!parent || parent.resourceId !== parentScope.parentResourceId) {
+          throw new DelegatedConversationIdentityError('parent-scope-mismatch');
+        }
+        return await admitDelegatedInvocation(
+          tx,
+          scope,
+          hostRunId,
+          parentScope.parentThreadId,
+          subagentSettings
+        );
+      });
+    },
     async reserveStep(childScope) {
       return await transact(async (tx, scope) => {
         await assertDelegatedConversationAdmission(tx, scope, [childScope.threadId]);
@@ -92,11 +148,12 @@ export function createDelegatedStepBudget(
             'Delegated step budget exhausted; reserved synthesis is already consumed.'
           );
         }
+        const exhausted = exhaustedCap(tree, child);
         const remaining = Math.min(
           tree.maxOutputTokens - tree.chargedOutputTokens,
           tree.maxChildOutputTokens - child.chargedOutputTokens
         );
-        const synthesis = child.steps === child.maxSteps - 1 || remaining <= 0;
+        const synthesis = exhausted !== null;
         const outputTokens = synthesis
           ? tree.synthesisOutputTokens
           : Math.min(tree.maxStepOutputTokens, remaining);
@@ -126,7 +183,9 @@ export function createDelegatedStepBudget(
             outputTokens,
           ]
         );
-        return { id, outputTokens, synthesis };
+        return exhausted === null
+          ? { id, outputTokens, synthesis: false }
+          : { ...exhausted, id, outputTokens, synthesis: true };
       });
     },
     async settleStep(reservationId, outputTokens) {

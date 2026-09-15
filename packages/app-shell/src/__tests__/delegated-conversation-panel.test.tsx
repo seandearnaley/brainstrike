@@ -5,16 +5,20 @@ import {
   TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { restoreDelegatedConversationHistory } from '@brainstrike/assistant-data';
+import { ThreadMessageNavigationContext } from '@brainstrike/assistant-ui';
 import { TooltipProvider } from '@brainstrike/ui';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { DelegatedConversationPanel } from '../delegated-conversation-panel';
 import { createDelegatedConversationStore } from '../delegated-conversation-store';
 import { createDelegatedDecisionDispatcher } from '../delegated-decision-dispatcher';
 import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe('host-owned child panel', () => {
   it('opens persisted history without executing and replaces it with a live host continuation', async () => {
@@ -51,6 +55,74 @@ describe('host-owned child panel', () => {
     expect(await screen.findByText('Live continuation.')).toBeVisible();
     expect(screen.queryByText('Saved child output.')).not.toBeInTheDocument();
     expect(onNew).not.toHaveBeenCalled();
+  });
+
+  it('extends older search context without duplicating an overlapping group or prepending a newer read', async () => {
+    vi.stubGlobal('CSS', { escape: (id: string) => id });
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo');
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+      configurable: true,
+      value: vi.fn(),
+    });
+    onTestFinished(() => {
+      if (descriptor) {
+        Object.defineProperty(HTMLElement.prototype, 'scrollTo', descriptor);
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo');
+      }
+    });
+    const onComplete = vi.fn();
+    const store = createDelegatedConversationStore('root');
+    const initial = delegatedUpdate('child', 'overlap', 'Live continuation.');
+    if (!initial.baseline) {
+      throw new Error('Fixture requires a baseline');
+    }
+    const native = (id: string, text: string, minute: number, role: string) => ({
+      content: text,
+      createdAt: new Date(Date.UTC(2026, 8, 10, 0, minute)).toISOString(),
+      id,
+      role,
+    });
+    const baseline = {
+      ...initial.baseline,
+      messages: [
+        native('b', 'Host answer.', 2, 'assistant'),
+        native('c', 'New prompt.', 3, 'user'),
+      ],
+    };
+    store.publish({ ...initial, baseline });
+    const loaded = restoreDelegatedConversationHistory({
+      ...baseline,
+      messages: [
+        native('older', 'Earlier prompt.', 0, 'user'),
+        native('a', 'Old snapshot.', 1, 'assistant'),
+        native('b', 'Host answer.', 2, 'assistant'),
+        native('c', 'New prompt.', 3, 'user'),
+        native('newer', 'Read advanced beyond host.', 4, 'assistant'),
+      ],
+    });
+    render(
+      <TooltipProvider>
+        <ThreadMessageNavigationContext value={{ messageId: 'a', onComplete, requestId: 1 }}>
+          <DelegatedConversationPanel
+            extendHistoryForSearch
+            label="Cedar"
+            onNew={vi.fn()}
+            persistedHistory={loaded}
+            store={store}
+            threadId="child"
+          />
+        </ThreadMessageNavigationContext>
+      </TooltipProvider>
+    );
+    expect(await screen.findByText('Earlier prompt.')).toBeVisible();
+    expect(screen.getAllByText('Host answer.')).toHaveLength(1);
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith());
+    expect(document.activeElement?.getAttribute('data-message-id')).toBe('b');
+    expect(screen.queryByText('Old snapshot.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Read advanced beyond host.')).not.toBeInTheDocument();
+    expect(screen.getByText('New prompt.')).toBeVisible();
+    expect(screen.getByText('Live continuation.')).toBeVisible();
   });
 
   it('sends the visible leaf approval through the owning root without child transcript ids', async () => {

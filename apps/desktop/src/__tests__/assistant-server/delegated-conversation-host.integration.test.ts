@@ -19,6 +19,7 @@ import {
   persistDesktopChildRunUsage,
 } from '../../assistant-server/run-persistence';
 import { reapOrphanedThreadRuns } from '../../assistant-server/thread-run-startup-reaper';
+import { createBudgetedHost } from './fixtures/budgeted-host';
 
 describe('desktop delegated conversation authority', () => {
   let database: PGlite;
@@ -113,7 +114,7 @@ describe('desktop delegated conversation authority', () => {
   )(
     'rediscovers $state admission at depth $depth for its exact native leaf without crossing owner/root/call scope',
     async ({ depth, state }) => {
-      const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+      const host = createBudgetedHost(database, 'initial-leg');
       await host.persist(identity);
       await host.bindRun(run);
       const path = [run];
@@ -182,8 +183,29 @@ describe('desktop delegated conversation authority', () => {
     }
   );
 
+  it('logs the identity reason at the host boundary when admission is refused (BST-1751)', async () => {
+    const diagnostic = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    try {
+      const host = createBudgetedHost(database, 'initial-leg');
+      await expect(
+        host.persist({ ...identity, parentResourceId: 'someone-else' })
+      ).rejects.toMatchObject({ reason: 'parent-scope-mismatch' });
+      expect(diagnostic).toHaveBeenCalledWith(
+        'Delegated conversation identity rejected',
+        expect.objectContaining({
+          code: 'delegated_conversation_identity_rejected',
+          hostRunId: 'initial-leg',
+          method: 'persist',
+          reason: 'parent-scope-mismatch',
+        })
+      );
+    } finally {
+      diagnostic.mockRestore();
+    }
+  });
+
   it('loads only the requested leaf admission, not retained history for the same child run', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await host.bindRun(run);
     const action = {
@@ -208,8 +230,8 @@ describe('desktop delegated conversation authority', () => {
   });
 
   it('claims a leaf decision once and serializes sibling resumes across recreated hosts', async () => {
-    const first = createDesktopDelegatedConversationHost(database, 'initial-leg');
-    const second = createDesktopDelegatedConversationHost(database, 'resume-leg');
+    const first = createBudgetedHost(database, 'initial-leg');
+    const second = createBudgetedHost(database, 'resume-leg');
     await first.persist(identity);
     await first.bindRun(run);
     const action = {
@@ -243,7 +265,7 @@ describe('desktop delegated conversation authority', () => {
     };
     await expect(second.claimToolAction(next)).rejects.toThrow();
     // An unrelated recreated host cannot release the successful claimant.
-    await createDesktopDelegatedConversationHost(database, 'initial-leg').finishToolActions();
+    await createBudgetedHost(database, 'initial-leg').finishToolActions();
     await expect(second.claimToolAction(next)).rejects.toThrow();
     await first.finishToolActions();
     await second.finishToolActions();
@@ -256,7 +278,7 @@ describe('desktop delegated conversation authority', () => {
   });
 
   it('shares one initial baseline across concurrent binds of the same invocation', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     const [first, second] = await Promise.all([host.bindRun(run), host.bindRun(run)]);
     expect(first.baseline).toBeDefined();
@@ -264,10 +286,10 @@ describe('desktop delegated conversation authority', () => {
   });
 
   it('prepares history only for the admitted leaf and recaptures after an unexecuted release', async () => {
-    const original = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const original = createBudgetedHost(database, 'initial-leg');
     await original.persist(identity);
     await original.bindRun(run);
-    const host = createDesktopDelegatedConversationHost(database, 'resume-leg');
+    const host = createBudgetedHost(database, 'resume-leg');
     const action = {
       delegation: { path: [run], toolCallId: 'read-1' },
       runId: run.parentRuntimeRunId,
@@ -300,8 +322,8 @@ describe('desktop delegated conversation authority', () => {
   });
 
   it('releases only its own unexecuted leaf claim and never a consumed decision', async () => {
-    const owner = createDesktopDelegatedConversationHost(database, 'initial-leg');
-    const other = createDesktopDelegatedConversationHost(database, 'resume-leg');
+    const owner = createBudgetedHost(database, 'initial-leg');
+    const other = createBudgetedHost(database, 'resume-leg');
     await owner.persist(identity);
     await owner.bindRun(run);
     const action = {
@@ -311,9 +333,7 @@ describe('desktop delegated conversation authority', () => {
     };
     await owner.claimToolAction(action);
     await expect(
-      createDesktopDelegatedConversationHost(database, 'initial-leg').releaseUnexecutedToolAction(
-        action
-      )
+      createBudgetedHost(database, 'initial-leg').releaseUnexecutedToolAction(action)
     ).rejects.toMatchObject({ reason: 'tool-action-claim-lost' });
     await expect(other.releaseUnexecutedToolAction(action)).rejects.toMatchObject({
       reason: 'tool-action-claim-lost',
@@ -339,7 +359,7 @@ describe('desktop delegated conversation authority', () => {
   });
 
   it('retains an interrupted decision after startup reaping without replaying its unknown effect', async () => {
-    const original = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const original = createBudgetedHost(database, 'initial-leg');
     await original.persist(identity);
     await original.bindRun(run);
     const action = {
@@ -361,7 +381,7 @@ describe('desktop delegated conversation authority', () => {
     expect(
       (await database.query('SELECT state FROM brainstrike_delegated_tool_decisions')).rows
     ).toEqual([{ state: 'interrupted' }]);
-    const replacement = createDesktopDelegatedConversationHost(database, 'resume-leg');
+    const replacement = createBudgetedHost(database, 'resume-leg');
     await expect(replacement.claimToolAction(action)).rejects.toThrow();
     // No stale in-memory owner can overwrite the interrupted disposition.
     await expect(original.finishToolActions()).rejects.toMatchObject({
@@ -373,7 +393,7 @@ describe('desktop delegated conversation authority', () => {
   });
 
   it('resolves tool action ancestry only for the owning root and original turn', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await host.bindRun(run);
     const action = {
@@ -381,10 +401,13 @@ describe('desktop delegated conversation authority', () => {
       runId: run.parentRuntimeRunId,
       toolCallId: run.parentToolCallId,
     };
-    expect(
-      await createDesktopDelegatedConversationHost(database, 'resume-leg').resolveToolAction(action)
-    ).toEqual([
-      { identity: run, resourceId: identity.childResourceId, threadId: identity.childThreadId },
+    expect(await createBudgetedHost(database, 'resume-leg').resolveToolAction(action)).toEqual([
+      {
+        configuration: identity.configuration,
+        identity: run,
+        resourceId: identity.childResourceId,
+        threadId: identity.childThreadId,
+      },
     ]);
     await expect(
       host.resolveToolAction({ runId: action.runId, toolCallId: action.toolCallId })
@@ -396,36 +419,59 @@ describe('desktop delegated conversation authority', () => {
       })
     ).rejects.toThrow();
     for (const leg of ['other-turn-leg', 'other-root-leg']) {
-      await expect(
-        createDesktopDelegatedConversationHost(database, leg).resolveToolAction(action)
-      ).rejects.toThrow();
+      await expect(createBudgetedHost(database, leg).resolveToolAction(action)).rejects.toThrow();
     }
     expect(
       await host.resolveToolAction({ runId: action.runId, toolCallId: 'ordinary-call' })
     ).toEqual([]);
   });
 
+  it('resolves a parked invocation from its dispatch address without a leaf identity', async () => {
+    // The approval leg walks parked background siblings from the delegation
+    // call they were dispatched by; no leaf identity exists yet, and
+    // `resolveToolAction` refuses that bare address by design
+    // (thread-22c3279b, 2026-09-14: the sibling grant died on it).
+    const host = createBudgetedHost(database, 'initial-leg');
+    await host.persist(identity);
+    await host.bindRun(run);
+    const address = {
+      parentRuntimeRunId: run.parentRuntimeRunId,
+      parentThreadId: identity.parentThreadId,
+      parentToolCallId: run.parentToolCallId,
+    };
+    expect(await host.resolveParkedInvocation(address)).toEqual({
+      identity: run,
+      resourceId: identity.childResourceId,
+      threadId: identity.childThreadId,
+    });
+    expect(
+      await host.resolveParkedInvocation({ ...address, parentToolCallId: 'ordinary-call' })
+    ).toBeUndefined();
+    await expect(
+      host.resolveParkedInvocation({ ...address, parentThreadId: 'elsewhere' })
+    ).rejects.toMatchObject({ reason: 'suspended-invocation-ancestry-invalid' });
+  });
+
   it('recovers only the bound invocation native message identity before resume publication', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     expect(await host.bindRun(run)).toEqual({
       baseline: { hostRunId: 'initial-leg', messages: [], runEvents: [], threadId: 'child' },
       threadId: 'child',
     });
     await host.persistEvent(run, 'observed-before-pause', childStarted, 0);
-    expect(
-      await createDesktopDelegatedConversationHost(database, 'resume-leg').bindRun(run)
-    ).toEqual({ messageId: 'observed-before-pause', threadId: 'child' });
-    await expect(
-      createDesktopDelegatedConversationHost(database, 'other-turn-leg').bindRun(run)
-    ).rejects.toThrow();
+    expect(await createBudgetedHost(database, 'resume-leg').bindRun(run)).toEqual({
+      messageId: 'observed-before-pause',
+      threadId: 'child',
+    });
+    await expect(createBudgetedHost(database, 'other-turn-leg').bindRun(run)).rejects.toThrow();
     await expect(
       host.bindRun({ ...run, childRuntimeRunId: 'different-native-run' })
     ).rejects.toThrow();
   });
 
   it('publishes the same sanitized metadata that reload reads', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await host.bindRun(run);
     const event = await host.persistEvent(
@@ -450,16 +496,11 @@ describe('desktop delegated conversation authority', () => {
   it.each(['other-turn-leg', 'other-root-leg', 'missing-leg'])(
     'rejects child events through unauthorized host %s without partial writes',
     async (leg) => {
-      const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+      const host = createBudgetedHost(database, 'initial-leg');
       await host.persist(identity);
       await host.bindRun(run);
       await expect(
-        createDesktopDelegatedConversationHost(database, leg).persistEvent(
-          run,
-          'native-message',
-          childStarted,
-          0
-        )
+        createBudgetedHost(database, leg).persistEvent(run, 'native-message', childStarted, 0)
       ).rejects.toThrow();
       expect(
         (
@@ -475,7 +516,7 @@ describe('desktop delegated conversation authority', () => {
   );
 
   it('requires bound child/persona/message identities and preserves exact duplicate events', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await expect(host.persistEvent(run, 'native-message', childStarted, 0)).rejects.toThrow();
     await host.bindRun(run);
@@ -504,7 +545,7 @@ describe('desktop delegated conversation authority', () => {
   ])(
     'records the actual pinned child model or rejects malformed pins: $model',
     async ({ model, accepted }) => {
-      const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+      const host = createBudgetedHost(database, 'initial-leg');
       await host.persist({
         ...identity,
         configuration: { maxSteps: 16, persona: { id: 'explore', model } },
@@ -536,7 +577,7 @@ describe('desktop delegated conversation authority', () => {
   );
 
   it('preserves nested invocation metadata inside a child transcript instead of replacing it with the owning edge', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await host.bindRun(run);
     const event = await host.persistEvent(
@@ -569,7 +610,7 @@ describe('desktop delegated conversation authority', () => {
   });
 
   it('persists child lifecycle in ordinary child run/event records while keeping the root running', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await host.bindRun(run);
     const timestamp = new Date().toISOString();
@@ -631,7 +672,7 @@ describe('desktop delegated conversation authority', () => {
   });
 
   it('uses the existing usage writer for one cumulative row across host resume legs', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await host.bindRun(run);
     await persistUsage(usage);
@@ -653,7 +694,7 @@ describe('desktop delegated conversation authority', () => {
   });
 
   it('hydrates both host resume legs onto their observed native assistant message', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await host.bindRun(run);
     await database.query(
@@ -688,10 +729,7 @@ describe('desktop delegated conversation authority', () => {
       },
       1
     );
-    const second = await createDesktopDelegatedConversationHost(
-      database,
-      'resume-leg'
-    ).persistEvent(
+    const second = await createBudgetedHost(database, 'resume-leg').persistEvent(
       run,
       'native-child-message',
       {
@@ -725,7 +763,7 @@ describe('desktop delegated conversation authority', () => {
     const { delegation: _delegation, ...withoutIdentity } = usage;
     await expect(persistUsage(withoutIdentity)).rejects.toThrow();
     await expect(persistUsage(usage)).rejects.toThrow();
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await expect(persistUsage(usage)).rejects.toThrow();
     await host.bindRun(run);
@@ -765,7 +803,7 @@ describe('desktop delegated conversation authority', () => {
   });
 
   it('persists native child identity and a stable display before binding its run', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     const repository = createDelegatedConversationRepository(database);
     const child = await repository.get(scope, 'child');
@@ -789,10 +827,10 @@ describe('desktop delegated conversation authority', () => {
   });
 
   it('reauthorizes the original invocation across reconstructed host resume legs', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await host.bindRun(run);
-    await createDesktopDelegatedConversationHost(database, 'resume-leg').bindRun(run);
+    await createBudgetedHost(database, 'resume-leg').bindRun(run);
     expect(
       await createDelegatedConversationRepository(database).getInvocation(scope, run)
     ).toMatchObject({ childRuntimeRunId: 'child-native-run', hostRunId: 'initial-leg' });
@@ -801,10 +839,8 @@ describe('desktop delegated conversation authority', () => {
   it.each(['other-turn-leg', 'other-root-leg', 'missing-leg'])(
     'rejects resumed publication through an unauthorized host leg (%s)',
     async (runId) => {
-      await createDesktopDelegatedConversationHost(database, 'initial-leg').persist(identity);
-      await expect(
-        createDesktopDelegatedConversationHost(database, runId).bindRun(run)
-      ).rejects.toThrow();
+      await createBudgetedHost(database, 'initial-leg').persist(identity);
+      await expect(createBudgetedHost(database, runId).bindRun(run)).rejects.toThrow();
       expect(
         await createDelegatedConversationRepository(database).getInvocation(scope, run)
       ).toMatchObject({ childRuntimeRunId: null });
@@ -812,7 +848,7 @@ describe('desktop delegated conversation authority', () => {
   );
 
   it('rechecks the current host turn atomically when it changes after scope lookup', async () => {
-    const initial = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const initial = createBudgetedHost(database, 'initial-leg');
     await initial.persist(identity);
     const raced = createDesktopDelegatedConversationHost(
       {
@@ -836,7 +872,7 @@ describe('desktop delegated conversation authority', () => {
 
   it('rejects a forged parent native resource before registering its child', async () => {
     await expect(
-      createDesktopDelegatedConversationHost(database, 'initial-leg').persist({
+      createBudgetedHost(database, 'initial-leg').persist({
         ...identity,
         parentResourceId: 'forged',
       })
@@ -847,7 +883,7 @@ describe('desktop delegated conversation authority', () => {
   });
 
   it('rejects an observed persona mismatch and changed native scope', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);
     await expect(host.bindRun({ ...run, personaId: 'analyze' })).rejects.toThrow();
     await database.query(`UPDATE mastra_threads SET "resourceId" = 'changed' WHERE id = 'child'`);
@@ -855,7 +891,7 @@ describe('desktop delegated conversation authority', () => {
   });
 
   it('persists concurrent instances of the same persona independently', async () => {
-    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    const host = createBudgetedHost(database, 'initial-leg');
     await Promise.all([
       host.persist(identity),
       host.persist({
@@ -871,5 +907,107 @@ describe('desktop delegated conversation authority', () => {
     );
     expect(children.map((child) => child.threadId).sort()).toEqual(['child', 'sibling']);
     expect(new Set(children.map((child) => child.displayName)).size).toBe(2);
+    for (const child of children) {
+      expect(child.configuration).toEqual(identity.configuration);
+      expect(child.displayName).toMatch(/^[A-Z][a-z]+-[0-9a-f]{6}$/u);
+      expect(child.color).toBeTruthy();
+    }
+    // New host/repository instances must restore the same persisted identities,
+    // not issue a new callsign or derive the UI label from the shared persona.
+    const restoredHost = createBudgetedHost(database, 'initial-leg');
+    await restoredHost.persist(identity);
+    await restoredHost.persist({
+      ...identity,
+      childResourceId: 'native-sibling-owner',
+      childThreadId: 'sibling',
+      parentToolCallId: 'sibling-call',
+    });
+    expect(
+      await createDelegatedConversationRepository(database).listChildren(scope, 'root')
+    ).toEqual(children);
+  });
+
+  it('records wakeups, prompt manifests and live decisions under the host run', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.recordWakeup({
+      directive: 'All 1 background invocations have finished.',
+      invocations: [
+        {
+          outcome: 'completed',
+          taskId: 't1',
+          toolCallId: 'parent-call',
+          toolName: 'agent-explore',
+        },
+      ],
+      kind: 'idle-loop',
+    });
+    await host.recordPromptManifest({
+      kind: 'root-leg',
+      systemContextSource: 'captured',
+      systemMessages: [{ content: 'You are Brainstrike.', role: 'system' }],
+      threadId: 'root',
+      toolNames: ['brainstrike.grepSearch'],
+    });
+    await host.recordLiveDecision({
+      kind: 'approval',
+      outcome: 'remembered-answered',
+      source: 'remembered-grant',
+      taskId: 't2',
+      toolCallId: 'child-call',
+    });
+    expect((await database.query('SELECT kind FROM brainstrike_delegated_wakeups')).rows).toEqual([
+      { kind: 'idle-loop' },
+    ]);
+    expect(
+      (await database.query('SELECT kind, thread_id FROM brainstrike_assistant_prompt_manifests'))
+        .rows
+    ).toEqual([{ kind: 'root-leg', thread_id: 'root' }]);
+    expect(
+      (await database.query('SELECT outcome, source FROM brainstrike_delegated_live_decisions'))
+        .rows
+    ).toEqual([{ outcome: 'remembered-answered', source: 'remembered-grant' }]);
+  });
+
+  it('logs and continues when a diagnostic record has no live host run or fails to persist', async () => {
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    const host = createDesktopDelegatedConversationHost(database, 'ghost-leg');
+    await expect(
+      host.recordWakeup({ directive: 'x', invocations: [], kind: 'deferred' })
+    ).resolves.toBeUndefined();
+    expect(error).toHaveBeenCalledWith(
+      'Swarm diagnostic record has no host run',
+      expect.objectContaining({
+        code: 'swarm_diagnostic_record_run_missing',
+        hostRunId: 'ghost-leg',
+        record: 'wakeup',
+      })
+    );
+    // A failed write is logged with its own code, never reported as success,
+    // and never rejects into the leg (ruling 4).
+    const failing = createDesktopDelegatedConversationHost(
+      {
+        query: async () => {
+          throw new Error('disk full');
+        },
+      },
+      'initial-leg'
+    );
+    await expect(
+      failing.recordLiveDecision({
+        kind: 'approval',
+        outcome: 'delivered',
+        source: 'user',
+        toolCallId: 'call',
+      })
+    ).resolves.toBeUndefined();
+    expect(error).toHaveBeenCalledWith(
+      'Swarm diagnostic record failed to persist',
+      expect.objectContaining({
+        code: 'swarm_diagnostic_record_failed',
+        hostRunId: 'initial-leg',
+        record: 'live-decision',
+      })
+    );
+    error.mockRestore();
   });
 });

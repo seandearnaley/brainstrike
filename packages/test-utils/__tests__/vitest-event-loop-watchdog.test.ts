@@ -97,6 +97,12 @@ describe('vitest event-loop watchdog', () => {
     expect(impossible.code).toBe(1);
     expect(impossible.stderr).toContain('must be shorter than stallMs');
 
+    const impossibleWhileDebugging = await probe('startEventLoopWatchdog({ heartbeatMs: 1000 });', {
+      NODE_OPTIONS: '--inspect=0',
+    });
+    expect(impossibleWhileDebugging.code).toBe(1);
+    expect(impossibleWhileDebugging.stderr).toContain('must be shorter than stallMs');
+
     const invalid = await probe('startEventLoopWatchdog({ stallMs: Number.NaN });');
     expect(invalid.code).toBe(1);
     expect(invalid.stderr).toContain('stallMs must be a positive integer');
@@ -105,59 +111,65 @@ describe('vitest event-loop watchdog', () => {
   it('runs one watchdog per vitest worker across files without a spurious kill, and kills a blocking file by name', async () => {
     // Inside the package so the fixture's `import 'vitest'` resolves; removed in finally.
     const dir = mkdtempSync(path.join(packageRoot, '.watchdog-fixture-'));
-    try {
+    const configFor = (name: string, options: string): string => {
+      const file = path.join(dir, name);
       writeFileSync(
-        path.join(dir, 'vitest.config.mjs'),
-        `export default { test: { include: ['*.test.mjs'], pool: 'forks', setupFiles: [${JSON.stringify(setupPath)}], testTimeout: 20_000 } };\n`
+        file,
+        `export default { test: { include: ['*.test.mjs'], ${options}, setupFiles: [${JSON.stringify(setupPath)}], testTimeout: 40_000 } };\n`
       );
+      return file;
+    };
+    const runVitest = (config: string, files: string[]): Promise<ProbeResult> =>
+      run(
+        [vitestBin, 'run', '--root', dir, '--config', config, '--no-file-parallelism', ...files],
+        {
+          // The setup file heartbeats every second; an 8 s fixture budget leaves
+          // seven missed ticks before a kill, so a loaded runner cannot fake a
+          // stall in the green runs.
+          BRAINSTRIKE_VITEST_EVENT_LOOP_STALL_MS: '8000',
+        }
+      );
+    try {
       const healthy = `import { it } from 'vitest';\nit('waits', async () => { await new Promise((r) => setTimeout(r, 1_200)); });\n`;
       writeFileSync(path.join(dir, 'a.test.mjs'), healthy);
       writeFileSync(path.join(dir, 'b.test.mjs'), healthy);
-
-      const green = await run(
-        [
-          vitestBin,
-          'run',
-          '--root',
-          dir,
-          '--config',
-          path.join(dir, 'vitest.config.mjs'),
-          '--no-file-parallelism',
-        ],
-        {
-          // The setup file heartbeats every second; the fixture budget is 3 s.
-          BRAINSTRIKE_VITEST_EVENT_LOOP_STALL_MS: '3000',
-        }
+      writeFileSync(
+        path.join(dir, 'c.test.mjs'),
+        `import { it } from 'vitest';\nit('spins like PGlite', () => { const end = Date.now() + 30_000; while (Date.now() < end) {} });\n`
       );
+
+      // Isolated forks: every file is a fresh process with a fresh watchdog.
+      const isolatedForks = configFor('forks.config.mjs', "pool: 'forks'");
+      const green = await runVitest(isolatedForks, ['a.test.mjs', 'b.test.mjs']);
       expect(green.stderr).not.toContain('event loop blocked');
       expect(green.code, `${green.stdout}\n${green.stderr}`).toBe(0);
 
-      writeFileSync(
-        path.join(dir, 'c.test.mjs'),
-        `import { it } from 'vitest';\nit('spins like PGlite', () => { const end = Date.now() + 15_000; while (Date.now() < end) {} });\n`
-      );
-      const red = await run(
-        [
-          vitestBin,
-          'run',
-          '--root',
-          dir,
-          '--config',
-          path.join(dir, 'vitest.config.mjs'),
-          '--no-file-parallelism',
-          'c.test.mjs',
-        ],
-        {
-          // The setup file heartbeats every second; the fixture budget is 3 s.
-          BRAINSTRIKE_VITEST_EVENT_LOOP_STALL_MS: '3000',
-        }
-      );
+      // A REUSED worker: `isolate: false` runs both files in one process, so the
+      // second file's setup finds the registry entry the first created and must
+      // neither start a second watchdog nor kill the healthy worker across the
+      // `afterAll` → 'between test files' → `beforeEach` label handoff.
+      const reusedForks = configFor('reused.config.mjs', "isolate: false, pool: 'forks'");
+      const reused = await runVitest(reusedForks, ['a.test.mjs', 'b.test.mjs']);
+      expect(reused.stderr).not.toContain('event loop blocked');
+      expect(reused.code, `${reused.stdout}\n${reused.stderr}`).toBe(0);
+
+      // Forks lane: the child dies, the vitest process survives and fails.
+      const red = await runVitest(isolatedForks, ['c.test.mjs']);
       expect(red.stderr).toContain('event loop blocked');
       expect(red.stderr).toContain('c.test.mjs › spins like PGlite');
       expect(red.code).not.toBe(0);
-      expect(red.elapsedMs).toBeLessThan(15_000);
+      expect(red.elapsedMs).toBeLessThan(30_000);
+
+      // Threads lane: the vitest worker is a thread of the vitest process, so
+      // the kill takes the whole run; the stderr line is still the attribution.
+      const threads = configFor('threads.config.mjs', "pool: 'threads'");
+      const redThreads = await runVitest(threads, ['c.test.mjs']);
+      expect(redThreads.stderr).toContain('event loop blocked');
+      expect(redThreads.stderr).toContain('c.test.mjs › spins like PGlite');
+      expect(redThreads.code).not.toBe(0);
+      expect(redThreads.elapsedMs).toBeLessThan(30_000);
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
-  }, 60_000);
+  }, 120_000);
 });

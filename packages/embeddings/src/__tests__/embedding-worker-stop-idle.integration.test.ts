@@ -50,6 +50,23 @@ class IdleEmbeddingService implements EmbeddingService {
   }
 }
 
+async function expectPromptStop(stop: () => Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const startedAt = Date.now();
+  try {
+    const outcome = await Promise.race([
+      stop().then(() => 'stopped' as const),
+      new Promise<'timed-out'>((resolve) => {
+        timer = setTimeout(() => resolve('timed-out'), 2000);
+      }),
+    ]);
+    expect(outcome).toBe('stopped');
+    expect(Date.now() - startedAt).toBeLessThan(2000);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 describe('embedding-worker: stop while idle', () => {
   let db: PGlite;
 
@@ -60,6 +77,33 @@ describe('embedding-worker: stop while idle', () => {
 
   afterEach(async () => {
     await db.close();
+  });
+
+  it('stops promptly without claiming jobs when its background permit never arrives', async () => {
+    const entered = Promise.withResolvers<void>();
+    const permit = Promise.withResolvers<void>();
+    const logs: string[] = [];
+    const controller = await startEmbeddingWorker({
+      concurrency: 1,
+      db,
+      leaseMs: 10_000,
+      log: (message) => logs.push(message),
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      service: new IdleEmbeddingService(),
+      waitForBackgroundPermit: () => {
+        entered.resolve();
+        return permit.promise;
+      },
+    });
+    await entered.promise;
+    try {
+      await expectPromptStop(() => controller.stop());
+      expect(logs).not.toContain('embedding_queue_idle_backoff');
+    } finally {
+      // Release only during failed-test cleanup; Stop must not need this permit.
+      permit.resolve();
+      await controller.stop();
+    }
   });
 
   it('resolves stop() promptly while the loop is parked in idle backoff', async () => {
@@ -80,13 +124,6 @@ describe('embedding-worker: stop while idle', () => {
     }
     expect(logs).toContain('embedding_queue_idle_backoff');
 
-    const startedAt = Date.now();
-    const outcome = await Promise.race([
-      controller.stop().then(() => 'stopped' as const),
-      new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 2000)),
-    ]);
-
-    expect(outcome).toBe('stopped');
-    expect(Date.now() - startedAt).toBeLessThan(2000);
+    await expectPromptStop(() => controller.stop());
   });
 });

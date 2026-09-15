@@ -48,12 +48,19 @@ const logger = createLogger('MastraAgent');
 /**
  * Per-call approval decision, matching Mastra's `RequireToolApproval` union
  * (`boolean | (ctx) => boolean`). The function form gates approval per tool call;
- * the resume leg uses it to exempt Mastra-internal tools (see
- * {@link resolveResumeApprovalGate}).
+ * the approval leg uses it to exempt Mastra-internal tools (see
+ * `resolveRequireToolApproval` in approval-gate.ts).
  */
 export type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
 
 export interface BrainstrikeAgentStreamOptions {
+  /**
+   * Return the turn as soon as its background dispatches are acknowledged;
+   * the host loop (`withBackgroundIdleLoop`) drives the continuations, so the
+   * native step never blocks on running children. Mastra's own `untilIdle`
+   * loop is NOT used: it wakes the parent on a child's suspension.
+   */
+  _skipBgTaskWait?: boolean;
   abortSignal?: AbortSignal;
   delegation?: DelegationConfig;
   // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
@@ -65,7 +72,6 @@ export interface BrainstrikeAgentStreamOptions {
   modelSettings?: RuntimeData['modelSettings'];
   providerOptions?: RuntimeData['providerOptions'];
   requireToolApproval?: ApprovalGate;
-  untilIdle?: boolean;
 }
 
 /**
@@ -339,6 +345,25 @@ function composeDelegatedHooks(
   };
 }
 
+function buildRuntimeToolLoopOptions(
+  runtime: MastraAgentRuntime,
+  runtimeData: RuntimeData | undefined
+): Pick<BrainstrikeAgentStreamOptions, 'inputProcessors' | 'maxSteps'> {
+  if (!runtime.childExecution) {
+    return buildToolLoopOptions(
+      runtimeData,
+      runtime.toolSearchProcessor,
+      runtime.toolHistoryFilter
+    );
+  }
+  return {
+    maxSteps: runtime.childExecution.maxSteps,
+    ...(runtime.childExecution.inputProcessors
+      ? { inputProcessors: runtime.childExecution.inputProcessors }
+      : {}),
+  };
+}
+
 /** Shared option assembly for initial, approval and resume stream legs. */
 export function buildStreamOptions(
   params: BuildStreamOptionsParams
@@ -356,15 +381,11 @@ export function buildStreamOptions(
     toolCallId,
   } = params;
 
-  const loop = buildToolLoopOptions(
-    runtimeData,
-    runtime.toolSearchProcessor,
-    runtime.toolHistoryFilter
-  );
+  const loop = buildRuntimeToolLoopOptions(runtime, runtimeData);
   const options: BrainstrikeAgentStreamOptions & { runId?: string; toolCallId?: string } = {
     ...loop,
-    ...(runtime.backgroundTaskManager ? { untilIdle: true } : {}),
-    ...(runtime.rootDelegatedContextProcessor
+    ...(runtime.backgroundTaskManager ? { _skipBgTaskWait: true } : {}),
+    ...(!runtime.childExecution && runtime.rootDelegatedContextProcessor
       ? {
           inputProcessors: [runtime.rootDelegatedContextProcessor, ...(loop.inputProcessors ?? [])],
         }
@@ -390,6 +411,10 @@ export function buildStreamOptions(
       ? {
           delegation: createDelegationConfig({
             abortSignal,
+            childPromptFacts: {
+              byPersonaId: runtime.childPromptFacts,
+              dispatchingAgentId: runtime.agent.id,
+            },
             workQueue: runtime.delegatedExecutionOptions?.workQueue,
             ...(runtime.conversationBinding
               ? { conversationBinding: runtime.conversationBinding }
@@ -398,6 +423,8 @@ export function buildStreamOptions(
             logger,
             onChildUsage: delegationUsage.onChildUsage,
             personasById: runtime.personasById,
+            subagentSettings: runtime.subagentSettings,
+            synthesisOutcomes: runtime.delegatedExecutionOptions?.synthesisOutcomes,
             turnPersistence: runtime.delegatedTurnPersistence,
           }),
         }

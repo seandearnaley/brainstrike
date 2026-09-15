@@ -36,11 +36,13 @@ export const MAX_USER_PERSONAS = 50;
 /**
  * Hard ceiling a user persona's maxSteps may declare.
  *
- * The built-ins sit AT this ceiling rather than below it, deliberately: a user
- * persona must be able to replicate what the shipped Explorer does, and a
- * built-in budget above the user ceiling would make that impossible.
+ * No built-in sits ABOVE this ceiling, deliberately: a user persona must be
+ * able to replicate what the shipped Explorer does (32 declared steps since
+ * 2026-09-15), and a built-in budget above the user ceiling would make that
+ * impossible. The host still caps every child at the user's `maxChildSteps`
+ * setting (`effectiveChildStepBudget`).
  */
-export const MAX_USER_PERSONA_MAX_STEPS = 16;
+export const MAX_USER_PERSONA_MAX_STEPS = 32;
 
 /** maxSteps applied when the frontmatter omits it. */
 export const DEFAULT_USER_PERSONA_MAX_STEPS = 8;
@@ -310,6 +312,25 @@ export function parsePersonaModelPin(value: string): ParsePersonaModelPinResult 
   return { ok: true, pin: { modelId, provider } };
 }
 
+export interface AssistantPersonaAvailabilityIssue {
+  readonly code:
+    | 'credential-missing'
+    | 'credential-unreadable'
+    | 'model-not-listed'
+    | 'model-unsupported'
+    | 'worker-model-unsupported'
+    | 'tool-not-discovered'
+    | 'tool-disabled';
+  readonly message: string;
+  readonly toolId?: string;
+}
+
+/** Static host facts only; the selected model, capabilities and permissions are checked per run. */
+export interface AssistantPersonaAvailability {
+  readonly issues: readonly AssistantPersonaAvailabilityIssue[];
+  readonly status: 'blocked' | 'needs-attention' | 'request-dependent';
+}
+
 /**
  * One persona row as the discovery IPC reports it to the settings panel:
  * built-ins and user personas in one list, INCLUDING invalid user files (with
@@ -319,11 +340,22 @@ export function parsePersonaModelPin(value: string): ParsePersonaModelPinResult 
 export interface AssistantPersonaListItem {
   /** Absolute file path (user personas only). */
   readonly absPath?: string;
+  /**
+   * Declared capability set for a loadable persona (status 'ok'): exact tool
+   * ids, or the sole `'*'` meaning every tool the host permits. Taken from
+   * the definition the host builds the child from (`personaScope`).
+   */
+  readonly allowedToolIds?: readonly string[];
+  readonly availability?: AssistantPersonaAvailability;
   readonly description: string;
   /** Why the file failed to load (user personas with status 'invalid'). */
   readonly error?: string;
   readonly id: string;
   readonly label: string;
+  /** Declared step budget (status 'ok'); Settings shows the host-capped value. */
+  readonly maxSteps?: number;
+  /** Effective mode (status 'ok'): a persona without an explicit mode is read-only. */
+  readonly mode?: AssistantPersonaMode;
   /** Serialized `provider::modelId` pin, for display. */
   readonly modelPin?: string;
   /** The file that KEPT this id, for status 'shadowed'. Shaped like

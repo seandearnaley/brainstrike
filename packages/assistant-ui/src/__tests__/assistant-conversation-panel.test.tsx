@@ -14,7 +14,7 @@ import {
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-suspend';
 import { TooltipProvider } from '@brainstrike/ui';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
@@ -35,8 +35,12 @@ function Conversation({
   onExitPlanMode,
   onSendActiveInput,
   attachments = false,
+  composerDisabled = false,
+  allowIdleInput = false,
 }: {
   attachments?: boolean;
+  composerDisabled?: boolean;
+  allowIdleInput?: boolean;
   id: string;
   messages: readonly ThreadMessageLike[];
   onNew: ExternalStoreAdapter<ThreadMessageLike>['onNew'];
@@ -59,6 +63,8 @@ function Conversation({
   return (
     <AssistantConversationPanel
       {...(attachments ? { attachmentsAvailability: { state: 'enabled' as const } } : {})}
+      allowIdleInput={allowIdleInput}
+      isComposerDisabled={composerDisabled}
       label={id}
       onSendActiveInput={onSendActiveInput}
       runtime={runtime}
@@ -111,6 +117,35 @@ describe('shared conversation panel', () => {
       ).toHaveAttribute('role', 'status');
     }
   );
+
+  it('sends idle child input through the owned receipt path and never ordinary onNew', async () => {
+    const accepted = Promise.withResolvers<void>();
+    const send = vi.fn(() => accepted.promise);
+    const onNew = vi.fn(async () => {});
+    render(
+      <TooltipProvider>
+        <Conversation
+          allowIdleInput
+          id="Cedar"
+          messages={[message('Finished')]}
+          onNew={onNew}
+          onSendActiveInput={send}
+        />
+      </TooltipProvider>
+    );
+    await userEvent.type(screen.getByRole('textbox'), 'Continue the child');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByText('Sending to child…');
+    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.any(String), text: 'Continue the child' }),
+      expect.any(AbortSignal)
+    );
+    expect(onNew).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox')).toHaveValue('Continue the child');
+    accepted.resolve();
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue(''));
+  });
 
   it('sends an active child draft once, retains failed input, and retries the same request id explicitly', async () => {
     const onNew = vi.fn(async () => {});
@@ -209,6 +244,216 @@ describe('shared conversation panel', () => {
     await user.keyboard('{Enter}');
     await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
     expect(send.mock.calls[0]?.[0]).toEqual(send.mock.calls[1]?.[0]);
+  });
+
+  it.each(['idle', 'owner-removed'] as const)(
+    'keeps unconfirmed input controls reachable when the child becomes %s',
+    async (boundary) => {
+      const accepted = Promise.withResolvers<void>();
+      let transportSettled = false;
+      const send = vi.fn(async () => {
+        await accepted.promise;
+        transportSettled = true;
+      });
+      const onNew = vi.fn(async () => {});
+      // Idle completes execution; owner-removed retains the running snapshot
+      // but withdraws its transport and explicitly disables the host composer.
+      const view = (active: boolean) => (
+        <TooltipProvider>
+          <Conversation
+            composerDisabled={!active && boundary === 'owner-removed'}
+            id="Cedar"
+            messages={[message(active || boundary === 'owner-removed' ? 'Reading' : 'Completed')]}
+            onNew={onNew}
+            {...(active || boundary === 'idle' ? { onSendActiveInput: send } : {})}
+            running={active || boundary === 'owner-removed'}
+          />
+        </TooltipProvider>
+      );
+      const { rerender } = render(view(true));
+      const user = userEvent.setup();
+      const input = screen.getByRole('textbox', { name: 'Message input' });
+      await user.type(input, 'Possibly delivered');
+      await user.click(screen.getByRole('button', { name: 'Send to child' }));
+      rerender(view(false));
+      if (boundary === 'idle') {
+        expect(input).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      } else {
+        expect(input).toBeDisabled();
+      }
+      expect(screen.getByText('Sending to child…')).toBeVisible();
+      await user.click(screen.getByRole('button', { name: 'Stop waiting' }));
+      expect(screen.getByTestId('child-input-delivery')).toHaveTextContent(
+        'Delivery is unconfirmed'
+      );
+      expect(input).toHaveValue('Possibly delivered');
+      if (boundary === 'idle') {
+        expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+        await user.click(input);
+        await user.keyboard('{Enter}');
+      }
+      expect(send).toHaveBeenCalledOnce();
+      expect(onNew).not.toHaveBeenCalled();
+      await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+      expect(input).toHaveValue('');
+      expect(screen.queryByTestId('child-input-delivery')).not.toBeInTheDocument();
+      await act(async () => {
+        accepted.resolve();
+        await accepted.promise;
+      });
+      expect(transportSettled).toBe(true);
+      expect(input).toHaveValue('');
+      expect(send).toHaveBeenCalledOnce();
+      expect(onNew).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['', '   '])(
+    'keeps blank rejection %j visible and discardable after idle',
+    async (errorMessage) => {
+      const accepted = Promise.withResolvers<void>();
+      const send = vi.fn(() => accepted.promise);
+      const onNew = vi.fn(async () => {});
+      const view = (running: boolean) => (
+        <TooltipProvider>
+          <Conversation
+            attachments
+            id="Cedar"
+            messages={[message('Reading')]}
+            onNew={onNew}
+            onSendActiveInput={send}
+            running={running}
+          />
+        </TooltipProvider>
+      );
+      const { rerender } = render(view(true));
+      const user = userEvent.setup();
+      const input = screen.getByRole('textbox', { name: 'Message input' });
+      await user.type(input, 'Possibly delivered');
+      await user.click(screen.getByRole('button', { name: 'Send to child' }));
+      rerender(view(false));
+      await act(async () => {
+        accepted.reject(new Error(errorMessage));
+        await accepted.promise.catch(() => undefined);
+      });
+      expect(screen.getByTestId('child-input-delivery')).toHaveTextContent(
+        'Child input delivery was not confirmed.'
+      );
+      const file = new File(['image'], 'receipt.png', { type: 'image/png' });
+      expect(fireEvent.paste(input, { clipboardData: { files: [file] } })).toBe(true);
+      await act(async () => {});
+      expect(screen.queryByText('receipt.png')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+      expect(input).toHaveValue('');
+      expect(onNew).not.toHaveBeenCalled();
+    }
+  );
+
+  it('isolates an abandoned receipt when the selected conversation key changes', async () => {
+    const accepted = Promise.withResolvers<void>();
+    let settled = false;
+    const send = vi.fn(async () => {
+      await accepted.promise;
+      settled = true;
+    });
+    const onNew = vi.fn(async () => {});
+    const view = (id: string) => (
+      <TooltipProvider>
+        <Conversation
+          id={id}
+          messages={[message('Reading')]}
+          onNew={onNew}
+          onSendActiveInput={send}
+          running
+        />
+      </TooltipProvider>
+    );
+    const { rerender } = render(view('Cedar'));
+    const user = userEvent.setup();
+    await user.type(screen.getByRole('textbox', { name: 'Message input' }), 'Cedar instruction');
+    await user.click(screen.getByRole('button', { name: 'Send to child' }));
+    await user.click(screen.getByRole('button', { name: 'Stop waiting' }));
+    expect(screen.getByTestId('child-input-delivery')).toHaveTextContent('Delivery is unconfirmed');
+    rerender(view('Flint'));
+    expect(screen.queryByTestId('child-input-delivery')).not.toBeInTheDocument();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.clear(input);
+    await user.type(input, 'Flint draft');
+    expect(screen.getByRole('button', { name: 'Send to child' })).toBeEnabled();
+    await act(async () => {
+      accepted.resolve();
+      await accepted.promise;
+    });
+    expect(settled).toBe(true);
+    expect(input).toHaveValue('Flint draft');
+    expect(screen.queryByTestId('child-input-delivery')).not.toBeInTheDocument();
+    expect(onNew).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it('settles a confirmed input after the child stops without replaying it', async () => {
+    const accepted = Promise.withResolvers<void>();
+    const send = vi.fn(() => accepted.promise);
+    const onNew = vi.fn(async () => {});
+    const view = (running: boolean) => (
+      <TooltipProvider>
+        <Conversation
+          composerDisabled={!running}
+          id="Cedar"
+          messages={[message(running ? 'Reading' : 'Completed')]}
+          onNew={onNew}
+          onSendActiveInput={send}
+          running={running}
+        />
+      </TooltipProvider>
+    );
+    const { rerender } = render(view(true));
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'Delivered just before completion');
+    await user.click(screen.getByRole('button', { name: 'Send to child' }));
+    rerender(view(false));
+    expect(screen.getByText('Sending to child…')).toBeVisible();
+    accepted.resolve();
+    await waitFor(() => expect(input).toHaveValue(''));
+    expect(screen.queryByText('Sending to child…')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('child-input-delivery')).not.toBeInTheDocument();
+    expect(send).toHaveBeenCalledOnce();
+    expect(onNew).not.toHaveBeenCalled();
+  });
+
+  it('keeps a changed idle draft when the earlier input acknowledgement arrives', async () => {
+    const accepted = Promise.withResolvers<void>();
+    const send = vi.fn(() => accepted.promise);
+    const view = (running: boolean) => (
+      <TooltipProvider>
+        <Conversation
+          allowIdleInput
+          id="Cedar"
+          messages={[message('Child')]}
+          onNew={async () => {}}
+          onSendActiveInput={send}
+          running={running}
+        />
+      </TooltipProvider>
+    );
+    const { rerender } = render(view(true));
+    const user = userEvent.setup();
+    const input = screen.getByRole('textbox');
+    await user.type(input, 'Original input');
+    await user.click(screen.getByRole('button', { name: 'Send to child' }));
+    rerender(view(false));
+    await user.clear(input);
+    await user.type(input, 'New unsent draft');
+    await act(async () => {
+      accepted.resolve();
+      await accepted.promise;
+    });
+    expect(input).toHaveValue('New unsent draft');
+    expect(screen.queryByText('Sending to child…')).not.toBeInTheDocument();
+    expect(send).toHaveBeenCalledOnce();
   });
 
   it('requires explicit discard before changed text can replace an unconfirmed request', async () => {

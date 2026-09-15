@@ -177,6 +177,7 @@ export {
 } from './mastra/agent-runtime';
 export {
   streamMastraAgent,
+  streamMastraChildFollowup,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
 } from './mastra/agent-streaming';
@@ -188,6 +189,13 @@ export {
   buildPersonaSubAgents,
   type PersonaSubAgentBuildResult,
 } from './mastra/build-persona-subagents';
+export type {
+  ChildContinuationBaseline,
+  ChildContinuationDecision,
+  ChildContinuationHostPort,
+  ChildContinuationScope,
+  ChildContinuationStatus,
+} from './mastra/child-continuation-host-port';
 export {
   buildCompactionOverlayInputProcessor,
   CompactionOverlayProcessor,
@@ -211,13 +219,21 @@ export {
   type DelegatedCancellationTarget,
   type DelegatedConversationBinding,
   type DelegatedConversationIdentity,
+  type DelegatedDecisionControl,
+  type DelegatedDecisionRequest,
   type DelegatedFollowupControl,
   type DelegatedFollowupInput,
   type DelegatedFollowupTarget,
+  type DelegatedLiveDecisionRecord,
+  type DelegatedPromptManifestKind,
+  type DelegatedPromptManifestRecord,
   type DelegatedToolActionScope,
+  type DelegatedWakeupInvocation,
+  type DelegatedWakeupRecord,
 } from './mastra/delegated-conversation-binding';
 export type { DelegatedRunIdentity } from './mastra/delegated-run-publication';
 export type { DelegatedSuspensionResolver } from './mastra/delegated-suspension-discovery';
+export { captureDelegatedSystemContext } from './mastra/delegated-system-context';
 export {
   clipGrepProjectionLine,
   formatGrepContentHeader,
@@ -226,6 +242,10 @@ export {
   GREP_MATCH_LINE_MAX_CHARS,
   normalizeGrepProjectionLine,
 } from './mastra/grep-model-format';
+export {
+  isLiveDecisionUnavailableError,
+  LiveDecisionUnavailableError,
+} from './mastra/live-decision-channel';
 export {
   createMastraAgentError,
   isMastraAgentError,
@@ -265,6 +285,7 @@ export {
   type DiscoveredSuspendedApproval,
   type DiscoveredSuspendedPause,
   type ListSuspendedRunsResult,
+  listSuspendedChildContinuation,
   listSuspendedMastraRuns,
 } from './mastra/suspended-run-discovery';
 export type { ToolCallTelemetryMetadata } from './mastra/tool-call-telemetry';
@@ -629,6 +650,7 @@ export {
   SAFE_FILE_TREE_ERRORS,
 } from './tools/file-tree-tool';
 export { withFileLock } from './tools/file-write-lock';
+export { guardToolExecution } from './tools/guard-tool-execution';
 export {
   type AgentHookRunner,
   HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
@@ -650,6 +672,7 @@ export {
   SAFE_QUEUE_STATUS_ERRORS,
   type VectorQueueSnapshot,
 } from './tools/queue-status-tool';
+export { readToolExecutionThreadId } from './tools/read-tool-call-id';
 export {
   computeExecutionContextFingerprint,
   resolveRunPythonExecutionContext,

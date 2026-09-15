@@ -16,6 +16,7 @@ import {
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
   isZustandModule,
+  preserveWorkerEntryPlugin,
 } from '@brainstrike/build-utils';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import tailwindcss from '@tailwindcss/vite';
@@ -270,6 +271,6 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
-    plugins: () => [wasm(), topLevelAwait()],
+    plugins: () => [preserveWorkerEntryPlugin(), wasm(), topLevelAwait()],
   },
 });

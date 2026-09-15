@@ -449,6 +449,22 @@ there rather than hiding entries after the adapter has already read them.
   order. Do not replace it with recursion or array spreading: the paired tests
   require 100,000 levels of nesting and 100,000 files in one directory to
   flatten without call-stack or function-argument overflow.
+- **Scan handles retain their platform contract (BST-499).** `IFileNode.handle`
+  accepts raw browser file/directory capabilities and the canonical shared
+  `FileHandle`/`DirectoryHandle` descriptors. Scoped native scans construct
+  descriptors directly; rebuilding a browser directory preserves its raw
+  capability in `_internal` and inherits the root's durable identity. Do not
+  disguise descriptors as browser capabilities with double casts. Shared type
+  assertions and `workspace-collection-sync-scan.test.ts` cover both forms.
+  File reads and directory traversal normalize node handles through
+  `@brainstrike/file-system/file-node-handles`: wrap raw browser capabilities
+  once, preserve a descriptor's `_internal`, platform, canonical I/O path and
+  durable root identity, and inherit a parent root only when the child is
+  unstamped. Retain durable root stamps carried by raw browser capabilities as
+  well. File-tree and token-indexing maps extract a canonical web
+  descriptor's raw capability through their existing capability guard. The
+  real-web-adapter processor, shared-loader and lazy-expansion regressions plus
+  `file-node-handles.test.ts` pin these boundaries.
 - **Chunking re-dispatch is bounded per service session (BST-1229).** A
   hash-unchanged managed-cache row with no `chunks_processed_at` stamp may be
   re-dispatched at most three times. The service-owned in-memory tracker keys

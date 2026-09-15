@@ -293,7 +293,8 @@ export const ASSISTANT_COMPACTION_RANGES_TABLE = 'brainstrike_assistant_compacti
 
 /**
  * The ordered thread-delete cascade over Brainstrike sidecar tables keyed by
- * `thread_id`. All three delete implementations (single CTE, bulk CTE, and
+ * thread identity. Any matching ownership/provenance column selects a row.
+ * All three delete implementations (single CTE, bulk CTE, and
  * the Mastra `MemoryStorage.deleteThread` override) derive their stages from
  * this ONE list so the cascades can never drift again (BST-993 review: the
  * single/bulk CTEs had diverged in both stage-set and ordering).
@@ -301,24 +302,37 @@ export const ASSISTANT_COMPACTION_RANGES_TABLE = 'brainstrike_assistant_compacti
  * ("threadId" OR "lookupKey") and stays inline at each site.
  */
 export const THREAD_DELETE_SIDECAR_TABLES = [
-  { table: MASTRA_BACKGROUND_TASKS_TABLE, threadColumn: 'thread_id' },
-  { table: ASSISTANT_COMPACTION_RANGES_TABLE, threadColumn: 'thread_id' },
-  { table: ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE, threadColumn: 'thread_id' },
-  { table: 'brainstrike_canvas_versions', threadColumn: 'thread_id' },
-  { table: TOKEN_ESTIMATE_CALIBRATION_TABLE, threadColumn: 'thread_id' },
-  { table: TOOL_CALL_TELEMETRY_TABLE, threadColumn: 'thread_id' },
-  { table: 'brainstrike_assistant_edit_checkpoints', threadColumn: 'thread_id' },
-  { table: 'brainstrike_assistant_run_errors', threadColumn: 'thread_id' },
-  { table: 'brainstrike_assistant_message_parents', threadColumn: 'thread_id' },
-  { table: 'brainstrike_assistant_message_tombstones', threadColumn: 'thread_id' },
-  { table: 'brainstrike_assistant_thread_placements', threadColumn: 'thread_id' },
+  // Artifacts are root-readable but child-produced; either identity owns deletion.
+  {
+    table: 'brainstrike_assistant_tool_output_artifacts',
+    threadColumns: ['thread_id', 'execution_thread_id'],
+  },
+  // Clear descendants atomically, including native (non-panel) deletion.
+  { table: 'brainstrike_thread_message_index', threadColumns: ['thread_id'] },
+  { table: 'brainstrike_thread_search_state', threadColumns: ['thread_id'] },
+  { table: MASTRA_BACKGROUND_TASKS_TABLE, threadColumns: ['thread_id'] },
+  { table: ASSISTANT_COMPACTION_RANGES_TABLE, threadColumns: ['thread_id'] },
+  { table: ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE, threadColumns: ['thread_id'] },
+  { table: 'brainstrike_canvas_versions', threadColumns: ['thread_id'] },
+  { table: TOKEN_ESTIMATE_CALIBRATION_TABLE, threadColumns: ['thread_id'] },
+  { table: TOOL_CALL_TELEMETRY_TABLE, threadColumns: ['thread_id'] },
+  { table: 'brainstrike_assistant_edit_checkpoints', threadColumns: ['thread_id'] },
+  { table: 'brainstrike_assistant_run_errors', threadColumns: ['thread_id'] },
+  { table: 'brainstrike_assistant_message_parents', threadColumns: ['thread_id'] },
+  { table: 'brainstrike_assistant_message_tombstones', threadColumns: ['thread_id'] },
+  { table: 'brainstrike_assistant_thread_placements', threadColumns: ['thread_id'] },
   // Per-thread workspace snapshots (BST-1268, migration 094): deleting a
   // thread deletes its saved workspace.
-  { table: 'brainstrike_assistant_thread_workspaces', threadColumn: 'thread_id' },
+  { table: 'brainstrike_assistant_thread_workspaces', threadColumns: ['thread_id'] },
   // Shadow-git snapshot rows (BST-1164): deleting a thread deletes its
   // turn↔oid ledger. The shadow refs/objects those rows point at live on the
   // main-process filesystem and are pruned by SnapshotService GC, not by SQL.
-  { table: 'brainstrike_workspace_snapshots', threadColumn: 'thread_id' },
+  { table: 'brainstrike_workspace_snapshots', threadColumns: ['thread_id'] },
+  // Prompt manifests are keyed by the ROOT host run (their FK) but named by a
+  // thread: a delegation's first step by the thread that dispatched it (the
+  // child thread does not exist yet), a human follow-up by the child it was
+  // sent to. Deleting a delegated branch drops the prompts sent to and from it.
+  { table: 'brainstrike_assistant_prompt_manifests', threadColumns: ['thread_id'] },
 ] as const;
 
 /**

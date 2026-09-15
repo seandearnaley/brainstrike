@@ -15,6 +15,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { AssistantMemorySettingsSection } from './assistant-memory-settings-section';
 import { ModelList } from './model-list';
 import { getModelRuntimeServices } from './model-runtime-services';
+import { SubagentSettingsSection } from './subagent-settings-section';
 import { useModelToggle } from './use-model-toggle';
 
 const logger = createLogger('ModelSelectionPage');
@@ -433,6 +434,8 @@ export function ModelSelectionPage({
         assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
         {...(providerKeySources ? { providerKeySources } : {})}
       />
+
+      <SubagentSettingsSection />
 
       <ModelList
         downloadedModels={downloadedModels}

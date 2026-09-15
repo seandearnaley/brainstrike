@@ -4,7 +4,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { Agent } from '@mastra/core/agent';
 import { Mastra } from '@mastra/core/mastra';
 import type { ChunkType } from '@mastra/core/stream';
-import { createTool } from '@mastra/core/tools';
+import { createTool, ToolStream } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
@@ -26,6 +26,22 @@ async function collect(stream: AsyncIterable<ChunkType>): Promise<ChunkType[]> {
     chunks.push(chunk);
   }
   return chunks;
+}
+
+/** How a `data-child-probe` part reached the stream: raw on a turn, or as a task's output. */
+function probeDelivery(chunk: ChunkType): 'task' | 'turn' | undefined {
+  const part: Record<string, unknown> = { ...chunk };
+  if (part['type'] === 'data-child-probe') {
+    return 'turn';
+  }
+  const payload = part['payload'];
+  if (part['type'] !== 'background-task-output' || typeof payload !== 'object' || !payload) {
+    return;
+  }
+  const output: unknown = Reflect.get(payload, 'payload');
+  return typeof output === 'object' && output && Reflect.get(output, 'type') === 'data-child-probe'
+    ? 'task'
+    : undefined;
 }
 
 describe('native background delegation (BST-1723)', () => {
@@ -177,6 +193,96 @@ describe('native background delegation (BST-1723)', () => {
       release.resolve();
       await consuming;
     }
+  });
+
+  it("delivers a background child's raw data part once while the dispatching parent turn is still open", async () => {
+    // Mastra's background executor hands the tool one writer that publishes
+    // each chunk as the task's output (`background-task-output`) AND writes it
+    // through the dispatching step's own writer. A subagent forwards its
+    // child's `data-*` parts with `writer.custom()`, which carries no call
+    // identity, so while the parent turn was open Mastra's own untilIdle
+    // stream delivered every such part twice (@mastra/core 1.64.0, unchanged
+    // in 1.67.0; live GLM run 19, 2026-09-15).
+    const written = Promise.withResolvers<void>();
+    let probeWrites = 0;
+    const child = new Agent({
+      defaultOptions: { maxSteps: 4 },
+      id: 'worker',
+      instructions: 'Inspect the workspace.',
+      memory: backing.memory,
+      model: toolThenAnswer('inspect', 'background-child-probe', {}).model,
+      name: 'Worker',
+      tools: {
+        inspect: createTool({
+          description: 'Inspect',
+          execute: async (_input, context) => {
+            const writer: unknown = context['writer'];
+            if (!(writer instanceof ToolStream)) {
+              throw new Error('Native child tool omitted its stream writer.');
+            }
+            await writer.custom({ data: { probe: 'CHILD_PROBE' }, type: 'data-child-probe' });
+            probeWrites += 1;
+            written.resolve();
+            return { completed: true };
+          },
+          id: 'inspect',
+          inputSchema: z.object({}),
+        }),
+      },
+    });
+    const parentModel = scriptedAgentModel((options) =>
+      hasToolResult(options, 'agent-worker')
+        ? textParts('Parent continues useful work')
+        : toolCallParts('agent-worker', 'background-delegation', {
+            prompt: 'Inspect the workspace',
+          })
+    );
+    const scripted = parentModel.model.doStream;
+    parentModel.model.doStream = async (options) => {
+      // The dispatching turn stays open until the child has written its part.
+      if (hasToolResult(options, 'agent-worker')) {
+        await written.promise;
+      }
+      return scripted(options);
+    };
+    const parent = new Agent({
+      agents: { worker: child },
+      backgroundTasks: { tools: { worker: { enabled: true } }, waitTimeoutMs: 0 },
+      defaultOptions: { maxSteps: 4 },
+      id: 'background-parent',
+      instructions: 'Delegate, continue useful work, then report the child result.',
+      memory: backing.memory,
+      model: parentModel.model,
+      name: 'Parent',
+    });
+    const host = new Mastra({
+      agents: { parent },
+      backgroundTasks: { defaultRetries: { maxRetries: 0 }, enabled: true, waitTimeoutMs: 0 },
+      logger: false,
+      storage: backing.storage,
+    });
+    hosts.add(host);
+    const output = await parent.stream('Inspect', {
+      memory: { resource: 'owner', thread: 'background-root' },
+      untilIdle: true,
+    });
+    const chunks = await collect(output.fullStream);
+    const deliveries = chunks.flatMap((chunk) => {
+      const delivery = probeDelivery(chunk);
+      return delivery ? [delivery] : [];
+    });
+    // The turn's writer also runs the parent's data-part pipeline, which adds a
+    // non-transient part to the parent's own response message.
+    const rootRows = await database.query<{ count: number }>(
+      `SELECT count(*)::int AS count FROM mastra_messages
+        WHERE thread_id = 'background-root' AND content::text LIKE '%data-child-probe%'`
+    );
+    // One write by the child's tool, so a second delivery is a copy, not a write.
+    expect({
+      deliveries,
+      probeWrites,
+      rootProbeRows: rootRows.rows[0]?.count,
+    }).toEqual({ deliveries: ['task'], probeWrites: 1, rootProbeRows: 0 });
   });
 
   it('honors foreground child cancellation without cancelling the parent', async () => {
