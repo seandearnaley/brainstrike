@@ -51,7 +51,13 @@ function asHandle(db: PGlite): EditCheckpointDatabase {
 
 async function insertBackgroundTask(
   db: PGlite,
-  args: { readonly createdAt: string; readonly id: string; readonly status: string }
+  args: {
+    readonly createdAt: string;
+    readonly id: string;
+    readonly resourceId?: string;
+    readonly status: string;
+    readonly threadId?: string;
+  }
 ): Promise<void> {
   await db.query(
     `INSERT INTO mastra_background_tasks
@@ -59,7 +65,13 @@ async function insertBackgroundTask(
         args, retry_count, max_retries, timeout_ms, "createdAt")
      VALUES ($1, $1, 'agent-explore', 'brainstrike-assistant', 'native-run', $2, $3, $4,
              '{}', 0, 0, 60000, $5::timestamptz)`,
-    [args.id, THREAD_ID, RESOURCE_ID, args.status, args.createdAt]
+    [
+      args.id,
+      args.threadId ?? THREAD_ID,
+      args.resourceId ?? RESOURCE_ID,
+      args.status,
+      args.createdAt,
+    ]
   );
 }
 
@@ -244,6 +256,18 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
       id: 'task-past-cutoff',
       status: 'running',
     });
+    // The claim the sweep exists for: it is NOT thread-scoped, because the
+    // admission gate it serves reads every thread. A row stranded in a thread
+    // the user never revisits is precisely the one Mastra's own thread-scoped
+    // recovery can never reach, so a thread or resource predicate here would
+    // reinstate the bug.
+    await insertBackgroundTask(db, {
+      createdAt: '2026-01-01T10:00:00Z',
+      id: 'task-foreign-thread',
+      resourceId: 'workspace-other',
+      status: 'running',
+      threadId: 'thread-other',
+    });
     await insertBackgroundTask(db, {
       createdAt: '2026-01-01T10:00:00Z',
       id: 'task-suspended',
@@ -253,6 +277,7 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     const report = await reapOrphanedThreadRuns(asHandle(db), BOOTED_AT);
 
     expect([...report.reapedBackgroundTaskIds].sort()).toEqual([
+      'task-foreign-thread',
       'task-orphan-pending',
       'task-orphan-running',
       'task-past-cutoff',
@@ -270,6 +295,15 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     );
     const orphanError = { message: ORPHANED_BACKGROUND_TASK_ERROR };
     expect(rows).toEqual([
+      // Another thread's orphan is reaped too, and until it is, the global
+      // in-flight read below counts it and holds maintenance off.
+      {
+        completedAt: expect.any(String),
+        deliveredAt: null,
+        error: orphanError,
+        id: 'task-foreign-thread',
+        status: 'failed',
+      },
       {
         completedAt: null,
         deliveredAt: null,
@@ -350,7 +384,9 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
       continuations: 2,
       ranDecisionRepair: true,
     });
-    expect(backgroundTasks).toBeGreaterThan(decisions);
+    // LAST, not merely "after": the sweep threw here, so it is by construction
+    // the final recorded statement. A repair appended below it would fail this.
+    expect(backgroundTasks).toBe(statements.length - 1);
   });
 
   /**
