@@ -3444,15 +3444,17 @@ The rule:
 
 Apply the same shape to any new file-size guard rather than reintroducing a cap.
 
-## REACT DOCTOR (LINT + DEAD CODE)
+## REACT DOCTOR (LINT; DEAD CODE INACTIVE AT 0.9.13)
 
 `.github/workflows/react-doctor.yml` runs **React Doctor** (`millionco/react-doctor@v2`,
 pinned `0.9.13`) on every PR and on push to `main`. It was adopted to supersede standalone knip
-in CI by pairing knip-style dead-code analysis (the `deslop` engine, a dependency through 0.9.12)
-with its React/JS lint rules (Security / Bugs / Performance / Accessibility / Maintainability).
-At 0.9.13 dead-code analysis is not active in this repository — see the knip bullet below.
+in CI by pairing knip-style dead-code analysis (the `deslop` engine, a dependency through
+0.9.12) with its React/JS lint rules (Security / Bugs / Performance / Accessibility /
+Maintainability). At 0.9.13 dead-code analysis is not active in this repository — see the knip
+bullet below.
 It uses `ubicloud-standard-2`; provider allocation has no GitHub fallback.
-Config lives in `doctor.config.ts`. Plan + baseline: `docs/react-doctor-migration-2026-06-15.md`.
+Config lives in `doctor.config.ts`. Plan + baseline: `docs/react-doctor-migration-2026-06-15.md`
+(historical: it predates `deslop`'s removal, and this section wins where they differ).
 
 Invariants (do not regress without updating this section, `doctor.config.ts`, and the doc):
 - **Telemetry OFF.** `noScore` + `share:false` in config; `REACT_DOCTOR_NO_TELEMETRY=1` in the
@@ -3462,15 +3464,17 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   version carries [upstream's rename-aware baseline comparison](https://github.com/millionco/react-doctor/pull/1376),
   so moving unchanged code does not reclassify its diagnostics as new. Re-checked for 0.9.13
   (2026-09-15) against upstream source, not re-run here: the `baseline-pure-rename` regression
-  test is byte-identical at the `react-doctor@0.9.11` and `react-doctor@0.9.13` tags, and
-  `compute-diagnostic-delta.ts` only gained detector-provided identities that take precedence
-  over source evidence. CAVEAT (BST-981,
-  2026-08-06, not re-tested since): that pairing failed on a ~200-file rename PR — byte-identical renamed files
-  had their pre-existing diagnostics reclassified as new, both in CI and in a local
-  `--scope changed` run. Precedent: prove pre-existence with a full scan of the base at the
-  old paths, then suppress narrowly via `ignore.overrides` with a follow-up ticket to fix
-  the findings and drop the override. BST-1182 completed that cleanup for the three
-  assistant-ui ref mutations and removed the temporary override; the caveat remains for
+  test is byte-identical at the `react-doctor@0.9.11` and `react-doctor@0.9.13` tags.
+  `compute-diagnostic-delta.ts` also gained detector-provided identities that take precedence
+  over source evidence. In the 0.9.13 bundle the only detector that sets one is
+  `duplicate-jsx-subtree`, keyed on its JSX-family fingerprint and occurrence count rather than a
+  path; whether that interacts with a BST-981-style rename set is untested. CAVEAT (BST-981,
+  2026-08-06, not re-tested since): that pairing failed on a ~200-file rename PR —
+  byte-identical renamed files had their pre-existing diagnostics reclassified as new, both in
+  CI and in a local `--scope changed` run. Precedent: prove pre-existence with a full scan of
+  the base at the old paths, then suppress narrowly via `ignore.overrides` with a follow-up
+  ticket to fix the findings and drop the override. BST-1182 completed that cleanup for the
+  three assistant-ui ref mutations and removed the temporary override; the caveat remains for
   future large rename sets, not as an active exception.
   `scripts/__tests__/react-doctor-version-contract.test.mjs` keeps the local and Action pins equal
   and rejects downgrade below the 0.8.2 fix. It also pins the exact reviewed version in
@@ -3503,18 +3507,23 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   **Re-measured at 0.9.13** (2026-09-15, `cf2d8db86`, 23 projects / 4360 files / 608 issues):
   the 85 errors are `no-ref-current-in-render` ×67, `effect-needs-cleanup` ×10,
   `no-impure-state-updater` ×4, `no-prop-callback-in-render` ×3, and
-  `effect-observer-needs-disconnect` ×1. There are **zero `react-hooks-js/*` findings of any
-  severity**: `react-hooks-js/todo` and `react-hooks-js/refs` are not clean, they are not
-  running (the same `refs` compiler rule holds a 123-warning ESLint budget in
-  `eslint-warning-baseline.json`). React Doctor loads `eslint-plugin-react-hooks` as
-  `react-hooks-js` only for a project it detects as using the React Compiler, and all 23
-  projects report `hasReactCompiler:false`. The bump did not cause this: the detection code is
-  identical in 0.9.11 and 0.9.13, and in an isolated directory holding only `apps/web`'s
-  `package.json` + `vite.config.mts` and one component, 0.9.13 reports `hasReactCompiler:true`
-  for the files before BST-1659 (#3017, which moved the compiler from a Babel preset to
-  `oxc-transform-react`) and `false` for the current ones. #3017 is an ancestor of #3038's head,
-  so #3038's 0.9.11-vs-0.9.13 comparison (85 → 85 errors) already ran without the plugin.
-  **Unresolved** (2026-09-15): nothing has been changed to restore these rules.
+  `effect-observer-needs-disconnect` ×1. This is a larger tree than the 3366-file one above,
+  so the two sets of counts are not a before/after, and 0.9.13's 85 matching 0.9.3's 85 does not
+  mean the rule set reverted. Of the four 0.9.11 additions, the two `react-doctor/*` rules still
+  report; the two `react-hooks-js/*` rules report nothing — see the next bullet.
+- **`react-hooks-js/*` rules do not run in this repository** (2026-09-15, 0.9.13; tracked in
+  BST-1760). The full scan has **zero `react-hooks-js/*` findings of any severity**:
+  `react-hooks-js/todo` and `react-hooks-js/refs` are not clean, they are not loaded (the same
+  `refs` compiler rule holds a 123-warning ESLint budget in `eslint-warning-baseline.json`).
+  React Doctor loads `eslint-plugin-react-hooks` as `react-hooks-js` only for a project it
+  detects as using the React Compiler, and all 23 projects report `hasReactCompiler:false`. The
+  bump did not cause this: the detection code is identical in 0.9.11 and 0.9.13, and in an
+  isolated directory holding only `apps/web`'s `package.json` + `vite.config.mts` and one
+  component, 0.9.13 reports `hasReactCompiler:true` for the files before BST-1659 (#3017, which
+  moved the compiler from a Babel preset to `oxc-transform-react`) and `false` for the current
+  ones. #3017 is an ancestor of #3038's head, so #3038's 0.9.11-vs-0.9.13 comparison (85 → 85
+  errors) already ran without the plugin. **Unresolved:** nothing in this repository has been
+  changed to restore these rules; BST-1760 tracks the decision.
 - **`react-doctor/no-multi-comp` re-measured for 0.9.13** (2026-09-15). BST-1273 said not to
   bump past 0.9.11 without re-measuring it. #3038 took 0.9.13 without measuring this rule
   specifically; its full-scope 0.9.11-vs-0.9.13 comparison (85 → 85 errors, "Crowded component
@@ -3541,11 +3550,14 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   `LEGACY_RULE_KEY_TO_NATIVE_RULE_KEY` alias table, but they only switch off rules that are
   already off, and nothing opts a graph rule in. So at 0.9.13 **neither CI (`scope: changed`)
   nor the root full scan runs dead-code analysis**, and the "Left active: … unused-file +
-  circular-dependency" comment in `doctor.config.ts` is stale. Opting `unused-file` +
-  `circular-dependency` in (2026-09-15) produced 0 graph findings and an unchanged 608-issue
-  report; that alone does not prove the rules are live. `pnpm knip` (driven by `knip.jsonc`,
-  with the curated false-positive allowlist) stays the dependency auditor; no workflow in
-  `.github/workflows/` invokes it.
+  circular-dependency" comment in `doctor.config.ts` is stale. That comment and the inert
+  `deslop/*` disables are deliberately left in place by the docs-only 0.9.13 re-measurement
+  (BST-1759 records them as out of scope). Opting `unused-file` + `circular-dependency` in
+  (2026-09-15) produced 0 graph findings and an unchanged 608-issue report; that alone does not
+  prove the rules are live. `pnpm knip` (driven by `knip.jsonc`, with the curated
+  false-positive allowlist) stays the dependency auditor, but no workflow in
+  `.github/workflows/` invokes it — so at 0.9.13 CI runs no dead-code or unused-dependency
+  analysis at all. No ticket tracks that gap yet.
 - **No broad `ignore.files` exclusions.** The old 0.5.5/0.7.1 implementation silently dropped
   roughly half the monorepo when that key was present. Upstream fixed enumeration by listing
   all supported sources before filtering (0.9.3, per `doctor.config.ts`; the 0.9.13 full scan
@@ -3559,14 +3571,14 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   stays covered by the lefthook `secrets-scan`. react-doctor's unique value here is its
   React-Compiler-correctness rules (`react-hooks-js/*`, `react-compiler-*`) + dead-code,
   which is where remediation effort is focused. At 0.9.13 neither the `react-hooks-js/*` rules
-  nor dead-code analysis runs here; see the error-severity and knip bullets.
+  nor dead-code analysis runs here; see the `react-hooks-js` and knip bullets.
 - **`react-compiler-no-manual-memoization` is OFF.** Manual `useMemo`/`useCallback`/
   `React.memo` is intentional here (guards non-React work, external-store identity,
   referential stability for consumers outside the compiled tree). The rule fired 1211× (54%
   of the original backlog) demanding removal — disabled per team decision.
   `react-hooks-js/preserve-manual-memoization` stays ON in config (it protects memo the
   compiler needs), but at 0.9.13 the `react-hooks-js` plugin is not loaded here; see the
-  error-severity bullet.
+  `react-hooks-js` bullet.
 - **An unimplemented rule id is accepted SILENTLY — 0 findings means "gone" OR "clean".**
   `doctor.config.ts` emits no "unknown rule" error, so a config that believes it enabled
   (or disabled) a rule is indistinguishable from one that did not, and that rule's zero
@@ -3580,29 +3592,33 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   the id at 0.9.11 and 0.9.13, and at 0.9.13 the rule reports ×45 warnings in the default full
   scan. That example's control — adding `rules: { 'react-doctor/only-export-components': 'warn' }`
   left counts byte-identical (149 → 149 on `packages/file-explorer-ui`) — remains a 0.9.3
-  measurement, not re-run. **Before citing a
+  measurement, not re-run. An unchanged count could never prove absence: it is also what an
+  already-enabled `warn` rule, or a rule with no violations in that package, produces. Reuse
+  the nonexistent-id probe above as the silent-acceptance control. **Before citing a
   react-doctor rule id as a contract, prove it fires on a known violation** — a
   package-scoped scan returning 0 is not evidence.
   `scripts/__tests__/lint-rule-liveness-contract.test.mjs` mechanizes that proof — **for
   ESLint rules only.** It drives `new ESLint({ cwd: repoRoot })` against `eslint.config.js`,
   so it exercises **zero react-doctor rules** and confers no coverage on any
-  `react-doctor/*`, `react-hooks-js/*`, or `deslop/*` id. Do not read a green
-  `test:scripts` as evidence that a react-doctor id is live; that engine remains
+  `react-doctor/*` or `react-hooks-js/*` id, or on the legacy `deslop/*` aliases. Do not
+  read a green `test:scripts` as evidence that a react-doctor id is live; that engine remains
   unmechanized, and it is the one with the silent-acceptance defect.
 - **The two ids once "absent from the bundle" were a grep-scope artifact** (2026-08-09, #2372;
   re-measured at 0.9.11 on 2026-08-15, BST-1273; re-measured at 0.9.13 on 2026-09-15).
   `react-hooks-js/preserve-manual-memoization` and `react-doctor/async-parallel` (the rule in
   `doctor.config.ts`'s lone `ignore.overrides` entry) still appear **0 times** across
-  `node_modules/react-doctor/dist/` at 0.9.13, where real ids appear literally
-  (`only-export-components` 8, `react-compiler-no-manual-memoization` 7; the 0.9.3/0.9.11
-  counts of 12/10/0/0 reproduce from the published 0.9.11 tarball with `grep -o | wc -l`). But
+  `node_modules/react-doctor/dist/` at 0.9.13. Occurrence counts there by `grep -o | wc -l`,
+  at 0.9.3/0.9.11 then 0.9.13: `only-export-components` 12 then 8;
+  `react-compiler-no-manual-memoization` 10 then 7; `preserve-manual-memoization` 0 then 0;
+  `async-parallel` 0 then 0. The 0.9.11 figures reproduce from the published tarball. But
   rule metadata ships in the separate `oxlint-plugin-react-doctor` package (`async-parallel`
   ×10 at 0.9.11, ×12 at 0.9.13), and the compiler rules come from `eslint-plugin-react-hooks`,
   loaded as `react-hooks-js`. Liveness at 0.9.13: **`react-doctor/async-parallel` is live** —
   the default full scan reports it ×4 in files other than `db-provider.tsx` — so the override
   targets a real rule. `react-hooks-js/preserve-manual-memoization` is registered (severity
   `error` in the plugin's compiler-rule table) but reports nothing here because the
-  `react-hooks-js` plugin is not loaded; see the error-severity bullet. The manual-memoization
+  `react-hooks-js` plugin is not loaded (see the `react-hooks-js` bullet). Registry presence is
+  not firing evidence, and no planted violation has proved this id live. The manual-memoization
   protection still exists via eslint-plugin-react-hooks' own
   `react-hooks/preserve-manual-memoization`, which is live, reporting 2 warnings, and is
   tracked in `eslint-warning-baseline.json`.
