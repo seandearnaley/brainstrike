@@ -48,6 +48,7 @@ function assertDistinctArtifactNames(workflowConfigs) {
   const owners = new Map();
   for (const [workflow, job, stepName] of uploaders) {
     const upload = workflowConfigs[workflow].jobs[job].steps.find(({ name }) => name === stepName);
+    assert.ok(upload?.with?.name, `${workflow}/${job} must name the ${stepName} artifact`);
     const key = `${workflow}:${upload.with.name}`;
     assert.equal(
       owners.has(key),

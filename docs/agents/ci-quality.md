@@ -119,8 +119,12 @@ with the same missing-artifact shape. BST-1762 split the suite rather than
 raising the ceiling a third time. `test:e2e:lane:smoke` (17 specs whose
 per-case CI means sum to 337 s) and `test:e2e:lane:smoke-delegated` (the four
 `delegated-*` specs, 466 s) run on separate `ubicloud-standard-4` runners,
-each with a 900000 ms ceiling inside the unchanged 25-minute job boundary, at
-37% and 52% of that ceiling. The required `Desktop E2E` check is a fan-in over
+each with a 900000 ms ceiling inside the unchanged 25-minute job boundary.
+Their first run (Test 34997197693) took 367 s and 440 s of Playwright, 41% and
+49% of that ceiling, in 496 s and 573 s jobs, so the required check now lands in
+under 10 minutes instead of 14-16. A failure in one lane does not cancel the
+other (`--max-failures=1` stops only its own lane), so a red PR can spend both
+lanes' runner time. The required `Desktop E2E` check is a fan-in over
 the `desktop-e2e-smoke` and `desktop-e2e-delegated` jobs, like `Unit` over
 `unit-shard`: it carries their condition and fails unless both succeed, so the
 ruleset did not change. Moving the delegated specs to nightly regression was
@@ -2260,8 +2264,9 @@ substitute retries, a global promise pin, or a timeout increase.
 The original smoke failure occurred during the second assistant setup, after
 the folder fixture's thread-seeding reload. Its trace was created but never
 uploaded: the workflow looked in `test-results` while desktop Playwright writes
-to `blob-report`. Both required desktop smoke lanes and both nightly desktop uploads now target
-`apps/desktop/blob-report/`, matching the already-correct packaged MCP uploader.
+to `blob-report`. Both required desktop smoke lanes and both nightly desktop
+uploads now target `apps/desktop/blob-report/`, matching the already-correct
+packaged MCP uploader.
 Both Playwright test attachments (`outputDir`) and its blob reporter use that
 directory. Uploaders warn if it is missing: `failure()` also covers setup/build
 failures before Playwright has run, when no test artifacts exist. This absence
@@ -3843,12 +3848,11 @@ Two react-doctor CLI constraints worth knowing before you script around it:
 
 The required delegated desktop smoke lane (`test:e2e:lane:smoke-delegated`,
 BST-1762) includes `delegated-workspace-reload.desktop.test.ts` and its `@smoke`
-case. It restores
-two native child histories through the real workspace coordinator, switches by
-keyboard, closes a sibling tab, and verifies that inspection neither executes
-inference nor advertises unsupported edit/regenerate actions. Its screenshot
-uses disabled finite animations for stable evidence. The case measured 4.2s
-locally (not the complete lane). On head bf8d50b, required Desktop E2E job
-103119913725 completed in 6m19s including setup and this new smoke case. This
-is an observed total, not a measured before/after lane delta. The existing lane
-deadline and zero-retry policy remain unchanged.
+case. It restores two native child histories through the real workspace
+coordinator, switches by keyboard, closes a sibling tab, and verifies that
+inspection neither executes inference nor advertises unsupported edit/regenerate
+actions. Its screenshot uses disabled finite animations for stable evidence. The
+case measured 4.2s locally (not the complete lane). On head bf8d50b, required
+Desktop E2E job 103119913725 completed in 6m19s including setup and this new
+smoke case. This is an observed total, not a measured before/after lane delta.
+The existing lane deadline and zero-retry policy remain unchanged.

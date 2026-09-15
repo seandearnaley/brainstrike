@@ -23,7 +23,8 @@ const WEB_SMOKE_COMMAND = [
 // BST-1762 split desktop smoke into two lanes on separate runners: 47 passing
 // cases took 722-871 s of the single lane's 900 s ceiling across 24 green Test
 // runs (2026-09-12..15), and run 34988958978 timed out at 898 s. The delegated
-// specs averaged 466 s of that and every other spec 337 s. Both lanes keep the
+// specs' per-case CI means summed to 466 s and every other spec's to 337 s; the
+// first split run (Test 34997197693) took 440 s and 367 s. Both lanes keep the
 // 900 s ceiling inside the unchanged 25-minute job boundary. Put a new spec in
 // the lane whose measured headroom absorbs it and record the measurement in
 // docs/agents/ci-quality.md. A smoke spec dropped from both lists is caught by
@@ -170,7 +171,7 @@ function assertDesktopE2eFanIn(job, laneJobIds) {
   );
   assert.equal(
     normalizeExpression(checks[0].run),
-    `echo "Desktop smoke lane results: $LANE_RESULTS" test "$LANE_RESULTS" = "${laneJobIds.map(() => 'success').join(' ')}"`,
+    `echo "Desktop smoke lane results: $LANE_RESULTS" if [ "$LANE_RESULTS" != "${laneJobIds.map(() => 'success').join(' ')}" ]; then echo "::error::Desktop smoke lanes did not all succeed: $LANE_RESULTS" exit 1 fi`,
     'Desktop E2E must fail unless every smoke lane succeeded'
   );
 }

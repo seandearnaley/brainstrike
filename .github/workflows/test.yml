@@ -1034,9 +1034,10 @@ jobs:
   # BST-1762: desktop smoke runs as two lanes on separate runners. One serial
   # lane of 47 passing cases took 722-871 s of its 900 s Playwright ceiling
   # across 24 green runs (2026-09-12..15) and timed out at 898 s in run
-  # 34988958978. The delegated specs averaged 466 s of that and every other
-  # spec 337 s, so each lane gets its own runner and 900 s ceiling. The required
-  # `Desktop E2E` check is the fan-in after them, so the ruleset is unchanged.
+  # 34988958978. Per-case CI means summed to 466 s for the delegated specs and
+  # 337 s for every other spec, so each lane gets its own runner and 900 s
+  # ceiling. The required `Desktop E2E` check is the fan-in after them, so the
+  # ruleset is unchanged.
   # Lane spec lists and this job graph are pinned by
   # scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs.
   desktop-e2e-smoke:
@@ -1244,7 +1245,10 @@ jobs:
           LANE_RESULTS: ${{ needs.desktop-e2e-smoke.result }} ${{ needs.desktop-e2e-delegated.result }}
         run: |
           echo "Desktop smoke lane results: $LANE_RESULTS"
-          test "$LANE_RESULTS" = "success success"
+          if [ "$LANE_RESULTS" != "success success" ]; then
+            echo "::error::Desktop smoke lanes did not all succeed: $LANE_RESULTS"
+            exit 1
+          fi
 
   # BST-1301: make a red `main` announce itself.
   #

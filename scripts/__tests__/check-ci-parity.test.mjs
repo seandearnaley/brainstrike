@@ -688,6 +688,11 @@ test('gateInvocations reads the shapes both sides are actually written in', () =
       'pnpm-script:test:e2e:lane:smoke'
     )
   );
+  // `smoke` is a prefix of `smoke-delegated`; the extractor must keep them distinct.
+  assert.deepEqual(
+    [...gateInvocations(ciRunStep('desktop-e2e-delegated › Run desktop delegated smoke'))],
+    ['pnpm-script:test:e2e:lane:smoke-delegated']
+  );
   assert.ok(
     gateInvocations(
       'node scripts/run-env.mjs TURBO_TEST_MODE=unit -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=4'
