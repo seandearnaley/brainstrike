@@ -111,14 +111,25 @@ noise in the same log (git-inventory drain abandonment, `DB host closed.`,
 `the worker is ending`) is per-test teardown chatter that also appears in green
 runs, and timestamps place it minutes away from the interruption. Raise a
 lane's budget when you add work to it, not after the next interruption. The
-desktop smoke ceiling is now 900000 ms: the 43-case suite measured 11.8
-minutes on main (Test 34646256371, 43 passed) and 12.0 minutes with cases still
-unrun on PR heads (Tests 34651826896 and 34659815421 both ended in "Timed out
-waiting 720s" with every delegated case green), so the earlier 720000 ms ceiling
-(set when 35 cases ran in 5.2 minutes, job `103147368385`) was being reached by
-a passing suite. Fifteen minutes leaves headroom inside the unchanged 25-minute
-job ceiling with roughly three minutes of install/build ahead of Playwright. The
-exact lane commands are pinned by
+desktop smoke lane's 900000 ms ceiling (raised from 720000 ms when 43 cases
+measured 11.8 minutes on main, Test 34646256371) was being reached again by a
+passing suite by 2026-09-15: 47 cases took 722-871 s across 24 green Test runs
+(2026-09-12..15), and run `34988958978` interrupted `worktree-mode` at 898 s
+with the same missing-artifact shape. BST-1762 split the suite rather than
+raising the ceiling a third time. `test:e2e:lane:smoke` (17 specs whose
+per-case CI means sum to 337 s) and `test:e2e:lane:smoke-delegated` (the four
+`delegated-*` specs, 466 s) run on separate `ubicloud-standard-4` runners,
+each with a 900000 ms ceiling inside the unchanged 25-minute job boundary, at
+37% and 52% of that ceiling. The required `Desktop E2E` check is a fan-in over
+the `desktop-e2e-smoke` and `desktop-e2e-delegated` jobs, like `Unit` over
+`unit-shard`: it carries their condition and fails unless both succeed, so the
+ruleset did not change. Moving the delegated specs to nightly regression was
+rejected on measurement: that lane had failed its last ten scheduled runs and,
+under `--max-failures=1`, left 87-120 cases unrun. Add a smoke spec to the lane
+whose measured headroom absorbs it and record the measurement here. Why these
+specs run 4.6-9.5x slower on Linux CI than locally, while launch-only specs run
+1.6-2.5x slower, is tracked separately by BST-1763. The exact lane commands and
+the fan-in are pinned by
 `scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs`, which is the guard
 that forces the change to be deliberate.
 
@@ -337,7 +348,7 @@ required PR checks.
 
 ### Desktop Electron provisioning (BST-563, BST-1252)
 
-The Desktop E2E smoke job in `test.yml` and both regression jobs in
+Both Desktop E2E smoke lane jobs in `test.yml` and both regression jobs in
 `desktop-e2e.yml` download Electron directly from GitHub Releases and extract
 it immediately before launch. Electron 43 declares no install lifecycle;
 `install.js` is exposed only as the `install-electron` bin, so `pnpm install`
@@ -345,8 +356,8 @@ does not provision the executable or populate `~/.cache/electron`. The former
 version lookup and Actions cache steps therefore persisted an unused path. Each
 download uses `${RUNNER_TEMP:-/tmp}/electron.zip`; the fallback is required
 because a future `container:` job may not define `RUNNER_TEMP`. The paired
-`desktop-electron-provisioning-contract.test.mjs` keeps all three sites aligned,
-pins the no-lifecycle premise, requires all three jobs to use the shared
+`desktop-electron-provisioning-contract.test.mjs` keeps all four sites aligned,
+pins the no-lifecycle premise, requires all four jobs to use the shared
 `setup-workspace` action, and fails if the unused cache or raw `RUNNER_TEMP`
 path returns.
 
@@ -2249,7 +2260,7 @@ substitute retries, a global promise pin, or a timeout increase.
 The original smoke failure occurred during the second assistant setup, after
 the folder fixture's thread-seeding reload. Its trace was created but never
 uploaded: the workflow looked in `test-results` while desktop Playwright writes
-to `blob-report`. The required Desktop E2E and both nightly desktop uploads now target
+to `blob-report`. Both required desktop smoke lanes and both nightly desktop uploads now target
 `apps/desktop/blob-report/`, matching the already-correct packaged MCP uploader.
 Both Playwright test attachments (`outputDir`) and its blob reporter use that
 directory. Uploaders warn if it is missing: `failure()` also covers setup/build
@@ -3830,8 +3841,9 @@ Two react-doctor CLI constraints worth knowing before you script around it:
 
 ### Delegated workspace smoke coverage
 
-The required desktop smoke command includes
-`delegated-workspace-reload.desktop.test.ts` and its `@smoke` case. It restores
+The required delegated desktop smoke lane (`test:e2e:lane:smoke-delegated`,
+BST-1762) includes `delegated-workspace-reload.desktop.test.ts` and its `@smoke`
+case. It restores
 two native child histories through the real workspace coordinator, switches by
 keyboard, closes a sibling tab, and verifies that inspection neither executes
 inference nor advertises unsupported edit/regenerate actions. Its screenshot
