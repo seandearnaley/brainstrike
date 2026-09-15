@@ -237,6 +237,18 @@ background lane must therefore be short and bounded. Long maintenance statements
 an idle database/queue state; do not use background priority as authority to run
 an unbounded maintenance statement.
 
+The desktop process-counter sampler (`process-counter-sample`, 30 s, behind the
+`main-process-health` tick) is the one RECURRING background-lane consumer that
+is not maintenance: a single indexed `COUNT(*) … GROUP BY status` over
+`mastra_background_tasks` (`idx_mastra_background_tasks_status`). It is bounded
+by construction — a tick whose previous sample is still outstanding skips the
+read and records `previous sample still pending` instead of queueing another —
+so it contributes at most one short statement per tick and can never build a
+backlog that consumes forced background admissions. Shutdown stops it before
+the idle join; the factory-reset barrier it waits on is what keeps a
+diagnostics read from reopening the database mid-reset (contract in
+`docs/agents/platform-contracts.md`).
+
 **Idle means SUSTAINED idle, not an instantaneous sample (BST-1333).** The DB
 host dispatches envelopes strictly serially and cannot preempt one, so a
 maintenance statement that runs for seconds blocks every renderer query behind

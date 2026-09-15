@@ -13,6 +13,7 @@ import type { BackgroundResume } from './background-resume';
 import type { DelegatedToolActionScope } from './delegated-conversation-binding';
 import { assertDelegatedToolActionPending } from './delegated-tool-actions';
 import type { buildStreamOptions } from './runtime-assembly/stream-options';
+import type { DelegationOutcomeCapture } from './subagent-delegation';
 import { resolveDiscoveredApprovalToolName } from './suspended-run-discovery';
 
 const logger = createLogger('BackgroundGrantedApprovals');
@@ -257,7 +258,9 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
   runtimeData: RuntimeData | undefined,
   output: Output,
   options: ReturnType<typeof buildStreamOptions>,
-  abortSignal: AbortSignal
+  abortSignal: AbortSignal,
+  /** The capture the leg's delegation config records refusals in (`buildStreamOptions`). */
+  delegationOutcomes: DelegationOutcomeCapture | undefined
 ): Output {
   const manager = runtime.backgroundTaskManager;
   if (!manager) {
@@ -274,12 +277,14 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
     ledger: createBackgroundLedgerSource({
       manager,
       personaLabel: personaLabelFor(runtime),
+      rejectedDelegations: delegationOutcomes,
       scope,
     }),
     manager,
     maxIdleMs: runtime.backgroundIdleMs,
     options,
     recordWakeup: runtime.conversationBinding?.recordWakeup,
+    rejectedDelegations: delegationOutcomes,
     scope,
   });
 }
