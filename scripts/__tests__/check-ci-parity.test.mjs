@@ -85,9 +85,15 @@ const PROVISIONING_STEPS = new Set([
   'browser-tests › Install dependencies',
   'web-e2e › Require successful admission',
   'web-e2e › Install dependencies',
+  'desktop-e2e-smoke › Require successful admission',
+  'desktop-e2e-smoke › Install Chromium system dependencies',
+  'desktop-e2e-smoke › Provision Electron binary',
+  'desktop-e2e-delegated › Require successful admission',
+  'desktop-e2e-delegated › Install Chromium system dependencies',
+  'desktop-e2e-delegated › Provision Electron binary',
+  // The required Desktop E2E fan-in only reports its smoke lanes' verdicts.
   'desktop-e2e › Require successful admission',
-  'desktop-e2e › Install Chromium system dependencies',
-  'desktop-e2e › Provision Electron binary',
+  'desktop-e2e › Check lane results',
   // Runner plumbing for the packaged OAuth proof: installs the freedesktop
   // Secret Service and URL-opening utilities required by the packaged app on
   // headless Linux. The packaged-lane contract pins the daemon wiring.
@@ -678,9 +684,14 @@ test('gateInvocations reads the shapes both sides are actually written in', () =
     )
   );
   assert.ok(
-    gateInvocations(ciRunStep('desktop-e2e › Run desktop smoke')).has(
+    gateInvocations(ciRunStep('desktop-e2e-smoke › Run desktop smoke')).has(
       'pnpm-script:test:e2e:lane:smoke'
     )
+  );
+  // `smoke` is a prefix of `smoke-delegated`; the extractor must keep them distinct.
+  assert.deepEqual(
+    [...gateInvocations(ciRunStep('desktop-e2e-delegated › Run desktop delegated smoke'))],
+    ['pnpm-script:test:e2e:lane:smoke-delegated']
   );
   assert.ok(
     gateInvocations(
@@ -728,6 +739,7 @@ test('the Playwright lanes run under CI semantics, and nothing else does', () =>
   const playwrightIds = new Set([
     'web-e2e-smoke',
     'desktop-e2e-smoke',
+    'desktop-e2e-delegated-smoke',
     'web-e2e-full-regression',
     'desktop-e2e-full-regression',
   ]);
@@ -1066,7 +1078,7 @@ test('the documented flags stay coherent', () => {
   assert.ok(ids([]).includes('install'));
   assert.ok(!ids(['--no-install']).includes('install'));
 
-  for (const id of ['web-e2e-smoke', 'desktop-e2e-smoke']) {
+  for (const id of ['web-e2e-smoke', 'desktop-e2e-smoke', 'desktop-e2e-delegated-smoke']) {
     assert.ok(ids([]).includes(id));
     assert.ok(!ids(['--no-e2e']).includes(id));
   }
@@ -1086,7 +1098,12 @@ test('the documented flags stay coherent', () => {
   ]) {
     assert.ok(fast.includes(id), `--fast must keep ${id}`);
   }
-  for (const id of ['browser-tests', 'web-e2e-smoke', 'desktop-e2e-smoke']) {
+  for (const id of [
+    'browser-tests',
+    'web-e2e-smoke',
+    'desktop-e2e-smoke',
+    'desktop-e2e-delegated-smoke',
+  ]) {
     assert.ok(!fast.includes(id), `--fast must drop ${id}`);
   }
 
@@ -1116,7 +1133,8 @@ test('mode flags report every required gate they omit', () => {
   for (const step of [
     'browser-tests › Run browser tests',
     'web-e2e › Run web smoke',
-    'desktop-e2e › Run desktop smoke',
+    'desktop-e2e-smoke › Run desktop smoke',
+    'desktop-e2e-delegated › Run desktop delegated smoke',
   ]) {
     assert.ok(omittedByFast.has(step), `--fast must disclose that it omits ${step}`);
   }
@@ -1124,7 +1142,11 @@ test('mode flags report every required gate they omit', () => {
   const omittedByNoE2E = new Set(
     uncoveredCiGates(buildPlan(parseFlags(['--no-e2e']))).map((gate) => gate.step)
   );
-  for (const step of ['web-e2e › Run web smoke', 'desktop-e2e › Run desktop smoke']) {
+  for (const step of [
+    'web-e2e › Run web smoke',
+    'desktop-e2e-smoke › Run desktop smoke',
+    'desktop-e2e-delegated › Run desktop delegated smoke',
+  ]) {
     assert.ok(omittedByNoE2E.has(step), `--no-e2e must disclose that it omits ${step}`);
   }
 });
