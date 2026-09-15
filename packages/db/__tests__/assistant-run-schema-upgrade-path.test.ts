@@ -280,9 +280,15 @@ describe('migrations 117/118: a bootstrapped database upgrades to the fresh shap
       const before = await snapshotOwnedCatalog(db);
       await migrate(db);
       expect(await snapshotOwnedCatalog(db)).toEqual(freshCatalog);
-      // The bootstrap's own shape already matched, so this era proves the
-      // migrations are a no-op where they must be — not that they repair.
-      expect(before).toEqual(freshCatalog);
+      // The bootstrap's own shape already matched everything 117/118 own, so
+      // this era proves those migrations are a no-op where they must be — not
+      // that they repair. Migration 140 is the one LATER change to a relation
+      // they own: it appends `generation_run_id`, which no bootstrap era had,
+      // so the pre-migration catalog differs by exactly that column.
+      expect(before).toEqual({
+        ...freshCatalog,
+        columns: freshCatalog.columns.filter((entry) => !entry.includes('generation_run_id')),
+      });
     } finally {
       await db.close();
     }
