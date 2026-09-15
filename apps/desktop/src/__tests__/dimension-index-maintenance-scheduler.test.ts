@@ -509,4 +509,19 @@ describe('DesktopDimensionIndexMaintenanceScheduler admission', () => {
     expect(harness.runDimensionMaintenance).toHaveBeenCalledTimes(1);
     harness.scheduler.stop();
   });
+
+  it.for([-1, Number.NaN])('rejects a %s quiet period instead of coercing it', (quietPeriodMs) => {
+    expect(() =>
+      createDesktopDimensionIndexMaintenanceScheduler({
+        getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+        getDimensionIndexStrategy: () => 'regular',
+        getPowerSnapshot: idleAcSnapshot,
+        getSchedulerSnapshot: idleSchedulerSnapshot,
+        logger: createLogger(),
+        quietPeriodMs,
+        runScheduledWork: vi.fn(),
+        subscribeToSchedulerSnapshots: ignoreSchedulerSnapshots,
+      })
+    ).toThrow(/quietPeriodMs must be a non-negative number/);
+  });
 });
