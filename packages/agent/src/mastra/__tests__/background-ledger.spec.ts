@@ -37,6 +37,23 @@ function task(
 const scope = { resourceId: 'owner', threadId: 'root' };
 const personaLabel = (toolName: string) => (toolName === 'agent-explore' ? 'Explorer' : undefined);
 
+/** The host's answer for an address that dispatched a child (`resolveParkedInvocation`). */
+function invocationOf(parent: {
+  readonly parentRuntimeRunId: string;
+  readonly parentToolCallId: string;
+}) {
+  return {
+    identity: {
+      childRuntimeRunId: `${parent.parentToolCallId}-run`,
+      parentRuntimeRunId: parent.parentRuntimeRunId,
+      parentToolCallId: parent.parentToolCallId,
+      personaId: 'explore',
+    },
+    resourceId: 'owner',
+    threadId: `${parent.parentToolCallId}-thread`,
+  };
+}
+
 function sourceOf(tasks: BackgroundTask[]) {
   const listTasks = vi.fn(async () => ({ tasks, total: tasks.length }));
   return {
@@ -45,6 +62,7 @@ function sourceOf(tasks: BackgroundTask[]) {
       manager: { listTasks } as never,
       personaLabel,
       rejectedDelegations: undefined,
+      resolveInvocation: undefined,
       scope,
     }),
   };
@@ -100,12 +118,62 @@ describe('createBackgroundLedgerSource', () => {
       rejectedDelegations: {
         rejected: (toolCallId, runId) => toolCallId === 'c2' && runId === 'root-run',
       },
+      resolveInvocation: undefined,
       scope,
     });
     const ledger = await source.read(new Set(['root-run']));
     // MUTATION: ignoring the capture counts the refusal as returned.
     expect(ledger.counts).toEqual({ cancelled: 0, failed: 0, returned: 1, running: 0, total: 1 });
     expect(ledger.entries.map((entry) => entry.toolCallId)).toEqual(['c1']);
+  });
+
+  it('leaves out a completed delegation the host holds no invocation for, whichever leg dispatched it', async () => {
+    // The capture is leg-scoped: a resume leg reads the rows of the run it
+    // resumes with a capture that never saw that run's refusal. A refusal
+    // persists no invocation, so the host's graph answers for every leg.
+    const listTasks = vi.fn(async () => ({
+      tasks: [task('c1', 'completed'), task('refused', 'completed'), task('starting', 'running')],
+      total: 3,
+    }));
+    const source = createBackgroundLedgerSource({
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: undefined,
+      resolveInvocation: async (parent) =>
+        parent.parentToolCallId === 'c1' ? invocationOf(parent) : undefined,
+      scope,
+    });
+    const ledger = await source.read(new Set(['root-run']));
+    // MUTATION: ignoring the host's graph counts the refusal as returned.
+    // MUTATION: asking about a row that has not completed drops the starting
+    // child, which has not persisted its invocation yet.
+    expect(ledger.entries.map((entry) => [entry.toolCallId, entry.state])).toEqual([
+      ['c1', 'returned'],
+      ['starting', 'running'],
+    ]);
+  });
+
+  it('asks the host once per completed row: its invocation is settled before it completes', async () => {
+    const listTasks = vi.fn(async () => ({ tasks: [task('refused', 'completed')], total: 1 }));
+    const resolveInvocation = vi.fn(async () => undefined);
+    const source = createBackgroundLedgerSource({
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: undefined,
+      resolveInvocation,
+      scope,
+    });
+    await source.read(new Set(['root-run']));
+    const ledger = await source.read(new Set(['root-run']));
+    // MUTATION: without the per-leg memo every lifecycle event asks the host
+    // again for every completed row.
+    expect(resolveInvocation).toHaveBeenCalledOnce();
+    expect(resolveInvocation).toHaveBeenCalledWith({
+      parentRuntimeRunId: 'root-run',
+      parentThreadId: 'root',
+      parentToolCallId: 'refused',
+    });
+    expect(ledger.counts.total).toBe(0);
   });
 
   it('names a timed-out task as failed with the reason "timed out"', async () => {

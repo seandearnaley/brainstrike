@@ -188,6 +188,9 @@ export interface DelegatedConversationBinding {
    * background siblings from their dispatch address with it, because no leaf
    * identity exists yet to authorize through `resolveToolAction` (which
    * refuses a bare address by design: `tool-action-leaf-identity-required`).
+   * The background ledger asks it too: a delegation refused at start persists
+   * no invocation, so a completed task whose address delegated nothing is no
+   * invocation of any leg (REJECTED ADMISSION IS NO INVOCATION).
    */
   readonly resolveParkedInvocation?: (parent: {
     readonly parentRuntimeRunId: string;

@@ -117,8 +117,45 @@ export function createBackgroundLedgerSource(params: {
    * no invocation of this ledger (REJECTED ADMISSION IS NO INVOCATION).
    */
   readonly rejectedDelegations: Pick<DelegationOutcomeCapture, 'rejected'> | undefined;
+  /**
+   * The host's invocation graph (`resolveParkedInvocation`): `undefined` when
+   * an address delegated nothing. A refusal persists no invocation, so this
+   * names a refused row whichever leg dispatched it — the capture above knows
+   * only its own leg's, and a resume leg reads the rows of the run it resumes.
+   * Undefined only without a host, where no other leg can read these rows
+   * (every delegated decision needs `resolveToolAction`).
+   */
+  readonly resolveInvocation:
+    | ((parent: {
+        readonly parentRuntimeRunId: string;
+        readonly parentThreadId: string;
+        readonly parentToolCallId: string;
+      }) => Promise<unknown>)
+    | undefined;
   readonly scope: { readonly resourceId: string; readonly threadId: string };
 }): BackgroundLedgerSource {
+  /** A completed row's answer is settled: a child persists its invocation before it can return. */
+  const refusedCompletions = new Map<string, boolean>();
+  const isRefused = async (task: BackgroundTask): Promise<boolean> => {
+    if (params.rejectedDelegations?.rejected(task.toolCallId, task.runId)) {
+      return true;
+    }
+    // A refusal always completes; a child still starting has not persisted its invocation yet.
+    if (task.status !== 'completed' || !params.resolveInvocation) {
+      return false;
+    }
+    const known = refusedCompletions.get(task.id);
+    if (known !== undefined) {
+      return known;
+    }
+    const invocation = await params.resolveInvocation({
+      parentRuntimeRunId: task.runId,
+      parentThreadId: params.scope.threadId,
+      parentToolCallId: task.toolCallId,
+    });
+    refusedCompletions.set(task.id, invocation === undefined);
+    return invocation === undefined;
+  };
   return {
     async read(runIds) {
       if (runIds.size === 0) {
@@ -128,12 +165,10 @@ export function createBackgroundLedgerSource(params: {
         resourceId: params.scope.resourceId,
         threadId: params.scope.threadId,
       });
-      const entries = tasks
-        .filter(
-          (task) =>
-            runIds.has(task.runId) &&
-            !params.rejectedDelegations?.rejected(task.toolCallId, task.runId)
-        )
+      const dispatched = tasks.filter((task) => runIds.has(task.runId));
+      const refused = await Promise.all(dispatched.map(isRefused));
+      const entries = dispatched
+        .filter((_task, index) => !refused[index])
         .map(
           (task): BackgroundLedgerEntry => ({
             persona: params.personaLabel(task.toolName),

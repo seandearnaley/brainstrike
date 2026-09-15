@@ -218,6 +218,9 @@ function createResumeLedger(params: {
     manager: params.manager,
     personaLabel: personaLabelFor(params.runtime),
     rejectedDelegations: params.rejectedDelegations,
+    // The resumed runs were dispatched by an EARLIER leg: only the host's
+    // graph names a refusal among their rows.
+    resolveInvocation: params.runtime.conversationBinding?.resolveParkedInvocation,
     scope: params.scope,
   });
   const runIds = new Set(params.resumes.map(({ task }) => task.runId));
