@@ -1287,8 +1287,14 @@ lane is released, exactly like `db:query`, and the pass rejects with
 `DatabaseCorruptionRecoveredError`. `createDesktopDatabaseMaintenanceScheduler`
 takes `onRuntimeCorruption` as a required option with no default, so a
 composition cannot keep serving a database a pass has proven corrupt.
-Non-corruption maintenance failures stay log-only (`Scheduled database
-maintenance failed`, no reset). Measured case (2026-09-15): an `XX001` found by
+The maintenance timer logs every rejected pass as `Scheduled database
+maintenance failed`. For a recovered pass the logged error is
+`DatabaseCorruptionRecoveredError`; a non-corruption failure logs its own error
+and never resets. A background trigger does not narrow the response.
+Classification uses the same deliberately narrow rule (`XX000` stays excluded),
+and the visible-window reload is still required, because live queries and
+queued work belong to the database that was replaced. Measured case
+(2026-09-15): an `XX001` found by
 maintenance was only logged, and the app kept serving that database for about
 nine hours until a `db:query` hit `XX001` and recovered. Paired tests: the
 corruption-recovery block in

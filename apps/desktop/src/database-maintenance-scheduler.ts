@@ -243,8 +243,10 @@ export function createDesktopDatabaseMaintenanceScheduler(
           // owns the lane, and never retry against the replacement database.
           options.logger.warn(
             { context: MAINTENANCE_CORRUPTION_CONTEXT, error },
-            `Corruption detected in ${MAINTENANCE_CORRUPTION_CONTEXT}; replacing the database without retrying.`
+            'Corruption detected in maintenance; replacing the database without retrying.'
           );
+          // Never resolves: rejects with DatabaseCorruptionRecoveredError once
+          // the replacement is in place.
           return await recoverRuntimeDatabaseCorruption(
             MAINTENANCE_CORRUPTION_CONTEXT,
             options.onRuntimeCorruption

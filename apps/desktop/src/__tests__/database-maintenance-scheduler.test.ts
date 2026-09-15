@@ -555,6 +555,32 @@ describe('DesktopDatabaseMaintenanceScheduler corruption recovery', () => {
     expect(harness.events).toEqual(['lane:enter', 'recover:maintenance', 'lane:exit']);
   });
 
+  it('recovers on the timer path main.ts uses, then logs the recovered pass as failed', async () => {
+    // main.ts only calls start(), so production recovery runs on the timer
+    // path. The pass is still logged at error level: it did not complete, and
+    // the logged error names the recovery instead of the raw corruption.
+    const corruption = createDbHostError('invalid page index at block 398', 'XX001');
+    const harness = createHarness(corruption);
+
+    harness.scheduler.start();
+    try {
+      await vi.waitFor(() => {
+        expect(harness.logger.error).toHaveBeenCalledExactlyOnceWith(
+          { error: expect.objectContaining({ name: 'DatabaseCorruptionRecoveredError' }) },
+          'Scheduled database maintenance failed'
+        );
+      });
+    } finally {
+      harness.scheduler.stop();
+    }
+
+    expect(harness.onRuntimeCorruption).toHaveBeenCalledExactlyOnceWith('maintenance');
+    expect(harness.logger.warn).toHaveBeenCalledExactlyOnceWith(
+      { context: 'maintenance', error: corruption },
+      'Corruption detected in maintenance; replacing the database without retrying.'
+    );
+  });
+
   it('keeps a non-corruption failure log-only: same error, same log, no recovery', async () => {
     const failure = createDbHostError('canceling statement due to statement timeout', '57014');
     expect(isCorruptionError(failure)).toBe(false);
