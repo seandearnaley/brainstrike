@@ -4468,6 +4468,32 @@ snapshot and hydrates its durable history. The default composer Cancel is hidden
 when this explicit child control owns cancellation, so there is only one Stop.
 Root messaging remains usable after the child is stopped. The actual Electron
 worker test covers that transition and the subsequent reload/reopen.
+
+A ROOT STOP RE-READS UNDECIDED PAUSES (BST-1749 review finding, 2026-09-15).
+The root composer's Stop posts `/assistant/cancel`, which cancels the turn's
+paused work before it answers. A pause notice already published into that turn
+(a background child's root card while the dispatching turn is still open) stays
+in the cancelled message, and its durable decision state reaches the renderer
+only through rediscovery on history load: the card read "Pending" with live
+buttons and the composer strip kept counting it until the thread was reloaded.
+The data-stream adapter hands `onCancel` the messages it cancelled; after a
+SUCCESSFUL cancel the run session (`use-assistant-server-run-session.ts`) calls
+the panel's `onPausesCancelled` when those messages held a pause notice with no
+durable `decisionState` (`undecided-pause-notices.ts`). The panel bumps its
+stop generation in the data-stream runtime key beside `historyGeneration`, so
+hydration re-runs discovery: the pause returns with `decisionState:
+'cancelled'` (a non-actionable "Turn cancelled" row) or, once its snapshot is
+deleted, not at all. Liveness is never derived from message status: a failed
+leg keeps its pauses actionable. The remount is GATED because, unlike the child
+Stop's in-place history reload, it discards the live runtime's composer draft;
+a Stop with no undecided pause keeps the mounted thread. A failed cancel is
+logged and changes nothing (the pause was not cancelled); a failed rediscovery
+during the re-read renders the existing discovery error notice. Paired:
+`root-stop-rediscovers-approvals.behavior.test.tsx` (real panel, adapter, run
+session, index, strip and notice; mutations: dropping the re-read keeps the
+strip, re-reading on every Stop fails the no-pause case) and
+`data-stream-runtime.test.ts` ("invokes onCancel for normal aborts…" pins the
+cancelled messages).
 Binding cleanup and delegated persistence both own after-tool-call work. Stream
 option assembly joins both hooks, including when either fails. Background resume
 supplies the original native task thread and call identity to that completion hook;

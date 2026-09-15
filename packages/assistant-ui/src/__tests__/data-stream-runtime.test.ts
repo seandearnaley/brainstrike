@@ -1473,6 +1473,11 @@ describe('assistant-stream integration', () => {
     normalAbortController.abort(new DOMException('cancelled', 'AbortError'));
     await expect(normalRun).rejects.toThrow('cancelled');
     expect(onCancel).toHaveBeenCalledTimes(1);
+    // The run session decides from these whether a pause may have been
+    // cancelled with the turn: the prior messages plus the live message.
+    expect(onCancel).toHaveBeenCalledWith({
+      messages: [message('user', 'user'), message('message-id', 'assistant')],
+    });
 
     const detachAbortController = new AbortController();
     globalThis.fetch = createBlockingFetch();

@@ -191,11 +191,14 @@ function stubHost(pause: unknown): { readonly cancelBodies: unknown[] } {
   return { cancelBodies };
 }
 
-async function renderAndStartRun(history: ReturnType<typeof createHistorySource>) {
+async function renderAndStartRun(
+  history: ReturnType<typeof createHistorySource>,
+  completePreparedRequest: AssistantUiPanelProps['completePreparedRequest'] = vi.fn()
+) {
   let runtime: PanelRuntime | undefined;
   render(
     <AssistantUiPanel
-      completePreparedRequest={vi.fn()}
+      completePreparedRequest={completePreparedRequest}
       historyAdapter={history.adapter}
       localChatTransport="data-stream"
       onRuntimeReady={(next) => {
@@ -261,6 +264,31 @@ describe('root Stop re-reads pauses from the host ledger', () => {
       expect(screen.queryByTestId('approval-queue-strip')).not.toBeInTheDocument()
     );
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Turn cancelled');
+  });
+
+  /**
+   * The re-read is a remount, and a remount discards the live runtime's
+   * composer draft (the child Stop reloads history in place and keeps it). A
+   * Stop whose turn showed no undecided pause has nothing stale to re-read.
+   */
+  it('keeps the mounted thread when the stopped turn showed no undecided pause', async () => {
+    const user = userEvent.setup();
+    const history = createHistorySource();
+    const completePreparedRequest = vi.fn();
+    const host = stubHost(undefined);
+    await renderAndStartRun(history, completePreparedRequest);
+
+    await user.click(await screen.findByRole('button', { name: 'Stop' }));
+
+    await waitFor(() =>
+      expect(completePreparedRequest).toHaveBeenCalledWith(expect.any(Object), 'cancelled')
+    );
+    expect(host.cancelBodies).toEqual([JSON.stringify({ runId: RUN_ID })]);
+    // Let the settled cancel's continuation and any remount it triggers run.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(history.load).toHaveBeenCalledTimes(1);
   });
 });
 

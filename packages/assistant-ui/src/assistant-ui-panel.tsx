@@ -20,7 +20,7 @@ import type {
   LocalLlmBackendFactory,
   OpenRouterModelMetadataLookup,
 } from '@brainstrike/assistant-contract';
-import { type ReactNode, use, useEffect, useMemo } from 'react';
+import { type ReactNode, use, useCallback, useEffect, useMemo, useState } from 'react';
 import { AnsweredApprovalsProvider } from './answered-approvals-index';
 import { ApprovalRanksProvider } from './approval-presentation-context';
 import { ApprovalQueueStrip } from './approval-queue-strip';
@@ -616,6 +616,7 @@ const DataStreamRuntimeChat = ({
   authHeaders,
   completePreparedRequest,
   historyAdapter,
+  onPausesCancelled,
   requestBodyLimitBytes,
   requestData,
   prepareRequestData,
@@ -643,6 +644,8 @@ const DataStreamRuntimeChat = ({
       ) => Promise<void> | void)
     | undefined;
   historyAdapter: AssistantUiThreadHistoryAdapter | undefined;
+  /** A settled root Stop cancelled a pause this runtime still shows: re-read history. */
+  onPausesCancelled: () => void;
   requestData: Record<string, unknown> | undefined;
   prepareRequestData?:
     | ((
@@ -662,6 +665,7 @@ const DataStreamRuntimeChat = ({
     api,
     authHeaders,
     completePreparedRequest,
+    onPausesCancelled,
     prepareLocalModel,
     prepareRequestData,
     threadKey,
@@ -1096,6 +1100,10 @@ export const AssistantUiPanel = ({
   threadKey,
 }: AssistantUiPanelProps) => {
   const api = useAssistantEndpointApi();
+  // A settled root Stop that cancelled a pause the runtime still shows moves
+  // this counter, re-running hydration (and its rediscovery) like a rewind.
+  const [stopGeneration, setStopGeneration] = useState(0);
+  const rereadAfterStop = useCallback(() => setStopGeneration((current) => current + 1), []);
   useEffect(() => {
     void preloadMarkdownText();
   }, []);
@@ -1187,10 +1195,16 @@ export const AssistantUiPanel = ({
             effectiveInputBudget={effectiveInputBudget}
             fileMentions={fileMentions}
             historyAdapter={historyAdapter}
-            // `historyGeneration` is in the key because hydration runs once per
-            // MOUNT: an out-of-band change to this thread's durable history
-            // (Conversation Rewind) has no other way to reach a mounted runtime.
-            key={threadKey ? `data-stream:${threadKey}:${historyGeneration}` : 'data-stream'}
+            // `historyGeneration` and `stopGeneration` are in the key because
+            // hydration runs once per MOUNT: an out-of-band change to this
+            // thread's durable history (Conversation Rewind) or its pauses (a
+            // root Stop cancelling paused work) has no other way to reach a
+            // mounted runtime.
+            key={
+              threadKey
+                ? `data-stream:${threadKey}:${historyGeneration}:${stopGeneration}`
+                : `data-stream:${stopGeneration}`
+            }
             localLoadingState={localLoadingState}
             modelName={modelName}
             omSegment={omSegment}
@@ -1201,6 +1215,7 @@ export const AssistantUiPanel = ({
             onDelegatedConversation={onDelegatedConversation}
             onFileMentionQueryChange={onFileMentionQueryChange}
             onModelChange={onModelChange}
+            onPausesCancelled={rereadAfterStop}
             onProviderSettingsChange={onProviderSettingsChange}
             onRunEditActivity={onRunEditActivity}
             onRunFailed={onRunFailed}
