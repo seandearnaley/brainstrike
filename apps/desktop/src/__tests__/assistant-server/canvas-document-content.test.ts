@@ -20,6 +20,21 @@ describe('isEmptyCanvasDocument', () => {
       'script in a head with omitted </head>',
       '<html><head><script src="x.js"></script><body></body></html>',
     ],
+    // Explicit-head counterparts of the template/noscript content rows below.
+    [
+      'a template inside an explicit head',
+      '<head><template><canvas id="c"></canvas></template></head><body></body>',
+    ],
+    [
+      'a noscript image inside an explicit head',
+      '<head><noscript><img src="chart.png"></noscript></head><body></body>',
+    ],
+    // Pins the doctype, whitespace, meta and link head-token alternatives:
+    // deleting any one of them leaves "Report" as text.
+    [
+      'doctype, meta and link before the head',
+      '<!DOCTYPE html>\n<html><head><meta charset="utf-8"><link rel="stylesheet" href="x.css"><title>Report</title><body></body></html>',
+    ],
     // Mutation: dropping the comment strip fails this row.
     ['comment only', '<body><!-- report goes here --></body>'],
     ['non-breaking spaces only', '<p>&nbsp;&nbsp;</p><div>&#160;</div>'],
@@ -53,6 +68,10 @@ describe('isEmptyCanvasDocument', () => {
     ['a script-only document', '<script>render()</script>'],
     // Mutation: scanning past `</head>` strips this script with the head.
     ['a script after a closed head', '<head><title>T</title></head><script>render()</script>'],
+    // Like script, template and noscript are body content outside an explicit
+    // head. Mutation: dropping either from that guard fails its row.
+    ['a template-only document', '<template><canvas id="c"></canvas></template>'],
+    ['noscript with an image', '<noscript><img src="chart.png"></noscript>'],
   ])('treats %s as content', (_label, html) => {
     expect(isEmptyCanvasDocument(html)).toBe(false);
   });
