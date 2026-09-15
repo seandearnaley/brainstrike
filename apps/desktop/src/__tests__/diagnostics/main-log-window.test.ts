@@ -178,6 +178,14 @@ describe('readMainLogWindow', () => {
         now
       )
     ).toThrow('until');
+    // Expanded-year instants round-trip through toISOString but are 27 chars,
+    // and sort before every line the sink writes.
+    expect(() =>
+      assertMainLogWindowRequest(
+        { since: '+275760-09-13T00:00:00.000Z', until: '2026-09-15T02:20:00.000Z' },
+        now
+      )
+    ).toThrow('since');
   });
 
   it('rejects malformed or oversized windows', () => {
