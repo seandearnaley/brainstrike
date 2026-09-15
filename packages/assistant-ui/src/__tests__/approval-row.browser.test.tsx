@@ -99,11 +99,15 @@ test('an expanded row owns the indent and the rail: the embedded card adds neith
   );
   fireEvent.click(screen.getByRole('button', { name: /show approval details/i }));
   const row = getComputedStyle(mustFind(container, '.bs-approval-row'));
-  const card = getComputedStyle(mustFind(container, '[data-testid="approval-row-card"]'));
+  const cardEl = mustFind(container, '[data-testid="approval-row-card"]');
+  const card = getComputedStyle(cardEl);
   expect(row.marginInlineStart).toBe('40px');
   expect(row.borderInlineStartWidth).toBe('3px');
   expect(card.marginInlineStart).toBe('0px');
-  // The card's own border (a Tailwind utility, absent from this lane) is
-  // symmetric; only a delegation rail widens its inline-start side.
-  expect(card.borderInlineStartWidth).toBe(card.borderInlineEndWidth);
+  // The 3px rail comes from `.bs-approval[data-delegation-colour]`, so the
+  // embedded card must not carry the surface class. Its own Tailwind `border`
+  // utility is absent from this lane, which is why an unrailed side is 0px —
+  // re-adding `.bs-approval` here paints 3px and fails both assertions.
+  expect(card.borderInlineStartWidth).toBe('0px');
+  expect(cardEl).not.toHaveClass('bs-approval');
 });
