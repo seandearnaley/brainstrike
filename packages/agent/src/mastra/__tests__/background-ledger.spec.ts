@@ -9,7 +9,10 @@ import {
   ledgerStateOf,
   makeBackgroundLedgerChunk,
   personaLabelFor,
+  requireBackgroundGeneration,
+  requireNativeRootRunRecorder,
 } from '../background-ledger';
+import type { BackgroundGeneration } from '../delegated-conversation-binding';
 
 type RunEventChunk = Extract<StreamChunk, { type: 'run-event' }>;
 
@@ -54,11 +57,18 @@ function invocationOf(parent: {
   };
 }
 
-function sourceOf(tasks: BackgroundTask[]) {
+/** The host's generation for these rows: one run, mapped (migration 140). */
+const ROOT_GENERATION: BackgroundGeneration = {
+  generationRunId: 'root-run',
+  nativeRunIds: ['root-run'],
+};
+
+function sourceOf(tasks: BackgroundTask[], generation: BackgroundGeneration = ROOT_GENERATION) {
   const listTasks = vi.fn(async () => ({ tasks, total: tasks.length }));
   return {
     listTasks,
     source: createBackgroundLedgerSource({
+      generation: async () => generation,
       manager: { listTasks } as never,
       personaLabel,
       rejectedDelegations: undefined,
@@ -247,12 +257,61 @@ describe('createBackgroundLedgerSource', () => {
   });
 
   it('is empty without run ids and never queries', async () => {
-    const { listTasks, source } = sourceOf([task('c1', 'completed')]);
+    const { listTasks, source } = sourceOf([task('c1', 'completed')], {
+      generationRunId: 'root-run',
+      nativeRunIds: [],
+    });
     expect(await source.read(new Set())).toEqual({
       counts: { cancelled: 0, failed: 0, returned: 0, running: 0, total: 0 },
       entries: [],
+      ledgerId: 'root-run',
     });
     expect(listTasks).not.toHaveBeenCalled();
+  });
+
+  it('counts the whole GENERATION: the runs the host mapped, plus the ones this leg saw', async () => {
+    // The scope that makes one turn one ledger (BST-1749, review item 5): a
+    // resume leg observes only the run it resumed, so the generation's earlier
+    // runs must come from the host mapping — and a run whose first task has
+    // just been dispatched is not mapped yet, so the leg's own observation
+    // still counts. Another turn's run belongs to neither and is excluded.
+    // MUTATION: dropping either half of the union drops an invocation.
+    const { source } = sourceOf(
+      [
+        task('c1', 'completed'),
+        task('late', 'completed', { runId: 'continuation-run' }),
+        task('fresh', 'running', { runId: 'just-dispatched-run' }),
+        task('other-turn', 'completed', { runId: 'foreign-run' }),
+      ],
+      { generationRunId: 'root-run', nativeRunIds: ['root-run', 'continuation-run'] }
+    );
+    const ledger = await source.read(new Set(['just-dispatched-run']));
+    expect(ledger.ledgerId).toBe('root-run');
+    expect(ledger.entries.map((entry) => entry.toolCallId)).toEqual(['c1', 'late', 'fresh']);
+    expect(ledger.counts).toEqual({ cancelled: 0, failed: 0, returned: 2, running: 1, total: 3 });
+  });
+});
+
+describe('the host generation ports', () => {
+  it('refuse background work without them: a leg that cannot name its generation cannot run', () => {
+    // No fallback: publishing under a per-leg identity is the defect these
+    // ports exist to end, so an absent port fails loudly instead.
+    expect(() => requireBackgroundGeneration(undefined)).toThrow(/readBackgroundGeneration/);
+    expect(() => requireNativeRootRunRecorder({} as never)).toThrow(/recordNativeRootRun/);
+  });
+
+  it('hand back the host ports when the binding carries them', async () => {
+    const generation: BackgroundGeneration = { generationRunId: 'g', nativeRunIds: [] };
+    const recorded: string[] = [];
+    const binding = {
+      readBackgroundGeneration: async () => generation,
+      recordNativeRootRun: async (nativeRunId: string) => {
+        recorded.push(nativeRunId);
+      },
+    } as never;
+    expect(await requireBackgroundGeneration(binding)()).toBe(generation);
+    await requireNativeRootRunRecorder(binding)('native-run');
+    expect(recorded).toEqual(['native-run']);
   });
 });
 
@@ -323,7 +382,7 @@ describe('ledgerLabel + makeBackgroundLedgerChunk', () => {
     ]);
     const ledger = await source.read(new Set(['root-run']));
     expect(ledgerLabel(ledger)).toBe('3 of 4 specialists returned · 1 running');
-    const chunk = makeBackgroundLedgerChunk(ledger, 'root-run') as RunEventChunk;
+    const chunk = makeBackgroundLedgerChunk(ledger) as RunEventChunk;
     expect(chunk.type).toBe('run-event');
     expect(chunk.event).toMatchObject({
       kind: 'delegation.ledger',
@@ -350,7 +409,7 @@ describe('ledgerLabel + makeBackgroundLedgerChunk', () => {
       task('c3', 'cancelled'),
     ]).source.read(new Set(['root-run']));
     expect(ledgerLabel(mixed)).toBe('1 of 3 specialists returned · 1 failed · 1 cancelled');
-    const chunk = makeBackgroundLedgerChunk(mixed, 'root-run') as RunEventChunk;
+    const chunk = makeBackgroundLedgerChunk(mixed) as RunEventChunk;
     expect(chunk.event.status).toBe('completed');
     const single = await sourceOf([task('c1', 'completed')]).source.read(new Set(['root-run']));
     expect(ledgerLabel(single)).toBe('1 of 1 specialist returned');
@@ -360,7 +419,7 @@ describe('ledgerLabel + makeBackgroundLedgerChunk', () => {
     const ledger = await sourceOf([
       task('c1', 'failed', { error: { message: 'secret path /Users/x' } }),
     ]).source.read(new Set(['root-run']));
-    const chunk = makeBackgroundLedgerChunk(ledger, 'root-run') as RunEventChunk;
+    const chunk = makeBackgroundLedgerChunk(ledger) as RunEventChunk;
     expect(JSON.stringify(chunk)).not.toContain('Survey');
     expect(JSON.stringify(chunk)).not.toContain('secret path');
   });
@@ -375,6 +434,7 @@ describe('createLedgerPublisher', () => {
         return {
           counts: { cancelled: 0, failed: 0, returned: 1, running: 0, total: 1 },
           entries: [],
+          ledgerId: 'root-run',
         };
       }),
     };
@@ -388,7 +448,7 @@ describe('createLedgerPublisher', () => {
       onSettled,
       source,
     });
-    publisher.publish(new Set(['root-run']), 'root-run');
+    publisher.publish(new Set(['root-run']));
     expect(publisher.inFlight).toBe(1);
     let idle = false;
     const joined = publisher.idle().then(() => {
@@ -407,7 +467,7 @@ describe('createLedgerPublisher', () => {
     const source = { read: vi.fn(async () => Promise.reject(new Error('db gone'))) };
     const onSettled = vi.fn();
     const publisher = createLedgerPublisher({ enqueue: () => true, onSettled, source });
-    publisher.publish(new Set(['root-run']), 'root-run');
+    publisher.publish(new Set(['root-run']));
     await publisher.idle();
     expect(onSettled).toHaveBeenCalledTimes(1);
     expect(publisher.inFlight).toBe(0);

@@ -23,6 +23,8 @@ import {
   describeBackgroundWakeup,
   makeBackgroundLedgerChunk,
   personaLabelFor,
+  requireBackgroundGeneration,
+  requireNativeRootRunRecorder,
 } from './background-ledger';
 import { requireBackgroundResultDelivery } from './background-result-delivery';
 import { saveBackgroundResult } from './background-results';
@@ -204,7 +206,6 @@ function createResumeLedger(params: {
   readonly runtime: MastraAgentRuntime;
   readonly scope: { readonly resourceId: string; readonly threadId: string };
 }): {
-  readonly ledgerId: string;
   readonly source: BackgroundLedgerSource;
   idle(): Promise<void>;
   observe(event: unknown): void;
@@ -215,6 +216,7 @@ function createResumeLedger(params: {
     throw new Error('Background resume has nothing to resume.');
   }
   const source = createBackgroundLedgerSource({
+    generation: requireBackgroundGeneration(params.runtime.conversationBinding),
     manager: params.manager,
     personaLabel: personaLabelFor(params.runtime),
     rejectedDelegations: params.rejectedDelegations,
@@ -223,15 +225,16 @@ function createResumeLedger(params: {
     resolveInvocation: params.runtime.conversationBinding?.resolveParkedInvocation,
     scope: params.scope,
   });
+  // The runs this leg OBSERVES. The ledger's scope is the whole GENERATION
+  // (migration 140), so its row and the parent's wakeup cover what earlier
+  // legs dispatched too — not just the run being resumed here.
   const runIds = new Set(params.resumes.map(({ task }) => task.runId));
-  const ledgerId = first.task.runId;
   const publisher = createLedgerPublisher({ enqueue: params.enqueue, onSettled: () => {}, source });
   return {
     idle: () => publisher.idle(),
-    ledgerId,
     observe: (event) => {
       if (TERMINAL_TASK_EVENTS.has(String((event as { type?: unknown }).type))) {
-        publisher.publish(runIds, ledgerId);
+        publisher.publish(runIds);
       }
     },
     read: () => source.read(runIds),
@@ -433,7 +436,7 @@ export function createBackgroundResumeStream(params: {
           await manager.shutdown();
           // The user's row still reflects the returned work, even though no
           // parent inference runs on this leg.
-          controller.enqueue(makeBackgroundLedgerChunk(await ledger.read(), ledger.ledgerId));
+          controller.enqueue(makeBackgroundLedgerChunk(await ledger.read()));
           status = 'suspended';
           completion.resolve();
           controller.close();
@@ -464,6 +467,7 @@ export function createBackgroundResumeStream(params: {
             manager,
             maxIdleMs: runtime.backgroundIdleMs,
             options,
+            recordNativeRootRun: requireNativeRootRunRecorder(runtime.conversationBinding),
             recordWakeup: runtime.conversationBinding?.recordWakeup,
             rejectedDelegations: params.delegationOutcomes,
             scope,

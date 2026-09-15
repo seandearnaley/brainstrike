@@ -34,7 +34,11 @@ import {
   streamAttemptChunks,
 } from './agent-streaming';
 import { resolveRequireToolApproval } from './approval-gate';
-import { driveBackgroundWork, prepareApprovalResume } from './background-granted-approvals';
+import {
+  driveBackgroundWork,
+  prepareApprovalResume,
+  recordRootNativeRun,
+} from './background-granted-approvals';
 import { repairBackgroundResults, restoreLateBackgroundResults } from './background-results';
 import { createBackgroundResumeStream, findPendingBackgroundTask } from './background-resume';
 import { stopBackgroundTree } from './background-stop';
@@ -286,6 +290,7 @@ async function createInitialTurnAttempt(
       streamAbortContext.signal,
       delegationOutcomes
     );
+    await recordRootNativeRun(runtime, streamResult);
     await bindStartedNativeBranch(streamResult, onNativeStart, streamAbortContext.abort);
     await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
     logger.info(

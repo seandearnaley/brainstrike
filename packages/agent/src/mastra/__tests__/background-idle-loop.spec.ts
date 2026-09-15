@@ -60,6 +60,9 @@ function fakeManager(events: unknown[], onResume: (taskId: string) => void) {
     }
   };
   const ledger = createBackgroundLedgerSource({
+    // The host's generation for this leg (migration 140): the fixture's rows
+    // all belong to the one run it maps.
+    generation: async () => ({ generationRunId: 'root-run', nativeRunIds: ['root-run'] }),
     manager,
     personaLabel: () => 'Explorer',
     rejectedDelegations: undefined,
@@ -68,6 +71,9 @@ function fakeManager(events: unknown[], onResume: (taskId: string) => void) {
   });
   return { ledger, manager, push: (event: unknown) => push?.(event), setTask };
 }
+
+/** The host port that maps each native root run this leg starts (migration 140). */
+const recordNativeRootRun = async () => {};
 
 const emptyTurn = { fullStream: new ReadableStream<unknown>({ start: (c) => c.close() }) };
 const agent = { id: 'root', stream: async () => emptyTurn } as unknown as Agent;
@@ -148,6 +154,7 @@ describe('withBackgroundIdleLoop', () => {
       manager,
       maxIdleMs: 60_000,
       options: {} as never,
+      recordNativeRootRun,
       rejectedDelegations: undefined,
       scope: { resourceId: 'r', threadId: 't' },
     });
@@ -196,6 +203,7 @@ describe('withBackgroundIdleLoop', () => {
       manager,
       maxIdleMs: 60_000,
       options: {} as never,
+      recordNativeRootRun,
       rejectedDelegations: undefined,
       scope: { resourceId: 'r', threadId: 't' },
     });
@@ -231,6 +239,7 @@ describe('withBackgroundIdleLoop', () => {
         manager,
         maxIdleMs: 60_000,
         options: {} as never,
+        recordNativeRootRun,
         rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
@@ -261,6 +270,7 @@ describe('withBackgroundIdleLoop', () => {
         manager,
         maxIdleMs: 60_000,
         options: {} as never,
+        recordNativeRootRun,
         rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
@@ -309,6 +319,7 @@ describe('withBackgroundIdleLoop', () => {
         manager,
         maxIdleMs: 60_000,
         options: {} as never,
+        recordNativeRootRun,
         rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
@@ -360,6 +371,7 @@ describe('withBackgroundIdleLoop', () => {
         manager,
         maxIdleMs: 60_000,
         options: {} as never,
+        recordNativeRootRun,
         rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
@@ -405,6 +417,7 @@ describe('withBackgroundIdleLoop', () => {
         manager,
         maxIdleMs: 60_000,
         options: {} as never,
+        recordNativeRootRun,
         recordWakeup: async (record) => {
           order.push('record');
           wakeups.push(record);
@@ -436,6 +449,47 @@ describe('withBackgroundIdleLoop', () => {
     expect(order).toEqual(['record', 'stream']);
   });
 
+  it('maps the continuation it starts to this generation before that continuation streams', async () => {
+    // A continuation is a FRESH Mastra run of the same generation. Without the
+    // mapping a pause raised there cannot be traced back, and the approval leg
+    // it opens starts a second ledger — the defect behind PR #3198 review item
+    // 5. MUTATION: dropping the call leaves `mapped` empty.
+    const channel = createLiveDecisionChannel();
+    const { ledger, manager, push, setTask } = fakeManager([], () => {});
+    setTask('t1', 'running');
+    const mapped: string[] = [];
+    const order: string[] = [];
+    const stream = vi.fn(async () => {
+      order.push('stream');
+      return { ...turn('success'), runId: 'continuation-run' };
+    });
+    const output = withBackgroundIdleLoop(
+      turn('success', [lifecycle('background-task-started', 't1')]),
+      {
+        agent: { id: 'root', stream } as unknown as Agent,
+        channel,
+        ledger,
+        manager,
+        maxIdleMs: 60_000,
+        options: {} as never,
+        recordNativeRootRun: async (nativeRunId: string) => {
+          order.push('map');
+          mapped.push(nativeRunId);
+        },
+        scope: { resourceId: 'r', threadId: 't' },
+      }
+    );
+    const reader = output.fullStream.getReader();
+    await readLifecycle(reader);
+    setTask('t1', 'completed');
+    push(lifecycle('background-task-completed', 't1'));
+    await drain(reader);
+    expect(mapped).toEqual(['continuation-run']);
+    // The mapping lands BEFORE the continuation's chunks flow, so a pause in
+    // it is already traceable when the user answers.
+    expect(order).toEqual(['stream', 'map']);
+  });
+
   it('a parked parent leg records its deferred wakeup and stays open until the record lands', async () => {
     const channel = createLiveDecisionChannel();
     const { ledger, manager, push, setTask } = fakeManager([], () => {});
@@ -454,6 +508,7 @@ describe('withBackgroundIdleLoop', () => {
         manager,
         maxIdleMs: 60_000,
         options: {} as never,
+        recordNativeRootRun,
         recordWakeup: async (record) => {
           wakeups.push(record);
           await landed.promise;
