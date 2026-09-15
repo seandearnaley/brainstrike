@@ -3557,7 +3557,7 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   prove the rules are live. `pnpm knip` (driven by `knip.jsonc`, with the curated
   false-positive allowlist) stays the dependency auditor, but no workflow in
   `.github/workflows/` invokes it — so at 0.9.13 CI runs no dead-code or unused-dependency
-  analysis at all. No ticket tracks that gap yet.
+  analysis at all. BST-1761 tracks that gap.
 - **No broad `ignore.files` exclusions.** The old 0.5.5/0.7.1 implementation silently dropped
   roughly half the monorepo when that key was present. Upstream fixed enumeration by listing
   all supported sources before filtering (0.9.3, per `doctor.config.ts`; the 0.9.13 full scan
