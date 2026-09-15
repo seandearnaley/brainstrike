@@ -19,6 +19,8 @@ export const PROCESS_COUNTER_SAMPLE_WORK_OPTIONS: DatabaseWorkRunOptions = {
   priority: 'background',
 };
 
+const PENDING_SAMPLE_REASON = 'previous sample still pending';
+
 export interface ProcessCounterSamplerDependencies {
   readonly counter: WebAssemblyCounter;
   readonly getDatabase: () => Promise<ProcessCounterDatabase>;
@@ -35,11 +37,17 @@ export interface ProcessCounterSampler {
    * OFF the health line's own path: that line must be logged unconditionally
    * (its absence is the freeze signal), so it carries this tick's WebAssembly
    * counts plus the LAST completed background-task count, never an await.
+   *
+   * At most ONE read is outstanding: a tick arriving while the previous read
+   * is still queued records `previous sample still pending` instead of
+   * submitting another, so a long factory reset cannot build a backlog that
+   * lands at once and evicts real history from the ring.
    */
   sample(mem: NodeJS.MemoryUsage): Promise<void>;
   /**
-   * Shutdown: later ticks record nothing and never submit a read. Call it
-   * before the scheduler idle join so a sample already submitted is drained.
+   * Shutdown: later ticks record nothing and never submit a read, and a read
+   * already in flight records nothing when it finishes. Call it before the
+   * scheduler idle join so a sample already submitted is drained.
    */
   stop(): void;
 }
@@ -50,6 +58,7 @@ export function createProcessCounterSampler({
   ring,
   runScheduledWork,
 }: ProcessCounterSamplerDependencies): ProcessCounterSampler {
+  let pending = false;
   let stopped = false;
   return {
     sample: async (mem) => {
@@ -59,23 +68,34 @@ export function createProcessCounterSampler({
       const wasm = counter.snapshot();
       let backgroundTasks: ProcessCounterSample['backgroundTasks'] = null;
       let backgroundTasksUnavailableReason: string | undefined;
-      try {
-        const rows = await runScheduledWork(PROCESS_COUNTER_SAMPLE_WORK_OPTIONS, async () => {
-          const db = await getDatabase();
-          return (
-            await db.query<{ count: number; status: 'pending' | 'running' | 'suspended' }>(
-              `SELECT status, COUNT(*)::int AS count FROM ${MASTRA_BACKGROUND_TASKS_TABLE}
+      if (pending) {
+        backgroundTasksUnavailableReason = PENDING_SAMPLE_REASON;
+      } else {
+        pending = true;
+        try {
+          const rows = await runScheduledWork(PROCESS_COUNTER_SAMPLE_WORK_OPTIONS, async () => {
+            const db = await getDatabase();
+            return (
+              await db.query<{ count: number; status: 'pending' | 'running' | 'suspended' }>(
+                `SELECT status, COUNT(*)::int AS count FROM ${MASTRA_BACKGROUND_TASKS_TABLE}
          WHERE status IN ('pending', 'running', 'suspended') GROUP BY status`
-            )
-          ).rows;
-        });
-        const counts = { pending: 0, running: 0, suspended: 0 };
-        for (const row of rows) {
-          counts[row.status] = row.count;
+              )
+            ).rows;
+          });
+          const counts = { pending: 0, running: 0, suspended: 0 };
+          for (const row of rows) {
+            counts[row.status] = row.count;
+          }
+          backgroundTasks = counts;
+        } catch (error) {
+          backgroundTasksUnavailableReason = error instanceof Error ? error.message : String(error);
+        } finally {
+          pending = false;
         }
-        backgroundTasks = counts;
-      } catch (error) {
-        backgroundTasksUnavailableReason = error instanceof Error ? error.message : String(error);
+      }
+      if (stopped) {
+        // Shutdown landed while this read was in flight.
+        return;
       }
       ring.push({
         at: new Date().toISOString(),

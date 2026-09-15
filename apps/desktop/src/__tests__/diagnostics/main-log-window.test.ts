@@ -189,6 +189,20 @@ describe('readMainLogWindow', () => {
         now
       )
     ).toThrow(format);
+    // 24 chars and parseable, but Date normalizes them to another instant
+    // (Feb 30 -> Mar 2, hour 24 -> next midnight), so they are not sink form.
+    expect(() =>
+      assertMainLogWindowRequest(
+        { since: '2026-02-30T00:00:00.000Z', until: '2026-09-15T02:20:00.000Z' },
+        now
+      )
+    ).toThrow(format);
+    expect(() =>
+      assertMainLogWindowRequest(
+        { since: '2026-09-15T02:19:00.000Z', until: '2026-09-15T24:00:00.000Z' },
+        now
+      )
+    ).toThrow(format);
   });
 
   it('rejects malformed or oversized windows', () => {

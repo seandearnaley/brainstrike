@@ -54,6 +54,11 @@ const MARKERS: Record<keyof MainLogWindowCounts, RegExp> = {
   unhandledRejections: /Unhandled promise rejection/,
   wasmAllocationFailures: /Cannot allocate Wasm memory/,
 };
+// Deliberately coupled to the sink's timestamp setting: the desktop main
+// logger configures pino's `isoTime`, which writes `"time":"<ISO>"`. Pino's
+// DEFAULT `timestamp: true` (epoch millis) and `includeTimestamp: false` (no
+// field) both fail this match, and `readRecordTime` then throws on the first
+// record rather than silently misplacing every line in the window.
 const TIME_FIELD = /"time":"([^"]+)"/;
 
 /**
@@ -62,7 +67,9 @@ const TIME_FIELD = /"time":"([^"]+)"/;
  * whole-second or shorter-fraction bound would misorder (`…00.500Z` < `…00Z`).
  */
 function isIsoInstant(value: unknown): value is string {
-  if (typeof value !== 'string') {
+  // Expanded-year instants (`+275760-…`) round-trip too, but are 27 chars and
+  // sort before every line the sink writes, so the length is part of the form.
+  if (typeof value !== 'string' || value.length !== 24) {
     return false;
   }
   const ms = Date.parse(value);
