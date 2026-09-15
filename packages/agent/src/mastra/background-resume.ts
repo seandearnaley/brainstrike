@@ -73,11 +73,13 @@ export interface BackgroundResume {
  * The set of resumed tasks whose terminals the leg waits for. A decision
  * delivered live during the wait adds its tasks; a failed record removes
  * them again. A suspension terminal is held until the leg's channel has had
- * its chance to answer it by a remembered grant.
+ * its chance to answer it by a remembered grant. `onTerminal` hears every
+ * terminal the wait records.
  */
 function createTerminalWait(
   initial: Iterable<string>,
-  channel: LiveDecisionChannel | undefined
+  channel: LiveDecisionChannel | undefined,
+  onTerminal: (taskId: string) => void
 ): {
   readonly add: (taskId: string) => void;
   readonly done: Promise<ReadonlyMap<string, TaskEvent>>;
@@ -112,6 +114,7 @@ function createTerminalWait(
         return;
       }
       terminals.set(taskId, decoded);
+      onTerminal(taskId);
       if (decoded.type === 'background-task-suspended' && channel) {
         answering += 1;
         void channel.suspended(taskId).finally(() => {
@@ -290,22 +293,48 @@ export function createBackgroundResumeStream(params: {
           throw new Error('Background resume has no native owner.');
         }
         const scope = readResumeScope(resumes);
-        for (const { task } of resumes) {
-          settled.push(
-            registerResumedExecutor({
-              controller,
-              manager,
-              memory,
-              onDeliveryError: (error) => {
-                deliveryError = error;
-                watching.abort();
-              },
-              options,
-              runtime,
-              scope,
-              task,
-            })
-          );
+        const executors = new Map<string, ResumedExecutor>();
+        // Registration is awaited BEFORE Mastra is asked to resume: its
+        // workflow looks the executor up when it runs the task, and fails a
+        // task it finds none for ("No executor registered").
+        const register = async (task: BackgroundTask): Promise<ResumedExecutor> => {
+          const executor = await registerResumedExecutor({
+            controller,
+            manager,
+            memory,
+            onDeliveryError: (error) => {
+              deliveryError = error;
+              watching.abort();
+            },
+            options,
+            runtime,
+            scope,
+            task,
+          });
+          executors.set(task.id, executor);
+          return executor;
+        };
+        // Only a task Mastra accepted joins the leg: a refused resume would
+        // never run its executor, so it keeps no context and no join.
+        const resumeRegistered = async (
+          task: BackgroundTask,
+          executor: ResumedExecutor,
+          resumeData: unknown
+        ): Promise<void> => {
+          try {
+            await manager.resume(task.id, resumeData);
+          } catch (error) {
+            manager.deregisterTaskContext(task.id);
+            throw error;
+          }
+          settled.push(executor.executed);
+        };
+        const registered: {
+          readonly executor: ResumedExecutor;
+          readonly resume: BackgroundResume;
+        }[] = [];
+        for (const resume of resumes) {
+          registered.push({ executor: await register(resume.task), resume });
         }
         const events = manager.stream({
           abortSignal: options.abortSignal
@@ -318,7 +347,8 @@ export function createBackgroundResumeStream(params: {
         options.abortSignal?.throwIfAborted();
         const wait = createTerminalWait(
           resumes.map(({ task }) => task.id),
-          params.channel
+          params.channel,
+          (taskId) => executors.get(taskId)?.terminal()
         );
         // While the leg waits for terminals it owns the live decision seam: a
         // decision delivered now registers the parked task's executor exactly
@@ -349,22 +379,7 @@ export function createBackgroundResumeStream(params: {
               resume: async (more) => {
                 for (const { task, resumeData } of more) {
                   try {
-                    settled.push(
-                      registerResumedExecutor({
-                        controller,
-                        manager,
-                        memory,
-                        onDeliveryError: (error) => {
-                          deliveryError = error;
-                          watching.abort();
-                        },
-                        options,
-                        runtime,
-                        scope,
-                        task,
-                      })
-                    );
-                    await manager.resume(task.id, resumeData);
+                    await resumeRegistered(task, await register(task), resumeData);
                   } catch (error) {
                     wait.remove(task.id);
                     throw error;
@@ -385,8 +400,8 @@ export function createBackgroundResumeStream(params: {
         const releaseOwner = params.channel?.own(owner);
         let terminals: ReadonlyMap<string, TaskEvent>;
         try {
-          for (const { task, resumeData } of resumes) {
-            await manager.resume(task.id, resumeData);
+          for (const { executor, resume } of registered) {
+            await resumeRegistered(resume.task, executor, resume.resumeData);
           }
           const reading = (async () => {
             for await (const event of events) {
@@ -499,10 +514,23 @@ export function createBackgroundResumeStream(params: {
   };
 }
 
+/** One resumed task's registered executor and the join for its execution. */
+interface ResumedExecutor {
+  /**
+   * Settles once the executor settles (returned, threw or parked), after the
+   * host join for its original dispatch address — or once the task reached a
+   * terminal before Mastra ever started it (cancelled before it ran), which
+   * nothing else would settle.
+   */
+  readonly executed: Promise<void>;
+  /** The leg recorded the task's terminal. */
+  readonly terminal: () => void;
+}
+
 /**
  * Register one task's in-process executor and result delivery with the
- * manager. Resolves once the executor settles (returned, threw or parked),
- * after the host join for its original dispatch address.
+ * manager. Resolves once registered — never waiting for the execution, which
+ * `executed` joins.
  */
 async function registerResumedExecutor(params: {
   readonly controller: ReadableStreamDefaultController<unknown>;
@@ -513,9 +541,10 @@ async function registerResumedExecutor(params: {
   readonly runtime: MastraAgentRuntime;
   readonly scope: { readonly resourceId: string; readonly threadId: string };
   readonly task: BackgroundTask;
-}): Promise<void> {
+}): Promise<ResumedExecutor> {
   const { controller, manager, memory, options, runtime, scope, task } = params;
-  const executionSettled = Promise.withResolvers<void>();
+  const executed = Promise.withResolvers<void>();
+  let started = false;
   const tools = await runtime.agent.getToolsForExecution({
     methodType: 'stream',
     resourceId: scope.resourceId,
@@ -533,6 +562,7 @@ async function registerResumedExecutor(params: {
   manager.registerTaskContext(task.id, {
     executor: {
       execute: async (args, nativeOptions) => {
+        started = true;
         let output: unknown;
         let failure: unknown;
         try {
@@ -564,7 +594,7 @@ async function registerResumedExecutor(params: {
               ...(failure === undefined ? {} : { error: failure }),
             });
           } finally {
-            executionSettled.resolve();
+            executed.resolve();
           }
         }
       },
@@ -581,5 +611,12 @@ async function registerResumedExecutor(params: {
       }
     },
   });
-  return executionSettled.promise;
+  return {
+    executed: executed.promise,
+    terminal: () => {
+      if (!started) {
+        executed.resolve();
+      }
+    },
+  };
 }

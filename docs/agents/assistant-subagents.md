@@ -2214,6 +2214,17 @@ read-only child. `buildChildProcessors` now carries it for non-worker
 personas, resolved against the child's OWN provider like its error
 processors. Paired: `build-persona-subagents.spec.ts` ("exactly once; other
 providers get none").
+RESUMED EXECUTORS (BST-1749 review of #3197): a resume leg registers every
+executor it resumes (`registerResumedExecutor`, awaited) BEFORE it asks Mastra
+to resume any task. Mastra looks the executor up only when its workflow runs
+the task, so a resume issued first raced that lookup ("No executor
+registered"). A registration failure fails the leg before any native effect.
+The leg's pause branch joins each resumed execution (`Promise.all(settled)`),
+and a join exists only for a task Mastra accepted: a refused `manager.resume`
+deregisters that task's context and joins nothing, and a task whose terminal
+arrives before its executor ever started (cancelled before it ran) settles its
+join on that terminal. Before, either case hung the leg forever. Paired:
+`background-resume.spec.ts` ("executor registration").
 KNOWN LIMITS: the root's OWN foreground pause (e.g. a canvas write) while
 children still run is not live-deliverable — it queues behind the leg (404);
 a queued decision whose pause was cancelled by a root Stop dispatches and

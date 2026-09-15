@@ -185,6 +185,8 @@ function createNativeManager(
  * terminal wakes a parent inference: the leg always ends on the join branch.
  */
 function startLeg(params: {
+  /** The host's per-call join (`hooks.afterToolCall`) a resumed executor runs before it settles. */
+  readonly afterToolCall?: () => Promise<void>;
   readonly channel?: LiveDecisionChannel | undefined;
   readonly manager: BackgroundTaskManager;
   readonly resumes: readonly BackgroundTask[];
@@ -207,7 +209,9 @@ function startLeg(params: {
     attachParent: async () => {},
     channel: params.channel,
     memory: {} as MastraMemory,
-    options: {} as BrainstrikeAgentStreamOptions,
+    options: (params.afterToolCall
+      ? { hooks: { afterToolCall: params.afterToolCall } }
+      : {}) as BrainstrikeAgentStreamOptions,
     resumes: params.resumes.map((task) => ({ resumeData: { approved: true }, task })),
     runtime,
   });
@@ -304,5 +308,25 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
     await expect(ended).resolves.toEqual({ error: undefined });
     expect(leg.status).toBe('suspended');
     expect(native.calls).not.toContain('execute:t1');
+  }, 2000);
+
+  it('the pause branch still joins a resumed executor whose host join outlives its suspension', async () => {
+    // A terminal settles the join only for an executor that never started;
+    // a started one is joined through its own settle (after the host join).
+    const hostJoin = Promise.withResolvers<void>();
+    const native = createNativeManager();
+    const { ended } = startLeg({
+      afterToolCall: () => hostJoin.promise,
+      manager: native.manager,
+      resumes: [native.add('t1')],
+      tools: Promise.resolve({ [TOOL]: parkingTool() }),
+    });
+    await until(() => native.calls.includes('execute:t1'));
+    await macrotask();
+    await macrotask();
+    expect(native.calls).not.toContain('shutdown');
+    hostJoin.resolve();
+    await expect(ended).resolves.toEqual({ error: undefined });
+    expect(native.calls).toContain('shutdown');
   }, 2000);
 });
