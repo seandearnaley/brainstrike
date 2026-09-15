@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import {
   Button,
+  cn,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -190,13 +191,23 @@ export function ApprovalCard({ approval, presentation, state }: ApprovalCardProp
       ].filter((entry): entry is [string, unknown] => entry[1] !== undefined),
     [approval]
   );
-  const testId = presentation === 'card' ? 'assistant-tool-approval-notice' : 'approval-row-card';
-  const leaf = approval.delegation?.path.at(-1);
-  const style = { '--bs-approval-depth': approvalDepth(approval) } as CSSProperties;
+  const standalone = presentation === 'card';
+  const testId = standalone ? 'assistant-tool-approval-notice' : 'approval-row-card';
+  // Nesting (the `.bs-approval` indent surface, leaf rail, ancestor rails)
+  // belongs to the outermost surface only: embedded in a row, the row already
+  // carries all of it. `--bs-approval-depth` inherits, so the embedded card
+  // drops the class that reads it rather than only the property.
+  const leaf = standalone ? approval.delegation?.path.at(-1) : undefined;
+  const style = standalone
+    ? ({ '--bs-approval-depth': approvalDepth(approval) } as CSSProperties)
+    : undefined;
 
   return (
     <div
-      className="bs-approval my-2 rounded-lg border border-amber-500/40 bg-amber-50/50 dark:bg-amber-950/20"
+      className={cn(
+        standalone && 'bs-approval',
+        'my-2 rounded-lg border border-amber-500/40 bg-amber-50/50 dark:bg-amber-950/20'
+      )}
       data-approval-presentation={presentation}
       data-testid={testId}
       style={style}
@@ -204,7 +215,7 @@ export function ApprovalCard({ approval, presentation, state }: ApprovalCardProp
     >
       <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
         <div aria-hidden="true" className="flex items-start gap-1.5 pt-0.5">
-          <ApprovalRails path={approval.delegation?.path ?? []} />
+          {standalone ? <ApprovalRails path={approval.delegation?.path ?? []} /> : null}
           <AlertTriangle className="size-4 text-amber-700 dark:text-amber-400" />
         </div>
         <div className="min-w-0">
