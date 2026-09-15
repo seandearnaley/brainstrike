@@ -33,7 +33,7 @@ import {
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { PropsWithChildren } from 'react';
+import { type PropsWithChildren, useRef, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../assistant-message-text', () => ({
@@ -49,6 +49,7 @@ vi.mock('../local-runtime-adapter', () => ({
 }));
 
 import { AssistantUiPanel, type AssistantUiPanelProps } from '../assistant-ui-panel';
+import type { ComposerDraftCommand } from '../composer-draft-command';
 import { RewindProvider } from '../rewind-context';
 
 type PanelRuntime = Parameters<NonNullable<AssistantUiPanelProps['onRuntimeReady']>>[0];
@@ -193,7 +194,13 @@ function stubHost(pause: unknown): { readonly cancelBodies: unknown[] } {
 
 async function renderAndStartRun(
   history: ReturnType<typeof createHistorySource>,
-  completePreparedRequest: AssistantUiPanelProps['completePreparedRequest'] = vi.fn()
+  {
+    completePreparedRequest = vi.fn(),
+    onStopReread,
+  }: {
+    completePreparedRequest?: AssistantUiPanelProps['completePreparedRequest'];
+    onStopReread?: () => void;
+  } = {}
 ) {
   let runtime: PanelRuntime | undefined;
   render(
@@ -204,6 +211,7 @@ async function renderAndStartRun(
       onRuntimeReady={(next) => {
         runtime = next;
       }}
+      {...(onStopReread ? { onStopReread } : {})}
       pickerModels={[]}
       pickerProviders={[]}
       prepareRequestData={async () => ({
@@ -246,7 +254,8 @@ describe('root Stop re-reads pauses from the host ledger', () => {
     const user = userEvent.setup();
     const history = createHistorySource();
     const host = stubHost(LIVE_PAUSE);
-    await renderAndStartRun(history);
+    const onStopReread = vi.fn();
+    await renderAndStartRun(history, { onStopReread });
 
     // The live leg published the root card: one pending read, counted at the composer.
     expect(await screen.findByTestId('approval-queue-strip')).toHaveTextContent(
@@ -264,6 +273,9 @@ describe('root Stop re-reads pauses from the host ledger', () => {
       expect(screen.queryByTestId('approval-queue-strip')).not.toBeInTheDocument()
     );
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Turn cancelled');
+    // The host is told once, so it can carry the live composer draft into the
+    // mount that replaces this one.
+    expect(onStopReread).toHaveBeenCalledTimes(1);
   });
 
   /**
@@ -275,8 +287,9 @@ describe('root Stop re-reads pauses from the host ledger', () => {
     const user = userEvent.setup();
     const history = createHistorySource();
     const completePreparedRequest = vi.fn();
+    const onStopReread = vi.fn();
     const host = stubHost(undefined);
-    await renderAndStartRun(history, completePreparedRequest);
+    await renderAndStartRun(history, { completePreparedRequest, onStopReread });
 
     await user.click(await screen.findByRole('button', { name: 'Stop' }));
 
@@ -289,8 +302,106 @@ describe('root Stop re-reads pauses from the host ledger', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(history.load).toHaveBeenCalledTimes(1);
+    expect(onStopReread).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The ordering half of the draft carry (owner ruling 2026-09-15). The host
+   * (app-shell's thread-scoped command store) is told BEFORE the remount and
+   * hands the draft back as a replace command; this proves the command reaches
+   * the NEW mount rather than the composer that is about to be discarded.
+   * `assistant-ui-panel-wrapper.test.tsx` proves the real store wiring.
+   */
+  it('keeps a draft typed before the Stop in the composer that replaces it', async () => {
+    const user = userEvent.setup();
+    const history = createHistorySource();
+    const host = stubHost(LIVE_PAUSE);
+    render(<DraftCarryHost history={history} />, { wrapper: PanelOwner });
+    await waitFor(() => expect(history.load).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      startRun(screen.getByTestId('start-run'));
+    });
+    await screen.findByTestId('approval-queue-strip');
+
+    const composer = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Message input' });
+    await user.type(composer, 'Read only the manifest');
+    expect(composer).toHaveValue('Read only the manifest');
+
+    history.setDurable(AFTER_STOP);
+    await user.click(screen.getByRole('button', { name: 'Stop' }));
+
+    await waitFor(() => expect(host.cancelBodies).toHaveLength(1));
+    await waitFor(() => expect(history.load).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Message input' })
+      ).toHaveValue('Read only the manifest')
+    );
   });
 });
+
+/**
+ * The host half of the carry, exactly as app-shell wires it: it records the
+ * live draft, and when the panel re-reads it hands that draft back as a
+ * `replace` command for this thread, acknowledged once applied.
+ */
+function DraftCarryHost({ history }: { history: ReturnType<typeof createHistorySource> }) {
+  const draft = useRef('');
+  const [command, setCommand] = useState<ComposerDraftCommand | undefined>(undefined);
+  const [runtime, setRuntime] = useState<PanelRuntime | undefined>(undefined);
+  return (
+    <>
+      <button
+        data-testid="start-run"
+        onClick={() =>
+          runtime?.thread.append({
+            content: [{ text: 'Fan out the readers', type: 'text' }],
+            role: 'user',
+          })
+        }
+        type="button"
+      >
+        Start run
+      </button>
+      <AssistantUiPanel
+        completePreparedRequest={vi.fn()}
+        composerDraftCommand={command}
+        historyAdapter={history.adapter}
+        localChatTransport="data-stream"
+        onComposerDraftCommandApplied={() => setCommand(undefined)}
+        onComposerTextChange={(text) => {
+          draft.current = text;
+        }}
+        onRuntimeReady={(next) => {
+          setRuntime(next);
+          return;
+        }}
+        onStopReread={() => {
+          if (draft.current.trim() !== '') {
+            setCommand({
+              id: `draft-${draft.current.length}`,
+              mode: 'replace',
+              text: draft.current,
+            });
+          }
+        }}
+        pickerModels={[]}
+        pickerProviders={[]}
+        prepareRequestData={async () => ({
+          memory: { resourceId: 'workspace-1', runId: RUN_ID, threadId: THREAD_KEY },
+        })}
+        threadKey={THREAD_KEY}
+      />
+    </>
+  );
+}
+
+function startRun(button: HTMLElement): void {
+  button.click();
+}
 
 function PanelOwner({ children }: PropsWithChildren) {
   return (

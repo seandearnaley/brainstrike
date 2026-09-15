@@ -758,6 +758,24 @@ export function AssistantUiPanelWrapper({
     },
     [recordComposerDraft, selectedMemoryThreadId]
   );
+  const enqueueComposerCommand = useAssistantComposerCommandStore((state) => state.enqueue);
+  // A root Stop that cancelled an undecided pause re-reads history by
+  // REMOUNTING the panel's runtime (BST-1749), which discards the live
+  // composer. Hand this thread's recorded draft back through the SAME
+  // thread-scoped command channel the prompt library uses, so it lands in this
+  // thread's new mount and in no other open thread (owner ruling 2026-09-15).
+  // The thread id is captured here, so a switch during the Stop cannot move it.
+  const handleStopReread = useCallback(() => {
+    if (!selectedMemoryThreadId) {
+      throw new Error('Cannot carry a composer draft without an active assistant thread.');
+    }
+    const draft =
+      useAssistantComposerCommandStore.getState().draftTextByThreadId[selectedMemoryThreadId] ?? '';
+    if (draft.trim() === '') {
+      return;
+    }
+    enqueueComposerCommand({ mode: 'replace', text: draft, threadId: selectedMemoryThreadId });
+  }, [enqueueComposerCommand, selectedMemoryThreadId]);
   const hostedMemoryBackendAvailable = resolveHostedMemoryBackendAvailable({
     desktopAssistantBackendAvailable,
     selectedProvider,
@@ -1415,6 +1433,7 @@ export function AssistantUiPanelWrapper({
                     ? {
                         onComposerDraftCommandApplied: handleComposerCommandApplied,
                         onComposerTextChange: handleComposerTextChange,
+                        onStopReread: handleStopReread,
                       }
                     : {})}
                   onChildRunUsage={handleChildRunUsage}

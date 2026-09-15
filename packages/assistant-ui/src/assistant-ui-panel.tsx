@@ -300,6 +300,15 @@ export interface AssistantUiPanelProps
    * thread-total readout and clears the sum once durable usage lands.
    */
   onStepUsage?: (step: { inputTokens: number; outputTokens: number }) => void;
+  /**
+   * A settled root Stop cancelled a pause this thread still showed, so the
+   * data-stream runtime is about to REMOUNT and re-read history. Called before
+   * that bump, while the live composer still exists, so the host can carry its
+   * draft into the new mount through its own thread-scoped channel
+   * (app-shell's composer command store). The panel keeps no draft state of
+   * its own; a host that wires nothing keeps today's behaviour.
+   */
+  onStopReread?: () => void;
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
   onStreamActivity?: () => void;
   onThreadRunStart?: () => void;
@@ -1095,15 +1104,28 @@ export const AssistantUiPanel = ({
   disabledReason,
   historyAdapter,
   historyGeneration = 0,
+  onStopReread,
   loadLocalLlmBackend,
   localChatTransport = 'local-runtime',
   threadKey,
 }: AssistantUiPanelProps) => {
   const api = useAssistantEndpointApi();
   // A settled root Stop that cancelled a pause the runtime still shows moves
-  // this counter, re-running hydration (and its rediscovery) like a rewind.
-  const [stopGeneration, setStopGeneration] = useState(0);
-  const rereadAfterStop = useCallback(() => setStopGeneration((current) => current + 1), []);
+  // this counter, re-running hydration (and its rediscovery) like a rewind. It
+  // carries the thread it was raised FOR: this panel may have switched threads
+  // while the cancel settled, and the thread it now shows was never stopped.
+  const [stopReread, setStopReread] = useState<{
+    generation: number;
+    threadKey: string | undefined;
+  }>({ generation: 0, threadKey: undefined });
+  const rereadAfterStop = useCallback(() => {
+    setStopReread((current) => ({ generation: current.generation + 1, threadKey }));
+    // Told after the bump and in the same batch, so the draft the host hands
+    // back reaches the NEW mount instead of the composer being discarded —
+    // the ordering Conversation Rewind's own handoff documents.
+    onStopReread?.();
+  }, [onStopReread, threadKey]);
+  const stopRereadGeneration = stopReread.threadKey === threadKey ? stopReread.generation : 0;
   useEffect(() => {
     void preloadMarkdownText();
   }, []);
@@ -1202,8 +1224,8 @@ export const AssistantUiPanel = ({
             // mounted runtime.
             key={
               threadKey
-                ? `data-stream:${threadKey}:${historyGeneration}:${stopGeneration}`
-                : `data-stream:${stopGeneration}`
+                ? `data-stream:${threadKey}:${historyGeneration}:${stopRereadGeneration}`
+                : `data-stream:${stopRereadGeneration}`
             }
             localLoadingState={localLoadingState}
             modelName={modelName}

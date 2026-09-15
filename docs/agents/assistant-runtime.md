@@ -4484,16 +4484,33 @@ stop generation in the data-stream runtime key beside `historyGeneration`, so
 hydration re-runs discovery: the pause returns with `decisionState:
 'cancelled'` (a non-actionable "Turn cancelled" row) or, once its snapshot is
 deleted, not at all. Liveness is never derived from message status: a failed
-leg keeps its pauses actionable. The remount is GATED because, unlike the child
-Stop's in-place history reload, it discards the live runtime's composer draft;
-a Stop with no undecided pause keeps the mounted thread. A failed cancel is
-logged and changes nothing (the pause was not cancelled); a failed rediscovery
-during the re-read renders the existing discovery error notice. Paired:
+leg keeps its pauses actionable. The remount is GATED to a Stop that actually
+cancelled an undecided pause: unlike the child Stop's in-place history reload it
+throws the live runtime away, so a Stop with no such pause keeps the mounted
+thread. The live composer DRAFT SURVIVES that remount (owner ruling
+2026-09-15): the panel calls its host's `onStopReread` before the bump, while
+the composer still exists, and app-shell re-enqueues that thread's recorded
+draft as a `replace` composer command
+(`assistant-ui-panel-wrapper.tsx` → `assistant-composer-command-store.ts`),
+which the remounted `ComposerDraftCommandBridge` applies once and the wrapper
+acknowledges. Thread-scoped by construction — the command carries its
+`threadId`, each wrapper passes only its own thread's command, and the id is
+captured at Stop time so a thread switch cannot move the draft. NOT the global
+rewind slot (`rewind-composer-store.ts`): it is one unkeyed slot that every
+open thread's bridge drains, so a draft handed to it could surface in another
+thread's composer (Conversation Rewind's own exposure there is untouched). The
+panel keeps no draft state: a host wiring no `onStopReread` keeps the old
+behaviour. A failed cancel is logged and changes nothing (the pause was not
+cancelled); a failed rediscovery during the re-read renders the existing
+discovery error notice. Paired:
 `root-stop-rediscovers-approvals.behavior.test.tsx` (real panel, adapter, run
-session, index, strip and notice; mutations: dropping the re-read keeps the
-strip, re-reading on every Stop fails the no-pause case) and
-`data-stream-runtime.test.ts` ("invokes onCancel for normal aborts…" pins the
-cancelled messages).
+session, index, strip and notice, plus the draft typed before the Stop coming
+back in the composer that replaces it; mutations: dropping the re-read keeps the
+strip, re-reading on every Stop fails the no-pause case, dropping the carry
+loses the draft), `assistant-ui-panel-wrapper.test.tsx` ("carries the live
+composer draft into the thread that re-reads after a Stop", over the real
+command store) and `data-stream-runtime.test.ts` ("invokes onCancel for normal
+aborts…" pins the cancelled messages).
 Binding cleanup and delegated persistence both own after-tool-call work. Stream
 option assembly joins both hooks, including when either fails. Background resume
 supplies the original native task thread and call identity to that completion hook;
