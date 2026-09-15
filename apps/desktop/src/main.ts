@@ -362,8 +362,9 @@ const processCounterRing = new ProcessCounterRing(PROCESS_COUNTER_RING_CAPACITY)
 
 const processCounterSampler = createProcessCounterSampler({
   counter: mainWebAssemblyCounter,
-  getDatabase: () => getDbHostManager().getDatabase(),
+  getDatabase,
   ring: processCounterRing,
+  runScheduledWork: runDesktopScheduledDatabaseWork,
 });
 const removeLogBufferListener = addLogListener((record) => {
   mainLogBuffer.push(record);
@@ -651,6 +652,8 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
         desktopDimensionIndexMaintenanceScheduler = null;
         desktopDatabaseMaintenanceScheduler?.stop();
         desktopDatabaseMaintenanceScheduler = null;
+        // Before the idle join: a submitted sample drains; later ticks are no-ops.
+        processCounterSampler.stop();
         await cleanupDesktopLiveSubscriptionsForShutdown();
         await waitForDesktopDatabaseWorkSchedulerIdle();
         await cleanupDesktopLiveSubscriptionsForShutdown();

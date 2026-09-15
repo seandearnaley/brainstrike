@@ -2236,7 +2236,16 @@ Lines were already redacted by `logInternal` before pino.
 the last 240 samples (2 hours at the 30 s `main-process-health` cadence) of heap
 and RSS, WebAssembly `instantiate` / `compile` / `Instance` / `Memory` counts with
 the last 20 failure messages, and native background task counts by status (or
-`backgroundTasksUnavailableReason` when that read failed). The counter wraps the
+`backgroundTasksUnavailableReason` when that read failed). The count is read by
+`createProcessCounterSampler` (`diagnostics/process-counter-sampler.ts`) as
+background-priority scheduled work (`process-counter-sample`, through
+`runDesktopScheduledDatabaseWork` and db-main's `getDatabase`), never a raw DB
+host call: scheduled work waits out the factory-reset barrier, so a tick cannot
+reopen the database while reset closes and replaces the profile. The shutdown
+`database` step calls the sampler's `stop()` before the scheduler idle join, so
+a submitted sample is drained and later ticks record nothing and never reach
+the database; the 30 s interval itself keeps running because it also writes the
+`main-process-health` line. The counter wraps the
 main process's `WebAssembly` once, installed by the bare side-effect import on
 the first line of `main.ts` so later imports (PGlite, tokenizers, xxhash-wasm)
 are counted; results and errors pass through unchanged. The `main-process-health`
@@ -2249,6 +2258,7 @@ the others. The pack reaches both calls ONLY through `readThreadDebugHostProbe`
 records `unavailable: no desktop diagnostics bridge …`. Paired:
 `main-log-window.test.ts`, `ipc-desktop-diagnostics.test.ts`,
 `webassembly-counter.test.ts`, `process-counter-ring.test.ts`,
+`process-counter-sampler.test.ts`, `process-counter-sampler-main-wiring.test.ts`,
 `desktop-platform-diagnostics.test.ts`, `thread-debug-host-probe.test.ts` and
 `thread-debug-pack.test.ts`.
 
