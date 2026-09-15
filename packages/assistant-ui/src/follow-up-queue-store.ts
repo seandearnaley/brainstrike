@@ -8,10 +8,22 @@
  * factory reset via app-shell's `register-factory-reset-session-stores.ts`,
  * mirroring `context-usage-store.ts`.
  */
+import type { CreateAppendMessage } from '@assistant-ui/react';
 import { create } from 'zustand';
 
 export interface FollowUpQueueItem {
   readonly id: string;
+  /**
+   * A tool decision (approval / typed resume) submitted while a run was
+   * active. Appending it immediately would CANCEL the in-flight run in the
+   * installed assistant-ui runtime (2026-09-14, thread-b3cea1f6: the second
+   * card's click aborted the first card's resume leg and was itself lost), so
+   * it waits its turn like a typed follow-up. `identityKey` is the pause's
+   * `getToolActionIdentityKey`, so its card can show "Queued" and re-enable
+   * when the chip is removed.
+   */
+  readonly identityKey?: string;
+  readonly message?: CreateAppendMessage;
   readonly text: string;
 }
 
@@ -21,6 +33,15 @@ interface FollowUpQueueState {
   enqueue: (threadKey: string, text: string) => void;
   /** Steer messages jump the queue (BST-588); same non-whitespace contract. */
   enqueueFront: (threadKey: string, text: string) => void;
+  /** Queue a decision message (see `FollowUpQueueItem.message`). */
+  enqueueMessage: (
+    threadKey: string,
+    item: {
+      readonly identityKey: string;
+      readonly message: CreateAppendMessage;
+      readonly text: string;
+    }
+  ) => void;
   queuedByThread: Record<string, readonly FollowUpQueueItem[]>;
   remove: (threadKey: string, itemId: string) => void;
   /** Put a failed dispatch back at the FRONT so retry preserves user order. */
@@ -30,6 +51,15 @@ interface FollowUpQueueState {
 /** Panels without a thread key share one sentinel queue (never the '' key). */
 export function followUpQueueKey(threadKey: string | undefined): string {
   return threadKey ?? '__no-thread__';
+}
+
+/** Whether a decision with this identity key is waiting in the thread's queue. */
+export function isDecisionQueued(
+  state: Pick<FollowUpQueueState, 'queuedByThread'>,
+  threadKey: string,
+  identityKey: string
+): boolean {
+  return (state.queuedByThread[threadKey] ?? []).some((item) => item.identityKey === identityKey);
 }
 
 export const useFollowUpQueueStore = create<FollowUpQueueState>((set, get) => ({
@@ -75,6 +105,18 @@ export const useFollowUpQueueStore = create<FollowUpQueueState>((set, get) => ({
       queuedByThread: {
         ...state.queuedByThread,
         [threadKey]: [item, ...(state.queuedByThread[threadKey] ?? [])],
+      },
+    }));
+  },
+  enqueueMessage: (threadKey, input) => {
+    if (!input.text.trim()) {
+      throw new Error('Queued decisions require non-whitespace text.');
+    }
+    const item: FollowUpQueueItem = { id: crypto.randomUUID(), ...input };
+    set((state) => ({
+      queuedByThread: {
+        ...state.queuedByThread,
+        [threadKey]: [...(state.queuedByThread[threadKey] ?? []), item],
       },
     }));
   },

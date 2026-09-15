@@ -62,6 +62,7 @@ import {
   type DelegatedTurnPersistence,
 } from './delegated-turn-persistence';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
+import { createLiveDecisionChannel, type LiveDecisionChannel } from './live-decision-channel';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import type { McpAppToolAdmissionCapability } from './mcp-app-tool-call';
 import type { McpDiscoverySkip } from './mcp-discovery-diagnostics';
@@ -113,6 +114,12 @@ export interface MastraAgentRuntimeOptions {
    * the legacy runtime/env key resolution.
    */
   authInput?: ProviderAuthInput;
+  /**
+   * Silence budget for running background work before the parent stream
+   * closes unfinished (`withBackgroundIdleLoop`); defaults to the longest a
+   * task may run. Tests shorten it to prove the expiry is reported.
+   */
+  backgroundIdleMs?: number;
   /** Host-owned durable background scope; never client RuntimeData. */
   backgroundTaskScope?: BackgroundTaskScope;
   /** Host-admitted settings for the exact resumed child, never renderer authority. */
@@ -214,6 +221,8 @@ export interface MastraAgentRuntime {
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
   /** Fail-loud completion check for the client-provided persisted assistant id. */
   assertAssistantMessageIdPersisted?: () => void;
+  /** See `MastraAgentRuntimeOptions.backgroundIdleMs`. */
+  backgroundIdleMs?: number | undefined;
   backgroundTaskManager?: BackgroundTaskManager | undefined;
   /** Direct child legs retain the child's native default processors and admitted step cap. */
   childExecution?: { readonly maxSteps: number; readonly inputProcessors?: unknown[] };
@@ -234,6 +243,12 @@ export interface MastraAgentRuntime {
    * `brainstrike.context-breakdown` data part.
    */
   instructionBreakdown: InstructionBreakdown;
+  /**
+   * The leg's live decision seam: the host delivers a decision into this
+   * RUNNING leg through it (`registerDecisionControl`), and the background
+   * phase driving the stream owns it while it runs (`live-decision-channel.ts`).
+   */
+  liveDecisions: LiveDecisionChannel;
   /** App-originated admission captured from this runtime's admitted tool map. */
   mcpAppToolAdmission: McpAppToolAdmissionCapability;
   mcpClient?: McpRuntimeClient;
@@ -412,7 +427,9 @@ export function convertMessagesToMastra(
  * tool this run. Order: instructions, budget note, task list LAST (most recent).
  */
 function composeRuntimeInstructions(params: {
+  backgroundTaskScope: BackgroundTaskScope | undefined;
   budgetNote: string | null;
+  hasSubAgents: boolean;
   instructionsOverride: string | undefined;
   /**
    * Prompt-assembly clock. Injected rather than read inside the builder so the
@@ -432,6 +449,7 @@ function composeRuntimeInstructions(params: {
     (params.provider === 'local'
       ? buildLocalDefaultInstructions(params.toolNameMap)
       : buildDefaultInstructions(params.toolNameMap, {
+          backgroundDelegation: Boolean(params.backgroundTaskScope) && params.hasSubAgents,
           planMode: params.planModeActive,
           toolDiscoveryEnabled: params.toolDiscoveryEnabled,
           ...(params.personaSummaries ? { personas: params.personaSummaries } : {}),
@@ -869,7 +887,9 @@ export async function createMastraAgentRuntime(
   registeredDelegationToolNames = [...artifactReaderDelegationTools];
 
   const composedInstructions = composeRuntimeInstructions({
+    backgroundTaskScope: options.backgroundTaskScope,
     budgetNote,
+    hasSubAgents,
     instructionsOverride: instructions,
     now: new Date(),
     personaSummaries: instructionPersonaSummaries,
@@ -924,7 +944,9 @@ export async function createMastraAgentRuntime(
     Boolean(backgroundAgentOptions.backgroundTasks)
   );
   let unregisterCancellation: (() => void) | undefined;
+  let unregisterDecisions: (() => void) | undefined;
   let unregisterFollowup: (() => void) | undefined;
+  const liveDecisions = createLiveDecisionChannel();
   let invalidateMcpAppAdmission: (() => void) | undefined;
   const dispose = async () => {
     const failures: unknown[] = [];
@@ -934,6 +956,7 @@ export async function createMastraAgentRuntime(
       () => invalidateMcpAppAdmission?.(),
       () => mastra?.shutdown(),
       () => unregisterCancellation?.(),
+      () => unregisterDecisions?.(),
       () => unregisterFollowup?.(),
       () => mcpClient?.disconnect(),
       () => options.conversationBinding?.finishToolActions?.(),
@@ -975,6 +998,9 @@ export async function createMastraAgentRuntime(
   };
   await initializeRuntimeLifetime(() => {
     unregisterCancellation = options.conversationBinding?.registerCancellation?.(cancelInvocations);
+    unregisterDecisions = options.conversationBinding?.registerDecisionControl?.((request) =>
+      liveDecisions.deliver(request)
+    );
     unregisterFollowup = options.conversationBinding?.registerFollowup?.(
       createDelegatedFollowupControl(subAgents)
     );
@@ -989,12 +1015,14 @@ export async function createMastraAgentRuntime(
     ),
     ...assistantIdentityRuntime,
     askTools,
+    backgroundIdleMs: options.backgroundIdleMs,
     conversationBinding: options.conversationBinding,
     delegatedExecutionOptions,
     delegatedTurnPersistence,
     delegationToolPersonas,
     dispose,
     instructionBreakdown,
+    liveDecisions,
     mcpAppToolAdmission,
     mcpDiscoverySkips,
     // Present iff a policy snapshot gated this run's tool map — the signal the

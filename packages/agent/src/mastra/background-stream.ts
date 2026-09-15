@@ -79,10 +79,12 @@ async function* separateParentTurns(source: AsyncIterable<unknown>): AsyncGenera
   }
 }
 
-/** Fold native untilIdle turns into one host-owned stream, retaining native child envelopes. */
+/** Fold the host idle loop's turns into one host-owned stream, retaining native child envelopes. */
 export async function* projectBackgroundStream(
   source: AsyncIterable<unknown>,
-  enabled = true
+  enabled = true,
+  /** Filled with `[runId, toolCallId]` keys of every call dispatched in the background. */
+  backgroundCalls?: Set<string>
 ): AsyncGenerator<unknown> {
   if (!enabled) {
     yield* source;
@@ -116,6 +118,7 @@ export async function* projectBackgroundStream(
           throw new Error('Native background task omitted its tool-call identity.');
         }
         calls.add(callKey);
+        backgroundCalls?.add(callKey);
         continue;
       case 'tool-result':
         // Native dispatch acknowledgement is not the child's terminal result.
@@ -147,7 +150,17 @@ export async function* projectBackgroundStream(
         yield { ...decoded, type: 'tool-error' };
         continue;
       case 'background-task-suspended':
+        // The task is now parked in storage: the moment its withheld card may
+        // publish, because only now can a decision on it be applied
+        // (`releaseParkedNotices`). The card's own chunk preceded this by the
+        // child's stream, before the task was durably suspended.
+        yield part;
+        continue;
       case 'background-task-resumed':
+        // A parked child continues in this leg (a live decision): its held
+        // pause terminal is dropped, its own finish will follow.
+        yield part;
+        continue;
       case 'background-task-cancelled':
         continue;
       default:

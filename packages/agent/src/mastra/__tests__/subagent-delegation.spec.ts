@@ -34,7 +34,10 @@ const persona: AssistantPersonaDefinition = {
 
 const personasById = new Map([['explore', persona]]);
 
+let nextCall = 0;
+/** Each start is its own native invocation unless a test names the address. */
 function startContext(overrides: Partial<DelegationStartContext> = {}): DelegationStartContext {
+  nextCall += 1;
   return {
     iteration: 1,
     messages: [],
@@ -46,7 +49,7 @@ function startContext(overrides: Partial<DelegationStartContext> = {}): Delegati
     prompt: 'find the flag',
     requestContext: new RequestContext(),
     runId: 'run-1',
-    toolCallId: 'call-1',
+    toolCallId: `call-${nextCall}`,
     ...overrides,
   };
 }
@@ -327,6 +330,39 @@ describe('createDelegationConfig', () => {
     await config.onDelegationStart?.(startContext());
     config.onDelegationComplete?.(completeContext());
     expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
+  });
+
+  it('a parked child resumed inside the same leg takes no new slot and counts once', async () => {
+    // A live decision resumes a parked child under its ORIGINAL native address
+    // (same runId/toolCallId) in the running leg: the same invocation
+    // continues on the slot it already holds. Counting it again rejected the
+    // resume with "Too many concurrent subagents" while a sibling still ran.
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      logger: silentLogger,
+      personasById,
+    });
+    expect(await config.onDelegationStart?.(startContext({ toolCallId: 'call-1' }))).toMatchObject({
+      proceed: true,
+    });
+    expect(await config.onDelegationStart?.(startContext({ toolCallId: 'call-2' }))).toMatchObject({
+      proceed: true,
+    });
+    // Both slots taken; the resume of call-1 still proceeds, a new call does not.
+    expect(await config.onDelegationStart?.(startContext({ toolCallId: 'call-1' }))).toMatchObject({
+      proceed: true,
+    });
+    expect(await config.onDelegationStart?.(startContext({ toolCallId: 'call-3' }))).toMatchObject({
+      proceed: false,
+    });
+    // The resumed child's completion frees exactly its one slot.
+    config.onDelegationComplete?.(completeContext({ toolCallId: 'call-1' }));
+    expect(await config.onDelegationStart?.(startContext({ toolCallId: 'call-3' }))).toMatchObject({
+      proceed: true,
+    });
+    expect(await config.onDelegationStart?.(startContext({ toolCallId: 'call-4' }))).toMatchObject({
+      proceed: false,
+    });
   });
 
   it('a rejected start does NOT consume a slot', async () => {

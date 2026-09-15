@@ -28,8 +28,13 @@ import { useAui, useAuiState } from '@assistant-ui/react';
 import { createLogger } from '@brainstrike/logging';
 import { ListPlusIcon, Redo2Icon, XIcon } from 'lucide-react';
 import { use, useEffect, useRef } from 'react';
+import { useAnsweredApprovals } from './answered-approvals-index';
 import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
-import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store';
+import {
+  type FollowUpQueueItem,
+  followUpQueueKey,
+  useFollowUpQueueStore,
+} from './follow-up-queue-store';
 import { useThreadScrollFollow } from './thread-scroll-follow';
 
 const logger = createLogger('FollowUpQueue');
@@ -40,6 +45,7 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
   const follow = useThreadScrollFollow();
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
+  const { answers: answered } = useAnsweredApprovals();
   const queueKey = followUpQueueKey(threadKey);
   const queueLength = useFollowUpQueueStore((state) => state.queuedByThread[queueKey]?.length ?? 0);
 
@@ -79,7 +85,7 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
       return;
     }
 
-    const item = useFollowUpQueueStore.getState().dequeue(queueKey);
+    const item = dequeueDispatchable(queueKey, answered);
     if (!item) {
       return;
     }
@@ -89,10 +95,12 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
     // failure — it is not requeued.
     const wasPinned = follow.getIsAtBottom();
     try {
-      aui.thread().append({
-        content: [{ text: item.text, type: 'text' }],
-        role: 'user',
-      });
+      aui.thread().append(
+        item.message ?? {
+          content: [{ text: item.text, type: 'text' }],
+          role: 'user',
+        }
+      );
     } catch (error) {
       useFollowUpQueueStore.getState().requeueFront(queueKey, item);
       logger.warn('Failed to dispatch queued follow-up; requeued at front', { error });
@@ -113,7 +121,32 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
       // docs/agents/assistant-runtime.md).
       follow.scrollToBottom();
     }
-  }, [aui, follow, isHistoryLoading, isRunning, ownsQueue, queueKey, queueLength]);
+  }, [answered, aui, follow, isHistoryLoading, isRunning, ownsQueue, queueKey, queueLength]);
+}
+
+/**
+ * Dequeue the next item that still needs sending. A queued DECISION whose
+ * pause the host has meanwhile answered (a session grant on a sibling card
+ * answered it by policy; `answered-approvals-index.tsx`) is dropped with a
+ * log line instead of dispatched: sending it would resume a consumed
+ * decision and fail the run visibly for nothing (2026-09-14 multi-approval
+ * audit). Typed follow-ups carry no identity and are never dropped.
+ */
+export function dequeueDispatchable(
+  queueKey: string,
+  answered: ReadonlyMap<string, unknown>
+): FollowUpQueueItem | undefined {
+  const store = useFollowUpQueueStore.getState();
+  let item = store.dequeue(queueKey);
+  while (item?.identityKey !== undefined && answered.has(item.identityKey)) {
+    logger.info('Dropped a queued decision the host already answered', {
+      code: 'follow_up_queue_decision_answered',
+      identityKey: item.identityKey,
+      text: item.text,
+    });
+    item = store.dequeue(queueKey);
+  }
+  return item;
 }
 
 /** Render-nothing leaf owning the run-end dispatch subscription. */

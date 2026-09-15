@@ -2,12 +2,21 @@ import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contra
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ActiveThreadKeyContext } from '../active-thread-key-context';
+import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
+import {
+  followUpQueueKey,
+  resetFollowUpQueueStore,
+  useFollowUpQueueStore,
+} from '../follow-up-queue-store';
+import { LiveDecisionProvider } from '../live-decision-context';
 
 const appendMessageMock = vi.hoisted(() => vi.fn());
 const threadMessagesMock = vi.hoisted(
   () =>
     [] as Array<{
+      content?: readonly unknown[];
       metadata?: {
         custom?: Record<string, unknown>;
       };
@@ -16,6 +25,7 @@ const threadMessagesMock = vi.hoisted(
     }>
 );
 const useAuiStateSelectorResults = vi.hoisted(() => [] as unknown[]);
+const threadRunningMock = vi.hoisted(() => ({ isRunning: false }));
 
 vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({
@@ -26,12 +36,14 @@ vi.mock('@assistant-ui/react', () => ({
   useAuiState: (
     selector: (state: {
       thread: {
+        isRunning: boolean;
         messages: typeof threadMessagesMock;
       };
     }) => unknown
   ) => {
     const state = {
       thread: {
+        isRunning: threadRunningMock.isRunning,
         messages: threadMessagesMock,
       },
     };
@@ -434,8 +446,12 @@ describe('AssistantToolApprovalNotice', () => {
 
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    expect(useAuiStateSelectorResults).toHaveLength(2);
-    expect(useAuiStateSelectorResults[0]).toBe(useAuiStateSelectorResults[1]);
+    // Two thread selectors per card (run outcome, isRunning), each sampled
+    // twice; every pair must be referentially stable.
+    expect(useAuiStateSelectorResults).toHaveLength(4);
+    for (let index = 0; index < useAuiStateSelectorResults.length; index += 2) {
+      expect(useAuiStateSelectorResults[index]).toBe(useAuiStateSelectorResults[index + 1]);
+    }
   });
 
   it('does not reenable approval actions for a different approval run error', async () => {
@@ -478,5 +494,265 @@ describe('AssistantToolApprovalNotice', () => {
     );
 
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('AssistantToolApprovalNotice for a delegated child', () => {
+  beforeEach(() => {
+    threadMessagesMock.splice(0);
+    useAuiStateSelectorResults.splice(0);
+  });
+  const delegation = {
+    path: [
+      {
+        childRuntimeRunId: 'child-run-2',
+        parentRuntimeRunId: 'root-run',
+        parentToolCallId: 'background-child-2',
+        personaId: 'explore',
+      },
+    ],
+    toolCallId: 'background-read-2',
+  };
+  const childApproval = {
+    delegation,
+    riskCategory: 'read',
+    runId: 'root-run',
+    toolCallId: 'background-child-2',
+    toolName: 'brainstrike.queryEmbeddingSpace',
+  } satisfies AssistantToolApprovalRequest;
+
+  const renderIndexed = (data: unknown) =>
+    render(
+      <AnsweredApprovalsProvider>
+        <AssistantToolApprovalNotice data={data} />
+      </AnsweredApprovalsProvider>
+    );
+
+  it('names the child by persona and by the prompt the root gave it', async () => {
+    threadMessagesMock.push({
+      content: [
+        {
+          args: { prompt: 'Act as the frontend and UX specialist. Survey the renderer.' },
+          toolCallId: 'background-child-2',
+          toolName: 'agent-explore',
+          type: 'tool-call',
+        },
+      ],
+      role: 'assistant',
+    });
+    renderIndexed(childApproval);
+    await waitFor(() =>
+      expect(screen.getByTestId('approval-delegation-owner')).toBeInTheDocument()
+    );
+    expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent(
+      'Explorer · Act as the frontend and UX specialist. Survey the renderer.'
+    );
+    expect(screen.getByText('brainstrike.queryEmbeddingSpace')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Approve brainstrike.queryEmbeddingSpace' })
+    ).toBeEnabled();
+  });
+
+  it('locks as allowed once the host answers it under a session grant', async () => {
+    threadMessagesMock.push({
+      content: [
+        {
+          data: {
+            decision: 'approve',
+            delegation,
+            reason: 'session-grant',
+            runId: 'root-run',
+            toolCallId: 'background-child-2',
+            toolName: 'brainstrike.queryEmbeddingSpace',
+          },
+          name: 'brainstrike.tool-approval-answered',
+          type: 'data',
+        },
+      ],
+      role: 'assistant',
+    });
+    renderIndexed(childApproval);
+    await waitFor(() => expect(screen.getByText('Allowed by session grant')).toBeInTheDocument());
+    expect(
+      screen.getByRole('button', { name: 'Approve brainstrike.queryEmbeddingSpace' })
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Decline brainstrike.queryEmbeddingSpace' })
+    ).toBeDisabled();
+  });
+
+  it("locks with the decision once the host applied the user's own live answer", async () => {
+    threadMessagesMock.push({
+      content: [
+        {
+          data: {
+            decision: 'decline',
+            delegation,
+            reason: 'user',
+            runId: 'root-run',
+            toolCallId: 'background-child-2',
+            toolName: 'brainstrike.queryEmbeddingSpace',
+          },
+          name: 'brainstrike.tool-approval-answered',
+          type: 'data',
+        },
+      ],
+      role: 'assistant',
+    });
+    renderIndexed(childApproval);
+    await waitFor(() => expect(screen.getByText('Declined')).toBeInTheDocument());
+    expect(
+      screen.getByRole('button', { name: 'Approve brainstrike.queryEmbeddingSpace' })
+    ).toBeDisabled();
+  });
+
+  it('does not lock on an answer for a different child', async () => {
+    threadMessagesMock.push({
+      content: [
+        {
+          data: {
+            decision: 'approve',
+            delegation: { ...delegation, toolCallId: 'background-read-3' },
+            reason: 'session-grant',
+            runId: 'root-run',
+            toolCallId: 'background-child-3',
+            toolName: 'brainstrike.queryEmbeddingSpace',
+          },
+          name: 'brainstrike.tool-approval-answered',
+          type: 'data',
+        },
+      ],
+      role: 'assistant',
+    });
+    renderIndexed(childApproval);
+    await waitFor(() =>
+      expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent('Explorer')
+    );
+    expect(screen.queryByText('Allowed by session grant')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Approve brainstrike.queryEmbeddingSpace' })
+    ).toBeEnabled();
+  });
+});
+
+describe('AssistantToolApprovalNotice while a run is active', () => {
+  beforeEach(() => {
+    threadMessagesMock.splice(0);
+    useAuiStateSelectorResults.splice(0);
+    appendMessageMock.mockReset();
+    resetFollowUpQueueStore();
+    threadRunningMock.isRunning = false;
+  });
+
+  // Appending during a run cancels the run in the installed runtime; the
+  // second of two quick decisions aborted the first's resume leg and was
+  // lost (thread-b3cea1f6, 2026-09-14). A decision waits its turn instead.
+  it('queues the decision instead of appending, shows Queued, and re-enables when the chip is removed', async () => {
+    threadRunningMock.isRunning = true;
+    render(
+      <ActiveThreadKeyContext.Provider value="root-thread">
+        <AssistantToolApprovalNotice data={baseApproval} />
+      </ActiveThreadKeyContext.Provider>
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Approve workspace.writeFile' }));
+    expect(appendMessageMock).not.toHaveBeenCalled();
+    const queued = useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root-thread')];
+    expect(queued).toHaveLength(1);
+    expect(queued?.[0]).toMatchObject({
+      identityKey: JSON.stringify(['run-approval-1', 'tool-call-1']),
+      message: { runConfig: { custom: { brainstrikeToolApproval: { action: 'approve' } } } },
+      text: 'Approved workspace.writeFile.',
+    });
+    expect(screen.getByText('Queued')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeDisabled();
+    // The chip is the user's veto: removing it hands the card back.
+    const item = queued?.[0];
+    if (!item) {
+      throw new Error('missing queued decision');
+    }
+    useFollowUpQueueStore.getState().remove(followUpQueueKey('root-thread'), item.id);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeEnabled()
+    );
+  });
+
+  // The desktop delivers the decision INTO the running turn; the card locks
+  // for the round trip and stays locked once delivered (the host's answer
+  // chunk follows on the stream). A leg that settled meanwhile answers
+  // 'no-live-run' and the decision queues exactly as without a transport.
+  it('delivers into the running turn through the live transport and stays locked', async () => {
+    threadRunningMock.isRunning = true;
+    const transport = vi.fn(async (_message: unknown) => 'delivered' as const);
+    render(
+      <ActiveThreadKeyContext.Provider value="root-thread">
+        <LiveDecisionProvider transport={transport}>
+          <AssistantToolApprovalNotice data={baseApproval} />
+        </LiveDecisionProvider>
+      </ActiveThreadKeyContext.Provider>
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Approve workspace.writeFile' }));
+    await waitFor(() => expect(transport).toHaveBeenCalledOnce());
+    expect(transport.mock.calls[0]?.[0]).toMatchObject({
+      runConfig: { custom: { brainstrikeToolApproval: { action: 'approve' } } },
+    });
+    expect(appendMessageMock).not.toHaveBeenCalled();
+    expect(useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root-thread')]).toBe(
+      undefined
+    );
+    await waitFor(() => expect(screen.getByText('Approved')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeDisabled();
+  });
+
+  it('queues and hands the card back when the transport reports no live run', async () => {
+    threadRunningMock.isRunning = true;
+    render(
+      <ActiveThreadKeyContext.Provider value="root-thread">
+        <LiveDecisionProvider transport={async () => 'no-live-run'}>
+          <AssistantToolApprovalNotice data={baseApproval} />
+        </LiveDecisionProvider>
+      </ActiveThreadKeyContext.Provider>
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Approve workspace.writeFile' }));
+    await waitFor(() => expect(screen.getByText('Queued')).toBeInTheDocument());
+    expect(
+      useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root-thread')]
+    ).toHaveLength(1);
+    expect(appendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('unlocks the card when the host refuses the live decision', async () => {
+    threadRunningMock.isRunning = true;
+    render(
+      <ActiveThreadKeyContext.Provider value="root-thread">
+        <LiveDecisionProvider
+          transport={async () => {
+            throw new Error('The decision was not applied: refused');
+          }}
+        >
+          <AssistantToolApprovalNotice data={baseApproval} />
+        </LiveDecisionProvider>
+      </ActiveThreadKeyContext.Provider>
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Approve workspace.writeFile' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeEnabled()
+    );
+    expect(useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root-thread')]).toBe(
+      undefined
+    );
+    expect(screen.getByText('Pending')).toBeInTheDocument();
+  });
+
+  it('appends immediately when no run is active', async () => {
+    render(
+      <ActiveThreadKeyContext.Provider value="root-thread">
+        <AssistantToolApprovalNotice data={baseApproval} />
+      </ActiveThreadKeyContext.Provider>
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Approve workspace.writeFile' }));
+    expect(appendMessageMock).toHaveBeenCalledOnce();
+    expect(useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root-thread')]).toBe(
+      undefined
+    );
   });
 });

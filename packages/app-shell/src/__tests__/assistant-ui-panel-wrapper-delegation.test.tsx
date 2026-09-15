@@ -7,6 +7,7 @@ import { describe, expect, test } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import type { DelegatedConversationRoot } from '../delegated-conversation-owner';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
+import { STREAMING_NOTIFY_WINDOW_MS } from '../delegated-conversation-store';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import { useDelegatedConversationRoot } from '../use-delegated-conversation-root';
 import { delegatedPanelCallbacks } from './assistant-ui-panel-wrapper-test-support';
@@ -73,6 +74,9 @@ describe('panel delegation wiring', () => {
       delegatedPanelCallbacks.onDelegatedConversation?.(
         delegatedUpdate('child', 'initial', 'Live child evidence')
       );
+      // A RUNNING child's publications notify once per coalescing window
+      // (`delegated-conversation-store.ts`), so the probe sees it a frame later.
+      await new Promise((resolve) => setTimeout(resolve, STREAMING_NOTIFY_WINDOW_MS + 1));
     });
     expect(screen.getByTestId('delegated-root-probe')).toHaveTextContent('Live child evidence');
   });

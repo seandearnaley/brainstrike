@@ -54,6 +54,13 @@ const logger = createLogger('MastraAgent');
 export type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
 
 export interface BrainstrikeAgentStreamOptions {
+  /**
+   * Return the turn as soon as its background dispatches are acknowledged;
+   * the host loop (`withBackgroundIdleLoop`) drives the continuations, so the
+   * native step never blocks on running children. Mastra's own `untilIdle`
+   * loop is NOT used: it wakes the parent on a child's suspension.
+   */
+  _skipBgTaskWait?: boolean;
   abortSignal?: AbortSignal;
   delegation?: DelegationConfig;
   // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
@@ -65,7 +72,6 @@ export interface BrainstrikeAgentStreamOptions {
   modelSettings?: RuntimeData['modelSettings'];
   providerOptions?: RuntimeData['providerOptions'];
   requireToolApproval?: ApprovalGate;
-  untilIdle?: boolean;
 }
 
 /**
@@ -378,7 +384,7 @@ export function buildStreamOptions(
   const loop = buildRuntimeToolLoopOptions(runtime, runtimeData);
   const options: BrainstrikeAgentStreamOptions & { runId?: string; toolCallId?: string } = {
     ...loop,
-    ...(runtime.backgroundTaskManager ? { untilIdle: true } : {}),
+    ...(runtime.backgroundTaskManager ? { _skipBgTaskWait: true } : {}),
     ...(!runtime.childExecution && runtime.rootDelegatedContextProcessor
       ? {
           inputProcessors: [runtime.rootDelegatedContextProcessor, ...(loop.inputProcessors ?? [])],

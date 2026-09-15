@@ -49,6 +49,7 @@ export {
   DebugBundleProvider,
   useDebugBundleContext,
 } from './debug-bundle-context';
+export { type DecisionDispatchOutcome, submitDecisionOrQueue } from './decision-dispatch';
 export type {
   ChildContinuationIdentity,
   ChildConversationOwner,
@@ -72,9 +73,15 @@ export {
 export {
   type FollowUpQueueItem,
   followUpQueueKey,
+  isDecisionQueued,
   resetFollowUpQueueStore,
   useFollowUpQueueStore,
 } from './follow-up-queue-store';
+export {
+  LiveDecisionProvider,
+  type LiveDecisionTransport,
+  useLiveDecisionTransport,
+} from './live-decision-context';
 export { hasDesktopLlmHost } from './local-runtime-adapter';
 export {
   McpTaskBridgeProvider,

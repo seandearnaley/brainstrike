@@ -1,4 +1,9 @@
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  followUpQueueKey,
+  resetFollowUpQueueStore,
+  useFollowUpQueueStore,
+} from '@brainstrike/assistant-ui/follow-up-queue-store';
 import { describe, expect, it, vi } from 'vitest';
 import { createDelegatedConversationRoot } from '../delegated-conversation-owner';
 import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
@@ -193,6 +198,82 @@ describe('owning root registration', () => {
     ).rejects.toThrow(/does not belong/i);
     expect(append).toHaveBeenCalledOnce();
   });
+  it('queues a child decision behind a running root run instead of cancelling it', async () => {
+    // Appending during a run cancels the run in the installed runtime; the
+    // second of two quick decisions aborted the first's resume leg and was
+    // lost (thread-b3cea1f6, 2026-09-14). The child view's decision obeys the
+    // same rule as the root card: it waits in the root's follow-up queue.
+    resetFollowUpQueueStore();
+    const root = createDelegatedConversationRoot('root');
+    const { identity: _identity, ...snapshot } = delegatedUpdate('child', 'new-host');
+    const continuation = {
+      continuationId: 'input-1',
+      nativeRunId: 'new-native',
+      threadId: 'child',
+    };
+    root.onDelegatedConversation({ ...snapshot, continuation });
+    const append = vi.fn();
+    let isRunning = true;
+    root.onRuntimeReady({ thread: { append, getState: () => ({ isRunning, threadId: 'root' }) } });
+    const action = {
+      action: 'approve',
+      continuationId: 'input-1',
+      runId: 'new-native',
+      toolCallId: 'write',
+    };
+    const custom = { [TOOL_APPROVAL_RUN_CONFIG_KEY]: action };
+    const message = {
+      attachments: [],
+      content: [{ text: 'Approved write.', type: 'text' as const }],
+      createdAt: new Date(),
+      metadata: { custom },
+      parentId: 'child-row',
+      role: 'user' as const,
+      runConfig: { custom },
+      sourceId: null,
+      startRun: true,
+    };
+    await root.sendDecision('child', message);
+    expect(append).not.toHaveBeenCalled();
+    const queued = useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root')];
+    expect(queued).toHaveLength(1);
+    expect(queued?.[0]).toMatchObject({
+      identityKey: JSON.stringify(['input-1', 'new-native', 'write']),
+      message: expect.objectContaining({ runConfig: { custom } }),
+      text: 'Approved write.',
+    });
+    expect(queued?.[0]?.message).not.toHaveProperty('parentId');
+    // Idle root: the same decision appends at once.
+    resetFollowUpQueueStore();
+    isRunning = false;
+    await root.sendDecision('child', message);
+    expect(append).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ runConfig: { custom } })
+    );
+    // A running root with the host's live transport: delivered into the
+    // run, nothing appended or queued; when the transport reports no live
+    // run the decision queues as before.
+    resetFollowUpQueueStore();
+    append.mockClear();
+    isRunning = true;
+    const transport = vi.fn(async (_message: unknown) => 'delivered' as const);
+    root.setLiveDecisionTransport(transport);
+    await root.sendDecision('child', message);
+    expect(transport).toHaveBeenCalledOnce();
+    expect(transport.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ runConfig: { custom } })
+    );
+    expect(append).not.toHaveBeenCalled();
+    expect(useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root')]).toBe(
+      undefined
+    );
+    root.setLiveDecisionTransport(async () => 'no-live-run');
+    await root.sendDecision('child', message);
+    expect(useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root')]).toHaveLength(
+      1
+    );
+  });
+
   it('dispatches a persisted decision without live snapshots and refuses a disposed owner after lookup', async () => {
     const root = createDelegatedConversationRoot('root');
     const update = delegatedUpdate('child');

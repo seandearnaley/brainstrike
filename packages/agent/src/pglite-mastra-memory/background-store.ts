@@ -2,6 +2,7 @@ import {
   MASTRA_BACKGROUND_TASKS_SCHEMA_SQL,
   MASTRA_BACKGROUND_TASKS_TABLE,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import { createLogger } from '@brainstrike/logging';
 import type {
   BackgroundTask,
   BackgroundTaskStatus,
@@ -203,6 +204,8 @@ function pagination(filter: TaskFilter, values: PgliteQueryValue[]): string {
   return `LIMIT $${values.length - 1} OFFSET $${values.length}`;
 }
 
+const logger = createLogger('PgliteBackgroundTasksStore');
+
 /** Native Mastra background-task domain, backed by the existing PGlite owner. */
 export class PgliteBackgroundTasksStore extends BackgroundTasksStorage {
   constructor(
@@ -215,8 +218,8 @@ export class PgliteBackgroundTasksStore extends BackgroundTasksStorage {
     await this.database.exec(MASTRA_BACKGROUND_TASKS_SCHEMA_SQL);
   }
   override async createTask(task: BackgroundTask): Promise<void> {
-    const valid = taskSchema.parse(task);
-    this.assertExecutionLimits(valid);
+    const valid = this.pinHostRetryPolicy(taskSchema.parse(task));
+    this.assertTimeout(valid.timeoutMs);
     if (
       this.scope &&
       (valid.resourceId !== this.scope.resourceId || valid.threadId !== this.scope.threadId)
@@ -234,7 +237,10 @@ export class PgliteBackgroundTasksStore extends BackgroundTasksStorage {
     update: UpdateBackgroundTask,
     options?: { expectedStatus?: BackgroundTaskStatus }
   ): Promise<boolean> {
-    this.assertExecutionLimits(update);
+    if (this.scope && update.maxRetries !== undefined && update.maxRetries !== 0) {
+      throw new Error('Automatic background worker retries are not permitted');
+    }
+    this.assertTimeout(update.timeoutMs);
     const keys = mutableFields.filter((key) => Object.hasOwn(update, key));
     const values: PgliteQueryValue[] = keys.map((key) => sqlValue(key, update[key]));
     values.push(taskId);
@@ -324,18 +330,34 @@ export class PgliteBackgroundTasksStore extends BackgroundTasksStorage {
     );
     return z.number().int().parse(rows.rows[0]?.count);
   }
-  private assertExecutionLimits({
-    maxRetries,
-    timeoutMs,
-  }: {
-    readonly maxRetries?: number | undefined;
-    readonly timeoutMs?: number | undefined;
-  }): void {
+  /**
+   * The host owns the retry policy for background workers: none, ever (a
+   * replayed non-idempotent write is never acceptable). Mastra's own system
+   * prompt advertises `_background.maxRetries` to the model and its config
+   * resolver honours the model's value ahead of the host default, and no host
+   * knob removes that advertisement (BST-1749). A model-requested retry count
+   * is therefore overridden here — the only path that reaches a scoped
+   * `createTask` — and logged; rejecting it failed every delegation that
+   * followed Mastra's guidance and pushed the model into foreground work.
+   */
+  private pinHostRetryPolicy<
+    Task extends Pick<BackgroundTask, 'id' | 'maxRetries' | 'toolCallId' | 'toolName'>,
+  >(task: Task): Task {
+    if (!this.scope || task.maxRetries === 0) {
+      return task;
+    }
+    logger.warn('Background worker retries pinned to 0 by host policy', {
+      code: 'background_task_retries_pinned',
+      requestedRetries: task.maxRetries,
+      taskId: task.id,
+      toolCallId: task.toolCallId,
+      toolName: task.toolName,
+    });
+    return { ...task, maxRetries: 0 };
+  }
+  private assertTimeout(timeoutMs: number | undefined): void {
     if (!this.scope) {
       return;
-    }
-    if (maxRetries !== undefined && maxRetries !== 0) {
-      throw new Error('Automatic background worker retries are not permitted');
     }
     if (
       timeoutMs !== undefined &&

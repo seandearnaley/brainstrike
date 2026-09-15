@@ -2916,6 +2916,83 @@ Flow (desktop assistant server → agent runtime):
    admitted permission snapshot contributes only its denies, so the grant lifts
    the child's `ask` on its next resume leg too (see `assistant-subagents.md`,
    deny-only ceiling, settled 2026-09-12).
+   PARKED SIBLINGS (settled 2026-09-14, BST-1723): a session grant is a policy
+   change, and the canonical behaviour (Claude Code's queued permission
+   prompts) is that every prompt the new rule answers is answered. The approval
+   leg therefore resumes, in the SAME leg, every parked BACKGROUND sibling whose
+   pending leaf tool the runtime's fresh snapshot now allows
+   (`findGrantedBackgroundApprovals`: enforced policy, tool registered, not in
+   the ask set). Each sibling is walked from its DISPATCH address through the
+   binding's `resolveParkedInvocation` (the desktop's read-only reload
+   discovery, `createDesktopDelegatedSuspensionResolver`) because no leaf
+   identity exists yet and `resolveToolAction` refuses a bare address by
+   design (`tool-action-leaf-identity-required`; thread-22c3279b, where the
+   agent fixture's lenient resolver hid exactly that refusal — the fixture now
+   refuses like the host). Each is then durably claimed exactly as a click
+   would be — EXCEPT that a policy answer never takes a claim. DECISIONS
+   DURING A RUN (settled 2026-09-14, thread-b3cea1f6): the installed
+   assistant-ui runtime CANCELS the in-flight run when a message is appended,
+   so answering a second card while the first card's resume leg ran aborted
+   that leg three seconds in (`mastra_agent_stream_aborted`) and lost the
+   second click. Every decision — the approval notice, the typed-resume
+   notice, and a child view's decision routed through the owning root — now
+   goes through `submitDecisionOrQueue` (`decision-dispatch.ts`): idle thread
+   → append; running thread → the host's LIVE transport first
+   (`LiveDecisionProvider` / `useDeliverLiveDecision` → desktop
+   `POST /assistant/decide`, which applies the decision INSIDE the running leg:
+   see assistant-subagents.md "LIVE DECISIONS"), and only when no leg is live
+   for it (404) or the host has none (web) → the follow-up queue
+   (`enqueueMessage`, chip + "Queued" chip on the card, removable = veto),
+   dispatched one per run end by `FollowUpQueueBridge` exactly like a typed
+   follow-up. The host serializes the resulting legs. `submitDecisionOrQueue`
+   is async and reports `'delivered' | 'queued' | 'sent'`; a transport
+   rejection (409 host refusal, 500) propagates so the card unlocks and warns. Paired: `follow-up-queue-store.test.ts`,
+   `assistant-tool-approval-notice-panel.test.tsx` ("while a run is active"),
+   `follow-up-queue.behavior.test.tsx` (real local runtime dispatch of a queued
+   decision) and app-shell `delegated-conversation-root.test.ts`. SETTLED
+   2026-09-14 (thread-796a942d): the decision ledger permits ONE `claimed`
+   row per root (partial unique index, the serialization rule for user resumes
+   across reconstructed runtimes), so claiming siblings in the same leg is
+   refused with `tool-action-already-consumed-or-root-busy`. The host records
+   a policy answer through `recordToolActionAnswer` directly as `consumed`
+   under the leg (same admission guards; the unique leaf key still refuses a
+   second answer; the child's history is frozen as `prepareToolAction` does).
+   The agent fixture now holds one active claim and refuses a second, exactly
+   like the host, and `delegated-runtime.integration.test.ts` ("a session
+   grant answers the parked background sibling through the real host ledger")
+   runs the whole flow through the REAL desktop host, ledger and background
+   store — the proof every host-boundary change must carry from now on (three
+   lenient-fixture misses in one day: resolve, claim, background scope). The
+   leg streams
+   one `tool-approval-answered` chunk per sibling. The mapper ships it as the
+   `brainstrike.tool-approval-answered` data part; the notice scans the thread
+   for a part with its own identity key and locks as "Allowed by session grant"
+   (live and after reload, since the part persists with the message). A
+   one-shot Approve changes no policy, so the ask set still holds the tool and
+   siblings stay parked. Foreground siblings (no background scope: web) remain
+   one Mastra `approveToolCall` leg each by the framework's own resume model.
+   The root card itself exists for BACKGROUND children only because the leg's
+   publish seam synthesizes it (`withRootPauseNotices`, see
+   `assistant-subagents.md`): nothing native suspends the parent run when a
+   background task parks.
+   The delegated notice also NAMES its child — persona label plus the prompt
+   the root gave it (`describeDelegationOwner`) — so four identical read
+   prompts from four specialists are distinguishable. Both the name and the
+   host answer come from ONE incremental thread index
+   (`answered-approvals-index.tsx`, mounted over the thread in
+   `assistant-ui-panel.tsx`), never from a per-card selector that walks every
+   message part on every store update: during a fan-out the root assistant
+   message accumulates one data part per child chunk, so a per-card walk is
+   O(parts) × cards × updates and the renderer stalls while four children
+   stream (2026-09-14, "the app locks up while processing"; the main process
+   kept serving and the durable log showed nothing). The main process now logs
+   `renderer_unresponsive` / `renderer_responsive_again` with timing
+   (`create-window.ts`) so a hang is durable evidence next time. Grants are offered in the child views too
+   (`useToolApprovalGrantHandlers` mounts the provider over the workspace).
+   Paired: `background-worker-policy.integration.spec.ts` ("answers every parked
+   background sibling" / "one-shot approval answers only its own"; mutating the
+   gate either way fails one of them), `data-stream-approval-answered.spec.ts`,
+   `assistant-tool-approval-notice-panel.test.tsx` ("for a delegated child").
    An OpenRouter approval pause terminates its transport leg with zero-token
    usage and no claimed cost: Mastra emits the pause before that model step's
    `step-finish`. Approval resume emits the deferred step finish before later

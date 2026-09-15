@@ -9,6 +9,7 @@ import {
   ChangesReviewProvider,
   type RewindContextValue,
   RewindProvider,
+  ToolApprovalGrantProvider,
 } from '@brainstrike/assistant-ui';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
@@ -75,6 +76,7 @@ import { ThreadWorkspaceCoordinator } from './thread-workspace/thread-workspace-
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
+import { useToolApprovalGrantHandlers } from './use-tool-approval-grant-handlers';
 import { WorkspaceConnectHost } from './workspace-connect/workspace-connect-host';
 // Side-effect: register session-only stores with the factory-reset pipeline.
 import './register-factory-reset-session-stores';
@@ -486,6 +488,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   // The workspace app registry (BST-1258; Terminal joined as a workspace app
   // in BST-1270, replacing its nav route). Construction is the pure
   // buildWorkspaceApps helper — capability gating by omission.
+  const toolApprovalGrants = useToolApprovalGrantHandlers();
   const workspaceApps = useMemo<readonly WorkspaceApp[]>(
     () =>
       buildWorkspaceApps({
@@ -525,47 +528,53 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                 per thread and hydrates on switch. Inside FileTreeWrapper so it
                 reaches the file-explorer store; renders nothing. */}
             <ThreadWorkspaceCoordinator />
-            <AgentWorkspaceLayout
-              assistantContent={
-                <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
-              }
-              sidebarContent={
-                <AgentSidebarPanel
-                  databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-                  preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                  promptsContent={(isActive) => (
-                    <Suspense
-                      fallback={
-                        <div
-                          className="grid h-full place-items-center text-muted-foreground text-xs"
-                          data-testid="prompt-workbench-lazy-fallback"
-                          role="status"
-                        >
-                          Opening Prompt Workbench…
-                        </div>
-                      }
-                    >
-                      <ConnectedPromptManagerLazy
-                        loadEmbeddingQueue={loadEmbeddingQueue}
-                        suggestionsEnabled={visible && isActive}
-                      />
-                    </Suspense>
-                  )}
-                  threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-                />
-              }
-              workspaceContent={
-                <>
-                  {/* ⌘P quick-open + the open-file registration both mount INSIDE
+            {/* Grants are offered wherever an approval card can render: the root
+                chat panel AND the child conversation views under the workspace
+                (a child card without "Allow reads this session" forces a click
+                per read; BST-1723, 2026-09-14). */}
+            <ToolApprovalGrantProvider handlers={toolApprovalGrants}>
+              <AgentWorkspaceLayout
+                assistantContent={
+                  <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
+                }
+                sidebarContent={
+                  <AgentSidebarPanel
+                    databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                    preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                    promptsContent={(isActive) => (
+                      <Suspense
+                        fallback={
+                          <div
+                            className="grid h-full place-items-center text-muted-foreground text-xs"
+                            data-testid="prompt-workbench-lazy-fallback"
+                            role="status"
+                          >
+                            Opening Prompt Workbench…
+                          </div>
+                        }
+                      >
+                        <ConnectedPromptManagerLazy
+                          loadEmbeddingQueue={loadEmbeddingQueue}
+                          suggestionsEnabled={visible && isActive}
+                        />
+                      </Suspense>
+                    )}
+                    threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                  />
+                }
+                workspaceContent={
+                  <>
+                    {/* ⌘P quick-open + the open-file registration both mount INSIDE
                       the outer IdeLayout so they reach its IdeFileEditorContext;
                       the nested explorer layout inherits the same seam. */}
-                  <QuickOpenHost />
-                  <WorkspaceOpenFileBridge />
-                  <WorkspaceBody />
-                </>
-              }
-              workspaceHeaderContent={<WorkspaceTabStrip />}
-            />
+                    <QuickOpenHost />
+                    <WorkspaceOpenFileBridge />
+                    <WorkspaceBody />
+                  </>
+                }
+                workspaceHeaderContent={<WorkspaceTabStrip />}
+              />
+            </ToolApprovalGrantProvider>
           </DelegatedWorkspaceTabsProvider>
         </MarkdownPreviewCapabilitiesProvider>
       </FileTreeWrapper>

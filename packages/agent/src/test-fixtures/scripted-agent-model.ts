@@ -21,6 +21,28 @@ export function toolCallParts(
   ];
 }
 
+/** One model step issuing several tool calls at once (a fan-out). */
+export function parallelToolCallParts(
+  calls: readonly {
+    readonly args: Record<string, unknown>;
+    readonly toolCallId: string;
+    readonly toolName: string;
+  }[]
+): LanguageModelV2StreamPart[] {
+  return [
+    { type: 'stream-start', warnings: [] },
+    ...calls.map(
+      (call): LanguageModelV2StreamPart => ({
+        input: JSON.stringify(call.args),
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        type: 'tool-call',
+      })
+    ),
+    { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+  ];
+}
+
 export function textParts(text: string): LanguageModelV2StreamPart[] {
   return [
     { type: 'stream-start', warnings: [] },

@@ -431,6 +431,32 @@ describe('desktop delegated conversation authority', () => {
     ).toEqual([]);
   });
 
+  it('resolves a parked invocation from its dispatch address without a leaf identity', async () => {
+    // The approval leg walks parked background siblings from the delegation
+    // call they were dispatched by; no leaf identity exists yet, and
+    // `resolveToolAction` refuses that bare address by design
+    // (thread-22c3279b, 2026-09-14: the sibling grant died on it).
+    const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
+    await host.persist(identity);
+    await host.bindRun(run);
+    const address = {
+      parentRuntimeRunId: run.parentRuntimeRunId,
+      parentThreadId: identity.parentThreadId,
+      parentToolCallId: run.parentToolCallId,
+    };
+    expect(await host.resolveParkedInvocation(address)).toEqual({
+      identity: run,
+      resourceId: identity.childResourceId,
+      threadId: identity.childThreadId,
+    });
+    expect(
+      await host.resolveParkedInvocation({ ...address, parentToolCallId: 'ordinary-call' })
+    ).toBeUndefined();
+    await expect(
+      host.resolveParkedInvocation({ ...address, parentThreadId: 'elsewhere' })
+    ).rejects.toMatchObject({ reason: 'suspended-invocation-ancestry-invalid' });
+  });
+
   it('recovers only the bound invocation native message identity before resume publication', async () => {
     const host = createDesktopDelegatedConversationHost(database, 'initial-leg');
     await host.persist(identity);

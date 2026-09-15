@@ -27,6 +27,10 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { ActiveThreadKeyContext } from './active-thread-key-context';
+import { submitDecisionOrQueue } from './decision-dispatch';
+import { followUpQueueKey, isDecisionQueued, useFollowUpQueueStore } from './follow-up-queue-store';
+import { useLiveDecisionTransport } from './live-decision-context';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 import {
@@ -201,8 +205,19 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
     }
   }
   const lockedByRun = runOutcome === 'pending' || runOutcome === 'completed';
+  const threadKey = use(ActiveThreadKeyContext);
+  const isRunning = useAuiState((state) => state.thread.isRunning);
+  const deliverLive = useLiveDecisionTransport();
+  const queued = useFollowUpQueueStore((state) =>
+    request
+      ? isDecisionQueued(state, followUpQueueKey(threadKey), getToolActionIdentityKey(request))
+      : false
+  );
   const locked =
-    submitted || lockedByRun || readRediscoveredPauseDisplay(request)?.decisionState !== undefined;
+    queued ||
+    submitted ||
+    lockedByRun ||
+    readRediscoveredPauseDisplay(request)?.decisionState !== undefined;
 
   const submit = useCallback(
     (resumeData: unknown, summary: string): void => {
@@ -222,26 +237,55 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
         startRun: true,
       } satisfies CreateAppendMessage;
 
-      setSubmitted(true);
-      try {
-        void Promise.resolve(aui.thread().append(message)).catch((error: unknown) => {
+      const sendNow = (queued: CreateAppendMessage): void => {
+        setSubmitted(true);
+        try {
+          void Promise.resolve(aui.thread().append(queued)).catch((error: unknown) => {
+            setSubmitted(false);
+            logger.warn('Failed to append tool resume action', {
+              error,
+              runId: request.runId,
+              toolCallId: request.toolCallId,
+            });
+          });
+        } catch (error) {
           setSubmitted(false);
           logger.warn('Failed to append tool resume action', {
             error,
             runId: request.runId,
             toolCallId: request.toolCallId,
           });
-        });
-      } catch (error) {
-        setSubmitted(false);
-        logger.warn('Failed to append tool resume action', {
-          error,
-          runId: request.runId,
-          toolCallId: request.toolCallId,
-        });
-      }
+        }
+      };
+      // Same rule as the approval notice: a typed answer during a run is
+      // delivered into the run when the host offers a live transport, and
+      // otherwise waits in the follow-up queue instead of cancelling the run.
+      setSubmitted(true);
+      submitDecisionOrQueue({
+        append: sendNow,
+        deliverLive,
+        identityKey: getToolActionIdentityKey(request),
+        isRunning,
+        message,
+        text: summary,
+        threadKey,
+      }).then(
+        (outcome) => {
+          if (outcome === 'queued') {
+            setSubmitted(false);
+          }
+        },
+        (error: unknown) => {
+          setSubmitted(false);
+          logger.warn('Failed to deliver tool resume action', {
+            error,
+            runId: request.runId,
+            toolCallId: request.toolCallId,
+          });
+        }
+      );
     },
-    [aui, locked, request]
+    [aui, deliverLive, isRunning, locked, request, threadKey]
   );
 
   return { locked, submit };

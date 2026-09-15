@@ -219,6 +219,8 @@ export {
   type DelegatedCancellationTarget,
   type DelegatedConversationBinding,
   type DelegatedConversationIdentity,
+  type DelegatedDecisionControl,
+  type DelegatedDecisionRequest,
   type DelegatedFollowupControl,
   type DelegatedFollowupInput,
   type DelegatedFollowupTarget,
@@ -235,6 +237,10 @@ export {
   GREP_MATCH_LINE_MAX_CHARS,
   normalizeGrepProjectionLine,
 } from './mastra/grep-model-format';
+export {
+  isLiveDecisionUnavailableError,
+  LiveDecisionUnavailableError,
+} from './mastra/live-decision-channel';
 export {
   createMastraAgentError,
   isMastraAgentError,

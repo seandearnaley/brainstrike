@@ -1,14 +1,18 @@
 import {
   CHILD_FOLLOWUP_RUN_CONFIG_KEY,
   type DelegatedRunIdentity,
+  getToolActionIdentityKey,
 } from '@brainstrike/assistant-contract';
 import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
+import { readToolApprovalRunConfigAction } from '@brainstrike/assistant-contract/tool-approval';
+import { readToolResumeRunConfigAction } from '@brainstrike/assistant-contract/tool-suspend';
 import type {
   AssistantUiPanelProps,
   ChildContinuationIdentity,
   DelegatedConversationRuntimeOptions,
   DelegatedConversationUpdate,
 } from '@brainstrike/assistant-ui';
+import { type LiveDecisionTransport, submitDecisionOrQueue } from '@brainstrike/assistant-ui';
 import type { AssistantProviderSettingsMap } from '@brainstrike/types';
 import { createStore } from 'zustand/vanilla';
 import { createDelegatedConversationStore } from './delegated-conversation-store';
@@ -30,6 +34,17 @@ interface Registration {
 }
 type DecisionMessage = Parameters<DelegatedConversationRuntimeOptions['onNew']>[0];
 
+/** The pause identity a decision message targets, for the queue's "Queued" state. */
+function readDecisionIdentityKey(message: DecisionMessage): string {
+  const approval = readToolApprovalRunConfigAction(message.runConfig);
+  const resume = readToolResumeRunConfigAction(message.runConfig);
+  const result = approval ?? resume;
+  if (!(result && 'action' in result)) {
+    throw new Error('A child decision message carries no decision.');
+  }
+  return getToolActionIdentityKey(result.action);
+}
+
 export function createDelegatedConversationRoot(rootThreadId: string) {
   const store = createDelegatedConversationStore(rootThreadId);
   const modelSelection = createStore<{
@@ -42,6 +57,7 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
     selectedModel: null,
   }));
   let runtime: Registration | undefined;
+  let liveDecisionTransport: LiveDecisionTransport | null = null;
   const pending = new Set<() => void>();
   const retirePending = () => {
     for (const retire of [...pending]) {
@@ -93,9 +109,26 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
           'The owning conversation or persisted child binding is no longer available.'
         );
       }
-      await createDelegatedDecisionDispatcher(identity, (input) => owner.thread.append(input))(
-        message
-      );
+      // A child-view decision is the same root append the root card makes,
+      // so it obeys the same rule: never cancel an in-flight root run, queue
+      // behind it (`decision-dispatch.ts`). `isRunning` is part of the
+      // published runtime state; a double that omits it cannot be running.
+      const identityKey = readDecisionIdentityKey(message);
+      const text = message.content
+        .map((part) => (part.type === 'text' ? part.text : ''))
+        .join('')
+        .trim();
+      await createDelegatedDecisionDispatcher(identity, async (input) => {
+        await submitDecisionOrQueue({
+          append: (queued) => owner.thread.append(queued),
+          deliverLive: liveDecisionTransport,
+          identityKey,
+          isRunning: owner.thread.getState().isRunning === true,
+          message: input,
+          text,
+          threadKey: owner.threadId,
+        });
+      })(message);
     },
     async sendFollowup(
       threadId: string,
@@ -184,6 +217,10 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
           fail(error);
         }
       });
+    },
+    /** The host's live decision transport (desktop), shared with the root cards. */
+    setLiveDecisionTransport(transport: LiveDecisionTransport | null): void {
+      liveDecisionTransport = transport;
     },
     store,
   };

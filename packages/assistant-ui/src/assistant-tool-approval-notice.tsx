@@ -29,9 +29,13 @@ import {
 import { AlertTriangle, Check, ChevronDown, ChevronUp, ShieldCheck, Timer, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import {
-  DELEGATED_DECISION_STATUS_LABELS,
-  readRediscoveredPauseDisplay,
-} from './rediscovered-pause-display';
+  resolveNoticeStatus,
+  useDecisionQueueState,
+  useDelegatedNoticeContext,
+} from './approval-notice-status';
+import { submitDecisionOrQueue } from './decision-dispatch';
+import { useLiveDecisionTransport } from './live-decision-context';
+import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 import { formatRunDuration } from './run-python-result-model';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
@@ -986,20 +990,6 @@ function ApprovalGrantButtons({
   );
 }
 
-/** Status chip text for the notice header. */
-function resolveApprovalStatusLabel(
-  displayedAction: AssistantToolApprovalDecision | null,
-  actionLockedByRun: boolean
-): string {
-  if (displayedAction === 'approve') {
-    return 'Approved';
-  }
-  if (displayedAction === 'decline') {
-    return 'Declined';
-  }
-  return actionLockedByRun ? 'Submitted' : 'Pending';
-}
-
 export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
   const key = isAssistantToolApprovalRequest(data) ? getToolActionIdentityKey(data) : 'invalid';
   return <ToolApprovalNotice data={data} key={key} />;
@@ -1031,7 +1021,10 @@ function ToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
     () => fromApprovalRunOutcomeKey(approvalRunOutcomeKey),
     [approvalRunOutcomeKey]
   );
-  const decisionLocked = rediscovered?.decisionState !== undefined;
+  const { delegationOwner, hostAnswer } = useDelegatedNoticeContext(approval);
+  const { isRunning, queued, threadKey } = useDecisionQueueState(approval);
+  const deliverLive = useLiveDecisionTransport();
+  const decisionLocked = rediscovered?.decisionState !== undefined || hostAnswer !== null;
   const actionLockedByRun =
     approvalRunOutcome.state === 'pending' || approvalRunOutcome.state === 'completed';
   const detailEntries = useMemo(() => {
@@ -1073,26 +1066,66 @@ function ToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
         startRun: true,
       } satisfies CreateAppendMessage;
 
-      setSubmittedAction(action);
-      try {
-        void Promise.resolve(aui.thread().append(message)).catch((error: unknown) => {
+      const sendNow = (queued: CreateAppendMessage): void => {
+        setSubmittedAction(action);
+        try {
+          void Promise.resolve(aui.thread().append(queued)).catch((error: unknown) => {
+            setSubmittedAction(null);
+            logger.warn('Failed to append tool approval action', {
+              error,
+              runId: approval.runId,
+              toolCallId: approval.toolCallId,
+            });
+          });
+        } catch (error) {
           setSubmittedAction(null);
           logger.warn('Failed to append tool approval action', {
             error,
             runId: approval.runId,
             toolCallId: approval.toolCallId,
           });
-        });
-      } catch (error) {
-        setSubmittedAction(null);
-        logger.warn('Failed to append tool approval action', {
-          error,
-          runId: approval.runId,
-          toolCallId: approval.toolCallId,
-        });
-      }
+        }
+      };
+      // A decision never cancels an in-flight run: while the thread runs it
+      // is delivered INTO the run when the host offers a live transport, and
+      // otherwise waits in the follow-up queue (chip + "Queued" chip on this
+      // card) until the run ends (`decision-dispatch.ts`). The card locks for
+      // the round trip so a second click cannot race the first.
+      setSubmittedAction(action);
+      submitDecisionOrQueue({
+        append: sendNow,
+        deliverLive,
+        identityKey: getToolActionIdentityKey(approval),
+        isRunning,
+        message,
+        text: `${verb} ${approval.toolName}.`,
+        threadKey,
+      }).then(
+        (outcome) => {
+          if (outcome === 'queued') {
+            setSubmittedAction(null);
+          }
+        },
+        (error: unknown) => {
+          setSubmittedAction(null);
+          logger.warn('Failed to deliver tool approval action', {
+            error,
+            runId: approval.runId,
+            toolCallId: approval.toolCallId,
+          });
+        }
+      );
     },
-    [actionLockedByRun, approval, aui, decisionLocked, submittedAction]
+    [
+      actionLockedByRun,
+      approval,
+      aui,
+      decisionLocked,
+      deliverLive,
+      isRunning,
+      submittedAction,
+      threadKey,
+    ]
   );
 
   useEffect(() => {
@@ -1107,11 +1140,15 @@ function ToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
   }
 
   const displayedAction = submittedAction ?? (actionLockedByRun ? approvalRunOutcome.action : null);
-  const approvalStatus =
-    rediscovered?.decisionState === undefined
-      ? resolveApprovalStatusLabel(displayedAction, actionLockedByRun)
-      : DELEGATED_DECISION_STATUS_LABELS[rediscovered.decisionState];
-  const actionButtonsDisabled = decisionLocked || submittedAction !== null || actionLockedByRun;
+  const approvalStatus = resolveNoticeStatus({
+    actionLockedByRun,
+    displayedAction,
+    hostAnswer,
+    queued,
+    rediscovered,
+  });
+  const actionButtonsDisabled =
+    queued || decisionLocked || submittedAction !== null || actionLockedByRun;
 
   return (
     <div
@@ -1133,6 +1170,15 @@ function ToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
               {approvalStatus}
             </span>
           </p>
+          {delegationOwner ? (
+            <p
+              className="mt-1 truncate font-medium text-xs"
+              data-testid="approval-delegation-owner"
+              title={delegationOwner}
+            >
+              {delegationOwner}
+            </p>
+          ) : null}
           <p className="mt-1 truncate text-muted-foreground text-xs">{approval.toolName}</p>
           {approvalReason ? (
             <p className="mt-0.5 truncate text-amber-700 text-xs dark:text-amber-400">

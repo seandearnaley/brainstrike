@@ -350,6 +350,12 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
   // the shared work queue owns runnable concurrency, not waiting delegations.
   let inFlight = 0;
   let total = 0;
+  // Invocations this leg admitted, by native address. A start for an address
+  // already admitted is a parked child RESUMED inside this same leg (a live
+  // decision): the same invocation continues and holds the slot it already
+  // took, so the per-leg caps do not count it again. Durable admission and
+  // the binding's own preparation still run, exactly as on a resume leg.
+  const admitted = new Set<string>();
 
   return {
     // All delegation-hook failures propagate, including diagnostics: silently
@@ -452,8 +458,13 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         );
       }
 
+      const address = JSON.stringify([context.runId, context.toolCallId]);
+      const resumed = admitted.has(address);
       if (
-        !resolveDelegatedWorkBudget(params.conversationBinding?.budget, params.workQueue) &&
+        !(
+          resumed ||
+          resolveDelegatedWorkBudget(params.conversationBinding?.budget, params.workQueue)
+        ) &&
         inFlight >= MAX_CONCURRENT_DELEGATIONS
       ) {
         return reject(
@@ -464,7 +475,7 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         );
       }
 
-      if (total >= MAX_DELEGATIONS_PER_RUN) {
+      if (!resumed && total >= MAX_DELEGATIONS_PER_RUN) {
         return reject(
           'Rejecting delegation: per-run cap reached',
           `Subagent delegation limit reached (max ${MAX_DELEGATIONS_PER_RUN} per turn).`,
@@ -476,8 +487,16 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
       // The caps are taken BEFORE awaiting the host: parallel starts interleave
       // across that await, and a count read before it would let every sibling
       // pass on the same stale value. A refusal or a failure gives them back.
-      inFlight += 1;
-      total += 1;
+      if (!resumed) {
+        inFlight += 1;
+        total += 1;
+      }
+      const giveBack = () => {
+        if (!resumed) {
+          inFlight -= 1;
+          total -= 1;
+        }
+      };
       let refusal: DelegationStartResult | undefined;
       try {
         refusal = await consultDurableAdmission(
@@ -486,15 +505,14 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
           reject
         );
       } catch (error) {
-        inFlight -= 1;
-        total -= 1;
+        giveBack();
         throw error;
       }
       if (refusal) {
-        inFlight -= 1;
-        total -= 1;
+        giveBack();
         return refusal;
       }
+      admitted.add(address);
 
       const maxSteps = clampMaxSteps(
         Math.min(persona.maxSteps, DELEGATION_LIMITS.maxChildSteps),

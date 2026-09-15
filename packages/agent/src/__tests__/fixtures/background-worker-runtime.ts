@@ -1,4 +1,5 @@
 import { addAbortListener } from 'node:events';
+import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import { createTool, type ToolExecutionContext } from '@mastra/core/tools';
 import { vi } from 'vitest';
@@ -11,13 +12,16 @@ import {
   createDelegatedConversationBinding,
   type DelegatedCancellationControl,
   type DelegatedConversationIdentity,
+  type DelegatedDecisionControl,
   type DelegatedFollowupControl,
 } from '../../mastra/delegated-conversation-binding';
 import type { DelegatedRunIdentity } from '../../mastra/delegated-run-publication';
 import type { DelegatedSuspensionResolver } from '../../mastra/delegated-suspension-discovery';
+import { LiveDecisionUnavailableError } from '../../mastra/live-decision-channel';
 import { createPgliteMastraMemory } from '../../pglite-mastra-memory';
 import {
   hasToolResult,
+  parallelToolCallParts,
   scriptedAgentModel,
   textParts,
   toolCallParts,
@@ -30,6 +34,8 @@ interface BackgroundFixture {
   backing: Awaited<ReturnType<typeof createPgliteMastraMemory>>;
   cancel: DelegatedCancellationControl;
   database: Awaited<ReturnType<typeof createEnginePglite>>;
+  /** The live decision control the running leg registered with the host. */
+  decide: DelegatedDecisionControl;
   discoveryOptions: MastraAgentRuntimeOptions & {
     delegatedSuspensionDiscovery: DelegatedSuspensionResolver;
   };
@@ -43,7 +49,11 @@ interface BackgroundFixture {
     input: Parameters<DelegatedFollowupControl>[1],
     admit?: () => Promise<void>
   ) => Promise<void>;
+  /** Releases the held sibling's allowed read (`fanout.heldSibling`). */
+  hold: PromiseWithResolvers<void>;
   model: ReturnType<typeof scriptedAgentModel>;
+  /** Delegation call ids the host recorded as answered without a claim, in order. */
+  policyAnswers: string[];
   release: PromiseWithResolvers<void>;
   runtime: Awaited<ReturnType<typeof createMastraAgentRuntime>>;
   runtimeData: RuntimeData & { memory: { resourceId: string; threadId: string } };
@@ -55,9 +65,29 @@ export async function createBackgroundFixture(
   requireApproval = false,
   signal?: AbortSignal,
   question: boolean | 'then-plan' | 'available' = false,
-  background?: boolean,
+  background?: boolean | { enabled?: boolean; timeoutMs?: number; maxRetries?: number },
   /** Register the fixture persona as a WORKER so it may delegate (read-only personas are leaves). */
-  asWorker = false
+  asWorker = false,
+  /** How many approval-gated reads the child issues in sequence before answering. */
+  gatedReads: 1 | 2 = 1,
+  fanout: {
+    /** Gate the child's read through the ROOT permission policy instead of the tool flag. */
+    readonly permissionPolicy?: PermissionToolGateSnapshot;
+    /** Dispatch this many independent children in one root step (`background-child-<n>`). */
+    readonly siblings?: number;
+    /**
+     * This sibling reads through `brainstrike.readWorkspaceFile` instead, held
+     * open until `hold` resolves: a running task that keeps the leg alive while
+     * its siblings park (the live-decision cases).
+     */
+    readonly heldSibling?: number;
+    /**
+     * The ROOT calls its own approval-gated write (`root-write`) right after
+     * dispatching; the child never sees that tool. The parent's own pause
+     * while background work runs (the live-app verifier's canvas write).
+     */
+    readonly rootGate?: boolean;
+  } = {}
 ): Promise<BackgroundFixture> {
   const database = await createEnginePglite();
   const scope = { resourceId: 'background-owner', threadId: 'background-root' };
@@ -77,6 +107,7 @@ export async function createBackgroundFixture(
     memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
   });
   const release = Promise.withResolvers<void>();
+  const hold = Promise.withResolvers<void>();
   const entered = Promise.withResolvers<void>();
   const identities: DelegatedConversationIdentity[] = [];
   const runIdentities: DelegatedRunIdentity[] = [];
@@ -97,20 +128,53 @@ export async function createBackgroundFixture(
       subscription[Symbol.dispose]();
     }
   });
+  const siblings = fanout.siblings ?? 1;
+  const delegationArgs = {
+    // Omission preserves the production default in existing background cases.
+    ...(background === undefined
+      ? {}
+      : { _background: typeof background === 'boolean' ? { enabled: background } : background }),
+  };
   const model = scriptedAgentModel((options) => {
     if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
       if (!hasToolResult(options, 'agent-explore')) {
-        return toolCallParts('agent-explore', 'background-child', {
-          // Omission preserves the production default in existing background cases.
-          ...(background === undefined ? {} : { _background: { enabled: background } }),
-          prompt: 'Read background evidence',
+        return fanout.siblings === undefined
+          ? toolCallParts('agent-explore', 'background-child', {
+              ...delegationArgs,
+              prompt: 'Read background evidence',
+            })
+          : parallelToolCallParts(
+              Array.from({ length: siblings }, (_, index) => ({
+                args: { ...delegationArgs, prompt: `Read background evidence ${index + 1}` },
+                toolCallId: `background-child-${index + 1}`,
+                toolName: 'agent-explore',
+              }))
+            );
+      }
+      if (fanout.rootGate && !hasToolResult(options, 'brainstrike_writeWorkspaceFile')) {
+        return toolCallParts('brainstrike_writeWorkspaceFile', 'root-write', {
+          pattern: 'report',
         });
       }
-      return textParts(
-        JSON.stringify(options.prompt).includes('CHILD_FINAL_EVIDENCE')
-          ? 'PARENT_FINAL_OUTCOME'
-          : 'PARENT_USEFUL_PROGRESS'
-      );
+      // Count RETURNED children by their tool-result parts: the prompt spells
+      // one result's text several times (output, provider modelOutput), so a
+      // substring count read one returned sibling as all of them.
+      const returned = options.prompt
+        .filter((message) => message.role === 'tool')
+        .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+        .filter(
+          (part) =>
+            part.type === 'tool-result' &&
+            JSON.stringify(part.output).includes('CHILD_FINAL_EVIDENCE')
+        ).length;
+      return textParts(returned >= siblings ? 'PARENT_FINAL_OUTCOME' : 'PARENT_USEFUL_PROGRESS');
+    }
+    const sibling = JSON.stringify(options.prompt).match(/Read background evidence (\d+)/)?.[1];
+    const readId = sibling === undefined ? 'background-read' : `background-read-${sibling}`;
+    if (sibling !== undefined && Number(sibling) === fanout.heldSibling) {
+      return hasToolResult(options, 'brainstrike_readWorkspaceFile')
+        ? textParts('CHILD_FINAL_EVIDENCE')
+        : toolCallParts('brainstrike_readWorkspaceFile', readId, { pattern: 'evidence' });
     }
     if (question && question !== 'available' && !hasToolResult(options, 'brainstrike_askUser')) {
       return toolCallParts('brainstrike_askUser', 'background-question', {
@@ -124,29 +188,77 @@ export async function createBackgroundFixture(
         title: 'Inspect evidence',
       });
     }
-    return hasToolResult(options, 'brainstrike_grepSearch')
-      ? textParts('CHILD_FINAL_EVIDENCE')
-      : toolCallParts('brainstrike_grepSearch', 'background-read', { pattern: 'evidence' });
+    if (!hasToolResult(options, 'brainstrike_grepSearch')) {
+      return toolCallParts('brainstrike_grepSearch', readId, { pattern: 'evidence' });
+    }
+    if (gatedReads === 2 && !JSON.stringify(options.prompt).includes('background-read-2')) {
+      return toolCallParts('brainstrike_grepSearch', 'background-read-2', {
+        pattern: 'evidence-2',
+      });
+    }
+    return textParts('CHILD_FINAL_EVIDENCE');
   });
   const runtimeData = {
     apiKey: 'test-key',
     memory: scope,
     model: 'gpt-5.4',
+    ...(fanout.permissionPolicy ? { permissionPolicy: fanout.permissionPolicy } : {}),
     provider: 'openai',
     ...(signal ? { signal } : {}),
   } as const;
   let cancel: DelegatedCancellationControl | undefined;
+  let decide: DelegatedDecisionControl | undefined;
   let followup: DelegatedFollowupControl | undefined;
+  let activeClaim: string | undefined;
+  const policyAnswers: string[] = [];
+  const resolveParked = async (parent: {
+    parentRuntimeRunId: string;
+    parentToolCallId: string;
+  }) => {
+    const identity = runIdentities.find(
+      (candidate) =>
+        candidate.parentRuntimeRunId === parent.parentRuntimeRunId &&
+        candidate.parentToolCallId === parent.parentToolCallId
+    );
+    const child = identities.find(
+      (candidate) =>
+        candidate.parentRuntimeRunId === parent.parentRuntimeRunId &&
+        candidate.parentToolCallId === parent.parentToolCallId
+    );
+    if (!(identity && child)) {
+      return;
+    }
+    return { identity, resourceId: child.childResourceId, threadId: child.childThreadId };
+  };
   const options = {
     backgroundTaskScope: scope,
     conversationBinding: {
-      claimToolAction: async () => {},
-      finishToolActions: async () => {},
+      // The desktop ledger holds ONE active claim per root; a second claim in
+      // the same leg is refused (thread-796a942d, 2026-09-14). The fixture
+      // refuses the same way so a multi-claim design cannot pass here.
+      claimToolAction: async (action: { toolCallId: string }) => {
+        if (activeClaim !== undefined) {
+          throw new Error('tool-action-already-consumed-or-root-busy');
+        }
+        activeClaim = action.toolCallId;
+      },
+      finishToolActions: async () => {
+        activeClaim = undefined;
+      },
       prepareToolAction: async () => {},
+      recordToolActionAnswer: async (action: { toolCallId: string; delegation: unknown }) => {
+        policyAnswers.push(action.toolCallId);
+      },
       registerCancellation: (control: DelegatedCancellationControl) => {
         cancel = control;
         return () => {
           cancel = undefined;
+        };
+      },
+      registerDecisionControl: (control: DelegatedDecisionControl) => {
+        decide = control;
+        return () => {
+          decide = undefined;
         };
       },
       registerFollowup: (control: DelegatedFollowupControl) => {
@@ -156,7 +268,15 @@ export async function createBackgroundFixture(
         };
       },
       releaseUnexecutedToolAction: async () => {},
-      resolveToolAction: async (action: { runId: string; toolCallId: string }) => {
+      resolveParkedInvocation: async (parent: {
+        parentRuntimeRunId: string;
+        parentToolCallId: string;
+      }) => resolveParked(parent),
+      resolveToolAction: async (action: {
+        delegation?: unknown;
+        runId: string;
+        toolCallId: string;
+      }) => {
         const identity = runIdentities.find(
           (candidate) =>
             candidate.parentRuntimeRunId === action.runId &&
@@ -167,8 +287,20 @@ export async function createBackgroundFixture(
             candidate.parentRuntimeRunId === action.runId &&
             candidate.parentToolCallId === action.toolCallId
         );
+        // Exactly the desktop host's `resolveToolAction`: the root's OWN tool
+        // call (no invocation at that address, no delegation) has no ancestry;
+        // a bare PARENT address of a delegation is refused by design
+        // (`tool-action-leaf-identity-required`) — a resolver that skipped the
+        // leaf identity passed here and failed live (thread-22c3279b,
+        // 2026-09-14).
         if (!(identity && child)) {
-          throw new Error('Unknown test invocation');
+          if (action.delegation === undefined) {
+            return [];
+          }
+          throw new Error('tool-action-invocation-missing');
+        }
+        if (action.delegation === undefined) {
+          throw new Error('tool-action-leaf-identity-required');
         }
         return [
           {
@@ -208,6 +340,7 @@ export async function createBackgroundFixture(
       {
         allowedToolIds: [
           'brainstrike.grepSearch',
+          ...(fanout.heldSibling === undefined ? [] : ['brainstrike.readWorkspaceFile']),
           ...(question ? ['brainstrike.askUser', 'brainstrike.submitPlan'] : []),
         ],
         description: 'Read evidence',
@@ -234,6 +367,30 @@ export async function createBackgroundFixture(
         inputSchema: z.object({ pattern: z.string() }),
         requireApproval,
       }),
+      ...(fanout.rootGate
+        ? {
+            'brainstrike.writeWorkspaceFile': createTool({
+              description: 'Write the report',
+              execute: async () => ({ written: true }),
+              id: 'brainstrike.writeWorkspaceFile',
+              inputSchema: z.object({ pattern: z.string() }),
+              requireApproval: true,
+            }),
+          }
+        : {}),
+      ...(fanout.heldSibling === undefined
+        ? {}
+        : {
+            'brainstrike.readWorkspaceFile': createTool({
+              description: 'Read a held evidence file',
+              execute: async () => {
+                await hold.promise;
+                return { content: 'BACKGROUND_EVIDENCE' };
+              },
+              id: 'brainstrike.readWorkspaceFile',
+              inputSchema: z.object({ pattern: z.string() }),
+            }),
+          }),
     },
   };
   const runtime = await createMastraAgentRuntime(options);
@@ -246,27 +403,20 @@ export async function createBackgroundFixture(
       return cancel(targets);
     },
     database,
+    // The desktop registry answers a leg without a control as NOT live
+    // (`deliverDesktopDelegatedDecision` → 'no-live-run'); the fixture refuses
+    // the same way so a settled leg is never mistaken for a live one.
+    decide: (request: Parameters<DelegatedDecisionControl>[0]) => {
+      if (!decide) {
+        return Promise.reject(
+          new LiveDecisionUnavailableError('No running leg owns a live decision control.')
+        );
+      }
+      return decide(request);
+    },
     discoveryOptions: {
       ...options,
-      delegatedSuspensionDiscovery: async (parent: {
-        parentRuntimeRunId: string;
-        parentToolCallId: string;
-      }) => {
-        const identity = runIdentities.find(
-          (candidate) =>
-            candidate.parentRuntimeRunId === parent.parentRuntimeRunId &&
-            candidate.parentToolCallId === parent.parentToolCallId
-        );
-        const child = identities.find(
-          (candidate) =>
-            candidate.parentRuntimeRunId === parent.parentRuntimeRunId &&
-            candidate.parentToolCallId === parent.parentToolCallId
-        );
-        if (!(identity && child)) {
-          return;
-        }
-        return { identity, resourceId: child.childResourceId, threadId: child.childThreadId };
-      },
+      delegatedSuspensionDiscovery: resolveParked,
     },
     effect,
     entered,
@@ -288,7 +438,9 @@ export async function createBackgroundFixture(
         admit
       );
     },
+    hold,
     model,
+    policyAnswers,
     release,
     runtime,
     runtimeData,

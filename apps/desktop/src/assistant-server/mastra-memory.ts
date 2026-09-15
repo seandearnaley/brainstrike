@@ -32,7 +32,10 @@ import type { DesktopMemoryFeature } from '@brainstrike/assistant-service/types'
 import { type DesktopDatabase, getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
-import { registerDesktopDelegatedCancellation } from './delegated-execution-controls';
+import {
+  registerDesktopDelegatedCancellation,
+  registerDesktopDelegatedDecision,
+} from './delegated-execution-controls';
 import { registerDesktopDelegatedFollowup } from './delegated-followup-controls';
 import { createDesktopDelegatedInputContext } from './delegated-input-context';
 import { captureDelegatedWorkspaceStart } from './delegated-workspace-snapshot';
@@ -299,12 +302,15 @@ async function createDesktopMastraMemoryFromCacheState({
         continuation: host.continuation,
         finishToolActions: host.finishToolActions,
         prepareToolAction: host.prepareToolAction,
+        recordToolActionAnswer: host.recordToolActionAnswer,
         registerCancellation: (control) => registerDesktopDelegatedCancellation(runId, control),
+        registerDecisionControl: (control) => registerDesktopDelegatedDecision(runId, control),
         registerFollowup: (control) =>
           registerDesktopDelegatedFollowup(runId, (scope, threadId, input) =>
             host.sendFollowup(scope, threadId, input, control)
           ),
         releaseUnexecutedToolAction: host.releaseUnexecutedToolAction,
+        resolveParkedInvocation: host.resolveParkedInvocation,
         resolveToolAction: host.resolveToolAction,
       },
     };

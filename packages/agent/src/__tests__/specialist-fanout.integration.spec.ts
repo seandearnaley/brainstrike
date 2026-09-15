@@ -305,7 +305,10 @@ it('four specialist Explorer children complete under a read:ask posture with one
     expect(JSON.stringify(rootResults)).toContain(`SPECIALIST_${name.toUpperCase()}_FINDINGS`);
   }
   // Every child pauses exactly once, on the ask tool only. The session grant
-  // lifts the ask for later decisions; it does not answer pauses already parked.
+  // lifts the ask for later decisions; for FOREGROUND children it does not
+  // answer pauses already parked (one native resume leg each). Background
+  // siblings ARE answered in the granting leg: background-worker-policy spec.
+  // (2026-09-14)
   expect(pauses.map((pause) => pause.toolName)).toEqual(SPECIALISTS.map(() => DIRECTORY_TOOL));
   expect(new Set(pauses.map((pause) => pause.leaf)).size).toBe(SPECIALISTS.length);
   // A leg that leaves the run parked on the user ends as a tool-calls pause,

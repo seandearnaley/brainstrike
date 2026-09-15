@@ -24,6 +24,12 @@ interface ChildStreamState<State> {
   finished: boolean;
   readonly identity: DelegatedRunIdentity;
   messageId: string;
+  /**
+   * The child finished on a PAUSE (approval / typed suspension), not a
+   * completion: a decision delivered into the running leg resumes it under
+   * the same invocation, and its continuation re-enters this projection.
+   */
+  parked: boolean;
   readonly state: State;
   readonly threadId: string;
   readonly toolNames: Map<string, string>;
@@ -117,6 +123,23 @@ function projectHumanInput<State>(
   ];
 }
 
+/**
+ * A finished child accepts no more parts — unless it finished on a PAUSE: a
+ * parked child resumed in-process (a live decision) continues the same native
+ * invocation, so its stream reopens rather than being dropped as late parts.
+ */
+function reopenIfParked<State>(child: ChildStreamState<State>): boolean {
+  if (!child.finished) {
+    return true;
+  }
+  if (!child.parked) {
+    return false;
+  }
+  child.finished = false;
+  child.parked = false;
+  return true;
+}
+
 function projectPublishedUsage<State>(
   usage: NonNullable<ReturnType<typeof readDelegatedStepUsage>>,
   children: ReadonlyMap<string, ChildStreamState<State>>,
@@ -127,7 +150,13 @@ function projectPublishedUsage<State>(
   );
   const owner = owners[0];
   if (owners.length !== 1 || !owner || !onUsage) {
-    throw new Error('Delegated usage has no unique published native child owner.');
+    throw new Error(
+      `Delegated usage has no unique published native child owner (usage thread ${usage.threadId}; active children ${JSON.stringify(
+        [...children.values()]
+          .filter((child) => !child.finished)
+          .map((child) => [child.identity.parentToolCallId, child.threadId])
+      )}).`
+    );
   }
   onUsage({
     delegation: {
@@ -263,6 +292,36 @@ export function createDelegatedStreamProjection<State>(
     };
   };
 
+  /** The child stream for a delegation envelope, authorized once per invocation. */
+  const admitChild = async (
+    identity: DelegatedRunIdentity,
+    nested: unknown
+  ): Promise<ChildStreamState<State>> => {
+    const key = JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId]);
+    const existing = children.get(key);
+    assertChildIdentity(existing, identity);
+    if (existing) {
+      return existing;
+    }
+    const binding = await authorize(identity);
+    const child: ChildStreamState<State> = {
+      ...(binding.baseline ? { baseline: binding.baseline } : {}),
+      finished: false,
+      identity,
+      // Snapshot resume can forward a descendant before replaying this
+      // child's message id. Only the authorized invocation's saved id is valid.
+      messageId: requireIdentity(
+        readMastraStreamPartString(nested, 'messageId') ?? binding.messageId
+      ),
+      parked: false,
+      state: options.createState(identity.personaId, requireIdentity(binding.threadId)),
+      threadId: requireIdentity(binding.threadId),
+      toolNames: new Map(),
+    };
+    children.set(key, child);
+    return child;
+  };
+
   const project = async (
     part: unknown,
     toolNames: Map<string, string>,
@@ -290,27 +349,8 @@ export function createDelegatedStreamProjection<State>(
       parentToolCallId: requireIdentity(delegation.parentToolCallId),
       personaId: delegation.personaId,
     };
-    const key = JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId]);
-    let child = children.get(key);
-    assertChildIdentity(child, identity);
-    if (!child) {
-      const binding = await authorize(identity);
-      child = {
-        ...(binding.baseline ? { baseline: binding.baseline } : {}),
-        finished: false,
-        identity,
-        // Snapshot resume can forward a descendant before replaying this
-        // child's message id. Only the authorized invocation's saved id is valid.
-        messageId: requireIdentity(
-          readMastraStreamPartString(nested, 'messageId') ?? binding.messageId
-        ),
-        state: options.createState(identity.personaId, requireIdentity(binding.threadId)),
-        threadId: requireIdentity(binding.threadId),
-        toolNames: new Map(),
-      };
-      children.set(key, child);
-    }
-    if (child.finished) {
+    const child = await admitChild(identity, nested);
+    if (!reopenIfParked(child)) {
       return [];
     }
     const messageId = readMastraStreamPartString(nested, 'messageId');
@@ -325,6 +365,9 @@ export function createDelegatedStreamProjection<State>(
       child.toolNames
     );
     child.finished = finished;
+    const nestedType = readMastraStreamPartString(nested, 'type');
+    child.parked =
+      finished && (nestedType === 'tool-call-approval' || nestedType === 'tool-call-suspended');
     const projected = chunks.map((chunk, index): StreamChunkDelegatedConversation => {
       const partId = readMastraStreamPartString(nested, 'id');
       return {

@@ -251,6 +251,8 @@ export function createDesktopDelegatedConversationHost(
     readonly baseline?: DelegatedConversationBaseline;
   }>;
   resolveToolAction: NonNullable<DelegatedConversationBinding['resolveToolAction']>;
+  resolveParkedInvocation: NonNullable<DelegatedConversationBinding['resolveParkedInvocation']>;
+  recordToolActionAnswer: NonNullable<DelegatedConversationBinding['recordToolActionAnswer']>;
   prepareToolAction: NonNullable<DelegatedConversationBinding['prepareToolAction']>;
   claimToolAction: NonNullable<DelegatedConversationBinding['claimToolAction']>;
   finishToolActions(): Promise<void>;
@@ -580,6 +582,66 @@ export function createDesktopDelegatedConversationHost(
         baselines.set(baseline.threadId, baseline);
       }
     },
+    async recordToolActionAnswer(action) {
+      const scopes = await host.resolveToolAction(action);
+      const leaf = scopes.at(-1);
+      if (!leaf) {
+        throw new DelegatedConversationIdentityError('tool-action-leaf-identity-required');
+      }
+      const scope = await readScope();
+      // A policy answer is terminal the moment it is recorded: it joins the
+      // ledger as `consumed` under this leg, never as the root's active claim
+      // (one claimed decision per root is the serialization rule for USER
+      // resumes across reconstructed runtimes). The same admission guards as a
+      // claim apply, and the unique leaf key refuses a second answer.
+      const result = await database.query(
+        `INSERT INTO brainstrike_delegated_tool_decisions
+          (id, owner_resource_id, root_thread_id, parent_runtime_run_id,
+           parent_tool_call_id, child_thread_id, child_runtime_run_id,
+           tool_call_id, host_run_id, state, finished_at)
+         SELECT $1, $2, $3, $4, $5, $6, $7, $8, runs.id, 'consumed', NOW()
+         FROM brainstrike_assistant_thread_runs runs
+         JOIN mastra_threads root ON root.id = runs.thread_id AND root."resourceId" = runs.resource_id
+         WHERE runs.id = $9 AND runs.resource_id = $2 AND runs.thread_id = $3
+           AND runs.turn_message_id = $10 AND runs.status = 'running'
+           AND NOT EXISTS (
+             SELECT 1 FROM brainstrike_assistant_thread_runs cancelled
+             WHERE cancelled.resource_id = runs.resource_id AND cancelled.thread_id = runs.thread_id
+               AND cancelled.turn_message_id = runs.turn_message_id AND cancelled.status IN ('cancelling', 'cancelled')
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM brainstrike_delegated_invocations stopped
+             JOIN jsonb_array_elements_text($11::jsonb) target(thread_id) ON target.thread_id = stopped.thread_id
+             WHERE stopped.owner_resource_id = $2 AND stopped.root_thread_id = $3
+               AND stopped.turn_message_id = $10 AND stopped.cancellation_requested_at IS NOT NULL
+           )
+         ON CONFLICT DO NOTHING RETURNING id`,
+        [
+          randomUUID(),
+          scope.ownerResourceId,
+          scope.rootThreadId,
+          action.runId,
+          action.toolCallId,
+          leaf.threadId,
+          leaf.identity.childRuntimeRunId,
+          action.delegation.toolCallId,
+          hostRunId,
+          scope.turnMessageId,
+          JSON.stringify(scopes.map((target) => target.threadId)),
+        ]
+      );
+      if (result.rows.length !== 1) {
+        throw new DelegatedConversationIdentityError('tool-action-already-consumed-or-root-busy');
+      }
+      // Freeze the child's history at the answer, as `prepareToolAction` does
+      // for the claimed decision, so its resumed leg starts from a boundary.
+      const captured = await Promise.all(
+        scopes.map((target) => captureHistory(target.threadId, target.resourceId, false))
+      );
+      for (const baseline of captured) {
+        baselines.set(baseline.threadId, baseline);
+      }
+    },
     async releaseUnexecutedToolAction(action) {
       const leaf = action.delegation?.path.at(-1);
       if (!(leaf && action.delegation && hasValidDelegatedToolActionTarget(action))) {
@@ -614,6 +676,11 @@ export function createDesktopDelegatedConversationHost(
       claimedActionKey = undefined;
       baselines.clear();
       initialBaselines.clear();
+    },
+    async resolveParkedInvocation(parent) {
+      // The same read-only discovery reload uses, bound to this leg's root.
+      const scope = await readScope();
+      return await createDesktopDelegatedSuspensionResolver(database, scope)(parent);
     },
     async resolveToolAction(action) {
       const scope = await readScope();

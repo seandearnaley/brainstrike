@@ -4,7 +4,11 @@ import type {
   StreamChunkDelegatedConversation,
   StreamFinishReason,
 } from '../../types';
-import { withholdPauseNotices } from '../agent-streaming';
+import {
+  dropHeldPauseFinish,
+  releaseParkedNotices,
+  withholdPauseNotices,
+} from '../agent-streaming';
 
 const identity = (parentToolCallId: string) => ({
   childRuntimeRunId: `child-${parentToolCallId}`,
@@ -102,5 +106,97 @@ describe('withholdPauseNotices', () => {
     const { held, published } = split([wrap(notice('c-dir')), wrap(finish('tool-calls'))]);
     expect(published).toEqual([]);
     expect(held).toHaveLength(2);
+  });
+});
+
+// A BACKGROUND child's pause parks its own task; nothing in this run suspends,
+// so the notice publishes without the leg's completion join (thread-4f14436f,
+// 2026-09-14: three cards held 77 s until the last sibling returned) — but not
+// before the task is durably parked: the child's pause chunk streams ahead of
+// the task's storage row, and a decision delivered into the leg in that window
+// finds nothing to resume. The native `background-task-suspended` part is the
+// release.
+describe('withholdPauseNotices for background children', () => {
+  const owner = JSON.stringify(['root-run', 'delegate-a']);
+  const scopedNotice: StreamChunk = {
+    chunk: {
+      delegation: { path: [identity('delegate-a')], toolCallId: 'leaf-a' },
+      runId: 'child-run',
+      toolCallId: 'leaf-a',
+      toolName: 'brainstrike.readWorkspaceDirectory',
+      type: 'tool-approval-required',
+    },
+    identity: identity('delegate-a'),
+    messageId: 'message-a',
+    type: 'delegated-conversation-chunk',
+  };
+  const suspendedPart = {
+    payload: { runId: 'root-run', taskId: 'task-a', toolCallId: 'delegate-a' },
+    type: 'background-task-suspended',
+  };
+
+  it('parks a background child pause until its task is suspended, then publishes it with a root card', () => {
+    const held: StreamChunk[] = [];
+    const parked = new Map<string, StreamChunk[]>();
+    const published = [
+      ...withholdPauseNotices(
+        [scopedNotice, scoped('delegate-a', finish('tool-calls'))],
+        held,
+        new Set(),
+        new Set([owner]),
+        parked
+      ),
+    ];
+    expect(published).toEqual([]);
+    expect(held).toEqual([]);
+    expect(parked.get(owner)).toHaveLength(2);
+    // Another task's suspension releases nothing of this child's.
+    expect([
+      ...releaseParkedNotices(
+        {
+          payload: { runId: 'root-run', taskId: 'task-b', toolCallId: 'delegate-b' },
+          type: 'background-task-suspended',
+        },
+        parked,
+        held
+      ),
+    ]).toEqual([]);
+    const released = [...releaseParkedNotices(suspendedPart, parked, held)];
+    // The notice and its root card publish; the child's pause FINISH does not:
+    // it is the child view's terminal, and the child is parked, not finished.
+    expect(released.map((chunk) => chunk.type)).toEqual([
+      'delegated-conversation-chunk',
+      'run-event',
+      'tool-approval-required',
+    ]);
+    expect(released[2]).toMatchObject({ runId: 'root-run', toolCallId: 'delegate-a' });
+    expect(held).toEqual([scoped('delegate-a', finish('tool-calls'))]);
+    expect(parked.size).toBe(0);
+    // A second suspension of the same task (its next gated read) has nothing stale to replay.
+    expect([...releaseParkedNotices(suspendedPart, parked, held)]).toEqual([]);
+    // The child resumed in this leg: its held terminal is dropped, another child's stays.
+    held.push(scoped('delegate-b', finish('tool-calls')));
+    dropHeldPauseFinish(
+      {
+        payload: { runId: 'root-run', taskId: 'task-a', toolCallId: 'delegate-a' },
+        type: 'background-task-resumed',
+      },
+      held
+    );
+    expect(held).toEqual([scoped('delegate-b', finish('tool-calls'))]);
+  });
+
+  it('still withholds a foreground child pause', () => {
+    const held: StreamChunk[] = [];
+    const published = [
+      ...withholdPauseNotices(
+        [scoped('delegate-b', notice('leaf-b'))],
+        held,
+        new Set(),
+        new Set([JSON.stringify(['root-run', 'delegate-a'])])
+      ),
+    ];
+    expect(published).toEqual([]);
+    expect(held).toHaveLength(1);
   });
 });

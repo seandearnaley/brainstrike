@@ -44,6 +44,7 @@ import {
   isAssistantCorsPreflight,
   respondForbiddenOrigin,
 } from './assistant-server/cors';
+import { handleDecideRequest } from './assistant-server/decide-endpoint';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import type { HookRunVerdict } from './assistant-server/hooks/run-verdict';
 import {
@@ -385,6 +386,11 @@ export async function handleAssistantRequest(
 
   if (route === 'child-input') {
     await handleDelegatedFollowupRequest(req, res);
+    return;
+  }
+
+  if (route === 'decide') {
+    await handleDecideRequest(req, res);
     return;
   }
 

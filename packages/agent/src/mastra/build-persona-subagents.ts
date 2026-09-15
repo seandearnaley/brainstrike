@@ -57,6 +57,7 @@ import {
   resolveDelegatedWorkBudget,
 } from './delegated-work-budget';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
+import { buildOpenAIDuplicateItemCompatInputProcessor } from './openai-duplicate-item-compat';
 import {
   filterToolsByPermissionWithMetadata,
   type PermissionToolGateLogger,
@@ -356,14 +357,39 @@ function resolvePersonaToolResultBudget(
 }
 
 /**
+ * Mastra's sealed-boundary re-key double-persists a CHILD's response too: a
+ * live-resumed Explorer's next request 400ed "Duplicate item found with id
+ * rs_…" (live-app verifier run 6, 2026-09-15) because only the root carried
+ * the canonicalizer. A worker gets the same compat through its loop options
+ * (`prepareWorkerToolSurface` → `buildToolLoopOptions`); a read-only persona
+ * gets it here, resolved against the child's OWN provider exactly as its
+ * error processors are.
+ */
+function childProviderCompatProcessors(
+  params: BuildPersonaSubAgentsParams,
+  persona: AssistantPersonaDefinition
+): InputProcessor[] {
+  if (personaMode(persona) === 'worker') {
+    return [];
+  }
+  const compat = buildOpenAIDuplicateItemCompatInputProcessor(
+    persona.model?.provider ?? params.provider
+  );
+  return compat ? [compat as InputProcessor] : [];
+}
+
+/**
  * Build persona child Agents for the parent supervisor.
  */
-function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
+function buildChildProcessors(
+  params: BuildPersonaSubAgentsParams,
+  persona: AssistantPersonaDefinition
+): {
   inputProcessors?: InputProcessor[];
   outputProcessors?: OutputProcessor[];
 } {
   const existingChild = (params.depth ?? 1) === 1 ? params.continuationChildScope : undefined;
-  const inputProcessors: InputProcessor[] = [];
+  const inputProcessors: InputProcessor[] = childProviderCompatProcessors(params, persona);
   if (existingChild) {
     inputProcessors.push({
       id: 'brainstrike-continuation-child-scope',
@@ -619,10 +645,10 @@ async function createConfiguredChild({
       childToolResultBudget
     );
   const childExecution = executionForPersona(params.childExecutionConfiguration, persona.model);
-  const childProcessors = buildChildProcessors({
-    ...params,
-    childExecutionConfiguration: childExecution,
-  });
+  const childProcessors = buildChildProcessors(
+    { ...params, childExecutionConfiguration: childExecution },
+    persona
+  );
 
   // The child agent id MUST equal the persona id: Mastra sets
   // `DelegationStartContext.primitiveId = agent.id`, and the delegation caps

@@ -8,6 +8,7 @@ import {
   CHILD_RUN_USAGE_DATA_NAME,
   CONTEXT_BREAKDOWN_DATA_NAME,
   SHELL_OUTPUT_DATA_NAME,
+  TOOL_APPROVAL_ANSWERED_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract';
@@ -28,6 +29,14 @@ const assistantRunTimelineDataUI = {
 const assistantToolApprovalDataUI = {
   name: TOOL_APPROVAL_DATA_NAME,
   render: AssistantToolApprovalDataPart,
+} satisfies AssistantDataUIProps;
+
+// A host-answered approval (session grant answering a parked sibling) is
+// consumed by the notice it answers — `AssistantToolApprovalNotice` scans the
+// thread for it and locks — NOT rendered as its own row.
+const assistantToolApprovalAnsweredDataUI = {
+  name: TOOL_APPROVAL_ANSWERED_DATA_NAME,
+  render: () => null,
 } satisfies AssistantDataUIProps;
 
 const AssistantToolSuspendDataPart: DataMessagePartComponent = ({ data }) => (
@@ -71,6 +80,7 @@ export const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantRunTimelineDataUI);
   useAssistantDataUI(assistantDiscoveryErrorDataUI);
   useAssistantDataUI(assistantToolApprovalDataUI);
+  useAssistantDataUI(assistantToolApprovalAnsweredDataUI);
   useAssistantDataUI(assistantToolSuspendDataUI);
   useAssistantDataUI(assistantShellOutputDataUI);
   useAssistantDataUI(assistantContextBreakdownDataUI);

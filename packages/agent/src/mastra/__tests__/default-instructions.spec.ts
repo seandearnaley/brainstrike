@@ -902,3 +902,27 @@ describe('model-facing tool names cover the whole catalog (BST-1646)', () => {
     ).toThrow(/not a native tool id/);
   });
 });
+
+describe('buildDefaultInstructions delegation guidance', () => {
+  const personas = [{ description: 'Survey code', id: 'explore', label: 'Explorer' }];
+  const names = new Map<string, string>();
+
+  it('names the delegation tools and, with background workers, keeps _background host-owned', () => {
+    const foreground = buildDefaultInstructions(names, { personas });
+    expect(foreground).toContain('agent-explore');
+    expect(foreground).not.toContain('_background');
+    const background = buildDefaultInstructions(names, { backgroundDelegation: true, personas });
+    expect(background).toContain('background workers');
+    expect(background).toContain('Do not set `_background.enabled` to false');
+    expect(background).toContain('until every subagent has returned');
+    expect(background).toContain('_background.maxRetries');
+    expect(background).toContain('waiting for approval');
+    expect(background).toContain('never ask the user for "resume input"');
+  });
+
+  it('says nothing about delegation without personas', () => {
+    expect(buildDefaultInstructions(names, { backgroundDelegation: true })).not.toContain(
+      'background workers'
+    );
+  });
+});

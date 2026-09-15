@@ -15,6 +15,7 @@ import { readToolCallId, readToolExecutionThreadId } from '../tools/read-tool-ca
 import type { ChildContinuationHostPort } from './child-continuation-host-port';
 import type { PrepareChildInputContext } from './child-input-context';
 import type { DelegatedRunIdentity } from './delegated-run-publication';
+import type { LiveDecisionRequest } from './live-decision-channel';
 
 /** Observed native identities; the host separately supplies and verifies root ownership. */
 export interface DelegatedConversationIdentity {
@@ -46,6 +47,15 @@ export type DelegatedCancellationTarget = Pick<
 export type DelegatedCancellationControl = (
   targets: readonly DelegatedCancellationTarget[]
 ) => Promise<void>;
+
+/**
+ * A decision delivered into the RUNNING leg (POST /assistant/decide): the
+ * leg validates and records it, resumes the parked child in-process and
+ * publishes the host's answer on its own stream. Rejects with
+ * `LiveDecisionUnavailableError` when the leg is not live for that decision.
+ */
+export type DelegatedDecisionRequest = LiveDecisionRequest;
+export type DelegatedDecisionControl = (request: DelegatedDecisionRequest) => Promise<void>;
 
 export interface DelegatedFollowupTarget {
   readonly identity: DelegatedRunIdentity;
@@ -98,12 +108,37 @@ export interface DelegatedConversationBinding {
   ): void;
   /** Freeze child history after admission and before invoking native resume. */
   readonly prepareToolAction?: NonNullable<DelegatedConversationBinding['claimToolAction']>;
+  /**
+   * Record a decision the HOST answered by policy (a session grant covering a
+   * parked sibling) as consumed at once. It is not a pending user decision, so
+   * it never takes the root's single active claim; the unique leaf key still
+   * forbids answering the same pause twice (settled 2026-09-14, thread-796a942d:
+   * claiming siblings hit `tool-action-already-consumed-or-root-busy`).
+   */
+  readonly recordToolActionAnswer?: (action: {
+    readonly delegation: DelegatedToolActionIdentity;
+    readonly runId: string;
+    readonly toolCallId: string;
+  }) => Promise<void>;
   readonly registerCancellation?: (control: DelegatedCancellationControl) => () => void;
+  readonly registerDecisionControl?: (control: DelegatedDecisionControl) => () => void;
   readonly registerFollowup?: (control: DelegatedFollowupControl) => () => void;
   /** Roll back this owner's claim only when native resume has not been invoked. */
   readonly releaseUnexecutedToolAction?: NonNullable<
     DelegatedConversationBinding['claimToolAction']
   >;
+  /**
+   * Read-only lookup of the child one parent address dispatched, or `undefined`
+   * when that address delegated nothing. The approval leg walks parked
+   * background siblings from their dispatch address with it, because no leaf
+   * identity exists yet to authorize through `resolveToolAction` (which
+   * refuses a bare address by design: `tool-action-leaf-identity-required`).
+   */
+  readonly resolveParkedInvocation?: (parent: {
+    readonly parentRuntimeRunId: string;
+    readonly parentThreadId: string;
+    readonly parentToolCallId: string;
+  }) => Promise<DelegatedToolActionScope | undefined>;
   /** Read-only authorization of a decision path against the original host-owned graph. */
   readonly resolveToolAction?: (action: {
     readonly continuationId?: string;

@@ -4,8 +4,10 @@
  * FollowUpQueueBridge (behavior proved in follow-up-queue.behavior.test.tsx).
  */
 import { beforeEach, describe, expect, it } from 'vitest';
+import { dequeueDispatchable } from '../follow-up-queue';
 import {
   followUpQueueKey,
+  isDecisionQueued,
   resetFollowUpQueueStore,
   useFollowUpQueueStore,
 } from '../follow-up-queue-store';
@@ -98,5 +100,66 @@ describe('follow-up queue store', () => {
     useFollowUpQueueStore.getState().enqueue('t1', 'a');
     resetFollowUpQueueStore();
     expect(useFollowUpQueueStore.getState().queuedByThread).toEqual({});
+  });
+
+  it('queues a decision message behind typed follow-ups and reports it by identity key', () => {
+    const { enqueue, enqueueMessage, dequeue } = useFollowUpQueueStore.getState();
+    enqueue('t1', 'typed first');
+    const message = {
+      content: [{ text: 'Approved brainstrike.grepSearch.', type: 'text' as const }],
+      role: 'user' as const,
+      runConfig: { custom: { brainstrikeToolApproval: { action: 'approve' } } },
+      startRun: true,
+    };
+    enqueueMessage('t1', {
+      identityKey: '["child-run","leaf-1"]',
+      message,
+      text: 'Approved brainstrike.grepSearch.',
+    });
+    expect(isDecisionQueued(useFollowUpQueueStore.getState(), 't1', '["child-run","leaf-1"]')).toBe(
+      true
+    );
+    expect(isDecisionQueued(useFollowUpQueueStore.getState(), 't1', '["other","leaf"]')).toBe(
+      false
+    );
+    expect(dequeue('t1')?.text).toBe('typed first');
+    const decision = useFollowUpQueueStore.getState().dequeue('t1');
+    expect(decision?.message).toBe(message);
+    expect(isDecisionQueued(useFollowUpQueueStore.getState(), 't1', '["child-run","leaf-1"]')).toBe(
+      false
+    );
+  });
+
+  it('refuses a decision with no visible label', () => {
+    expect(() =>
+      useFollowUpQueueStore.getState().enqueueMessage('t1', {
+        identityKey: 'k',
+        message: { content: [], role: 'user' },
+        text: '  ',
+      })
+    ).toThrow(/non-whitespace/i);
+  });
+
+  it('drops queued decisions the host already answered and dispatches the next item', () => {
+    const { enqueue, enqueueMessage } = useFollowUpQueueStore.getState();
+    const decision = (key: string) => ({
+      identityKey: key,
+      message: {
+        content: [{ text: `Approved ${key}.`, type: 'text' as const }],
+        role: 'user' as const,
+      },
+      text: `Approved ${key}.`,
+    });
+    enqueueMessage('t1', decision('answered-1'));
+    enqueueMessage('t1', decision('answered-2'));
+    enqueue('t1', 'typed follow-up');
+    enqueueMessage('t1', decision('still-pending'));
+    const answered = new Map([
+      ['answered-1', 'session-grant'],
+      ['answered-2', 'session-grant'],
+    ]);
+    expect(dequeueDispatchable('t1', answered)?.text).toBe('typed follow-up');
+    expect(dequeueDispatchable('t1', answered)?.identityKey).toBe('still-pending');
+    expect(dequeueDispatchable('t1', answered)).toBeUndefined();
   });
 });
