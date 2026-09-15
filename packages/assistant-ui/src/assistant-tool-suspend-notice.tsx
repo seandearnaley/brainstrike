@@ -30,7 +30,7 @@ import {
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
 import { followUpQueueKey, isDecisionQueued, useFollowUpQueueStore } from './follow-up-queue-store';
-import { useLiveDecisionTransport } from './live-decision-context';
+import { useLiveDecisionTransport } from './live-decision-transport';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 import {

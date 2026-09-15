@@ -1,12 +1,8 @@
-import { createContext, type ReactNode, use, useMemo } from 'react';
+import { type ReactNode, use, useMemo } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
-import { useAnsweredApprovals } from './answered-approvals-index';
-import {
-  type ApprovalCategoryKey,
-  type ApprovalRanks,
-  approvalCategoryKey,
-  rankPendingApprovals,
-} from './approval-presentation';
+import { useAnsweredApprovals } from './answered-approvals-context';
+import { approvalCategoryKey, rankPendingApprovals } from './approval-presentation';
+import { ApprovalRanksContext } from './approval-ranks-context';
 import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store';
 
 /**
@@ -15,12 +11,9 @@ import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store
  * category owns the full card; the rest are rows. "Decided" folds every way
  * a notice can already be answered — the host's answer, a durable decision
  * state on the part, the user's own appended decision, and a decision still
- * waiting in the follow-up queue.
+ * waiting in the follow-up queue. Read through `useApprovalRank` /
+ * `usePendingApprovalsByCategory` (`approval-ranks-context.ts`).
  */
-const ApprovalRanksContext = createContext<ApprovalRanks | null>(null);
-
-const EMPTY_PENDING: ReadonlyMap<ApprovalCategoryKey, readonly string[]> = new Map();
-
 export function ApprovalRanksProvider({ children }: { children: ReactNode }) {
   const index = useAnsweredApprovals();
   const threadKey = use(ActiveThreadKeyContext);
@@ -44,25 +37,4 @@ export function ApprovalRanksProvider({ children }: { children: ReactNode }) {
     );
   }, [index, queued]);
   return <ApprovalRanksContext.Provider value={ranks}>{children}</ApprovalRanksContext.Provider>;
-}
-
-/**
- * Rank among the PENDING approvals of the same category (0 owns the card),
- * or `null` when there is no provider, the approval is not indexed, or it
- * is already decided.
- */
-export function useApprovalRank(identityKey: string | null): number | null {
-  const ranks = use(ApprovalRanksContext);
-  if (ranks === null || identityKey === null) {
-    return null;
-  }
-  return ranks.rankByKey.get(identityKey) ?? null;
-}
-
-/** Pending identity keys per category, in thread order; empty without a provider. */
-export function usePendingApprovalsByCategory(): ReadonlyMap<
-  ApprovalCategoryKey,
-  readonly string[]
-> {
-  return use(ApprovalRanksContext)?.pendingByCategory ?? EMPTY_PENDING;
 }

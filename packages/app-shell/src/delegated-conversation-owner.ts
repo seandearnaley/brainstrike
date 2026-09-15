@@ -19,11 +19,16 @@ import { createDelegatedConversationStore } from './delegated-conversation-store
 import { createDelegatedDecisionDispatcher } from './delegated-decision-dispatcher';
 
 type PublishedRuntime = Parameters<NonNullable<AssistantUiPanelProps['onRuntimeReady']>>[0];
+type PublishedThreadState = ReturnType<PublishedRuntime['thread']['getState']>;
+/**
+ * The owning root's published thread. Child views read its `messages` through
+ * `subscribe` for the host's approval answers, which stream on the root leg only.
+ */
 interface Thread {
   readonly append: PublishedRuntime['thread']['append'];
-  getState(): Pick<ReturnType<PublishedRuntime['thread']['getState']>, 'threadId'> &
-    Partial<Pick<ReturnType<PublishedRuntime['thread']['getState']>, 'isRunning'>>;
-  readonly subscribe?: PublishedRuntime['thread']['subscribe'];
+  getState(): Pick<PublishedThreadState, 'messages' | 'threadId'> &
+    Partial<Pick<PublishedThreadState, 'isRunning'>>;
+  readonly subscribe: PublishedRuntime['thread']['subscribe'];
 }
 interface Runtime {
   readonly thread: Thread;
@@ -64,7 +69,15 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
       retire();
     }
   };
+  const ownerListeners = new Set<() => void>();
+  const notifyOwner = () => {
+    for (const listener of [...ownerListeners]) {
+      listener();
+    }
+  };
   return {
+    /** The registered owning thread; child views read the root's host answers from it. */
+    getOwnerThread: (): Thread | undefined => runtime?.thread,
     modelSelection,
     onDelegatedConversation(update: DelegatedConversationUpdate): void {
       store.publish(update);
@@ -74,10 +87,12 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
       const registration = { thread, threadId: thread.getState().threadId };
       retirePending();
       runtime = registration;
+      notifyOwner();
       return () => {
         if (runtime === registration) {
           runtime = undefined;
           retirePending();
+          notifyOwner();
         }
       };
     },
@@ -223,6 +238,12 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
       liveDecisionTransport = transport;
     },
     store,
+    subscribeOwner(listener: () => void): () => void {
+      ownerListeners.add(listener);
+      return () => {
+        ownerListeners.delete(listener);
+      };
+    },
   };
 }
 

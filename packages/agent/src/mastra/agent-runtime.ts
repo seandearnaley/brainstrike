@@ -72,6 +72,7 @@ import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error
 import type { McpAppToolAdmissionCapability } from './mcp-app-tool-call';
 import type { McpDiscoverySkip } from './mcp-discovery-diagnostics';
 import type { McpRuntimeClient } from './mcp-runtime-client';
+import type { PermissionGateSummary } from './permission-gate-run-events';
 import type { PermissionAskToolMetadata, PermissionToolGateSnapshot } from './permission-tool-gate';
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
 import type { ProjectionSafeToolCallFilter } from './projection-safe-tool-call-filter';
@@ -293,6 +294,13 @@ export interface MastraAgentRuntime {
    * is a genuine explicit GLOBAL approval (gate every non-internal tool).
    */
   permissionEnforced: boolean;
+  /**
+   * The permission gate this runtime's Agent was built with, minted ONCE as
+   * `permission.gate.resolved` on the fresh-turn prelude (attempt-legs.ts).
+   * REQUIRED: null means no policy snapshot gated the run, which must stay
+   * distinguishable from a runtime that never computed it.
+   */
+  permissionGate: PermissionGateSummary | null;
   /** Persona id → definition for the registered delegation tools (delegation caps). */
   personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
   /**
@@ -763,6 +771,7 @@ export async function createMastraAgentRuntime(
     mcpAppToolAdmission,
     mcpClient,
     mcpDiscoverySkips,
+    permissionGate,
     resilienceConfig,
     sanitizedLocalToolIds,
     settleChildToolOutputs,
@@ -1072,6 +1081,7 @@ export async function createMastraAgentRuntime(
     // resume gate uses to tell all-allowed (empty askTools) from a genuine
     // global-approval run (see resolveRequireToolApproval / MastraAgentRuntime).
     permissionEnforced,
+    permissionGate,
     personasById,
     providerCallWarnings,
     registeredToolNames: [...effectiveToolNameMap.values()],

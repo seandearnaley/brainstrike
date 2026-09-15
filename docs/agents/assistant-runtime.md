@@ -2982,15 +2982,22 @@ Flow (desktop assistant server → agent runtime):
    leg streams
    one `tool-approval-answered` chunk per sibling. The mapper ships it as the
    `brainstrike.tool-approval-answered` data part; the notice scans the thread
-   for a part with its own identity key and locks as "Allowed by session grant"
-   (live and after reload, since the part persists with the message). A
+   for a part with its own identity key and locks as "Allowed by session grant".
+   Neither the request part nor the answer part is stored with the message:
+   after a reload of a finished turn the answered rows are gone, and only a
+   leaf that rediscovery still finds suspended gets a card back, rebuilt with
+   its durable decision state (`assistant-memory-repository.ts`; verified live
+   2026-09-15 on run 21: 755 hydrated parts, no approval parts). A mid-run
+   reload replays the session buffer, answers included. A
    one-shot Approve changes no policy, so the ask set still holds the tool and
    siblings stay parked. Foreground siblings (no background scope: web) remain
    one Mastra `approveToolCall` leg each by the framework's own resume model.
    The root card itself exists for BACKGROUND children only because the leg's
    publish seam synthesizes it (`withRootPauseNotices`, see
    `assistant-subagents.md`): nothing native suspends the parent run when a
-   background task parks.
+   background task parks, and the parent-level pause Mastra writes on a
+   still-open dispatching turn is dropped as a second delivery (ONE DELIVERY
+   PER BACKGROUND CALL, `assistant-subagents.md`).
    The delegated notice also NAMES its child — persona label plus the prompt
    the root gave it (`describeDelegationOwner`) — so four identical read
    prompts from four specialists are distinguishable. Both the name and the
@@ -3017,7 +3024,17 @@ Flow (desktop assistant server → agent runtime):
    behind the run, or a click in flight — and every pending approval BEHIND
    its category's card renders as a one-line row (`approval-row.tsx`) whose
    expanded body is the full card (locked when answered, actionable when
-   merely behind the card). The choice is pure (`approval-presentation.ts`:
+   merely behind the card). A row for a durable `decisionState` (claimed,
+   consumed, interrupted, cancelled, invalid) ALSO renders its recovery status
+   (`RediscoveredPauseLines`, `delegated-decision-recovery-status`) under the
+   collapsed line, and the embedded card omits it so it renders once: that
+   status is safety information ("Processing stopped and the outcome is
+   unknown. Check the workspace before starting another action.") with no
+   control beside it, so it must be readable without opening the row. The
+   first row cut rendered it only inside the expanded body, hiding an
+   interrupted decision's warning (2026-09-15; the reload integration test
+   caught it). Pending-since and stale lines stay in the card, beside the
+   actionable controls. The choice is pure (`approval-presentation.ts`:
    `resolveApprovalPresentation` over `answered` + the per-category pending
    rank) and the rank is computed ONCE per thread change by
    `ApprovalRanksProvider` (`approval-presentation-context.tsx`) from the
@@ -3037,7 +3054,12 @@ Flow (desktop assistant server → agent runtime):
    `approval-preview.tsx` the structured previews. Paired:
    `approval-presentation.test.ts`, `approval-presentation-context.test.tsx`,
    `approval-row.test.tsx` (card→row on a host answer, promotion of the next
-   pending card, nesting depth/rails/chain, an answered click collapses),
+   pending card, nesting depth/rails/chain, an answered click collapses, a
+   durable decision state keeps its recovery status on the collapsed row
+   exactly once), app-shell `delegated-child-reload.integration.test.tsx`
+   ("keeps rich persisted history visible while an interrupted exact decision
+   stays non-actionable": the status before the row opens, the locked buttons
+   after),
    `approval-row.browser.test.tsx` (per-theme rail colour), and the
    expand-before-assert edits in the existing approval tests.
    APPROVALS STRIP (same ruling): `approval-queue-strip.tsx` sits at the
@@ -3056,6 +3078,42 @@ Flow (desktop assistant server → agent runtime):
    `[aria-label$="for this session"]`. Paired:
    `approval-queue-strip.test.tsx` (counts, one decision, idle append,
    round-trip lock, capability gating).
+   CHILD VIEWS READ THE ROOT'S ANSWERS (settled 2026-09-15): a delegated
+   child tab renders its OWN copy of a leaf approval (the child stream's
+   notice), but the host publishes `tool-approval-answered` on the ROOT leg
+   only (`live-decisions.ts`, `recordGrantedBackgroundApprovals`); a child's
+   task channel carries child output, never host facts (ONE DELIVERY PER
+   BACKGROUND CALL, `assistant-subagents.md`). An index over the child's
+   thread alone left every read the grant answered "Pending" with live
+   buttons in each child tab while the root showed "Allowed by session
+   grant" rows (GLM fan-out of four Explorers, 2026-09-15). The child view
+   therefore reads its owning root's answers BY IDENTITY (the child notice,
+   the root card and the answer share `getToolActionIdentityKey`): the
+   delegated conversation root publishes its registered runtime thread
+   (`getOwnerThread` / `subscribeOwner`, `delegated-conversation-owner.ts`),
+   `ChildView` passes it as `ownerThread` to `AssistantConversationPanel`
+   (`ApprovalOwnerThreadContext`), and `AnsweredApprovalsProvider` indexes
+   the owner's messages incrementally beside its own and folds in ONLY
+   their answers — requests, delegation prompts and user decisions stay the
+   view's own, so a child's ranks and strip never list root or sibling
+   approvals. No second writer and no second delivery: the root stream
+   stays the only place an answer is published, native memory the only
+   child transcript writer. A genuinely pending child card keeps its
+   buttons (its decision routes through the owning root). A child view with
+   no registered owning runtime reads no root answers; its decisions already
+   fail at dispatch ("The owning conversation is not available"). After a
+   reload a child has no live leg and shows a leaf approval only while
+   child rediscovery finds it suspended, locked by its durable
+   `decisionState`. Paired: `child-view-owner-approval-answers.test.tsx`
+   (two real external-store runtimes; the child view is memoized, so a root
+   update reaches it only through the subscription — mutations: dropping
+   the owner merge fails the three answered rows, an owner subscription
+   that never notifies fails only the live row), app-shell
+   `delegated-conversation-root.test.ts` ("publishes the registered owning
+   thread…"; mutations: no notify on register, no notify on retire) and
+   `delegated-child-reload.integration.test.tsx` ("shows a child approval
+   its owning root already answered…" through the real `ChildView`;
+   mutation: no `ownerThread` renders the pending card).
    An OpenRouter approval pause terminates its transport leg with zero-token
    usage and no claimed cost: Mastra emits the pause before that model step's
    `step-finish`. Approval resume emits the deferred step finish before later

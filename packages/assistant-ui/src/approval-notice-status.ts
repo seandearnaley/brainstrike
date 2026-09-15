@@ -14,7 +14,7 @@ import type {
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-metadata';
 import { use } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
-import { useAnsweredApprovals } from './answered-approvals-index';
+import { useAnsweredApprovals } from './answered-approvals-context';
 import { followUpQueueKey, isDecisionQueued, useFollowUpQueueStore } from './follow-up-queue-store';
 import {
   DELEGATED_DECISION_STATUS_LABELS,

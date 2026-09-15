@@ -313,6 +313,27 @@ export function makeLifecycleStepMetadata(
   return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
+/**
+ * `run.step.finished` metadata: the lifecycle step metadata plus the step's own
+ * `finishReason` (debug pack, 2026-09-15), so a `length`-cut step is visible
+ * without waiting for the terminal event. Deliberately NOT in
+ * `makeStepMetadata`: that also feeds `run.started`, `run.step.started`,
+ * `run.steered`, the steered `run.finished` and the stream-termination rows,
+ * where a step's reason would contradict the run's terminal (a steered finish
+ * reports `stop`). `'absent'` is the reader's no-value sentinel, never written.
+ */
+export function makeStepFinishedMetadata(
+  part: unknown,
+  lifecycleState: ToolLifecycleState
+): AssistantRunEventMetadata | undefined {
+  const metadata = makeLifecycleStepMetadata(part, lifecycleState);
+  const finishReason = readFinishReason(part);
+  if (finishReason === 'absent') {
+    return metadata;
+  }
+  return { ...metadata, finishReason };
+}
+
 export function recordFirstTextLatency(delta: string, lifecycleState: ToolLifecycleState): void {
   if (delta.length === 0 || lifecycleState.firstTextLatencyMs !== undefined) {
     return;

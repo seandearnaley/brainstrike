@@ -95,6 +95,15 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // no exemption from the card-suppression rule (unlike that allowlist's two
   // `tool.*` entries).
   'mcp.tools.unavailable',
+  // The permission gate this leg's Agent was built with (debug pack,
+  // 2026-09-15): policies, granted categories, yolo, ask tools with their risk,
+  // denied tools, and ask tools omitted without approval storage. Emitted ONCE
+  // per fresh leg on the stream prelude beside `mcp.tools.unavailable`
+  // (`makePermissionGateResolvedChunks`), and only when a policy snapshot gated
+  // the run. Status 'completed', never 'running': the gate has already decided,
+  // so nothing pairs. Deliberately NOT in `isAlwaysVisibleRunEvent`: it explains
+  // why an approval card appeared, and that card is the user-facing surface.
+  'permission.gate.resolved',
   // Forge (pull request) observations (BST-1391, W4). These are the ONLY run
   // events not produced by the agent stream: the main-process ForgeService
   // observes them out of band and the renderer appends them to the thread's

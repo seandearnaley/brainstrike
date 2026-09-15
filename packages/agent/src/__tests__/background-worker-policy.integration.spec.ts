@@ -174,11 +174,14 @@ it("a background child's pause wakes no parent turn: the host surfaces the decis
         : []
     );
     expect(pending).toEqual(['background-read']);
-    // The decision lives in the ROOT thread: a root-level notice addressed to
-    // the delegation call, naming the leaf tool and carrying the leaf identity.
-    // A background child never suspends its parent run, so nothing native
-    // produces this card (thread-b629776b, 2026-09-14: four parked children,
-    // no card on the root, five stray canvas approvals instead).
+    // The decision lives in the ROOT thread: ONE root-level notice addressed to
+    // the delegation call, naming the leaf tool and carrying the leaf identity,
+    // synthesized when the task parks (thread-b629776b, 2026-09-14: four parked
+    // children, no card on the root, five stray canvas approvals instead). A
+    // background child never suspends its parent RUN, but Mastra does emit a
+    // parent-level pause on the dispatching turn while that turn is still
+    // open; the host drops it ("reaches each view ONCE", below). This root
+    // answers instantly, so its turn has closed before the child pauses.
     const rootNotices = chunks.flatMap((chunk) =>
       chunk.type === 'tool-approval-required' ? [chunk] : []
     );
@@ -301,6 +304,89 @@ async function approveFirstRead(
   }
   return chunks;
 }
+
+it("a background child's decision reaches each view ONCE while the dispatching root turn is still open", async () => {
+  // Live GLM run 19 (2026-09-15): the root's first turn stayed open (parallel
+  // reads, long reasoning) while four specialists streamed and parked. While
+  // that turn is open Mastra's background executor delivers every child
+  // pause TWICE: to the task (`background-task-suspended`) and, through the
+  // dispatching step's own suspend, to the turn itself (a parent-level
+  // `tool-call-approval` for the delegation call). It delivered every child
+  // output twice too (`background-task-output` and a raw `tool-output`
+  // envelope on the turn) until patches/@mastra__core@1.64.0.patch made the
+  // task the only output delivery. Projecting both gave every child view each
+  // frame twice and the root thread eight cards for four decisions. A root that answers instantly closes its turn
+  // before any child output exists, so only a held-open turn delivers the
+  // runtime shape.
+  const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
+    permissionPolicy: READ_ASK_POLICY,
+    siblings: 2,
+    slowRootTurn: true,
+  });
+  const { backing, runtime, runtimeData, release, database } = fixture;
+  release.resolve();
+  try {
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [{ id: 'fan-out', parts: [{ text: 'Survey', type: 'text' }], role: 'user' }],
+      runtime,
+      runtimeData,
+    })) {
+      chunks.push(chunk);
+    }
+    const failures = chunks.filter(
+      (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+    );
+    expect(failures, JSON.stringify(failures)).toEqual([]);
+    // ONE root card per parked leaf decision, addressed to its delegation call.
+    const rootCards = chunks
+      .flatMap((chunk) =>
+        chunk.type === 'tool-approval-required'
+          ? [[chunk.toolCallId, chunk.delegation?.toolCallId]]
+          : []
+      )
+      .sort();
+    expect(rootCards).toEqual([
+      ['background-child-1', 'background-read-1'],
+      ['background-child-2', 'background-read-2'],
+    ]);
+    const rootRequested = chunks
+      .flatMap((chunk) =>
+        chunk.type === 'run-event' && chunk.event.kind === 'tool.approval.requested'
+          ? [chunk.event.metadata?.['toolCallId']]
+          : []
+      )
+      .sort();
+    expect(rootRequested).toEqual(['background-child-1', 'background-child-2']);
+    // Each child view carries every frame exactly once: the same view a root
+    // that closed its turn first produces.
+    const childFrames = (parentToolCallId: string) =>
+      chunks.flatMap((chunk) =>
+        chunk.type === 'delegated-conversation-chunk' &&
+        chunk.identity.parentToolCallId === parentToolCallId
+          ? [chunk.chunk.type === 'run-event' ? chunk.chunk.event.kind : chunk.chunk.type]
+          : []
+      );
+    for (const child of ['background-child-1', 'background-child-2']) {
+      expect(childFrames(child), child).toEqual([
+        'run.started',
+        'run.step.started',
+        'tool-event',
+        'tool.started',
+        'tool.approval.requested',
+        'tool-approval-required',
+        'message-finish',
+      ]);
+    }
+    const parked = await runtime.backgroundTaskManager?.listTasks({ status: 'suspended' });
+    expect(parked?.tasks).toHaveLength(2);
+  } finally {
+    release.resolve();
+    await runtime.dispose();
+    await database.close();
+  }
+});
 
 it('a session grant answers every parked background sibling in the same approval leg', async () => {
   const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {

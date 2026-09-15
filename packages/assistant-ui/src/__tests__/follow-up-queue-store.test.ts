@@ -4,8 +4,8 @@
  * FollowUpQueueBridge (behavior proved in follow-up-queue.behavior.test.tsx).
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { dequeueDispatchable } from '../follow-up-queue';
 import {
+  dequeueDispatchable,
   followUpQueueKey,
   isDecisionQueued,
   resetFollowUpQueueStore,

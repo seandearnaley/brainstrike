@@ -1218,6 +1218,13 @@
   white-space: nowrap;
 }
 
+/* A durable decision's recovery status, visible under the collapsed line
+   (safety information never hides behind the disclosure). Aligned with the
+   row line's inline padding. */
+.assistant-ui-panel .bs-approval-row-recovery {
+  padding: 0 0.5rem 0.25rem;
+}
+
 .assistant-ui-panel .bs-approval-row-body {
   border-top: 1px dashed hsl(var(--border));
   padding: 0 0.5rem;

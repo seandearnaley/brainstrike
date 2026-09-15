@@ -2,7 +2,7 @@ import { getToolActionIdentityKey } from '@brainstrike/assistant-contract';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import { ApprovalCard } from './approval-card';
 import { resolveApprovalPresentation } from './approval-presentation';
-import { useApprovalRank } from './approval-presentation-context';
+import { useApprovalRank } from './approval-ranks-context';
 import { ApprovalRow } from './approval-row';
 import { isAssistantToolApprovalRequest } from './tool-decision-run-outcome';
 import { useApprovalNoticeState } from './use-approval-notice-state';

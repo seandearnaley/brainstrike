@@ -46,6 +46,21 @@ function createLogger() {
   };
 }
 
+/** These cases never call start(), so no scheduler history is ever observed. */
+const ignoreSchedulerSnapshots = () => () => undefined;
+
+/** A database with no assistant run or background task in flight. */
+function idleAssistantQuery() {
+  // Untyped like the vi.fn() it replaces, so it fits the generic query seam.
+  const query = vi.fn();
+  query.mockImplementation(async (sql: string) =>
+    sql.includes('brainstrike_assistant_thread_runs')
+      ? { rows: [{ backgroundTasks: 0, runs: 0 }] }
+      : { rows: [] }
+  );
+  return query;
+}
+
 describe('DesktopDimensionIndexMaintenanceScheduler', () => {
   it('skips when DB scheduler is busy', async () => {
     const runScheduledWork = vi.fn();
@@ -61,6 +76,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
       logger: createLogger(),
       runDimensionMaintenance,
       runScheduledWork,
+      subscribeToSchedulerSnapshots: ignoreSchedulerSnapshots,
     });
 
     await expect(scheduler.runOnce()).resolves.toMatchObject({
@@ -85,6 +101,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
       logger: createLogger(),
       runDimensionMaintenance: vi.fn(),
       runScheduledWork,
+      subscribeToSchedulerSnapshots: ignoreSchedulerSnapshots,
     });
 
     await expect(scheduler.runOnce()).resolves.toMatchObject({
@@ -104,6 +121,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
       logger: createLogger(),
       runDimensionMaintenance: vi.fn(),
       runScheduledWork,
+      subscribeToSchedulerSnapshots: ignoreSchedulerSnapshots,
     });
 
     await expect(scheduler.runOnce()).resolves.toMatchObject({
@@ -137,13 +155,17 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
     });
 
     const scheduler = createDesktopDimensionIndexMaintenanceScheduler({
-      getDatabase: vi.fn(async () => ({ maintenance: { exec: maintenanceExec }, query: vi.fn() })),
+      getDatabase: vi.fn(async () => ({
+        maintenance: { exec: maintenanceExec },
+        query: idleAssistantQuery(),
+      })),
       getDimensionIndexStrategy: () => 'regular',
       getPowerSnapshot: idleAcSnapshot,
       getSchedulerSnapshot: idleSchedulerSnapshot,
       logger: createLogger(),
       runDimensionMaintenance,
       runScheduledWork,
+      subscribeToSchedulerSnapshots: ignoreSchedulerSnapshots,
     });
 
     await expect(scheduler.runOnce()).resolves.toMatchObject({
@@ -173,13 +195,17 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
     });
 
     const scheduler = createDesktopDimensionIndexMaintenanceScheduler({
-      getDatabase: vi.fn(async () => ({ maintenance: { exec: maintenanceExec }, query: vi.fn() })),
+      getDatabase: vi.fn(async () => ({
+        maintenance: { exec: maintenanceExec },
+        query: idleAssistantQuery(),
+      })),
       getDimensionIndexStrategy: () => 'regular',
       getPowerSnapshot: idleAcSnapshot,
       getSchedulerSnapshot: idleSchedulerSnapshot,
       logger: createLogger(),
       runDimensionMaintenance,
       runScheduledWork: vi.fn(async (_options, work) => await work()),
+      subscribeToSchedulerSnapshots: ignoreSchedulerSnapshots,
     });
 
     await expect(scheduler.runOnce()).rejects.toThrow(
@@ -193,6 +219,9 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
 
     function createCountingQuery(count: string) {
       return vi.fn(async (sql: string) => {
+        if (sql.includes('brainstrike_assistant_thread_runs')) {
+          return { rows: [{ backgroundTasks: 0, runs: 0 }] };
+        }
         if (sql.includes(EMBEDDED_ROW_COUNT_SQL_FRAGMENT) && sql.includes('file_chunks')) {
           return { rows: [{ count }] };
         }
@@ -219,6 +248,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
         runScheduledWork: vi.fn(
           async (_options, work) => await work()
         ) as unknown as DesktopDimensionIndexMaintenanceSchedulerOptions['runScheduledWork'],
+        subscribeToSchedulerSnapshots: ignoreSchedulerSnapshots,
       });
     }
 
@@ -361,5 +391,122 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
       expect(statements.some((sql) => sql.includes('maintenance_work_mem'))).toBe(false);
       expect(statements.some((sql) => sql.includes('CREATE INDEX'))).toBe(true);
     });
+  });
+});
+
+interface SchedulerSnapshotForTest {
+  readonly queued: Record<DatabaseWorkPriority, number>;
+  readonly runningPriority: DatabaseWorkPriority | null;
+}
+
+/**
+ * Live GLM run 22 (2026-09-15): the app came up at 18:52:38 and this
+ * scheduler's 45 s first tick found the work scheduler idle for one instant
+ * while a four-child fan-out streamed from the model. It started an 82 s HNSW
+ * build the DB host cannot preempt, every run-scoped query behind it hit the
+ * 30 s host timeout, and two children failed. Idle right now is not idle
+ * (BST-1333), and a run waiting on its model is not idle either.
+ */
+describe('DesktopDimensionIndexMaintenanceScheduler admission', () => {
+  function createHarness(inFlight = { backgroundTasks: 0, runs: 0 }) {
+    let nowMs = 1_000_000;
+    let listener: ((snapshot: SchedulerSnapshotForTest) => void) | null = null;
+    const query = vi.fn();
+    query.mockImplementation(async (sql: string) =>
+      sql.includes('brainstrike_assistant_thread_runs') ? { rows: [inFlight] } : { rows: [] }
+    );
+    const runDimensionMaintenance = vi.fn(
+      async () =>
+        ({
+          dimension: 384,
+          durationMs: 1,
+          status: 'completed',
+          strategy: 'regular',
+        }) satisfies RunDimensionIndexMaintenanceResult
+    );
+    const scheduler = createDesktopDimensionIndexMaintenanceScheduler({
+      getDatabase: vi.fn(async () => ({ maintenance: { exec: vi.fn() }, query })),
+      getDimensionIndexStrategy: () => 'regular',
+      getPowerSnapshot: idleAcSnapshot,
+      getSchedulerSnapshot: idleSchedulerSnapshot,
+      logger: createLogger(),
+      now: () => new Date(nowMs),
+      runDimensionMaintenance,
+      runScheduledWork: (async <TResult>(
+        _options: DatabaseWorkRunOptions,
+        work: () => Promise<TResult>
+      ): Promise<TResult> =>
+        await work()) as unknown as DesktopDimensionIndexMaintenanceSchedulerOptions['runScheduledWork'],
+      subscribeToSchedulerSnapshots: (next) => {
+        listener = next;
+        return () => {
+          listener = null;
+        };
+      },
+    });
+    return {
+      advance: (ms: number) => {
+        nowMs += ms;
+      },
+      reportBusy: () => {
+        listener?.({ queued: createQueuedCounts(), runningPriority: 'foreground' });
+      },
+      runDimensionMaintenance,
+      scheduler,
+    };
+  }
+
+  it('refuses to start a build while the database scheduler has only just gone idle', async () => {
+    const harness = createHarness();
+    harness.scheduler.start(); // start seeds "busy": the app is booting
+    harness.advance(5000);
+
+    await expect(harness.scheduler.runOnce()).resolves.toMatchObject({
+      reason: 'database-scheduler-recently-busy',
+      status: 'skipped',
+    });
+    expect(harness.runDimensionMaintenance).not.toHaveBeenCalled();
+    harness.scheduler.stop();
+  });
+
+  it('restarts the quiet window when observed database work arrives', async () => {
+    const harness = createHarness();
+    harness.scheduler.start();
+    harness.advance(20_000);
+    harness.reportBusy();
+    harness.advance(2000);
+
+    await expect(harness.scheduler.runOnce()).resolves.toMatchObject({
+      reason: 'database-scheduler-recently-busy',
+      status: 'skipped',
+    });
+    expect(harness.runDimensionMaintenance).not.toHaveBeenCalled();
+    harness.scheduler.stop();
+  });
+
+  it.for([
+    { backgroundTasks: 0, runs: 1 },
+    { backgroundTasks: 2, runs: 0 },
+  ])('refuses to start a build while assistant work is in flight (%o)', async (inFlight) => {
+    const harness = createHarness(inFlight);
+    harness.scheduler.start();
+    harness.advance(20_000);
+
+    await expect(harness.scheduler.runOnce()).resolves.toMatchObject({
+      reason: 'assistant-work-in-flight',
+      status: 'skipped',
+    });
+    expect(harness.runDimensionMaintenance).not.toHaveBeenCalled();
+    harness.scheduler.stop();
+  });
+
+  it('builds once the scheduler has been quiet and no assistant work is in flight', async () => {
+    const harness = createHarness();
+    harness.scheduler.start();
+    harness.advance(20_000);
+
+    await expect(harness.scheduler.runOnce()).resolves.toMatchObject({ status: 'completed' });
+    expect(harness.runDimensionMaintenance).toHaveBeenCalledTimes(1);
+    harness.scheduler.stop();
   });
 });

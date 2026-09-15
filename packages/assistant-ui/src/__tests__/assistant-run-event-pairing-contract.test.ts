@@ -158,6 +158,12 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     // VISIBLE rather than paired — pinned by 'forces a skipped MCP server to
     // stay visible (BST-1602)' in assistant-run-timeline.test.tsx.
     'mcp.tools.unavailable',
+    // The resolved permission gate (debug pack, 2026-09-15). Emitted `status:
+    // 'completed'` (`makePermissionGateResolvedChunks` in
+    // packages/agent/src/mastra/permission-gate-run-events.ts), never
+    // `'running'`: the gate has already decided when the row is minted. The
+    // emitted status is asserted by permission-gate-run-events.spec.ts.
+    'permission.gate.resolved',
     // BST-1391's forge PR events. `use-forge-run-events.ts` emits these with
     // `status: 'info' | 'completed' | 'failed'` (see `describe()`), NEVER
     // `'running'` — a PR observation is a standalone breadcrumb appended out

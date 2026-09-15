@@ -1749,6 +1749,53 @@ A forwarded `data-*` part keeps the CHILD's `runId`; consumers must attribute it
 by that id, never by its position in the host stream (the projection no longer
 tells child-origin data parts from the parent's). The delegated usage part is
 itself `data-*` and was always allowlisted, so its accounting is unchanged.
+SETTLED 2026-09-15, ONE DELIVERY PER BACKGROUND CALL (do not relitigate):
+while the turn that dispatched a background call is still open, Mastra's
+background executor delivered every child output and pause TWICE. Its
+`outputWriter` published the chunk as the task's output (`task.output` →
+`background-task-output`) and then wrote it through the dispatching step's own
+writer (a raw `tool-output` envelope on that turn); its `suspend` calls the
+step's `suspend` (a parent-level `tool-call-approval` / `tool-call-suspended`
+for the delegation call, on that turn) before parking the task (`@mastra/core`
+1.64, the background branch of the tool-call step in `agent-DsRUDsS_.js`;
+unchanged in 1.67.0, whose own `streamUntilIdle` merges both channels too).
+Live GLM run 19 (2026-09-15, a slow root first turn with parallel reads)
+projected both: every child view carried each frame twice, and the root thread
+showed eight cards for four decisions — four synthesized when the tasks parked,
+four native copies published when the leg ended at the root's canvas pause
+(`withRootPauseNotices` dedupes only within one publish). The TASK is the
+delivery: its copy exists for the call's whole life, the turn's only until that
+turn closes, and every leg with a background manager is idle-loop wrapped
+(`driveBackgroundWork`, the resume stream), so the task channel is always read.
+OUTPUTS are single at the source: a child's raw `data-*` part
+(observational-memory markers, the delegated usage part, the synthesis
+breadcrumb) reaches the executor through the subagent tool's `writer.custom()`
+with no call identity, so no host filter can tell its turn copy from the root's
+own data parts, and that turn copy also ran the ROOT's data-part pipeline,
+which stored a non-transient child part in the root's own message.
+`patches/@mastra__core@1.64.0.patch` therefore makes the executor's
+`outputWriter` publish to the task only, and `projectBackgroundStream` throws on
+a background call's `tool-output` on its dispatching turn (the patch no longer
+applies). The task output is now the only copy, so the background manager's
+`progressThrottleMs` must stay unset: a throttled chunk would be lost. PAUSES:
+`projectBackgroundStream` drops a turn's `tool-call-approval` /
+`tool-call-suspended` for a call known as background (`background-task-started`
+/ `-running`), logging `background_turn_copy_dropped` once per call. It throws
+if a turn copy was forwarded BEFORE the turn acknowledged that call's dispatch
+(Mastra enqueues the acknowledgement first; a violation would silently project
+the task's copy again). A resume leg's host executor (`registerResumedExecutor`)
+writes only to its own stream and publishes no task output, so resumed children
+are untouched. Paired: `mastra-background-contract.integration.spec.ts`
+("delivers a background child's raw data part once while the dispatching parent
+turn is still open"; RED unpatched: the part arrived as task AND turn, and one
+copy was stored in the parent thread), `background-stream.spec.ts` ("one
+delivery per background call": removing the output contract break, exempting
+pauses from the drop, or dropping the order guard each fails only its own rows)
+and `background-worker-policy.integration.spec.ts` ("reaches each view ONCE
+while the dispatching root turn is still open", fixture `slowRootTurn`; RED
+before the drop: four root cards for two decisions and every child frame twice).
+A root that answers instantly closes its turn before any child output exists,
+which is why the fixture never delivered this shape.
 The model may also request `_background.maxRetries` (Mastra's own system prompt
 advertises it, its resolver honours the model's value ahead of the host default,
 and no host knob removes the advertisement). SETTLED 2026-09-14 (BST-1749): the
@@ -1836,9 +1883,11 @@ SETTLED 2026-09-14 (do not relitigate): EVERY parked leaf decision has a card in
 the ROOT thread. A foreground child's pause suspends the parent run on the
 delegation call, so Mastra's parent-level pause becomes that card once
 `decorate()` addresses it to the leaf. A BACKGROUND child's pause parks a task
-and suspends nothing in the parent, so the root stream carried only the child
-envelope and the root thread showed NO card while four specialists sat parked
-(thread-b629776b): `withRootPauseNotices` (`root-pause-notices.ts`) runs at
+and suspends nothing in the parent run (the parent-level copy Mastra writes on a
+still-open dispatching turn is dropped, ONE DELIVERY PER BACKGROUND CALL above),
+so the root stream carries only the child envelope and the root thread showed NO
+card while four specialists sat parked (thread-b629776b):
+`withRootPauseNotices` (`root-pause-notices.ts`) runs at
 every publish of the withheld notices and synthesizes, for each child-scoped
 notice whose leaf identity has no root-level notice, a root card addressed to
 the ROOT edge (`path[0]`, the transport target every resume already uses) with
@@ -1847,7 +1896,8 @@ the leaf tool, args and risk metadata, preceded by the durable
 already carries the root notice and gets no duplicate. Paired:
 `root-pause-notices.spec.ts` and the root-notice assertions in
 `background-worker-policy.integration.spec.ts` (RED before the seam: zero root
-notices for a background child). The card names the child (persona label + the
+notices for a background child; "reaches each view ONCE" pins exactly one root
+card per decision while the dispatching turn is still open). The card names the child (persona label + the
 delegation prompt), and a
 session grant answers every parked BACKGROUND sibling in the same approval leg
 (`claimGrantedBackgroundResumes` → `createBackgroundResumeStream` with N
@@ -1904,6 +1954,13 @@ REAL desktop host, ledger and background store in
   the next pending card of another category; a grandchild's card indents
   under its ancestor with the ancestor's rail. Contract and tests in
   `assistant-runtime.md` (PERMISSION ENGINE, SWARM-AWARE PRESENTATION).
+- Child views (assistant-ui + app-shell, settled 2026-09-15): a child tab
+  renders its own copy of a leaf approval, but the host answers it on the
+  ROOT leg only, so the child reads its owning root's answers by identity
+  and shows the same answered row ("Allowed by session grant" / "Approved");
+  a genuinely pending child card stays actionable. Contract and tests in
+  `assistant-runtime.md` (PERMISSION ENGINE, CHILD VIEWS READ THE ROOT'S
+  ANSWERS).
 SETTLED 2026-09-14 (canonical, after reading Claude Code v2.1.186+, Codex and
 Cursor behaviour): a BACKGROUND child's pause publishes LIVE — its scoped
 notice and the synthesized root card leave the leg the moment its TASK is
@@ -2111,6 +2168,54 @@ recursive leaf approval, renderer reload and a distinct native host restart.
 plan pause, failed outcomes, lost parent-result delivery and root Stop with a
 queued effect. Native background follow-up/human composer and selective subtree
 controls remain separate acceptance within BST-1723.
+
+### Swarm diagnostics evidence (2026-09-15)
+
+Every model-facing wakeup, deferral and late overlay is durable evidence for the
+thread debug pack, recorded through the binding's `recordWakeup` (rows in
+`brainstrike_delegated_wakeups`). `withBackgroundIdleLoop` records `idle-loop`
+BEFORE the continuation streams, with the exact `describeBackgroundWakeup(ledger)`
+directive the parent receives and, as invocations, the terminal events that woke
+it. A parked parent leg records `deferred` and refuses to close while that record
+is pending, so a rejected record fails the leg instead of vanishing.
+`createBackgroundResumeStream` records `resume-leg` before `agent.stream`, and
+`deferred` for a parked root. Both `withLateBackgroundResults` call sites record
+`late-overlay` (`recordLateOverlayWakeup`) before approving or resuming.
+
+Prompt manifests (`brainstrike_assistant_prompt_manifests`): a fresh root turn
+records its system messages and registered tool names once (resume legs replay
+the snapshotted prompt and record none; deferred tool-search tools are not
+listed). The delegation-start hook records `child-first-step` with the prompt the
+child receives and the instructions and kept tool names from the DISPATCHING
+agent's `childPromptFacts`; a delegation dispatched by any other agent logs
+`subagent_prompt_manifest_unrecorded` and records nothing, so nested worker
+delegations have no first-step row yet. A child resumed within the same leg
+records nothing; a parked child resumed on a NEW leg records a second row for the
+same dispatch address, and the pack's `childFirstSteps` takes the earliest. A
+host-prepared follow-up records `continuation` only after the running child
+accepts it; waking an idle child records no continuation manifest.
+
+Live decisions (`brainstrike_delegated_live_decisions`): the decide endpoint
+records `no-live-run`, `refused` (with the host reason) and `failed` BEFORE it
+answers; the running leg records `delivered` with the answered sibling task ids
+and the request's policy snapshot; a remembered grant records
+`remembered-answered` or `remembered-failed` after its attempt, from the parked
+leaf captured once it is found. Exactly one row per outcome.
+
+These rows are evidence, never inputs to the loop. The loop awaits each record,
+and the host binding logs a failed or run-missing write with a code and resolves,
+so a database failure never fails a leg (the pack's host log window captures the
+code). Storage contract: docs/agents/assistant-persistence.md ("SWARM DIAGNOSTICS
+TABLES"). Paired: `background-idle-loop.spec.ts` (record before stream, deferral
+join), `background-late-results.integration.spec.ts` and
+`background-worker-policy.integration.spec.ts` (resume-leg, deferral and overlay
+rows), `late-background-results-processor.spec.ts`,
+`subagent-delegation.spec.ts`, `build-persona-subagents-compat.spec.ts`,
+`prompt-manifest-root-leg.spec.ts`, `live-decisions.spec.ts`,
+`decide-endpoint.test.ts`, `live-decision-log.test.ts`,
+`delegated-sibling-grant.integration.test.ts`,
+`delegated-cancellation.integration.test.ts` and
+`delegated-conversation-host.integration.test.ts`.
 
 ### Selected child cancellation (BST-1723)
 

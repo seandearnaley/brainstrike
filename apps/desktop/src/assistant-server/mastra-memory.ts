@@ -279,10 +279,13 @@ async function createDesktopMastraMemoryFromCacheState({
       ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
       runId,
     });
-    // Snapshot storage uses the captured full database owner; runtime queries
-    // keep the managed run context wrapper.
+    // Run-time host queries (scope, budget, claims, events) take the same
+    // run-critical foreground lane as the memory above. On the owner handle they
+    // bypassed the serial work scheduler and timed out behind a maintenance
+    // statement (live run 22, 2026-09-15). Workspace snapshot capture below
+    // keeps the owner handle.
     const host = createDesktopDelegatedConversationHost(
-      database,
+      runDatabase,
       runId,
       createDesktopDelegatedInputContext(runtimeData),
       async (threadId) =>

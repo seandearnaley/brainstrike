@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   advanceAnsweredApprovalsIndex,
   createMutableApprovalsIndex,
-} from '../answered-approvals-index';
+} from '../answered-approvals-index-model';
 
 const delegation = {
   path: [

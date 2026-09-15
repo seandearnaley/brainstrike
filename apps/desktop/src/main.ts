@@ -1005,6 +1005,10 @@ desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenan
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   logger,
   runScheduledWork: runDesktopScheduledDatabaseWork,
+  // The HNSW build cannot be preempted: it starts only after sustained
+  // scheduler quiet with no assistant work in flight (database.md).
+  subscribeToSchedulerSnapshots: (listener) =>
+    getDesktopDatabaseWorkScheduler().subscribe(listener),
 });
 
 ipcDisposers.add(

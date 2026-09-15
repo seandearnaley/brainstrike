@@ -9,7 +9,10 @@
  * mirroring `context-usage-store.ts`.
  */
 import type { CreateAppendMessage } from '@assistant-ui/react';
+import { createLogger } from '@brainstrike/logging';
 import { create } from 'zustand';
+
+const logger = createLogger('FollowUpQueue');
 
 export interface FollowUpQueueItem {
   readonly id: string;
@@ -136,6 +139,31 @@ export const useFollowUpQueueStore = create<FollowUpQueueState>((set, get) => ({
       },
     })),
 }));
+
+/**
+ * Dequeue the next item that still needs sending. A queued DECISION whose
+ * pause the host has meanwhile answered (a session grant on a sibling card
+ * answered it by policy; `answered-approvals-index.tsx`) is dropped with a
+ * log line instead of dispatched: sending it would resume a consumed
+ * decision and fail the run visibly for nothing (2026-09-14 multi-approval
+ * audit). Typed follow-ups carry no identity and are never dropped.
+ */
+export function dequeueDispatchable(
+  queueKey: string,
+  answered: ReadonlyMap<string, unknown>
+): FollowUpQueueItem | undefined {
+  const store = useFollowUpQueueStore.getState();
+  let item = store.dequeue(queueKey);
+  while (item?.identityKey !== undefined && answered.has(item.identityKey)) {
+    logger.info('Dropped a queued decision the host already answered', {
+      code: 'follow_up_queue_decision_answered',
+      identityKey: item.identityKey,
+      text: item.text,
+    });
+    item = store.dequeue(queueKey);
+  }
+  return item;
+}
 
 /** Clears all queues (factory reset / test isolation). */
 export function resetFollowUpQueueStore(): void {

@@ -1,5 +1,6 @@
 import {
   type AssistantToolApprovalRequest,
+  type RediscoveredToolApproval,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -283,4 +284,46 @@ describe('approval presentation: card vs row', () => {
     expect(row.querySelectorAll('.bs-approval-rail')).toHaveLength(0);
     expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent('Assistant');
   });
+
+  it.each([
+    ['claimed', 'Decision in progress'],
+    ['consumed', 'Decision already submitted'],
+    ['interrupted', 'Decision interrupted'],
+    ['cancelled', 'Turn cancelled'],
+  ] as const)(
+    'a %s durable decision collapses into a row that keeps its recovery status visible',
+    async (decisionState, label) => {
+      // Answered decisions collapse (SWARM-AWARE PRESENTATION), but the
+      // recovery status is safety information: it must be readable on the
+      // collapsed row, not only after the user opens it.
+      const user = userEvent.setup();
+      // The rediscovery wire shape (`RediscoveredToolApproval`): the durable
+      // state rides beside the staleness fields the suspended-runs endpoint stamps.
+      const recovered: RediscoveredToolApproval = {
+        ...readApproval('leaf-1'),
+        decisionState,
+        stale: false,
+        suspendedAt: '2026-09-10T00:00:00.000Z',
+      };
+      pushMessage({ content: [requestPart(recovered)], id: 'm1', role: 'assistant' });
+      renderNotices([recovered]);
+      const row = screen.getByTestId('assistant-tool-approval-notice');
+      expect(row).toHaveAttribute('data-approval-presentation', 'row');
+      expect(screen.queryByTestId('approval-row-card')).not.toBeInTheDocument();
+      const status = screen.getByTestId('delegated-decision-recovery-status');
+      expect(row).toContainElement(status);
+      expect(status).toHaveTextContent(label);
+
+      // Opening the row shows the locked card; the status is still rendered once.
+      await expandApprovalRow(user);
+      expect(screen.getAllByTestId('delegated-decision-recovery-status')).toHaveLength(1);
+      expect(
+        screen.getByRole('button', { name: 'Approve brainstrike.readWorkspaceDirectory' })
+      ).toBeDisabled();
+      expect(
+        screen.getByRole('button', { name: 'Decline brainstrike.readWorkspaceDirectory' })
+      ).toBeDisabled();
+      expect(appendMock).not.toHaveBeenCalled();
+    }
+  );
 });

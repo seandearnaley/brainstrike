@@ -2,6 +2,7 @@ import { addAbortListener } from 'node:events';
 import type { DelegatedBudgetPort } from '@brainstrike/assistant-contract';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
+import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
 import { createTool, type ToolExecutionContext } from '@mastra/core/tools';
 import { vi } from 'vitest';
 import { z } from 'zod';
@@ -9,6 +10,7 @@ import {
   createMastraAgentRuntime,
   type MastraAgentRuntimeOptions,
 } from '../../mastra/agent-runtime';
+import { readTaskEvent, readTaskId } from '../../mastra/background-idle-loop';
 import {
   createDelegatedConversationBinding,
   type DelegatedCancellationControl,
@@ -67,6 +69,44 @@ function createScriptedBudgetPort(limits: {
     },
     settleStep: async () => undefined,
   };
+}
+
+/**
+ * Resolves once `count` background tasks in `scope` are suspended. The
+ * lifecycle subscription is opened BEFORE the durable rows are read, so a
+ * suspension published in between is never missed.
+ */
+async function waitForParkedTasks(
+  manager: BackgroundTaskManager,
+  scope: { readonly resourceId: string; readonly threadId: string },
+  count: number
+): Promise<void> {
+  const watching = new AbortController();
+  const reader = manager
+    .stream({
+      abortSignal: watching.signal,
+      resourceId: scope.resourceId,
+      threadId: scope.threadId,
+    })
+    .getReader();
+  try {
+    const { tasks } = await manager.listTasks({ status: 'suspended' });
+    const parked = new Set(tasks.map((task) => task.id));
+    while (parked.size < count) {
+      const { done, value } = await reader.read();
+      if (done) {
+        throw new Error('The background lifecycle stream closed before every child parked.');
+      }
+      const event = readTaskEvent(value);
+      const taskId = event ? readTaskId(event) : undefined;
+      if (event?.type === 'background-task-suspended' && taskId) {
+        parked.add(taskId);
+      }
+    }
+  } finally {
+    watching.abort();
+    reader.releaseLock();
+  }
 }
 
 interface BackgroundFixture {
@@ -148,6 +188,15 @@ export async function createBackgroundFixture(
      * finish (the GLM synthesis cut).
      */
     readonly budget?: { readonly maxSteps: number; readonly synthesisOutputTokens: number };
+    /**
+     * The ROOT's first turn stays OPEN while its background children stream
+     * and park: its post-dispatch step streams only once every dispatched
+     * child's task is suspended. A production root is slow there (GLM run 19,
+     * 2026-09-15: parallel reads and long reasoning in the dispatching turn),
+     * and a root that answers instantly closes its turn before any child
+     * output exists.
+     */
+    readonly slowRootTurn?: boolean;
   } = {}
 ): Promise<BackgroundFixture> {
   const database = await createEnginePglite();
@@ -284,6 +333,29 @@ export async function createBackgroundFixture(
     }
     return textParts('CHILD_FINAL_EVIDENCE');
   });
+  // Late-bound: the runtime, and so its task manager, exists only after the model.
+  let heldRuntime:
+    | { readonly backgroundTaskManager?: BackgroundTaskManager | undefined }
+    | undefined;
+  if (fanout.slowRootTurn) {
+    const scripted = model.model.doStream;
+    let rootTurnHeld = false;
+    model.model.doStream = async (options) => {
+      if (
+        !rootTurnHeld &&
+        options.tools?.some((tool) => tool.name === 'agent-explore') &&
+        hasToolResult(options, 'agent-explore')
+      ) {
+        rootTurnHeld = true;
+        const manager = heldRuntime?.backgroundTaskManager;
+        if (!manager) {
+          throw new Error('slowRootTurn requires the runtime background task manager.');
+        }
+        await waitForParkedTasks(manager, scope, siblings);
+      }
+      return scripted(options);
+    };
+  }
   const runtimeData = {
     apiKey: 'test-key',
     memory: scope,
@@ -489,6 +561,7 @@ export async function createBackgroundFixture(
     },
   };
   const runtime = await createMastraAgentRuntime(options);
+  heldRuntime = runtime;
   return {
     backing,
     cancel: (targets: Parameters<DelegatedCancellationControl>[0]) => {
