@@ -658,6 +658,57 @@ describe('approval/suspend branch topology (BST-1243)', () => {
     ]);
   });
 
+  it('keeps the edge an aborted leg persists while the echo turn lookup is pending', async () => {
+    // Fan-out verifier runs 19 and 24 (2026-09-15): the approval arrived while
+    // the root leg was still streaming after background children returned.
+    // Approving appends the echo and starts the resume run, which aborts that
+    // leg; its terminal runEnd append persists the suspended message's edge
+    // while the echo's turn lookup is pending. The marker carried the native
+    // run id, which names no thread-run row, so the lookup missed and the
+    // backfill read the tail AFTER that append had advanced it to the
+    // suspended message itself — a self-parent edge that threw
+    // "conflicting branch topology".
+    const { db, repository, seedRun, threadId } = await makeHarness('echo-aborted-leg-race');
+    let lookupStarted!: () => void;
+    const lookupPending = new Promise<void>((resolve) => {
+      lookupStarted = resolve;
+    });
+    let releaseLookup!: () => void;
+    const lookupGate = new Promise<void>((resolve) => {
+      releaseLookup = resolve;
+    });
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository: {
+        ...repository,
+        getThreadRunTurnMessageId: async (runId, runThreadId) => {
+          lookupStarted();
+          await lookupGate;
+          return (await repository.getThreadRunTurnMessageId?.(runId, runThreadId)) ?? null;
+        },
+      },
+      resourceId: 'workspace-a',
+      threadId,
+    });
+    await adapter.load();
+    await adapter.append(userAppendItem({ id: 'user-1', parentId: null, text: 'fan out' }));
+    await seedRun('run-host', 'user-1');
+
+    const echo = adapter.append(
+      approveEchoItem({ id: 'echo-1', parentId: 'assistant-1', runId: 'native-run-1' })
+    );
+    await lookupPending;
+    await adapter.append(
+      assistantAppendItem({ id: 'assistant-1', parentId: 'user-1', text: 'aborted leg' })
+    );
+    releaseLookup();
+
+    await expect(echo).resolves.toBeUndefined();
+    expect(await readEdges(db, threadId)).toEqual([
+      ['user-1', null],
+      ['assistant-1', 'user-1'],
+    ]);
+  });
+
   it('pins multi-pause rediscovery: approving an older notice continues from the durable head', async () => {
     // PR #2392 review (Codex P1 #2) — SETTLED the other way, deliberately:
     // a resumed old run's continuation rows land chronologically at the END
