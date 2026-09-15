@@ -14,7 +14,6 @@ import {
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import { usePermissionPolicyStore } from '@brainstrike/app-state/stores/permission-policy-store';
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import { useSelfImprovementSignalPreferencesStore } from '@brainstrike/app-state/stores/self-improvement-signal-preferences-store';
 import {
@@ -46,8 +45,6 @@ import {
   DebugBundleProvider,
   EditCheckpointProvider,
   RunVerdictProvider,
-  type ToolApprovalGrantHandlers,
-  ToolApprovalGrantProvider,
 } from '@brainstrike/assistant-ui';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db/react';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
@@ -65,6 +62,7 @@ import type {
 import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
+import { AssistantDecisionProviders } from './assistant-decision-providers';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
 import { subscribeAssistantToolUpdates } from './assistant-panel/tool-update-subscriptions';
 import {
@@ -132,6 +130,7 @@ import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
 import { useAssistantRootHistoryAdapter } from './use-assistant-root-history-adapter';
+import { useAssistantRunControls } from './use-assistant-run-controls';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useAssistantThreadTitleSync } from './use-assistant-thread-title-sync';
@@ -139,7 +138,6 @@ import { useAssistantPanelThreadScope } from './use-delegated-conversation-root'
 import { useFileMentions } from './use-file-mentions';
 import { useHookTrustScope } from './use-hook-trust-scope';
 import { useObservationalMemoryRow } from './use-om-segment-row';
-import { hasDesktopAssistantBridge, useSteerActiveRun } from './use-steer-active-run';
 import { WorkspaceBarHost } from './workspace-bar/workspace-bar-host';
 
 export interface AssistantUiPanelWrapperProps {
@@ -1008,9 +1006,12 @@ export function AssistantUiPanelWrapper({
     selectedMemoryThreadId,
     selectedProvider,
   });
-  // Mid-run steer transport (BST-588); the panel receives it only when the
-  // desktop repo (and thus the steer control endpoint) exists.
-  const steerActiveRun = useSteerActiveRun(getActiveSteerableRunId);
+  const { liveDecisionTransport, steerActiveRun } = useAssistantRunControls({
+    getActiveRunId: getActiveSteerableRunId,
+    ownerResourceId: memoryResourceId,
+    permissionEnforceable: localChatTransport === 'data-stream',
+    rootThreadId: selectedMemoryThreadId,
+  });
 
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(
@@ -1389,28 +1390,12 @@ export function AssistantUiPanelWrapper({
     [onRunFailed, publishTerminalRunIdentity, refetchCheckpoints, refreshChangeset]
   );
 
-  // Grant actions for the tool-approval notice ("Always allow" / "Allow
-  // <category> this session"). Store-backed and stable: the wrapper already
-  // subscribes to perToolOverrides/sessionGrants for the request snapshot, so a
-  // grant recorded here reaches the very next request without extra plumbing.
-  const toolApprovalGrants = useMemo<ToolApprovalGrantHandlers>(
-    () => ({
-      grantAllToolsForSession: () =>
-        usePermissionPolicyStore.getState().grantAllSessionCategories(),
-      grantCategoryForSession: (category) =>
-        usePermissionPolicyStore.getState().grantSessionCategory(category),
-      grantToolAlways: (toolId) =>
-        usePermissionPolicyStore.getState().setToolOverride(toolId, 'allow'),
-    }),
-    []
-  );
-
   return (
     <DelegatedWorkspaceNavigation
       ownerResourceId={memoryResourceId}
       rootThreadId={selectedMemoryThreadId}
     >
-      <ToolApprovalGrantProvider handlers={toolApprovalGrants}>
+      <AssistantDecisionProviders liveDecision={liveDecisionTransport}>
         <EditCheckpointProvider value={editCheckpoints}>
           <RunVerdictProvider value={runVerdictBinding}>
             <DebugBundleProvider value={debugBundleBinding}>
@@ -1419,7 +1404,7 @@ export function AssistantUiPanelWrapper({
                   {...delegatedPanelBinding}
                   composerDraftCommand={composerDraftCommand}
                   {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
-                  {...(hasDesktopAssistantBridge() ? { onSteerActiveRun: steerActiveRun } : {})}
+                  {...(steerActiveRun ? { onSteerActiveRun: steerActiveRun } : {})}
                   completePreparedRequest={completeRequestAndSettleLiveUsage}
                   contextWindow={openRouterModelDef?.contextWindow}
                   cumulativeUsage={cumulativeUsage ?? undefined}
@@ -1493,7 +1478,7 @@ export function AssistantUiPanelWrapper({
             </DebugBundleProvider>
           </RunVerdictProvider>
         </EditCheckpointProvider>
-      </ToolApprovalGrantProvider>
+      </AssistantDecisionProviders>
     </DelegatedWorkspaceNavigation>
   );
 }

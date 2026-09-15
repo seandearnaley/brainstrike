@@ -128,6 +128,11 @@ function readContinuationEnvelope(value: unknown): ChildEnvelope {
   };
 }
 
+const isChildEnvelopeEntry = (item: unknown): item is Record<string, unknown> =>
+  isRecord(item) &&
+  (item['name'] === DELEGATED_CONVERSATION_DATA_NAME ||
+    item['name'] === CHILD_CONTINUATION_DATA_NAME);
+
 function readChildEnvelopes(chunk: AssistantStreamChunk): ChildEnvelope[] {
   const entries =
     chunk.type === 'data'
@@ -135,18 +140,35 @@ function readChildEnvelopes(chunk: AssistantStreamChunk): ChildEnvelope[] {
       : chunk.type === 'part-start' && chunk.part.type === 'data'
         ? [chunk.part]
         : [];
-  return entries.flatMap<ChildEnvelope>((item) => {
-    if (!isRecord(item)) {
+  return entries.flatMap<ChildEnvelope>((item: unknown) => {
+    if (!isChildEnvelopeEntry(item)) {
       return [];
     }
-    if (item['name'] === DELEGATED_CONVERSATION_DATA_NAME) {
-      return [readDelegatedEnvelope(item['data'])];
-    }
-    if (item['name'] === CHILD_CONTINUATION_DATA_NAME) {
-      return [readContinuationEnvelope(item['data'])];
-    }
-    return [];
+    return [
+      item['name'] === DELEGATED_CONVERSATION_DATA_NAME
+        ? readDelegatedEnvelope(item['data'])
+        : readContinuationEnvelope(item['data']),
+    ];
   });
+}
+
+/**
+ * Out-of-band `data` entries own no parent part index, so an envelope routed
+ * to its child receiver is consumed here (CONSUMED CHILD ENVELOPES,
+ * assistant-subagents.md). Forwarding it made the parent accumulator retain
+ * every child frame and publish a new parent message per frame, re-rendering
+ * every parent part: 8,146 envelopes × 860 root parts in one GLM fan-out
+ * (2026-09-15). A `part-start` data part owns a parent index and is forwarded.
+ */
+function withoutChildEnvelopes(chunk: AssistantStreamChunk): AssistantStreamChunk | undefined {
+  if (chunk.type !== 'data') {
+    return chunk;
+  }
+  const remaining = chunk.data.filter((item) => !isChildEnvelopeEntry(item));
+  if (remaining.length === chunk.data.length) {
+    return chunk;
+  }
+  return remaining.length === 0 ? undefined : { ...chunk, data: remaining };
 }
 
 /** Ephemeral decoder state only. Native memory remains the transcript writer. */
@@ -394,8 +416,11 @@ export function createDelegatedConversationTap(
         await settleAfterFailure();
         throw error;
       }
-      // Preserve parent part indices; child data never becomes parent text.
-      controller.enqueue(chunk);
+      // Routed out-of-band envelopes are consumed; a part-start keeps its parent index.
+      const forwarded = withoutChildEnvelopes(chunk);
+      if (forwarded) {
+        controller.enqueue(forwarded);
+      }
     },
   });
   return {

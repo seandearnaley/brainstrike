@@ -128,6 +128,13 @@ function ReadyChildView({
 }: ReadyChildViewProps) {
   const durableUsage = hasDurableAssistantUsageCapability();
   const isRunning = live?.update.message.status.type === 'running';
+  // The host answers this child's approvals on the ROOT leg only; the child's
+  // cards read those answers from the owning root's registered thread.
+  const ownerThread = useSyncExternalStore(
+    root.subscribeOwner,
+    root.getOwnerThread,
+    root.getOwnerThread
+  );
   return (
     <DelegatedWorkspaceNavigation
       currentThreadId={node.threadId}
@@ -151,6 +158,7 @@ function ReadyChildView({
               isRunning={isRunning}
               label={node.displayName}
               panelProps={{
+                ownerThread,
                 workspaceBar: (
                   <DelegatedConversationToolbar insights={insights} isRunning={isRunning} />
                 ),

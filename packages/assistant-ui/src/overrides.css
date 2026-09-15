@@ -1091,6 +1091,193 @@
   white-space: nowrap;
 }
 
+/* ==========================================================================
+ * Approval surfaces (swarm-aware cards and rows, 2026-09-15)
+ *
+ * One full card per category while a decision is pending; every answered
+ * approval and every pending one behind the category card is a row. Depth
+ * indents by delegation level; each ancestor edge paints one rail from the
+ * eight `--bs-delegation-N` tokens (packages/ui/src/globals.css, light on
+ * :root, dark under .dark). Geometry lives here, not in utilities: the
+ * browser vitest lane loads no Tailwind.
+ * ========================================================================== */
+.assistant-ui-panel .bs-approval {
+  margin-inline-start: calc(var(--bs-approval-depth, 0) * 1.25rem);
+  min-width: 0;
+}
+
+.assistant-ui-panel [data-delegation-colour="1"] {
+  --bs-approval-rail: var(--bs-delegation-1);
+}
+.assistant-ui-panel [data-delegation-colour="2"] {
+  --bs-approval-rail: var(--bs-delegation-2);
+}
+.assistant-ui-panel [data-delegation-colour="3"] {
+  --bs-approval-rail: var(--bs-delegation-3);
+}
+.assistant-ui-panel [data-delegation-colour="4"] {
+  --bs-approval-rail: var(--bs-delegation-4);
+}
+.assistant-ui-panel [data-delegation-colour="5"] {
+  --bs-approval-rail: var(--bs-delegation-5);
+}
+.assistant-ui-panel [data-delegation-colour="6"] {
+  --bs-approval-rail: var(--bs-delegation-6);
+}
+.assistant-ui-panel [data-delegation-colour="7"] {
+  --bs-approval-rail: var(--bs-delegation-7);
+}
+.assistant-ui-panel [data-delegation-colour="8"] {
+  --bs-approval-rail: var(--bs-delegation-8);
+}
+
+/* The surface's own rail: its leaf delegation. Unlayered, so it beats the
+   card's Tailwind `border` utility on the inline-start side only. */
+.assistant-ui-panel .bs-approval[data-delegation-colour] {
+  border-inline-start: 3px solid hsl(var(--bs-approval-rail));
+}
+
+.assistant-ui-panel .bs-approval-rails {
+  align-self: stretch;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  min-height: 1rem;
+}
+
+.assistant-ui-panel .bs-approval-rail {
+  background: hsl(var(--bs-approval-rail));
+  border-radius: 1px;
+  width: 3px;
+}
+
+.assistant-ui-panel .bs-approval-row {
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  margin-block: 0.25rem;
+}
+
+.assistant-ui-panel .bs-approval-row-line {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  box-sizing: border-box;
+  color: inherit;
+  display: flex;
+  font: inherit;
+  gap: 0.5rem;
+  min-height: 1.75rem;
+  min-width: 0;
+  padding: 0.125rem 0.5rem;
+  text-align: left;
+  width: 100%;
+}
+
+.assistant-ui-panel .bs-approval-row-line:hover {
+  background: hsl(var(--muted) / 0.35);
+}
+
+.assistant-ui-panel .bs-approval-row-owner {
+  color: hsl(var(--bs-approval-rail, var(--foreground)));
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.assistant-ui-panel .bs-approval-row-tool {
+  align-items: baseline;
+  display: flex;
+  flex: 1 1 auto;
+  font-size: 0.75rem;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.assistant-ui-panel .bs-approval-row-verb {
+  flex-shrink: 0;
+}
+
+.assistant-ui-panel .bs-approval-row-target {
+  color: hsl(var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.6875rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-ui-panel .bs-approval-row-status {
+  border: 1px solid hsl(var(--border));
+  border-radius: 9999px;
+  color: hsl(var(--muted-foreground));
+  flex: 0 0 auto;
+  font-size: 0.625rem;
+  line-height: 1rem;
+  padding: 0 0.5rem;
+  white-space: nowrap;
+}
+
+/* A durable decision's recovery status, visible under the collapsed line
+   (safety information never hides behind the disclosure). Aligned with the
+   row line's inline padding. */
+.assistant-ui-panel .bs-approval-row-recovery {
+  padding: 0 0.5rem 0.25rem;
+}
+
+.assistant-ui-panel .bs-approval-row-body {
+  border-top: 1px dashed hsl(var(--border));
+  padding: 0 0.5rem;
+}
+
+/* The approvals strip at the composer: pending counts per category and the
+   one-click session grant that answers the whole category. */
+.assistant-ui-panel .bs-approval-strip {
+  align-items: center;
+  border-top: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  gap: 0.5rem 0.75rem;
+  padding: 0.25rem 0.75rem;
+}
+
+.assistant-ui-panel .bs-approval-strip-label {
+  color: hsl(var(--foreground));
+  font-weight: 500;
+}
+
+.assistant-ui-panel .bs-approval-strip-category {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.375rem;
+}
+
+.assistant-ui-panel .bs-approval-strip-grant {
+  align-items: center;
+  background: transparent;
+  border: 1px solid hsl(var(--border));
+  border-radius: 9999px;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.6875rem;
+  gap: 0.25rem;
+  line-height: 1.25rem;
+  padding: 0 0.5rem;
+}
+
+.assistant-ui-panel .bs-approval-strip-grant:hover:not(:disabled) {
+  background: hsl(var(--muted) / 0.35);
+}
+
+.assistant-ui-panel .bs-approval-strip-grant:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .assistant-ui-panel .bs-step-glyph,
 .assistant-ui-panel .bs-step-family-icon {
   block-size: 1rem;

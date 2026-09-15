@@ -204,6 +204,21 @@ describe('isAlwaysVisibleRunEvent', () => {
     timestamp: ts,
   });
 
+  it('forces the delegation ledger row to stay visible (settled 2026-09-15)', () => {
+    expect(isAlwaysVisibleRunEvent(event('delegation.ledger', 'running'))).toBe(true);
+    expect(isAlwaysVisibleRunEvent(event('delegation.ledger', 'completed'))).toBe(true);
+  });
+
+  it('forces the budget-exhaustion breadcrumb to stay visible (settled 2026-09-15)', () => {
+    expect(isAlwaysVisibleRunEvent(event('delegation.budget.exhausted', 'info'))).toBe(true);
+  });
+
+  it('keeps the resolved permission gate informational, NOT always visible (2026-09-15)', () => {
+    // Debug evidence for why a card appeared; the approval card itself is the
+    // user-facing surface, so this row stays behind Developer detail.
+    expect(isAlwaysVisibleRunEvent(event('permission.gate.resolved', 'completed'))).toBe(false);
+  });
+
   it('forces run-level failure and cancellation rows to stay visible', () => {
     expect(isAlwaysVisibleRunEvent(event('run.failed', 'failed'))).toBe(true);
     expect(isAlwaysVisibleRunEvent(event('run.cancelled', 'cancelled'))).toBe(true);

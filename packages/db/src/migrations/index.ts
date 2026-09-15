@@ -137,6 +137,7 @@ import { migration135DelegatedContinuations } from './135-delegated-continuation
 import { migration136DelegatedInputPayload } from './136-delegated-input-payload.js';
 import { migration137ChildExecutionConfiguration } from './137-child-execution-configuration.js';
 import { migration138IndependentChildContinuationPauses } from './138-independent-child-continuation-pauses.js';
+import { migration139SwarmDiagnostics } from './139-swarm-diagnostics.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -280,6 +281,7 @@ export const migrations: Migration[] = [
   migration136DelegatedInputPayload,
   migration137ChildExecutionConfiguration,
   migration138IndependentChildContinuationPauses,
+  migration139SwarmDiagnostics,
 ];
 
 // Export base migrations (without chunks table) for test environments

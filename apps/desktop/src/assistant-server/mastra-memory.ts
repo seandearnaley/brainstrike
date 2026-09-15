@@ -19,6 +19,7 @@ import {
   type RuntimeData,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
+import { parseRuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import {
   type DesktopMemoryModelTargetDescriptor,
   type DesktopMemoryModelTargetResolution,
@@ -32,7 +33,10 @@ import type { DesktopMemoryFeature } from '@brainstrike/assistant-service/types'
 import { type DesktopDatabase, getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
-import { registerDesktopDelegatedCancellation } from './delegated-execution-controls';
+import {
+  registerDesktopDelegatedCancellation,
+  registerDesktopDelegatedDecision,
+} from './delegated-execution-controls';
 import { registerDesktopDelegatedFollowup } from './delegated-followup-controls';
 import { createDesktopDelegatedInputContext } from './delegated-input-context';
 import { captureDelegatedWorkspaceStart } from './delegated-workspace-snapshot';
@@ -275,10 +279,13 @@ async function createDesktopMastraMemoryFromCacheState({
       ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
       runId,
     });
-    // Snapshot storage uses the captured full database owner; runtime queries
-    // keep the managed run context wrapper.
+    // Run-time host queries (scope, budget, claims, events) take the same
+    // run-critical foreground lane as the memory above. On the owner handle they
+    // bypassed the serial work scheduler and timed out behind a maintenance
+    // statement (live run 22, 2026-09-15). Workspace snapshot capture below
+    // keeps the owner handle.
     const host = createDesktopDelegatedConversationHost(
-      database,
+      runDatabase,
       runId,
       createDesktopDelegatedInputContext(runtimeData),
       async (threadId) =>
@@ -287,7 +294,9 @@ async function createDesktopMastraMemoryFromCacheState({
           threadId,
           runtimeData,
           memoryDependencies?.snapshots
-        )
+        ),
+      // Absent → defaults; malformed → throws before any child can be admitted.
+      parseRuntimeSubagentSettings(runtimeData?.subagentSettings)
     );
     return {
       ...memory,
@@ -299,12 +308,18 @@ async function createDesktopMastraMemoryFromCacheState({
         continuation: host.continuation,
         finishToolActions: host.finishToolActions,
         prepareToolAction: host.prepareToolAction,
+        recordLiveDecision: host.recordLiveDecision,
+        recordPromptManifest: host.recordPromptManifest,
+        recordToolActionAnswer: host.recordToolActionAnswer,
+        recordWakeup: host.recordWakeup,
         registerCancellation: (control) => registerDesktopDelegatedCancellation(runId, control),
+        registerDecisionControl: (control) => registerDesktopDelegatedDecision(runId, control),
         registerFollowup: (control) =>
           registerDesktopDelegatedFollowup(runId, (scope, threadId, input) =>
             host.sendFollowup(scope, threadId, input, control)
           ),
         releaseUnexecutedToolAction: host.releaseUnexecutedToolAction,
+        resolveParkedInvocation: host.resolveParkedInvocation,
         resolveToolAction: host.resolveToolAction,
       },
     };

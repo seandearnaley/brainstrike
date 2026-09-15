@@ -432,6 +432,31 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     app.removeListener('activate', activateHandler);
   });
 
+  // A hung renderer leaves no trace in the durable log on its own: the main
+  // process keeps serving while the window is frozen (2026-09-14, four child
+  // streams into the root thread). Electron reports the hang; record it and
+  // its recovery with timing so a debug pack can prove WHEN the UI locked.
+  let unresponsiveSince: number | undefined;
+  win.webContents.on('unresponsive', () => {
+    unresponsiveSince = Date.now();
+    startupLogger.error(
+      { code: 'renderer_unresponsive', windowRole: getWindowRole(win) ?? 'visible-ui' },
+      'Renderer became unresponsive'
+    );
+  });
+  win.webContents.on('responsive', () => {
+    startupLogger.warn(
+      {
+        code: 'renderer_responsive_again',
+        unresponsiveMs:
+          unresponsiveSince === undefined ? undefined : Date.now() - unresponsiveSince,
+        windowRole: getWindowRole(win) ?? 'visible-ui',
+      },
+      'Renderer responsive again'
+    );
+    unresponsiveSince = undefined;
+  });
+
   win.webContents.on(
     'render-process-gone',
     (_event: Electron.Event, details: Electron.RenderProcessGoneDetails) => {

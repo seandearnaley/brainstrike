@@ -136,6 +136,10 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     // assistant-run-timeline.test.tsx and by the emitter's own status
     // assertion in stream-init-compaction.test.ts.
     'compaction.failed',
+    // A child's durable budget forced its reserved summary. Emitted `status:
+    // 'info'` by the delegated stream projection (`projectSynthesisOutcome`),
+    // never `'running'`: a standalone breadcrumb, no span, no pair.
+    'delegation.budget.exhausted',
     'hook.blocked',
     'hook.notice',
     'memory.configured',
@@ -154,6 +158,12 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     // VISIBLE rather than paired — pinned by 'forces a skipped MCP server to
     // stay visible (BST-1602)' in assistant-run-timeline.test.tsx.
     'mcp.tools.unavailable',
+    // The resolved permission gate (debug pack, 2026-09-15). Emitted `status:
+    // 'completed'` (`makePermissionGateResolvedChunks` in
+    // packages/agent/src/mastra/permission-gate-run-events.ts), never
+    // `'running'`: the gate has already decided when the row is minted. The
+    // emitted status is asserted by permission-gate-run-events.spec.ts.
+    'permission.gate.resolved',
     // BST-1391's forge PR events. `use-forge-run-events.ts` emits these with
     // `status: 'info' | 'completed' | 'failed'` (see `describe()`), NEVER
     // `'running'` — a PR observation is a standalone breadcrumb appended out
@@ -200,11 +210,25 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'worktree.created',
     'worktree.setup',
   ] as const;
+  // A kind emitted `status: 'running'` that is closed by a LATER ROW OF ITS
+  // OWN KIND (same `metadata.ledgerId`), which the render plan shows in its
+  // place — no terminal list: the newest row carries its own status.
+  const SELF_SUPERSEDING = ['delegation.ledger'] as const;
 
   it('tables exactly the non-.started kinds the contract declares', () => {
     expect([...NON_STARTED_KINDS].sort()).toEqual(
-      [...RUNNING_WITH_EXPLICIT_TERMINALS.map(([kind]) => kind), ...NEVER_RUNNING].sort()
+      [
+        ...RUNNING_WITH_EXPLICIT_TERMINALS.map(([kind]) => kind),
+        ...NEVER_RUNNING,
+        ...SELF_SUPERSEDING,
+      ].sort()
     );
+  });
+
+  it('gives a self-superseding kind no terminal list; the newest row carries its own status', () => {
+    for (const kind of SELF_SUPERSEDING) {
+      expect(getTerminalKinds(kind)).toEqual([]);
+    }
   });
 
   it.each(RUNNING_WITH_EXPLICIT_TERMINALS)(

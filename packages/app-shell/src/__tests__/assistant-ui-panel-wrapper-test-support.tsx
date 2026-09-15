@@ -1112,6 +1112,9 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
   // in-renderer transport; tests flip the mock to cover the data-stream route.
   hasDesktopLlmHost: hasDesktopLlmHostMock,
   // Same passthrough rationale as EditCheckpointProvider: the mocked panel
+  // never renders an approval notice, so the grant context is never read.
+  LiveDecisionProvider: ({ children }: { children: ReactNode }) => children,
+  // Same passthrough rationale as EditCheckpointProvider: the mocked panel
   // never renders a verdict control, so the verdict context is never read.
   RunVerdictProvider: ({ children }: { children: ReactNode }) => children,
   SubagentConversationNavigationContext: (await import('react')).createContext<
@@ -1120,8 +1123,6 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
   SubagentConversationPresentationContext: (await import('react')).createContext(null),
   SubagentInvocationResolverContext: (await import('react')).createContext(null),
   ThreadMessageNavigationContext: (await import('react')).createContext(null),
-  // Same passthrough rationale as EditCheckpointProvider: the mocked panel
-  // never renders an approval notice, so the grant context is never read.
   ToolApprovalGrantProvider: ({ children }: { children: ReactNode }) => children,
   // The wrapper reads the usage store both as a hook (selector at render time)
   // and via getState() inside the usage/live-sum callbacks + the

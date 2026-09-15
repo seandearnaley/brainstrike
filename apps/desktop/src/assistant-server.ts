@@ -44,6 +44,7 @@ import {
   isAssistantCorsPreflight,
   respondForbiddenOrigin,
 } from './assistant-server/cors';
+import { handleDecideRequest } from './assistant-server/decide-endpoint';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import type { HookRunVerdict } from './assistant-server/hooks/run-verdict';
 import {
@@ -58,6 +59,7 @@ import {
   readRequestBody,
   streamResponse,
 } from './assistant-server/http';
+import { createLiveDecisionLog } from './assistant-server/live-decision-log';
 import { desktopAssistantServerLogger } from './assistant-server/logger';
 import {
   DesktopMemoryCredentialMissingError,
@@ -131,6 +133,8 @@ import { resolveDesktopPythonExecutable } from './python-runtime';
 const logger = desktopAssistantServerLogger;
 const compactionOverlayLookup = createCompactionRangeLookup(getDatabase);
 const toolProjectionRewriteLookup = createToolProjectionRewriteLookup(getDatabase);
+/** The /assistant/decide outcomes the running leg cannot see (swarm diagnostics). */
+const liveDecisionLog = createLiveDecisionLog(getDatabase);
 
 /**
  * Desktop's instantiation of the service's opaque capability kinds
@@ -385,6 +389,11 @@ export async function handleAssistantRequest(
 
   if (route === 'child-input') {
     await handleDelegatedFollowupRequest(req, res);
+    return;
+  }
+
+  if (route === 'decide') {
+    await handleDecideRequest(req, res, { recordLiveDecision: liveDecisionLog });
     return;
   }
 

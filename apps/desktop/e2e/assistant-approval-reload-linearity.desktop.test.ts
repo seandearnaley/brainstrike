@@ -398,7 +398,14 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
         consumed: 'Decision already submitted',
         interrupted: 'Decision interrupted',
       }[state];
+      // A rediscovered approval with a durable decision state is answered, so
+      // it renders as a collapsed row. Its recovery status is safety
+      // information, readable before the row opens; the locked buttons live
+      // in the expanded body.
+      await expect(approval).toHaveAttribute('data-approval-presentation', 'row');
       await expect(approval.getByTestId('delegated-decision-recovery-status')).toContainText(label);
+      await approval.getByRole('button', { name: /show approval details/i }).click();
+      await expect(approval.getByTestId('delegated-decision-recovery-status')).toHaveCount(1);
       await expect(
         approval.getByRole('button', { name: 'Approve brainstrike.executeCommand' })
       ).toBeDisabled();

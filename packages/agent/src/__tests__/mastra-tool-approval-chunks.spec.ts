@@ -224,6 +224,9 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     const streamOptions = agentInstances.at(-1)?.streamCalls.at(-1)?.options as {
       requireToolApproval?: boolean;
     };
+    // The initial leg passes the caller's explicit option through unchanged;
+    // no run-wide predicate is ever synthesized (per-call approval rides on
+    // the per-tool function-form flag, approval-gate.ts).
     expect(streamOptions.requireToolApproval).toBe(true);
     // The durable run event leads the pause (see the dedicated ordering test
     // below); the transient chunks it precedes are pinned EXACTLY here.

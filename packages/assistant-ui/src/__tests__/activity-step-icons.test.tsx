@@ -26,6 +26,7 @@ describe('StepStateGlyph', () => {
       'waiting',
       'no-answer',
       'rejected',
+      'truncated',
     ] as const) {
       rerender(<StepStateGlyph state={state} />);
       expect(screen.getByRole('img', { name: STEP_STATE_LABELS[state] })).toBeInTheDocument();
@@ -53,6 +54,7 @@ describe('StepStateGlyph', () => {
       'no-answer': 'No answer',
       rejected: 'Rejected',
       running: 'Running',
+      truncated: 'Completed (truncated summary)',
       waiting: 'Waiting for approval',
     });
   });

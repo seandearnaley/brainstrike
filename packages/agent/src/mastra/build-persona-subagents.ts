@@ -29,6 +29,7 @@ import {
   supportsWorkerPersonaProvider,
 } from '@brainstrike/assistant-contract/personas';
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import { Agent, type AgentExecutionOptions, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { type MastraMemory, parseMemoryRequestContext } from '@mastra/core/memory';
@@ -38,12 +39,17 @@ import {
   type ScaledToolResultBudget,
 } from '../stream/tool-output-limits';
 import type { RuntimeData } from '../types';
+import { applyLiveApprovalGate, createApprovalGate } from './approval-gate';
 import type { ChildContinuationRuntimeScope } from './child-continuation-usage';
 import { createChildInputContextProcessor } from './child-input-context';
 import { executionForPersona } from './child-run-configuration';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import { personasAtDelegationDepth } from './delegated-persona-snapshots';
 import { createDelegatedStepUsageProcessor } from './delegated-step-usage';
+import {
+  createDelegatedSynthesisOutcomes,
+  type DelegatedSynthesisOutcomes,
+} from './delegated-synthesis-outcomes';
 import {
   createDelegatedSystemContextProcessor,
   createRootDelegatedContextProcessor,
@@ -57,6 +63,8 @@ import {
   resolveDelegatedWorkBudget,
 } from './delegated-work-budget';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
+import type { LiveDecisionChannel } from './live-decision-channel';
+import { buildOpenAIDuplicateItemCompatInputProcessor } from './openai-duplicate-item-compat';
 import {
   filterToolsByPermissionWithMetadata,
   type PermissionToolGateLogger,
@@ -69,6 +77,7 @@ import {
   createToolHistoryFilter,
   prepareHostedToolDiscovery,
 } from './runtime-assembly/tool-pipeline';
+import type { ChildPromptFacts } from './subagent-delegation';
 import {
   applyToolModelOutputProjections,
   type ModelOutputProjectionObserver,
@@ -76,6 +85,12 @@ import {
 
 export interface PersonaSubAgentBuildResult {
   readonly artifactReaderDelegationTools: readonly string[];
+  /**
+   * Persona id → the exact instructions string and kept original tool names
+   * each child Agent of THIS build was constructed with (debug-pack prompt
+   * manifests). Same keys as `personasById`.
+   */
+  readonly childPromptFacts: ReadonlyMap<string, ChildPromptFacts>;
   /** 'agent-<personaId>' → personaId, for the stream mapper (D9). */
   readonly delegationToolPersonas: ReadonlyMap<string, string>;
   /** Persona id → resolved persona (for delegation caps + instructions). */
@@ -87,7 +102,11 @@ export interface PersonaSubAgentBuildResult {
 export type DelegatedExecutionOptions = Pick<
   AgentExecutionOptions,
   'delegation' | 'hooks' | 'abortSignal'
-> & { workQueue?: DelegatedWorkQueue };
+> & {
+  /** Per-runtime registry of reserved-synthesis outcomes (see `delegated-synthesis-outcomes.ts`). */
+  synthesisOutcomes?: DelegatedSynthesisOutcomes;
+  workQueue?: DelegatedWorkQueue;
+};
 
 export interface BuildPersonaSubAgentsParams {
   /**
@@ -116,6 +135,13 @@ export interface BuildPersonaSubAgentsParams {
   readonly hasStorage?: boolean;
   /** Parent's resolved model instance (D5 — children reuse it). */
   readonly languageModel: MastraModelConfig;
+  /**
+   * The leg's live decision channel: a session grant delivered into the
+   * running leg is remembered here and lifts every child's gate on its next
+   * call (settled 2026-09-15). Optional only for the direct unit harness;
+   * the runtime always passes it.
+   */
+  readonly liveDecisions?: Pick<LiveDecisionChannel, 'remembered'> | undefined;
   readonly localToolIds?: ReadonlySet<string>;
   readonly logger: PermissionToolGateLogger;
   readonly memory?: MastraMemory | undefined;
@@ -154,6 +180,12 @@ export interface BuildPersonaSubAgentsParams {
     budget: ScaledToolResultBudget
   ) => ToolsInput;
   /** sanitizedId → originalName (the parent's map). */
+  /**
+   * The request's validated per-child budgets; the delegation description each
+   * child tool carries derives its step budget from these. Reaches
+   * grandchildren through the spread in the lazy `agents` factory.
+   */
+  readonly subagentSettings: RuntimeSubagentSettings;
   readonly toolNameMap: ReadonlyMap<string, string>;
   /** Forwarded to `applyToolModelOutputProjections` for every child (BST-1196
    * subagent telemetry attribution — see its call site in agent-runtime.ts). */
@@ -356,14 +388,39 @@ function resolvePersonaToolResultBudget(
 }
 
 /**
+ * Mastra's sealed-boundary re-key double-persists a CHILD's response too: a
+ * live-resumed Explorer's next request 400ed "Duplicate item found with id
+ * rs_…" (live-app verifier run 6, 2026-09-15) because only the root carried
+ * the canonicalizer. A worker gets the same compat through its loop options
+ * (`prepareWorkerToolSurface` → `buildToolLoopOptions`); a read-only persona
+ * gets it here, resolved against the child's OWN provider exactly as its
+ * error processors are.
+ */
+function childProviderCompatProcessors(
+  params: BuildPersonaSubAgentsParams,
+  persona: AssistantPersonaDefinition
+): InputProcessor[] {
+  if (personaMode(persona) === 'worker') {
+    return [];
+  }
+  const compat = buildOpenAIDuplicateItemCompatInputProcessor(
+    persona.model?.provider ?? params.provider
+  );
+  return compat ? [compat as InputProcessor] : [];
+}
+
+/**
  * Build persona child Agents for the parent supervisor.
  */
-function buildChildProcessors(params: BuildPersonaSubAgentsParams): {
+function buildChildProcessors(
+  params: BuildPersonaSubAgentsParams,
+  persona: AssistantPersonaDefinition
+): {
   inputProcessors?: InputProcessor[];
   outputProcessors?: OutputProcessor[];
 } {
   const existingChild = (params.depth ?? 1) === 1 ? params.continuationChildScope : undefined;
-  const inputProcessors: InputProcessor[] = [];
+  const inputProcessors: InputProcessor[] = childProviderCompatProcessors(params, persona);
   if (existingChild) {
     inputProcessors.push({
       id: 'brainstrike-continuation-child-scope',
@@ -574,7 +631,7 @@ async function createConfiguredChild({
   params,
   persona,
   childModel,
-  keptOriginalNames,
+  instructions,
   childNameMap,
   settledChildTools,
   rawChildTools,
@@ -583,7 +640,8 @@ async function createConfiguredChild({
   params: BuildPersonaSubAgentsParams;
   persona: AssistantPersonaDefinition;
   childModel: MastraModelConfig;
-  keptOriginalNames: readonly string[];
+  /** `buildChildInstructions(persona, keptOriginalNames)`, built once by the caller. */
+  instructions: string;
   childNameMap: ReadonlyMap<string, string>;
   settledChildTools: ToolsInput;
   rawChildTools: ToolsInput;
@@ -619,10 +677,10 @@ async function createConfiguredChild({
       childToolResultBudget
     );
   const childExecution = executionForPersona(params.childExecutionConfiguration, persona.model);
-  const childProcessors = buildChildProcessors({
-    ...params,
-    childExecutionConfiguration: childExecution,
-  });
+  const childProcessors = buildChildProcessors(
+    { ...params, childExecutionConfiguration: childExecution },
+    persona
+  );
 
   // The child agent id MUST equal the persona id: Mastra sets
   // `DelegationStartContext.primitiveId = agent.id`, and the delegation caps
@@ -686,7 +744,8 @@ async function createConfiguredChild({
         ? createDelegatedWorkBudget(
             durable.budget,
             durable.queue,
-            params.delegatedExecutionOptions?.abortSignal
+            params.delegatedExecutionOptions?.abortSignal,
+            params.delegatedExecutionOptions?.synthesisOutcomes
           )
         : undefined;
       const childSignal = requestContext
@@ -730,9 +789,9 @@ async function createConfiguredChild({
     // Mastra turns this into the `agent-<id>` tool description, the only
     // thing the supervisor reads when sizing a delegation — so it carries the
     // DERIVED step budget rather than the persona's bare prose.
-    description: delegationDescriptionForPersona(persona),
+    description: delegationDescriptionForPersona(persona, params.subagentSettings),
     id: persona.id,
-    instructions: buildChildInstructions(persona, keptOriginalNames),
+    instructions,
     ...childProcessors,
     ...(workerSurface
       ? {
@@ -793,11 +852,13 @@ export async function buildPersonaSubAgents(
 ): Promise<PersonaSubAgentBuildResult> {
   if (params.delegatedExecutionOptions) {
     params.delegatedExecutionOptions.workQueue ??= new DelegatedWorkQueue();
+    params.delegatedExecutionOptions.synthesisOutcomes ??= createDelegatedSynthesisOutcomes();
   }
   const canSuspend = canSuspendPersonaTools(params);
   const originalToSanitized = buildOriginalToSanitized(params.toolNameMap);
   const artifactReaderCapabilities = new Map<string, boolean>();
   const childBuilders: (() => Promise<readonly [string, Agent]>)[] = [];
+  const childPromptFacts = new Map<string, ChildPromptFacts>();
   const delegationToolPersonas = new Map<string, string>();
   const personasById = new Map<string, AssistantPersonaDefinition>();
 
@@ -858,6 +919,28 @@ export async function buildPersonaSubAgents(
       keptOriginalNames.push(candidateNameMap.get(sanitizedId) ?? sanitizedId);
     }
 
+    // The child's OWN gate: only the ask tools it actually kept (an ask tool
+    // omitted for lack of durable host control must not be gated as if it
+    // were registered), reading the leg's remembered grant on every call.
+    // Mastra passes NO run-wide gate to a child it invokes as a tool
+    // (agent-DsRUDsS_.js:27426); the per-tool function-form flag is what
+    // makes the child's ask tools suspend, and a remembered grant lifts it on
+    // the child's very next call. `childTools` stays RAW for grandchildren,
+    // which re-gate it with their own gate.
+    const childAskTools = new Map(
+      Array.from(gateResult.askTools).filter(([sanitizedId]) => sanitizedId in childTools)
+    );
+    const gatedChildTools = applyLiveApprovalGate(
+      childTools,
+      new Set(childAskTools.keys()),
+      createApprovalGate({
+        askTools: childAskTools,
+        permissionEnforced: permissionSnapshot !== undefined,
+        remembered: () => params.liveDecisions?.remembered,
+        toolNameMap: params.toolNameMap,
+      })
+    );
+
     if (keptOriginalNames.length === 0) {
       params.logger.warn('Persona has no available tools after gating; not registering', {
         code: 'subagent_persona_empty_toolset',
@@ -877,8 +960,12 @@ export async function buildPersonaSubAgents(
     }
     const childNameMap = new Map(candidateNameMap);
     const settledChildTools = params.settleChildToolOutputs
-      ? params.settleChildToolOutputs(childTools as ToolsInput, childToolResultBudget)
-      : (childTools as ToolsInput);
+      ? params.settleChildToolOutputs(gatedChildTools as ToolsInput, childToolResultBudget)
+      : (gatedChildTools as ToolsInput);
+    // Built ONCE: the child Agent is constructed with exactly this string, and
+    // the debug pack's child-first-step prompt manifest records the same one.
+    const instructions = buildChildInstructions(persona, keptOriginalNames);
+    childPromptFacts.set(persona.id, { instructions, toolNames: [...keptOriginalNames] });
     childBuilders.push(
       async () =>
         [
@@ -887,7 +974,7 @@ export async function buildPersonaSubAgents(
             childModel,
             childNameMap,
             childToolResultBudget,
-            keptOriginalNames,
+            instructions,
             params: {
               ...params,
               childExecutionConfiguration: capturedExecution,
@@ -915,6 +1002,7 @@ export async function buildPersonaSubAgents(
     artifactReaderDelegationTools: Array.from(artifactReaderCapabilities)
       .filter(([, allowed]) => allowed)
       .map(([tool]) => tool),
+    childPromptFacts,
     delegationToolPersonas,
     personasById,
     subAgents,

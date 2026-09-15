@@ -15,6 +15,7 @@ import { readToolCallId, readToolExecutionThreadId } from '../tools/read-tool-ca
 import type { ChildContinuationHostPort } from './child-continuation-host-port';
 import type { PrepareChildInputContext } from './child-input-context';
 import type { DelegatedRunIdentity } from './delegated-run-publication';
+import type { LiveDecisionRequest } from './live-decision-channel';
 
 /** Observed native identities; the host separately supplies and verifies root ownership. */
 export interface DelegatedConversationIdentity {
@@ -47,6 +48,15 @@ export type DelegatedCancellationControl = (
   targets: readonly DelegatedCancellationTarget[]
 ) => Promise<void>;
 
+/**
+ * A decision delivered into the RUNNING leg (POST /assistant/decide): the
+ * leg validates and records it, resumes the parked child in-process and
+ * publishes the host's answer on its own stream. Rejects with
+ * `LiveDecisionUnavailableError` when the leg is not live for that decision.
+ */
+export type DelegatedDecisionRequest = LiveDecisionRequest;
+export type DelegatedDecisionControl = (request: DelegatedDecisionRequest) => Promise<void>;
+
 export interface DelegatedFollowupTarget {
   readonly identity: DelegatedRunIdentity;
   readonly personaId: string;
@@ -61,6 +71,52 @@ export type DelegatedFollowupControl = (
   assertAdmission: () => Promise<void>,
   prepareContext?: PrepareChildInputContext
 ) => Promise<void>;
+
+export type DelegatedPromptManifestKind = 'root-leg' | 'child-first-step' | 'continuation';
+export interface DelegatedPromptManifestRecord {
+  readonly delegationPrompt?: string;
+  readonly kind: DelegatedPromptManifestKind;
+  readonly model?: string;
+  readonly nativeRunId?: string;
+  readonly parentToolCallId?: string;
+  readonly personaId?: string;
+  readonly personaInstructions?: string;
+  readonly provider?: string;
+  readonly systemContextSource: 'captured' | 'root-leg' | 'none';
+  readonly systemMessages: readonly { readonly content: string; readonly role: 'system' }[];
+  readonly threadId: string;
+  readonly toolNames: readonly string[];
+}
+export interface DelegatedWakeupInvocation {
+  readonly outcome: 'completed' | 'failed' | 'cancelled' | 'late' | 'deferred';
+  readonly taskId: string | null;
+  readonly toolCallId: string;
+  readonly toolName: string | null;
+}
+export interface DelegatedWakeupRecord {
+  readonly directive: string;
+  readonly invocations: readonly DelegatedWakeupInvocation[];
+  readonly kind: 'idle-loop' | 'resume-leg' | 'late-overlay' | 'deferred';
+}
+export interface DelegatedLiveDecisionRecord {
+  readonly answeredSiblingTaskIds?: readonly string[];
+  readonly decision?: 'approve' | 'decline' | 'resume';
+  readonly delegationToolCallId?: string;
+  readonly kind: 'approval' | 'resume';
+  readonly outcome:
+    | 'delivered'
+    | 'no-live-run'
+    | 'refused'
+    | 'failed'
+    | 'remembered-answered'
+    | 'remembered-failed';
+  readonly policySnapshot?: unknown;
+  readonly reason?: string;
+  readonly source: 'user' | 'remembered-grant';
+  readonly taskId?: string;
+  readonly toolCallId: string;
+  readonly toolName?: string;
+}
 
 export interface DelegatedConversationBinding {
   readonly abortInvocations?: (targets: readonly DelegatedCancellationTarget[]) => void;
@@ -98,12 +154,46 @@ export interface DelegatedConversationBinding {
   ): void;
   /** Freeze child history after admission and before invoking native resume. */
   readonly prepareToolAction?: NonNullable<DelegatedConversationBinding['claimToolAction']>;
+  /**
+   * `recordLiveDecision`, `recordPromptManifest` and `recordWakeup` write
+   * debug-pack evidence (migration 139): host-owned, append-only, never runtime
+   * authority. The host logs a failed write with a code and resolves — a
+   * diagnostic record never fails the leg (swarm diagnostics plan, ruling 4).
+   */
+  readonly recordLiveDecision?: (record: DelegatedLiveDecisionRecord) => Promise<void>;
+  readonly recordPromptManifest?: (record: DelegatedPromptManifestRecord) => Promise<void>;
+  /**
+   * Record a decision the HOST answered by policy (a session grant covering a
+   * parked sibling) as consumed at once. It is not a pending user decision, so
+   * it never takes the root's single active claim; the unique leaf key still
+   * forbids answering the same pause twice (settled 2026-09-14, thread-796a942d:
+   * claiming siblings hit `tool-action-already-consumed-or-root-busy`).
+   */
+  readonly recordToolActionAnswer?: (action: {
+    readonly delegation: DelegatedToolActionIdentity;
+    readonly runId: string;
+    readonly toolCallId: string;
+  }) => Promise<void>;
+  readonly recordWakeup?: (record: DelegatedWakeupRecord) => Promise<void>;
   readonly registerCancellation?: (control: DelegatedCancellationControl) => () => void;
+  readonly registerDecisionControl?: (control: DelegatedDecisionControl) => () => void;
   readonly registerFollowup?: (control: DelegatedFollowupControl) => () => void;
   /** Roll back this owner's claim only when native resume has not been invoked. */
   readonly releaseUnexecutedToolAction?: NonNullable<
     DelegatedConversationBinding['claimToolAction']
   >;
+  /**
+   * Read-only lookup of the child one parent address dispatched, or `undefined`
+   * when that address delegated nothing. The approval leg walks parked
+   * background siblings from their dispatch address with it, because no leaf
+   * identity exists yet to authorize through `resolveToolAction` (which
+   * refuses a bare address by design: `tool-action-leaf-identity-required`).
+   */
+  readonly resolveParkedInvocation?: (parent: {
+    readonly parentRuntimeRunId: string;
+    readonly parentThreadId: string;
+    readonly parentToolCallId: string;
+  }) => Promise<DelegatedToolActionScope | undefined>;
   /** Read-only authorization of a decision path against the original host-owned graph. */
   readonly resolveToolAction?: (action: {
     readonly continuationId?: string;

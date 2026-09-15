@@ -1,7 +1,5 @@
-import { TransformStream } from 'node:stream/web';
 import { setImmediate as nextEventLoopTurn } from 'node:timers/promises';
 import { ChildInputNotDeliveredError } from '@brainstrike/assistant-contract';
-import type { AgentExecutionOptionsBase } from '@mastra/core/agent';
 import { BACKGROUND_TASK_WORKFLOW_ID } from '@mastra/core/background-tasks';
 import { expect, it, vi } from 'vitest';
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
@@ -632,42 +630,11 @@ it.each([
 );
 
 it('reports native idle expiry while a child still owns unfinished work', async () => {
-  const { database, backing, runtime, runtimeData, release, effect } =
-    await createBackgroundFixture();
-  const nativeStream = runtime.agent.stream.bind(runtime.agent);
-  const streamSpy = vi
-    .spyOn(runtime.agent, 'stream')
-    .mockImplementation(
-      async (
-        messages: Parameters<typeof nativeStream>[0],
-        options?: AgentExecutionOptionsBase<unknown>
-      ) => {
-        const result = options
-          ? await nativeStream(
-              messages,
-              options.untilIdle ? { ...options, untilIdle: { maxIdleMs: 1 } } : options
-            )
-          : await nativeStream(messages);
-        if (!options?.untilIdle) {
-          return result;
-        }
-        return new Proxy(result, {
-          get(target, property, receiver) {
-            if (property !== 'fullStream') {
-              return Reflect.get(target, property, receiver);
-            }
-            return target.fullStream.pipeThrough(
-              new TransformStream({
-                flush() {
-                  // Observe real native EOF before releasing the controlled child.
-                  release.resolve();
-                },
-              })
-            );
-          },
-        });
-      }
-    );
+  const fixture = await createBackgroundFixture();
+  const { database, backing, runtimeData, release, effect, discoveryOptions } = fixture;
+  // The host loop's silence budget, shortened so the running child (held on
+  // `release`) expires it; the expiry must surface, never a quiet finish.
+  const runtime = await createMastraAgentRuntime({ ...discoveryOptions, backgroundIdleMs: 1 });
   try {
     const iterator = await createStreamIteratorFromRuntime({
       memory: backing.memory,
@@ -688,9 +655,9 @@ it('reports native idle expiry while a child still owns unfinished work', async 
     expect(effect).toHaveBeenCalledTimes(1);
     expect(chunks.filter((chunk) => chunk.type === 'message-finish')).toEqual([]);
   } finally {
-    streamSpy.mockRestore();
     release.resolve();
     await runtime.dispose();
+    await fixture.runtime.dispose();
     await database.close();
   }
 });

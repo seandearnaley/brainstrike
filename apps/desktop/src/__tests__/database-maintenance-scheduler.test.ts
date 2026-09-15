@@ -43,6 +43,16 @@ function createQueuedCounts(
   };
 }
 
+/** A database reporting the given in-flight assistant work (none by default). */
+function databaseWithAssistantWork(inFlight = { backgroundTasks: 0, runs: 0 }) {
+  // Untyped like the vi.fn() it replaces, so it fits the generic query seam.
+  const query = vi.fn();
+  query.mockImplementation(async (sql: string) =>
+    sql.includes('brainstrike_assistant_thread_runs') ? { rows: [inFlight] } : { rows: [] }
+  );
+  return { query };
+}
+
 /**
  * BST-1333: the quiet-period gate. A measured `VACUUM (ANALYZE) file_chunks`
  * ran 7.3s and, because the DB host dispatches serially and cannot preempt it,
@@ -63,7 +73,7 @@ describe('DesktopDatabaseMaintenanceScheduler quiet period (BST-1333)', () => {
     let listener: ((snapshot: SchedulerSnapshotForTest) => void) | null = null;
     const runMaintenance = vi.fn(async () => COMPLETED_MAINTENANCE_RESULT);
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
-      getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+      getDatabase: vi.fn(async () => databaseWithAssistantWork()),
       getSchedulerSnapshot: () => ({
         queued: createQueuedCounts(),
         runningPriority: null,
@@ -152,7 +162,7 @@ describe('DesktopDatabaseMaintenanceScheduler quiet period (BST-1333)', () => {
   it('rejects a negative quiet period instead of coercing it', () => {
     expect(() =>
       createDesktopDatabaseMaintenanceScheduler({
-        getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+        getDatabase: vi.fn(async () => databaseWithAssistantWork()),
         getSchedulerSnapshot: () => ({
           queued: createQueuedCounts(),
           runningPriority: null,
@@ -172,7 +182,7 @@ describe('DesktopDatabaseMaintenanceScheduler quiet period (BST-1333)', () => {
 
 describe('DesktopDatabaseMaintenanceScheduler', () => {
   it('does not request a database handle while scheduled DB work is already busy', async () => {
-    const getDatabase = vi.fn(async () => ({ query: vi.fn() }));
+    const getDatabase = vi.fn(async () => databaseWithAssistantWork());
     const runScheduledWork = vi.fn();
     const runMaintenance = vi.fn();
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
@@ -204,7 +214,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
   });
 
   it('runs maintenance through the background database lane when the scheduler is idle', async () => {
-    const db = { query: vi.fn() };
+    const db = databaseWithAssistantWork();
     const getDatabase = vi.fn(async () => db);
     let capturedOptions: DatabaseWorkOptions | null = null;
     const runScheduledWork = vi.fn(
@@ -261,7 +271,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
   });
 
   it('logs a partial maintenance pass as info, not as a skip', async () => {
-    const db = { query: vi.fn() };
+    const db = databaseWithAssistantWork();
     const runScheduledWork = vi.fn(
       async <TResult>(
         _options: DatabaseWorkOptions,
@@ -331,7 +341,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         })
     );
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
-      getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+      getDatabase: vi.fn(async () => databaseWithAssistantWork()),
       getSchedulerSnapshot: () => ({
         queued: createQueuedCounts(),
         runningPriority: null,
@@ -357,6 +367,8 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
       status: 'skipped',
     });
     expect(runScheduledWork).toHaveBeenCalledTimes(1);
+    // The pass reads in-flight assistant work inside the lane before it runs.
+    await vi.waitFor(() => expect(runMaintenance).toHaveBeenCalledTimes(1));
 
     const finishMaintenance = resolveMaintenance as
       | ((result: ScheduledDatabaseMaintenanceResult) => void)
@@ -378,7 +390,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         ): Promise<TResult> => await work()
       ) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'];
       const scheduler = createDesktopDatabaseMaintenanceScheduler({
-        getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+        getDatabase: vi.fn(async () => databaseWithAssistantWork()),
         getSchedulerSnapshot: () => ({
           queued: createQueuedCounts(),
           runningPriority: null,
@@ -423,7 +435,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         ): Promise<TResult> => await work()
       ) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'];
       const scheduler = createDesktopDatabaseMaintenanceScheduler({
-        getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+        getDatabase: vi.fn(async () => databaseWithAssistantWork()),
         getSchedulerSnapshot: () => ({
           queued: createQueuedCounts(),
           runningPriority: null,
@@ -496,7 +508,7 @@ describe('DesktopDatabaseMaintenanceScheduler corruption recovery', () => {
     });
     const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
-      getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+      getDatabase: vi.fn(async () => databaseWithAssistantWork()),
       getSchedulerSnapshot: () => ({
         queued: createQueuedCounts(),
         runningPriority: null,
@@ -600,5 +612,39 @@ describe('DesktopDatabaseMaintenanceScheduler corruption recovery', () => {
 
     expect(harness.onRuntimeCorruption).not.toHaveBeenCalled();
     expect(harness.logger.warn).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Live GLM run 22 (2026-09-15): an unpreemptable maintenance statement that
+ * starts while assistant work is in flight blocks every run-scoped query behind
+ * it. A run waiting on its model issues no database work for many seconds, so
+ * sustained quiet alone cannot see it; the durable run and task rows can.
+ */
+describe('DesktopDatabaseMaintenanceScheduler assistant work admission', () => {
+  it.for([
+    { backgroundTasks: 0, runs: 1 },
+    { backgroundTasks: 1, runs: 0 },
+  ])('refuses to start a pass while assistant work is in flight (%o)', async (inFlight) => {
+    const runMaintenance = vi.fn(async () => COMPLETED_MAINTENANCE_RESULT);
+    const scheduler = createDesktopDatabaseMaintenanceScheduler({
+      getDatabase: vi.fn(async () => databaseWithAssistantWork(inFlight)),
+      getSchedulerSnapshot: () => ({ queued: createQueuedCounts(), runningPriority: null }),
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+      onRuntimeCorruption: vi.fn(),
+      quietPeriodMs: 0,
+      runMaintenance,
+      runScheduledWork: (async <TResult>(
+        _options: DatabaseWorkOptions,
+        work: () => Promise<TResult>
+      ): Promise<TResult> =>
+        await work()) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'],
+    });
+
+    const result = await scheduler.runOnce();
+
+    expect(result.status).toBe('skipped');
+    expect((result as { reason: string }).reason).toBe('assistant-work-in-flight');
+    expect(runMaintenance).not.toHaveBeenCalled();
   });
 });

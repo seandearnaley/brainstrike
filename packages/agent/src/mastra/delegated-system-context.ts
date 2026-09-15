@@ -16,8 +16,8 @@ export const MAX_DELEGATED_CONTEXT_BYTES = 64 * 1024;
  * supervisor instructions or model-authored delegation parameters. */
 export function captureDelegatedSystemContext(
   messages: readonly AgentMessage[]
-): DelegatedSystemContext {
-  const context: DelegatedSystemContext = [];
+): { content: string; role: 'system' }[] {
+  const context: { content: string; role: 'system' }[] = [];
   for (const message of messages) {
     if (message.role !== 'system') {
       continue;

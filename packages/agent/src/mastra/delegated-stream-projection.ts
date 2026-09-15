@@ -1,6 +1,10 @@
-import type { DelegatedConversationBaseline } from '@brainstrike/assistant-contract';
+import type {
+  DelegatedConversationBaseline,
+  DelegationBudgetCap,
+} from '@brainstrike/assistant-contract';
 import {
   assistantChildSignalContentsSchema,
+  createAssistantRunEvent,
   type DelegatedToolActionIdentity,
   isDelegatedToolActionIdentity,
   readAssistantChildSignalContents,
@@ -10,6 +14,10 @@ import type { ConversationStreamChunk, StreamChunkDelegatedConversation } from '
 import { readChildContinuationUserMessage } from './child-continuation-user-message';
 import type { DelegatedRunIdentity } from './delegated-run-publication';
 import { readDelegatedStepUsage } from './delegated-step-usage';
+import {
+  type DelegatedSynthesisPart,
+  readDelegatedSynthesisPart,
+} from './delegated-synthesis-outcomes';
 import type { SubagentChildUsageReport } from './subagent-delegation';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 import { resolveDelegationPersona } from './tool-lifecycle-processors';
@@ -24,6 +32,12 @@ interface ChildStreamState<State> {
   finished: boolean;
   readonly identity: DelegatedRunIdentity;
   messageId: string;
+  /**
+   * The child finished on a PAUSE (approval / typed suspension), not a
+   * completion: a decision delivered into the running leg resumes it under
+   * the same invocation, and its continuation re-enters this projection.
+   */
+  parked: boolean;
   readonly state: State;
   readonly threadId: string;
   readonly toolNames: Map<string, string>;
@@ -117,6 +131,23 @@ function projectHumanInput<State>(
   ];
 }
 
+/**
+ * A finished child accepts no more parts — unless it finished on a PAUSE: a
+ * parked child resumed in-process (a live decision) continues the same native
+ * invocation, so its stream reopens rather than being dropped as late parts.
+ */
+function reopenIfParked<State>(child: ChildStreamState<State>): boolean {
+  if (!child.finished) {
+    return true;
+  }
+  if (!child.parked) {
+    return false;
+  }
+  child.finished = false;
+  child.parked = false;
+  return true;
+}
+
 function projectPublishedUsage<State>(
   usage: NonNullable<ReturnType<typeof readDelegatedStepUsage>>,
   children: ReadonlyMap<string, ChildStreamState<State>>,
@@ -127,7 +158,13 @@ function projectPublishedUsage<State>(
   );
   const owner = owners[0];
   if (owners.length !== 1 || !owner || !onUsage) {
-    throw new Error('Delegated usage has no unique published native child owner.');
+    throw new Error(
+      `Delegated usage has no unique published native child owner (usage thread ${usage.threadId}; active children ${JSON.stringify(
+        [...children.values()]
+          .filter((child) => !child.finished)
+          .map((child) => [child.identity.parentToolCallId, child.threadId])
+      )}).`
+    );
   }
   onUsage({
     delegation: {
@@ -140,6 +177,60 @@ function projectPublishedUsage<State>(
     outputTokens: usage.outputTokens,
     personaId: owner.identity.personaId,
   });
+}
+
+const SYNTHESIS_CAP_NOUNS = {
+  'child-output': 'output token',
+  steps: 'step',
+  'tree-output': 'shared output token',
+} as const satisfies Record<DelegationBudgetCap, string>;
+
+/**
+ * The budget processor's reserved-synthesis outcome becomes the owner child's
+ * persisted `delegation.budget.exhausted` breadcrumb (status `info`, no pair):
+ * the cap that forced the summary, `used` of `limit` in that cap's unit, and
+ * whether the model then cut the summary. Like usage, the part is raw on the
+ * parent stream, so its owner is the ONE published unfinished child on its
+ * native thread; none or several is a contract break, never a dropped event.
+ */
+function projectSynthesisOutcome<State>(
+  outcome: DelegatedSynthesisPart,
+  children: ReadonlyMap<string, ChildStreamState<State>>
+): StreamChunkDelegatedConversation[] {
+  const owners = [...children.values()].filter(
+    (child) => child.threadId === outcome.threadId && !child.finished
+  );
+  const owner = owners[0];
+  if (owners.length !== 1 || !owner) {
+    throw new Error(
+      `Delegated synthesis outcome has no unique published native child owner (thread ${outcome.threadId}).`
+    );
+  }
+  const event = createAssistantRunEvent({
+    kind: 'delegation.budget.exhausted',
+    label: `Subagent ${SYNTHESIS_CAP_NOUNS[outcome.cap]} budget exhausted (${outcome.used} of ${outcome.limit}); summary ${outcome.truncated ? 'reserved and truncated' : 'reserved'}`,
+    metadata: {
+      cap: outcome.cap,
+      limit: outcome.limit,
+      parentToolCallId: owner.identity.parentToolCallId,
+      personaId: owner.identity.personaId,
+      reservedOutputTokens: outcome.reservedOutputTokens,
+      // Always true here: this event exists because the reserved summary step ran.
+      synthesisForced: true,
+      truncated: outcome.truncated,
+      used: outcome.used,
+      ...(outcome.outputTokens === undefined ? {} : { outputTokens: outcome.outputTokens }),
+    },
+    status: 'info',
+  });
+  return [
+    {
+      chunk: { event, type: 'run-event' },
+      identity: owner.identity,
+      messageId: owner.messageId,
+      type: 'delegated-conversation-chunk',
+    },
+  ];
 }
 
 /**
@@ -263,6 +354,36 @@ export function createDelegatedStreamProjection<State>(
     };
   };
 
+  /** The child stream for a delegation envelope, authorized once per invocation. */
+  const admitChild = async (
+    identity: DelegatedRunIdentity,
+    nested: unknown
+  ): Promise<ChildStreamState<State>> => {
+    const key = JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId]);
+    const existing = children.get(key);
+    assertChildIdentity(existing, identity);
+    if (existing) {
+      return existing;
+    }
+    const binding = await authorize(identity);
+    const child: ChildStreamState<State> = {
+      ...(binding.baseline ? { baseline: binding.baseline } : {}),
+      finished: false,
+      identity,
+      // Snapshot resume can forward a descendant before replaying this
+      // child's message id. Only the authorized invocation's saved id is valid.
+      messageId: requireIdentity(
+        readMastraStreamPartString(nested, 'messageId') ?? binding.messageId
+      ),
+      parked: false,
+      state: options.createState(identity.personaId, requireIdentity(binding.threadId)),
+      threadId: requireIdentity(binding.threadId),
+      toolNames: new Map(),
+    };
+    children.set(key, child);
+    return child;
+  };
+
   const project = async (
     part: unknown,
     toolNames: Map<string, string>,
@@ -272,6 +393,10 @@ export function createDelegatedStreamProjection<State>(
     if (usage) {
       projectPublishedUsage(usage, children, options.onUsage);
       return [];
+    }
+    const synthesis = readDelegatedSynthesisPart(part);
+    if (synthesis) {
+      return projectSynthesisOutcome(synthesis, children);
     }
     if (readMastraStreamPartString(part, 'type') === 'data-user-message') {
       return projectHumanInput(part, children);
@@ -290,27 +415,8 @@ export function createDelegatedStreamProjection<State>(
       parentToolCallId: requireIdentity(delegation.parentToolCallId),
       personaId: delegation.personaId,
     };
-    const key = JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId]);
-    let child = children.get(key);
-    assertChildIdentity(child, identity);
-    if (!child) {
-      const binding = await authorize(identity);
-      child = {
-        ...(binding.baseline ? { baseline: binding.baseline } : {}),
-        finished: false,
-        identity,
-        // Snapshot resume can forward a descendant before replaying this
-        // child's message id. Only the authorized invocation's saved id is valid.
-        messageId: requireIdentity(
-          readMastraStreamPartString(nested, 'messageId') ?? binding.messageId
-        ),
-        state: options.createState(identity.personaId, requireIdentity(binding.threadId)),
-        threadId: requireIdentity(binding.threadId),
-        toolNames: new Map(),
-      };
-      children.set(key, child);
-    }
-    if (child.finished) {
+    const child = await admitChild(identity, nested);
+    if (!reopenIfParked(child)) {
       return [];
     }
     const messageId = readMastraStreamPartString(nested, 'messageId');
@@ -325,6 +431,9 @@ export function createDelegatedStreamProjection<State>(
       child.toolNames
     );
     child.finished = finished;
+    const nestedType = readMastraStreamPartString(nested, 'type');
+    child.parked =
+      finished && (nestedType === 'tool-call-approval' || nestedType === 'tool-call-suspended');
     const projected = chunks.map((chunk, index): StreamChunkDelegatedConversation => {
       const partId = readMastraStreamPartString(nested, 'id');
       return {

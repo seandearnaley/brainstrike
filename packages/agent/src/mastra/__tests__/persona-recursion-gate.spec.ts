@@ -1,4 +1,5 @@
 import { BUILT_IN_PERSONAS } from '@brainstrike/assistant-contract/personas';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
 import type { Agent, ToolsInput } from '@mastra/core/agent';
 import { createTool } from '@mastra/core/tools';
@@ -85,6 +86,7 @@ describe('persona recursion gate', () => {
         personas: [persona(personaId)],
         provider: 'openai',
         resolvedToolResultBudget: resolveToolResultBudgetForModel('openai', 'gpt-5.6-sol'),
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
         toolNameMap,
       });
       const child = result.subAgents[personaId];

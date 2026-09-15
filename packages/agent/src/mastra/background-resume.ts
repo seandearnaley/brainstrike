@@ -1,12 +1,40 @@
+import { createLogger } from '@brainstrike/logging';
 import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/background-tasks';
 import type { MastraMemory } from '@mastra/core/memory';
-import type { RuntimeData } from '../types';
+import type { RuntimeData, StreamChunk } from '../types';
 import type { attachAbortedTurnMessageList } from './aborted-turn-persistence';
 import type { MastraAgentRuntime } from './agent-runtime';
+import {
+  type BackgroundIdleLoopParams,
+  createSuspensionLedger,
+  describeWakeupInvocations,
+  isParentWakeup,
+  readTaskEvent,
+  readTaskId,
+  type TaskEvent,
+  TERMINAL_TASK_EVENTS,
+  withBackgroundIdleLoop,
+} from './background-idle-loop';
+import {
+  type BackgroundLedger,
+  type BackgroundLedgerSource,
+  createBackgroundLedgerSource,
+  createLedgerPublisher,
+  describeBackgroundWakeup,
+  makeBackgroundLedgerChunk,
+  personaLabelFor,
+} from './background-ledger';
 import { requireBackgroundResultDelivery } from './background-result-delivery';
 import { saveBackgroundResult } from './background-results';
+import {
+  type LiveBackgroundOwner,
+  type LiveDecisionChannel,
+  LiveDecisionUnavailableError,
+} from './live-decision-channel';
 import type { BrainstrikeAgentStreamOptions } from './runtime-assembly/stream-options';
 import type { AgentStreamOptions } from './turn-attempts';
+
+const logger = createLogger('BackgroundResume');
 
 export async function findPendingBackgroundTask(
   manager: BackgroundTaskManager | undefined,
@@ -34,33 +62,190 @@ export async function findPendingBackgroundTask(
   return matches[0];
 }
 
-async function readBackgroundTerminal(
-  events: AsyncIterable<Record<string, unknown>>,
-  emit: (event: unknown) => void
-): Promise<string | undefined> {
-  for await (const event of events) {
-    emit(event);
-    const type = String(event['type']);
-    if (
-      [
-        'background-task-completed',
-        'background-task-failed',
-        'background-task-suspended',
-        'background-task-cancelled',
-      ].includes(type)
-    ) {
-      return type;
-    }
-  }
-  return undefined;
+/** One parked task and the decision that resumes it. */
+export interface BackgroundResume {
+  readonly resumeData: unknown;
+  readonly task: BackgroundTask;
 }
 
-/** Reconstruct the public native executor; consume its events before parent inference. */
+/**
+ * The set of resumed tasks whose terminals the leg waits for. A decision
+ * delivered live during the wait adds its tasks; a failed record removes
+ * them again. A suspension terminal is held until the leg's channel has had
+ * its chance to answer it by a remembered grant.
+ */
+function createTerminalWait(
+  initial: Iterable<string>,
+  channel: LiveDecisionChannel | undefined
+): {
+  readonly add: (taskId: string) => void;
+  readonly done: Promise<ReadonlyMap<string, TaskEvent>>;
+  /** The terminals seen so far (the lifecycle stream may end before every one). */
+  readonly seen: () => ReadonlyMap<string, TaskEvent>;
+  readonly observe: (event: unknown) => void;
+  readonly remove: (taskId: string) => void;
+  readonly size: () => number;
+} {
+  const awaited = new Set(initial);
+  const terminals = new Map<string, TaskEvent>();
+  const done = Promise.withResolvers<ReadonlyMap<string, TaskEvent>>();
+  const isNewSuspension = createSuspensionLedger();
+  let answering = 0;
+  const check = () => {
+    if (answering === 0 && [...awaited].every((taskId) => terminals.has(taskId))) {
+      done.resolve(terminals);
+    }
+  };
+  return {
+    add: (taskId) => {
+      awaited.add(taskId);
+    },
+    done: done.promise,
+    observe: (event) => {
+      const decoded = readTaskEvent(event);
+      const taskId = decoded ? readTaskId(decoded) : undefined;
+      if (!(decoded && taskId && awaited.has(taskId) && TERMINAL_TASK_EVENTS.has(decoded.type))) {
+        return;
+      }
+      if (!isNewSuspension(decoded, taskId)) {
+        return;
+      }
+      terminals.set(taskId, decoded);
+      if (decoded.type === 'background-task-suspended' && channel) {
+        answering += 1;
+        void channel.suspended(taskId).finally(() => {
+          answering -= 1;
+          check();
+        });
+        return;
+      }
+      check();
+    },
+    remove: (taskId) => {
+      awaited.delete(taskId);
+      terminals.delete(taskId);
+      check();
+    },
+    seen: () => terminals,
+    size: () => awaited.size,
+  };
+}
+
+/**
+ * The terminals that wake the parent — none when the ROOT is parked (its own
+ * pause pending in this scope): a fresh parent inference would propose its
+ * pending call again (two canvas cards, live-app verifier run 6). Its
+ * returned results are saved; the root's own resume presents them (LATE
+ * RESULTS AFTER A ROOT PAUSE).
+ */
+async function parentWakeups(
+  agent: Pick<MastraAgentRuntime['agent'], 'listSuspendedRuns'>,
+  scope: { readonly resourceId: string; readonly threadId: string },
+  terminals: ReadonlyMap<string, TaskEvent>,
+  recordWakeup: BackgroundIdleLoopParams['recordWakeup']
+): Promise<TaskEvent[]> {
+  const wakeups = [...terminals.values()].filter(isParentWakeup);
+  if (wakeups.length === 0) {
+    return wakeups;
+  }
+  const { runs } = await agent.listSuspendedRuns({
+    resourceId: scope.resourceId,
+    threadId: scope.threadId,
+  });
+  if (runs.length === 0) {
+    return wakeups;
+  }
+  logger.info('Returned background work waits for the parked root to resume', {
+    code: 'background_parent_parked_wakeup_deferred',
+    invocations: wakeups.map((event) => String(event.payload.toolCallId)),
+  });
+  await recordWakeup?.({
+    directive: PARKED_ROOT_DEFERRED_DIRECTIVE,
+    invocations: describeWakeupInvocations(wakeups, 'deferred'),
+    kind: 'deferred',
+  });
+  return [];
+}
+
+/** The deferral a resume leg records for a parked root: the model is sent nothing. */
+const PARKED_ROOT_DEFERRED_DIRECTIVE =
+  'Returned background work waits for the parked root to resume. No model-facing wakeup text was sent.';
+
+function readResumeScope(resumes: readonly BackgroundResume[]): {
+  readonly resourceId: string;
+  readonly threadId: string;
+} {
+  const [primary] = resumes;
+  if (!(primary?.task.threadId && primary.task.resourceId)) {
+    throw new Error('Background resume has no native owner.');
+  }
+  const scope = { resourceId: primary.task.resourceId, threadId: primary.task.threadId };
+  for (const { task } of resumes) {
+    if (task.threadId !== scope.threadId || task.resourceId !== scope.resourceId) {
+      throw new Error('Background resume spans more than one root scope.');
+    }
+  }
+  return scope;
+}
+
+/**
+ * The resume leg's ledger (WAKEUP LEDGER, settled 2026-09-15): the user's
+ * `delegation.ledger` row on every terminal the leg observes and the parent's
+ * wakeup, both read from the DURABLE task rows of the runs being resumed —
+ * the same source the idle loop reads. `idle()` joins in-flight rows before
+ * the leg releases its owner, so the final row is never lost to a fast close.
+ */
+function createResumeLedger(params: {
+  readonly enqueue: (chunk: StreamChunk) => boolean;
+  readonly manager: BackgroundTaskManager;
+  readonly resumes: readonly BackgroundResume[];
+  readonly runtime: MastraAgentRuntime;
+  readonly scope: { readonly resourceId: string; readonly threadId: string };
+}): {
+  readonly ledgerId: string;
+  readonly source: BackgroundLedgerSource;
+  idle(): Promise<void>;
+  observe(event: unknown): void;
+  read(): Promise<BackgroundLedger>;
+} {
+  const [first] = params.resumes;
+  if (!first) {
+    throw new Error('Background resume has nothing to resume.');
+  }
+  const source = createBackgroundLedgerSource({
+    manager: params.manager,
+    personaLabel: personaLabelFor(params.runtime),
+    scope: params.scope,
+  });
+  const runIds = new Set(params.resumes.map(({ task }) => task.runId));
+  const ledgerId = first.task.runId;
+  const publisher = createLedgerPublisher({ enqueue: params.enqueue, onSettled: () => {}, source });
+  return {
+    idle: () => publisher.idle(),
+    ledgerId,
+    observe: (event) => {
+      if (TERMINAL_TASK_EVENTS.has(String((event as { type?: unknown }).type))) {
+        publisher.publish(runIds, ledgerId);
+      }
+    },
+    read: () => source.read(runIds),
+    source,
+  };
+}
+
+/**
+ * Reconstruct the public native executor for every resumed task; consume
+ * their events before parent inference. The first resume is the user's own
+ * decision; the rest are parked siblings a session grant answered
+ * (`findGrantedBackgroundApprovals`). The parent wakes ONCE, for every task
+ * that returned; a task that parks on a new decision wakes nothing.
+ */
 export function createBackgroundResumeStream(params: {
-  readonly task: BackgroundTask;
+  /** The leg's live decision channel; owned during the terminal wait. */
+  readonly channel?: LiveDecisionChannel | undefined;
+  readonly resumes: readonly BackgroundResume[];
   readonly runtime: MastraAgentRuntime;
   readonly memory: MastraMemory;
-  readonly resumeData: unknown;
   readonly options: BrainstrikeAgentStreamOptions;
   readonly attachParent: (
     stream: Parameters<typeof attachAbortedTurnMessageList>[1]
@@ -68,7 +253,14 @@ export function createBackgroundResumeStream(params: {
 }): {
   readonly fullStream: ReadableStream<unknown>;
   /**
-   * Joins everything `start()` below does — the background task's terminal,
+   * The same synchronous status `MastraModelOutput` exposes: `suspended` when
+   * every resumed task paused on a NEW decision, so the leg reading this
+   * stream ends as a pause (`readNativeStreamStatus`), never as a missing
+   * finish.
+   */
+  readonly status: 'running' | 'suspended' | 'success' | 'failed';
+  /**
+   * Joins everything `start()` below does — the background tasks' terminals,
    * the parent inference's full consumption and its snapshot cleanup — exactly
    * like `MastraModelOutput.consumeStream` (`settleNativeStream`). The stream's
    * own error reaches `onError`; without a handler it is swallowed, as Mastra's
@@ -80,127 +272,203 @@ export function createBackgroundResumeStream(params: {
   const completion = Promise.withResolvers<void>();
   // The consumer joins this promise at the native terminal; retain early failures.
   completion.promise.catch(() => {});
+  let status: 'running' | 'suspended' | 'success' | 'failed' = 'running';
   const fullStream = new ReadableStream<unknown>({
     async start(controller) {
-      const { task, runtime, memory, options } = params;
+      const { resumes, runtime, memory, options } = params;
       const manager = runtime.backgroundTaskManager;
       const watching = new AbortController();
       let deliveryError: unknown;
-      const executionSettled = Promise.withResolvers<void>();
+      const settled: Promise<void>[] = [];
       try {
-        if (!(manager && task.threadId && task.resourceId)) {
+        if (!manager) {
           throw new Error('Background resume has no native owner.');
         }
-        const tools = await runtime.agent.getToolsForExecution({
-          methodType: 'stream',
-          resourceId: task.resourceId,
-          runId: task.runId,
-          threadId: task.threadId,
-          ...(options.delegation ? { delegation: options.delegation } : {}),
-          outputWriter: async (chunk: unknown) => {
-            controller.enqueue(chunk);
-          },
-        });
-        const execute = tools[task.toolName]?.execute;
-        if (!execute) {
-          throw new Error('The original background executor is unavailable.');
+        const scope = readResumeScope(resumes);
+        for (const { task } of resumes) {
+          settled.push(
+            registerResumedExecutor({
+              controller,
+              manager,
+              memory,
+              onDeliveryError: (error) => {
+                deliveryError = error;
+                watching.abort();
+              },
+              options,
+              runtime,
+              scope,
+              task,
+            })
+          );
         }
-        manager.registerTaskContext(task.id, {
-          executor: {
-            execute: async (args, nativeOptions) => {
-              let output: unknown;
-              let failure: unknown;
-              try {
-                output = await execute(args, {
-                  messages: [],
-                  outputWriter: async (chunk: unknown) => {
-                    controller.enqueue(chunk);
-                  },
-                  toolCallId: task.toolCallId,
-                  ...(nativeOptions?.abortSignal ? { abortSignal: nativeOptions.abortSignal } : {}),
-                  ...(nativeOptions?.resumeData === undefined
-                    ? {}
-                    : { resumeData: nativeOptions.resumeData }),
-                  ...(nativeOptions?.suspend ? { suspend: nativeOptions.suspend } : {}),
-                });
-                return output;
-              } catch (error) {
-                failure = error;
-                throw error;
-              } finally {
-                // Native child resume mutates its invocation context to the leaf
-                // call. The host join belongs to this original dispatch address.
-                try {
-                  await options.hooks?.afterToolCall?.({
-                    context: { threadId: task.threadId, toolCallId: task.toolCallId },
-                    input: args,
-                    output,
-                    toolName: task.toolName,
-                    ...(failure === undefined ? {} : { error: failure }),
-                  });
-                } finally {
-                  executionSettled.resolve();
-                }
-              }
-            },
-          },
-          onResult: async (result) => {
-            try {
-              await saveBackgroundResult(memory, task, result);
-              await requireBackgroundResultDelivery(await manager.getStorage()).markResultDelivered(
-                task.id
-              );
-            } catch (error) {
-              deliveryError = error;
-              watching.abort();
-              throw error;
-            }
-          },
-        });
         const events = manager.stream({
           abortSignal: options.abortSignal
             ? AbortSignal.any([watching.signal, options.abortSignal])
             : watching.signal,
-          taskId: task.id,
+          agentId: runtime.agent.id,
+          resourceId: scope.resourceId,
+          threadId: scope.threadId,
         });
         options.abortSignal?.throwIfAborted();
-        await manager.resume(task.id, params.resumeData);
-        const terminal = await readBackgroundTerminal(events, (event) => controller.enqueue(event));
+        const wait = createTerminalWait(
+          resumes.map(({ task }) => task.id),
+          params.channel
+        );
+        // While the leg waits for terminals it owns the live decision seam: a
+        // decision delivered now registers the parked task's executor exactly
+        // as the leg's own resumes did, resumes it, and joins its terminal to
+        // this same wait — one wakeup for everything that returned.
+        let waiting = true;
+        const owner: LiveBackgroundOwner = {
+          publish: (chunk) => {
+            if (!waiting) {
+              return false;
+            }
+            controller.enqueue(chunk);
+            return true;
+          },
+          reserve: (tasks) => {
+            if (!waiting) {
+              throw new LiveDecisionUnavailableError('The resume leg is no longer waiting.');
+            }
+            for (const task of tasks) {
+              wait.add(task.id);
+            }
+            return {
+              release: () => {
+                for (const task of tasks) {
+                  wait.remove(task.id);
+                }
+              },
+              resume: async (more) => {
+                for (const { task, resumeData } of more) {
+                  try {
+                    settled.push(
+                      registerResumedExecutor({
+                        controller,
+                        manager,
+                        memory,
+                        onDeliveryError: (error) => {
+                          deliveryError = error;
+                          watching.abort();
+                        },
+                        options,
+                        runtime,
+                        scope,
+                        task,
+                      })
+                    );
+                    await manager.resume(task.id, resumeData);
+                  } catch (error) {
+                    wait.remove(task.id);
+                    throw error;
+                  }
+                }
+              },
+            };
+          },
+        };
+        const ledger = createResumeLedger({
+          enqueue: owner.publish,
+          manager,
+          resumes,
+          runtime,
+          scope,
+        });
+        const releaseOwner = params.channel?.own(owner);
+        let terminals: ReadonlyMap<string, TaskEvent>;
+        try {
+          for (const { task, resumeData } of resumes) {
+            await manager.resume(task.id, resumeData);
+          }
+          const reading = (async () => {
+            for await (const event of events) {
+              controller.enqueue(event);
+              wait.observe(event);
+              ledger.observe(event);
+              if (!waiting) {
+                return;
+              }
+            }
+          })();
+          // The lifecycle stream ends early when result delivery fails
+          // (`watching.abort()`); the checks below name that, never a hang.
+          terminals = await Promise.race([wait.done, reading.then(() => wait.seen())]);
+        } finally {
+          // Join in-flight ledger rows before the owner is released and the
+          // publisher's enqueue closes: the final row must reach the leg.
+          await ledger.idle();
+          waiting = false;
+          releaseOwner?.();
+        }
         if (deliveryError !== undefined) {
           throw deliveryError;
         }
         options.abortSignal?.throwIfAborted();
-        if (!terminal) {
-          throw new Error('Background resume ended before a terminal task state.');
+        if (terminals.size !== wait.size()) {
+          throw new Error('Background resume ended before every terminal task state.');
         }
-        if (terminal === 'background-task-suspended') {
-          // A new decision is not a returned result. Join the native snapshot
-          // before closing this leg, without starting another parent inference.
-          await executionSettled.promise;
+        const wakeups = await parentWakeups(
+          runtime.agent,
+          scope,
+          terminals,
+          runtime.conversationBinding?.recordWakeup
+        );
+        if (wakeups.length === 0) {
+          // A new decision is not a returned result, and a parked root takes no
+          // wakeup (`parentWakeups`). Join the native snapshots before closing
+          // this leg, without starting another parent inference; the leg reads
+          // `status` to end as a pause.
+          await Promise.all(settled);
           await manager.shutdown();
+          // The user's row still reflects the returned work, even though no
+          // parent inference runs on this leg.
+          controller.enqueue(makeBackgroundLedgerChunk(await ledger.read(), ledger.ledgerId));
+          status = 'suspended';
           completion.resolve();
           controller.close();
           return;
         }
         watching.abort();
         // Native result injection above is joined before its terminal event.
-        const parent = await runtime.agent.stream([], {
-          ...options,
-          context: [
-            {
-              content: `Background invocation ${task.toolCallId} has returned. Use its saved outcome; do not execute it again.`,
-              role: 'user',
-            },
-          ],
-        } as AgentStreamOptions);
+        // The parent may dispatch further workers or see siblings return, so
+        // its continuation runs under the same host loop as every other leg.
+        const directive = describeBackgroundWakeup(await ledger.read());
+        // Debug-pack evidence: the exact text the resumed parent receives,
+        // durable BEFORE its inference streams.
+        await runtime.conversationBinding?.recordWakeup?.({
+          directive,
+          invocations: describeWakeupInvocations(wakeups),
+          kind: 'resume-leg',
+        });
+        const parent = withBackgroundIdleLoop(
+          await runtime.agent.stream([], {
+            ...options,
+            context: [{ content: directive, role: 'user' }],
+          } as AgentStreamOptions),
+          {
+            abortSignal: options.abortSignal,
+            agent: runtime.agent,
+            channel: params.channel,
+            ledger: ledger.source,
+            manager,
+            maxIdleMs: runtime.backgroundIdleMs,
+            options,
+            recordWakeup: runtime.conversationBinding?.recordWakeup,
+            scope,
+          }
+        );
         await params.attachParent(parent);
         for await (const chunk of parent.fullStream) {
           controller.enqueue(chunk);
         }
         await parent.getFullOutput();
+        status = 'success';
         completion.resolve();
         controller.close();
       } catch (error) {
+        status = 'failed';
         completion.reject(error);
         controller.error(error);
       } finally {
@@ -218,5 +486,93 @@ export function createBackgroundResumeStream(params: {
     },
     fullStream,
     getFullOutput: () => completion.promise,
+    get status() {
+      return status;
+    },
   };
+}
+
+/**
+ * Register one task's in-process executor and result delivery with the
+ * manager. Resolves once the executor settles (returned, threw or parked),
+ * after the host join for its original dispatch address.
+ */
+async function registerResumedExecutor(params: {
+  readonly controller: ReadableStreamDefaultController<unknown>;
+  readonly manager: BackgroundTaskManager;
+  readonly memory: MastraMemory;
+  readonly onDeliveryError: (error: unknown) => void;
+  readonly options: BrainstrikeAgentStreamOptions;
+  readonly runtime: MastraAgentRuntime;
+  readonly scope: { readonly resourceId: string; readonly threadId: string };
+  readonly task: BackgroundTask;
+}): Promise<void> {
+  const { controller, manager, memory, options, runtime, scope, task } = params;
+  const executionSettled = Promise.withResolvers<void>();
+  const tools = await runtime.agent.getToolsForExecution({
+    methodType: 'stream',
+    resourceId: scope.resourceId,
+    runId: task.runId,
+    threadId: scope.threadId,
+    ...(options.delegation ? { delegation: options.delegation } : {}),
+    outputWriter: async (chunk: unknown) => {
+      controller.enqueue(chunk);
+    },
+  });
+  const execute = tools[task.toolName]?.execute;
+  if (!execute) {
+    throw new Error('The original background executor is unavailable.');
+  }
+  manager.registerTaskContext(task.id, {
+    executor: {
+      execute: async (args, nativeOptions) => {
+        let output: unknown;
+        let failure: unknown;
+        try {
+          output = await execute(args, {
+            messages: [],
+            outputWriter: async (chunk: unknown) => {
+              controller.enqueue(chunk);
+            },
+            toolCallId: task.toolCallId,
+            ...(nativeOptions?.abortSignal ? { abortSignal: nativeOptions.abortSignal } : {}),
+            ...(nativeOptions?.resumeData === undefined
+              ? {}
+              : { resumeData: nativeOptions.resumeData }),
+            ...(nativeOptions?.suspend ? { suspend: nativeOptions.suspend } : {}),
+          });
+          return output;
+        } catch (error) {
+          failure = error;
+          throw error;
+        } finally {
+          // Native child resume mutates its invocation context to the leaf
+          // call. The host join belongs to this original dispatch address.
+          try {
+            await options.hooks?.afterToolCall?.({
+              context: { threadId: scope.threadId, toolCallId: task.toolCallId },
+              input: args,
+              output,
+              toolName: task.toolName,
+              ...(failure === undefined ? {} : { error: failure }),
+            });
+          } finally {
+            executionSettled.resolve();
+          }
+        }
+      },
+    },
+    onResult: async (result) => {
+      try {
+        await saveBackgroundResult(memory, task, result);
+        await requireBackgroundResultDelivery(await manager.getStorage()).markResultDelivered(
+          task.id
+        );
+      } catch (error) {
+        params.onDeliveryError(error);
+        throw error;
+      }
+    },
+  });
+  return executionSettled.promise;
 }

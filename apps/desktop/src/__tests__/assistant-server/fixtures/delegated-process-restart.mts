@@ -27,8 +27,8 @@ import { isAssistantToolResumeAction } from '@brainstrike/assistant-contract/too
 import { DelegatedConversationIdentityError, migrate } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import { z } from 'zod';
-import { createDesktopDelegatedConversationHost } from '../../../assistant-server/delegated-conversation-host.ts';
 import { reapOrphanedThreadRuns } from '../../../assistant-server/thread-run-startup-reaper.ts';
+import { createBudgetedHost } from './budgeted-host';
 
 const directory = z.string().min(1).parse(process.argv[2]);
 const phase = z.enum(['initial', 'resume', 'recover']).parse(process.argv[3]);
@@ -76,7 +76,7 @@ const memory = await createPgliteMastraMemory({
   },
   runId: phase,
 });
-const authority = createDesktopDelegatedConversationHost(database, phase);
+const authority = createBudgetedHost(database, phase);
 const binding = {
   ...createDelegatedConversationBinding(authority.persist),
   bindRun: authority.bindRun,

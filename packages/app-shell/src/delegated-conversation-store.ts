@@ -53,6 +53,8 @@ function assertStableBinding(
   }
 }
 
+export const STREAMING_NOTIFY_WINDOW_MS = 16;
+
 /** Ephemeral host state: closing a view neither discards output nor cancels work. */
 export function createDelegatedConversationStore(rootThreadId: string): DelegatedConversationStore {
   if (!rootThreadId.trim()) {
@@ -66,10 +68,30 @@ export function createDelegatedConversationStore(rootThreadId: string): Delegate
     { readonly threadId: string; readonly nativeRunId: string }
   >();
   const listeners = new Set<() => void>();
-  const notify = (): void => {
+  const notifyNow = (): void => {
     for (const listener of listeners) {
       listener();
     }
+  };
+  // A streaming child publishes one snapshot per frame and every mounted
+  // child view re-converts the whole message per notification, so notifying
+  // per frame is quadratic in the stream and stalls the renderer once a few
+  // tabs are open (2026-09-14). Streaming snapshots coalesce to one
+  // notification per animation-frame-sized window; a settled snapshot and
+  // every non-stream mutation notify at once.
+  let pendingNotify: ReturnType<typeof setTimeout> | undefined;
+  const notify = (): void => {
+    if (pendingNotify !== undefined) {
+      clearTimeout(pendingNotify);
+      pendingNotify = undefined;
+    }
+    notifyNow();
+  };
+  const notifyCoalesced = (): void => {
+    pendingNotify ??= setTimeout(() => {
+      pendingNotify = undefined;
+      notifyNow();
+    }, STREAMING_NOTIFY_WINDOW_MS);
   };
   return {
     clear: () => {
@@ -148,7 +170,11 @@ export function createDelegatedConversationStore(rootThreadId: string): Delegate
       retiredLegs.set(baseline.threadId, retired);
       threadByInvocation.set(key, { nativeRunId, threadId: baseline.threadId });
       values = new Map(values).set(baseline.threadId, { history, update });
-      notify();
+      if (update.message.status.type === 'running') {
+        notifyCoalesced();
+      } else {
+        notify();
+      }
       return true;
     },
     rootThreadId,

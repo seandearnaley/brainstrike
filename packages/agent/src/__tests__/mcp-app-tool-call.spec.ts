@@ -75,6 +75,7 @@ async function compose(options: {
     planModeActive: options.planModeActive ?? false,
     preserveExecuteBackedWebSearch: undefined,
     provider: 'openai',
+    remembered: () => undefined,
     resolvedToolResultBudget: resolveScaledToolResultBudget(131_072),
     toolOutputArtifactStore: undefined,
     workspaceSkills: undefined,

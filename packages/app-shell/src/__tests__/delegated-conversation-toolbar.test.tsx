@@ -17,6 +17,7 @@ function insights(
     throw new Error('Missing canonical Worker');
   }
   return {
+    budget: null,
     configuration: {
       maxSteps: 8,
       persona: { ...worker, allowedToolIds },
@@ -164,4 +165,38 @@ it('surfaces an invalid latest execution receipt while retaining the original ad
   expect(screen.getByText('1 admitted tool')).toBeVisible();
   expect(screen.getByText('Model unavailable for latest receipt')).toBeVisible();
   expect(screen.queryByText('unknown-custom-model')).not.toBeInTheDocument();
+});
+
+it('states steps and output tokens used against the child budget in the header', () => {
+  render(
+    <DelegatedConversationToolbar
+      insights={{
+        status: 'ready',
+        value: {
+          ...insights(),
+          budget: {
+            chargedOutputTokens: 6100,
+            maxChildOutputTokens: 32_768,
+            maxSteps: 32,
+            steps: 12,
+            synthesisUsed: false,
+          },
+        },
+      }}
+      isRunning
+    />
+  );
+  expect(screen.getByTestId('child-budget-usage')).toHaveTextContent(
+    'steps 12/32 · 6.1K tokens / 32.8K tokens'
+  );
+});
+
+it('says nothing about a budget it does not have', () => {
+  render(
+    <DelegatedConversationToolbar
+      insights={{ status: 'ready', value: insights() }}
+      isRunning={false}
+    />
+  );
+  expect(screen.queryByTestId('child-budget-usage')).not.toBeInTheDocument();
 });

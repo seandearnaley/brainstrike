@@ -17,6 +17,7 @@ import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-u
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract/shell-output';
 import {
   type AssistantToolApprovalRequest,
+  TOOL_APPROVAL_ANSWERED_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
 import {
@@ -38,6 +39,7 @@ import type {
   StreamChunkShellOutput,
   StreamChunkText,
   StreamChunkTool,
+  StreamChunkToolApprovalAnswered,
   StreamChunkToolApprovalRequired,
   StreamChunkToolSuspendRequired,
   StreamFinishReason,
@@ -475,6 +477,9 @@ export class DataStreamMapper {
       case 'tool-approval-required':
         yield* this.handleToolApprovalRequired(chunk);
         return;
+      case 'tool-approval-answered':
+        yield* this.handleToolApprovalAnswered(chunk);
+        return;
       case 'tool-suspend-required':
         yield* this.handleToolSuspendRequired(chunk);
         return;
@@ -886,6 +891,26 @@ export class DataStreamMapper {
       default:
         break;
     }
+  }
+
+  /**
+   * A parked sibling approval the host answered under a session grant: a
+   * plain aui-data part keyed like the notice it answers, so that card locks
+   * live and after reload (the part persists with the assistant message).
+   */
+  private *handleToolApprovalAnswered(
+    chunk: StreamChunkToolApprovalAnswered
+  ): Generator<EncodedChunk> {
+    const { type: _type, ...data } = chunk;
+    const encoded = {
+      code: DataStreamCode.auiDataPart,
+      value: { data, name: TOOL_APPROVAL_ANSWERED_DATA_NAME },
+    } satisfies EncodedChunk;
+    if (this.mustDeferDataParts()) {
+      this.pendingRunEventChunks.push(encoded);
+      return;
+    }
+    yield encoded;
   }
 
   private *handleToolApprovalRequired(

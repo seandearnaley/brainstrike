@@ -22,7 +22,11 @@ import {
   QueueFollowUpButton,
   SteerRunButton,
 } from '../follow-up-queue';
-import { resetFollowUpQueueStore } from '../follow-up-queue-store';
+import {
+  followUpQueueKey,
+  resetFollowUpQueueStore,
+  useFollowUpQueueStore,
+} from '../follow-up-queue-store';
 import { ThreadScrollFollowProvider } from '../thread-scroll-follow';
 
 /** A controllable adapter: each run() blocks until its release() is called, so
@@ -191,6 +195,39 @@ describe('follow-up queue behavior (real local runtime)', () => {
       expect(screen.queryByTestId('assistant-follow-up-chip')).not.toBeInTheDocument();
     });
     // Let the follow-up run finish too so nothing leaks across tests.
+    release();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    });
+  });
+
+  it('dispatches a queued DECISION message with its run config when the run ends', async () => {
+    const user = userEvent.setup();
+    const { adapter, release, runInputs } = createControllableAdapter();
+    render(<Harness adapter={adapter} threadKey="t-decision" />);
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'first message');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByTestId('assistant-queue-follow-up');
+    // A card's decision during the run lands here (decision-dispatch.ts).
+    useFollowUpQueueStore.getState().enqueueMessage(followUpQueueKey('t-decision'), {
+      identityKey: '["run","call"]',
+      message: {
+        content: [{ text: 'Approved brainstrike.grepSearch.', type: 'text' }],
+        role: 'user',
+        runConfig: { custom: { brainstrikeToolApproval: { action: 'approve' } } },
+        startRun: true,
+      },
+      text: 'Approved brainstrike.grepSearch.',
+    });
+    expect(await screen.findByTestId('assistant-follow-up-chip')).toHaveTextContent(
+      'Approved brainstrike.grepSearch.'
+    );
+    expect(runInputs).toEqual(['first message']);
+    release();
+    await waitFor(() => {
+      expect(runInputs).toEqual(['first message', 'Approved brainstrike.grepSearch.']);
+    });
     release();
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();

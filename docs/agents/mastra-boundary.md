@@ -105,8 +105,9 @@ duplicate existing permission, workspace, run and thread responsibilities.
 
 **BST-1723 background ownership:** the service acquires the root conversation's
 FIFO execution owner before constructing Mastra or opening a turn checkpoint.
-`agent.stream(messages, { untilIdle: true })` keeps that owner through native
-background work and parent continuations; release follows session closure and
+The host-owned `withBackgroundIdleLoop` (`background-idle-loop.ts`, passing
+Mastra's typed `_skipBgTaskWait`) keeps that owner through native background
+work and parent continuations; release follows session closure and
 terminal persistence, including when the transport subscriber detaches. The
 PGlite composite store registers a resource/thread-scoped background domain;
 retries are zero and per-task timeouts must be positive and at most five minutes.
@@ -129,6 +130,24 @@ from a guarded host restart with a changed native process ID. Selective child
 controls, human follow-up and additional interrupted-work recovery acceptance
 remain BST-1723 work; this layer does not establish the whole ticket.
 
+The core patch also shares ONE xxhash-wasm instance across every
+`SemanticRecall` (settled 2026-09-15, proven upstream defect, present on
+1.66.0 and `main`, reported upstream): `SemanticRecall` initialized
+`hasher = xxhash()` per instance while `MastraMemory.getInputProcessors` and
+`getOutputProcessors` construct a new `SemanticRecall` on every model step, so
+each step was a fresh `WebAssembly.instantiate` holding a V8 guard-region
+reservation. A WebAssembly probe on the desktop main process counted 139
+instantiations in one four-specialist turn; across a session the process
+exhausted V8's WebAssembly budget and EVERY later instantiation failed with
+"Cannot allocate Wasm memory for new instance" — the retrieval tool, message
+persistence and the memory observer died with it (thread-debug pack
+2026-09-15T02-25-01Z; the failing call is the one from the embedding host's
+error, rebuilt frameless by `deserializeRuntimeError`, which misled a first
+diagnosis toward the embedding host). Paired:
+`mastra-semantic-recall-hasher.spec.ts` (25 instances, at most one
+instantiation; 25 without the hunk). Remove the hunk when upstream memoizes the
+hasher or the processor.
+
 The selective-cancellation native regression holds one executor's cleanup while
 a sibling remains active. Native `cancel()` must join that executor before
 acknowledging Stop, or reject visibly at the existing native grace deadline.
@@ -148,10 +167,13 @@ its first real tool, verifies that tool sees cancellation and no second child
 model step starts, and verifies the parent is not cancelled. This preserves root
 abort propagation; it does not itself wire the application Stop control.
 
-Use `stream(..., { untilIdle: true })` when that integration is ready. The
-installed `streamUntilIdle()` declaration is deprecated. Consuming the complete
-stream is necessary for continuation output; first-turn aggregate properties
-are not a complete background-run transcript. This lifecycle change does not
+Do NOT pass `untilIdle` (settled 2026-09-14, `assistant-subagents.md`): Mastra's
+loop wakes the parent model on a child's SUSPENSION with a "waiting for explicit
+resume input" directive. The host loop (`withBackgroundIdleLoop`) reproduces the
+loop's transport contract — the leg's `fullStream` spans the first turn plus
+host-driven continuations, first-turn aggregate properties are not a complete
+background-run transcript — and wakes the parent only for a returned, failed or
+cancelled task. The installed `streamUntilIdle()` declaration is deprecated. This lifecycle change does not
 authorize a Mastra HTTP server, replacement workspace tools, or a second
 permission/persistence system.
 
@@ -929,8 +951,8 @@ matching parent terminal so completion cannot outrun publication authorization.
 
 ### Native background stream normalization (BST-1723)
 
-`background-stream.ts` normalizes native untilIdle transport before the existing
-R6 mapper. Native child envelopes still enter the same delegated projection and
+`background-stream.ts` normalizes the native background transport (the host idle
+loop's combined stream) before the existing R6 mapper. Native child envelopes still enter the same delegated projection and
 `StreamChunk` persistence path. Dispatch acknowledgements are not child results;
 terminal parent usage includes all continuation legs and parent text has paragraph
 boundaries. Eight native background lifecycle/output types are `normalized` in

@@ -8,6 +8,7 @@ import {
   type AssistantPersonaDefinition,
   delegationDescriptionForPersona,
 } from '@brainstrike/assistant-contract/personas';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import { createLogger } from '@brainstrike/logging';
 import type { Agent, ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
@@ -21,14 +22,16 @@ import type { DelegationPersonaSummary } from '../default-instructions';
 import type { DelegatedConversationBinding } from '../delegated-conversation-binding';
 import { personasAtDelegationDepth } from '../delegated-persona-snapshots';
 import type { DelegatedSystemContextSource } from '../delegated-system-context';
+import type { LiveDecisionChannel } from '../live-decision-channel';
 import type { PermissionToolGateSnapshot } from '../permission-tool-gate';
-import { shouldEnablePersonas } from '../subagent-delegation';
+import { type ChildPromptFacts, shouldEnablePersonas } from '../subagent-delegation';
 import type { ModelOutputProjectionObserver } from '../tool-model-output';
 
 const logger = createLogger('MastraAgent');
 
 export interface PersonaRuntimeParts {
   artifactReaderDelegationTools: readonly string[];
+  childPromptFacts: ReadonlyMap<string, ChildPromptFacts>;
   delegationToolPersonas: ReadonlyMap<string, string>;
   hasSubAgents: boolean;
   instructionPersonaSummaries: DelegationPersonaSummary[] | undefined;
@@ -38,6 +41,7 @@ export interface PersonaRuntimeParts {
 
 const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
   artifactReaderDelegationTools: [],
+  childPromptFacts: new Map(),
   delegationToolPersonas: new Map(),
   hasSubAgents: false,
   instructionPersonaSummaries: undefined,
@@ -82,6 +86,7 @@ export async function resolvePersonaRuntimeParts(params: {
   localToolIds: ReadonlySet<string>;
   workspaceSkills?: RuntimeData['workspaceSkills'];
   languageModel: MastraModelConfig;
+  liveDecisions: Pick<LiveDecisionChannel, 'remembered'>;
   permissionSnapshot: PermissionToolGateSnapshot | undefined;
   personas: readonly AssistantPersonaDefinition[] | undefined;
   planModeActive: boolean;
@@ -89,6 +94,7 @@ export async function resolvePersonaRuntimeParts(params: {
   resolvedToolResultBudget: ScaledToolResultBudget;
   resolvePinnedModel: (persona: AssistantPersonaDefinition) => MastraModelConfig;
   settleChildToolOutputs?: (tools: ToolsInput, budget: ScaledToolResultBudget) => ToolsInput;
+  subagentSettings: RuntimeSubagentSettings;
   toolNameMap: Map<string, string>;
   toolOutputObserver?: ModelOutputProjectionObserver;
   turnPersistenceProcessor?: (InputProcessor & OutputProcessor) | undefined;
@@ -130,22 +136,25 @@ export async function resolvePersonaRuntimeParts(params: {
     ...(params.workspaceSkills ? { workspaceSkills: params.workspaceSkills } : {}),
     hasStorage: Boolean(params.hasStorage),
     languageModel: params.languageModel,
+    liveDecisions: params.liveDecisions,
     logger,
     permissionSnapshot: params.permissionSnapshot,
     personas: params.personas ?? [],
     provider: params.provider,
     resolvedToolResultBudget: params.resolvedToolResultBudget,
     resolvePinnedModel: params.resolvePinnedModel,
+    subagentSettings: params.subagentSettings,
     toolNameMap: params.toolNameMap,
     turnPersistenceProcessor: params.turnPersistenceProcessor,
     ...(params.toolOutputObserver ? { toolOutputObserver: params.toolOutputObserver } : {}),
   });
   return {
     artifactReaderDelegationTools: personaBuild.artifactReaderDelegationTools,
+    childPromptFacts: personaBuild.childPromptFacts,
     delegationToolPersonas: personaBuild.delegationToolPersonas,
     hasSubAgents: Object.keys(personaBuild.subAgents).length > 0,
     instructionPersonaSummaries: Array.from(personaBuild.personasById.values(), (persona) => ({
-      description: delegationDescriptionForPersona(persona),
+      description: delegationDescriptionForPersona(persona, params.subagentSettings),
       id: persona.id,
       label: persona.label,
     })),

@@ -28,8 +28,13 @@ import { useAui, useAuiState } from '@assistant-ui/react';
 import { createLogger } from '@brainstrike/logging';
 import { ListPlusIcon, Redo2Icon, XIcon } from 'lucide-react';
 import { use, useEffect, useRef } from 'react';
+import { useAnsweredApprovals } from './answered-approvals-context';
 import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
-import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store';
+import {
+  dequeueDispatchable,
+  followUpQueueKey,
+  useFollowUpQueueStore,
+} from './follow-up-queue-store';
 import { useThreadScrollFollow } from './thread-scroll-follow';
 
 const logger = createLogger('FollowUpQueue');
@@ -40,6 +45,7 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
   const follow = useThreadScrollFollow();
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
+  const { answers: answered } = useAnsweredApprovals();
   const queueKey = followUpQueueKey(threadKey);
   const queueLength = useFollowUpQueueStore((state) => state.queuedByThread[queueKey]?.length ?? 0);
 
@@ -79,7 +85,7 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
       return;
     }
 
-    const item = useFollowUpQueueStore.getState().dequeue(queueKey);
+    const item = dequeueDispatchable(queueKey, answered);
     if (!item) {
       return;
     }
@@ -89,10 +95,12 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
     // failure — it is not requeued.
     const wasPinned = follow.getIsAtBottom();
     try {
-      aui.thread().append({
-        content: [{ text: item.text, type: 'text' }],
-        role: 'user',
-      });
+      aui.thread().append(
+        item.message ?? {
+          content: [{ text: item.text, type: 'text' }],
+          role: 'user',
+        }
+      );
     } catch (error) {
       useFollowUpQueueStore.getState().requeueFront(queueKey, item);
       logger.warn('Failed to dispatch queued follow-up; requeued at front', { error });
@@ -113,7 +121,7 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
       // docs/agents/assistant-runtime.md).
       follow.scrollToBottom();
     }
-  }, [aui, follow, isHistoryLoading, isRunning, ownsQueue, queueKey, queueLength]);
+  }, [answered, aui, follow, isHistoryLoading, isRunning, ownsQueue, queueKey, queueLength]);
 }
 
 /** Render-nothing leaf owning the run-end dispatch subscription. */

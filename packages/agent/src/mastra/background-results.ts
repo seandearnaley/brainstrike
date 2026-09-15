@@ -219,3 +219,72 @@ export async function repairBackgroundResults(params: {
   }
   return repaired;
 }
+
+/**
+ * LATE RESULTS AFTER A ROOT PAUSE (settled 2026-09-15, live-app verifier run
+ * 7): Mastra's `approveToolCall`/`resumeStream` restore the message list
+ * snapshotted when the run parked, which holds only the dispatch
+ * acknowledgement of every background child still running at that moment. A
+ * child that returns after the pause writes its result into memory (native
+ * `onResult`), but the resumed run never sees it — the root pre-created its
+ * canvas 25 s in, approved it after all four specialists returned, and wrote
+ * the report from its own inspection while telling the user it was "still
+ * waiting on the four analyses". The late results are exactly the finished
+ * tasks this run dispatched whose completion follows the run's pause stamp
+ * (`AgentRun.suspendedAt`); they are overlaid onto the resumed run's prompt at
+ * the provider boundary (`late-background-results-processor.ts`) and, because
+ * the resumed run's final save re-persists its stale copy of the invocation,
+ * restored into memory from the task rows once the leg settles.
+ */
+export interface LateBackgroundResultsParams {
+  readonly manager: BackgroundTaskManager | undefined;
+  readonly runId: string;
+  readonly scope: RuntimeData['memory'];
+  /** The resumed run's pause stamp; `undefined` when the run is not parked. */
+  readonly suspendedAt: Date | undefined;
+}
+
+export async function listLateBackgroundResults(
+  params: LateBackgroundResultsParams
+): Promise<BackgroundTask[]> {
+  const { manager, runId, scope, suspendedAt } = params;
+  if (!(manager && scope && suspendedAt)) {
+    return [];
+  }
+  const late: BackgroundTask[] = [];
+  let page = 0;
+  let total: number;
+  do {
+    const result = await manager.listTasks({
+      orderBy: 'createdAt',
+      orderDirection: 'asc',
+      page,
+      perPage: 100,
+      resourceId: scope.resourceId,
+      runId,
+      status: ['completed', 'failed', 'timed_out'],
+      threadId: scope.threadId,
+    });
+    total = result.total;
+    for (const task of result.tasks) {
+      if (!task.completedAt) {
+        throw new Error('A finished background task omitted its completion stamp.');
+      }
+      if (task.completedAt.getTime() >= suspendedAt.getTime()) {
+        late.push(task);
+      }
+    }
+    page += 1;
+  } while (page * 100 < total);
+  return late;
+}
+
+/** Re-persist late outcomes after the resumed run's final save wrote its stale copy over them. */
+export async function restoreLateBackgroundResults(
+  memory: MastraMemory,
+  tasks: readonly BackgroundTask[]
+): Promise<void> {
+  for (const task of tasks) {
+    await saveBackgroundResult(memory, task, completedBackgroundOutcome(task));
+  }
+}

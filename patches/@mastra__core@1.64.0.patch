@@ -1,8 +1,49 @@
 diff --git a/dist/agent-Dp3vcrIx.cjs b/dist/agent-Dp3vcrIx.cjs
-index 766f2d4f6741c31fd66a2e5ad79d5317ea7c1eb9..7ae5fd90e629bf856d09b5d5b537000a21b390de 100644
+index 766f2d4f6741c31fd66a2e5ad79d5317ea7c1eb9..ec4cbce569c95fa612208ee7489c74d99c63f17b 100644
 --- a/dist/agent-Dp3vcrIx.cjs
 +++ b/dist/agent-Dp3vcrIx.cjs
-@@ -35374,7 +35374,8 @@ var Agent = class Agent extends require_base.MastraBase {
+@@ -18060,6 +18060,19 @@ const DEFAULT_MESSAGE_RANGE = 1;
+ * });
+ * ```
+ */
++/**
++ * Brainstrike patch (proven upstream defect, reported upstream): `SemanticRecall`
++ * initialized `hasher = xxhash()` PER INSTANCE while `MastraMemory` constructs a
++ * new `SemanticRecall` on every model step. Each `xxhash()` is a fresh
++ * `WebAssembly.instantiate` holding a V8 guard-region reservation, so a fan-out
++ * of four subagents exhausted V8's WebAssembly budget within minutes and every
++ * later instantiation in the process failed with "Cannot allocate Wasm memory
++ * for new instance". One hasher per process serves every instance.
++ */
++let sharedSemanticRecallHasherPromise;
++function sharedSemanticRecallHasher() {
++	return sharedSemanticRecallHasherPromise ??= (0, xxhash_wasm.default)();
++}
+ var SemanticRecall = class {
+ 	id = "semantic-recall";
+ 	name = "SemanticRecall";
+@@ -18073,7 +18086,7 @@ var SemanticRecall = class {
+ 	indexName;
+ 	logger;
+ 	embedderOptions;
+-	hasher = (0, xxhash_wasm.default)();
++	hasher = sharedSemanticRecallHasher();
+ 	indexValidationCache = /* @__PURE__ */ new Map();
+ 	constructor(options) {
+ 		this.storage = options.storage;
+@@ -26683,8 +26696,10 @@ function createToolCallStep({ tools, messageList, options, outputWriter, control
+ 											return opts?.suspend?.(data, options);
+ 										},
+ 										outputWriter: async (chunk) => {
++											// brainstrike: the task is a background call's only delivery. Also writing
++											// through the dispatching turn's writer delivered each chunk twice while
++											// that turn was open and stored a child data part in the parent's message.
+ 											await opts?.onProgress?.(chunk);
+-											return toolOptions.outputWriter?.(chunk);
+ 										},
+ 										abortSignal: opts?.abortSignal
+ 									});
+@@ -35374,7 +35389,8 @@ var Agent = class Agent extends require_base.MastraBase {
  							role: "user",
  							content: effectivePrompt
  						}];
@@ -13,10 +54,51 @@ index 766f2d4f6741c31fd66a2e5ad79d5317ea7c1eb9..7ae5fd90e629bf856d09b5d5b537000a
  							const generateResult = shouldResumeSubAgent ? await resolvedAgent.resumeGenerate(resumeData, {
  								runId: suspendedToolRunId,
 diff --git a/dist/agent-DsRUDsS_.js b/dist/agent-DsRUDsS_.js
-index fc4889177d6cd7396474f3f326a241bb6c88a8b4..e0ad8f32894cb257cced71646e12f6df2a579c7a 100644
+index fc4889177d6cd7396474f3f326a241bb6c88a8b4..37c81a42fe3be22f74b6b15994c86788abba5c22 100644
 --- a/dist/agent-DsRUDsS_.js
 +++ b/dist/agent-DsRUDsS_.js
-@@ -35372,7 +35372,8 @@ var Agent = class Agent extends MastraBase {
+@@ -18058,6 +18058,19 @@ const DEFAULT_MESSAGE_RANGE = 1;
+ * });
+ * ```
+ */
++/**
++ * Brainstrike patch (proven upstream defect, reported upstream): `SemanticRecall`
++ * initialized `hasher = xxhash()` PER INSTANCE while `MastraMemory` constructs a
++ * new `SemanticRecall` on every model step. Each `xxhash()` is a fresh
++ * `WebAssembly.instantiate` holding a V8 guard-region reservation, so a fan-out
++ * of four subagents exhausted V8's WebAssembly budget within minutes and every
++ * later instantiation in the process failed with "Cannot allocate Wasm memory
++ * for new instance". One hasher per process serves every instance.
++ */
++let sharedSemanticRecallHasherPromise;
++function sharedSemanticRecallHasher() {
++	return sharedSemanticRecallHasherPromise ??= xxhash();
++}
+ var SemanticRecall = class {
+ 	id = "semantic-recall";
+ 	name = "SemanticRecall";
+@@ -18071,7 +18084,7 @@ var SemanticRecall = class {
+ 	indexName;
+ 	logger;
+ 	embedderOptions;
+-	hasher = xxhash();
++	hasher = sharedSemanticRecallHasher();
+ 	indexValidationCache = /* @__PURE__ */ new Map();
+ 	constructor(options) {
+ 		this.storage = options.storage;
+@@ -26681,8 +26694,10 @@ function createToolCallStep({ tools, messageList, options, outputWriter, control
+ 											return opts?.suspend?.(data, options);
+ 										},
+ 										outputWriter: async (chunk) => {
++											// brainstrike: the task is a background call's only delivery. Also writing
++											// through the dispatching turn's writer delivered each chunk twice while
++											// that turn was open and stored a child data part in the parent's message.
+ 											await opts?.onProgress?.(chunk);
+-											return toolOptions.outputWriter?.(chunk);
+ 										},
+ 										abortSignal: opts?.abortSignal
+ 									});
+@@ -35372,7 +35387,8 @@ var Agent = class Agent extends MastraBase {
  							role: "user",
  							content: effectivePrompt
  						}];

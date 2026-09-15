@@ -106,6 +106,54 @@ describe('delegated stream terminal ownership', () => {
     expect(parentNotice).toMatchObject({ delegation: { toolCallId: 'read-1' } });
   });
 
+  it('reopens a child that finished on a PAUSE when its resumed continuation re-enters, never one that completed', async () => {
+    // A live decision resumes a parked child in-process under the same
+    // invocation; the projection dropped its continuation as late parts of a
+    // finished child and its usage then had no active owner (2026-09-14).
+    const forward = (output: unknown) => ({
+      payload: { output, toolCallId: identity.parentToolCallId, toolName: 'agent-explore' },
+      runId: identity.parentRuntimeRunId,
+      type: 'tool-output',
+    });
+    const nested = (type: string) => ({ runId: identity.childRuntimeRunId, type });
+    const projection = createDelegatedStreamProjection({
+      authorize: async () => ({ messageId: 'saved', threadId: 'child' }),
+      createState: () => ({}),
+      mapPart: async (value) => {
+        const { type } = value as { type: string };
+        if (type === 'tool-call-approval' || type === 'finish') {
+          return {
+            chunks: [
+              {
+                finishReason: type === 'finish' ? 'stop' : 'tool-calls',
+                path: [],
+                type: 'message-finish',
+                usage: { completionTokens: 0, promptTokens: 0 },
+              } satisfies ConversationStreamChunk,
+            ],
+            finished: true,
+          };
+        }
+        return { chunks: [{ type: 'text-delta', value: type }], finished: false };
+      },
+      personas: new Map([['agent-explore', 'explore']]),
+    });
+    if (!projection) {
+      throw new Error('Missing projection');
+    }
+    expect(await projection.project(forward(nested('text-delta')), new Map())).toHaveLength(1);
+    expect(await projection.project(forward(nested('tool-call-approval')), new Map())).toHaveLength(
+      1
+    );
+    // Parked: the resumed continuation reopens the same child.
+    const resumed = await projection.project(forward(nested('text-delta')), new Map());
+    expect(resumed).toHaveLength(1);
+    expect(resumed[0]?.chunk).toEqual({ type: 'text-delta', value: 'text-delta' });
+    expect(await projection.project(forward(nested('finish')), new Map())).toHaveLength(1);
+    // Completed: a late part stays dropped.
+    expect(await projection.project(forward(nested('text-delta')), new Map())).toEqual([]);
+  });
+
   it('uses the authorized persisted message identity when a resume wrapper has none', async () => {
     const projection = createDelegatedStreamProjection({
       authorize: async () => ({ messageId: 'persisted-message', threadId: 'child-thread' }),
@@ -222,4 +270,71 @@ it('requires exactly one published native child for unwrapped processor usage da
   );
   await expect(projection.project(usage, new Map())).rejects.toThrow('unique published');
   expect(onUsage).toHaveBeenCalledTimes(1);
+});
+
+it('projects a synthesis part onto its owner child as a delegation.budget.exhausted run event', async () => {
+  const projection = createDelegatedStreamProjection({
+    authorize: async () => ({ messageId: 'native-message', threadId: 'child' }),
+    createState: () => ({}),
+    mapPart: async () => ({ chunks: [], finished: false }),
+    personas: new Map([['agent-explore', 'explore']]),
+  });
+  if (!projection) {
+    throw new Error('Missing projection');
+  }
+  const synthesis = {
+    data: {
+      cap: 'steps',
+      limit: 32,
+      outputTokens: 512,
+      reservedOutputTokens: 2048,
+      resourceId: 'child-resource',
+      threadId: 'child',
+      truncated: true,
+      used: 31,
+    },
+    type: 'data-brainstrike-delegated-synthesis',
+  };
+  // Nobody published this thread yet.
+  await expect(projection.project(synthesis, new Map())).rejects.toThrow(
+    'no unique published native child owner'
+  );
+  await projection.project(part, new Map());
+  const chunks = await projection.project(synthesis, new Map());
+  expect(chunks).toMatchObject([
+    {
+      chunk: {
+        event: {
+          kind: 'delegation.budget.exhausted',
+          label: 'Subagent step budget exhausted (31 of 32); summary reserved and truncated',
+          metadata: {
+            cap: 'steps',
+            limit: 32,
+            outputTokens: 512,
+            parentToolCallId: 'call',
+            personaId: 'explore',
+            reservedOutputTokens: 2048,
+            synthesisForced: true,
+            truncated: true,
+            used: 31,
+          },
+          status: 'info',
+        },
+        type: 'run-event',
+      },
+      identity,
+      messageId: 'native-message',
+      type: 'delegated-conversation-chunk',
+    },
+  ]);
+  await expect(
+    projection.project(
+      { ...synthesis, data: { ...synthesis.data, threadId: 'foreign' } },
+      new Map()
+    )
+  ).rejects.toThrow('no unique published native child owner');
+  // A malformed part is a defect, never dropped.
+  await expect(
+    projection.project({ ...synthesis, data: { ...synthesis.data, cap: 'moon' } }, new Map())
+  ).rejects.toThrow();
 });

@@ -98,6 +98,8 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',
+    readMainLogWindow: 'desktop-diagnostics:read-main-log-window',
+    readProcessCounters: 'desktop-diagnostics:read-process-counters',
   },
   // Hidden embedding host; same pinning as chunkingHost (embedding-host-shared.ts).
   embeddingHost: {
