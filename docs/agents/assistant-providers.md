@@ -4861,9 +4861,12 @@ breaking the user's reading of card → approve → document appears. `create`
 now refuses a document that `isEmptyCanvasDocument` (leading head and comments
 stripped, the head ending at `</head>`, at the first non-head token — both head
 tags are optional — or at end of input for a raw-text element the document
-never closes; svg/canvas/img/script count as content, and a template or
-noscript outside an explicit `<head>` stays in the body, so its contents count)
-judges empty, BEFORE any DB call and at no approval cost, with the structured
+never closes; svg/canvas/img/script count as content, a template or noscript
+outside an explicit `<head>` stays in the body, so its contents count, and
+`style` is head content with or without a `<head>`, so a style-only document is
+empty — the template/noscript bias deliberately over-accepts rather than claim
+what renders) judges empty, BEFORE any DB call and at no approval cost, with
+the structured
 `empty_document` failure and `EMPTY_CANVAS_DOCUMENT_HINT` ("create the canvas
 when the content is ready — there is nothing to prepare"). `update`/`rewrite`/
 `list` are unchanged: an empty `newString` still deletes the match and a
