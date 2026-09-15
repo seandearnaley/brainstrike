@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import {
   Button,
+  cn,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -167,6 +168,55 @@ export interface ApprovalCardProps {
   readonly state: ApprovalNoticeState;
 }
 
+/** What one presentation applies of the delegation nesting. */
+interface ApprovalCardNesting {
+  /** The leaf delegation's rail colour; `undefined` omits the attribute. */
+  readonly delegationColour: ReturnType<typeof delegationColourIndex> | undefined;
+  /** Ancestor edges drawn as rails; `null` draws none. */
+  readonly railPath: NonNullable<AssistantToolApprovalRequest['delegation']>['path'] | null;
+  readonly style: CSSProperties | undefined;
+  /** `.bs-approval`: the indent surface that reads `--bs-approval-depth`. */
+  readonly surfaceClassName: 'bs-approval' | undefined;
+  readonly testId: 'approval-row-card' | 'assistant-tool-approval-notice';
+}
+
+/**
+ * The outermost surface owns the nesting. A standalone card carries the
+ * `.bs-approval` indent surface, depth, leaf colour and ancestor rails; an
+ * embedded card carries none of them, because the row already paints all of
+ * it and `--bs-approval-depth` inherits (keeping the class would indent twice).
+ * Invariant: `'embedded'` is rendered only by `ApprovalRow` (`approval-row.tsx`).
+ */
+function resolveApprovalCardNesting(
+  approval: AssistantToolApprovalRequest,
+  presentation: ApprovalCardProps['presentation']
+): ApprovalCardNesting {
+  switch (presentation) {
+    case 'card': {
+      const leaf = approval.delegation?.path.at(-1);
+      return {
+        delegationColour: leaf ? delegationColourIndex(leaf.parentToolCallId) : undefined,
+        railPath: approval.delegation?.path ?? [],
+        style: { '--bs-approval-depth': approvalDepth(approval) } as CSSProperties,
+        surfaceClassName: 'bs-approval',
+        testId: 'assistant-tool-approval-notice',
+      };
+    }
+    case 'embedded':
+      return {
+        delegationColour: undefined,
+        railPath: null,
+        style: undefined,
+        surfaceClassName: undefined,
+        testId: 'approval-row-card',
+      };
+    default: {
+      const exhausted: never = presentation;
+      throw new Error(`Unhandled approval card presentation: ${String(exhausted)}`);
+    }
+  }
+}
+
 /** The full approval card: reason, preview, Approve/Decline/grants, raw details. */
 export function ApprovalCard({ approval, presentation, state }: ApprovalCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -190,21 +240,22 @@ export function ApprovalCard({ approval, presentation, state }: ApprovalCardProp
       ].filter((entry): entry is [string, unknown] => entry[1] !== undefined),
     [approval]
   );
-  const testId = presentation === 'card' ? 'assistant-tool-approval-notice' : 'approval-row-card';
-  const leaf = approval.delegation?.path.at(-1);
-  const style = { '--bs-approval-depth': approvalDepth(approval) } as CSSProperties;
+  const nesting = resolveApprovalCardNesting(approval, presentation);
 
   return (
     <div
-      className="bs-approval my-2 rounded-lg border border-amber-500/40 bg-amber-50/50 dark:bg-amber-950/20"
+      className={cn(
+        nesting.surfaceClassName,
+        'my-2 rounded-lg border border-amber-500/40 bg-amber-50/50 dark:bg-amber-950/20'
+      )}
       data-approval-presentation={presentation}
-      data-testid={testId}
-      style={style}
-      {...(leaf ? { 'data-delegation-colour': delegationColourIndex(leaf.parentToolCallId) } : {})}
+      data-delegation-colour={nesting.delegationColour}
+      data-testid={nesting.testId}
+      style={nesting.style}
     >
       <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
         <div aria-hidden="true" className="flex items-start gap-1.5 pt-0.5">
-          <ApprovalRails path={approval.delegation?.path ?? []} />
+          {nesting.railPath ? <ApprovalRails path={nesting.railPath} /> : null}
           <AlertTriangle className="size-4 text-amber-700 dark:text-amber-400" />
         </div>
         <div className="min-w-0">

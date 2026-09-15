@@ -263,6 +263,26 @@ describe('approval presentation: card vs row', () => {
     expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent('Explorer › Analyst');
   });
 
+  it('an expanded nested row owns the nesting: the embedded card adds no depth, colour or rails', async () => {
+    const user = userEvent.setup();
+    const nested = readApproval('leaf-deep', [rootEdge, grandchildEdge]);
+    pushMessage({
+      content: [requestPart(nested), answeredPart(nested, 'user')],
+      id: 'm1',
+      role: 'assistant',
+    });
+    renderNotices([nested]);
+    const row = screen.getByTestId('assistant-tool-approval-notice');
+    expect(row).toHaveAttribute('data-approval-presentation', 'row');
+    await expandApprovalRow(user);
+    const card = screen.getByTestId('approval-row-card');
+    expect(row).toContainElement(card);
+    expect(card.style.getPropertyValue('--bs-approval-depth')).toBe('');
+    expect(card).not.toHaveAttribute('data-delegation-colour');
+    // One rail per ancestor edge for the whole row, never a second set inside the card.
+    expect(row.querySelectorAll('.bs-approval-rail')).toHaveLength(2);
+  });
+
   it('a root pause (no delegation) is depth 0 with no rail and reads as the assistant', () => {
     const root: AssistantToolApprovalRequest = {
       args: { command: 'git status' },
