@@ -453,6 +453,29 @@ export function resolveHostedMemoryBackendAvailable(args: {
   return args.selectedProvider === 'local' || args.desktopAssistantBackendAvailable;
 }
 
+/**
+ * The decision a leg answers, in the shape `createThreadRun` derives its
+ * GENERATION from (migration 140, BST-1749): a delegated pause resolves
+ * through its invocation's host leg, a root-own pause through the native run
+ * the host mapped. A child-continuation decision resolves through its own
+ * receipt instead, so it contributes nothing here.
+ */
+function readGenerationDecision(
+  decision: { delegation?: unknown; runId: string; toolCallId: string } | undefined,
+  childContinuation: unknown
+): { decision?: { delegated: boolean; runId: string; toolCallId: string } } {
+  if (!decision || childContinuation) {
+    return {};
+  }
+  return {
+    decision: {
+      delegated: decision.delegation !== undefined,
+      runId: decision.runId,
+      toolCallId: decision.toolCallId,
+    },
+  };
+}
+
 export function createAssistantThreadRunPromise(args: {
   runConfig?: unknown;
   assistantThreadRepository: AssistantThreadRepository | null;
@@ -512,6 +535,9 @@ export function createAssistantThreadRunPromise(args: {
       threadId: args.selectedMemoryThreadId,
       turnMessageId,
       ...(childContinuation ? { childContinuation } : {}),
+      // The decision this leg answers, so the repository can derive the
+      // GENERATION it belongs to from durable state (migration 140).
+      ...readGenerationDecision(decision, childContinuation),
       ...(args.modelSettings ? { modelSettings: { ...args.modelSettings } } : {}),
       ...(args.providerOptions ? { providerOptions: { ...args.providerOptions } } : {}),
     })

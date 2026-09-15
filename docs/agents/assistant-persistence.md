@@ -1388,11 +1388,26 @@ specialists returned · 1 running". The host idle loop
 (`background-idle-loop.ts`) and the resume stream (`background-resume.ts`)
 publish one row on EVERY background task lifecycle change and before every
 parent wakeup, built by `makeBackgroundLedgerChunk` (`background-ledger.ts`)
-from the DURABLE task rows (`manager.listTasks` filtered to the parent run
-ids the leg observed), never from in-memory sets alone.
+from the DURABLE task rows (`manager.listTasks` filtered to the GENERATION's
+native runs — the runs the host mapped to it, plus the runs this leg observed
+itself), never from in-memory sets alone.
 
-Shape: a FRESH `id` per row and the same `metadata.ledgerId` (the parent run
-that dispatched the work) plus the counts (`returned`, `failed`,
+AMENDED 2026-09-15 BY OWNER RULING (BST-1749, PR #3198 review item 5): the
+ledger is scoped to a GENERATION — the initial send or regeneration that
+opened it — not to "the parent run that dispatched the work". One turn spans
+SEVERAL native parent runs, because every idle-loop continuation mints a
+fresh Mastra run id, so the original wording gave each leg its own
+`ledgerId`: the initial leg's row was never superseded (a reloaded thread
+kept "2 of 3 · 1 running" for good) and a resume leg counted only the run it
+resumed. Migration 140 carries the identity — `generation_run_id` on the run
+header, with `brainstrike_assistant_native_runs` mapping each native ROOT run
+to the leg that started it — and the desktop host serves both through
+`readBackgroundGeneration`. A regeneration of the same prompt is its OWN
+generation, which is why the turn anchor (`turn_message_id`, shared by every
+generation of a prompt) cannot be this identity.
+
+Shape: a FRESH `id` per row and the same `metadata.ledgerId` (the host run
+that opened the generation) plus the counts (`returned`, `failed`,
 `cancelled`, `running`, `total`); `label` is the sentence, `detail` lists
 "<persona> <state>" per invocation. Content-free by construction: the
 delegation prompt and a failure's reason are workspace text and stay in the

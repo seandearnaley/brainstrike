@@ -193,6 +193,19 @@ export interface CreateAssistantThreadRunInput {
   /** Resolve the original turn from the owned durable continuation before insertion. */
   readonly childContinuation?: { readonly id: string; readonly nativeRunId: string };
   readonly completedAt?: Date | null;
+  /**
+   * The approval/resume decision this leg answers, when it answers one
+   * (BST-1749, migration 140). The GENERATION it belongs to is derived from
+   * durable state — a delegated pause through its invocation's host leg, a
+   * root-own pause through the native run the host mapped — so every leg of
+   * one generation carries the same ledger identity. A leg with no decision
+   * (an initial send, a regeneration) opens its own generation.
+   */
+  readonly decision?: {
+    readonly delegated: boolean;
+    readonly runId: string;
+    readonly toolCallId: string;
+  };
   readonly error?: string | null;
   readonly id: string;
   readonly model: string;
@@ -704,6 +717,60 @@ export interface RecordAssistantMessageParentInput {
 }
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
+
+/**
+ * The GENERATION a new leg belongs to (migration 140, BST-1749). An initial
+ * send or a regeneration opens its OWN; a leg that answers a decision inherits
+ * the generation of the leg whose paused run it continues — a child
+ * continuation through its receipt, a DELEGATED pause through its invocation's
+ * host leg, a ROOT-OWN pause through the native run the host mapped. NULL when
+ * nothing maps that run (a pause parked before migration 140, or a surface
+ * that maps no native runs at all): the background ledger throws there rather
+ * than guess an identity no other leg of the turn shares.
+ */
+async function resolveGenerationRunId(
+  database: Parameters<typeof createPgliteAssistantThreadRepository>[0],
+  input: CreateAssistantThreadRunInput
+): Promise<string | null> {
+  const readGeneration = async (sql: string, values: unknown[]): Promise<string | null> => {
+    const found = await database.query<{ generationRunId: string | null }>(
+      sql,
+      values as Parameters<typeof database.query>[1]
+    );
+    const value = found.rows[0]?.generationRunId;
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  };
+  if (input.childContinuation) {
+    return await readGeneration(
+      `SELECT owner.generation_run_id AS "generationRunId"
+         FROM brainstrike_delegated_continuations continuation
+         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = continuation.host_run_id
+        WHERE continuation.id = $1 AND continuation.owner_resource_id = $2
+          AND continuation.root_thread_id = $3`,
+      [input.childContinuation.id, input.resourceId, input.threadId]
+    );
+  }
+  if (input.decision?.delegated) {
+    return await readGeneration(
+      `SELECT owner.generation_run_id AS "generationRunId"
+         FROM brainstrike_delegated_invocations invocation
+         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = invocation.host_run_id
+        WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
+          AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4`,
+      [input.resourceId, input.threadId, input.decision.runId, input.decision.toolCallId]
+    );
+  }
+  if (input.decision) {
+    return await readGeneration(
+      `SELECT owner.generation_run_id AS "generationRunId"
+         FROM brainstrike_assistant_native_runs mapped
+         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = mapped.host_run_id
+        WHERE mapped.native_run_id = $1 AND owner.resource_id = $2 AND owner.thread_id = $3`,
+      [input.decision.runId, input.resourceId, input.threadId]
+    );
+  }
+  return input.id;
+}
 const LATEST_THREAD_RUNS_BY_RESOURCE_SQL = `SELECT DISTINCT ON (thread_id)
     id,
     resource_id,
@@ -3022,6 +3089,7 @@ export function createPgliteAssistantThreadRepository(
         }
         turnMessageId = receipt.turnMessageId;
       }
+      const generationRunId = await resolveGenerationRunId(database, input);
       const now = new Date();
       const startedAt = input.startedAt ?? now;
       const completedAt = input.completedAt ?? null;
@@ -3059,9 +3127,10 @@ export function createPgliteAssistantThreadRepository(
             completed_at,
             created_at,
             updated_at,
-            turn_message_id
+            turn_message_id,
+            generation_run_id
           )
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15)`,
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           record.id,
           record.resourceId,
@@ -3078,6 +3147,7 @@ export function createPgliteAssistantThreadRepository(
           record.createdAt,
           record.updatedAt,
           record.turnMessageId,
+          generationRunId,
         ]
       );
       return record;

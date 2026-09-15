@@ -1575,3 +1575,44 @@ cascade, kind check, replay and rollback),
 `thread-debug-snapshot.integration.test.ts` (runtime-shaped rows, the child and
 grandchild joins, a foreign-root address) and
 `reset-table-coverage.integration.test.ts`.
+
+### Per-generation ledger identity (migration 140)
+
+`custom-140-assistant-native-runs` adds `generation_run_id` to
+`brainstrike_assistant_thread_runs` and creates
+`brainstrike_assistant_native_runs`, the mapping from a native (Mastra) ROOT run
+to the host leg that started it. Both exist so the delegation ledger is scoped to
+a GENERATION — the initial send or regeneration that opened it — instead of to a
+single parent run (BST-1749, PR #3198 review item 5; owner ruling 2026-09-15).
+One turn spans SEVERAL native runs because each idle-loop continuation mints a
+fresh Mastra run id, so a per-run identity gave every leg of a turn its own
+ledger row and left the earlier one unsuperseded on reload.
+
+`generation_run_id` is stamped by `createThreadRun` — the sole minting site —
+and never rewritten: an initial or regeneration leg references itself, and a leg
+that answers a decision inherits the generation of the leg whose paused run it
+continues (a child continuation through its receipt, a DELEGATED pause through
+its invocation's `host_run_id`, a ROOT-OWN pause through the native run mapped
+here). Rows that predate the migration are backfilled to their OWN id: a
+generation opened before 140 is one leg as far as the ledger is concerned. NULL
+means nothing mapped that leg's paused run — a pause parked before 140, a
+surface that maps no native runs, or a delegated child run header — and
+`readBackgroundGeneration` throws there rather than invent an identity, so a
+hand-seeded host leg in a test must declare its generation exactly as
+`createThreadRun` would.
+
+The mapping is FIRST-WRITER-WINS: an approval leg re-streams the very run it
+resumed, so the row keeps the leg that STARTED it, and a run already mapped under
+a different generation is rejected rather than silently re-parented. Rows
+reference `brainstrike_assistant_thread_runs` with `ON DELETE CASCADE`, and host
+runs cascade from `mastra_threads`, so the table sits in `RESET_EXCLUDED_TABLES`
+with that reason and needs no clear-path entry. Paired:
+`migration-140-assistant-native-runs.integration.test.ts` (DDL, the
+backfill-to-own-id upgrade, cascade, constraint rejection, replay and rollback),
+the `background generation ports` cases in
+`delegated-conversation-host.integration.test.ts` (both ports plus every
+derivation branch over real invocation rows), `background-ledger.spec.ts`,
+`background-idle-loop.spec.ts` and
+`background-ledger-generation.integration.spec.ts` (one ledger id across a turn's
+legs), and `assistant-run-schema-upgrade-path.test.ts`, whose
+bootstrap-convergence control now expects exactly this column to differ.

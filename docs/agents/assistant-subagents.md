@@ -1860,9 +1860,15 @@ event. The GLM root (thread-debug pack 2026-09-15T03-31-15Z) received
 "Background invocation X has returned" four times over four continuations,
 mis-counted, and ended "waiting on the remaining subagents" after all four
 had finished. The ledger is read from the DURABLE task rows
-(`manager.listTasks` in the thread scope, filtered to the parent run ids the
-leg observed on its lifecycle events — `background-ledger.ts`,
-`createBackgroundLedgerSource`), never from the loop's `running`/`settled`
+(`manager.listTasks` in the thread scope, filtered to the GENERATION's native
+runs — `background-ledger.ts`, `createBackgroundLedgerSource`; AMENDED
+2026-09-15 by owner ruling, BST-1749/PR #3198 review item 5, from "the parent
+run ids the leg observed on its lifecycle events", which gave every leg of one
+turn its own ledger identity and made a resume leg count only the run it
+resumed. The scope is now the runs the host mapped to this generation
+(migration 140, `readBackgroundGeneration`) UNION the runs the leg observed
+itself, which covers a run whose first task has only just been dispatched),
+never from the loop's `running`/`settled`
 sets alone, and lists every invocation as returned (persona, the first 120
 chars of its prompt, "use its saved outcome"), failed (with the recorded
 reason; a timeout reads "timed out"), cancelled, or still running. When
