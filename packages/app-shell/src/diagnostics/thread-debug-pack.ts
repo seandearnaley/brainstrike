@@ -210,7 +210,7 @@ function describeHostItem(item: ThreadDebugHostItem): string {
   return item.status === 'included' ? 'included' : `unavailable: ${item.reason}`;
 }
 
-/** Read from the REDACTED sections so the manifest never bypasses redaction. */
+/** Read from the REDACTED sections, so listed gates carry their events' redaction. */
 function listPermissionGates(redactedSections: unknown): Record<string, unknown>[] {
   const events = isRecord(redactedSections) ? redactedSections['events'] : undefined;
   if (!Array.isArray(events)) {
@@ -285,6 +285,13 @@ export function formatThreadDebugPack(
       repeatedValue: REPEATED_VALUE_MARKER,
     })
   );
+  // An unavailable reason is a raw IPC error message outside sections: it takes
+  // the same value scrub and count. Paths stay (documented export content).
+  const hostManifest = {
+    hostLog: scrub(describeHostItem(host.hostLog)),
+    processCounters: scrub(describeHostItem(host.processCounters)),
+    window: host.window,
+  };
   const env = (import.meta as { env?: Record<string, unknown> }).env;
   const artifactFailures = decodedArtifacts.flatMap((artifact) =>
     artifact.failure ? [artifact.failure] : []
@@ -335,11 +342,7 @@ export function formatThreadDebugPack(
       coverage:
         'All retained records in the included sections for the selected conversation and its currently authorized descendants, captured in one database statement snapshot.',
       elidedRows: 0,
-      host: {
-        hostLog: describeHostItem(host.hostLog),
-        processCounters: describeHostItem(host.processCounters),
-        window: host.window,
-      },
+      host: hostManifest,
       limitations: [
         'An empty section is not evidence that no activity occurred: deleted, expired, never-recorded and unauthorized records are unavailable.',
         'Active runs may have unsaved transcript content. Regenerate after completion for the final durable record.',
