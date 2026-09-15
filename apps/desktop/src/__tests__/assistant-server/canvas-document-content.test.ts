@@ -20,6 +20,14 @@ describe('isEmptyCanvasDocument', () => {
       'script in a head with omitted </head>',
       '<html><head><script src="x.js"></script><body></body></html>',
     ],
+    // The explicit-head flag has to PERSIST across later head tokens, not be
+    // recomputed from each one. Mutation: `explicitHead =` in place of `||=`
+    // clears the flag on the title, so the guard breaks the scan at the script
+    // and this row reads as content.
+    [
+      'a script after a title in an explicit head',
+      '<head><title>T</title><script>render()</script>',
+    ],
     // Explicit-head counterparts of the template/noscript content rows below.
     [
       'a template inside an explicit head',
@@ -82,6 +90,10 @@ describe('isEmptyCanvasDocument', () => {
     // A script with no explicit head before it is content, not an implied head.
     // Mutation: stripping every leading script fails this row.
     ['a script-only document', '<script>render()</script>'],
+    // HEAD_TOKEN carries `/i` but the guard Set is lowercase, so only uppercase
+    // input reaches the one case-sensitive step. Mutation: dropping
+    // `rawText.toLowerCase()` consumes this as an implied head and empties it.
+    ['an uppercase script-only document', '<SCRIPT>render()</SCRIPT>'],
     // Mutation: scanning past `</head>` strips this script with the head.
     ['a script after a closed head', '<head><title>T</title></head><script>render()</script>'],
     // Like script, template and noscript are body content outside an explicit
