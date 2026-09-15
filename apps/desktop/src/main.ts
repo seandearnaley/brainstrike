@@ -930,6 +930,8 @@ desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler(
   getDatabase,
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   logger,
+  // Corruption found by a pass takes the same recovery path as db:query.
+  onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
   runScheduledWork: runDesktopScheduledDatabaseWork,
   // BST-1333: lets the scheduler require SUSTAINED idle before starting an
   // unpreemptable maintenance statement, instead of trusting a single sample.
