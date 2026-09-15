@@ -49,6 +49,7 @@ import {
   type DelegatedConversationUpdate,
 } from './delegated-conversation-receiver';
 import { insulateAssistantStreamPipeline } from './stream-insulation';
+import { resolveTurnAnchorMessageId } from './turn-anchor';
 
 export { excludeApprovalActionMessages, isApprovalActionMessage };
 
@@ -197,21 +198,10 @@ export interface PrepareRequestBodyContext {
   readonly turnAnchorMessageId: string | null;
 }
 
-/**
- * The turn anchor for a run leg — see
- * {@link PrepareRequestBodyContext.turnAnchorMessageId}. Mirrors the desktop
- * server's `resolveTurnAnchorMessageId` (snapshot-turn-boundaries.ts) with the
- * renderer-side extra of skipping action echoes, which never reach the server.
- */
-export function resolveTurnAnchorMessageId(messages: readonly ThreadMessage[]): string | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const candidate = messages[index];
-    if (candidate?.role === 'user' && !isApprovalActionMessage(candidate)) {
-      return candidate.id;
-    }
-  }
-  return null;
-}
+// The turn anchor lives in `turn-anchor.ts` — see
+// {@link PrepareRequestBodyContext.turnAnchorMessageId}. Re-exported here
+// because this module was its original home.
+export { resolveTurnAnchorMessageId };
 
 const NO_BODY_CONTEXT: PrepareRequestBodyContext = { turnAnchorMessageId: null };
 
@@ -1274,9 +1264,20 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     abortSignal.addEventListener(
       'abort',
       () => {
-        if (!(abortSignal.reason as { detach?: unknown } | undefined)?.detach) {
-          this.options.onCancel?.({ messages: readCancelledMessages() });
+        if ((abortSignal.reason as { detach?: unknown } | undefined)?.detach) {
+          return;
         }
+        // Reading the live message can throw (a runtime torn down under the
+        // abort). The cancel path itself must still run: this file's rule is
+        // that hook failures never break the stream, and an empty set only
+        // means "nothing here looks stale", which is the safe direction.
+        let messages: readonly ThreadMessage[] = [];
+        try {
+          messages = readCancelledMessages();
+        } catch (error: unknown) {
+          logger.warn('Could not read the cancelled thread for the Stop notice', { error });
+        }
+        this.options.onCancel?.({ messages });
       },
       { once: true }
     );

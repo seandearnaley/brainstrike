@@ -61,7 +61,6 @@ import type {
 } from '@brainstrike/types';
 import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { AssistantDecisionProviders } from './assistant-decision-providers';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
 import { subscribeAssistantToolUpdates } from './assistant-panel/tool-update-subscriptions';
@@ -134,6 +133,7 @@ import { useAssistantRunControls } from './use-assistant-run-controls';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useAssistantThreadTitleSync } from './use-assistant-thread-title-sync';
+import { useComposerDraftChannel } from './use-composer-draft-channel';
 import { useAssistantPanelThreadScope } from './use-delegated-conversation-root';
 import { useFileMentions } from './use-file-mentions';
 import { useHookTrustScope } from './use-hook-trust-scope';
@@ -735,47 +735,7 @@ export function AssistantUiPanelWrapper({
       memoryResourceId,
       selectedMemoryThreadId,
     });
-  const composerDraftCommand = useAssistantComposerCommandStore((state) =>
-    selectedMemoryThreadId ? state.commandsByThreadId[selectedMemoryThreadId]?.[0] : undefined
-  );
-  const acknowledgeComposerCommand = useAssistantComposerCommandStore((state) => state.acknowledge);
-  const recordComposerDraft = useAssistantComposerCommandStore((state) => state.recordDraft);
-  const handleComposerCommandApplied = useCallback(
-    (commandId: string) => {
-      if (!composerDraftCommand || composerDraftCommand.id !== commandId) {
-        throw new Error(`Cannot acknowledge unknown composer command: ${commandId}`);
-      }
-      acknowledgeComposerCommand(composerDraftCommand.threadId, commandId);
-    },
-    [acknowledgeComposerCommand, composerDraftCommand]
-  );
-  const handleComposerTextChange = useCallback(
-    (text: string) => {
-      if (!selectedMemoryThreadId) {
-        throw new Error('Cannot record composer text without an active assistant thread.');
-      }
-      recordComposerDraft(selectedMemoryThreadId, text);
-    },
-    [recordComposerDraft, selectedMemoryThreadId]
-  );
-  const enqueueComposerCommand = useAssistantComposerCommandStore((state) => state.enqueue);
-  // A root Stop that cancelled an undecided pause re-reads history by
-  // REMOUNTING the panel's runtime (BST-1749), which discards the live
-  // composer. Hand this thread's recorded draft back through the SAME
-  // thread-scoped command channel the prompt library uses, so it lands in this
-  // thread's new mount and in no other open thread (owner ruling 2026-09-15).
-  // The thread id is captured here, so a switch during the Stop cannot move it.
-  const handleStopReread = useCallback(() => {
-    if (!selectedMemoryThreadId) {
-      throw new Error('Cannot carry a composer draft without an active assistant thread.');
-    }
-    const draft =
-      useAssistantComposerCommandStore.getState().draftTextByThreadId[selectedMemoryThreadId] ?? '';
-    if (draft.trim() === '') {
-      return;
-    }
-    enqueueComposerCommand({ mode: 'replace', text: draft, threadId: selectedMemoryThreadId });
-  }, [enqueueComposerCommand, selectedMemoryThreadId]);
+  const composerDraft = useComposerDraftChannel(selectedMemoryThreadId);
   const hostedMemoryBackendAvailable = resolveHostedMemoryBackendAvailable({
     desktopAssistantBackendAvailable,
     selectedProvider,
@@ -1420,7 +1380,7 @@ export function AssistantUiPanelWrapper({
               <BudgetGuardrailProvider value={budgetGuardrailBinding}>
                 <AssistantUiPanel
                   {...delegatedPanelBinding}
-                  composerDraftCommand={composerDraftCommand}
+                  composerDraftCommand={composerDraft.command}
                   {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
                   {...(steerActiveRun ? { onSteerActiveRun: steerActiveRun } : {})}
                   completePreparedRequest={completeRequestAndSettleLiveUsage}
@@ -1431,9 +1391,9 @@ export function AssistantUiPanelWrapper({
                   openRouterModelMetadataLookup={openRouterMetadata.lookup}
                   {...(selectedMemoryThreadId
                     ? {
-                        onComposerDraftCommandApplied: handleComposerCommandApplied,
-                        onComposerTextChange: handleComposerTextChange,
-                        onStopReread: handleStopReread,
+                        onComposerDraftCommandApplied: composerDraft.onApplied,
+                        onComposerTextChange: composerDraft.onTextChange,
+                        onStopReread: composerDraft.onStopReread,
                       }
                     : {})}
                   onChildRunUsage={handleChildRunUsage}

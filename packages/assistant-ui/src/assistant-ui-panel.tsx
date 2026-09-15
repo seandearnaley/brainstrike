@@ -20,7 +20,7 @@ import type {
   LocalLlmBackendFactory,
   OpenRouterModelMetadataLookup,
 } from '@brainstrike/assistant-contract';
-import { type ReactNode, use, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnsweredApprovalsProvider } from './answered-approvals-index';
 import { ApprovalRanksProvider } from './approval-presentation-context';
 import { ApprovalQueueStrip } from './approval-queue-strip';
@@ -302,11 +302,14 @@ export interface AssistantUiPanelProps
   onStepUsage?: (step: { inputTokens: number; outputTokens: number }) => void;
   /**
    * A settled root Stop cancelled a pause this thread still showed, so the
-   * data-stream runtime is about to REMOUNT and re-read history. Called before
-   * that bump, while the live composer still exists, so the host can carry its
-   * draft into the new mount through its own thread-scoped channel
-   * (app-shell's composer command store). The panel keeps no draft state of
-   * its own; a host that wires nothing keeps today's behaviour.
+   * data-stream runtime is about to REMOUNT and re-read history. Called
+   * immediately after that bump and in the SAME React batch, while the live
+   * composer still exists, so the host can carry its draft into the new mount
+   * through its own thread-scoped channel (app-shell's composer command
+   * store) and the command reaches the replacement rather than the composer
+   * being discarded. Not called when the bump cannot take effect (this panel
+   * has since moved to another thread). The panel keeps no draft state of its
+   * own; a host that wires nothing keeps today's behaviour.
    */
   onStopReread?: () => void;
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
@@ -1104,9 +1107,9 @@ export const AssistantUiPanel = ({
   disabledReason,
   historyAdapter,
   historyGeneration = 0,
-  onStopReread,
   loadLocalLlmBackend,
   localChatTransport = 'local-runtime',
+  onStopReread,
   threadKey,
 }: AssistantUiPanelProps) => {
   const api = useAssistantEndpointApi();
@@ -1118,7 +1121,20 @@ export const AssistantUiPanel = ({
     generation: number;
     threadKey: string | undefined;
   }>({ generation: 0, threadKey: undefined });
+  // Latest-ref sync in an unconditional effect (never during render): the
+  // cancel settles long after the Stop, holding the callback from that render.
+  const currentThreadKeyRef = useRef(threadKey);
+  useEffect(() => {
+    currentThreadKeyRef.current = threadKey;
+  });
   const rereadAfterStop = useCallback(() => {
+    // A stale callback from a thread this panel has since left would bump a
+    // generation the key gate ignores, and telling the host then would queue a
+    // draft command for a thread that never remounts. Reopening that thread
+    // hydrates from the ledger anyway (PR #3214 review).
+    if (currentThreadKeyRef.current !== threadKey) {
+      return;
+    }
     setStopReread((current) => ({ generation: current.generation + 1, threadKey }));
     // Told after the bump and in the same batch, so the draft the host hands
     // back reaches the NEW mount instead of the composer being discarded —

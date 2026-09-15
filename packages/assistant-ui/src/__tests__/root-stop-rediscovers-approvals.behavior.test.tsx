@@ -28,6 +28,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import {
   type AssistantToolApprovalRequest,
+  TOOL_APPROVAL_ANSWERED_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { TooltipProvider } from '@brainstrike/ui';
@@ -148,8 +149,22 @@ function createHistorySource(): {
   };
 }
 
+/** The host's answer to a pause, streamed on the same leg that raised it. */
+const ANSWERED = {
+  decision: 'approve',
+  delegation: LIVE_PAUSE.delegation,
+  reason: 'session-grant',
+  runId: LIVE_PAUSE.runId,
+  toolCallId: LIVE_PAUSE.toolCallId,
+  toolName: LIVE_PAUSE.toolName,
+} as const;
+
 /** The live leg: the pause notice, then an open stream until Stop aborts it. */
-function liveStreamResponse(signal: AbortSignal | null | undefined, pause: unknown): Response {
+function liveStreamResponse(
+  signal: AbortSignal | null | undefined,
+  pause: unknown,
+  answered?: unknown
+): Response {
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -157,6 +172,13 @@ function liveStreamResponse(signal: AbortSignal | null | undefined, pause: unkno
         controller.enqueue(
           encoder.encode(
             `aui-data:${JSON.stringify({ data: pause, name: TOOL_APPROVAL_DATA_NAME })}\n`
+          )
+        );
+      }
+      if (answered !== undefined) {
+        controller.enqueue(
+          encoder.encode(
+            `aui-data:${JSON.stringify({ data: answered, name: TOOL_APPROVAL_ANSWERED_DATA_NAME })}\n`
           )
         );
       }
@@ -173,14 +195,14 @@ function liveStreamResponse(signal: AbortSignal | null | undefined, pause: unkno
   });
 }
 
-function stubHost(pause: unknown): { readonly cancelBodies: unknown[] } {
+function stubHost(pause: unknown, answered?: unknown): { readonly cancelBodies: unknown[] } {
   const cancelBodies: unknown[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       if (url.origin === BASE && url.pathname === '/assistant' && init?.method === 'POST') {
-        return liveStreamResponse(init.signal, pause);
+        return liveStreamResponse(init.signal, pause, answered);
       }
       if (url.origin === BASE && url.pathname === '/assistant/cancel') {
         cancelBodies.push(init?.body);
@@ -297,10 +319,39 @@ describe('root Stop re-reads pauses from the host ledger', () => {
       expect(completePreparedRequest).toHaveBeenCalledWith(expect.any(Object), 'cancelled')
     );
     expect(host.cancelBodies).toEqual([JSON.stringify({ runId: RUN_ID })]);
-    // Let the settled cancel's continuation and any remount it triggers run.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    // A positive signal that the cancel path finished in the UI, so the
+    // absence of a re-read below is settled rather than merely early.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument()
+    );
+    expect(history.load).toHaveBeenCalledTimes(1);
+    expect(onStopReread).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The gate is about pauses this Stop may have CANCELLED, not about every
+   * pause part in the transcript. An approval answered in this session has no
+   * durable `decisionState` either, so counting it would remount (and re-read)
+   * on the ordinary "approve a tool, keep going, Stop" path (PR #3214 review).
+   */
+  it('keeps the mounted thread when the stopped turn only showed an answered approval', async () => {
+    const user = userEvent.setup();
+    const history = createHistorySource();
+    const completePreparedRequest = vi.fn();
+    const onStopReread = vi.fn();
+    const host = stubHost(LIVE_PAUSE, ANSWERED);
+    await renderAndStartRun(history, { completePreparedRequest, onStopReread });
+    await screen.findByTestId('assistant-tool-approval-notice');
+
+    await user.click(await screen.findByRole('button', { name: 'Stop' }));
+
+    await waitFor(() =>
+      expect(completePreparedRequest).toHaveBeenCalledWith(expect.any(Object), 'cancelled')
+    );
+    expect(host.cancelBodies).toHaveLength(1);
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument()
+    );
     expect(history.load).toHaveBeenCalledTimes(1);
     expect(onStopReread).not.toHaveBeenCalled();
   });
@@ -321,9 +372,7 @@ describe('root Stop re-reads pauses from the host ledger', () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    await act(async () => {
-      startRun(screen.getByTestId('start-run'));
-    });
+    await user.click(screen.getByTestId('start-run'));
     await screen.findByTestId('approval-queue-strip');
 
     const composer = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Message input' });
@@ -350,6 +399,7 @@ describe('root Stop re-reads pauses from the host ledger', () => {
  */
 function DraftCarryHost({ history }: { history: ReturnType<typeof createHistorySource> }) {
   const draft = useRef('');
+  const carried = useRef(0);
   const [command, setCommand] = useState<ComposerDraftCommand | undefined>(undefined);
   const [runtime, setRuntime] = useState<PanelRuntime | undefined>(undefined);
   return (
@@ -380,13 +430,13 @@ function DraftCarryHost({ history }: { history: ReturnType<typeof createHistoryS
           return;
         }}
         onStopReread={() => {
-          if (draft.current.trim() !== '') {
-            setCommand({
-              id: `draft-${draft.current.length}`,
-              mode: 'replace',
-              text: draft.current,
-            });
+          if (draft.current.trim() === '') {
+            return;
           }
+          // A monotonic id: two drafts of equal length must not collide, or the
+          // bridge would treat the second as already applied.
+          carried.current += 1;
+          setCommand({ id: `draft-${carried.current}`, mode: 'replace', text: draft.current });
         }}
         pickerModels={[]}
         pickerProviders={[]}
@@ -397,10 +447,6 @@ function DraftCarryHost({ history }: { history: ReturnType<typeof createHistoryS
       />
     </>
   );
-}
-
-function startRun(button: HTMLElement): void {
-  button.click();
 }
 
 function PanelOwner({ children }: PropsWithChildren) {
