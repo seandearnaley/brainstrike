@@ -147,6 +147,33 @@ describe('background generation ports (migration 140)', () => {
     });
   });
 
+  it('a REGENERATION opens its own generation: a leg with no decision references itself', async () => {
+    // The ruling's whole point. Both legs share `turn_message_id` — a
+    // regeneration resends the same prompt — so the turn anchor cannot be this
+    // identity: the regenerated turn must not count the first generation's
+    // invocations, nor supersede its row.
+    await hostFor('initial-leg').recordNativeRootRun('native-first');
+    await createPgliteAssistantThreadRepository(database as DbHandle).createThreadRun({
+      id: 'regeneration-leg',
+      model: 'test',
+      provider: 'openai',
+      resourceId: 'owner',
+      runtimeKind: 'local',
+      threadId: 'root',
+      turnMessageId: 'user-turn',
+    });
+    const regeneration = hostFor('regeneration-leg');
+    await regeneration.recordNativeRootRun('native-regenerated');
+    expect(await regeneration.readBackgroundGeneration()).toEqual({
+      generationRunId: 'regeneration-leg',
+      nativeRunIds: ['native-regenerated'],
+    });
+    expect(await hostFor('initial-leg').readBackgroundGeneration()).toEqual({
+      generationRunId: 'initial-leg',
+      nativeRunIds: ['native-first'],
+    });
+  });
+
   it('leaves the generation unset when nothing maps the decision run, and refuses to invent one', async () => {
     // A pause parked before migration 140 has no mapping: the ledger fails
     // loudly rather than publish under an identity no other leg shares.
