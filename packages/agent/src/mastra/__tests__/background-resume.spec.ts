@@ -19,7 +19,10 @@ const TOOL = 'agent-explore';
 
 type ToolExecute = (
   args: Record<string, unknown>,
-  options: { readonly suspend?: (data?: unknown) => Promise<void> }
+  options: {
+    readonly outputWriter?: (chunk: unknown) => Promise<void>;
+    readonly suspend?: (data?: unknown) => Promise<void>;
+  }
 ) => Promise<unknown>;
 
 type ToolMap = Record<string, { readonly execute: ToolExecute }>;
@@ -69,6 +72,8 @@ function createNativeManager(
   let push: (event: unknown) => void = () => {};
   let stamp = 0;
   let heldRead: { readonly gate: Promise<void>; readonly onRead: () => void } | undefined;
+  /** Runs once, inside the next `resume`, before it reads the task's status. */
+  let pendingBeforeResume: (() => Promise<void>) | undefined;
   const update = (taskId: string, status: BackgroundTask['status']): BackgroundTask => {
     const row = rows.get(taskId);
     if (!row) {
@@ -109,6 +114,8 @@ function createNativeManager(
     const running = update(taskId, 'running');
     publish('background-task-resumed', running);
     calls.push(`execute:${taskId}`);
+    // Mastra passes no writer here: the HOST gives the tool its `outputWriter`
+    // (`registerResumedExecutor`), which is the write path under test.
     await context.executor.execute(running.args, {
       resumeData,
       suspend: async () => {
@@ -142,6 +149,15 @@ function createNativeManager(
       calls.push(`resume:${taskId}`);
       if (behaviour.refuseResume?.has(taskId)) {
         throw new Error("Cannot resume task in status 'cancelled' (expected 'suspended')");
+      }
+      const hook = pendingBeforeResume;
+      pendingBeforeResume = undefined;
+      await hook?.();
+      // Mastra reads the row AFTER its own awaits, so a task another caller
+      // resumed meanwhile is refused here (`manager.resume`, 1.64).
+      const status = rows.get(taskId)?.status;
+      if (status !== 'suspended') {
+        throw new Error(`Cannot resume task in status '${status}' (expected 'suspended')`);
       }
       if (behaviour.cancelOnResume?.has(taskId)) {
         cancel(taskId);
@@ -207,6 +223,9 @@ function createNativeManager(
     cancel,
     holdNextRead,
     manager: manager as unknown as BackgroundTaskManager,
+    setBeforeResume: (hook: () => Promise<void>) => {
+      pendingBeforeResume = hook;
+    },
   };
 }
 
@@ -397,6 +416,79 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
     await expect(ended).resolves.toEqual({ error: undefined });
     expect(leg.status).toBe('suspended');
     expect(native.calls).not.toContain('execute:t1');
+  }, 2000);
+
+  it('keeps the context of a task another caller already resumed', async () => {
+    // The leg owns the seam across its whole registration window, so a live
+    // decision can register and resume a task this leg is about to resume.
+    // Mastra then refuses the leg's duplicate resume — and that refusal must
+    // NOT drop the context Mastra is about to look up for the running task.
+    const channel = createLiveDecisionChannel();
+    const running = Promise.withResolvers<void>();
+    let live: Promise<void> | undefined;
+    const native = createNativeManager();
+    const duplicate = native.add('t1');
+    native.setBeforeResume(async () => {
+      const owner = channel.owner;
+      if (!owner) {
+        throw new Error('The leg does not own its live decision seam.');
+      }
+      const reservation = owner.reserve([duplicate]);
+      live = reservation.resume([{ resumeData: { approved: true }, task: duplicate }]);
+      await live;
+      // Mastra picks the task up: the leg's own resume then finds it running.
+      await macrotask();
+    });
+    const { ended } = startLeg({
+      channel,
+      manager: native.manager,
+      resumes: [duplicate],
+      // The live-resumed child is still working when the leg's own resume runs.
+      tools: Promise.resolve({ [TOOL]: parkingTool(running.promise) }),
+    });
+    try {
+      const { error } = await ended;
+      expect(error).toMatchObject({
+        message: "Cannot resume task in status 'running' (expected 'suspended')",
+      });
+      await expect(live).resolves.toBeUndefined();
+      expect(native.calls).not.toContain('deregister:t1');
+      expect(native.calls).toContain('execute:t1');
+    } finally {
+      running.resolve();
+    }
+  }, 2000);
+
+  it('a resumed tool that writes after its leg closed does not throw into the execution', async () => {
+    // A cancel settles the join while the executor is still in flight, so the
+    // leg can close before the tool returns; its next write has nowhere to go
+    // and must not fail the tool.
+    const stuck = Promise.withResolvers<void>();
+    let lateWrite: unknown = 'not attempted';
+    const native = createNativeManager();
+    const { ended } = startLeg({
+      manager: native.manager,
+      resumes: [native.add('t1')],
+      tools: Promise.resolve({
+        [TOOL]: {
+          execute: async (_args, options) => {
+            await stuck.promise;
+            try {
+              await options.outputWriter?.({ type: 'late-child-frame' });
+              lateWrite = 'written';
+            } catch (error) {
+              lateWrite = error;
+            }
+          },
+        },
+      }),
+    });
+    await until(() => native.calls.includes('execute:t1'));
+    native.cancel('t1');
+    await expect(ended).resolves.toEqual({ error: undefined });
+    stuck.resolve();
+    await until(() => lateWrite !== 'not attempted');
+    expect(lateWrite).toBe('written');
   }, 2000);
 
   it('a task cancelled while its resumed executor is still in flight settles the join', async () => {
