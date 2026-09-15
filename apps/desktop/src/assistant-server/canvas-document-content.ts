@@ -21,9 +21,14 @@
  * head cannot be found by pairing tags: it ends at `</head>` or at the first
  * token that is not head content, as the parser's "in head" insertion mode
  * ends it.
+ *
+ * A raw-text element the document never closes runs to END OF INPUT, which is
+ * how the parser reads it, so a truncated `<head><title>Report` is still a
+ * head. Without that, the unclosed title would fall through to the tag strip
+ * and its text would count as content.
  */
 const HEAD_TOKEN =
-  /\s+|<!--[\s\S]*?-->|<!doctype\b[^>]*>|<\/?html\b[^>]*>|<(?<headTag>\/?head)\b[^>]*>|<(?:base|link|meta)\b[^>]*>|<(?<rawText>title|style|script|noscript|template)\b[^>]*>[\s\S]*?<\/\k<rawText>\s*>/iy;
+  /\s+|<!--[\s\S]*?-->|<!doctype\b[^>]*>|<\/?html\b[^>]*>|<(?<headTag>\/?head)\b[^>]*>|<(?:base|link|meta)\b[^>]*>|<(?<rawText>title|style|script|noscript|template)\b[^>]*>[\s\S]*?(?:<\/\k<rawText>\s*>|$)/iy;
 const HTML_COMMENT = /<!--[\s\S]*?-->/g;
 const HTML_TAG = /<[^>]*>/g;
 const WHITESPACE_ENTITY = /&(?:nbsp|ensp|emsp|thinsp|#160|#xa0);/gi;

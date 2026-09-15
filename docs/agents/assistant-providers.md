@@ -4859,15 +4859,16 @@ do not relitigate): the root created an empty titled shell "ready to receive
 the report" 25 s into the turn and wrote the report behind a SECOND approval,
 breaking the user's reading of card → approve → document appears. `create`
 now refuses a document that `isEmptyCanvasDocument` (leading head and comments
-stripped, the head ending at `</head>` or the first non-head token since both
-head tags are optional; svg/canvas/img count as content, and
-script/template/noscript do too unless inside an explicit `<head>`) judges
-empty, BEFORE any DB
-call and at no approval cost, with the structured `empty_document` failure
-and `EMPTY_CANVAS_DOCUMENT_HINT` ("create the canvas when the content is
-ready — there is nothing to prepare"). `update`/`rewrite`/`list` are
-unchanged: an empty `newString` still deletes the match and a rewrite to
-empty still versions, because both act on a document the user already has.
+stripped, the head ending at `</head>`, at the first non-head token — both head
+tags are optional — or at end of input for a raw-text element the document
+never closes; svg/canvas/img/script count as content, and a template or
+noscript outside an explicit `<head>` stays in the body, so its contents count)
+judges empty, BEFORE any DB call and at no approval cost, with the structured
+`empty_document` failure and `EMPTY_CANVAS_DOCUMENT_HINT` ("create the canvas
+when the content is ready — there is nothing to prepare"). `update`/`rewrite`/
+`list` are unchanged: an empty `newString` still deletes the match and a
+rewrite to empty still versions, because both act on a document the user
+already has.
 The description and the conditional instruction both say the write IS the
 deliverable and never an empty placeholder — the guard closes the literal
 shell, the prose closes the stub, and the verifier measures the live model.
