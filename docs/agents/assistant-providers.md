@@ -4858,13 +4858,20 @@ SETTLED 2026-09-15, CREATE REQUIRES CONTENT (live-app verifier runs 6 and 7,
 do not relitigate): the root created an empty titled shell "ready to receive
 the report" 25 s into the turn and wrote the report behind a SECOND approval,
 breaking the user's reading of card → approve → document appears. `create`
-now refuses a document that `isEmptyCanvasDocument` (head and comments
-stripped; svg/canvas/img/script count as content) judges empty, BEFORE any DB
-call and at no approval cost, with the structured `empty_document` failure
-and `EMPTY_CANVAS_DOCUMENT_HINT` ("create the canvas when the content is
-ready — there is nothing to prepare"). `update`/`rewrite`/`list` are
-unchanged: an empty `newString` still deletes the match and a rewrite to
-empty still versions, because both act on a document the user already has.
+now refuses a document that `isEmptyCanvasDocument` (leading head and comments
+stripped, the head ending at `</head>`, at the first non-head token — both head
+tags are optional — or at end of input for a raw-text element the document
+never closes; svg/canvas/img/script count as content, a template or noscript
+outside an explicit `<head>` stays in the body, so its contents count, and
+`style` is head content with or without a `<head>`, so a style-only document is
+empty — the template/noscript bias deliberately over-accepts rather than claim
+what renders) judges empty, BEFORE any DB call and at no approval cost, with
+the structured
+`empty_document` failure and `EMPTY_CANVAS_DOCUMENT_HINT` ("create the canvas
+when the content is ready — there is nothing to prepare"). `update`/`rewrite`/
+`list` are unchanged: an empty `newString` still deletes the match and a
+rewrite to empty still versions, because both act on a document the user
+already has.
 The description and the conditional instruction both say the write IS the
 deliverable and never an empty placeholder — the guard closes the literal
 shell, the prose closes the stub, and the verifier measures the live model.

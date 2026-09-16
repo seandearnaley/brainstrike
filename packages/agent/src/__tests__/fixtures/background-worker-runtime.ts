@@ -429,11 +429,14 @@ export async function createBackgroundFixture(
         activeClaim = undefined;
       },
       prepareToolAction: async () => {},
+      // The fixture holds no decision ledger, so no parked leaf is ever
+      // already answered; the real host answers this from the ledger.
+      readAnsweredToolActionLeaves: async () => [],
       recordLiveDecision: async (record: DelegatedLiveDecisionRecord) => {
         liveDecisions.push(record);
       },
-      recordToolActionAnswer: async (action: { toolCallId: string; delegation: unknown }) => {
-        policyAnswers.push(action.toolCallId);
+      recordToolActionAnswers: async (actions: readonly { toolCallId: string }[]) => {
+        policyAnswers.push(...actions.map((action) => action.toolCallId));
       },
       recordWakeup: async (record: DelegatedWakeupRecord) => {
         wakeups.push({ ...record, promptsAtRecord: model.prompts.length });

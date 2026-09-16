@@ -2,6 +2,7 @@ import type {
   DelegatedOriginalToolCall,
   DelegatedToolActionIdentity,
 } from '@brainstrike/assistant-contract';
+
 import type { Agent, AgentRunToolCall } from '@mastra/core/agent';
 import type {
   DelegatedConversationBinding,
@@ -104,6 +105,29 @@ export async function assertDelegatedToolActionPending(input: {
   return { ...leaf, ...(originalToolCall ? { originalToolCall } : {}) };
 }
 
+/** The decision identity its continuation owner admitted, claimed and releases. */
+function continuationDecisionOf(
+  action: ToolActionTarget,
+  requiresApproval: boolean
+): {
+  readonly delegation?: DelegatedToolActionIdentity;
+  readonly id: string;
+  readonly kind: 'tool-approval' | 'tool-resume';
+  readonly nativeRunId: string;
+  readonly toolCallId: string;
+} {
+  if (!action.continuationId) {
+    throw new Error('Child continuation decision requires its continuation identity.');
+  }
+  return {
+    ...(action.delegation ? { delegation: action.delegation } : {}),
+    id: action.continuationId,
+    kind: requiresApproval ? ('tool-approval' as const) : ('tool-resume' as const),
+    nativeRunId: action.runId,
+    toolCallId: action.toolCallId,
+  };
+}
+
 async function claimContinuationToolAction(
   action: ToolActionTarget,
   binding: DelegatedConversationBinding | undefined,
@@ -113,13 +137,7 @@ async function claimContinuationToolAction(
   if (!(host && action.continuationId)) {
     throw new Error('Child continuation decision requires durable host admission.');
   }
-  const decision = {
-    ...(action.delegation ? { delegation: action.delegation } : {}),
-    id: action.continuationId,
-    kind: native.requiresApproval ? ('tool-approval' as const) : ('tool-resume' as const),
-    nativeRunId: action.runId,
-    toolCallId: action.toolCallId,
-  };
+  const decision = continuationDecisionOf(action, native.requiresApproval);
   const scope = await host.resolveContinuationDecision(decision);
   await host.claimContinuationDecision(decision);
   try {
@@ -187,4 +205,65 @@ export async function claimDelegatedToolAction(
     }
     throw error;
   }
+}
+
+/**
+ * Run the work a leg still does between `claimDelegatedToolAction` and native
+ * resume (locating the parked task, answering the siblings its grant covers).
+ * Nothing native has run, so a failure releases the claim through the owner
+ * that took it — the continuation host for a child continuation decision, the
+ * delegated ledger otherwise — and propagates, exactly like a failed recheck
+ * above. Left to disposal, `finishToolActions` would consume a decision that
+ * never ran and refuse its still-parked card for good (BST-1749 review). A
+ * root decision holds no claim. The original failure stays reachable as the
+ * `cause` of any release aggregate, so callers keep its code and reason.
+ */
+export async function beforeDelegatedToolActionResume<T>(
+  action: ToolActionTarget,
+  binding: DelegatedConversationBinding | undefined,
+  native: { readonly requiresApproval: boolean },
+  work: () => Promise<T>
+): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    const release = resolveUnexecutedClaimRelease(action, binding, native.requiresApproval);
+    if (!release) {
+      throw error;
+    }
+    try {
+      await release();
+    } catch (releaseError) {
+      throw new AggregateError(
+        [error, releaseError],
+        'Delegated decision preparation and release failed.',
+        { cause: error }
+      );
+    }
+    throw error;
+  }
+}
+
+/** The release for the claim this action took, or nothing when it took none. */
+function resolveUnexecutedClaimRelease(
+  action: ToolActionTarget,
+  binding: DelegatedConversationBinding | undefined,
+  requiresApproval: boolean
+): (() => Promise<void>) | undefined {
+  if (action.continuationId) {
+    const host = binding?.continuation;
+    if (!host) {
+      throw new Error('Child continuation decisions require durable host admission.');
+    }
+    return () =>
+      host.releaseUnexecutedContinuationDecision(continuationDecisionOf(action, requiresApproval));
+  }
+  if (!action.delegation) {
+    return;
+  }
+  const release = binding?.releaseUnexecutedToolAction;
+  if (!release) {
+    throw new Error('Delegated decisions require durable host admission and settlement.');
+  }
+  return () => release(action);
 }
