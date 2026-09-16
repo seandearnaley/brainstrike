@@ -2094,7 +2094,13 @@ clone captured at clone time fails "the clone reads the gate on EVERY call"),
 `build-persona-subagents-approval-gate.spec.ts` ("child approval gate": the
 converted child tool carries `requireApproval: true` + `needsApprovalFn`,
 lifted by `channel.remember`, and `defaultOptions.requireToolApproval` is
-undefined), `background-worker-policy.integration.spec.ts` ("after a live
+undefined), `root-live-approval-gate.integration.spec.ts` (the ROOT's executed
+map: every `runtime.askTools` id carries the function form — eager ids as
+converted `requireApproval: true` + `needsApprovalFn`, deferred ids as loaded
+through `toolSearchProcessor` — and an ask-gated Anthropic web search stays the
+Tavily clone; mutations: dropping the root `applyLiveApprovalGate` call,
+settlement not copying descriptors, or the web-search swap ignoring `askTools`
+fail it), `background-worker-policy.integration.spec.ts` ("after a live
 session grant the sibling's NEXT gated read runs without a pause": exactly one
 root card for the leg, `effect` called for every read — mutation:
 `needsApprovalFn` → `() => true` fails it; "a live session grant is remembered
