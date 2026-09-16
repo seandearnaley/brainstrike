@@ -105,18 +105,27 @@ test('an expanded row owns the indent and the rail: the embedded card adds neith
   expect(row.borderInlineStartWidth).toBe('3px');
   expect(card.marginInlineStart).toBe('0px');
   // The rail needs BOTH halves of `.bs-approval[data-delegation-colour]`; the
-  // base `.bs-approval` rule sets margin only. So the class assertion is what
-  // catches a re-added surface, and the 0px pins the rail's absence under the
-  // full regression (class + colour). 0px rather than 1px because this lane
-  // loads no Tailwind by design — see the banner above `.bs-approval` in
-  // overrides.css — which is the same premise as the row's 3px above.
+  // base `.bs-approval` rule sets margin only. The class assertion catches a
+  // re-added surface — and catches it first. The 0px earns its place on the
+  // opposite case: a rail arriving by any OTHER route (a new selector, a
+  // `border-l-*` utility, an inline style) that never touches `.bs-approval`.
+  // 0px rather than 1px because this lane loads no Tailwind by design, per the
+  // banner above `.bs-approval` in overrides.css; being a negative assertion it
+  // is the more stylesheet-sensitive of the two literals here, so it is the one
+  // to revisit first if the lane ever gains utilities.
   expect(card.borderInlineStartWidth).toBe('0px');
   expect(cardEl).not.toHaveClass('bs-approval');
   // The card now leans on `ApprovalRails` early-returning for an empty path
   // (the call site lost its length guard). If it ever emitted a wrapper
   // instead, that wrapper would become a second flex item and `gap-1.5` would
-  // shove the warning icon 6px inward in every embedded approval.
+  // shove the warning icon 6px inward in every embedded approval — a
+  // production consequence this lane cannot measure, since `gap-1.5` never
+  // resolves here, so pin the structure it depends on instead. Identity as
+  // well as count: `aria-hidden` is not unique forever, and a decorative node
+  // added earlier with exactly one child would retarget this anchor and pass
+  // both structural assertions vacuously.
   const iconRow = mustFind(cardEl, '[aria-hidden="true"]');
   expect(iconRow.querySelector('.bs-approval-rails')).toBeNull();
   expect(iconRow.childElementCount).toBe(1);
+  expect(iconRow.firstElementChild?.tagName).toBe('svg');
 });
