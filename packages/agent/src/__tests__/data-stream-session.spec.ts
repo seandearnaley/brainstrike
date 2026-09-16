@@ -2295,9 +2295,13 @@ it('forwards the host leg through BOTH live pause data parts (approval and suspe
   });
 
   const parsed = parseLines(await readResponse(session.createResponse()));
+  // Matched on the part's own `name`, never a stringified substring: both parts
+  // carry the same ids, so a substring match could select the wrong one and
+  // still pass.
   const readPart = (name: string) => {
     const part = parsed.find(
-      (entry) => entry.code === 'aui-data' && JSON.stringify(entry.value).includes(name)
+      (entry) =>
+        entry.code === 'aui-data' && (entry.value as { name?: unknown } | undefined)?.name === name
     );
     return (part?.value as { data?: Record<string, unknown> })?.data;
   };

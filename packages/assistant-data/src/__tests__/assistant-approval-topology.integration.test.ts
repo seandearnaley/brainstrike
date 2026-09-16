@@ -837,6 +837,61 @@ describe('approval/suspend branch topology (BST-1243)', () => {
     expect(history.messages.filter((item) => item.parentId === null)).toHaveLength(1);
   });
 
+  it('lets a child-continuation decision ride the edge its follow-up leg persisted', async () => {
+    // A CHILD-CONTINUATION pause is deliberately not stamped with a host leg
+    // (that leg's `turn_message_id` is the continuation id, not a root
+    // message). That is safe because its ROOT message COMPLETES: the mapper
+    // opens root tool-call frames for a root pause — which is what leaves a
+    // suspended message `requires-action` and edge-less — but emits only a
+    // `data` frame for child-continuation frames, so the follow-up leg's
+    // runEnd append persists the edge and the decision echo resolves through
+    // it. The unstamped marker therefore never reaches the host-leg branch; if
+    // that ever changes, the adapter throws rather than guessing a parent.
+    const { db, makeAdapter, threadId } = await makeHarness('continuation-decision-echo');
+    const adapter = makeAdapter();
+
+    await adapter.append(userAppendItem({ id: 'user-1', parentId: null, text: 'first prompt' }));
+    await adapter.append(
+      userAppendItem({ id: 'child-input-1', parentId: 'user-1', text: 'continue the child' })
+    );
+    await adapter.append(
+      assistantAppendItem({
+        id: 'assistant-followup',
+        parentId: 'child-input-1',
+        text: 'child continued',
+      })
+    );
+    // The child view's decision is appended by the ROOT runtime, parented at
+    // that completed message, carrying a continuation marker with no host leg.
+    await adapter.append(
+      userAppendItem({
+        custom: {
+          [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+            action: 'approve',
+            continuationId: 'continuation-1',
+            runId: NATIVE_RUN_ID,
+            toolCallId: 'call-continuation',
+            toolName: 'brainstrike.askUser',
+          },
+        },
+        id: 'continuation-echo-1',
+        parentId: 'assistant-followup',
+        text: 'Approved brainstrike.askUser.',
+      })
+    );
+
+    // No throw, and no guessed edge for the echo itself.
+    const edges = await readEdges(db, threadId);
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        ['user-1', null],
+        ['child-input-1', 'user-1'],
+        ['assistant-followup', 'child-input-1'],
+      ])
+    );
+    expect(edges).toHaveLength(3);
+  });
+
   it('refuses to guess a parent when a LIVE pause echo names no host leg', async () => {
     // NO SILENT FALLBACK. The session tail used to answer here, and because the
     // native run id never matched a thread-run row it answered EVERY live

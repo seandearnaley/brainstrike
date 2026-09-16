@@ -656,7 +656,13 @@ export interface AssistantThreadRepository {
    * BST-1163 run↔turn link, read by the history adapter's suspended-edge
    * backfill (BST-1243). Optional only for read-only/test repositories.
    */
-  getThreadRunTurnMessageId?: (runId: string, threadId: string) => Promise<string | null>;
+  /**
+   * REQUIRED, not optional: the approval/suspend echo backfill anchors a
+   * suspended message on the host leg's turn and has no fallback, so a
+   * repository without this method would throw on every live decision. Keeping
+   * it required puts that gap in the compiler's hands instead of the user's.
+   */
+  getThreadRunTurnMessageId: (runId: string, threadId: string) => Promise<string | null>;
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
   listMessages: (
     threadId: string,
@@ -3696,11 +3702,6 @@ export function createAssistantThreadHistoryAdapter({
         `Assistant history cannot anchor suspended message ${resolvedParentId}: its pause named no durable host leg.`
       );
     }
-    if (!repository.getThreadRunTurnMessageId) {
-      throw new Error(
-        `Assistant history repository cannot resolve the turn anchor of host leg ${hostRunId}.`
-      );
-    }
     const turnMessageId = await repository.getThreadRunTurnMessageId(hostRunId, threadId);
     // An approval on a still-streaming leg aborts that leg, and its terminal
     // runEnd append can persist the suspended message's own edge while this
@@ -3709,7 +3710,9 @@ export function createAssistantThreadHistoryAdapter({
     if (persistedEdgeIds.has(resolvedParentId)) {
       return;
     }
-    if (turnMessageId === null) {
+    // Truthiness, matching the `!hostRunId` guard above: a blank or absent
+    // anchor is as unusable as a missing one and must never reach an edge.
+    if (!turnMessageId) {
       throw new Error(
         `Assistant history cannot anchor suspended message ${resolvedParentId}: host leg ${hostRunId} records no turn message.`
       );

@@ -88,12 +88,6 @@ export function isApprovalActionMessage(
 }
 
 /**
- * The `runId` carried by a STRUCTURALLY VALID action marker on `message`, or
- * undefined when the message is not an action message. The topology adapter
- * uses it to resolve the suspending run's durable turn anchor (BST-1163
- * `turn_message_id`) instead of guessing a parent from session order.
- */
-/**
  * The DURABLE HOST LEG (`brainstrike_assistant_thread_runs.id`) the pause this
  * echo answers was surfaced by, or undefined when the message is not an action
  * message or its pause named no host leg (a rediscovered pause, whose leg ended

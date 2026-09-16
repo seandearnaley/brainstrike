@@ -399,9 +399,24 @@ accepted by normal storage is not rejected merely by `structuredClone`.
    runtime appends. A CHILD-CONTINUATION pause is deliberately NOT stamped: a
    continuation leg's `turn_message_id` is the continuation id, not a root
    message, so anchoring a root edge on it would persist exactly the dangling
-   parent this invariant forbids. A REDISCOVERED pause carries none either (its
+   parent this invariant forbids. That omission is SAFE, not a gap: a
+   continuation's root message COMPLETES, because the mapper opens root
+   tool-call frames for a root pause (which is what leaves a suspended message
+   `requires-action` and edge-less) but emits only a `data` frame for
+   child-continuation frames — so the follow-up leg's runEnd append persists
+   that edge and the decision echo, appended by the ROOT runtime, resolves
+   through it before the host-leg branch is reached (pinned by "lets a
+   child-continuation decision ride the edge its follow-up leg persisted").
+   A REDISCOVERED pause carries none either (its
    leg ended at the restart) and never needs one — its echo resolves through
-   the hydrated graph or the alias chain instead. `hostRunId` is an optional
+   the hydrated graph or the alias chain instead. HOSTED WEB never reaches this
+   path at all: it has no host run observer and answers a decision leg with
+   `tool_approval_unavailable` / `tool_resume_unavailable` (HTTP 409), so no
+   live pause echo is ever appended there.
+   The throw is deliberately loud and deliberately unreachable in these flows;
+   were it to fire, `ThreadRuntime.append` rethrows from a detached `.catch`,
+   so it surfaces at the renderer's global unhandled-rejection hook — which is
+   why every producer seam is pinned by a test rather than trusted. `hostRunId` is an optional
    own bounded identifier on both action markers, validated by the SAME strict
    guards as `toolName`. Invalid action markers remain ordinary prompts and keep their edges
    (strict-guard symmetry with the wire). Two adjacent stances are SETTLED

@@ -87,9 +87,13 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
       if (!hostRunId) {
         throw new Error('Assistant mock cannot stamp a pause: the request named no host run.');
       }
+      // The placeholder sits inside a JSON string, so the id is escaped the way
+      // JSON would have written it (a `"` or `\` in an id would corrupt the
+      // frame otherwise).
+      const encodedHostRunId = JSON.stringify(hostRunId).slice(1, -1);
       return {
         ...chunk,
-        payload: chunk.payload.split(payload.hostRunIdPlaceholder).join(hostRunId),
+        payload: chunk.payload.split(payload.hostRunIdPlaceholder).join(encodedHostRunId),
       };
     });
     const chunkQueue = streamChunks.map((chunk) => ({ ...chunk }));
@@ -187,8 +191,20 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
    * hand the history topology adapter a leg that never existed.
    */
   function readRequestHostRunId(body: unknown): string | undefined {
-    const data = (body as { data?: { memory?: { runId?: unknown } } } | undefined)?.data;
-    const runId = data?.memory?.runId;
+    const isRecord = (value: unknown): value is Record<string, unknown> =>
+      typeof value === 'object' && value !== null && !Array.isArray(value);
+    if (!isRecord(body)) {
+      return;
+    }
+    const data = body['data'];
+    if (!isRecord(data)) {
+      return;
+    }
+    const memory = data['memory'];
+    if (!isRecord(memory)) {
+      return;
+    }
+    const runId = memory['runId'];
     return typeof runId === 'string' && runId.length > 0 ? runId : undefined;
   }
 
