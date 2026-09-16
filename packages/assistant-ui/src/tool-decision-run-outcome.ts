@@ -5,6 +5,8 @@ import {
 import {
   type AssistantToolApprovalDecision,
   type AssistantToolApprovalRequest,
+  isAssistantToolApprovalAnswered,
+  TOOL_APPROVAL_ANSWERED_DATA_NAME,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
 import {
@@ -38,7 +40,8 @@ export interface ApprovalRunOutcome {
    * while the pause has no answer. Successive runs repeat the same
    * `action`/`state` pair — a failed run, another answer, a second failed run
    * is `retryable` twice — so this is what tells one attempt from the next.
-   * The send-failure stamp in `use-approval-notice-state.ts` relies on it.
+   * The send-failure and optimistic-lock stamps in
+   * `use-approval-notice-state.ts` rely on it.
    */
   decisionIndex: number;
   state: ApprovalRunOutcomeState;
@@ -88,6 +91,30 @@ function getToolApprovalDecision(value: unknown): AssistantToolApprovalDecision 
   return action === 'approve' || action === 'decline' ? action : null;
 }
 
+function getLiveApprovalDecisionFromMessage(
+  message: unknown,
+  approval: AssistantToolApprovalRequest
+): AssistantToolApprovalDecision | null {
+  if (
+    !(isRecord(message) && message['role'] === 'assistant' && Array.isArray(message['content']))
+  ) {
+    return null;
+  }
+  for (const part of message['content']) {
+    if (
+      isRecord(part) &&
+      part['type'] === 'data' &&
+      part['name'] === TOOL_APPROVAL_ANSWERED_DATA_NAME &&
+      isAssistantToolApprovalAnswered(part['data']) &&
+      part['data'].reason === 'user' &&
+      isMatchingApprovalAction(part['data'], approval)
+    ) {
+      return part['data'].decision;
+    }
+  }
+  return null;
+}
+
 export function resolveApprovalRunOutcome(
   messages: readonly unknown[],
   approval: AssistantToolApprovalRequest | null
@@ -98,6 +125,7 @@ export function resolveApprovalRunOutcome(
 
   let submittedMessageIndex = -1;
   let submittedAction: AssistantToolApprovalDecision | null = null;
+  let submittedLive = false;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     const approvalAction = getToolApprovalActionFromMessage(message);
@@ -106,13 +134,24 @@ export function resolveApprovalRunOutcome(
       submittedAction = getToolApprovalDecision(approvalAction);
       break;
     }
+    const liveDecision = getLiveApprovalDecisionFromMessage(message, approval);
+    if (liveDecision !== null) {
+      submittedMessageIndex = index;
+      submittedAction = liveDecision;
+      submittedLive = true;
+      break;
+    }
   }
   if (submittedMessageIndex < 0) {
     return emptyApprovalRunOutcome;
   }
 
   const decisionIndex = submittedMessageIndex;
-  for (let index = submittedMessageIndex + 1; index < messages.length; index += 1) {
+  for (
+    let index = submittedMessageIndex + (submittedLive ? 0 : 1);
+    index < messages.length;
+    index += 1
+  ) {
     const message = messages[index];
     const role = getMessageRole(message);
     if (role === 'user') {
