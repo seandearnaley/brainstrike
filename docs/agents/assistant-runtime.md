@@ -4507,7 +4507,13 @@ throws the live runtime away where the child Stop reloads history in place:
 `resolveTurnAnchorMessageId`, so a pause parked by an earlier turn that this
 cancel never touched is ignored) and only counts a pause NOTHING has answered —
 a durable `decisionState`, the host's streamed `tool-approval-answered`, or the
-user's own appended decision all settle it. In-session answers carry no durable
+user's own appended decision all settle it. That renderer scope and the HOST
+CANCEL SCOPE MUST MOVE TOGETHER: the gate may stop at the turn only because
+`cancelDesktopAssistantRun` does too (`cancel-run.ts` bounds its owned-runs CTE,
+its waiting-task sweep and the continuations it derives from those run ids by
+`turn_message_id`), so widening the host cancel past the turn without widening
+this gate would leave an earlier turn's cancelled card reading "Pending" with
+live buttons until the thread is reloaded. In-session answers carry no durable
 state, so counting them remounted the thread on the ordinary "approve a tool,
 keep going, Stop" path (PR #3214 review). The host writes that durable state
 BEFORE it answers: `cancelDesktopAssistantRun` marks the turn's runs
