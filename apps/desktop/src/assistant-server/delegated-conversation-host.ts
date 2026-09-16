@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type {
+  BackgroundGeneration,
   ChildContinuationHostPort,
   DelegatedConversationBinding,
   DelegatedConversationIdentity,
@@ -316,10 +317,7 @@ export function createDesktopDelegatedConversationHost(
   releaseUnexecutedToolAction: NonNullable<
     DelegatedConversationBinding['releaseUnexecutedToolAction']
   >;
-  readBackgroundGeneration(): Promise<{
-    readonly generationRunId: string;
-    readonly nativeRunIds: readonly string[];
-  }>;
+  readBackgroundGeneration(): Promise<BackgroundGeneration>;
   recordNativeRootRun(nativeRunId: string): Promise<void>;
   persist(identity: DelegatedConversationIdentity): Promise<void>;
   persistEvent(

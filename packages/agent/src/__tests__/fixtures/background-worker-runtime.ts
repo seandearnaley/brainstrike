@@ -114,9 +114,8 @@ async function waitForParkedTasks(
  * migration-140 answer to "which generation is this leg?", which the desktop
  * derives from the run that opened it (initial send or regeneration). The
  * fixture answers with one constant because a fixture turn is one generation;
- * the DERIVATION itself is covered against real SQL in
- * `assistant-thread-run-turn-link.integration.test.ts` and the desktop host
- * integration test.
+ * the DERIVATION itself is covered against real SQL by the `newLeg` cases of
+ * `apps/desktop`'s `delegated-generation-ports.integration.test.ts`.
  */
 export const FIXTURE_GENERATION_RUN_ID = 'fixture-generation-run';
 

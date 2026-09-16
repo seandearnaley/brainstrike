@@ -147,6 +147,7 @@ describe('createBackgroundLedgerSource', () => {
       total: 3,
     }));
     const source = createBackgroundLedgerSource({
+      generation: async () => ROOT_GENERATION,
       manager: { listTasks } as never,
       personaLabel,
       rejectedDelegations: undefined,
@@ -168,6 +169,7 @@ describe('createBackgroundLedgerSource', () => {
     const listTasks = vi.fn(async () => ({ tasks: [task('refused', 'completed')], total: 1 }));
     const resolveInvocation = vi.fn(async () => undefined);
     const source = createBackgroundLedgerSource({
+      generation: async () => ROOT_GENERATION,
       manager: { listTasks } as never,
       personaLabel,
       rejectedDelegations: undefined,
@@ -192,6 +194,7 @@ describe('createBackgroundLedgerSource', () => {
     const listTasks = vi.fn(async () => ({ tasks: [task('refused', 'completed')], total: 1 }));
     const resolveInvocation = vi.fn(async () => undefined);
     const source = createBackgroundLedgerSource({
+      generation: async () => ROOT_GENERATION,
       manager: { listTasks } as never,
       personaLabel,
       rejectedDelegations: undefined,
@@ -219,6 +222,7 @@ describe('createBackgroundLedgerSource', () => {
       .mockRejectedValueOnce(new Error('host unavailable'))
       .mockResolvedValue(undefined);
     const source = createBackgroundLedgerSource({
+      generation: async () => ROOT_GENERATION,
       manager: { listTasks } as never,
       personaLabel,
       rejectedDelegations: undefined,
@@ -239,6 +243,7 @@ describe('createBackgroundLedgerSource', () => {
     const listTasks = vi.fn(async () => ({ tasks: [task('c2', 'completed')], total: 1 }));
     const resolveInvocation = vi.fn(async () => undefined);
     const source = createBackgroundLedgerSource({
+      generation: async () => ROOT_GENERATION,
       manager: { listTasks } as never,
       personaLabel,
       rejectedDelegations: { rejected: (toolCallId) => toolCallId === 'c2' },

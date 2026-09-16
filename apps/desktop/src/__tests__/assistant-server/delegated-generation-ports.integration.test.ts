@@ -132,6 +132,36 @@ describe('background generation ports (migration 140)', () => {
     });
   });
 
+  it('a leg answering a CHILD CONTINUATION decision inherits through its receipt', async () => {
+    // The continuation branch has its own three-predicate WHERE (id, owner,
+    // root thread): a wrong predicate degrades silently to NULL here and then
+    // hard-errors on the resume path, so it is pinned on real rows.
+    // MUTATION: change any predicate of the continuation join and this leg's
+    // generation is unset, so `readBackgroundGeneration` throws.
+    const host = hostFor('initial-leg');
+    await host.persist(identity);
+    await host.bindRun(run);
+    await database.exec(`INSERT INTO brainstrike_delegated_continuations
+      (id, owner_resource_id, root_thread_id, thread_id, host_run_id, active_host_run_id,
+       turn_message_id, input_text, native_run_id, state)
+      VALUES ('continuation-1', 'owner', 'root', 'child', 'initial-leg', 'initial-leg',
+        'user-turn', 'keep going', 'child-native-run', 'awaiting-approval');`);
+    await createPgliteAssistantThreadRepository(database as DbHandle).createThreadRun({
+      childContinuation: { id: 'continuation-1', nativeRunId: 'child-native-run' },
+      id: 'continuation-decision-leg',
+      model: 'test',
+      provider: 'openai',
+      resourceId: 'owner',
+      runtimeKind: 'local',
+      threadId: 'root',
+      turnMessageId: 'user-turn',
+    });
+    expect(await hostFor('continuation-decision-leg').readBackgroundGeneration()).toEqual({
+      generationRunId: 'initial-leg',
+      nativeRunIds: [],
+    });
+  });
+
   it('a leg answering a ROOT-OWN pause inherits through the native run the host mapped', async () => {
     // No delegation ancestry to follow: the generation comes from the run
     // mapping alone, which is why the mapping table exists at all.

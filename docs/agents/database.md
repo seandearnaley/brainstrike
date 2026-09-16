@@ -1599,7 +1599,12 @@ means nothing mapped that leg's paused run — a pause parked before 140, a
 surface that maps no native runs, or a delegated child run header — and
 `readBackgroundGeneration` throws there rather than invent an identity, so a
 hand-seeded host leg in a test must declare its generation exactly as
-`createThreadRun` would.
+`createThreadRun` would. The two consumers differ in what that throw costs, and
+the upgrade cohort feels only the second: `createLedgerPublisher.publish`
+catches a failed read and logs `background_ledger_read_failed`, so the leg
+survives and merely loses that status row, while the resume path calls
+`requireBackgroundGeneration` eagerly — so a task parked BEFORE migration 140
+fails its approval leg outright rather than losing a row.
 
 The mapping is FIRST-WRITER-WINS: an approval leg re-streams the very run it
 resumed, so the row keeps the leg that STARTED it, and a run already mapped under
@@ -1609,9 +1614,9 @@ runs cascade from `mastra_threads`, so the table sits in `RESET_EXCLUDED_TABLES`
 with that reason and needs no clear-path entry. Paired:
 `migration-140-assistant-native-runs.integration.test.ts` (DDL, the
 backfill-to-own-id upgrade, cascade, constraint rejection, replay and rollback),
-the `background generation ports` cases in
-`delegated-conversation-host.integration.test.ts` (both ports plus every
-derivation branch over real invocation rows), `background-ledger.spec.ts`,
+the `background generation ports (migration 140)` cases in
+`delegated-generation-ports.integration.test.ts` (both ports plus every
+derivation branch over real invocation, continuation and mapping rows), `background-ledger.spec.ts`,
 `background-idle-loop.spec.ts` and
 `background-ledger-generation.integration.spec.ts` (one ledger id across a turn's
 legs), and `assistant-run-schema-upgrade-path.test.ts`, whose
