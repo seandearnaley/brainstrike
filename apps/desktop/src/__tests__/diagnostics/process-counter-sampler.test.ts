@@ -118,7 +118,7 @@ describe('createProcessCounterSampler', () => {
     await sampler.sample(MEMORY);
 
     expect(statements).toHaveLength(1);
-    const sql = (statements[0] as string).replace(/\s+/g, ' ');
+    const sql = (statements.at(0) ?? '').replace(/\s+/g, ' ');
     expect(sql).toContain(`FROM ${MASTRA_BACKGROUND_TASKS_TABLE} `);
     // Finished rows must never inflate the health line, and every status the
     // counts expose must be selected — a status dropped here would report 0
