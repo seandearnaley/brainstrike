@@ -430,11 +430,16 @@ export async function stopSubtree(
  * otherwise leave a shared handle patched into teardown), and disposing also
  * asserts the hook actually fired, so anchor drift reports itself instead of
  * surfacing as a confusing assertion diff (PR #3221 review).
+ *
+ * Pass how the leg settled. Disposal must come BEFORE the caller's own
+ * assertions so the handle is restored even when they fail, which would
+ * otherwise let a leg that failed early — before discovery ever ran — report
+ * "nothing raced it" and swallow the real refusal (PR #3221 second review).
  */
 export function answerLeafInGrantWindow(
   database: PGlite,
   card: { readonly delegation?: { readonly toolCallId: string }; readonly toolCallId: string }
-): () => void {
+): (settled?: unknown) => void {
   type Query = PGlite['query'];
   const original: Query = database.query.bind(database);
   let fired = false;
@@ -455,9 +460,16 @@ export function answerLeafInGrantWindow(
       throw error;
     }
   }) as Query;
-  return () => {
+  return (settled?: unknown) => {
     restore();
-    expect(fired, "the grant's discovery read never ran, so nothing raced it").toBe(true);
+    const observed =
+      settled instanceof Error
+        ? `${settled.name}(${String(Reflect.get(settled, 'reason') ?? settled.message)})`
+        : String(settled);
+    expect(
+      fired,
+      `the grant's discovery read never ran, so nothing raced it; the leg settled as ${observed}`
+    ).toBe(true);
   };
 }
 

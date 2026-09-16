@@ -2994,6 +2994,10 @@ Flow (desktop assistant server → agent runtime):
    admission revocation before `cancelStoredBackgroundInvocations` flips the
    task, with no shared transaction and a 503 that leaves the revocation
    committed, and the startup reaper repairs `pending`/`running` tasks only.
+   Both writes and this read build that stopped predicate from ONE
+   `stoppedSubtreeExists` fragment, so the skip cannot be narrower than the
+   write (the permanent refusal returns) or broader (a sibling the write would
+   have answered is skipped and its task stranded).
    ROOT-WIDE admission (the root run not running, cancelling or cancelled)
    stays fatal for the whole write — it refuses the user's own answer too —
    as does a leaf answered or stopped in the WINDOW between that read and the

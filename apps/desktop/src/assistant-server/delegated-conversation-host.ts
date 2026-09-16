@@ -105,15 +105,18 @@ const hostScopeSchema = z.object({
  * drift directions are both live faults: a read NARROWER than the write
  * restores the BST-1749 permanent refusal, and a read BROADER silently
  * over-skips a sibling the write would have answered, leaving its task
- * suspended with no recovery path (assistant-subagents.md). Every argument is
- * a compile-time placeholder or column reference from this module; no caller
- * value is interpolated. (PR #3221 review.)
+ * suspended with no recovery path (assistant-subagents.md).
+ *
+ * The parameter types carry the safety argument rather than this comment: a
+ * bind is a placeholder or one named column expression, so "no caller value is
+ * interpolated" is a compile error rather than a review finding (PR #3221
+ * second review).
  */
 function stoppedSubtreeExists(bind: {
-  readonly owner: string;
-  readonly root: string;
-  readonly threads: string;
-  readonly turn: string;
+  readonly owner: `$${number}`;
+  readonly root: `$${number}`;
+  readonly threads: `$${number}::jsonb` | 'candidate.thread_ids';
+  readonly turn: `$${number}`;
 }): string {
   return `SELECT 1 FROM brainstrike_delegated_invocations stopped
      JOIN jsonb_array_elements_text(${bind.threads}) target(thread_id) ON target.thread_id = stopped.thread_id
@@ -678,9 +681,10 @@ export function createDesktopDelegatedConversationHost(
       // SAME predicate the write refuses on, over the leaf's whole thread
       // chain (`scope: 'child'` marks only the named child's invocation row).
       // ONE ROW PER LEAF, and the precedence is the query's own: `DISTINCT ON`
-      // with `reason DESC` keeps `'stopped'` over `'answered'` for a leaf in
-      // both states, rather than leaving it to how the caller folds duplicates
-      // (PR #3221 review).
+      // ordered by `(reason = 'stopped')` keeps `'stopped'` over `'answered'`
+      // for a leaf in both states, rather than leaving it to how the caller
+      // folds duplicates. The order names the winner instead of relying on
+      // where the two labels fall in the collation (PR #3221 reviews).
       const unanswerable = await database.query(
         `WITH candidate AS (
            SELECT probe.leaf->>0 AS child_runtime_run_id, probe.leaf->>1 AS tool_call_id,
@@ -708,7 +712,7 @@ export function createDesktopDelegatedConversationHost(
          )
          SELECT DISTINCT ON (child_runtime_run_id, tool_call_id)
            child_runtime_run_id AS "childRuntimeRunId", tool_call_id AS "toolCallId", reason
-         FROM unanswerable ORDER BY child_runtime_run_id, tool_call_id, reason DESC`,
+         FROM unanswerable ORDER BY child_runtime_run_id, tool_call_id, (reason = 'stopped') DESC`,
         [
           scope.ownerResourceId,
           scope.rootThreadId,

@@ -418,7 +418,7 @@ describe('desktop live decisions through the real host ledger', () => {
         }
         const raced = answerLeafInGrantWindow(database, sibling);
         const refusal = await settle(deliverLive(user, READ_GRANT));
-        raced();
+        raced(refusal);
         const rowsAfterRefusal = await decisionRows(database);
         return { refusal, retried: await settle(deliverLive(user)), rowsAfterRefusal };
       }
@@ -457,7 +457,7 @@ describe('desktop live decisions through the real host ledger', () => {
         () => undefined,
         (error: unknown) => error
       );
-    raced();
+    raced(refusal);
     // The leg's construction failure carries the host's refusal as its cause.
     expect(refusal).toMatchObject({
       cause: { reason: 'tool-action-already-consumed-or-root-busy' },

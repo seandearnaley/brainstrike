@@ -147,6 +147,20 @@ describe('desktop delegated diagnostics and answer batches', () => {
         candidate,
       ])
     ).toEqual(leaf('answered'));
+    // A stop on an ANCESTOR, never on the leaf's own thread: `scope: 'child'`
+    // marks only the named child's invocation row, so this is the case the
+    // whole chain exists for. Reading just the leaf's own thread — the last
+    // entry, which carries no stop — returns nothing here (PR #3221 second
+    // review; every other case in the suite has a one-element chain, which
+    // left `scopes.map(…)` incidental rather than load-bearing).
+    const deeper = {
+      childRuntimeRunId: 'grandchild-native-run',
+      threadIds: [identity.childThreadId, 'sibling'],
+      toolCallId: 'read-2',
+    };
+    expect(await host.readUnanswerableToolActionLeaves([deeper])).toEqual([
+      { childRuntimeRunId: deeper.childRuntimeRunId, reason: 'stopped', toolCallId: 'read-2' },
+    ]);
   });
 
   it('refuses a batch that answers the same leaf twice and records nothing', async () => {
