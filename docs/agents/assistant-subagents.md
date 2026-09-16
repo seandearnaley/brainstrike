@@ -2216,8 +2216,9 @@ processors. Paired: `build-persona-subagents.spec.ts` ("exactly once; other
 providers get none").
 RESUMED EXECUTORS (BST-1749 review of #3197): a resume leg OWNS its live
 decision seam (`channel.own`) before it registers anything, and registers every
-executor it resumes (`registerResumedExecutor`, awaited) BEFORE it asks Mastra
-to resume any task. Ownership cannot wait on registration: `getToolsForExecution`
+executor it resumes (`prepareResumedExecutor`, through
+`createResumedExecutors.register`, awaited) BEFORE it asks Mastra to resume any
+task. Ownership cannot wait on registration: `getToolsForExecution`
 is async while the leg's first run event streams at once, so a leg that
 registered first answered a live session grant with `'no-live-run'` (desktop
 `delegated-sibling-grant.integration.test.ts`, "a live session grant during an
@@ -2232,22 +2233,27 @@ only before it publishes `task.resume`, so a refusal dispatched nothing). A
 refusal drops ONLY a context the leg still owns. Because the leg owns the seam
 across its whole registration window, a live decision can resume a task this
 leg has not reached yet (nothing rejects that —
-`findGrantedBackgroundApprovals` selects on `status: 'suspended'` alone). Registration is therefore
-SINGLE-FLIGHT per task: every caller shares the one live registration, so the
+`findGrantedBackgroundApprovals` selects on `status: 'suspended'` alone).
+Registration is therefore SINGLE-FLIGHT per task: every caller shares the one
+live registration, so the
 context Mastra runs is never replaced, the task is never resumed twice while it
 runs, and it is never deregistered — not by a refusal already in flight, and
 not when the leg releases its executors. Its terminal retires both the
 registration and the acceptance (acceptance is per resume), so a child that
-parks again is registered and resumed afresh with its own join. Removing that context would strand the running task on the
-"No executor registered" failure this contract exists to prevent. A terminal
-settles EVERY registration the leg made for a task, so one that lands late
-cannot orphan the join already made. A register or resume still in flight when
+parks again is registered and resumed afresh with its own join. Removing that
+context would strand the running task on the "No executor registered" failure
+this contract exists to prevent. A terminal settles the task's ONE live
+registration; a later one is settled by its own terminal. A register or resume
+still in flight when
 the leg releases its executors is skipped by that release and drops ONLY a
 context the leg still owns: a resume Mastra accepted keeps it, a refusal drops
 its own only when no concurrent resume is still in flight, and a registration
 that lands after the release is refused as not live without ever touching the
 shared manager (resolving the tools is async, so the registration itself is a
-thunk the leg calls only once both checks still hold). The full state table —
+thunk the leg calls once the tools have resolved AND it still may — the drain
+is re-checked both before the cache lookup and after that await; the `accepted`
+check runs after the registration and only decides whether the task joins the
+drain set). The full state table —
 registered, in flight, accepted, drained against every event, with the pin for
 each cell — is the module doc of `createResumedExecutors` in
 `background-resume.ts`; keep it in step with that code.

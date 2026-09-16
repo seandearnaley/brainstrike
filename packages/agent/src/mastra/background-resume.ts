@@ -225,21 +225,42 @@ interface ResumedExecutors {
  * |                  | no executor: only a running one parks, and it settles    |
  * |                  | itself after its host join)                              |
  *
- * Pins, all in `background-resume.spec.ts`: "registers every resumed executor
- * before Mastra is asked to resume any task", "fails the leg before any resume
- * when a resumed executor is unavailable, keeping no context", "deregisters the
- * tail Mastra never resumed…", "never re-registers or deregisters a task a live
- * decision already resumed", "joins the executor Mastra accepted when the leg
- * registers the same task later", "keeps the context of a live resume that is in
- * flight when the leg is stopped", "refuses a live registration that lands after
- * the leg released its executors", "never deregisters an accepted task when a
- * held registration lands on a drained leg", "keeps the context when a second
- * concurrent resume is refused while the first is in flight", "a task cancelled
- * while its resumed executor is still in flight settles the join" and "the pause
- * branch still joins a resumed executor whose host join outlives its suspension".
- * The one cell with no test is REGISTERED + terminal for a task never resumed:
- * the wait only records terminals for awaited tasks, and a task enters the wait
- * through a resume, so it is unreachable.
+ * Pins, all in `background-resume.spec.ts`, by cell:
+ * - register before resume: "registers every resumed executor before Mastra is
+ *   asked to resume any task", "owns the live decision seam before it registers
+ *   its executors", "fails the leg before any resume when a resumed executor is
+ *   unavailable, keeping no context".
+ * - register asked, single-flight: "shares one registration when a live decision
+ *   resumes a task the leg also holds", "never re-registers or deregisters a
+ *   task a live decision already resumed".
+ * - register asked, drained: "refuses a live registration that lands after the
+ *   leg released its executors" (in flight across the drain) and "refuses a
+ *   reservation taken while the leg was live but used after the drain" (the
+ *   cache hit, which the drain check above the lookup covers).
+ * - resume refused: "deregisters the tail Mastra never resumed when a resume
+ *   fails part-way through the leg", "a live resume Mastra refuses joins
+ *   nothing: the leg still closes as a pause and keeps no executor for it",
+ *   "keeps the context of a task another caller already resumed", "keeps the
+ *   context when a second concurrent resume is refused while the first is in
+ *   flight".
+ * - leg drains: "keeps the context of a live resume that is in flight when the
+ *   leg is stopped", "the drain keeps a context Mastra accepted while a live
+ *   decision shared its registration".
+ * - terminal arrives: "registers afresh when a parked task is resumed again in
+ *   the same leg" (retiring the acceptance is what allows the second resume),
+ *   "a task cancelled while its resumed executor is still in flight settles the
+ *   join", "the pause branch still joins a resumed executor whose host join
+ *   outlives its suspension".
+ *
+ * REGISTERED + terminal for a task the leg never resumed has no test and IS
+ * reachable: the wait is seeded from the leg's own resumes at construction,
+ * before any registration, so a tail the leg never got to resume is awaited all
+ * the same. It is harmless — the terminal settles a join nobody pushed, and the
+ * task stays in `unresumed` for the drain to deregister.
+ *
+ * Known-narrow, filed rather than guarded: a terminal that retires a
+ * registration still in flight, and `wait.add` reporting `false` making the
+ * give-back single-owner.
  */
 function createResumedExecutors(params: {
   readonly controller: ReadableStreamDefaultController<unknown>;
@@ -276,6 +297,13 @@ function createResumedExecutors(params: {
   const registered: { readonly executor: ResumedExecutor; readonly resume: BackgroundResume }[] =
     [];
   const register = (task: BackgroundTask): Promise<ResumedExecutor> => {
+    // Checked BEFORE the cache: a reservation taken while the leg was live but
+    // used after the drain would otherwise be handed a resolved executor for a
+    // context the drain has already deregistered, and its resume would reach
+    // Mastra with nothing to look up.
+    if (drained) {
+      throw new LiveDecisionUnavailableError('The resume leg has released its executors.');
+    }
     // Single-flight per task: whoever asks second shares the first
     // registration. A second `registerTaskContext` would replace the context
     // Mastra is about to run and orphan the join already pushed for the first.

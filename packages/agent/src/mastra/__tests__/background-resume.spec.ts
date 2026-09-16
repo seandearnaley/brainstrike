@@ -122,7 +122,7 @@ function createNativeManager(
     publish('background-task-resumed', running);
     calls.push(`execute:${taskId}`);
     // Mastra passes no writer here: the HOST gives the tool its `outputWriter`
-    // (`registerResumedExecutor`), which is the write path under test.
+    // (`prepareResumedExecutor`), which is the write path under test.
     await context.executor.execute(running.args, {
       resumeData,
       suspend: async () => {
@@ -637,10 +637,10 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
     }
   }, 2000);
 
-  it('never deregisters an accepted task when a held registration lands on a drained leg', async () => {
-    // The `accepted` check runs BEFORE the registration's await, so the task
-    // can be accepted during it. If the leg drains meanwhile, the landing
-    // registration must not deregister a task Mastra accepted and is running.
+  it('the drain keeps a context Mastra accepted while a live decision shared its registration', async () => {
+    // Single-flight means the decision shares the leg's registration, so the
+    // task is accepted twice over by the time the leg is stopped: the release
+    // must leave the context of a task Mastra accepted and is running.
     const holding = Promise.withResolvers<void>();
     const running = Promise.withResolvers<void>();
     const stop = new AbortController();
@@ -767,6 +767,41 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
       secondRead.resolve();
       sibling.resolve();
     }
+  }, 2000);
+
+  it('refuses a reservation taken while the leg was live but used after the drain', async () => {
+    // The reservation passed `reserve` before the wait closed, so only
+    // `register` can still refuse it. Its task was registered and never
+    // resumed, so the drain deregistered that context: handing the cached
+    // executor back would resume a task Mastra can no longer look up.
+    const registering = Promise.withResolvers<void>();
+    const channel = createLiveDecisionChannel();
+    const native = createNativeManager({ refuseResume: new Set(['t1']) });
+    const unresumed = native.add('t2');
+    const { ended } = startLeg({
+      channel,
+      holdFirstRegistration: registering.promise,
+      manager: native.manager,
+      resumes: [native.add('t1'), unresumed],
+      tools: Promise.resolve({ [TOOL]: parkingTool() }),
+    });
+    await until(() => channel.owner !== undefined);
+    const owner = channel.owner;
+    if (!owner) {
+      throw new Error('The leg does not own its live decision seam.');
+    }
+    // Taken while the leg is still waiting; used only after it has drained.
+    const reservation = owner.reserve([unresumed]);
+    registering.resolve();
+    await expect(ended).resolves.toMatchObject({
+      error: { message: "Cannot resume task in status 'cancelled' (expected 'suspended')" },
+    });
+    expect(native.calls).toContain('deregister:t2');
+    await expect(
+      reservation.resume([{ resumeData: { approved: true }, task: unresumed }])
+    ).rejects.toBeInstanceOf(LiveDecisionUnavailableError);
+    expect(native.calls).not.toContain('resume:t2');
+    expect(native.calls).not.toContain('no-executor:t2');
   }, 2000);
 
   it('a resumed tool that writes after its leg closed does not throw into the execution', async () => {
