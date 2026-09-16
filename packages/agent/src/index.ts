@@ -214,6 +214,7 @@ export {
   projectCompactionMessagesForSummarizer,
 } from './mastra/conversation-compaction';
 export {
+  type BackgroundGeneration,
   createDelegatedConversationBinding,
   type DelegatedCancellationControl,
   type DelegatedCancellationTarget,

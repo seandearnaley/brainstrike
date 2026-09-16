@@ -239,6 +239,13 @@ export interface BackgroundIdleLoopParams {
   /** The leg's own options; a continuation reuses them, as Mastra's loop does. */
   readonly options: LegStreamOptions;
   /**
+   * Maps a native ROOT run this leg starts to its host leg (migration 140):
+   * the leg's own turn is mapped by its caller, each continuation here. A
+   * later approval/resume leg derives its generation from that mapping, so a
+   * pause raised in a continuation is still traceable to this generation.
+   */
+  readonly recordNativeRootRun: (nativeRunId: string) => Promise<void>;
+  /**
    * Debug-pack evidence (migration 139), the binding's `recordWakeup`: every
    * continuation's exact wakeup text is recorded before it streams, and a
    * parked leg's deferral is joined before the leg closes.
@@ -418,24 +425,26 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     }
     armIdleTimer();
   };
-  /** Parent run ids that dispatched work in this leg — the ledger's scope. */
+  /**
+   * Parent run ids this leg OBSERVED. The ledger's scope is the GENERATION
+   * (migration 140); these close the window before a freshly dispatched run is
+   * mapped, they are not the identity — that would give every leg its own.
+   */
   const runIds = new Set<string>();
-  let ledgerId: string | undefined;
   const publisher = createLedgerPublisher({
     enqueue,
     onSettled: () => settle(),
     source: params.ledger,
   });
   const publishLedger = () => {
-    if (ledgerId !== undefined) {
-      publisher.publish(runIds, ledgerId);
+    if (runIds.size > 0) {
+      publisher.publish(runIds);
     }
   };
   const noteRun = (event: TaskEvent) => {
     const runId = readTaskRunId(event);
     if (runId !== undefined) {
       runIds.add(runId);
-      ledgerId ??= runId;
     }
   };
   const pipe = async (stream: ReadableChunks) => {
@@ -500,6 +509,11 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
         _skipBgTaskWait: true,
         context: [...priorContext, { content: directive, role: 'user' }],
       } as AgentStreamOptions);
+      // A continuation is a NEW native run of the SAME generation (Mastra mints
+      // its own ids). Map it before its chunks flow: a pause raised here opens
+      // its approval leg from the user's click, and that leg derives its
+      // generation from this mapping.
+      await params.recordNativeRootRun(continuation.runId);
       await pipeTurn(continuation);
     } catch (error) {
       fail(error);

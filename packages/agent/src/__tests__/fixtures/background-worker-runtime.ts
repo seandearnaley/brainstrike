@@ -109,6 +109,16 @@ async function waitForParkedTasks(
   }
 }
 
+/**
+ * The generation every leg of the fixture's turn belongs to — the host's
+ * migration-140 answer to "which generation is this leg?", which the desktop
+ * derives from the run that opened it (initial send or regeneration). The
+ * fixture answers with one constant because a fixture turn is one generation;
+ * the DERIVATION itself is covered against real SQL by the `newLeg` cases of
+ * `apps/desktop`'s `delegated-generation-ports.integration.test.ts`.
+ */
+export const FIXTURE_GENERATION_RUN_ID = 'fixture-generation-run';
+
 interface BackgroundFixture {
   backing: Awaited<ReturnType<typeof createPgliteMastraMemory>>;
   cancel: DelegatedCancellationControl;
@@ -133,6 +143,12 @@ interface BackgroundFixture {
   /** Every live decision the running leg asked the binding to record, in order. */
   liveDecisions: DelegatedLiveDecisionRecord[];
   model: ReturnType<typeof scriptedAgentModel>;
+  /**
+   * Every native ROOT run the runtime asked the host to map to this generation
+   * (migration 140), in the order it started them: the first turn's run and
+   * one per continuation.
+   */
+  nativeRootRuns: readonly string[];
   /** Delegation call ids the host recorded as answered without a claim, in order. */
   policyAnswers: string[];
   release: PromiseWithResolvers<void>;
@@ -196,6 +212,16 @@ export async function createBackgroundFixture(
      * finish (the GLM synthesis cut).
      */
     readonly budget?: { readonly maxSteps: number; readonly synthesisOutputTokens: number };
+    /**
+     * The root dispatches MORE background work from CONTINUATIONS, so one turn
+     * spans several native parent runs: `background-child` in the first run,
+     * `background-late-1` in the first continuation, then either
+     * `background-late-2` — which parks on a gated write — or, with
+     * `rootGate`, the ROOT's own gated write, whose approval leg dispatches
+     * `background-final`. The ledger of such a turn is the GENERATION's, not
+     * one row per parent run (BST-1749, PR #3198 review item 5).
+     */
+    readonly continuationDispatch?: boolean;
     /**
      * The ROOT's first turn stays OPEN while its background children stream
      * and park: its post-dispatch step streams only once every dispatched
@@ -283,6 +309,62 @@ export async function createBackgroundFixture(
               }))
             );
       }
+      if (fanout.continuationDispatch) {
+        const transcript = JSON.stringify(options.prompt);
+        const lastUser = JSON.stringify(
+          options.prompt.filter((message) => message.role === 'user').at(-1)
+        );
+        // The root's own wakeup, told apart by its HEADER: the directive quotes
+        // every child's prompt, so prompt text cannot identify it.
+        const wokenByLedger = lastUser.includes('Background invocations of this turn');
+        const returned = new Set(
+          options.prompt
+            .filter((message) => message.role === 'tool')
+            .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+            .flatMap((part) =>
+              part.type === 'tool-result' &&
+              /CHILD_FINAL_EVIDENCE/.test(JSON.stringify(part.output))
+                ? [part.toolCallId]
+                : []
+            )
+        );
+        const progress = textParts('PARENT_USEFUL_PROGRESS');
+        if (!transcript.includes('background-late-1')) {
+          return wokenByLedger && returned.has('background-child')
+            ? toolCallParts('agent-explore', 'background-late-1', {
+                ...delegationArgs,
+                prompt: 'Read late evidence 1',
+              })
+            : progress;
+        }
+        if (fanout.rootGate) {
+          if (!hasToolResult(options, 'brainstrike_writeWorkspaceFile')) {
+            return wokenByLedger && returned.has('background-late-1')
+              ? toolCallParts('brainstrike_writeWorkspaceFile', 'root-write', {
+                  pattern: 'report',
+                })
+              : progress;
+          }
+          if (!transcript.includes('background-final')) {
+            return toolCallParts('agent-explore', 'background-final', {
+              ...delegationArgs,
+              prompt: 'Read final evidence',
+            });
+          }
+        } else if (!transcript.includes('background-late-2')) {
+          return wokenByLedger && returned.has('background-late-1')
+            ? toolCallParts('agent-explore', 'background-late-2', {
+                ...delegationArgs,
+                prompt: 'Gate late evidence 2',
+              })
+            : progress;
+        }
+        return textParts(
+          lastUser.includes('Nothing is still running')
+            ? 'PARENT_FINAL_OUTCOME'
+            : 'PARENT_USEFUL_PROGRESS'
+        );
+      }
       if (fanout.rootGate && !hasToolResult(options, 'brainstrike_writeWorkspaceFile')) {
         return toolCallParts('brainstrike_writeWorkspaceFile', 'root-write', {
           pattern: 'report',
@@ -325,6 +407,25 @@ export async function createBackgroundFixture(
       return toolCallParts('brainstrike_grepSearch', `background-read-${reads + 1}`, {
         pattern: `evidence-${reads + 1}`,
       });
+    }
+    // The children a CONTINUATION dispatched (`continuationDispatch`): the
+    // second one parks on the gated write, the others answer after one read.
+    if (JSON.stringify(options.prompt).includes('Gate late evidence 2')) {
+      return hasToolResult(options, 'brainstrike_readWorkspaceFile')
+        ? textParts('CHILD_FINAL_EVIDENCE')
+        : toolCallParts('brainstrike_readWorkspaceFile', 'late-read', { pattern: 'late' });
+    }
+    const lateChild = JSON.stringify(options.prompt).match(
+      /Read (?:late evidence 1|final evidence)/
+    )?.[0];
+    if (lateChild) {
+      return hasToolResult(options, 'brainstrike_grepSearch')
+        ? textParts('CHILD_FINAL_EVIDENCE')
+        : toolCallParts(
+            'brainstrike_grepSearch',
+            lateChild.includes('final') ? 'background-read-final' : 'background-read-late-1',
+            { pattern: 'late' }
+          );
     }
     const sibling = JSON.stringify(options.prompt).match(/Read background evidence (\d+)/)?.[1];
     const readId = sibling === undefined ? 'background-read' : `background-read-${sibling}`;
@@ -391,6 +492,8 @@ export async function createBackgroundFixture(
   let followup: DelegatedFollowupControl | undefined;
   let activeClaim: string | undefined;
   const policyAnswers: string[] = [];
+  /** The host's migration-140 mapping, in start order (see the port below). */
+  const nativeRootRuns: string[] = [];
   const wakeups: BackgroundFixture['wakeups'] = [];
   const liveDecisions: DelegatedLiveDecisionRecord[] = [];
   const resolveParked = async (parent: {
@@ -429,11 +532,22 @@ export async function createBackgroundFixture(
         activeClaim = undefined;
       },
       prepareToolAction: async () => {},
+      // Migration 140: the generation this leg belongs to, and every native
+      // ROOT run mapped to it — the ledger's scope across legs and runs.
+      readBackgroundGeneration: async () => ({
+        generationRunId: FIXTURE_GENERATION_RUN_ID,
+        nativeRunIds: [...nativeRootRuns],
+      }),
       // The fixture holds no decision ledger, so no parked leaf is ever
       // already answered; the real host answers this from the ledger.
       readUnanswerableToolActionLeaves: async () => [],
       recordLiveDecision: async (record: DelegatedLiveDecisionRecord) => {
         liveDecisions.push(record);
+      },
+      recordNativeRootRun: async (nativeRunId: string) => {
+        if (!nativeRootRuns.includes(nativeRunId)) {
+          nativeRootRuns.push(nativeRunId);
+        }
       },
       recordToolActionAnswers: async (actions: readonly { toolCallId: string }[]) => {
         policyAnswers.push(...actions.map((action) => action.toolCallId));
@@ -532,7 +646,11 @@ export async function createBackgroundFixture(
       {
         allowedToolIds: [
           'brainstrike.grepSearch',
-          ...(fanout.heldSibling === undefined ? [] : ['brainstrike.readWorkspaceFile']),
+          // Personas are READ-ONLY (`assertReadOnlyPersona`): the late child's
+          // gate is an approval-gated READ, never the root's edit-risk write.
+          ...(fanout.heldSibling === undefined && !fanout.continuationDispatch
+            ? []
+            : ['brainstrike.readWorkspaceFile']),
           ...(question ? ['brainstrike.askUser', 'brainstrike.submitPlan'] : []),
         ],
         description: 'Read evidence',
@@ -570,17 +688,22 @@ export async function createBackgroundFixture(
             }),
           }
         : {}),
-      ...(fanout.heldSibling === undefined
+      ...(fanout.heldSibling === undefined && !fanout.continuationDispatch
         ? {}
         : {
             'brainstrike.readWorkspaceFile': createTool({
               description: 'Read a held evidence file',
               execute: async () => {
-                await hold.promise;
+                if (fanout.heldSibling !== undefined) {
+                  await hold.promise;
+                }
                 return { content: 'BACKGROUND_EVIDENCE' };
               },
               id: 'brainstrike.readWorkspaceFile',
               inputSchema: z.object({ pattern: z.string() }),
+              // The late child's gate — the only child pause of the
+              // continuation case, and a READ so the persona may hold it.
+              ...(fanout.continuationDispatch ? { requireApproval: true } : {}),
             }),
           }),
     },
@@ -634,6 +757,7 @@ export async function createBackgroundFixture(
     hold,
     liveDecisions,
     model,
+    nativeRootRuns,
     policyAnswers,
     release,
     runtime,

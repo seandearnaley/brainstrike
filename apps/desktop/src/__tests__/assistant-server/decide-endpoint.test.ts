@@ -157,6 +157,26 @@ describe('handleDecideRequest', () => {
     expect(request).not.toHaveProperty('permissionPolicy');
   });
 
+  it('surfaces the actionable recovery for an unmapped background generation', async () => {
+    const control = vi.fn(async () => {
+      throw new DelegatedConversationIdentityError(
+        'background-generation-unmapped',
+        'This approval predates the background ledger upgrade and cannot resume safely. Stop or cancel the pending work, then start a new request.'
+      );
+    });
+    cleanups.push(registerDesktopDelegatedDecision('run-unmapped', control));
+    const captured = await decide({ action: approval, runId: 'run-unmapped' });
+    expect(captured).toEqual({
+      body: {
+        error: 'decision_refused',
+        message:
+          'This approval predates the background ledger upgrade and cannot resume safely. Stop or cancel the pending work, then start a new request.',
+        reason: 'background-generation-unmapped',
+      },
+      status: 409,
+    });
+  });
+
   it('answers 500 when the native resume fails', async () => {
     cleanups.push(
       registerDesktopDelegatedDecision('run-3', async () => {

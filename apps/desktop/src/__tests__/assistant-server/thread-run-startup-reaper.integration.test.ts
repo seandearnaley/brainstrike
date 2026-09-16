@@ -428,6 +428,9 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     await db.exec(
       'DROP TABLE brainstrike_delegated_continuation_decisions; DROP TABLE brainstrike_delegated_continuations'
     );
+    // Migration 140 maps each native ROOT run to the leg that started it, so
+    // it is another dependent of the header this fixture means to remove.
+    await db.exec('DROP TABLE brainstrike_assistant_native_runs');
     await db.exec('DROP TABLE brainstrike_assistant_run_events');
     await db.exec('DROP TABLE brainstrike_delegation_step_reservations');
     await db.exec('DROP TABLE brainstrike_assistant_thread_runs');

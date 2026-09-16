@@ -15,12 +15,14 @@ export interface DelegatedConversationScope {
 }
 
 export class DelegatedConversationIdentityError extends Error {
+  readonly actionableMessage: string | undefined;
   readonly reason: string;
-  constructor(reason = 'identity-conflict') {
+  constructor(reason = 'identity-conflict', actionableMessage?: string) {
     super(
       'Delegated conversation identity is missing, unauthorized or conflicts with its persisted binding.'
     );
     this.name = 'DelegatedConversationIdentityError';
+    this.actionableMessage = actionableMessage;
     this.reason = reason;
   }
 }

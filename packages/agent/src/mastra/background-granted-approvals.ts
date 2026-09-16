@@ -9,7 +9,12 @@ import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/backgro
 import type { RuntimeData, StreamChunkToolApprovalAnswered } from '../types';
 import type { MastraAgentRuntime } from './agent-runtime';
 import { withBackgroundIdleLoop } from './background-idle-loop';
-import { createBackgroundLedgerSource, personaLabelFor } from './background-ledger';
+import {
+  createBackgroundLedgerSource,
+  personaLabelFor,
+  requireBackgroundGeneration,
+  requireNativeRootRunRecorder,
+} from './background-ledger';
 import { type BackgroundResume, findPendingBackgroundTask } from './background-resume';
 import type {
   DelegatedToolActionAnswer,
@@ -356,6 +361,7 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
     agent: runtime.agent,
     channel: runtime.liveDecisions,
     ledger: createBackgroundLedgerSource({
+      generation: requireBackgroundGeneration(runtime.conversationBinding),
       manager,
       personaLabel: personaLabelFor(runtime),
       rejectedDelegations: delegationOutcomes,
@@ -365,10 +371,33 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
     manager,
     maxIdleMs: runtime.backgroundIdleMs,
     options,
+    recordNativeRootRun: requireNativeRootRunRecorder(runtime.conversationBinding),
     recordWakeup: runtime.conversationBinding?.recordWakeup,
     rejectedDelegations: delegationOutcomes,
     scope,
   });
+}
+
+/**
+ * Map this leg's OWN native root run to its host leg (migration 140) before
+ * its chunks reach the user: a pause raised in this turn opens its approval
+ * leg from the user's click, and that leg derives its generation from this
+ * mapping. A runtime without background work scopes no ledger and maps
+ * nothing; a CHILD leg's native run is not a root run. A background runtime
+ * without the port is an unrunnable configuration, never a degraded one.
+ */
+export async function recordRootNativeRun(
+  runtime: MastraAgentRuntime,
+  output: { readonly runId?: unknown }
+): Promise<void> {
+  if (!runtime.backgroundTaskManager || runtime.childExecution) {
+    return;
+  }
+  const runId = typeof output.runId === 'string' ? output.runId : undefined;
+  if (!runId) {
+    throw new Error('Background work requires the native run id of its own turn.');
+  }
+  await requireNativeRootRunRecorder(runtime.conversationBinding)(runId);
 }
 
 /**
@@ -404,6 +433,12 @@ export async function prepareApprovalResume(params: {
     runtimeData?.memory,
     action
   );
+  // Migration 140 cannot reconstruct the generation of a pause that predates
+  // its native-run mapping. Validate before both background-child claims and
+  // root-own late-result wakeups so every parked task stays untouched.
+  if (runtime.backgroundTaskManager && runtimeData?.memory) {
+    await requireBackgroundGeneration(runtime.conversationBinding)();
+  }
   if (!task) {
     const late = await readLateBackgroundResults(runtime, runtimeData, action.runId);
     await recordLateOverlayWakeup(runtime, late);

@@ -1868,9 +1868,15 @@ event. The GLM root (thread-debug pack 2026-09-15T03-31-15Z) received
 "Background invocation X has returned" four times over four continuations,
 mis-counted, and ended "waiting on the remaining subagents" after all four
 had finished. The ledger is read from the DURABLE task rows
-(`manager.listTasks` in the thread scope, filtered to the parent run ids the
-leg observed on its lifecycle events — `background-ledger.ts`,
-`createBackgroundLedgerSource`), never from the loop's `running`/`settled`
+(`manager.listTasks` in the thread scope, filtered to the GENERATION's native
+runs — `background-ledger.ts`, `createBackgroundLedgerSource`; AMENDED
+2026-09-15 by owner ruling, BST-1749/PR #3198 review item 5, from "the parent
+run ids the leg observed on its lifecycle events", which gave every leg of one
+turn its own ledger identity and made a resume leg count only the run it
+resumed. The scope is now the runs the host mapped to this generation
+(migration 140, `readBackgroundGeneration`) UNION the runs the leg observed
+itself, which covers a run whose first task has only just been dispatched),
+never from the loop's `running`/`settled`
 sets alone, and lists every invocation as returned (persona, the first 120
 chars of its prompt, "use its saved outcome"), failed (with the recorded
 reason; a timeout reads "timed out"), cancelled, or still running. When
@@ -1890,6 +1896,15 @@ load-bearing, since no continuation keeps the leg open), persisted like
 every run event. Because the wakeup QUOTES each child's prompt, a scripted
 harness must tell the root's wakeup apart by its header ("Background
 invocations of this turn") before it uses prompt text to pick a child.
+An approval for work parked before migration 140 can lack the durable native
+run mapping required to name this generation. Approval preparation validates
+that mapping before recording any policy-granted sibling answers or starting a
+native resume. The typed refusal releases a delegated user's claim, leaves all
+parked work unchanged, and tells the user to Stop or cancel the pending work,
+then start a new request through both live-decision and cold approval transports.
+A root-own pause validates before recording late-result wakeups or invoking its
+native resume. A new user request safely mints its own generation; the host
+never guesses an old generation or automatically replays unknown effects.
 Paired: `background-ledger.spec.ts` (mutations: the closing sentence while
 something runs; omitting it when nothing runs), `background-idle-loop.spec.ts`
 ("carrying the durable ledger", "publishes a delegation.ledger row …",

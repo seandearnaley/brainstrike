@@ -114,9 +114,9 @@ export async function createApprovalDatabase(name: string): Promise<PGlite> {
     VALUES ('root', 'owner', 'Root', '{}', NOW(), NOW());
     INSERT INTO brainstrike_assistant_thread_runs
     (id, resource_id, thread_id, provider, model, runtime_kind, status,
-     started_at, created_at, updated_at, turn_message_id)
+     started_at, created_at, updated_at, turn_message_id, generation_run_id)
     VALUES ('host-leg', 'owner', 'root', 'openai', 'test', 'desktop', 'running',
-      NOW(), NOW(), NOW(), 'user-turn');`);
+      NOW(), NOW(), NOW(), 'user-turn', 'host-leg');`);
   return database;
 }
 
@@ -255,8 +255,8 @@ export async function setupFanout(
     legs += 1;
     const next = `resume-host-${legs}`;
     await database.exec(`UPDATE brainstrike_assistant_thread_runs SET status='completed' WHERE id='${previous}';
-      INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id)
-      VALUES ('${next}','owner','root','openai','test','desktop','running',NOW(),NOW(),NOW(),'user-turn');`);
+      INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id,generation_run_id)
+      VALUES ('${next}','owner','root','openai','test','desktop','running',NOW(),NOW(),NOW(),'user-turn','host-leg');`);
     return next;
   };
   const initial = await drain(

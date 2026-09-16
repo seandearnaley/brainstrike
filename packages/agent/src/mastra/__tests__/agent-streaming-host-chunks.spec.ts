@@ -5,10 +5,11 @@ import { createTurnAttemptLifecycleState } from '../turn-attempts';
 
 describe('host-published run-event chunks', () => {
   it('passes a delegation.ledger row published into the leg through unchanged', async () => {
-    const chunk = makeBackgroundLedgerChunk(
-      { counts: { cancelled: 0, failed: 0, returned: 1, running: 1, total: 2 }, entries: [] },
-      'root-run'
-    );
+    const chunk = makeBackgroundLedgerChunk({
+      counts: { cancelled: 0, failed: 0, returned: 1, running: 1, total: 2 },
+      entries: [],
+      ledgerId: 'root-run',
+    });
     const result = await processMastraStreamPart(
       chunk,
       new Map(),

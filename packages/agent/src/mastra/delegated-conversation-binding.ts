@@ -155,6 +155,19 @@ export interface DelegatedLiveDecisionRecord {
   readonly toolName?: string;
 }
 
+/**
+ * The GENERATION a host leg belongs to (migration 140), and every native ROOT
+ * run mapped to it. `generationRunId` is the host run that OPENED the
+ * generation — an initial send or a regeneration — so every leg of one
+ * generation reports the same ledger identity; `nativeRunIds` is the scope its
+ * ledger counts over: the first turn's run plus one per continuation, across
+ * every leg the generation has had.
+ */
+export interface BackgroundGeneration {
+  readonly generationRunId: string;
+  readonly nativeRunIds: readonly string[];
+}
+
 export interface DelegatedConversationBinding {
   readonly abortInvocations?: (targets: readonly DelegatedCancellationTarget[]) => void;
   /** Host capability required for durable invocation publication/resume authorization. */
@@ -192,6 +205,13 @@ export interface DelegatedConversationBinding {
   /** Freeze child history after admission and before invoking native resume. */
   readonly prepareToolAction?: NonNullable<DelegatedConversationBinding['claimToolAction']>;
   /**
+   * This leg's generation and its native-run scope (migration 140). Unlike the
+   * diagnostic records below this IS runtime authority: it decides the ledger
+   * identity every leg of the generation publishes under. It throws when the
+   * leg resumed a native run no host leg mapped, rather than guess.
+   */
+  readonly readBackgroundGeneration?: () => Promise<BackgroundGeneration>;
+  /**
    * `recordLiveDecision`, `recordPromptManifest` and `recordWakeup` write
    * debug-pack evidence (migration 139): host-owned, append-only, never runtime
    * authority. The host logs a failed write with a code and resolves — a
@@ -216,6 +236,12 @@ export interface DelegatedConversationBinding {
     candidates: readonly DelegatedToolActionCandidate[]
   ) => Promise<readonly DelegatedToolActionUnanswerable[]>;
   readonly recordLiveDecision?: (record: DelegatedLiveDecisionRecord) => Promise<void>;
+  /**
+   * Maps a native ROOT run to the host leg that started it (migration 140):
+   * the first turn's run and one per continuation. Runtime authority — a later
+   * approval/resume leg derives its generation from this mapping.
+   */
+  readonly recordNativeRootRun?: (nativeRunId: string) => Promise<void>;
   readonly recordPromptManifest?: (record: DelegatedPromptManifestRecord) => Promise<void>;
   /**
    * Record the decisions a RUNNING leg answers at once — a live user decision

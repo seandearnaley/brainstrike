@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type {
+  BackgroundGeneration,
   ChildContinuationHostPort,
   DelegatedConversationBinding,
   DelegatedConversationIdentity,
@@ -343,6 +344,8 @@ export function createDesktopDelegatedConversationHost(
   releaseUnexecutedToolAction: NonNullable<
     DelegatedConversationBinding['releaseUnexecutedToolAction']
   >;
+  readBackgroundGeneration(): Promise<BackgroundGeneration>;
+  recordNativeRootRun(nativeRunId: string): Promise<void>;
   persist(identity: DelegatedConversationIdentity): Promise<void>;
   persistEvent(
     identity: DelegatedRunIdentity,
@@ -668,6 +671,46 @@ export function createDesktopDelegatedConversationHost(
         baselines.set(baseline.threadId, baseline);
       }
     },
+    /**
+     * This leg's GENERATION and every native ROOT run mapped to it (migration
+     * 140): the identity every leg of the generation publishes its ledger
+     * rows under, and the scope those rows count over. A leg whose generation
+     * is unset resumed a native run no host leg mapped — a pause parked
+     * before 140 — and throws rather than open an identity of its own.
+     */
+    async readBackgroundGeneration() {
+      const result = await database.query(
+        `SELECT runs.generation_run_id AS "generationRunId",
+           COALESCE((
+             SELECT jsonb_agg(mapped.native_run_id ORDER BY mapped.created_at, mapped.native_run_id)
+             FROM brainstrike_assistant_native_runs mapped
+             JOIN brainstrike_assistant_thread_runs owner ON owner.id = mapped.host_run_id
+             WHERE owner.thread_id = runs.thread_id AND owner.resource_id = runs.resource_id
+               AND owner.generation_run_id = runs.generation_run_id
+           ), '[]'::jsonb) AS "nativeRunIds"
+         FROM brainstrike_assistant_thread_runs runs
+         JOIN mastra_threads root ON root.id = runs.thread_id AND root."resourceId" = runs.resource_id
+         WHERE runs.id = $1`,
+        [hostRunId]
+      );
+      const parsed = z
+        .object({
+          generationRunId: z.string().min(1).nullable(),
+          nativeRunIds: z.array(z.string().min(1)),
+        })
+        .safeParse(result.rows[0]);
+      if (result.rows.length !== 1 || !parsed.success) {
+        throw new DelegatedConversationIdentityError('host-scope-invalid');
+      }
+      const { generationRunId } = parsed.data;
+      if (!generationRunId) {
+        throw new DelegatedConversationIdentityError(
+          'background-generation-unmapped',
+          'This approval predates the background ledger upgrade and cannot resume safely. Stop or cancel the pending work, then start a new request.'
+        );
+      }
+      return { generationRunId, nativeRunIds: parsed.data.nativeRunIds };
+    },
     async readUnanswerableToolActionLeaves(candidates) {
       if (candidates.length === 0) {
         return [];
@@ -740,6 +783,51 @@ export function createDesktopDelegatedConversationHost(
       recordSwarmDiagnostic(hostRunId, 'live-decision', () =>
         recordLiveDecision(database, hostRunId, record)
       ),
+    /**
+     * Map a native ROOT run to THIS leg (migration 140). First writer wins: an
+     * approval leg re-streams the very run it resumed, and that run belongs to
+     * the leg that started it. A run already mapped under a DIFFERENT
+     * generation is an invariant break, never a silent re-parent.
+     */
+    async recordNativeRootRun(nativeRunId: string) {
+      const result = await database.query(
+        `WITH current_run AS (
+           SELECT runs.id, runs.thread_id, runs.resource_id, runs.generation_run_id
+           FROM brainstrike_assistant_thread_runs runs
+           JOIN mastra_threads root ON root.id = runs.thread_id AND root."resourceId" = runs.resource_id
+           WHERE runs.id = $2 AND runs.generation_run_id IS NOT NULL
+         ), inserted AS (
+           INSERT INTO brainstrike_assistant_native_runs (native_run_id, host_run_id)
+           SELECT $1, current_run.id FROM current_run
+           ON CONFLICT (native_run_id) DO NOTHING
+           RETURNING native_run_id
+         )
+         SELECT (SELECT count(*)::int FROM current_run) AS "legs",
+           (SELECT count(*)::int FROM inserted) AS "inserted",
+           EXISTS (
+             SELECT 1 FROM brainstrike_assistant_native_runs mapped
+             JOIN brainstrike_assistant_thread_runs owner ON owner.id = mapped.host_run_id
+             JOIN current_run ON owner.thread_id = current_run.thread_id
+               AND owner.resource_id = current_run.resource_id
+               AND owner.generation_run_id IS NOT DISTINCT FROM current_run.generation_run_id
+             WHERE mapped.native_run_id = $1
+           ) AS "sameGeneration"`,
+        [nativeRunId, hostRunId]
+      );
+      const parsed = z
+        .object({
+          inserted: z.number().int(),
+          legs: z.number().int(),
+          sameGeneration: z.boolean(),
+        })
+        .safeParse(result.rows[0]);
+      if (!parsed.success || parsed.data.legs !== 1) {
+        throw new DelegatedConversationIdentityError('host-scope-invalid');
+      }
+      if (parsed.data.inserted === 0 && !parsed.data.sameGeneration) {
+        throw new DelegatedConversationIdentityError('native-run-generation-mismatch');
+      }
+    },
     recordPromptManifest: (record) =>
       recordSwarmDiagnostic(hostRunId, 'prompt-manifest', () =>
         recordPromptManifest(database, hostRunId, record)

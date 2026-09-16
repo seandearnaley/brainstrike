@@ -273,6 +273,15 @@ function startLeg(params: {
       },
     },
     backgroundTaskManager: params.manager,
+    conversationBinding: {
+      // Migration 140: these executor-race rows all belong to the parked
+      // root's one generation. Supplying the real required host capability
+      // keeps this spec focused on registration, drain and terminal ordering.
+      readBackgroundGeneration: async () => ({
+        generationRunId: 'root-run',
+        nativeRunIds: ['root-run'],
+      }),
+    },
     delegationToolPersonas: new Map<string, string>(),
     personasById: new Map<string, { label: string }>(),
   } as unknown as MastraAgentRuntime;

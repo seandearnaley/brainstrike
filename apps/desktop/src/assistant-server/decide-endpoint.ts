@@ -133,7 +133,7 @@ export async function handleDecideRequest(
       );
       respondJson(res, 409, {
         error: 'decision_refused',
-        message: `The host refused this decision (${error.reason}).`,
+        message: error.actionableMessage ?? `The host refused this decision (${error.reason}).`,
         reason: error.reason,
       });
       return;
