@@ -1,5 +1,8 @@
 import type { ThreadMessage } from '@assistant-ui/react';
-import { getToolActionIdentityKey } from '@brainstrike/assistant-contract';
+import {
+  type DelegatedToolDecisionState,
+  getToolActionIdentityKey,
+} from '@brainstrike/assistant-contract';
 import {
   isAssistantToolApprovalAction,
   isAssistantToolApprovalAnswered,
@@ -36,11 +39,22 @@ interface DataPart {
 type ToolActionIdentity = Parameters<typeof getToolActionIdentityKey>[0];
 
 /**
+ * Constrains what `PauseDecisionState` may resolve to. The totality pin below
+ * is only a pin while that type is a FINITE literal union: were the reader's
+ * `decisionState` ever widened to `string`, `Record<…, boolean>` would quietly
+ * become an index signature accepting anything, and the guarantee would be gone
+ * with nothing red. This fails to compile instead.
+ */
+type FiniteDecisionState<T extends DelegatedToolDecisionState | 'invalid'> = T;
+
+/**
  * Exactly what `readRediscoveredPauseDisplay` can report: the durable
  * `DelegatedToolDecisionState` union plus the `invalid` sentinel that reader
  * stamps when a decision exists and could not be read.
  */
-type PauseDecisionState = NonNullable<RediscoveredPauseDisplay['decisionState']>;
+type PauseDecisionState = FiniteDecisionState<
+  NonNullable<RediscoveredPauseDisplay['decisionState']>
+>;
 
 /**
  * Whether each state SETTLES a pause: `true` locks the card, `false` leaves it
@@ -57,6 +71,10 @@ type PauseDecisionState = NonNullable<RediscoveredPauseDisplay['decisionState']>
  * the gate classifies it.) This fails to compile until the new state is
  * classified; a genuinely non-terminal one can still map to `false` and fall
  * through to `undecided`, but DELIBERATELY.
+ *
+ * Every value is `true` today, so at RUNTIME this is still equivalent to "has a
+ * state" — the divergence a `false` would create does not exist yet. The record
+ * earns its place at compile time, as the forcing function.
  */
 const PAUSE_SETTLED_BY_DECISION_STATE: Record<PauseDecisionState, boolean> = {
   cancelled: true,
@@ -165,7 +183,15 @@ function indexPausePart(part: DataPart, decided: Set<string>, undecided: Set<str
   // can report is terminal today, so all of them lock the card. Should the
   // union gain a non-terminal member, `PAUSE_SETTLED_BY_DECISION_STATE` forces
   // a ruling on it, and a `false` there falls through to `undecided`.
-  if (decisionState !== undefined && PAUSE_SETTLED_BY_DECISION_STATE[decisionState]) {
+  //
+  // `=== true`, not truthiness: an object literal reaches `Object.prototype`,
+  // so a key like `constructor` or `toString` would index to a truthy FUNCTION
+  // and silently settle the pause — the "card reads decided when it isn't"
+  // failure this gate exists to prevent. No inherited member is `true`, so this
+  // keeps the structural safety the old `Set.has` had for free. Unreachable
+  // today (the reader normalizes every unrecognized state to `invalid`), and
+  // the cost of not depending on that is one operator.
+  if (decisionState !== undefined && PAUSE_SETTLED_BY_DECISION_STATE[decisionState] === true) {
     decided.add(key);
     return;
   }

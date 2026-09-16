@@ -4509,9 +4509,10 @@ cancel never touched is ignored) and only counts a pause NOTHING has answered â€
 a durable `decisionState`, the host's streamed `tool-approval-answered`, or the
 user's own appended decision all settle it. That renderer scope and the HOST
 CANCEL SCOPE MUST MOVE TOGETHER: the gate may stop at the turn only because
-`cancelDesktopAssistantRun` does too (`cancel-run.ts` bounds its owned-runs CTE,
-its waiting-task sweep and the continuations it derives from those run ids by
-`turn_message_id`), so widening the host cancel past the turn without widening
+`cancelDesktopAssistantRun` does too (`cancel-run.ts`: the owned-runs CTE takes
+the run plus every run sharing its `turn_message_id`, `cancelWaitingTurnTasks`
+filters `invocation.turn_message_id`, and the continuations are derived from
+those run ids), so widening the host cancel past the turn without widening
 this gate would leave an earlier turn's cancelled card reading "Pending" with
 live buttons until the thread is reloaded. In-session answers carry no durable
 state, so counting them remounted the thread on the ordinary "approve a tool,

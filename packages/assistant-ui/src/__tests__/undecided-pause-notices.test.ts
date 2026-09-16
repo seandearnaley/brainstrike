@@ -76,12 +76,15 @@ const SUSPEND = {
 /**
  * A second root suspend. Undelegated pauses key on `[runId, toolCallId]`, so a
  * different `toolCallId` is already a different pause (unlike the delegated
- * case below, which keys on its delegation leaf).
+ * case below, which keys on its delegation leaf). Everything else MATCHES
+ * `SUSPEND`, so the test that uses it is strictly about `toolCallId`: were the
+ * key to accidentally take in `toolName` too, a differing one would keep the
+ * two apart and hide it.
  */
 const SECOND_SUSPEND = {
   runId: 'root-run',
   toolCallId: 'ask-2',
-  toolName: 'brainstrike.submitPlan',
+  toolName: SUSPEND.toolName,
 } as const;
 
 const pausePart = (data: unknown) => ({ data, name: TOOL_APPROVAL_DATA_NAME, type: 'data' });
@@ -248,6 +251,10 @@ describe('hasUndecidedPauseNotice', () => {
    * stamps when a decision exists and could not be read. It locks the card just
    * as the terminal states do, so the gate must count it as an answer; leaving
    * it out of this table let it be dropped from the decided set unnoticed.
+   *
+   * Each row feeds its state in DIRECTLY, so what this pins is the gate's
+   * decided-set membership — not the reader's stamping. The test below covers
+   * the sentinel's own path.
    */
   it.each(['cancelled', 'claimed', 'consumed', 'interrupted', 'invalid'] as const)(
     'treats the %s decision state as an answer',
@@ -267,6 +274,30 @@ describe('hasUndecidedPauseNotice', () => {
       ).toBe(false);
     }
   );
+
+  /**
+   * The sentinel's OWN path, which the table above does not travel. The state
+   * here is a real durable one and the payload is what is unreadable: no
+   * delegation and no `continuationId`, so `hasValidDelegatedDecisionState`
+   * rejects it and the reader stamps `invalid`. A decision exists and could not
+   * be read, so the card stays locked and the Stop must not remount for it.
+   */
+  it('treats a decision state it cannot read as an answer', () => {
+    const unreadable = {
+      args: PAUSE.args,
+      decisionState: 'cancelled',
+      riskCategory: PAUSE.riskCategory,
+      runId: PAUSE.runId,
+      toolCallId: PAUSE.toolCallId,
+      toolName: PAUSE.toolName,
+    };
+    expect(
+      hasUndecidedPauseNotice([
+        userMessage('turn-1'),
+        assistantMessage('a1', [pausePart(unreadable)]),
+      ])
+    ).toBe(false);
+  });
 
   it('reports nothing for a thread that never paused', () => {
     expect(
