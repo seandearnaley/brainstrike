@@ -64,6 +64,11 @@ function createNativeManager(
     readonly cancelOnResume?: ReadonlySet<string>;
     /** Tasks `resume` refuses (e.g. no longer suspended). */
     readonly refuseResume?: ReadonlySet<string>;
+    /**
+     * Tasks whose SECOND concurrent resume Mastra refuses: the first call's
+     * `handleResume` flipped the row to running before this one read it.
+     */
+    readonly refuseConcurrentResume?: ReadonlySet<string>;
   } = {}
 ) {
   const calls: string[] = [];
@@ -74,6 +79,7 @@ function createNativeManager(
   let heldRead: { readonly gate: Promise<void>; readonly onRead: () => void } | undefined;
   /** Runs once, inside the next `resume`, before it reads the task's status. */
   let pendingBeforeResume: (() => Promise<void>) | undefined;
+  const resumeCalls = new Map<string, number>();
   const update = (taskId: string, status: BackgroundTask['status']): BackgroundTask => {
     const row = rows.get(taskId);
     if (!row) {
@@ -150,6 +156,10 @@ function createNativeManager(
       calls.push(`resume:${taskId}`);
       if (behaviour.refuseResume?.has(taskId)) {
         throw new Error("Cannot resume task in status 'cancelled' (expected 'suspended')");
+      }
+      resumeCalls.set(taskId, (resumeCalls.get(taskId) ?? 0) + 1);
+      if (behaviour.refuseConcurrentResume?.has(taskId) && (resumeCalls.get(taskId) ?? 0) > 1) {
+        throw new Error("Cannot resume task in status 'running' (expected 'suspended')");
       }
       const hook = pendingBeforeResume;
       pendingBeforeResume = undefined;
@@ -625,6 +635,88 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
       expect(native.calls).toContain('deregister:t2');
     } finally {
       holding.resolve();
+      running.resolve();
+    }
+  }, 2000);
+
+  it('never deregisters an accepted task when a held registration lands on a drained leg', async () => {
+    // The `accepted` check runs BEFORE the registration's await, so the task
+    // can be accepted during it. If the leg drains meanwhile, the landing
+    // registration must not deregister a task Mastra accepted and is running.
+    const holding = Promise.withResolvers<void>();
+    const running = Promise.withResolvers<void>();
+    const stop = new AbortController();
+    const channel = createLiveDecisionChannel();
+    const native = createNativeManager();
+    const shared = native.add('t1');
+    // The decision enters `register` BEFORE the leg's own resume is accepted.
+    native.setBeforeResume(async () => {
+      const owner = channel.owner;
+      if (!owner) {
+        throw new Error('The leg does not own its live decision seam.');
+      }
+      const live = owner
+        .reserve([shared])
+        .resume([{ resumeData: { approved: true }, task: shared }]);
+      live.catch(() => undefined);
+      await macrotask();
+    });
+    const { ended } = startLeg({
+      abortSignal: stop.signal,
+      channel,
+      holdLiveRegistration: holding.promise,
+      manager: native.manager,
+      resumes: [shared],
+      tools: Promise.resolve({ [TOOL]: parkingTool(running.promise) }),
+    });
+    try {
+      await until(() => native.calls.includes('execute:t1'));
+      stop.abort(new Error('User stopped the root.'));
+      await expect(ended).resolves.toMatchObject({
+        error: { message: 'User stopped the root.' },
+      });
+      holding.resolve();
+      await macrotask();
+      expect(native.calls).not.toContain('deregister:t1');
+      expect(native.calls).not.toContain('no-executor:t1');
+    } finally {
+      holding.resolve();
+      running.resolve();
+    }
+  }, 2000);
+
+  it('keeps the context when a second concurrent resume is refused while the first is in flight', async () => {
+    // A live decision can resume a task whose own `manager.resume` this leg
+    // has in flight: the row is still suspended when the decision selects it.
+    // The refused call must not drop the context the accepted one needs.
+    const running = Promise.withResolvers<void>();
+    const channel = createLiveDecisionChannel();
+    const native = createNativeManager({ refuseConcurrentResume: new Set(['t1']) });
+    const shared = native.add('t1');
+    let live: Promise<void> | undefined;
+    native.setBeforeResume(async () => {
+      const owner = channel.owner;
+      if (!owner) {
+        throw new Error('The leg does not own its live decision seam.');
+      }
+      live = owner.reserve([shared]).resume([{ resumeData: { approved: true }, task: shared }]);
+      await expect(live).rejects.toThrow("Cannot resume task in status 'running'");
+    });
+    const { ended } = startLeg({
+      channel,
+      manager: native.manager,
+      resumes: [shared],
+      tools: Promise.resolve({ [TOOL]: parkingTool(running.promise) }),
+    });
+    try {
+      await until(() =>
+        native.calls.some((call) => call === 'execute:t1' || call === 'no-executor:t1')
+      );
+      expect(native.calls).toContain('execute:t1');
+      expect(native.calls).not.toContain('deregister:t1');
+      running.resolve();
+      await expect(ended).resolves.toEqual({ error: undefined });
+    } finally {
       running.resolve();
     }
   }, 2000);
