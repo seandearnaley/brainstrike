@@ -121,12 +121,26 @@ it('keeps a rejected pending lookup visible and lets the user retry it', async (
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 it('renders a contradictory invocation as a local navigation error without losing the conversation', async () => {
+  const open = vi.fn();
+  const resolve = vi.fn(async () => 'must-not-open');
   render(
-    <Harness adapter={adapter} initialMessages={[message('conflict', ['run-one', 'run-two'])]} />
+    <SubagentConversationNavigationContext value={open}>
+      <SubagentInvocationResolverContext value={resolve}>
+        <Harness
+          adapter={adapter}
+          initialMessages={[message('conflict', ['run-one', 'run-two'])]}
+        />
+      </SubagentInvocationResolverContext>
+    </SubagentConversationNavigationContext>
   );
   const user = userEvent.setup();
   await user.click(await screen.findByTestId('assistant-activity-summary'));
   expect(await screen.findByText('Conflicting native invocation addresses.')).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: 'Open Worker conversation' })
+  ).not.toBeInTheDocument();
+  expect(resolve).not.toHaveBeenCalled();
+  expect(open).not.toHaveBeenCalled();
   expect(screen.getByRole('textbox', { name: 'Message' })).toBeVisible();
 });
 

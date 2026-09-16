@@ -44,7 +44,7 @@ it('publishes both consumed approvals while the root waits in text for a running
       if (chunk.type === 'tool-approval-required') {
         notices.push(chunk);
       }
-      if (progress && notices.length === 2) {
+      if (progress && notices.length >= 2) {
         ready.resolve();
       }
       if (chunk.type === 'tool-approval-answered') {
@@ -64,6 +64,7 @@ it('publishes both consumed approvals while the root waits in text for a running
         throw new Error('Stream ended before grant');
       }),
     ]);
+    expect(notices).toHaveLength(2);
     const notice = notices[0];
     if (!notice?.delegation) {
       throw new Error('Missing delegated approval');
@@ -101,7 +102,10 @@ it('publishes both consumed approvals while the root waits in text for a running
     release.resolve();
     hold.resolve();
     await Promise.allSettled([consuming]);
-    await runtime.dispose();
-    await database.close();
+    try {
+      await runtime.dispose();
+    } finally {
+      await database.close();
+    }
   }
 });

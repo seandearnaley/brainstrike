@@ -457,6 +457,8 @@ describe('tool-call telemetry durable persistence (BST-1190)', () => {
 
 it('records the rejected delegated usage identity and still rejects the stream', async () => {
   const errorLog = vi.spyOn(desktopAssistantServerLogger, 'error');
+  const rejection = new Error('controlled delegated usage rejection');
+  mockDesktopDatabase.query.mockRejectedValueOnce(rejection);
   const value = {
     delegation: {
       parentRuntimeRunId: 'native-parent',
@@ -482,18 +484,16 @@ it('records the rejected delegated usage identity and still rejects the stream',
       undefined,
       async () => mockDesktopDatabase
     );
-    await expect(iterator[Symbol.asyncIterator]().next()).rejects.toThrow();
-    expect(errorLog).toHaveBeenCalledWith(
-      'Failed to persist bound delegated usage',
-      expect.objectContaining({
-        code: 'assistant_delegated_usage_write_failed',
-        delegation: value.delegation,
-        model: value.model,
-        personaId: value.personaId,
-        provider: value.provider,
-        runId: 'host-run',
-      })
-    );
+    await expect(iterator[Symbol.asyncIterator]().next()).rejects.toBe(rejection);
+    expect(errorLog).toHaveBeenCalledWith('Failed to persist bound delegated usage', {
+      code: 'assistant_delegated_usage_write_failed',
+      delegation: value.delegation,
+      error: rejection,
+      model: value.model,
+      personaId: value.personaId,
+      provider: value.provider,
+      runId: 'host-run',
+    });
   } finally {
     errorLog.mockRestore();
   }
