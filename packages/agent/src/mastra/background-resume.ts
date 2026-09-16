@@ -80,14 +80,25 @@ export interface BackgroundResume {
  * them again. A suspension terminal is held until the leg's channel has had
  * its chance to answer it by a remembered grant. `onTerminal` hears every
  * terminal the wait records.
+ *
+ * A task is COUNTED, not held once: two decisions can name the same suspended
+ * row (one as the user's own answer, one as a granted sibling of another's),
+ * and the leg itself holds every task it resumes. The give-back of one holder
+ * must leave the others' claim standing, or the leg stops observing a task
+ * that is running and ends with its terminal missing. Every holder that counts
+ * a task can also give it back, or a task nobody resumed is awaited for good.
+ * Pinned in `background-resume.spec.ts` by "keeps awaiting a task a second
+ * reservation resumed when the first gives it back" (mutation: an unconditional
+ * remove drops a running task) and "gives a task back once for every
+ * reservation that named it" (mutation: only the first holder may give back).
  */
 function createTerminalWait(
   initial: Iterable<string>,
   channel: LiveDecisionChannel | undefined,
   onTerminal: (taskId: string, event: TaskEvent) => void
 ): {
-  /** Wait for this task's terminal; `false` when the leg already awaited it. */
-  readonly add: (taskId: string) => boolean;
+  /** Take a holder's claim on this task's terminal. */
+  readonly add: (taskId: string) => void;
   /** Stop accepting tasks (the leg stopped waiting). */
   readonly close: () => void;
   /**
@@ -99,28 +110,29 @@ function createTerminalWait(
   /** The terminals seen so far (the lifecycle stream may end before every one). */
   readonly seen: () => ReadonlyMap<string, TaskEvent>;
   readonly observe: (event: unknown) => void;
+  /** Give one holder's claim back; the task leaves the wait with the last of them. */
   readonly remove: (taskId: string) => void;
   readonly size: () => number;
 } {
-  const awaited = new Set(initial);
+  /** Awaited task id → the number of holders claiming its terminal. */
+  const awaited = new Map<string, number>();
+  for (const taskId of initial) {
+    awaited.set(taskId, (awaited.get(taskId) ?? 0) + 1);
+  }
   const terminals = new Map<string, TaskEvent>();
   const done = Promise.withResolvers<ReadonlyMap<string, TaskEvent>>();
   const isNewSuspension = createSuspensionLedger();
   let answering = 0;
   let closed = false;
   const check = () => {
-    if (answering === 0 && [...awaited].every((taskId) => terminals.has(taskId))) {
+    if (answering === 0 && [...awaited.keys()].every((taskId) => terminals.has(taskId))) {
       closed = true;
       done.resolve(terminals);
     }
   };
   return {
     add: (taskId) => {
-      if (awaited.has(taskId)) {
-        return false;
-      }
-      awaited.add(taskId);
-      return true;
+      awaited.set(taskId, (awaited.get(taskId) ?? 0) + 1);
     },
     close: () => {
       closed = true;
@@ -149,6 +161,11 @@ function createTerminalWait(
       check();
     },
     remove: (taskId) => {
+      const holders = (awaited.get(taskId) ?? 0) - 1;
+      if (holders > 0) {
+        awaited.set(taskId, holders);
+        return;
+      }
       awaited.delete(taskId);
       terminals.delete(taskId);
       check();
@@ -168,6 +185,8 @@ interface ResumedExecutors {
    * Register a task's executor with the manager. Awaited BEFORE Mastra is
    * asked to resume it: its workflow looks the executor up when it runs the
    * task, and fails a task it finds none for ("No executor registered").
+   * Refused with {@link LiveDecisionUnavailableError} when the leg drained or
+   * a terminal retired the registration while its tools resolved.
    */
   readonly register: (task: BackgroundTask) => Promise<ResumedExecutor>;
   /** Register every task the leg resumes, before any of them is resumed. */
@@ -224,7 +243,12 @@ interface ResumedExecutors {
  * |                  | RESUME, so a child that parks again is registered and   |
  * |                  | resumed afresh, with its own join (a suspension settles  |
  * |                  | no executor: only a running one parks, and it settles    |
- * |                  | itself after its host join)                              |
+ * |                  | itself after its host join). A registration still IN     |
+ * |                  | FLIGHT is retired by GENERATION, not by forgetting it:   |
+ * |                  | the next caller registers afresh, and the retired one    |
+ * |                  | lands on a generation that is no longer the task's and   |
+ * |                  | commits nothing — forgetting alone let it replace the    |
+ * |                  | newer context and the executor whose join was pushed     |
  *
  * Pins, all in `background-resume.spec.ts`, by cell:
  * - register before resume: "registers every resumed executor before Mastra is
@@ -238,6 +262,9 @@ interface ResumedExecutors {
  *   leg released its executors" (in flight across the drain) and "refuses a
  *   reservation taken while the leg was live but used after the drain" (the
  *   cache hit, which the drain check above the lookup covers).
+ * - register asked, retired in flight: "refuses a registration a terminal
+ *   retired while its tools were still resolving" (mutations: the landing
+ *   thunk ignoring its generation, and a terminal that does not raise it).
  * - resume refused: "deregisters the tail Mastra never resumed when a resume
  *   fails part-way through the leg", "a live resume Mastra refuses joins
  *   nothing: the leg still closes as a pause and keeps no executor for it",
@@ -248,20 +275,19 @@ interface ResumedExecutors {
  *   leg is stopped", "the drain keeps a context Mastra accepted while a live
  *   decision shared its registration".
  * - terminal arrives: "registers afresh when a parked task is resumed again in
- *   the same leg" (retiring the acceptance is what allows the second resume),
- *   "a task cancelled while its resumed executor is still in flight settles the
- *   join", "the pause branch still joins a resumed executor whose host join
- *   outlives its suspension".
+ *   the same leg" (retiring the acceptance is what allows the second resume;
+ *   it satisfies the WAIT while the second execution is in flight, so only
+ *   that execution's own join can hold the leg open — mutation: a second
+ *   resume that pushes no join shuts the leg down early), "a task cancelled
+ *   while its resumed executor is still in flight settles the join", "the
+ *   pause branch still joins a resumed executor whose host join outlives its
+ *   suspension".
  *
  * REGISTERED + terminal for a task the leg never resumed has no test and IS
  * reachable: the wait is seeded from the leg's own resumes at construction,
  * before any registration, so a tail the leg never got to resume is awaited all
  * the same. It is harmless — the terminal settles a join nobody pushed, and the
  * task stays in `unresumed` for the drain to deregister.
- *
- * Known-narrow, filed rather than guarded: a terminal that retires a
- * registration still in flight, and `wait.add` reporting `false` making the
- * give-back single-owner.
  */
 function createResumedExecutors(params: {
   readonly controller: ReadableStreamDefaultController<unknown>;
@@ -280,6 +306,15 @@ function createResumedExecutors(params: {
    * again in this leg then registers afresh.
    */
   const registrations = new Map<string, Promise<ResumedExecutor>>();
+  /**
+   * The task's registration generation, raised by every terminal. Forgetting
+   * a registration is not enough to retire one whose tools are STILL
+   * RESOLVING: the next caller starts a fresh one, and the retired one would
+   * commit when it lands, replacing the context Mastra is about to look up
+   * and the executor whose join that caller already pushed. It commits only
+   * while its generation is still the task's.
+   */
+  const generations = new Map<string, number>();
   /** Registered contexts Mastra has not accepted a resume for. */
   const unresumed = new Set<string>();
   /** Tasks Mastra accepted a resume for — this leg's, or another caller's. */
@@ -312,6 +347,7 @@ function createResumedExecutors(params: {
     if (existing) {
       return existing;
     }
+    const generation = generations.get(task.id) ?? 0;
     const pending = (async () => {
       const commit = await prepareResumedExecutor({ ...params, task });
       // Resolving the tools was async: the leg may have released its
@@ -319,6 +355,12 @@ function createResumedExecutors(params: {
       // registered now — so the shared manager is left untouched.
       if (drained) {
         throw new LiveDecisionUnavailableError('The resume leg has released its executors.');
+      }
+      // Same window, same rule: a terminal retired this registration while
+      // its tools resolved, so the task is either ended or registered afresh
+      // by another caller. Either way this one is no longer the task's.
+      if ((generations.get(task.id) ?? 0) !== generation) {
+        throw new LiveDecisionUnavailableError('The resumed task ended before it was registered.');
       }
       const executor = commit();
       executors.set(task.id, executor);
@@ -413,6 +455,9 @@ function createResumedExecutors(params: {
       // acceptance is per resume, not per task, so a parked child resumed
       // again in this leg registers afresh and is resumed again, with its own
       // join. Keeping the acceptance would skip that second resume entirely.
+      // A registration still in flight is retired by the same act — it lands
+      // on a generation that is no longer the task's and commits nothing.
+      generations.set(taskId, (generations.get(taskId) ?? 0) + 1);
       registrations.delete(taskId);
       accepted.delete(taskId);
       executors.get(taskId)?.terminal(event);
@@ -629,12 +674,16 @@ export function createBackgroundResumeStream(params: {
             if (wait.closed()) {
               throw new LiveDecisionUnavailableError('The resume leg is no longer waiting.');
             }
-            // Only the tasks this reservation ADDED are its to give back: one
-            // the leg is already waiting for stays awaited whatever becomes of
-            // the decision, or the leg would stop observing its terminal.
-            const added = new Set(tasks.filter((task) => wait.add(task.id)).map((task) => task.id));
+            // This reservation's own claim on each task, given back at most
+            // once: a task the leg or another reservation also holds stays
+            // awaited whatever becomes of THIS decision, or the leg would stop
+            // observing the terminal of a task the other one resumed.
+            const claimed = new Set(tasks.map((task) => task.id));
+            for (const taskId of claimed) {
+              wait.add(taskId);
+            }
             const giveBack = (taskId: string) => {
-              if (added.delete(taskId)) {
+              if (claimed.delete(taskId)) {
                 wait.remove(taskId);
               }
             };
