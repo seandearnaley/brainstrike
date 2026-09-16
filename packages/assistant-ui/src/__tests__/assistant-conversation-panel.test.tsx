@@ -5,6 +5,7 @@ import {
   type ThreadMessageLike,
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
+import { getToolActionIdentityKey } from '@brainstrike/assistant-contract';
 import {
   TOOL_APPROVAL_DATA_NAME,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
@@ -18,9 +19,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
+import type { DecisionRoute } from '../decision-route-context';
 import { resetFollowUpQueueStore, useFollowUpQueueStore } from '../follow-up-queue-store';
 import { useRewindComposerStore } from '../rewind-composer-store';
 import { RewindProvider } from '../rewind-context';
+import { ToolApprovalGrantProvider } from '../tool-approval-grant-context';
 import { ToolResultRendererProvider } from '../tool-result-renderer-context';
 import type { ToolResultRenderer } from '../use-tool-result-renderers';
 
@@ -37,10 +40,12 @@ function Conversation({
   attachments = false,
   composerDisabled = false,
   allowIdleInput = false,
+  decisionRoute,
 }: {
   attachments?: boolean;
   composerDisabled?: boolean;
   allowIdleInput?: boolean;
+  decisionRoute?: DecisionRoute;
   id: string;
   messages: readonly ThreadMessageLike[];
   onNew: ExternalStoreAdapter<ThreadMessageLike>['onNew'];
@@ -64,6 +69,7 @@ function Conversation({
     <AssistantConversationPanel
       {...(attachments ? { attachmentsAvailability: { state: 'enabled' as const } } : {})}
       allowIdleInput={allowIdleInput}
+      decisionRoute={decisionRoute}
       isComposerDisabled={composerDisabled}
       label={id}
       onSendActiveInput={onSendActiveInput}
@@ -718,6 +724,150 @@ describe('shared conversation panel', () => {
         },
       },
     });
+  });
+
+  it('routes a running child grant directly to its owner without appending or cancelling', async () => {
+    const dispatch = vi.fn<DecisionRoute['dispatch']>().mockResolvedValue('delivered');
+    const onNew = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(async () => undefined);
+    const onCancel = vi.fn(async () => undefined);
+    const grantCategoryForSession = vi.fn();
+    render(
+      <TooltipProvider>
+        <ToolApprovalGrantProvider
+          handlers={{
+            grantAllToolsForSession: vi.fn(),
+            grantCategoryForSession,
+            grantToolAlways: vi.fn(),
+          }}
+        >
+          <Conversation
+            decisionRoute={{ dispatch, queueThreadKey: 'root-thread' }}
+            id="Cedar"
+            messages={[
+              {
+                content: [
+                  {
+                    data: {
+                      args: { path: 'evidence.txt' },
+                      riskCategory: 'edit',
+                      runId: 'child-run',
+                      toolCallId: 'child-tool',
+                      toolName: 'workspace.writeFile',
+                    },
+                    name: TOOL_APPROVAL_DATA_NAME,
+                    type: 'data',
+                  },
+                ],
+                id: 'approval-message',
+                role: 'assistant',
+              },
+            ]}
+            onCancel={onCancel}
+            onNew={onNew}
+            running
+          />
+        </ToolApprovalGrantProvider>
+      </TooltipProvider>
+    );
+    await userEvent.click(screen.getByTestId('approval-grant-category-session'));
+    await waitFor(() => expect(dispatch).toHaveBeenCalledOnce());
+    expect(grantCategoryForSession).toHaveBeenCalledWith('edit');
+    expect(onNew).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('shows and removes a child decision from the owning root queue', async () => {
+    const request = {
+      args: { path: 'evidence.txt' },
+      riskCategory: 'edit' as const,
+      runId: 'child-run',
+      toolCallId: 'child-tool',
+      toolName: 'workspace.writeFile',
+    };
+    useFollowUpQueueStore.getState().enqueueMessage('root-thread', {
+      identityKey: getToolActionIdentityKey(request),
+      message: 'Approved.',
+      text: 'Approved.',
+    });
+    render(
+      <TooltipProvider>
+        <Conversation
+          decisionRoute={{ dispatch: vi.fn(), queueThreadKey: 'root-thread' }}
+          id="Cedar"
+          messages={[
+            {
+              content: [
+                {
+                  data: request,
+                  name: TOOL_APPROVAL_DATA_NAME,
+                  type: 'data',
+                },
+              ],
+              id: 'approval-message',
+              role: 'assistant',
+            },
+          ]}
+          onNew={async () => undefined}
+          running
+        />
+      </TooltipProvider>
+    );
+    await screen.findByText('Queued');
+
+    const queued = useFollowUpQueueStore.getState().queuedByThread['root-thread'];
+    expect(queued).toHaveLength(1);
+    act(() => useFollowUpQueueStore.getState().remove('root-thread', queued?.[0]?.id ?? 'missing'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeEnabled()
+    );
+  });
+
+  it('routes a running child typed resume to its owner and unlocks after refusal', async () => {
+    const dispatch = vi
+      .fn<DecisionRoute['dispatch']>()
+      .mockRejectedValue(new Error('The owning run refused the decision'));
+    const onNew = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(async () => undefined);
+    const onCancel = vi.fn(async () => undefined);
+    render(
+      <TooltipProvider>
+        <Conversation
+          decisionRoute={{ dispatch, queueThreadKey: 'root-thread' }}
+          id="Cedar"
+          messages={[
+            {
+              content: [
+                {
+                  data: {
+                    runId: 'child-run',
+                    suspendPayload: { question: 'Which directory?' },
+                    toolCallId: 'child-question',
+                    toolName: 'brainstrike.askUser',
+                  },
+                  name: TOOL_SUSPEND_DATA_NAME,
+                  type: 'data',
+                },
+              ],
+              id: 'question-message',
+              role: 'assistant',
+            },
+          ]}
+          onCancel={onCancel}
+          onNew={onNew}
+          running
+        />
+      </TooltipProvider>
+    );
+    const input = screen.getByRole('textbox', { name: 'Your answer' });
+    await userEvent.type(input, 'packages/app-shell');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => expect(dispatch).toHaveBeenCalledOnce());
+    expect(
+      await screen.findByText(/Decision not sent: The owning run refused the decision/)
+    ).toHaveAttribute('role', 'alert');
+    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+    expect(onNew).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   it('uses the shared rich activity and reasoning components in chronological order', async () => {

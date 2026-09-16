@@ -9,6 +9,7 @@ import { readToolResumeRunConfigAction } from '@brainstrike/assistant-contract/t
 import type {
   AssistantUiPanelProps,
   ChildContinuationIdentity,
+  DecisionDispatchOutcome,
   DelegatedConversationRuntimeOptions,
   DelegatedConversationUpdate,
 } from '@brainstrike/assistant-ui';
@@ -102,7 +103,7 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
       resolvePersistedIdentity?: () => Promise<
         DelegatedRunIdentity | ChildContinuationIdentity | undefined
       >
-    ): Promise<void> {
+    ): Promise<DecisionDispatchOutcome> {
       const child = store.getConversation(threadId);
       if (!runtime) {
         throw new Error('The owning conversation is not available for this decision.');
@@ -133,8 +134,9 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
         .map((part) => (part.type === 'text' ? part.text : ''))
         .join('')
         .trim();
+      let outcome: DecisionDispatchOutcome | undefined;
       await createDelegatedDecisionDispatcher(identity, async (input) => {
-        await submitDecisionOrQueue({
+        outcome = await submitDecisionOrQueue({
           append: (queued) => owner.thread.append(queued),
           deliverLive: liveDecisionTransport,
           identityKey,
@@ -144,6 +146,10 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
           threadKey: owner.threadId,
         });
       })(message);
+      if (!outcome) {
+        throw new Error('The owning conversation did not dispatch the decision.');
+      }
+      return outcome;
     },
     async sendFollowup(
       threadId: string,

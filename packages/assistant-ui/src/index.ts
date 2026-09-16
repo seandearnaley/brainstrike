@@ -51,6 +51,7 @@ export {
   useDebugBundleContext,
 } from './debug-bundle-context';
 export { type DecisionDispatchOutcome, submitDecisionOrQueue } from './decision-dispatch';
+export type { DecisionRoute } from './decision-route-context';
 export type {
   ChildContinuationIdentity,
   ChildConversationOwner,

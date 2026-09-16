@@ -1,3 +1,4 @@
+import { getToolActionIdentityKey } from '@brainstrike/assistant-contract';
 import {
   type AssistantToolApprovalRequest,
   TOOL_APPROVAL_DATA_NAME,
@@ -7,9 +8,20 @@ import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActiveThreadKeyContext } from '../active-thread-key-context';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
+import { buildApprovalDecisionMessage } from '../approval-decision-message';
+import {
+  type ApprovalOwnerThread,
+  ApprovalOwnerThreadContext,
+} from '../approval-owner-thread-context';
 import { ApprovalRanksProvider } from '../approval-presentation-context';
 import { ApprovalQueueStrip } from '../approval-queue-strip';
-import { resetFollowUpQueueStore } from '../follow-up-queue-store';
+import type { DecisionRoute } from '../decision-route-context';
+import { DecisionRouteContext } from '../decision-route-context';
+import {
+  followUpQueueKey,
+  resetFollowUpQueueStore,
+  useFollowUpQueueStore,
+} from '../follow-up-queue-store';
 import { LiveDecisionProvider } from '../live-decision-context';
 import type { LiveDecisionTransport } from '../live-decision-transport';
 import {
@@ -82,23 +94,31 @@ function makeHandlers() {
 }
 
 function Tree({
+  decisionRoute = null,
   handlers,
+  ownerThread = null,
   transport,
 }: {
+  decisionRoute?: DecisionRoute | null;
+  ownerThread?: ApprovalOwnerThread | null;
   handlers: ToolApprovalGrantHandlers | null;
   transport: LiveDecisionTransport | null;
 }) {
   return (
     <ActiveThreadKeyContext.Provider value="thread-1">
-      <AnsweredApprovalsProvider>
-        <ApprovalRanksProvider>
-          <ToolApprovalGrantProvider handlers={handlers}>
-            <LiveDecisionProvider transport={transport}>
-              <ApprovalQueueStrip />
-            </LiveDecisionProvider>
-          </ToolApprovalGrantProvider>
-        </ApprovalRanksProvider>
-      </AnsweredApprovalsProvider>
+      <DecisionRouteContext value={decisionRoute}>
+        <ApprovalOwnerThreadContext value={ownerThread}>
+          <AnsweredApprovalsProvider>
+            <ApprovalRanksProvider>
+              <ToolApprovalGrantProvider handlers={handlers}>
+                <LiveDecisionProvider transport={transport}>
+                  <ApprovalQueueStrip />
+                </LiveDecisionProvider>
+              </ToolApprovalGrantProvider>
+            </ApprovalRanksProvider>
+          </AnsweredApprovalsProvider>
+        </ApprovalOwnerThreadContext>
+      </DecisionRouteContext>
     </ActiveThreadKeyContext.Provider>
   );
 }
@@ -184,6 +204,81 @@ describe('ApprovalQueueStrip', () => {
       expect(screen.queryByTestId('approval-strip-grant-read')).not.toBeInTheDocument()
     );
     expect(screen.getByTestId('approval-strip-count-edit')).toHaveTextContent('1 edit');
+  });
+
+  it('routes a child bulk grant once through its owner without appending locally', async () => {
+    const user = userEvent.setup();
+    const handlers = makeHandlers();
+    const dispatch = vi.fn<DecisionRoute['dispatch']>().mockResolvedValue('delivered');
+    pushMessage({
+      content: [requestPart(approval(1, 'read')), requestPart(approval(2, 'read'))],
+      id: 'm1',
+      role: 'assistant',
+    });
+    render(
+      <Tree
+        decisionRoute={{ dispatch, queueThreadKey: 'root-thread' }}
+        handlers={handlers}
+        transport={null}
+      />
+    );
+    await user.click(screen.getByTestId('approval-strip-grant-read'));
+
+    expect(handlers.grantCategoryForSession).toHaveBeenCalledWith('read');
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
+      runConfig: {
+        custom: {
+          brainstrikeToolApproval: {
+            action: 'approve',
+            delegation: { path: [edge(1)], toolCallId: 'leaf-1' },
+          },
+        },
+      },
+    });
+    expect(appendMock).not.toHaveBeenCalled();
+  });
+
+  it('removes a child bulk grant once it is queued on the owning root', async () => {
+    const request = approval(1, 'read');
+    const decision = buildApprovalDecisionMessage(request, 'approve');
+    pushMessage({ content: [requestPart(request)], id: 'm1', role: 'assistant' });
+    const dispatch = vi.fn<DecisionRoute['dispatch']>(async (message) => {
+      useFollowUpQueueStore.getState().enqueueMessage(followUpQueueKey('registered-root'), {
+        identityKey: getToolActionIdentityKey(request),
+        message,
+        text: decision.text,
+      });
+      return 'queued';
+    });
+    render(
+      <Tree
+        decisionRoute={{ dispatch, queueThreadKey: 'registered-root' }}
+        handlers={makeHandlers()}
+        transport={null}
+      />
+    );
+    await userEvent.click(screen.getByTestId('approval-strip-grant-read'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('approval-strip-grant-read')).not.toBeInTheDocument()
+    );
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(
+      useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('registered-root')]
+    ).toHaveLength(1);
+  });
+
+  it('excludes an approval already submitted in the owner transcript from bulk grants', () => {
+    const request = approval(1, 'read');
+    const decision = buildApprovalDecisionMessage(request, 'approve');
+    if (typeof decision.message === 'string') {
+      throw new Error('Expected structured decision');
+    }
+    const messages = [{ ...decision.message, id: 'root-decision' }];
+    pushMessage({ content: [requestPart(request)], id: 'm1', role: 'assistant' });
+    const ownerThread = { getState: () => ({ messages }), subscribe: () => () => undefined };
+    render(<Tree handlers={makeHandlers()} ownerThread={ownerThread} transport={null} />);
+    expect(screen.queryByTestId('approval-strip-grant-read')).not.toBeInTheDocument();
   });
 
   it('appends the decision when the thread is idle (the approval leg answers the siblings)', async () => {

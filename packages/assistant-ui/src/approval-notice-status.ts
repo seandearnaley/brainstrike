@@ -15,6 +15,7 @@ import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-meta
 import { use } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { useAnsweredApprovals } from './answered-approvals-context';
+import { useDecisionRoute } from './decision-route-context';
 import { followUpQueueKey, isDecisionQueued, useFollowUpQueueStore } from './follow-up-queue-store';
 import {
   DELEGATED_DECISION_STATUS_LABELS,
@@ -89,12 +90,16 @@ export function useDecisionQueueState(approval: AssistantToolApprovalRequest | n
   readonly threadKey: string | undefined;
 } {
   const threadKey = use(ActiveThreadKeyContext);
+  const decisionRoute = useDecisionRoute();
+  const queueThreadKey = decisionRoute?.queueThreadKey ?? threadKey;
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const identityKey = approval ? getToolActionIdentityKey(approval) : null;
   const queued = useFollowUpQueueStore((state) =>
-    identityKey === null ? false : isDecisionQueued(state, followUpQueueKey(threadKey), identityKey)
+    identityKey === null
+      ? false
+      : isDecisionQueued(state, followUpQueueKey(queueThreadKey), identityKey)
   );
-  return { isRunning, queued, threadKey };
+  return { isRunning, queued, threadKey: queueThreadKey };
 }
 
 /** The header chip: queued, a host answer, a durable decision state, or the run outcome. */
