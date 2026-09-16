@@ -104,10 +104,19 @@ test('an expanded row owns the indent and the rail: the embedded card adds neith
   expect(row.marginInlineStart).toBe('40px');
   expect(row.borderInlineStartWidth).toBe('3px');
   expect(card.marginInlineStart).toBe('0px');
-  // The 3px rail comes from `.bs-approval[data-delegation-colour]`, so the
-  // embedded card must not carry the surface class. Its own Tailwind `border`
-  // utility is absent from this lane, which is why an unrailed side is 0px —
-  // re-adding `.bs-approval` here paints 3px and fails both assertions.
+  // The rail needs BOTH halves of `.bs-approval[data-delegation-colour]`; the
+  // base `.bs-approval` rule sets margin only. So the class assertion is what
+  // catches a re-added surface, and the 0px pins the rail's absence under the
+  // full regression (class + colour). 0px rather than 1px because this lane
+  // loads no Tailwind by design — see the banner above `.bs-approval` in
+  // overrides.css — which is the same premise as the row's 3px above.
   expect(card.borderInlineStartWidth).toBe('0px');
   expect(cardEl).not.toHaveClass('bs-approval');
+  // The card now leans on `ApprovalRails` early-returning for an empty path
+  // (the call site lost its length guard). If it ever emitted a wrapper
+  // instead, that wrapper would become a second flex item and `gap-1.5` would
+  // shove the warning icon 6px inward in every embedded approval.
+  const iconRow = mustFind(cardEl, '[aria-hidden="true"]');
+  expect(iconRow.querySelector('.bs-approval-rails')).toBeNull();
+  expect(iconRow.childElementCount).toBe(1);
 });
