@@ -2978,18 +2978,31 @@ Flow (desktop assistant server → agent runtime):
    the native freshness check — is ONE host transaction (the binding requires
    `database.transaction`), and it names each leaf at most once. A refused
    answer records nothing, so the user's own pause stays answerable instead
-   of consumed, unresumed and refused on every retry. ALREADY ANSWERED IS NOT
-   A REFUSAL (PR #3209 review): discovery skips a parked sibling whose leaf
-   already carries a durable decision — claimed, consumed or interrupted
-   (`readAnsweredToolActionLeaves`) — because another decision answered it
-   and this grant owes it nothing; refusing over it re-conflicted on every
-   retry that still carried the grant. An ADMISSION refusal (root not
-   running, cancelling, or a stopped subtree) stays fatal for the whole
-   write, as does a leaf answered in the window between that read and the
-   write. Paired: desktop rows "a live grant skips a sibling another decision
-   already answered and still delivers the user own answer" and "a live grant
-   refused on a stopped sibling records nothing: the user's own card stays
-   answerable".
+   of consumed, unresumed and refused on every retry. ALREADY ANSWERED OR
+   STOPPED IS NOT A REFUSAL (PR #3209 review and its follow-up): discovery
+   skips a parked sibling the write would refuse for a reason of its OWN.
+   `readUnanswerableToolActionLeaves` names both — `'answered'`, the leaf
+   already carries a durable decision (claimed, consumed or interrupted;
+   those states are ENUMERATED in the read, not "any row", so a widened CHECK
+   fails loudly on the write instead of silently over-skipping a leaf that is
+   still answerable), and `'stopped'`, the leaf's thread chain carries a
+   cancellation request for this turn (the chain, because `scope: 'child'`
+   marks only the named child's invocation row). Either way this grant owes
+   the sibling nothing, and refusing over it re-conflicted on every retry that
+   still carried the grant. A stopped subtree whose task is still SUSPENDED is
+   reachable, not a test artefact: `handleDelegatedCancelRequest` commits the
+   admission revocation before `cancelStoredBackgroundInvocations` flips the
+   task, with no shared transaction and a 503 that leaves the revocation
+   committed, and the startup reaper repairs `pending`/`running` tasks only.
+   ROOT-WIDE admission (the root run not running, cancelling or cancelled)
+   stays fatal for the whole write — it refuses the user's own answer too —
+   as does a leaf answered or stopped in the WINDOW between that read and the
+   write, now the only fatal per-sibling refusal. Paired: desktop rows "a live
+   grant skips a sibling another decision already answered and still delivers
+   the user own answer", "a live grant skips a sibling whose subtree was
+   stopped and still delivers the user's own answer" and "a live grant refused
+   on a sibling answered inside the write window records nothing: the user's
+   own card stays answerable".
    The agent fixture now holds one active claim and refuses a second, exactly
    like the host, and `delegated-runtime.integration.test.ts` ("a session
    grant answers the parked background sibling through the real host ledger")

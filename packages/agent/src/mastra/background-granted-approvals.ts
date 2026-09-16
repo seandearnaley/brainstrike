@@ -15,6 +15,7 @@ import type {
   DelegatedToolActionAnswer,
   DelegatedToolActionLeaf,
   DelegatedToolActionScope,
+  DelegatedToolActionUnanswerable,
 } from './delegated-conversation-binding';
 import { assertDelegatedToolActionPending } from './delegated-tool-actions';
 import {
@@ -157,12 +158,16 @@ export { allowedBySnapshot } from './approval-gate';
  * parked later). An ambiguous or unauthorized parked task throws, exactly as
  * the user's own click on it would.
  *
- * A sibling whose leaf ALREADY carries a durable decision is skipped, not
- * answered again: another decision answered it, which is a legitimate state
- * that needs nothing from this grant. Refusing the whole leg over it used to
+ * A sibling the host's answer write would refuse for a reason of its OWN is
+ * skipped, not answered: `readUnanswerableToolActionLeaves` names both — a
+ * leaf another decision already answered, and a leaf whose subtree was
+ * stopped (a Stop that never reached `cancelStoredBackgroundInvocations`
+ * leaves the subtree stopped and its task still suspended). Neither needs
+ * anything from this grant, and refusing the whole leg over either used to
  * refuse the user's own click on every retry that still carried the grant
- * (BST-1749, PR #3209 review). A leaf answered in the window between this
- * read and the write still refuses the write, which stays all-or-none.
+ * (BST-1749, PR #3209 review and its follow-up). A leaf answered or stopped
+ * in the window between this read and the write still refuses the write,
+ * which stays all-or-none, as does root-wide admission.
  */
 export async function findGrantedBackgroundApprovals(params: {
   readonly allows: (registeredToolName: string) => boolean;
@@ -173,9 +178,11 @@ export async function findGrantedBackgroundApprovals(params: {
 }): Promise<readonly GrantedBackgroundApproval[]> {
   const { allows, manager, runtime, scope } = params;
   const resolveParkedInvocation = runtime.conversationBinding?.resolveParkedInvocation;
-  const readAnsweredLeaves = runtime.conversationBinding?.readAnsweredToolActionLeaves;
-  if (!(resolveParkedInvocation && readAnsweredLeaves)) {
-    throw new Error('Granted background approvals require host-owned ancestry discovery.');
+  const readUnanswerableLeaves = runtime.conversationBinding?.readUnanswerableToolActionLeaves;
+  if (!(resolveParkedInvocation && readUnanswerableLeaves)) {
+    throw new Error(
+      'Granted background approvals require host-owned ancestry discovery and its unanswerable-leaf read.'
+    );
   }
   const { tasks } = await manager.listTasks({
     resourceId: scope.resourceId,
@@ -186,6 +193,8 @@ export async function findGrantedBackgroundApprovals(params: {
     readonly delegation: DelegatedToolActionIdentity;
     readonly leafRunId: string;
     readonly task: BackgroundTask;
+    /** The leaf's whole authorized ancestry, as the host's answer write reads it. */
+    readonly threadIds: readonly string[];
     readonly toolName: string;
   }[] = [];
   for (const task of tasks) {
@@ -210,31 +219,40 @@ export async function findGrantedBackgroundApprovals(params: {
       delegation: { path: identities, toolCallId: leaf.toolCallId },
       leafRunId,
       task,
+      threadIds: scopes.map((entry) => entry.threadId),
       toolName: resolveDiscoveredApprovalToolName(leaf.toolName, runtime.toolNameMap, task.runId),
     });
   }
   const leafKey = (leaf: DelegatedToolActionLeaf): string =>
     JSON.stringify([leaf.childRuntimeRunId, leaf.toolCallId]);
-  const answered = new Set(
+  const unanswerable = new Map<string, DelegatedToolActionUnanswerable['reason']>(
     (
-      await readAnsweredLeaves(
+      await readUnanswerableLeaves(
         candidates.map((candidate) => ({
           childRuntimeRunId: candidate.leafRunId,
+          threadIds: candidate.threadIds,
           toolCallId: candidate.delegation.toolCallId,
         }))
       )
-    ).map(leafKey)
+    ).map((leaf) => [leafKey(leaf), leaf.reason])
   );
   const granted: GrantedBackgroundApproval[] = [];
   for (const { delegation, leafRunId, task, toolName } of candidates) {
-    if (
-      answered.has(leafKey({ childRuntimeRunId: leafRunId, toolCallId: delegation.toolCallId }))
-    ) {
-      logger.info('A parked sibling is already answered; the grant skips it', {
-        code: 'background_granted_approval_skipped',
-        taskId: task.id,
-        toolName,
-      });
+    const skipped = unanswerable.get(
+      leafKey({ childRuntimeRunId: leafRunId, toolCallId: delegation.toolCallId })
+    );
+    if (skipped) {
+      logger.info(
+        skipped === 'stopped'
+          ? 'A parked sibling was stopped; the grant skips it'
+          : 'A parked sibling is already answered; the grant skips it',
+        {
+          code: 'background_granted_approval_skipped',
+          reason: skipped,
+          taskId: task.id,
+          toolName,
+        }
+      );
       continue;
     }
     granted.push({
@@ -356,9 +374,14 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
  * Everything an approval leg does between its durable claim and native
  * resume: locate the parked task, then answer the parked siblings its policy
  * covers. RECORD LAST (BST-1749, PR #3209 review): every fallible step runs
- * BEFORE the answers are recorded, so the leg's last durable act is the
- * record and only the native resume follows it. The caller runs this inside
- * `beforeDelegatedToolActionResume`, which releases the claim when it fails.
+ * BEFORE the answers are recorded, so the record is the leg's last DURABLE
+ * act. What follows it is stream construction and then native resume — a
+ * background leg builds `createBackgroundResumeStream` after this returns
+ * (`attempt-legs.ts`), and that construction is the boundary: it registers
+ * the resumed executors rather than writing, and its failures surface on the
+ * stream the leg already owns, never as an unrecorded answer. The caller runs
+ * this inside `beforeDelegatedToolActionResume`, which releases the claim
+ * when it fails.
  */
 export async function prepareApprovalResume(params: {
   readonly action: AssistantToolApprovalAction & { readonly action: 'approve' | 'decline' };

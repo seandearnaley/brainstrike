@@ -304,8 +304,8 @@ export function createDesktopDelegatedConversationHost(
   resolveToolAction: NonNullable<DelegatedConversationBinding['resolveToolAction']>;
   resolveParkedInvocation: NonNullable<DelegatedConversationBinding['resolveParkedInvocation']>;
   recordToolActionAnswers: NonNullable<DelegatedConversationBinding['recordToolActionAnswers']>;
-  readAnsweredToolActionLeaves: NonNullable<
-    DelegatedConversationBinding['readAnsweredToolActionLeaves']
+  readUnanswerableToolActionLeaves: NonNullable<
+    DelegatedConversationBinding['readUnanswerableToolActionLeaves']
   >;
   recordPromptManifest(record: PromptManifestRecord): Promise<void>;
   recordWakeup(record: WakeupRecord): Promise<void>;
@@ -641,30 +641,63 @@ export function createDesktopDelegatedConversationHost(
         baselines.set(baseline.threadId, baseline);
       }
     },
-    async readAnsweredToolActionLeaves(leaves) {
-      if (leaves.length === 0) {
+    async readUnanswerableToolActionLeaves(candidates) {
+      if (candidates.length === 0) {
         return [];
       }
       const scope = await readScope();
-      // Any durable state answers the leaf: claimed, consumed and interrupted
-      // all mean the decision cannot be submitted again (BST-1720).
-      const answered = await database.query(
-        `SELECT decision.child_runtime_run_id AS "childRuntimeRunId",
-           decision.tool_call_id AS "toolCallId"
-         FROM brainstrike_delegated_tool_decisions AS decision
-         JOIN jsonb_array_elements($3::jsonb) AS probe(leaf)
-           ON decision.child_runtime_run_id = probe.leaf->>0
-           AND decision.tool_call_id = probe.leaf->>1
-         WHERE decision.owner_resource_id = $1 AND decision.root_thread_id = $2`,
+      // The two per-candidate arms of `recordToolActionAnswers`' own guards,
+      // read together so the skip cannot drift from the write it predicts.
+      // ANSWERED: the enumerated durable states, not "any row" — a state added
+      // later must fail loudly on the write rather than silently over-skip a
+      // leaf that is still answerable. STOPPED: the leaf's whole thread chain,
+      // because `scope: 'child'` marks only the named child's invocation row.
+      // A leaf that is both reports `'stopped'`, the more actionable state.
+      const unanswerable = await database.query(
+        `WITH candidate AS (
+           SELECT probe.leaf->>0 AS child_runtime_run_id, probe.leaf->>1 AS tool_call_id,
+             probe.leaf->2 AS thread_ids
+           FROM jsonb_array_elements($3::jsonb) AS probe(leaf)
+         ), unanswerable AS (
+           SELECT candidate.child_runtime_run_id, candidate.tool_call_id, 'answered' AS reason
+           FROM candidate
+           JOIN brainstrike_delegated_tool_decisions AS decision
+             ON decision.child_runtime_run_id = candidate.child_runtime_run_id
+             AND decision.tool_call_id = candidate.tool_call_id
+           WHERE decision.owner_resource_id = $1 AND decision.root_thread_id = $2
+             AND decision.state IN ('claimed', 'consumed', 'interrupted')
+           UNION
+           SELECT candidate.child_runtime_run_id, candidate.tool_call_id, 'stopped'
+           FROM candidate
+           JOIN jsonb_array_elements_text(candidate.thread_ids) AS target(thread_id) ON true
+           JOIN brainstrike_delegated_invocations AS stopped ON stopped.thread_id = target.thread_id
+           WHERE stopped.owner_resource_id = $1 AND stopped.root_thread_id = $2
+             AND stopped.turn_message_id = $4 AND stopped.cancellation_requested_at IS NOT NULL
+         )
+         SELECT child_runtime_run_id AS "childRuntimeRunId", tool_call_id AS "toolCallId", reason
+         FROM unanswerable ORDER BY reason`,
         [
           scope.ownerResourceId,
           scope.rootThreadId,
-          JSON.stringify(leaves.map((leaf) => [leaf.childRuntimeRunId, leaf.toolCallId])),
+          JSON.stringify(
+            candidates.map((candidate) => [
+              candidate.childRuntimeRunId,
+              candidate.toolCallId,
+              candidate.threadIds,
+            ])
+          ),
+          scope.turnMessageId,
         ]
       );
       return z
-        .array(z.object({ childRuntimeRunId: identityString, toolCallId: identityString }))
-        .parse(answered.rows);
+        .array(
+          z.object({
+            childRuntimeRunId: identityString,
+            reason: z.enum(['answered', 'stopped']),
+            toolCallId: identityString,
+          })
+        )
+        .parse(unanswerable.rows);
     },
     recordLiveDecision: (record) =>
       recordSwarmDiagnostic(hostRunId, 'live-decision', () =>

@@ -399,9 +399,10 @@ export async function answerLeafConcurrently(
 }
 
 /**
- * Stop the child behind `card`: its subtree carries a cancellation request, so
- * the ledger's admission guards refuse an answer for it — a refusal that is
- * NOT "already answered" and must stay fatal for the whole write.
+ * Stop the child behind `card`: its subtree carries a cancellation request for
+ * this turn while its background task is still suspended — the state a Stop
+ * that never reached `cancelStoredBackgroundInvocations` leaves behind. A
+ * grant skips such a sibling at discovery instead of refusing over it.
  */
 export async function stopSubtree(
   database: PGlite,
@@ -413,6 +414,31 @@ export async function stopSubtree(
     [card.toolCallId]
   );
   expect(stopped.rows).toHaveLength(1);
+}
+
+/**
+ * Answer `card`'s leaf inside the WINDOW between a grant's discovery read and
+ * its answer write, by hooking the host's own `unanswerable` read on the way
+ * out. Discovery therefore saw the leaf answerable and the refusal can land
+ * only on the write — the race ALL-OR-NONE exists for, and the only fatal
+ * per-sibling refusal left now that discovery skips answered and stopped
+ * leaves. The window is inside ONE host call with no seam to hook from
+ * outside, so the anchor is that read's own CTE name.
+ */
+export function answerLeafInGrantWindow(
+  database: PGlite,
+  card: { readonly delegation?: { readonly toolCallId: string }; readonly toolCallId: string }
+): void {
+  type Query = PGlite['query'];
+  const original: Query = database.query.bind(database);
+  database.query = (async (...args: Parameters<Query>) => {
+    const result = await original(...args);
+    if (typeof args[0] === 'string' && args[0].includes('unanswerable AS (')) {
+      database.query = original;
+      await answerLeafConcurrently(database, card);
+    }
+    return result;
+  }) as Query;
 }
 
 export async function decisionRows(

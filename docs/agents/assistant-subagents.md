@@ -1189,6 +1189,14 @@ initial read and admission. Migration 131 retains a unique leaf decision record
 and permits only one claimed decision per root. Runtime disposal settles only
 its own claims; another recreated host cannot release them. Startup reaping
 marks abandoned claims interrupted and retains their identity, without replay.
+An interrupted leaf is TERMINAL and has NO recovery path, by design: only a
+`claimed` row can be consumed or released, the card renders as settled
+(`DECIDED_DECISION_STATES`, `undecided-pause-notices.ts`), and its background
+task stays suspended because the reaper repairs `pending`/`running` tasks only
+— nothing replays an effect that may already have happened. A session grant
+therefore SKIPS such a sibling rather than failing the grant over it
+(BST-1749 follow-up): the loud failure it used to raise recovered nothing and
+refused the user's own card on every retry that still carried the grant.
 The record describes admission, not whether a tool effect succeeded. If the
 post-admission snapshot recheck fails before native resume is invoked, the host
 rolls back only that binding's matching unexecuted claim and propagates the
