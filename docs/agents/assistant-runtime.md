@@ -3267,12 +3267,19 @@ message whose `metadata.custom` + `runConfig.custom` carry the action under
 `TOOL_APPROVAL_RUN_CONFIG_KEY` / `TOOL_SUSPEND_RUN_CONFIG_KEY`, with an echo
 text ("Approved <tool>." / "Approved the plan."). Approval actions are a strict
 wire object: exactly the own keys `action`, `runId`, `toolCallId`, and optional
-`toolName`; the two required ids and any present tool name are non-empty and
-bounded by the shared 512-character approval-transport constants. Suspend
-resume actions mirror that exact-own-key and identifier contract for
-`resumeData`, `runId`, `toolCallId`, and optional `toolName`; only the
-`resumeData` value stays tool-defined for Mastra's resume schema. Extra own or
+`toolName` and `hostRunId`; the two required ids and any present tool name or
+host run id are non-empty and bounded by the shared 512-character
+approval-transport constants. Suspend resume actions mirror that
+exact-own-key and identifier contract for `resumeData`, `runId`, `toolCallId`,
+and optional `toolName`/`hostRunId`; only the `resumeData` value stays
+tool-defined for Mastra's resume schema. Extra own or
 inherited fields, blank identifiers, and oversized identifiers are malformed.
+`runId` is the NATIVE Mastra run the resume routes address; `hostRunId` is the
+DURABLE host leg (`brainstrike_assistant_thread_runs.id`) the pause notice was
+streamed by, copied from the pause so the history topology adapter can anchor
+the suspended message on that leg's turn (see the DURABLE-PARENT INVARIANT in
+docs/agents/assistant-persistence.md — the two ids are never interchangeable,
+and a native run id never matches a thread-run row).
 Every Desktop and Hosted Web boundary parses BOTH continuation kinds before
 dispatch: either malformed action returns the corresponding
 `invalid_tool_approval_action` / `invalid_tool_resume_action` HTTP 400, and two

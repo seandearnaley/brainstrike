@@ -201,6 +201,39 @@ describe('tool-suspend contract', () => {
       true
     );
   });
+
+  it('carries the host leg that surfaced the pause beside the native run id', () => {
+    const action = {
+      hostRunId: 'run-host-leg-1',
+      resumeData: { answer: 'us-east-1' },
+      runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+      toolCallId: 't',
+    };
+
+    expect(isAssistantToolResumeAction(action)).toBe(true);
+    expect(readToolResumeRunConfigAction(runConfig(action))).toEqual({ action });
+  });
+
+  it.each([
+    ['blank', '   '],
+    ['oversized', 'h'.repeat(ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS + 1)],
+    ['non-string', 7],
+    ['explicitly undefined', undefined],
+  ])('rejects a %s hostRunId', (_caseName, hostRunId) => {
+    expect(
+      isAssistantToolResumeAction({ hostRunId, resumeData: 'answer', runId: 'r', toolCallId: 't' })
+    ).toBe(false);
+  });
+
+  it('rejects an inherited hostRunId', () => {
+    const action = Object.assign(Object.create({ hostRunId: 'run-host-leg-1' }) as object, {
+      resumeData: 'answer',
+      runId: 'r',
+      toolCallId: 't',
+    });
+
+    expect(isAssistantToolResumeAction(action)).toBe(false);
+  });
 });
 
 describe('isRediscoveredToolSuspend', () => {
