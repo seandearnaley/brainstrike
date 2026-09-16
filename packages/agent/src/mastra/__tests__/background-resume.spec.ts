@@ -241,6 +241,8 @@ function startLeg(params: {
   readonly afterToolCall?: () => Promise<void>;
   /** Holds the FIRST registration's tool resolution, parking the leg inside `register`. */
   readonly holdFirstRegistration?: Promise<void>;
+  /** Holds every later registration — the ones a live decision makes. */
+  readonly holdLiveRegistration?: Promise<void>;
   readonly channel?: LiveDecisionChannel | undefined;
   readonly manager: BackgroundTaskManager;
   readonly resumes: readonly BackgroundTask[];
@@ -251,9 +253,7 @@ function startLeg(params: {
     agent: {
       getToolsForExecution: async () => {
         registrations += 1;
-        if (registrations === 1) {
-          await params.holdFirstRegistration;
-        }
+        await (registrations === 1 ? params.holdFirstRegistration : params.holdLiveRegistration);
         return await params.tools;
       },
       id: 'root',
@@ -584,6 +584,47 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
       expect(native.calls).toContain('execute:t2');
       expect(native.calls).not.toContain('deregister:t2');
     } finally {
+      running.resolve();
+    }
+  }, 2000);
+
+  it('refuses a live registration that lands after the leg released its executors', async () => {
+    // Same window, opposite order: nothing would drain a context registered
+    // after the release, and the manager outlives the leg.
+    const holding = Promise.withResolvers<void>();
+    const running = Promise.withResolvers<void>();
+    const stop = new AbortController();
+    const channel = createLiveDecisionChannel();
+    const native = createNativeManager();
+    const sibling = native.add('t2');
+    const { ended } = startLeg({
+      abortSignal: stop.signal,
+      channel,
+      holdLiveRegistration: holding.promise,
+      manager: native.manager,
+      resumes: [native.add('t1')],
+      tools: Promise.resolve({ [TOOL]: parkingTool(running.promise) }),
+    });
+    try {
+      await until(() => native.calls.includes('execute:t1'));
+      const owner = channel.owner;
+      if (!owner) {
+        throw new Error('The leg does not own its live decision seam.');
+      }
+      const refused = owner
+        .reserve([sibling])
+        .resume([{ resumeData: { approved: true }, task: sibling }]);
+      await macrotask();
+      stop.abort(new Error('User stopped the root.'));
+      await expect(ended).resolves.toMatchObject({
+        error: { message: 'User stopped the root.' },
+      });
+      holding.resolve();
+      await expect(refused).rejects.toBeInstanceOf(LiveDecisionUnavailableError);
+      expect(native.calls).not.toContain('resume:t2');
+      expect(native.calls).toContain('deregister:t2');
+    } finally {
+      holding.resolve();
       running.resolve();
     }
   }, 2000);

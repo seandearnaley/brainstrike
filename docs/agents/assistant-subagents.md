@@ -2232,13 +2232,20 @@ only before it publishes `task.resume`, so a refusal dispatched nothing). A
 refusal drops ONLY a context the leg still owns. Because the leg owns the seam
 across its whole registration window, a live decision can resume a task this
 leg has not reached yet (nothing rejects that —
-`findGrantedBackgroundApprovals` selects on `status: 'suspended'` alone), so
-registration is idempotent per task: a task Mastra already accepted keeps the
-registration it runs under, the leg resumes it no second time, and neither a
-refusal already in flight nor the abort path deregisters it. Removing that
-context would strand the running task on the "No executor registered" failure
-this contract exists to prevent. A terminal settles EVERY registration the leg
-made for a task, so one that lands late cannot orphan the join already made.
+`findGrantedBackgroundApprovals` selects on `status: 'suspended'` alone). Such
+a task therefore keeps A registration, is resumed no second time, and is never
+deregistered — not by a refusal already in flight, and not when the leg
+releases its executors. The check runs before the registration's await, so a
+task whose acceptance lands DURING it may still have its stored context
+replaced by an equivalent one (same tools, controller and task): idempotent in
+effect, not in fact. Removing that context would strand the running task on the
+"No executor registered" failure this contract exists to prevent. A terminal
+settles EVERY registration the leg made for a task, so one that lands late
+cannot orphan the join already made. A register or resume still in flight when
+the leg releases its executors is skipped by that release and drops its own
+context instead: a resume Mastra accepted keeps it, and a registration that
+lands afterwards is refused as not live rather than left on the shared
+manager.
 The leg's pause branch joins each resumed execution (`Promise.all(settled)`),
 and a join exists only for a task Mastra accepted. A join settles when its
 executor settles, or when Mastra publishes a terminal that ends the task.

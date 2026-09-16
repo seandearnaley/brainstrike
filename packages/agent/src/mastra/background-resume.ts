@@ -195,6 +195,15 @@ function createResumedExecutors(params: {
   const unresumed = new Set<string>();
   /** Tasks Mastra accepted a resume for — this leg's, or another caller's. */
   const accepted = new Set<string>();
+  /**
+   * Tasks whose resume is in flight. The leg's release leaves them alone: the
+   * call is about to be accepted, and dropping its context would fail Mastra's
+   * own lookup ("No executor registered"). Each releases its own context
+   * instead, once it knows whether Mastra took it.
+   */
+  const resuming = new Set<string>();
+  /** The leg released its registrations; nothing may hold one after that. */
+  let drained = false;
   const settled: Promise<void>[] = [];
   /** The leg's own resumes, registered before any of them is resumed. */
   const registered: { readonly executor: ResumedExecutor; readonly resume: BackgroundResume }[] =
@@ -209,6 +218,12 @@ function createResumedExecutors(params: {
       return live;
     }
     const executor = await registerResumedExecutor({ ...params, task });
+    if (drained) {
+      // The leg released its registrations while this one was in flight;
+      // nothing would ever drain it from the runtime-wide manager.
+      params.manager.deregisterTaskContext(task.id);
+      throw new LiveDecisionUnavailableError('The resume leg has released its executors.');
+    }
     executors.set(task.id, [...(executors.get(task.id) ?? []), executor]);
     // A registration that only LANDS after another caller's resume was
     // accepted (its check above ran before this await) must not re-arm the
@@ -229,6 +244,7 @@ function createResumedExecutors(params: {
     if (accepted.has(task.id)) {
       return;
     }
+    resuming.add(task.id);
     try {
       await params.manager.resume(task.id, resumeData);
     } catch (error) {
@@ -240,6 +256,8 @@ function createResumedExecutors(params: {
         params.manager.deregisterTaskContext(task.id);
       }
       throw error;
+    } finally {
+      resuming.delete(task.id);
     }
     unresumed.delete(task.id);
     accepted.add(task.id);
@@ -247,13 +265,19 @@ function createResumedExecutors(params: {
   };
   return {
     deregisterUnresumed: () => {
-      for (const taskId of unresumed) {
+      drained = true;
+      for (const taskId of [...unresumed]) {
+        // A resume in flight is about to be accepted or refused; it releases
+        // its own context, so the leg leaves that one registered.
+        if (resuming.has(taskId)) {
+          continue;
+        }
         // Never a task Mastra accepted: it runs under this context.
         if (!accepted.has(taskId)) {
           params.manager.deregisterTaskContext(taskId);
         }
+        unresumed.delete(taskId);
       }
-      unresumed.clear();
     },
     join: async () => {
       await Promise.all(settled);
