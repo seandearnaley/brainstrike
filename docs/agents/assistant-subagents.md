@@ -2229,13 +2229,16 @@ and every context the leg registered but Mastra never accepted — a registratio
 or resume that failed part-way through the leg's tasks, or an abort before its
 resumes — is deregistered when the leg ends (Mastra 1.64 throws from `resume`
 only before it publishes `task.resume`, so a refusal dispatched nothing). A
-refusal drops ONLY a context the leg still owns: because the leg owns the seam
-across its whole registration window, a live decision can register and resume a
-task this leg is about to resume (nothing rejects that —
-`findGrantedBackgroundApprovals` selects on `status: 'suspended'` alone), and
-the leg's duplicate resume then fails; removing that context would strand the
-running task on the "No executor registered" failure this contract exists to
-prevent.
+refusal drops ONLY a context the leg still owns. Because the leg owns the seam
+across its whole registration window, a live decision can resume a task this
+leg has not reached yet (nothing rejects that —
+`findGrantedBackgroundApprovals` selects on `status: 'suspended'` alone), so
+registration is idempotent per task: a task Mastra already accepted keeps the
+registration it runs under, the leg resumes it no second time, and neither a
+refusal already in flight nor the abort path deregisters it. Removing that
+context would strand the running task on the "No executor registered" failure
+this contract exists to prevent. A terminal settles EVERY registration the leg
+made for a task, so one that lands late cannot orphan the join already made.
 The leg's pause branch joins each resumed execution (`Promise.all(settled)`),
 and a join exists only for a task Mastra accepted. A join settles when its
 executor settles, or when Mastra publishes a terminal that ends the task.

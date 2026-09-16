@@ -511,6 +511,43 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
     expect(leg.status).toBe('suspended');
   }, 2000);
 
+  it('joins the executor Mastra accepted when the leg registers the same task later', async () => {
+    // The leg's own registration can LAND after a live decision resumed the
+    // same task: its join holds that caller's executor, so a terminal must
+    // settle THAT one and the late registration must not re-arm the task.
+    const registering = Promise.withResolvers<void>();
+    const running = Promise.withResolvers<void>();
+    const channel = createLiveDecisionChannel();
+    const native = createNativeManager();
+    const shared = native.add('t1');
+    const { ended, leg } = startLeg({
+      channel,
+      holdFirstRegistration: registering.promise,
+      manager: native.manager,
+      resumes: [shared],
+      tools: Promise.resolve({ [TOOL]: parkingTool(running.promise) }),
+    });
+    try {
+      await until(() => channel.owner !== undefined);
+      const owner = channel.owner;
+      if (!owner) {
+        throw new Error('The leg does not own its live decision seam.');
+      }
+      await owner.reserve([shared]).resume([{ resumeData: { approved: true }, task: shared }]);
+      await until(() => native.calls.includes('execute:t1'));
+      registering.resolve();
+      await until(() => native.calls.filter((call) => call === 'register:t1').length === 2);
+      // The task is cancelled while its executor is still in flight.
+      native.cancel('t1');
+      await expect(ended).resolves.toEqual({ error: undefined });
+      expect(leg.status).toBe('suspended');
+      expect(native.calls.filter((call) => call === 'resume:t1')).toHaveLength(1);
+      expect(native.calls).not.toContain('deregister:t1');
+    } finally {
+      running.resolve();
+    }
+  }, 2000);
+
   it('a resumed tool that writes after its leg closed does not throw into the execution', async () => {
     // A cancel settles the join while the executor is still in flight, so the
     // leg can close before the tool returns; its next write has nowhere to go

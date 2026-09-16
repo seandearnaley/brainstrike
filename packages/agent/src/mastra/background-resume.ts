@@ -189,17 +189,33 @@ function createResumedExecutors(params: {
   readonly runtime: MastraAgentRuntime;
   readonly scope: { readonly resourceId: string; readonly threadId: string };
 }): ResumedExecutors {
-  const executors = new Map<string, ResumedExecutor>();
+  /** Every registration this leg made for a task; a terminal settles them all. */
+  const executors = new Map<string, ResumedExecutor[]>();
   /** Registered contexts Mastra has not accepted a resume for. */
   const unresumed = new Set<string>();
+  /** Tasks Mastra accepted a resume for — this leg's, or another caller's. */
+  const accepted = new Set<string>();
   const settled: Promise<void>[] = [];
   /** The leg's own resumes, registered before any of them is resumed. */
   const registered: { readonly executor: ResumedExecutor; readonly resume: BackgroundResume }[] =
     [];
   const register = async (task: BackgroundTask): Promise<ResumedExecutor> => {
+    // A task another caller already resumed keeps the registration it is
+    // running under: registering again would overwrite a running task's
+    // context, re-arm it for deregistration, and orphan the join that caller
+    // pushed (the leg owns the seam across its whole registration window).
+    const live = accepted.has(task.id) ? executors.get(task.id)?.at(-1) : undefined;
+    if (live) {
+      return live;
+    }
     const executor = await registerResumedExecutor({ ...params, task });
-    executors.set(task.id, executor);
-    unresumed.add(task.id);
+    executors.set(task.id, [...(executors.get(task.id) ?? []), executor]);
+    // A registration that only LANDS after another caller's resume was
+    // accepted (its check above ran before this await) must not re-arm the
+    // task: the leg would then deregister a running task's context.
+    if (!accepted.has(task.id)) {
+      unresumed.add(task.id);
+    }
     return executor;
   };
   const resume = async (
@@ -207,6 +223,12 @@ function createResumedExecutors(params: {
     executor: ResumedExecutor,
     resumeData: unknown
   ): Promise<void> => {
+    // Another caller's accepted resume is this leg's too: that task is already
+    // running and its join is already pushed, so asking Mastra again would
+    // only be refused.
+    if (accepted.has(task.id)) {
+      return;
+    }
     try {
       await params.manager.resume(task.id, resumeData);
     } catch (error) {
@@ -214,18 +236,22 @@ function createResumedExecutors(params: {
       // resumed meanwhile — a live decision reaching the seam during this
       // leg's registration window — is already running under the context
       // Mastra is about to look up, and a refusal here must not remove it.
-      if (unresumed.delete(task.id)) {
+      if (!accepted.has(task.id) && unresumed.delete(task.id)) {
         params.manager.deregisterTaskContext(task.id);
       }
       throw error;
     }
     unresumed.delete(task.id);
+    accepted.add(task.id);
     settled.push(executor.executed);
   };
   return {
     deregisterUnresumed: () => {
       for (const taskId of unresumed) {
-        params.manager.deregisterTaskContext(taskId);
+        // Never a task Mastra accepted: it runs under this context.
+        if (!accepted.has(taskId)) {
+          params.manager.deregisterTaskContext(taskId);
+        }
       }
       unresumed.clear();
     },
@@ -244,7 +270,13 @@ function createResumedExecutors(params: {
         await resume(entry.task, executor, entry.resumeData);
       }
     },
-    terminal: (taskId, event) => executors.get(taskId)?.terminal(event),
+    terminal: (taskId, event) => {
+      // Every registration for the task, so a later one cannot orphan a join
+      // already pushed; settling an executor twice is a no-op.
+      for (const executor of executors.get(taskId) ?? []) {
+        executor.terminal(event);
+      }
+    },
   };
 }
 
