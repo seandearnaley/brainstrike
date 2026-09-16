@@ -514,21 +514,16 @@ it.each([
             },
           };
         });
-      const originalSave = backing.memory.saveMessages.bind(backing.memory);
+      const originalSave = backing.store.saveBackgroundTaskResult.bind(backing.store);
       const deliveryFailure = new Error('Controlled parent outcome write failure');
-      const saveSpy = vi.spyOn(backing.memory, 'saveMessages').mockImplementation(async (input) => {
-        if (
-          failDelivery &&
-          input.messages.some(
-            (message) =>
-              message.threadId === scope.threadId &&
-              JSON.stringify(message.content).includes('CHILD_FINAL_EVIDENCE')
-          )
-        ) {
-          throw deliveryFailure;
-        }
-        return originalSave(input);
-      });
+      const saveSpy = vi
+        .spyOn(backing.store, 'saveBackgroundTaskResult')
+        .mockImplementation(async (input) => {
+          if (failDelivery) {
+            throw deliveryFailure;
+          }
+          return originalSave(input);
+        });
       try {
         const resumed = await createToolApprovalIteratorFromRuntime({
           action: {

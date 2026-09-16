@@ -143,7 +143,6 @@ export async function setupFanout(
     // (a WORKER child also holds a delegation tool: every worker fanned out
     // again) nor a whole-prompt marker (the child receives the root's
     // delegated context) identifies the root.
-    const prompt = JSON.stringify(options.prompt);
     const lastUser = JSON.stringify(
       options.prompt.filter((message) => message.role === 'user').at(-1)
     );
@@ -164,7 +163,19 @@ export async function setupFanout(
           }))
         );
       }
-      const returned = prompt.match(/Child: FLAG-/g)?.length ?? 0;
+      const returned = new Set(
+        options.prompt.flatMap((message) =>
+          message.role === 'tool'
+            ? message.content.flatMap((part) =>
+                part.toolName === delegationTool &&
+                part.output.type === 'text' &&
+                part.output.value.startsWith('Child: FLAG-')
+                  ? [part.toolCallId]
+                  : []
+              )
+            : []
+        )
+      ).size;
       return textParts(returned >= children.length ? 'Parent: ALL-FLAGS' : 'Parent: waiting');
     }
     const next = [child.tool, ...(child.next ? [child.next] : [])].find(

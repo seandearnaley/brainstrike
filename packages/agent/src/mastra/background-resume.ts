@@ -30,7 +30,6 @@ import {
   requireBackgroundGeneration,
   requireNativeRootRunRecorder,
 } from './background-ledger';
-import { requireBackgroundResultDelivery } from './background-result-delivery';
 import { saveBackgroundResult } from './background-results';
 import {
   type LiveBackgroundOwner,
@@ -913,9 +912,6 @@ async function prepareResumedExecutor(params: {
     onResult: async (result) => {
       try {
         await saveBackgroundResult(memory, task, result);
-        await requireBackgroundResultDelivery(await manager.getStorage()).markResultDelivered(
-          task.id
-        );
       } catch (error) {
         params.onDeliveryError(error);
         throw error;

@@ -2251,9 +2251,12 @@ overlays them onto the acknowledgement tool results at the provider
 boundary on every request of the resumed run
 (`late-background-results-processor.ts`, first in the leg's per-call
 processors so the stale-history filter and the limiter judge the real
-results) and, because the resumed run's final save re-persists its stale
-acknowledgements, restores the outcomes into memory from the task rows once
-the leg settles (`restoreLateBackgroundResults`, in the leg's
+results). This overlay uses the same text-only projection stored beside the raw
+durable child result. The PGlite message commit boundary also overlays terminal
+task rows on every native save, and task-only completion/repair reads current
+parent snapshots inside its transaction, so neither resumed nor callback saves
+can restore stale acknowledgements or erase newer parent content. The leg still
+restores late outcomes once it settles (`restoreLateBackgroundResults`, in the leg's
 `settleNativeStream`). (3) A child card answered on a NEW leg while the root
 is parked resumes the child only: the resume stream's `parentWakeups` finds
 a suspended run in scope and ends the leg as a pause

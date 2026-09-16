@@ -1,3 +1,4 @@
+import { MASTRA_BACKGROUND_TASKS_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { createLogger } from '@brainstrike/logging';
 import { getErrorMessage } from '@brainstrike/utils';
 import type { MastraMessageContentV2 } from '@mastra/core/agent';
@@ -22,6 +23,12 @@ import type {
   UpdateObservationalMemoryConfigInput,
 } from '@mastra/core/storage';
 import { MemoryStorage } from '@mastra/core/storage';
+import {
+  applyBackgroundTaskOutcome,
+  type BackgroundOutcome,
+  backgroundTaskReferences,
+  record,
+} from '../background-result-projection';
 import {
   type AssistantRunEventKind,
   type AssistantRunEventMetadata,
@@ -84,9 +91,122 @@ import type { PgliteDatabase, PgliteQueryValue } from './types';
 const logger = createLogger('PgliteMemoryStore');
 
 interface PgliteMemoryStoreOptions {
+  backgroundTaskScope?: { readonly resourceId: string; readonly threadId: string };
   database: PgliteDatabase;
   eventSink?: AssistantRunEventSink;
   runId?: string;
+}
+
+interface BackgroundOutcomeRow extends Record<string, unknown> {
+  error: { message?: unknown } | null;
+  id: string;
+  resourceId: string | null;
+  result: unknown;
+  status: string;
+  threadId: string | null;
+  toolCallId: string;
+}
+
+function mergeBackgroundTaskJoins(
+  incoming: MastraDBMessage,
+  current: MastraDBMessage | undefined
+): void {
+  if (!current) {
+    return;
+  }
+  const currentTasks = record(current.content.metadata?.['backgroundTasks']);
+  if (!currentTasks) {
+    return;
+  }
+  const incomingMetadata = { ...incoming.content.metadata };
+  incomingMetadata['backgroundTasks'] = {
+    ...currentTasks,
+    ...record(incomingMetadata['backgroundTasks']),
+  };
+  incoming.content.metadata = incomingMetadata;
+
+  for (const part of current.content.parts) {
+    if (
+      part.type !== 'tool-invocation' ||
+      !Object.hasOwn(currentTasks, part.toolInvocation.toolCallId)
+    ) {
+      continue;
+    }
+    const incomingPart = incoming.content.parts.find(
+      (candidate) =>
+        candidate.type === 'tool-invocation' &&
+        candidate.toolInvocation.toolCallId === part.toolInvocation.toolCallId
+    );
+    if (incomingPart?.type === 'tool-invocation') {
+      const currentMastra = record(part.providerMetadata?.['mastra']);
+      const incomingMastra = record(incomingPart.providerMetadata?.['mastra']);
+      incomingPart.providerMetadata = {
+        ...part.providerMetadata,
+        ...incomingPart.providerMetadata,
+        ...(currentMastra || incomingMastra
+          ? { mastra: { ...currentMastra, ...incomingMastra } }
+          : {}),
+      } as NonNullable<typeof incomingPart.providerMetadata>;
+    } else {
+      incoming.content.parts.push(structuredClone(part));
+    }
+  }
+}
+
+function outcomeFromTaskRow(task: BackgroundOutcomeRow): BackgroundOutcome {
+  if (task.status === 'completed') {
+    return { result: task.result, status: 'completed' };
+  }
+  const persistedError = record(task.error)?.['message'];
+  return {
+    error: {
+      message:
+        typeof persistedError === 'string'
+          ? persistedError
+          : task.status === 'timed_out'
+            ? 'Background task timed out. External effects may have completed; inspect the workspace before rerunning.'
+            : 'Background task failed without persisted error details. Inspect its transcript and workspace before rerunning.',
+    },
+    status: 'failed',
+  };
+}
+
+function isTerminalTask(task: BackgroundOutcomeRow): boolean {
+  return ['completed', 'failed', 'timed_out'].includes(task.status);
+}
+
+async function upsertMessageContent(tx: PgliteDatabase, message: MastraDBMessage): Promise<void> {
+  await tx.query(
+    `INSERT INTO ${MASTRA_MEMORY_TABLES.messages}
+      (id, thread_id, content, role, type, "createdAt", "resourceId")
+     VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
+     ON CONFLICT (id) DO UPDATE SET content = EXCLUDED.content`,
+    [
+      message.id,
+      message.threadId ?? '',
+      JSON.stringify(message.content),
+      message.role,
+      message.type ?? 'v2',
+      message.createdAt,
+      message.resourceId ?? null,
+    ]
+  );
+}
+
+function taskMatchesMessage(
+  task: BackgroundOutcomeRow | undefined,
+  message: MastraDBMessage,
+  toolCallId: string,
+  scope: { readonly resourceId: string; readonly threadId: string }
+): task is BackgroundOutcomeRow {
+  return Boolean(
+    task &&
+      task.toolCallId === toolCallId &&
+      task.resourceId === scope.resourceId &&
+      task.threadId === scope.threadId &&
+      message.resourceId === task.resourceId &&
+      message.threadId === task.threadId
+  );
 }
 
 /** A window row plus its soft-rewind visibility flag (see `listAdjacentThreadMessageRows`). */
@@ -123,6 +243,9 @@ function tombstonedPredicateSql(messageIdExpression: string): string {
 
 export class PgliteMemoryStore extends MemoryStorage {
   override readonly supportsObservationalMemory = true;
+  private readonly backgroundTaskScope:
+    | { readonly resourceId: string; readonly threadId: string }
+    | undefined;
   private readonly database: PgliteDatabase;
   private readonly eventSink: AssistantRunEventSink | undefined;
   private readonly runId: string | undefined;
@@ -143,6 +266,7 @@ export class PgliteMemoryStore extends MemoryStorage {
 
   constructor(options: PgliteMemoryStoreOptions) {
     super();
+    this.backgroundTaskScope = options.backgroundTaskScope;
     this.database = options.database;
     this.eventSink = options.eventSink;
     this.runId = options.runId;
@@ -471,6 +595,140 @@ export class PgliteMemoryStore extends MemoryStorage {
     return { messages: messageIds.flatMap((id) => byId.get(id) ?? []) };
   }
 
+  async saveBackgroundTaskResult(args: {
+    recoveryMessage: MastraDBMessage;
+    taskId: string;
+  }): Promise<MastraDBMessage[]> {
+    const scope = this.backgroundTaskScope;
+    if (!scope) {
+      throw new Error('Background result persistence requires a conversation scope.');
+    }
+    return runTransaction(this.database, async (tx) => {
+      const taskResult = await tx.query<BackgroundOutcomeRow>(
+        `SELECT id, tool_call_id AS "toolCallId", thread_id AS "threadId",
+                resource_id AS "resourceId", status, result, error
+         FROM ${MASTRA_BACKGROUND_TASKS_TABLE}
+         WHERE id = $1 AND resource_id = $2 AND thread_id = $3
+         FOR UPDATE`,
+        [args.taskId, scope.resourceId, scope.threadId]
+      );
+      const task = taskResult.rows[0];
+      if (!(task && isTerminalTask(task))) {
+        throw new Error('Background result has no terminal task in this conversation.');
+      }
+      const parentResult = await tx.query<MessageRow>(
+        `SELECT id, thread_id AS "threadId", content, role, type, "createdAt", "resourceId"
+         FROM ${MASTRA_MEMORY_TABLES.messages}
+         WHERE thread_id = $1 AND "resourceId" = $2
+           AND content #>> ARRAY['metadata', 'backgroundTasks', $3, 'taskId'] = $4
+         ORDER BY "createdAt" ASC, id ASC
+         FOR UPDATE`,
+        [scope.threadId, scope.resourceId, task.toolCallId, task.id]
+      );
+      const sources = parentResult.rows.length
+        ? parentResult.rows.map(messageFromRow)
+        : [args.recoveryMessage];
+      const messages = sources.map((source) => ({
+        ...source,
+        content: projectMessageContentForTranscript(source.content, source.role),
+      }));
+      for (const message of messages) {
+        if (message.threadId !== scope.threadId || message.resourceId !== scope.resourceId) {
+          throw new Error('Background result recovery message has the wrong conversation owner.');
+        }
+        applyBackgroundTaskOutcome(
+          message,
+          { id: task.id, toolCallId: task.toolCallId },
+          outcomeFromTaskRow(task)
+        );
+        await upsertMessageContent(tx, message);
+      }
+      if (parentResult.rows.length === 0) {
+        const recoveryCreatedAt = messages[0]?.createdAt;
+        if (!recoveryCreatedAt) {
+          throw new Error('Background result recovery omitted its canonical message.');
+        }
+        await tx.query(
+          `UPDATE ${MASTRA_MEMORY_TABLES.threads}
+           SET "updatedAt" = GREATEST("updatedAt", $2::timestamptz)
+           WHERE id = $1`,
+          [scope.threadId, recoveryCreatedAt]
+        );
+      }
+      await tx.query(
+        `UPDATE ${MASTRA_BACKGROUND_TASKS_TABLE}
+         SET delivered_at = COALESCE(delivered_at, NOW())
+         WHERE id = $1`,
+        [task.id]
+      );
+      return messages;
+    });
+  }
+
+  private async reconcileBackgroundOutcomes(
+    tx: PgliteDatabase,
+    messages: MastraDBMessage[]
+  ): Promise<void> {
+    const scope = this.backgroundTaskScope;
+    if (!scope) {
+      return;
+    }
+    const currentRows = await tx.query<MessageRow>(
+      `SELECT id, thread_id AS "threadId", content, role, type, "createdAt", "resourceId"
+       FROM ${MASTRA_MEMORY_TABLES.messages}
+       WHERE id = ANY($1::text[])
+       FOR UPDATE`,
+      [messages.map((message) => message.id)]
+    );
+    const currentById = new Map(currentRows.rows.map((row) => [row.id, messageFromRow(row)]));
+    for (const message of messages) {
+      mergeBackgroundTaskJoins(message, currentById.get(message.id));
+      message.content = projectMessageContentForTranscript(message.content, message.role);
+    }
+    const references = messages.flatMap((message) =>
+      [...backgroundTaskReferences(message).entries()].map(([toolCallId, taskId]) => ({
+        message,
+        taskId,
+        toolCallId,
+      }))
+    );
+    if (references.length === 0) {
+      return;
+    }
+    const taskIds = [...new Set(references.map(({ taskId }) => taskId))];
+    const tasks = await tx.query<BackgroundOutcomeRow>(
+      `SELECT id, tool_call_id AS "toolCallId", thread_id AS "threadId",
+              resource_id AS "resourceId", status, result, error
+       FROM ${MASTRA_BACKGROUND_TASKS_TABLE}
+       WHERE id = ANY($1::text[])
+       FOR UPDATE`,
+      [taskIds]
+    );
+    const tasksById = new Map(tasks.rows.map((task) => [task.id, task]));
+    for (const { message, taskId, toolCallId } of references) {
+      const task = tasksById.get(taskId);
+      if (!taskMatchesMessage(task, message, toolCallId, scope)) {
+        throw new Error('Background task metadata has no unique task in this conversation.');
+      }
+      if (isTerminalTask(task)) {
+        applyBackgroundTaskOutcome(
+          message,
+          { id: task.id, toolCallId: task.toolCallId },
+          outcomeFromTaskRow(task)
+        );
+      }
+    }
+    const deliveredTaskIds = tasks.rows.filter(isTerminalTask).map((task) => task.id);
+    if (deliveredTaskIds.length > 0) {
+      await tx.query(
+        `UPDATE ${MASTRA_BACKGROUND_TASKS_TABLE}
+         SET delivered_at = COALESCE(delivered_at, NOW())
+         WHERE id = ANY($1::text[])`,
+        [deliveredTaskIds]
+      );
+    }
+  }
+
   override async saveMessages(args: { messages: MastraDBMessage[] }): Promise<{
     messages: MastraDBMessage[];
   }> {
@@ -478,24 +736,12 @@ export class PgliteMemoryStore extends MemoryStorage {
       return { messages: [] };
     }
 
-    const persistedMessages = args.messages.map((message) => ({
-      ...message,
-      content: projectMessageContentForTranscript(message.content, message.role),
-    }));
-    const insertValues: PgliteQueryValue[] = [];
-    const insertRows = persistedMessages.map((message, index) => {
-      const base = index * 7;
-      insertValues.push(
-        message.id,
-        message.threadId ?? '',
-        JSON.stringify(message.content),
-        message.role,
-        message.type ?? 'v2',
-        message.createdAt,
-        message.resourceId ?? null
-      );
-      return `($${base + 1}, $${base + 2}, $${base + 3}::jsonb, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`;
-    });
+    const incomingMessages = this.backgroundTaskScope
+      ? args.messages
+      : args.messages.map((message) => ({
+          ...message,
+          content: projectMessageContentForTranscript(message.content, message.role),
+        }));
 
     const threadUpdates = new Map<string, Date>();
     for (const message of args.messages) {
@@ -511,7 +757,24 @@ export class PgliteMemoryStore extends MemoryStorage {
     // Single transaction: a crash between the message upsert and the thread
     // "updatedAt" bump must not leave saved messages whose thread ordering
     // timestamp lags behind them.
-    await runTransaction(this.database, async (tx) => {
+    const persistedMessages = await runTransaction(this.database, async (tx) => {
+      const reconciled = incomingMessages.map((message) => structuredClone(message));
+      await this.reconcileBackgroundOutcomes(tx, reconciled);
+
+      const insertValues: PgliteQueryValue[] = [];
+      const insertRows = reconciled.map((message, index) => {
+        const base = index * 7;
+        insertValues.push(
+          message.id,
+          message.threadId ?? '',
+          JSON.stringify(message.content),
+          message.role,
+          message.type ?? 'v2',
+          message.createdAt,
+          message.resourceId ?? null
+        );
+        return `($${base + 1}, $${base + 2}, $${base + 3}::jsonb, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`;
+      });
       await tx.query(
         `INSERT INTO ${MASTRA_MEMORY_TABLES.messages}
           (id, thread_id, content, role, type, "createdAt", "resourceId")
@@ -540,6 +803,7 @@ export class PgliteMemoryStore extends MemoryStorage {
           updateValues
         );
       }
+      return reconciled;
     });
 
     return { messages: persistedMessages };
