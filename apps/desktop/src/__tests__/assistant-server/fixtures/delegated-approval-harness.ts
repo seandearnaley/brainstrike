@@ -29,7 +29,7 @@ import {
   persistDesktopChildRunUsage,
 } from '../../../assistant-server/run-persistence';
 
-export const settings = {
+const settings = {
   ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   observationalMemory: {
     ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
@@ -364,7 +364,7 @@ export function deliverLive(
 }
 
 /** The leaf call id a root card decides on, named by the card it came from. */
-export function leafOf(card: {
+function leafOf(card: {
   readonly delegation?: { readonly toolCallId: string };
   readonly toolCallId: string;
 }): string {

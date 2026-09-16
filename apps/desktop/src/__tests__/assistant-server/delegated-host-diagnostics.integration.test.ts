@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Swarm diagnostics evidence and host-answered decisions through the REAL
  * desktop host and ledger (migration 139): the debug-pack rows a leg records,

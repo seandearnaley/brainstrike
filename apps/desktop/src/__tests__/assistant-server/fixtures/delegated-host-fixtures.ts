@@ -27,7 +27,6 @@ export const run: DelegatedRunIdentity = {
 export async function createHostDatabase(name: string): Promise<PGlite> {
   const database = await wasmLoader.createPGlite(name);
   await migrate(database);
-  await migrate(database);
   await database.exec(`INSERT INTO mastra_threads
       (id, "resourceId", title, metadata, "createdAt", "updatedAt") VALUES
       ('root', 'owner', 'Root', '{}', NOW(), NOW()),
