@@ -815,7 +815,7 @@ describe('AssistantUiPanel model picker', () => {
 
     const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
-      onCancel?: () => void;
+      onCancel?: (cancelled: { readonly messages: readonly unknown[] }) => void;
       onError?: (error: Error) => void;
       onFinish?: () => void;
     };
@@ -823,7 +823,7 @@ describe('AssistantUiPanel model picker', () => {
     const preparedBody = await options.body?.();
     options.onFinish?.();
     options.onError?.(new Error('late stream error'));
-    options.onCancel?.();
+    options.onCancel?.({ messages: [] });
 
     expect(preparedBody).toMatchObject({
       data: {
@@ -882,11 +882,11 @@ describe('AssistantUiPanel model picker', () => {
     );
     const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
-      onCancel?: () => void;
+      onCancel?: (cancelled: { readonly messages: readonly unknown[] }) => void;
       onError?: (error: Error) => void;
     };
     await options.body?.();
-    options.onCancel?.();
+    options.onCancel?.({ messages: [] });
     options.onError?.(new Error('Assistant request was aborted.'));
 
     expect(completePreparedRequest).not.toHaveBeenCalled();

@@ -770,6 +770,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     toolMenu,
     onComposerDraftCommandApplied,
     onComposerTextChange,
+    onStopReread,
     attachmentsAvailability,
     historyGeneration,
   }: {
@@ -824,6 +825,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     };
     onComposerDraftCommandApplied?: (commandId: string) => void;
     onComposerTextChange?: (text: string) => void;
+    onStopReread?: () => void;
     attachmentsAvailability?: { state: 'enabled' } | { reason: string; state: 'disabled' };
   }) => {
     delegatedPanelCallbacks.onDelegatedConversation = onDelegatedConversation;
@@ -866,6 +868,14 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
         >
           Report composer text
         </button>
+        {/* The real panel re-reads history by remounting its runtime; the mock
+            exposes the host callback that remount fires so the wrapper's draft
+            carry is assertable. */}
+        <button data-testid="trigger-stop-reread" onClick={() => onStopReread?.()} type="button">
+          Trigger stop re-read
+        </button>
+        <div data-testid="composer-draft-command-text">{composerDraftCommand?.text ?? ''}</div>
+        <div data-testid="composer-draft-command-mode">{composerDraftCommand?.mode ?? ''}</div>
         <button
           data-testid="trigger-run-finished"
           onClick={() => onRunFinished?.({ kind: 'run.finished', runId: 'run-live' })}
