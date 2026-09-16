@@ -32,8 +32,9 @@ const APPROVAL_RUN_OUTCOME_SEPARATOR = ':';
 /**
  * `<action>:<state>:<decisionIndex>`. The index is what makes this key name ONE
  * attempt: a failed run, an answer from another surface and a second failed run
- * repeat `approve:retryable`, so a send failure stamped during the first would
- * re-match the second on the pair alone.
+ * repeat `approve:retryable`, so a send failure or optimistic lock stamped
+ * during the first would re-match the second on the pair alone. Flattening it
+ * also keeps the thread selector referentially stable.
  */
 type ApprovalRunOutcomeKey =
   `${AssistantToolApprovalDecision | 'none'}${typeof APPROVAL_RUN_OUTCOME_SEPARATOR}${ApprovalRunOutcomeState}${typeof APPROVAL_RUN_OUTCOME_SEPARATOR}${number}`;
@@ -139,13 +140,15 @@ export function useApprovalNoticeState(
   const actionLockedByRun =
     approvalRunOutcome.state === 'pending' || approvalRunOutcome.state === 'completed';
   // Derived, not adjusted in an effect: the optimistic lock belongs to the run
-  // outcome the click was taken in. It holds while the thread still reads that
-  // outcome — the double-click window, and a live decision delivered into the
-  // running turn that appends no message at all — and is spent as soon as the
-  // outcome moves on, which is how a FAILED (`retryable`) resumed run hands the
-  // card back. Reading `state !== 'retryable'` instead would drop the lock a
-  // RETRY click had just taken, because the thread still reads the run that
-  // failed until the retried decision reaches it.
+  // outcome the click was taken in, identified by `ApprovalRunOutcomeKey`. It
+  // holds while the thread still reads that exact outcome — the double-click
+  // window, and a live decision delivered into the running turn that appends no
+  // message at all — and is spent as soon as the outcome moves on, which is how
+  // a FAILED (`retryable`) resumed run hands the card back. Both halves need an
+  // IDENTITY, not a value: reading `state !== 'retryable'` drops the lock a
+  // RETRY click just took (the thread still reads the run that failed), while
+  // keying on `{action, state}` alone resurrects a spent lock when the retried
+  // run fails the same way — hence `decisionIndex` in the key.
   const submittedAction =
     submittedDecision?.outcomeKey === approvalRunOutcomeKey ? submittedDecision.action : null;
 

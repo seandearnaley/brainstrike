@@ -38,7 +38,8 @@ export interface ApprovalRunOutcome {
    * while the pause has no answer. Successive runs repeat the same
    * `action`/`state` pair — a failed run, another answer, a second failed run
    * is `retryable` twice — so this is what tells one attempt from the next.
-   * The send-failure stamp in `use-approval-notice-state.ts` relies on it.
+   * The send-failure and optimistic-lock stamps in
+   * `use-approval-notice-state.ts` rely on it.
    */
   decisionIndex: number;
   state: ApprovalRunOutcomeState;

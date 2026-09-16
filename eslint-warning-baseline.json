@@ -3,7 +3,7 @@
   "react-hooks/incompatible-library": 2,
   "react-hooks/preserve-manual-memoization": 2,
   "react-hooks/refs": 123,
-  "react-hooks/set-state-in-effect": 43,
+  "react-hooks/set-state-in-effect": 42,
   "react-hooks/use-memo": 3,
   "react-refresh/only-export-components": 120
 }

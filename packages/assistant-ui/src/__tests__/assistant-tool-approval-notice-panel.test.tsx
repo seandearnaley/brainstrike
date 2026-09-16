@@ -367,15 +367,47 @@ describe('AssistantToolApprovalNotice', () => {
     appendMessageMock.mockImplementation(() => undefined);
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
+    const beforeClick = await approveButton(user);
+    expect(beforeClick).toBeEnabled();
+    await user.click(beforeClick);
+
+    expect(appendMessageMock).toHaveBeenCalledTimes(1);
+    const afterClick = await approveButton(user);
+    expect(afterClick).toBeDisabled();
+
+    await user.click(afterClick);
+
+    expect(appendMessageMock).toHaveBeenCalledTimes(1);
+  });
+
+  // The symmetric half of the case above. A second failure of the SAME action
+  // resolves to the same {action, state} pair the retry click was taken in, so
+  // a lock keyed on that pair alone would resurrect and disable the card for
+  // good. The outcome key must identify WHICH decision it describes.
+  it('reenables approval actions when the retried run fails the same way', async () => {
+    const user = userEvent.setup();
+    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+    const failTheRun = (): void => {
+      threadMessagesMock.push({
+        role: 'assistant',
+        status: {
+          error: 'tool_approval_resume_unsupported',
+          reason: 'error',
+          type: 'incomplete',
+        },
+      });
+      view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    };
+
+    await user.click(await approveButton(user));
+    failTheRun();
     expect(await approveButton(user)).toBeEnabled();
-    await user.click(await approveButton(user));
-
-    expect(appendMessageMock).toHaveBeenCalledTimes(1);
-    expect(await approveButton(user)).toBeDisabled();
 
     await user.click(await approveButton(user));
+    failTheRun();
 
-    expect(appendMessageMock).toHaveBeenCalledTimes(1);
+    expect(await approveButton(user)).toBeEnabled();
+    expect(screen.getByText('Pending')).toBeInTheDocument();
   });
 
   it('reenables approval actions after a synchronous append failure', async () => {
