@@ -63,6 +63,7 @@ function fakeManager(events: unknown[], onResume: (taskId: string) => void) {
     manager,
     personaLabel: () => 'Explorer',
     rejectedDelegations: undefined,
+    resolveInvocation: undefined,
     scope: { resourceId: 'r', threadId: 't' },
   });
   return { ledger, manager, push: (event: unknown) => push?.(event), setTask };
@@ -513,6 +514,7 @@ describe('withBackgroundIdleLoop', () => {
       manager,
       personaLabel: () => 'Explorer',
       rejectedDelegations,
+      resolveInvocation: undefined,
       scope: { resourceId: 'r', threadId: 't' },
     });
     setTask('t1', 'running');

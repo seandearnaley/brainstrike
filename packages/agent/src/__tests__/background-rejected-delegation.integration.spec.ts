@@ -1,11 +1,32 @@
 import { expect, it } from 'vitest';
-import { createStreamIteratorFromRuntime } from '../mastra/attempt-legs';
+import { createMastraAgentRuntime } from '../mastra/agent-runtime';
+import {
+  createStreamIteratorFromRuntime,
+  createToolApprovalIteratorFromRuntime,
+} from '../mastra/attempt-legs';
+import { listSuspendedMastraRuns } from '../mastra/suspended-run-discovery';
 import type { StreamChunk } from '../types';
 import { createBackgroundFixture } from './fixtures/background-worker-runtime';
 
 /** The scripted root stops on its own here; a host that never bounds wakeups reaches it. */
 const RUNAWAY_DISPATCHES = 20;
 const ADMITTED = Array.from({ length: 8 }, (_, index) => `redelegate-${index + 1}`);
+
+async function drain(iterator: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
+  const chunks: StreamChunk[] = [];
+  for await (const chunk of iterator) {
+    chunks.push(chunk);
+  }
+  return chunks;
+}
+
+function ledgerLabels(chunks: readonly StreamChunk[]): string[] {
+  return chunks.flatMap((chunk) =>
+    chunk.type === 'run-event' && chunk.event.kind === 'delegation.ledger'
+      ? [chunk.event.label]
+      : []
+  );
+}
 
 /**
  * `delegated-worker-write.desktop.test.ts` (2026-09-15), with its scripted
@@ -73,5 +94,100 @@ it('a delegation rejected at start is no returned invocation and wakes no parent
   } finally {
     await runtime.dispose();
     await database.close();
+  }
+});
+
+/**
+ * The KNOWN LIMIT of the leg-scoped capture: three siblings dispatched in ONE
+ * root step, two admitted and parked on their gated read (a parked child keeps
+ * its concurrency slot) and the third refused at start (`maxConcurrentWork` is
+ * 2). Every row carries the root's run id, so the leg that resumes a parked
+ * sibling reads the refused row too — with a capture of its own that never saw
+ * the refusal.
+ */
+it('a resume leg leaves a sibling refused in the same parent run out of its ledger', async () => {
+  // Positional: requireApproval, signal, question, background, asWorker,
+  // gatedReads, fanout. The third sibling is refused by the HOST limit
+  // (`maxConcurrentWork` is 2), never by a fixture argument.
+  const fixture = await createBackgroundFixture(true, undefined, false, undefined, false, 1, {
+    siblings: 3,
+  });
+  const { backing, database, discoveryOptions, release, runtime, runtimeData, scope, wakeups } =
+    fixture;
+  release.resolve();
+  let resumedRuntime: Awaited<ReturnType<typeof createMastraAgentRuntime>> | undefined;
+  try {
+    await drain(
+      await createStreamIteratorFromRuntime({
+        memory: backing.memory,
+        messages: [
+          { id: 'refused-sibling', parts: [{ text: 'Inspect', type: 'text' }], role: 'user' },
+        ],
+        runtime,
+        runtimeData,
+      })
+    );
+    const manager = runtime.backgroundTaskManager;
+    if (!manager) {
+      throw new Error('Missing background task manager');
+    }
+    const { tasks } = await manager.listTasks(runtimeData.memory);
+    expect(new Set(tasks.map((task) => task.runId)).size).toBe(1);
+    const parked = tasks.filter((task) => task.status === 'suspended');
+    const refused = tasks.filter((task) => task.status === 'completed');
+    expect(parked).toHaveLength(2);
+    expect(refused).toHaveLength(1);
+    // The TEST's oracle for which sibling was refused, read from Mastra's own
+    // result text. Production never matches on it — a child can echo the words
+    // — so only the leg's capture and the host's invocation graph name one.
+    expect(refused[0]?.result).toMatchObject({
+      text: '[Delegation Rejected] Too many concurrent subagents (max 2); try again after the current ones finish.',
+    });
+    const [resumed] = parked;
+    const refusedCall = refused[0]?.toolCallId;
+    if (!(resumed && refusedCall)) {
+      throw new Error('Missing the parked or the refused sibling');
+    }
+    const leaf = resumed.toolCallId.replace('background-child-', 'background-read-');
+    const { approvals } = await listSuspendedMastraRuns(scope, discoveryOptions);
+    const approval = approvals.find((entry) => entry.delegation?.toolCallId === leaf);
+    if (!approval) {
+      throw new Error(`No pending approval for ${leaf}`);
+    }
+    resumedRuntime = await createMastraAgentRuntime(discoveryOptions);
+    const chunks = await drain(
+      await createToolApprovalIteratorFromRuntime({
+        action: {
+          action: 'approve',
+          runId: approval.runId,
+          toolCallId: approval.toolCallId,
+          ...(approval.delegation ? { delegation: approval.delegation } : {}),
+        },
+        memory: backing.memory,
+        runtime: resumedRuntime,
+        runtimeData,
+      })
+    );
+    const resumeWakeups = wakeups.filter((wakeup) => wakeup.kind === 'resume-leg');
+    // The resume leg wakes only for the task it resumed.
+    expect(
+      resumeWakeups.map((wakeup) => wakeup.invocations.map((entry) => entry.toolCallId))
+    ).toEqual([[resumed.toolCallId]]);
+    // MUTATION: a resume ledger that trusts only its own leg's capture reads
+    // the refused row as returned — "3 total: 2 returned".
+    expect(resumeWakeups[0]?.directive).toContain(
+      '2 total: 1 returned, 0 failed, 0 cancelled, 1 still running'
+    );
+    expect(resumeWakeups[0]?.directive).not.toContain(refusedCall);
+    expect(ledgerLabels(chunks).at(-1)).toBe('1 of 2 specialists returned · 1 running');
+  } finally {
+    // The root runtime and its database close even if the resumed runtime's
+    // dispose throws: a stranded PGlite handle fails the whole lane.
+    try {
+      await resumedRuntime?.dispose();
+    } finally {
+      await runtime.dispose();
+      await database.close();
+    }
   }
 });

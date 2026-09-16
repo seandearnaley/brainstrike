@@ -163,7 +163,7 @@ export function isParentWakeup(event: TaskEvent): boolean {
   return WAKING_TASK_EVENTS.has(event.type) && event.payload.suspendedAt === undefined;
 }
 
-/** A refused delegation still completes its task (BST-1751); only the leg's capture can tell. */
+/** A refused delegation still completes its task (BST-1751); its leg's capture names it. */
 function isRejectedDelegation(
   event: TaskEvent,
   rejectedDelegations: BackgroundIdleLoopParams['rejectedDelegations']

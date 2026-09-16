@@ -341,6 +341,7 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
       manager,
       personaLabel: personaLabelFor(runtime),
       rejectedDelegations: delegationOutcomes,
+      resolveInvocation: runtime.conversationBinding?.resolveParkedInvocation,
       scope,
     }),
     manager,
