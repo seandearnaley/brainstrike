@@ -158,6 +158,12 @@ export async function cancelDesktopAssistantRun(
   }
   // One statement serializes cancellation with durable decision admission in
   // the owning PGlite host. A later resume leg still sees this turn's barrier.
+  // TURN-SCOPED, and the renderer's Stop gate depends on that: this takes the
+  // run plus every run sharing its `turn_message_id`, and
+  // `undecided-pause-notices.ts` narrows its re-read to the same turn. Widening
+  // this past the turn without widening that gate leaves an earlier turn's
+  // cancelled card reading "Pending" with live buttons until the thread is
+  // reloaded (docs/agents/assistant-runtime.md, the root-Stop re-read section).
   const cancelled = await database.query(
     `WITH owned AS (
        SELECT id FROM brainstrike_assistant_thread_runs WHERE resource_id = $1 AND thread_id = $2

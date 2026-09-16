@@ -66,6 +66,21 @@ function assistantMessage(id: string, content: readonly unknown[]): ThreadMessag
   } as unknown as ThreadMessage;
 }
 
+/**
+ * The same approval pause with NO delegation and no `continuationId`. Any
+ * decision state on this is UNREADABLE — `hasValidDelegatedDecisionState`
+ * rejects it, so the reader stamps `invalid` — which is what the sentinel pair
+ * below turns on. Everything else matches `PAUSE`, so the two tests differ by
+ * exactly one field.
+ */
+const UNDELEGATED_PAUSE = {
+  args: PAUSE.args,
+  riskCategory: PAUSE.riskCategory,
+  runId: PAUSE.runId,
+  toolCallId: PAUSE.toolCallId,
+  toolName: PAUSE.toolName,
+} as const;
+
 /** A root askUser/submitPlan pause: the suspend half of the same gate. */
 const SUSPEND = {
   runId: 'root-run',
@@ -276,25 +291,34 @@ describe('hasUndecidedPauseNotice', () => {
   );
 
   /**
-   * The sentinel's OWN path, which the table above does not travel. The state
-   * here is a real durable one and the payload is what is unreadable: no
-   * delegation and no `continuationId`, so `hasValidDelegatedDecisionState`
-   * rejects it and the reader stamps `invalid`. A decision exists and could not
-   * be read, so the card stays locked and the Stop must not remount for it.
+   * POSITIVE CONTROL for the test below, and the reason that one can be read at
+   * all. A lone `toBe(false)` there cannot tell the sentinel apart from the part
+   * never being indexed — an unrecognised payload or one outside the scanned
+   * window answers false too. This proves the literal IS recognised as a pause
+   * and IS inside the window, so the only thing that changes between the two is
+   * the decision state.
    */
-  it('treats a decision state it cannot read as an answer', () => {
-    const unreadable = {
-      args: PAUSE.args,
-      decisionState: 'cancelled',
-      riskCategory: PAUSE.riskCategory,
-      runId: PAUSE.runId,
-      toolCallId: PAUSE.toolCallId,
-      toolName: PAUSE.toolName,
-    };
+  it('reports the same pause when it carries no decision state', () => {
     expect(
       hasUndecidedPauseNotice([
         userMessage('turn-1'),
-        assistantMessage('a1', [pausePart(unreadable)]),
+        assistantMessage('a1', [pausePart(UNDELEGATED_PAUSE)]),
+      ])
+    ).toBe(true);
+  });
+
+  /**
+   * The sentinel's OWN path, which the table above does not travel: those rows
+   * feed their state in directly on a READABLE payload. Here the state is a real
+   * durable one and the payload is what is unreadable, so the reader stamps
+   * `invalid`. A decision exists and could not be read, so the card stays locked
+   * and the Stop must not remount for it.
+   */
+  it('treats a decision state it cannot read as an answer', () => {
+    expect(
+      hasUndecidedPauseNotice([
+        userMessage('turn-1'),
+        assistantMessage('a1', [pausePart({ ...UNDELEGATED_PAUSE, decisionState: 'cancelled' })]),
       ])
     ).toBe(false);
   });
