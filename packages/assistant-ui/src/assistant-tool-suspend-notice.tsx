@@ -16,6 +16,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger, redactSensitiveLogValue } from '@brainstrike/logging';
 import { Button, Checkbox } from '@brainstrike/ui';
+import { getErrorMessage } from '@brainstrike/utils/error-utils';
 import { Check, Globe, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
 import {
   createContext,
@@ -183,11 +184,14 @@ function readAskUserQuestion(value: unknown): string | null {
  * carrying the branch-specific `resumeData` under the suspend run-config key and
  * starts the run. Locks after submit (local state OR a still-running/completed
  * resume in the thread); a FAILED resume re-enables the controls so the user can
- * retry (see {@link resolveSuspendRunOutcome}).
+ * retry (see {@link resolveSuspendRunOutcome}). `sendError` says why the last
+ * submit was not sent (the append threw, or the host refused the live
+ * decision); null once a new submit starts.
  */
 function useSuspendResume(request: AssistantToolSuspendRequest | null) {
   const aui = useAui();
   const [submitted, setSubmitted] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const runOutcome = useAuiState((state) =>
     resolveSuspendRunOutcome(state.thread.messages, request)
   );
@@ -202,6 +206,13 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
     setPrevRunOutcome(runOutcome);
     if (submitted && runOutcome === 'retryable') {
       setSubmitted(false);
+    }
+    // A resume that DID start — this card's retry, or the same pause answered
+    // from the delegated child view that shares it — settles the question the
+    // error was about, so a stale "Decision not sent" must not sit beside the
+    // now-locked controls.
+    if (runOutcome === 'pending' || runOutcome === 'completed') {
+      setSendError(null);
     }
   }
   const lockedByRun = runOutcome === 'pending' || runOutcome === 'completed';
@@ -224,6 +235,7 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
       if (!request || locked) {
         return;
       }
+      setSendError(null);
       const action: AssistantToolResumeAction = {
         resumeData,
         ...getToolActionTarget(request),
@@ -239,17 +251,15 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
 
       const sendNow = (queued: CreateAppendMessage): void => {
         setSubmitted(true);
+        // `append` returns void in the installed assistant-ui: a failed resumed
+        // run arrives as thread state (`retryable` above), never as a rejection
+        // here. Only a synchronous throw (e.g. an unavailable thread scope) is
+        // ours to report.
         try {
-          void Promise.resolve(aui.thread().append(queued)).catch((error: unknown) => {
-            setSubmitted(false);
-            logger.warn('Failed to append tool resume action', {
-              error,
-              runId: request.runId,
-              toolCallId: request.toolCallId,
-            });
-          });
+          aui.thread().append(queued);
         } catch (error) {
           setSubmitted(false);
+          setSendError(getErrorMessage(error));
           logger.warn('Failed to append tool resume action', {
             error,
             runId: request.runId,
@@ -277,6 +287,7 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
         },
         (error: unknown) => {
           setSubmitted(false);
+          setSendError(getErrorMessage(error));
           logger.warn('Failed to deliver tool resume action', {
             error,
             runId: request.runId,
@@ -288,13 +299,14 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
     [aui, deliverLive, isRunning, locked, request, threadKey]
   );
 
-  return { locked, submit };
+  return { locked, sendError, submit };
 }
 
 function NoticeShell({
   children,
   icon,
   role,
+  sendError,
   testId,
   title,
   tone = 'pending',
@@ -302,6 +314,8 @@ function NoticeShell({
   children: ReactNode;
   icon: ReactNode;
   role?: 'alert';
+  /** Why the last decision was not sent; null when nothing failed (or nothing can be sent). */
+  sendError: string | null;
   testId: string;
   title: string;
   tone?: 'pending' | 'failed';
@@ -327,6 +341,11 @@ function NoticeShell({
         <div className="min-w-0">
           <p className="font-medium text-sm">{title}</p>
           {children}
+          {sendError === null ? null : (
+            <p className="mt-2 text-destructive text-xs" role="alert">
+              Decision not sent: {sendError}
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -337,12 +356,14 @@ function UnreadableSuspendPayloadNotice({
   children,
   detail,
   request,
+  sendError,
   testId,
   title,
 }: {
   children?: ReactNode;
   detail: string;
   request: AssistantToolSuspendRequest;
+  sendError: string | null;
   testId: string;
   title: string;
 }) {
@@ -367,6 +388,7 @@ function UnreadableSuspendPayloadNotice({
     <NoticeShell
       icon={<TriangleAlert className="size-4" />}
       role="alert"
+      sendError={sendError}
       testId={testId}
       title={title}
       tone="failed"
@@ -382,7 +404,7 @@ function UnreadableSuspendPayloadNotice({
 }
 
 function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest }) {
-  const { submit, locked } = useSuspendResume(request);
+  const { locked, sendError, submit } = useSuspendResume(request);
   const exitPlanMode = usePlanModeExit();
   const [feedback, setFeedback] = useState('');
   const plan = readSubmitPlanPayload(request.suspendPayload);
@@ -406,6 +428,7 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
       <UnreadableSuspendPayloadNotice
         detail="The suspended request contains unreadable plan terms, so it cannot be approved. You can safely reject it so the assistant can revise."
         request={request}
+        sendError={sendError}
         testId="assistant-submit-plan-payload-unreadable"
         title="Plan details could not be read"
       >
@@ -427,6 +450,7 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
   return (
     <NoticeShell
       icon={<ListChecks className="size-4" />}
+      sendError={sendError}
       testId="assistant-submit-plan-notice"
       title={plan?.title ? `Plan: ${plan.title}` : 'Plan for your approval'}
     >
@@ -499,7 +523,7 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
 }
 
 function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
-  const { submit, locked } = useSuspendResume(request);
+  const { locked, sendError, submit } = useSuspendResume(request);
   // Answers resume through the {answer} OBJECT envelope (AskUserResumeData),
   // never the legacy bare string/array: the 1.56+ suspend-resume transport can
   // only attach the `approved: true` rider to plain-object payloads, and a
@@ -537,6 +561,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
             : 'The suspended request contains malformed question details, so it cannot be answered here.'
         }
         request={request}
+        sendError={sendError}
         testId="assistant-ask-user-payload-unreadable"
         title="Question details could not be read"
       >
@@ -570,6 +595,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   return (
     <NoticeShell
       icon={<MessageCircleQuestion className="size-4" />}
+      sendError={sendError}
       testId="assistant-ask-user-notice"
       title={payload?.question ?? 'The assistant has a question'}
     >
@@ -670,6 +696,7 @@ function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRe
     <NoticeShell
       icon={<TriangleAlert className="size-4" />}
       role="alert"
+      sendError={null}
       testId="assistant-tool-suspend-unsupported-notice"
       title={`Cannot resume ${request.toolName}`}
       tone="failed"
@@ -724,7 +751,7 @@ function wildcardGloss(domain: string): string | null {
 
 function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequest }) {
   const domainsFieldId = useId();
-  const { submit, locked } = useSuspendResume(request);
+  const { locked, sendError, submit } = useSuspendResume(request);
   // Ticking state is LOCAL component state, never persisted, and resets if
   // the card remounts (design §3.3 point 3) — proportional friction is the
   // point: every named domain must be individually acknowledged.
@@ -755,6 +782,7 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
     return (
       <NoticeShell
         icon={<Globe className="size-4" />}
+        sendError={sendError}
         testId="assistant-run-python-network-notice"
         title="This script wants to reach the internet"
         tone="failed"
@@ -786,6 +814,7 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
   return (
     <NoticeShell
       icon={<Globe className="size-4" />}
+      sendError={sendError}
       testId="assistant-run-python-network-notice"
       title="This script wants to reach the internet"
       tone="failed"
