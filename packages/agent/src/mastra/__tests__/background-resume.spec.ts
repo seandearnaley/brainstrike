@@ -106,6 +106,7 @@ function createNativeManager(
     }
     const context = contexts.get(taskId);
     if (!context) {
+      calls.push(`no-executor:${taskId}`);
       publish('background-task-failed', update(taskId, 'failed'), {
         error: { message: `No executor registered for tool "${row.toolName}".` },
       });
@@ -543,6 +544,45 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
       expect(leg.status).toBe('suspended');
       expect(native.calls.filter((call) => call === 'resume:t1')).toHaveLength(1);
       expect(native.calls).not.toContain('deregister:t1');
+    } finally {
+      running.resolve();
+    }
+  }, 2000);
+
+  it('keeps the context of a live resume that is in flight when the leg is stopped', async () => {
+    // The leg releases the contexts Mastra never accepted when it ends. A
+    // decision whose `manager.resume` is in flight at that moment is about to
+    // be accepted, so its context must survive the release: dropping it makes
+    // Mastra's own lookup fail with "No executor registered".
+    const running = Promise.withResolvers<void>();
+    const stop = new AbortController();
+    const channel = createLiveDecisionChannel();
+    const native = createNativeManager();
+    const sibling = native.add('t2');
+    const { ended } = startLeg({
+      abortSignal: stop.signal,
+      channel,
+      manager: native.manager,
+      resumes: [native.add('t1')],
+      tools: Promise.resolve({ [TOOL]: parkingTool(running.promise) }),
+    });
+    try {
+      await until(() => native.calls.includes('execute:t1'));
+      const owner = channel.owner;
+      if (!owner) {
+        throw new Error('The leg does not own its live decision seam.');
+      }
+      // The root Stop tears the leg down while this resume is in flight.
+      native.setBeforeResume(async () => {
+        stop.abort(new Error('User stopped the root.'));
+        await ended;
+      });
+      await owner.reserve([sibling]).resume([{ resumeData: { approved: true }, task: sibling }]);
+      await until(() =>
+        native.calls.some((call) => call === 'execute:t2' || call === 'no-executor:t2')
+      );
+      expect(native.calls).toContain('execute:t2');
+      expect(native.calls).not.toContain('deregister:t2');
     } finally {
       running.resolve();
     }
