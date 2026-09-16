@@ -1,3 +1,4 @@
+import { MASTRA_BACKGROUND_TASKS_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import type { DatabaseWorkRunOptions } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
 import { ProcessCounterRing } from '../../diagnostics/process-counter-ring';
@@ -9,6 +10,19 @@ import {
 import type { WebAssemblyCounter } from '../../diagnostics/webassembly-counter';
 
 const MEMORY = { heapUsed: 2048, rss: 4096 } as NodeJS.MemoryUsage;
+/**
+ * One row per status the statement selects, so the row -> counts mapping is
+ * exercised for EVERY status. Without a `pending` row the asserted
+ * `pending: 0` only proves the zero-filled initial counts, not the mapping —
+ * and a fixture that covers every status cannot also prove the zero fill, so
+ * the absent-status case supplies its own rows below.
+ */
+const TASK_ROWS = [
+  { count: 3, status: 'pending' },
+  { count: 2, status: 'running' },
+  { count: 1, status: 'suspended' },
+] as const;
+const EXPECTED_COUNTS = { pending: 3, running: 2, suspended: 1 };
 const SCHEDULED = 'scheduled:background:process-counter-sample';
 
 const counter: WebAssemblyCounter = {
@@ -19,18 +33,28 @@ const counter: WebAssemblyCounter = {
   }),
 };
 
+interface TaskRow {
+  readonly count: number;
+  readonly status: string;
+}
+
 /** `gate` holds a submitted read open so a later tick lands mid-flight. */
-function createHarness({ gate, refusal }: { gate?: Promise<void>; refusal?: Error } = {}) {
+function createHarness({
+  gate,
+  refusal,
+  rows = TASK_ROWS,
+}: {
+  gate?: Promise<void>;
+  refusal?: Error;
+  rows?: readonly TaskRow[];
+} = {}) {
   const events: string[] = [];
+  const statements: string[] = [];
   const database: ProcessCounterDatabase = {
-    query: <TRecord>() => {
+    query: <TRecord>(sql: string) => {
       events.push('query');
-      return Promise.resolve({
-        rows: [
-          { count: 2, status: 'running' },
-          { count: 1, status: 'suspended' },
-        ] as unknown as TRecord[],
-      });
+      statements.push(sql);
+      return Promise.resolve({ rows: rows as unknown as TRecord[] });
     },
   };
   const getDatabase = vi.fn(() => {
@@ -54,7 +78,7 @@ function createHarness({ gate, refusal }: { gate?: Promise<void>; refusal?: Erro
   };
   const ring = new ProcessCounterRing(4);
   const sampler = createProcessCounterSampler({ counter, getDatabase, ring, runScheduledWork });
-  return { events, getDatabase, ring, sampler };
+  return { events, getDatabase, ring, sampler, statements };
 }
 
 function createGate(): { gate: Promise<void>; open: () => void } {
@@ -78,11 +102,42 @@ describe('createProcessCounterSampler', () => {
     expect(events).toEqual([SCHEDULED, 'getDatabase', 'query', 'scheduled:done']);
     expect(ring.list()).toEqual([
       expect.objectContaining({
-        backgroundTasks: { pending: 0, running: 2, suspended: 1 },
+        backgroundTasks: EXPECTED_COUNTS,
         heapUsedKb: 2,
         rssKb: 4,
       }),
     ]);
+  });
+
+  it('counts unfinished tasks by status, in the native background-task table only', async () => {
+    // The harness answers any SQL, so without this the statement itself is
+    // unasserted: it could read another table or count finished rows and the
+    // mapping tests would still pass.
+    const { sampler, statements } = createHarness();
+
+    await sampler.sample(MEMORY);
+
+    expect(statements).toHaveLength(1);
+    const sql = (statements.at(0) ?? '').replace(/\s+/g, ' ');
+    expect(sql).toContain(`FROM ${MASTRA_BACKGROUND_TASKS_TABLE} `);
+    // Finished rows must never inflate the health line, and every status the
+    // counts expose must be selected — a status dropped here would report 0
+    // forever rather than its real backlog.
+    expect(sql).toContain("WHERE status IN ('pending', 'running', 'suspended')");
+    expect(sql).toContain('GROUP BY status');
+  });
+
+  it('reports a status with no row as 0, never a missing count', async () => {
+    // `GROUP BY status` returns NO row for a status with no tasks, so the
+    // zero-filled counts are the production path: the health line must read 0
+    // rather than undefined. The all-statuses fixture above cannot prove this.
+    const { ring, sampler } = createHarness({ rows: [{ count: 2, status: 'running' }] });
+
+    await sampler.sample(MEMORY);
+
+    expect(ring.list().at(-1)).toEqual(
+      expect.objectContaining({ backgroundTasks: { pending: 0, running: 2, suspended: 0 } })
+    );
   });
 
   it('submits the sample on the background lane under a stable label', () => {
@@ -131,7 +186,7 @@ describe('createProcessCounterSampler', () => {
 
     expect(ring.list()).toHaveLength(2);
     expect(ring.list().at(-1)).toEqual(
-      expect.objectContaining({ backgroundTasks: { pending: 0, running: 2, suspended: 1 } })
+      expect.objectContaining({ backgroundTasks: EXPECTED_COUNTS })
     );
 
     // The guard clears with the sample: the next tick reads again.

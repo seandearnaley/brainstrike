@@ -36,12 +36,17 @@ export interface ProcessCounterSampler {
    * One `main-process-health` sample. The database read is deliberately kept
    * OFF the health line's own path: that line must be logged unconditionally
    * (its absence is the freeze signal), so it carries this tick's WebAssembly
-   * counts plus the LAST completed background-task count, never an await.
+   * counts plus whatever background-task count the ring ALREADY holds, never
+   * an await.
    *
    * At most ONE read is outstanding: a tick arriving while the previous read
    * is still queued records `previous sample still pending` instead of
    * submitting another, so a long factory reset cannot build a backlog that
-   * lands at once and evicts real history from the ring.
+   * lands at once and evicts real history from the ring. That skip takes no
+   * await, so its `backgroundTasks: null` entry is the ring's newest by the
+   * time the health line reads it: through a long read the line reports a
+   * null count — NOT the last completed one — and the reason stays in the
+   * ring for the debug pack.
    */
   sample(mem: NodeJS.MemoryUsage): Promise<void>;
   /**

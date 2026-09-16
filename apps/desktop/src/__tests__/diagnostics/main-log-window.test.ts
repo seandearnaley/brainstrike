@@ -140,27 +140,34 @@ describe('readMainLogWindow', () => {
 
   it('rejects a parseable record with no time field, but still counts a crash-truncated line', async () => {
     const window = { since: '2026-09-15T02:19:00.000Z', until: '2026-09-15T02:25:00.000Z' };
-    const truncatedPath = path.join(logDir(), 'brainstrike.log');
+    // Each case needs its own LIVE log, which `candidateFiles` resolves by
+    // exact path and so must be named `brainstrike.log`. `logDir()` returns a
+    // FRESH temp directory per call, so these are one live log apiece in two
+    // separate directories, not two files side by side in one.
+    const truncatedCaseLiveLog = path.join(logDir(), 'brainstrike.log');
     writeFileSync(
-      truncatedPath,
+      truncatedCaseLiveLog,
       `${[line('2026-09-15T02:20:00.000Z', 50, 'timestamped'), '{"level":5'].join('\n')}\n`
     );
-    const truncated = await readMainLogWindow({ logFilePath: truncatedPath, request: window });
+    const truncated = await readMainLogWindow({
+      logFilePath: truncatedCaseLiveLog,
+      request: window,
+    });
     expect(truncated.malformedLineCount).toBe(1);
     expect(truncated.scannedLineCount).toBe(1);
 
     // Logged with timestamps off: pino writes the record with no `time` at all.
-    const timelessPath = path.join(logDir(), 'brainstrike.log');
+    const timelessCaseLiveLog = path.join(logDir(), 'brainstrike.log');
     writeFileSync(
-      timelessPath,
+      timelessCaseLiveLog,
       `${[
         line('2026-09-15T02:20:00.000Z', 50, 'timestamped'),
         JSON.stringify({ level: 50, msg: 'Unhandled promise rejection' }),
       ].join('\n')}\n`
     );
-    await expect(readMainLogWindow({ logFilePath: timelessPath, request: window })).rejects.toThrow(
-      /no ISO "time" field/
-    );
+    await expect(
+      readMainLogWindow({ logFilePath: timelessCaseLiveLog, request: window })
+    ).rejects.toThrow(/no ISO "time" field/);
   });
 
   it('accepts only the millisecond instants the log sink writes, so string order is time order', () => {
