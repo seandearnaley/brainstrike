@@ -150,6 +150,16 @@ export interface AssistantToolApprovalRequest {
    */
   executionContext?: CodeExecutionApprovalContext;
   /**
+   * The DURABLE host leg (`brainstrike_assistant_thread_runs.id`) that streamed
+   * this pause, stamped by the host at the same seam that stamps run events.
+   * The notice copies it into its action echo, where the history topology
+   * adapter resolves the suspended message's parent through the leg's
+   * `turn_message_id` (BST-1163). Absent on a REDISCOVERED pause (its leg ended
+   * at the restart) and on a pause whose turn belongs to a child continuation,
+   * whose turn link is the continuation id rather than a root message.
+   */
+  hostRunId?: string;
+  /**
    * The permission decision that caused the pause. Only `'ask'` is meaningful
    * here (an approval pause is, by definition, an `'ask'`); present so the UI can
    * say WHY the tool needs approval. Absent for a pause not driven by the
@@ -309,6 +319,17 @@ export interface AssistantToolApprovalAction {
   action: AssistantToolApprovalDecision;
   continuationId?: string;
   delegation?: DelegatedToolActionIdentity;
+  /**
+   * The DURABLE host leg (`brainstrike_assistant_thread_runs.id`) whose turn
+   * surfaced this pause, copied from the pause notice. Distinct from `runId`,
+   * which is the NATIVE Mastra run the resume routes address: one host leg can
+   * hold several native runs (a background wake-up mints another), and Mastra
+   * mints its own ids, so the native id never matches a thread-run row. The
+   * history topology adapter resolves the suspended message's durable parent
+   * through this id's `turn_message_id` (BST-1163). Absent on a rediscovered
+   * pause, whose host leg ended before the restart.
+   */
+  hostRunId?: string;
   runId: string;
   toolCallId: string;
   toolName?: string;
@@ -322,6 +343,7 @@ const TOOL_APPROVAL_ACTION_OWN_KEYS = new Set<PropertyKey>([
   'continuationId',
   'delegation',
   'action',
+  'hostRunId',
   'runId',
   'toolCallId',
   'toolName',
@@ -348,6 +370,11 @@ export function isAssistantToolApprovalAction(
     (value['action'] === 'approve' || value['action'] === 'decline') &&
     isBoundedIdentifier(value['runId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
     isBoundedIdentifier(value['toolCallId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
+    // Same own-and-bounded discipline as `toolName`: an inherited or blank host
+    // leg would resolve the wrong turn anchor instead of failing visibly.
+    (!('hostRunId' in value) ||
+      (Object.hasOwn(value, 'hostRunId') &&
+        isBoundedIdentifier(value['hostRunId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS))) &&
     (!('toolName' in value) ||
       (Object.hasOwn(value, 'toolName') &&
         isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS)))

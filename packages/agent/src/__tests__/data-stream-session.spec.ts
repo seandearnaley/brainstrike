@@ -2263,3 +2263,48 @@ it('forwards executionContext through the LIVE approval data part (BST-1070 §2.
   const data = (approvalPart?.value as { data?: Record<string, unknown> })?.data;
   expect(data?.['executionContext']).toStrictEqual(executionContext);
 });
+
+it('forwards the host leg through BOTH live pause data parts (approval and suspend)', async () => {
+  // Same field-by-field rebuild hazard as executionContext above, on the field
+  // the history topology adapter anchors a suspended message with: the DURABLE
+  // host leg the pause was surfaced by. Dropping it here strands every live
+  // pause echo with no anchor (the native `runId` beside it never matches a
+  // thread-run row).
+  const chunks: StreamChunk[] = [
+    {
+      hostRunId: 'run-host-leg-1',
+      runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+      toolCallId: 'call-approval',
+      toolName: 'brainstrike.executeCommand',
+      type: 'tool-approval-required',
+    },
+    {
+      hostRunId: 'run-host-leg-1',
+      runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+      suspendPayload: { question: 'Which region?' },
+      toolCallId: 'call-suspend',
+      toolName: 'brainstrike.askUser',
+      type: 'tool-suspend-required',
+    },
+    { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+  ];
+
+  const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+    messageId: 'msg-live-host-leg',
+    sessionId: 'sess-live-host-leg',
+  });
+
+  const parsed = parseLines(await readResponse(session.createResponse()));
+  // Matched on the part's own `name`, never a stringified substring: both parts
+  // carry the same ids, so a substring match could select the wrong one and
+  // still pass.
+  const readPart = (name: string) => {
+    const part = parsed.find(
+      (entry) =>
+        entry.code === 'aui-data' && (entry.value as { name?: unknown } | undefined)?.name === name
+    );
+    return (part?.value as { data?: Record<string, unknown> })?.data;
+  };
+  expect(readPart('brainstrike.tool-approval')?.['hostRunId']).toBe('run-host-leg-1');
+  expect(readPart('brainstrike.tool-suspend')?.['hostRunId']).toBe('run-host-leg-1');
+});

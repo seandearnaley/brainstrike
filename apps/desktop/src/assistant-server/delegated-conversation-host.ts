@@ -98,6 +98,33 @@ const hostScopeSchema = z.object({
   turnMessageId: identityString,
 });
 
+/**
+ * The ONE stopped-subtree predicate: an invocation row on any thread in
+ * `threads` carrying a cancellation request for this turn. Every site that
+ * must agree on "this subtree was stopped" builds its SQL from here — the
+ * claim guard, the answer write, and the grant's skip read — because the two
+ * drift directions are both live faults: a read NARROWER than the write
+ * restores the BST-1749 permanent refusal, and a read BROADER silently
+ * over-skips a sibling the write would have answered, leaving its task
+ * suspended with no recovery path (assistant-subagents.md).
+ *
+ * The parameter types carry the safety argument rather than this comment: a
+ * bind is a placeholder or one named column expression, so "no caller value is
+ * interpolated" is a compile error rather than a review finding (PR #3221
+ * second review).
+ */
+function stoppedSubtreeExists(bind: {
+  readonly owner: `$${number}`;
+  readonly root: `$${number}`;
+  readonly threads: `$${number}::jsonb` | 'candidate.thread_ids';
+  readonly turn: `$${number}`;
+}): string {
+  return `SELECT 1 FROM brainstrike_delegated_invocations stopped
+     JOIN jsonb_array_elements_text(${bind.threads}) target(thread_id) ON target.thread_id = stopped.thread_id
+     WHERE stopped.owner_resource_id = ${bind.owner} AND stopped.root_thread_id = ${bind.root}
+       AND stopped.turn_message_id = ${bind.turn} AND stopped.cancellation_requested_at IS NOT NULL`;
+}
+
 async function readRequiredBranchHistory(
   database: DelegatedConversationDatabase,
   threadId: string,
@@ -305,8 +332,8 @@ export function createDesktopDelegatedConversationHost(
   resolveToolAction: NonNullable<DelegatedConversationBinding['resolveToolAction']>;
   resolveParkedInvocation: NonNullable<DelegatedConversationBinding['resolveParkedInvocation']>;
   recordToolActionAnswers: NonNullable<DelegatedConversationBinding['recordToolActionAnswers']>;
-  readAnsweredToolActionLeaves: NonNullable<
-    DelegatedConversationBinding['readAnsweredToolActionLeaves']
+  readUnanswerableToolActionLeaves: NonNullable<
+    DelegatedConversationBinding['readUnanswerableToolActionLeaves']
   >;
   recordPromptManifest(record: PromptManifestRecord): Promise<void>;
   recordWakeup(record: WakeupRecord): Promise<void>;
@@ -477,12 +504,12 @@ export function createDesktopDelegatedConversationHost(
              WHERE cancelled.resource_id = runs.resource_id AND cancelled.thread_id = runs.thread_id
                AND cancelled.turn_message_id = runs.turn_message_id AND cancelled.status IN ('cancelling', 'cancelled')
            )
-           AND NOT EXISTS (
-             SELECT 1 FROM brainstrike_delegated_invocations stopped
-             JOIN jsonb_array_elements_text($11::jsonb) target(thread_id) ON target.thread_id = stopped.thread_id
-             WHERE stopped.owner_resource_id = $2 AND stopped.root_thread_id = $3
-               AND stopped.turn_message_id = $10 AND stopped.cancellation_requested_at IS NOT NULL
-           )
+           AND NOT EXISTS (${stoppedSubtreeExists({
+             owner: '$2',
+             root: '$3',
+             threads: '$11::jsonb',
+             turn: '$10',
+           })})
          ON CONFLICT DO NOTHING RETURNING id`,
         [
           id,
@@ -644,31 +671,6 @@ export function createDesktopDelegatedConversationHost(
         baselines.set(baseline.threadId, baseline);
       }
     },
-    async readAnsweredToolActionLeaves(leaves) {
-      if (leaves.length === 0) {
-        return [];
-      }
-      const scope = await readScope();
-      // Any durable state answers the leaf: claimed, consumed and interrupted
-      // all mean the decision cannot be submitted again (BST-1720).
-      const answered = await database.query(
-        `SELECT decision.child_runtime_run_id AS "childRuntimeRunId",
-           decision.tool_call_id AS "toolCallId"
-         FROM brainstrike_delegated_tool_decisions AS decision
-         JOIN jsonb_array_elements($3::jsonb) AS probe(leaf)
-           ON decision.child_runtime_run_id = probe.leaf->>0
-           AND decision.tool_call_id = probe.leaf->>1
-         WHERE decision.owner_resource_id = $1 AND decision.root_thread_id = $2`,
-        [
-          scope.ownerResourceId,
-          scope.rootThreadId,
-          JSON.stringify(leaves.map((leaf) => [leaf.childRuntimeRunId, leaf.toolCallId])),
-        ]
-      );
-      return z
-        .array(z.object({ childRuntimeRunId: identityString, toolCallId: identityString }))
-        .parse(answered.rows);
-    },
     /**
      * This leg's GENERATION and every native ROOT run mapped to it (migration
      * 140): the identity every leg of the generation publishes its ledger
@@ -705,6 +707,74 @@ export function createDesktopDelegatedConversationHost(
         throw new DelegatedConversationIdentityError('background-generation-unmapped');
       }
       return { generationRunId, nativeRunIds: parsed.data.nativeRunIds };
+    },
+    async readUnanswerableToolActionLeaves(candidates) {
+      if (candidates.length === 0) {
+        return [];
+      }
+      const scope = await readScope();
+      // The two per-candidate arms of `recordToolActionAnswers`' own guards,
+      // read together so the skip cannot drift from the write it predicts.
+      // ANSWERED: the enumerated durable states, not "any row" — a state added
+      // later must fail loudly on the write rather than silently over-skip a
+      // leaf that is still answerable. STOPPED: `stoppedSubtreeExists`, the
+      // SAME predicate the write refuses on, over the leaf's whole thread
+      // chain (`scope: 'child'` marks only the named child's invocation row).
+      // ONE ROW PER LEAF, and the precedence is the query's own: `DISTINCT ON`
+      // ordered by `(reason = 'stopped')` keeps `'stopped'` over `'answered'`
+      // for a leaf in both states, rather than leaving it to how the caller
+      // folds duplicates. The order names the winner instead of relying on
+      // where the two labels fall in the collation (PR #3221 reviews).
+      const unanswerable = await database.query(
+        `WITH candidate AS (
+           SELECT probe.leaf->>0 AS child_runtime_run_id, probe.leaf->>1 AS tool_call_id,
+             probe.leaf->2 AS thread_ids
+           FROM jsonb_array_elements($3::jsonb) AS probe(leaf)
+         ), unanswerable AS (
+           SELECT candidate.child_runtime_run_id, candidate.tool_call_id, 'answered' AS reason
+           FROM candidate
+           WHERE EXISTS (
+             SELECT 1 FROM brainstrike_delegated_tool_decisions AS decision
+             WHERE decision.child_runtime_run_id = candidate.child_runtime_run_id
+               AND decision.tool_call_id = candidate.tool_call_id
+               AND decision.owner_resource_id = $1 AND decision.root_thread_id = $2
+               AND decision.state IN ('claimed', 'consumed', 'interrupted')
+           )
+           UNION ALL
+           SELECT candidate.child_runtime_run_id, candidate.tool_call_id, 'stopped'
+           FROM candidate
+           WHERE EXISTS (${stoppedSubtreeExists({
+             owner: '$1',
+             root: '$2',
+             threads: 'candidate.thread_ids',
+             turn: '$4',
+           })})
+         )
+         SELECT DISTINCT ON (child_runtime_run_id, tool_call_id)
+           child_runtime_run_id AS "childRuntimeRunId", tool_call_id AS "toolCallId", reason
+         FROM unanswerable ORDER BY child_runtime_run_id, tool_call_id, (reason = 'stopped') DESC`,
+        [
+          scope.ownerResourceId,
+          scope.rootThreadId,
+          JSON.stringify(
+            candidates.map((candidate) => [
+              candidate.childRuntimeRunId,
+              candidate.toolCallId,
+              candidate.threadIds,
+            ])
+          ),
+          scope.turnMessageId,
+        ]
+      );
+      return z
+        .array(
+          z.object({
+            childRuntimeRunId: identityString,
+            reason: z.enum(['answered', 'stopped']),
+            toolCallId: identityString,
+          })
+        )
+        .parse(unanswerable.rows);
     },
     recordLiveDecision: (record) =>
       recordSwarmDiagnostic(hostRunId, 'live-decision', () =>
@@ -827,12 +897,12 @@ export function createDesktopDelegatedConversationHost(
                  WHERE cancelled.resource_id = runs.resource_id AND cancelled.thread_id = runs.thread_id
                    AND cancelled.turn_message_id = runs.turn_message_id AND cancelled.status IN ('cancelling', 'cancelled')
                )
-               AND NOT EXISTS (
-                 SELECT 1 FROM brainstrike_delegated_invocations stopped
-                 JOIN jsonb_array_elements_text($11::jsonb) target(thread_id) ON target.thread_id = stopped.thread_id
-                 WHERE stopped.owner_resource_id = $2 AND stopped.root_thread_id = $3
-                   AND stopped.turn_message_id = $10 AND stopped.cancellation_requested_at IS NOT NULL
-               )
+               AND NOT EXISTS (${stoppedSubtreeExists({
+                 owner: '$2',
+                 root: '$3',
+                 threads: '$11::jsonb',
+                 turn: '$10',
+               })})
              ON CONFLICT DO NOTHING RETURNING id`,
             [
               randomUUID(),

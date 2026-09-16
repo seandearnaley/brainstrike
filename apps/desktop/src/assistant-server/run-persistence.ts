@@ -51,6 +51,34 @@ const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const TOKEN_ESTIMATE_CALIBRATION_TABLE = 'brainstrike_token_estimate_calibration';
 const TOOL_CALL_TELEMETRY_TABLE = 'brainstrike_tool_call_telemetry';
 
+/**
+ * Stamp the DURABLE host leg on a pause this leg streams, exactly where the
+ * observer already stamps `runId` on every run event: the host is the one place
+ * that knows which `brainstrike_assistant_thread_runs` row is streaming. The
+ * notice carries it into its action echo, and the history topology adapter
+ * anchors the suspended message on that leg's `turn_message_id` (BST-1163) —
+ * the pause's own `runId` is Mastra's native run id and never matches a
+ * thread-run row.
+ *
+ * A pause of THIS turn qualifies: the root's own, and a delegated child's card
+ * (whose decision is appended by the root runtime, so the root turn's anchor is
+ * the right one). A CHILD-CONTINUATION pause does not: a continuation leg's
+ * `turn_message_id` is the continuation id, not a root message, so anchoring a
+ * root edge on it would persist a dangling parent.
+ */
+function withHostLeg(chunk: StreamChunk, hostRunId: string): StreamChunk {
+  if (chunk.type === 'tool-approval-required' || chunk.type === 'tool-suspend-required') {
+    return { ...chunk, hostRunId };
+  }
+  if (
+    chunk.type === 'delegated-conversation-chunk' &&
+    (chunk.chunk.type === 'tool-approval-required' || chunk.chunk.type === 'tool-suspend-required')
+  ) {
+    return { ...chunk, chunk: { ...chunk.chunk, hostRunId } };
+  }
+  return chunk;
+}
+
 export async function* observeDesktopAssistantRunEvents(
   stream: AsyncIterable<StreamChunk>,
   runId: string,
@@ -124,7 +152,7 @@ export async function* observeDesktopAssistantRunEvents(
         continue;
       }
       if (chunk.type !== 'run-event') {
-        yield chunk;
+        yield withHostLeg(chunk, runId);
         continue;
       }
       const event: AssistantRunEvent = {

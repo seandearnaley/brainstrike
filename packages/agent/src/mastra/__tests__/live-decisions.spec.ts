@@ -99,7 +99,7 @@ function harness(options: {
     } as unknown as BackgroundTaskManager,
     conversationBinding: {
       ...createDelegatedConversationBinding(async () => undefined),
-      readAnsweredToolActionLeaves: async () => [],
+      readUnanswerableToolActionLeaves: async () => [],
       recordLiveDecision:
         options.recordLiveDecision ??
         (async (record: unknown) => {

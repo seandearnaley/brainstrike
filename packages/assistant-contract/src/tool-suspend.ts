@@ -111,6 +111,11 @@ export const UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND =
 export interface AssistantToolSuspendRequest {
   continuationId?: string;
   delegation?: DelegatedToolActionIdentity;
+  /**
+   * The DURABLE host leg that streamed this pause — see {@link
+   * import('./tool-approval.js').AssistantToolApprovalRequest.hostRunId}.
+   */
+  hostRunId?: string;
   /** Optional JSON-schema echo of the tool's resumeSchema, for UX/debugging. */
   resumeSchema?: unknown;
   runId: string;
@@ -182,6 +187,13 @@ export function isRediscoveredToolSuspend(value: unknown): value is Rediscovered
 export interface AssistantToolResumeAction {
   continuationId?: string;
   delegation?: DelegatedToolActionIdentity;
+  /**
+   * The DURABLE host leg (`brainstrike_assistant_thread_runs.id`) whose turn
+   * surfaced this pause — see {@link
+   * import('./tool-approval.js').AssistantToolApprovalAction.hostRunId}. Never
+   * `runId`, which is the native Mastra run the resume route addresses.
+   */
+  hostRunId?: string;
   resumeData: unknown;
   runId: string;
   toolCallId: string;
@@ -195,6 +207,7 @@ export type ToolResumeRunConfigActionReadResult =
 const TOOL_RESUME_ACTION_OWN_KEYS = new Set<PropertyKey>([
   'continuationId',
   'delegation',
+  'hostRunId',
   'resumeData',
   'runId',
   'toolCallId',
@@ -226,6 +239,10 @@ export function isAssistantToolResumeAction(value: unknown): value is AssistantT
     Object.hasOwn(value, 'toolCallId') &&
     isBoundedIdentifier(value['runId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
     isBoundedIdentifier(value['toolCallId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
+    // Same own-and-bounded discipline as `toolName` (approval-action symmetry).
+    (!('hostRunId' in value) ||
+      (Object.hasOwn(value, 'hostRunId') &&
+        isBoundedIdentifier(value['hostRunId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS))) &&
     (!('toolName' in value) ||
       (Object.hasOwn(value, 'toolName') &&
         isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS)))

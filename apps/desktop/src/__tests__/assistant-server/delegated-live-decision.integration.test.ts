@@ -13,6 +13,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   answerLeafConcurrently,
+  answerLeafInGrantWindow,
   type ChildSpec,
   createApprovalDatabase,
   decisionRowIds,
@@ -245,7 +246,8 @@ describe('desktop live decisions through the real host ledger', () => {
       },
     ]);
     // MUTATION GUARD: a gate that ignores the remembered grant parks child 1's
-    // later read — a third card ('delegate-1') and a third answered chunk.
+    // later read, so a third card ('delegate-1') arrives. Whether that card is
+    // then auto-answered is pinned by the `answered` assertions below, not here.
     expect(cards.sort()).toEqual(['delegate-2', 'delegate-3']);
     const answered = fanout.initial
       .flatMap((chunk) => (chunk.type === 'tool-approval-answered' ? [chunk] : []))
@@ -305,7 +307,7 @@ describe('desktop live decisions through the real host ledger', () => {
     sessionGrants: ['read'],
   };
 
-  it('a live grant skips a sibling another decision already answered and still delivers the user own answer', async () => {
+  it("a live grant skips a sibling another decision already answered and still delivers the user's own answer", async () => {
     // BST-1749, PR #3209 review: an answered sibling is a legitimate state, not
     // a reason to refuse the user's click. Refusing it re-conflicted on every
     // retry that still carried the grant, so the card could never be answered.
@@ -349,11 +351,58 @@ describe('desktop live decisions through the real host ledger', () => {
     ]);
   });
 
-  it("a live grant refused on a stopped sibling records nothing: the user's own card stays answerable", async () => {
+  it("a live grant skips a sibling whose subtree was stopped and still delivers the user's own answer", async () => {
+    // BST-1749 follow-up: a Stop that does not reach
+    // `cancelStoredBackgroundInvocations` (a crash, or the 503 any step of
+    // `handleDelegatedCancelRequest` answers with the revocation already
+    // committed) leaves the sibling's invocation row carrying
+    // `cancellation_requested_at` while its background task is still
+    // suspended — the startup reaper repairs `pending`/`running` tasks only.
+    // Discovery therefore re-selects a task no write can ever accept, and
+    // refusing over it refused the user's own card on EVERY retry that still
+    // carried the grant: the permanent-refusal shape the answered-leaf skip
+    // exists to prevent.
+    const { fanout, result } = await whenCardsParked(
+      [
+        { id: '1', tool: 'brainstrike_grepSearch' },
+        { id: '2', tool: 'brainstrike_readWorkspaceFile' },
+        { id: '3', tool: 'brainstrike_readWorkspaceFile' },
+      ],
+      ['delegate-2', 'delegate-3'],
+      async (cards) => {
+        const user = cards.get('delegate-2');
+        const stopped = cards.get('delegate-3');
+        if (!(user && stopped)) {
+          throw new Error('The parked cards are missing');
+        }
+        await stopSubtree(database, stopped);
+        return await settle(deliverLive(user, READ_GRANT));
+      }
+    );
+    // MUTATION GUARD: refusing over the stopped sibling rejects this delivery.
+    expect(result).toBe('delivered');
+    // The stopped sibling is passed over, not answered: no ledger row of its
+    // own and its task stays parked, while the user's own answer lands.
+    expect(await decisionRowIds(database, 'delegate-3')).toEqual([]);
+    expect(await fanout.parkedTasks()).toEqual(['delegate-3']);
+    expect(fanout.readFile).toHaveBeenCalledTimes(1);
+    expect(
+      fanout.initial.flatMap((chunk) =>
+        chunk.type === 'tool-approval-answered' ? [[chunk.toolCallId, chunk.reason]] : []
+      )
+    ).toEqual([['delegate-2', 'user']]);
+    expect(await fanout.decisions()).toEqual([
+      { parent_tool_call_id: 'delegate-2', state: 'consumed' },
+    ]);
+  });
+
+  it("a live grant refused on a sibling answered inside the write window records nothing: the user's own card stays answerable", async () => {
     // BST-1749 review: the running leg recorded the user's answer as consumed,
-    // then the sibling's row was refused by the admission guards — leaving the
-    // user's pause consumed, never resumed, and refused on every retry. An
-    // admission refusal stays fatal; it is not an answered leaf.
+    // then the sibling's row was refused — leaving the user's pause consumed,
+    // never resumed, and refused on every retry. A refusal that lands in the
+    // window between discovery and the write stays fatal for the whole batch;
+    // it is the only fatal per-sibling refusal left, since discovery skips a
+    // leaf that is already answered or stopped when it READS.
     const { fanout, result } = await whenCardsParked(
       [
         { id: '1', tool: 'brainstrike_grepSearch' },
@@ -367,16 +416,19 @@ describe('desktop live decisions through the real host ledger', () => {
         if (!(user && sibling)) {
           throw new Error('The parked cards are missing');
         }
-        await stopSubtree(database, sibling);
+        const raced = answerLeafInGrantWindow(database, sibling);
         const refusal = await settle(deliverLive(user, READ_GRANT));
+        raced(refusal);
         const rowsAfterRefusal = await decisionRows(database);
         return { refusal, retried: await settle(deliverLive(user)), rowsAfterRefusal };
       }
     );
     expect(result.refusal).toMatchObject({ reason: 'tool-action-already-consumed-or-root-busy' });
-    // MUTATION GUARD: recording the user's answer before the sibling's (or
-    // outside one transaction) leaves a consumed delegate-2 row here.
-    expect(result.rowsAfterRefusal).toEqual([]);
+    // MUTATION GUARD: recording the answers outside ONE transaction leaves a
+    // consumed delegate-2 row beside the window's own delegate-3 row here.
+    expect(result.rowsAfterRefusal).toEqual([
+      { parent_tool_call_id: 'delegate-3', state: 'consumed' },
+    ]);
     expect(result.retried).toBe('delivered');
     expect(fanout.readFile).toHaveBeenCalledTimes(1);
     expect(
@@ -386,36 +438,41 @@ describe('desktop live decisions through the real host ledger', () => {
     ).toEqual([['delegate-2', 'user']]);
     expect(await fanout.decisions()).toEqual([
       { parent_tool_call_id: 'delegate-2', state: 'consumed' },
+      { parent_tool_call_id: 'delegate-3', state: 'consumed' },
     ]);
   });
 
   it("an approval leg whose granted sibling is refused releases the user's claim: the card stays answerable", async () => {
     // BST-1749 review: the approval leg claimed the user's decision, then
     // answering the parked sibling its grant covers failed before any native
-    // resume (here the sibling's subtree was stopped, so the ledger's admission
-    // guards refuse its answer); disposal's `finishToolActions` turned the
-    // unexecuted claim into `consumed`, so the user's card was refused for good.
+    // resume (here the sibling's leaf is answered inside the window between
+    // discovery and the write, so the unique leaf key refuses its row);
+    // disposal's `finishToolActions` turned the unexecuted claim into
+    // `consumed`, so the user's card was refused for good.
     const fanout = await setupFanout(database, TWO);
-    await stopSubtree(database, fanout.notice('2'));
+    const raced = answerLeafInGrantWindow(database, fanout.notice('2'));
     const refusal = await fanout
       .decide(fanout.notice('1'), 'approve', { ...READ_ASK, sessionGrants: ['read'] })
       .then(
         () => undefined,
         (error: unknown) => error
       );
+    raced(refusal);
     // The leg's construction failure carries the host's refusal as its cause.
     expect(refusal).toMatchObject({
       cause: { reason: 'tool-action-already-consumed-or-root-busy' },
       code: 'mastra_agent_stream_failure',
     });
     expect(fanout.execute).not.toHaveBeenCalled();
-    // MUTATION GUARD: without the release, disposal consumes delegate-1's claim.
-    expect(await fanout.decisions()).toEqual([]);
+    // MUTATION GUARD: without the release, disposal leaves delegate-1's claim
+    // behind as a consumed row instead of no row at all.
+    expect(await decisionRowIds(database, 'delegate-1')).toEqual([]);
     const retried = await fanout.decide(fanout.notice('1'), 'approve');
     expect(retried.answered).toEqual([]);
     expect(fanout.execute).toHaveBeenCalledTimes(1);
     expect(await fanout.decisions()).toEqual([
       { parent_tool_call_id: 'delegate-1', state: 'consumed' },
+      { parent_tool_call_id: 'delegate-2', state: 'consumed' },
     ]);
   });
 

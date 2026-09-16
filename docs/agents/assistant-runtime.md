@@ -2962,28 +2962,38 @@ Flow (desktop assistant server → agent runtime):
    dispatched one per run end by `FollowUpQueueBridge` exactly like a typed
    follow-up. The host serializes the resulting legs. `submitDecisionOrQueue`
    is async and reports `'delivered' | 'queued' | 'sent'`; a transport
-   rejection (409 host refusal, 500) propagates so the card unlocks and warns.
-   The typed-resume notice (`useSuspendResume` in
-   `assistant-tool-suspend-notice.tsx`) also shows `Decision not sent: <reason>`
-   inline (`sendError`, `role="alert"`, cleared when a new submit starts) for
-   that rejection and for a synchronous `thread().append` throw (e.g. an
-   unavailable thread scope). The installed assistant-ui `thread().append`
-   returns `void` and rethrows any failure other than `MessageNotSentError`
-   from a detached handler (it reaches `unhandledrejection`), so the notice
-   never wraps it in a promise: a failed resumed run is observed through thread
-   state (`incomplete` → `retryable` unlocks the controls). The swallowed
+   rejection (409 host refusal, 500) propagates so the card unlocks and shows
+   `Decision not sent: <reason>` inline (`sendError`, `role="alert"`). BOTH
+   notices report it — the approval notice (`use-approval-notice-state.ts`) and
+   the typed-resume notice (`useSuspendResume` in
+   `assistant-tool-suspend-notice.tsx`) — for that rejection and for a
+   synchronous `thread().append` throw (e.g. an unavailable thread scope). The
+   installed assistant-ui `thread().append` returns `void` and rethrows any
+   failure other than `MessageNotSentError` from a detached handler (it reaches
+   `unhandledrejection`), so neither notice wraps it in a promise: a failed
+   resumed run is observed through thread state (`incomplete` → `retryable`
+   unlocks the card; `ErrorPrimitive` renders the error). The swallowed
    `MessageNotSentError` is the runtime's own rollback signal and is raised
    ONLY when a thread-list initializer rejects (`RemoteThreadResource`); the
    desktop/web `useLocalRuntime` in `data-stream-runtime.ts` wires none, so
    that branch is unreachable here — adding a remote thread list would make it
    reachable and would need its own observation channel, because `append`
-   reports it to no caller. A started resume (this card's retry, or the same
-   pause answered from the delegated child view) clears `sendError` on the
-   `pending`/`completed` transition so a stale "not sent" cannot outlive its
-   context. Paired:
+   reports it to no caller. Both notices clear `sendError` when a new submit
+   starts; beyond that a spent message never outlives its context, by two
+   routes. The approval notice DERIVES the alert: the failure carries the
+   run-outcome key the attempt was made in, and that key names the DECISION it
+   was resolved from (its index) rather than `action`/`state` alone — two runs
+   both reach `retryable`, so on the pair alone a spent message would re-match
+   the second — leaving no effect to adjust it and no frame showing stale text.
+   The typed-resume notice clears `sendError` on the `pending`/`completed`
+   transition (this card's retry, or the same pause answered from the delegated
+   child view). Paired:
    `follow-up-queue-store.test.ts`,
    `assistant-tool-suspend-notice-send-failures.test.tsx`,
-   `assistant-tool-approval-notice-panel.test.tsx` ("while a run is active"),
+   `assistant-tool-approval-notice-panel.test.tsx` (the top-level describe for
+   the derived alert; "while a run is active" for the queue/transport paths),
+   `assistant-ui-append-contract.test.ts` (the `void` return itself — a version
+   bump that returns a promise fails type-check, not at runtime),
    `follow-up-queue.behavior.test.tsx` (real local runtime dispatch of a queued
    decision) and app-shell `delegated-conversation-root.test.ts`. SETTLED
    2026-09-14 (thread-796a942d): the decision ledger permits ONE `claimed`
@@ -2998,18 +3008,35 @@ Flow (desktop assistant server → agent runtime):
    the native freshness check — is ONE host transaction (the binding requires
    `database.transaction`), and it names each leaf at most once. A refused
    answer records nothing, so the user's own pause stays answerable instead
-   of consumed, unresumed and refused on every retry. ALREADY ANSWERED IS NOT
-   A REFUSAL (PR #3209 review): discovery skips a parked sibling whose leaf
-   already carries a durable decision — claimed, consumed or interrupted
-   (`readAnsweredToolActionLeaves`) — because another decision answered it
-   and this grant owes it nothing; refusing over it re-conflicted on every
-   retry that still carried the grant. An ADMISSION refusal (root not
-   running, cancelling, or a stopped subtree) stays fatal for the whole
-   write, as does a leaf answered in the window between that read and the
-   write. Paired: desktop rows "a live grant skips a sibling another decision
-   already answered and still delivers the user own answer" and "a live grant
-   refused on a stopped sibling records nothing: the user's own card stays
-   answerable".
+   of consumed, unresumed and refused on every retry. ALREADY ANSWERED OR
+   STOPPED IS NOT A REFUSAL (PR #3209 review and its follow-up): discovery
+   skips a parked sibling the write would refuse for a reason of its OWN.
+   `readUnanswerableToolActionLeaves` names both — `'answered'`, the leaf
+   already carries a durable decision (claimed, consumed or interrupted;
+   those states are ENUMERATED in the read, not "any row", so a widened CHECK
+   fails loudly on the write instead of silently over-skipping a leaf that is
+   still answerable), and `'stopped'`, the leaf's thread chain carries a
+   cancellation request for this turn (the chain, because `scope: 'child'`
+   marks only the named child's invocation row). Either way this grant owes
+   the sibling nothing, and refusing over it re-conflicted on every retry that
+   still carried the grant. A stopped subtree whose task is still SUSPENDED is
+   reachable, not a test artefact: `handleDelegatedCancelRequest` commits the
+   admission revocation before `cancelStoredBackgroundInvocations` flips the
+   task, with no shared transaction and a 503 that leaves the revocation
+   committed, and the startup reaper repairs `pending`/`running` tasks only.
+   Both writes and this read build that stopped predicate from ONE
+   `stoppedSubtreeExists` fragment, so the skip cannot be narrower than the
+   write (the permanent refusal returns) or broader (a sibling the write would
+   have answered is skipped and its task stranded).
+   ROOT-WIDE admission (the root run not running, cancelling or cancelled)
+   stays fatal for the whole write — it refuses the user's own answer too —
+   as does a leaf answered or stopped in the WINDOW between that read and the
+   write, now the only fatal per-sibling refusal. Paired: desktop rows "a live
+   grant skips a sibling another decision already answered and still delivers
+   the user's own answer", "a live grant skips a sibling whose subtree was
+   stopped and still delivers the user's own answer" and "a live grant refused
+   on a sibling answered inside the write window records nothing: the user's
+   own card stays answerable".
    The agent fixture now holds one active claim and refuses a second, exactly
    like the host, and `delegated-runtime.integration.test.ts` ("a session
    grant answers the parked background sibling through the real host ledger")
@@ -3088,7 +3115,34 @@ Flow (desktop assistant server → agent runtime):
    builds its label from `describeDelegationChain`, so a depth-1 card still
    reads "Explorer · <prompt>"). The notice file is a chooser;
    `use-approval-notice-state.ts` owns the outcome/lock/submit logic and
-   `approval-preview.tsx` the structured previews. Paired:
+   `approval-preview.tsx` the structured previews.
+   OPTIMISTIC LOCK (2026-09-15): the lock a click takes is STAMPED with the
+   run outcome it was taken in (`ApprovalRunOutcomeKey`) and DERIVED during
+   render — never adjusted in an effect. It holds while the thread still
+   reads that outcome: the double-click window, and a live decision delivered
+   INTO the running turn, which appends no message at all and so keeps the
+   card locked for good. It is spent as soon as the outcome moves on, which
+   is how a FAILED (`retryable`) resumed run hands the card back. The two
+   halves pull against each other and BOTH need the key to be an IDENTITY,
+   not a value:
+     - Testing `state !== 'retryable'` directly — as the effect this replaced
+       did, `submittedAction` being in its own dep array — DROPS the lock a
+       RETRY click has just taken, because the thread still reads the run
+       that failed until the retried decision reaches it; the second of two
+       quick clicks then appends a duplicate decision (the DECISIONS DURING A
+       RUN hazard, one layer up).
+     - Keying on `{action, state}` alone RESURRECTS a spent lock, because
+       that pair repeats: approve → fail → retry approve → fail again reads
+       `approve`/`retryable` both times, and the card locks with no way back.
+       `resolveApprovalRunOutcome` therefore also reports `decisionIndex`
+       (the index of the decision message the outcome describes, `-1` for
+       none) and the key carries it.
+   Pinned as a PAIR by `assistant-tool-approval-notice-panel.test.tsx`
+   ("locks the card from a retry click the thread has not caught up with
+   yet" and "reenables approval actions when the retried run fails the same
+   way"); neither alone is enough, and both must stay green beside the
+   existing `retryable` re-enable cases.
+   Paired:
    `approval-presentation.test.ts`, `approval-presentation-context.test.tsx`,
    `approval-row.test.tsx` (card→row on a host answer, promotion of the next
    pending card, nesting depth/rails/chain, an answered click collapses, a
@@ -3267,12 +3321,19 @@ message whose `metadata.custom` + `runConfig.custom` carry the action under
 `TOOL_APPROVAL_RUN_CONFIG_KEY` / `TOOL_SUSPEND_RUN_CONFIG_KEY`, with an echo
 text ("Approved <tool>." / "Approved the plan."). Approval actions are a strict
 wire object: exactly the own keys `action`, `runId`, `toolCallId`, and optional
-`toolName`; the two required ids and any present tool name are non-empty and
-bounded by the shared 512-character approval-transport constants. Suspend
-resume actions mirror that exact-own-key and identifier contract for
-`resumeData`, `runId`, `toolCallId`, and optional `toolName`; only the
-`resumeData` value stays tool-defined for Mastra's resume schema. Extra own or
+`toolName` and `hostRunId`; the two required ids and any present tool name or
+host run id are non-empty and bounded by the shared 512-character
+approval-transport constants. Suspend resume actions mirror that
+exact-own-key and identifier contract for `resumeData`, `runId`, `toolCallId`,
+and optional `toolName`/`hostRunId`; only the `resumeData` value stays
+tool-defined for Mastra's resume schema. Extra own or
 inherited fields, blank identifiers, and oversized identifiers are malformed.
+`runId` is the NATIVE Mastra run the resume routes address; `hostRunId` is the
+DURABLE host leg (`brainstrike_assistant_thread_runs.id`) the pause notice was
+streamed by, copied from the pause so the history topology adapter can anchor
+the suspended message on that leg's turn (see the DURABLE-PARENT INVARIANT in
+docs/agents/assistant-persistence.md — the two ids are never interchangeable,
+and a native run id never matches a thread-run row).
 Every Desktop and Hosted Web boundary parses BOTH continuation kinds before
 dispatch: either malformed action returns the corresponding
 `invalid_tool_approval_action` / `invalid_tool_resume_action` HTTP 400, and two
@@ -4527,7 +4588,14 @@ throws the live runtime away where the child Stop reloads history in place:
 `resolveTurnAnchorMessageId`, so a pause parked by an earlier turn that this
 cancel never touched is ignored) and only counts a pause NOTHING has answered —
 a durable `decisionState`, the host's streamed `tool-approval-answered`, or the
-user's own appended decision all settle it. In-session answers carry no durable
+user's own appended decision all settle it. That renderer scope and the HOST
+CANCEL SCOPE MUST MOVE TOGETHER: the gate may stop at the turn only because
+`cancelDesktopAssistantRun` does too (`cancel-run.ts`: the owned-runs CTE takes
+the run plus every run sharing its `turn_message_id`, `cancelWaitingTurnTasks`
+filters `invocation.turn_message_id`, and the continuations are derived from
+those run ids), so widening the host cancel past the turn without widening
+this gate would leave an earlier turn's cancelled card reading "Pending" with
+live buttons until the thread is reloaded. In-session answers carry no durable
 state, so counting them remounted the thread on the ordinary "approve a tool,
 keep going, Stop" path (PR #3214 review). The host writes that durable state
 BEFORE it answers: `cancelDesktopAssistantRun` marks the turn's runs

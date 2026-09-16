@@ -88,12 +88,22 @@ export function isApprovalActionMessage(
 }
 
 /**
- * The `runId` carried by a STRUCTURALLY VALID action marker on `message`, or
- * undefined when the message is not an action message. The topology adapter
- * uses it to resolve the suspending run's durable turn anchor (BST-1163
- * `turn_message_id`) instead of guessing a parent from session order.
+ * The DURABLE HOST LEG (`brainstrike_assistant_thread_runs.id`) the pause this
+ * echo answers was surfaced by, or undefined when the message is not an action
+ * message or its pause named no host leg (a rediscovered pause, whose leg ended
+ * before the restart).
+ *
+ * This — never `runId` — is what resolves the suspended message's durable turn
+ * anchor (BST-1163 `turn_message_id`). `runId` is the NATIVE Mastra run id the
+ * resume routes address; Mastra mints it (`options?.runId || generateId()`) and
+ * no leg passes the host id in, so it never matches a thread-run row, and one
+ * host leg can hold several native runs (a background wake-up mints another).
  */
-export function readActionMessageRunId(message: unknown): string | undefined {
+export function readActionMessageHostRunId(message: unknown): string | undefined {
+  return readActionMessageMarkerId(message, 'hostRunId');
+}
+
+function readActionMessageMarkerId(message: unknown, field: string): string | undefined {
   if (!isRecord(message) || message['role'] !== 'user') {
     return;
   }
@@ -106,8 +116,8 @@ export function readActionMessageRunId(message: unknown): string | undefined {
       continue;
     }
     const marker = custom[key];
-    if (isRecord(marker) && typeof marker['runId'] === 'string') {
-      return marker['runId'];
+    if (isRecord(marker) && typeof marker[field] === 'string') {
+      return marker[field];
     }
   }
   return;

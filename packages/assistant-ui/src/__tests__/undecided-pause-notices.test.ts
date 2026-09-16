@@ -66,11 +66,40 @@ function assistantMessage(id: string, content: readonly unknown[]): ThreadMessag
   } as unknown as ThreadMessage;
 }
 
+/**
+ * The same approval pause with NO delegation and no `continuationId`. Any
+ * decision state on this is UNREADABLE — `hasValidDelegatedDecisionState`
+ * rejects it, so the reader stamps `invalid` — which is what the sentinel pair
+ * below turns on. Everything else matches `PAUSE`, so the two tests differ by
+ * exactly one field.
+ */
+const UNDELEGATED_PAUSE = {
+  args: PAUSE.args,
+  riskCategory: PAUSE.riskCategory,
+  runId: PAUSE.runId,
+  toolCallId: PAUSE.toolCallId,
+  toolName: PAUSE.toolName,
+} as const;
+
 /** A root askUser/submitPlan pause: the suspend half of the same gate. */
 const SUSPEND = {
   runId: 'root-run',
   toolCallId: 'ask-1',
   toolName: 'brainstrike.askUser',
+} as const;
+
+/**
+ * A second root suspend. Undelegated pauses key on `[runId, toolCallId]`, so a
+ * different `toolCallId` is already a different pause (unlike the delegated
+ * case below, which keys on its delegation leaf). Everything else MATCHES
+ * `SUSPEND`, so the test that uses it is strictly about `toolCallId`: were the
+ * key to accidentally take in `toolName` too, a differing one would keep the
+ * two apart and hide it.
+ */
+const SECOND_SUSPEND = {
+  runId: 'root-run',
+  toolCallId: 'ask-2',
+  toolName: SUSPEND.toolName,
 } as const;
 
 const pausePart = (data: unknown) => ({ data, name: TOOL_APPROVAL_DATA_NAME, type: 'data' });
@@ -183,9 +212,12 @@ describe('hasUndecidedPauseNotice', () => {
   });
 
   /**
-   * A resume echo is an ACTION message, so it never becomes the turn anchor —
-   * which is what keeps its own suspend pause inside the scanned window and
-   * makes this branch reachable at all.
+   * PAIRED with the test below, because this one alone cannot tell its two
+   * mechanisms apart: it reads false both when the resume arm settles the key
+   * AND when the echo becomes the turn anchor, collapsing the window to the
+   * echo so no pause is scanned at all. This half pins the resume arm — it is
+   * the only test that fails when `readAppendedDecisionKey` stops keying a
+   * resume marker. The half below pins the anchor.
    */
   it('ignores a suspend pause the user resumed in this session', () => {
     expect(
@@ -204,8 +236,43 @@ describe('hasUndecidedPauseNotice', () => {
     ).toBe(false);
   });
 
-  it.each(['cancelled', 'claimed', 'consumed', 'interrupted'] as const)(
-    'treats the durable %s state as an answer',
+  /**
+   * The anchor half. The echo goes LAST with a second, unresumed suspend ahead
+   * of it, so the answer is true only if the echo was skipped by the anchor and
+   * the window still reaches a1/a2. Were the echo the anchor, the window would
+   * be the echo alone, nothing would be scanned, and this would read false.
+   */
+  it('reports a second suspend the resume echo left undecided', () => {
+    expect(
+      hasUndecidedPauseNotice([
+        userMessage('turn-1'),
+        assistantMessage('a1', [suspendPart(SUSPEND)]),
+        assistantMessage('a2', [suspendPart(SECOND_SUSPEND)]),
+        userMessage('resume', {
+          [TOOL_SUSPEND_RUN_CONFIG_KEY]: {
+            resumeData: { answer: 'go on' },
+            runId: SUSPEND.runId,
+            toolCallId: SUSPEND.toolCallId,
+            toolName: SUSPEND.toolName,
+          },
+        }),
+      ])
+    ).toBe(true);
+  });
+
+  /**
+   * Every state `readRediscoveredPauseDisplay` can report, `invalid` included —
+   * which is NOT a member of the durable union but the sentinel that reader
+   * stamps when a decision exists and could not be read. It locks the card just
+   * as the terminal states do, so the gate must count it as an answer; leaving
+   * it out of this table let it be dropped from the decided set unnoticed.
+   *
+   * Each row feeds its state in DIRECTLY, so what this pins is the gate's
+   * decided-set membership — not the reader's stamping. The test below covers
+   * the sentinel's own path.
+   */
+  it.each(['cancelled', 'claimed', 'consumed', 'interrupted', 'invalid'] as const)(
+    'treats the %s decision state as an answer',
     (decisionState) => {
       expect(
         hasUndecidedPauseNotice([
@@ -222,6 +289,39 @@ describe('hasUndecidedPauseNotice', () => {
       ).toBe(false);
     }
   );
+
+  /**
+   * POSITIVE CONTROL for the test below, and the reason that one can be read at
+   * all. A lone `toBe(false)` there cannot tell the sentinel apart from the part
+   * never being indexed — an unrecognised payload or one outside the scanned
+   * window answers false too. This proves the literal IS recognised as a pause
+   * and IS inside the window, so the only thing that changes between the two is
+   * the decision state.
+   */
+  it('reports the same pause when it carries no decision state', () => {
+    expect(
+      hasUndecidedPauseNotice([
+        userMessage('turn-1'),
+        assistantMessage('a1', [pausePart(UNDELEGATED_PAUSE)]),
+      ])
+    ).toBe(true);
+  });
+
+  /**
+   * The sentinel's OWN path, which the table above does not travel: those rows
+   * feed their state in directly on a READABLE payload. Here the state is a real
+   * durable one and the payload is what is unreadable, so the reader stamps
+   * `invalid`. A decision exists and could not be read, so the card stays locked
+   * and the Stop must not remount for it.
+   */
+  it('treats a decision state it cannot read as an answer', () => {
+    expect(
+      hasUndecidedPauseNotice([
+        userMessage('turn-1'),
+        assistantMessage('a1', [pausePart({ ...UNDELEGATED_PAUSE, decisionState: 'cancelled' })]),
+      ])
+    ).toBe(false);
+  });
 
   it('reports nothing for a thread that never paused', () => {
     expect(

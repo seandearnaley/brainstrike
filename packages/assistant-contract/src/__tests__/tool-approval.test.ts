@@ -122,6 +122,46 @@ describe('readToolApprovalRunConfigAction', () => {
       })
     ).toBe(false);
   });
+
+  it('carries the host leg that surfaced the pause beside the native run id', () => {
+    const action = {
+      action: 'approve',
+      hostRunId: 'run-host-leg-1',
+      runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+      toolCallId: 'tool-call-1',
+    } as const;
+
+    expect(isAssistantToolApprovalAction(action)).toBe(true);
+    expect(
+      readToolApprovalRunConfigAction({ custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: action } })
+    ).toEqual({ action });
+  });
+
+  it.each([
+    ['blank', '   '],
+    ['oversized', 'h'.repeat(ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS + 1)],
+    ['non-string', 7],
+    ['explicitly undefined', undefined],
+  ])('rejects a %s hostRunId', (_caseName, hostRunId) => {
+    expect(
+      isAssistantToolApprovalAction({
+        action: 'approve',
+        hostRunId,
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+      })
+    ).toBe(false);
+  });
+
+  it('rejects an inherited hostRunId', () => {
+    const action = Object.assign(Object.create({ hostRunId: 'run-host-leg-1' }), {
+      action: 'approve',
+      runId: 'run-approval-1',
+      toolCallId: 'tool-call-1',
+    });
+
+    expect(isAssistantToolApprovalAction(action)).toBe(false);
+  });
 });
 
 describe('isRediscoveredToolApproval', () => {

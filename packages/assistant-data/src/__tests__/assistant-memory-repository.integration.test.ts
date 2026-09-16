@@ -34,6 +34,7 @@ function makeMessagesOnlyRepository(): AssistantThreadRepository {
     deleteThread: vi.fn(),
     getCrossRootUsage: vi.fn(async () => []),
     getThreadCumulativeUsage: vi.fn(async () => null),
+    getThreadRunTurnMessageId: vi.fn(async () => null),
     listLatestThreadRuns: vi.fn(),
     listMessages: vi.fn(async () => [
       {
@@ -386,6 +387,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -723,6 +725,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => []),
       listThreadCheckpoints: vi.fn(async () => []),
@@ -755,6 +758,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => []),
       listThreadCheckpoints: vi.fn(async () => []),
@@ -804,6 +808,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -838,6 +843,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -911,6 +917,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -977,6 +984,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -1066,6 +1074,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -1131,6 +1140,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -1202,6 +1212,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -1260,6 +1271,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
         deleteThread: vi.fn(),
         getCrossRootUsage: vi.fn(async () => []),
         getThreadCumulativeUsage: vi.fn(async () => null),
+        getThreadRunTurnMessageId: vi.fn(async () => null),
         listLatestThreadRuns: vi.fn(),
         listMessages: vi.fn(async () => [
           {
@@ -1375,6 +1387,7 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => args.messages),
       listThreadCheckpoints: vi.fn(async () => []),

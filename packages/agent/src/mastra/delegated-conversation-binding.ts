@@ -37,6 +37,30 @@ export interface DelegatedToolActionLeaf {
   readonly toolCallId: string;
 }
 
+/**
+ * A parked leaf a session grant would answer, with the thread chain the host
+ * reads its stopped-subtree guard over. `threadIds` MUST be exactly the write's
+ * authorized ancestry — every child thread from the root's own child down to
+ * the leaf's, no more and no less — not merely "a chain that authorizes it".
+ * Both deviations are faults, and neither is caught by the host: SHORT restores
+ * the BST-1749 permanent refusal (the write refuses what the read missed, and
+ * `scope: 'child'` marks only the named child's invocation row, so an ancestor
+ * stop is visible only through the full chain); LONG silently over-skips a
+ * sibling the write would have answered, leaving its task suspended with no
+ * recovery path (assistant-subagents.md). The one caller derives it from
+ * `resolveParkedInvocation`'s host-resolved scopes, walked over the same edges
+ * `resolveToolAction` re-walks for the write, so the two agree by construction
+ * (PR #3221 review).
+ */
+export interface DelegatedToolActionCandidate extends DelegatedToolActionLeaf {
+  readonly threadIds: readonly string[];
+}
+
+/** Why a candidate cannot be answered, so the skip log names the real state. */
+export interface DelegatedToolActionUnanswerable extends DelegatedToolActionLeaf {
+  readonly reason: 'answered' | 'stopped';
+}
+
 /** A delegated leaf decision the host records as answered (`recordToolActionAnswers`). */
 export interface DelegatedToolActionAnswer {
   readonly delegation: DelegatedToolActionIdentity;
@@ -181,28 +205,36 @@ export interface DelegatedConversationBinding {
   /** Freeze child history after admission and before invoking native resume. */
   readonly prepareToolAction?: NonNullable<DelegatedConversationBinding['claimToolAction']>;
   /**
-   * `recordLiveDecision`, `recordPromptManifest` and `recordWakeup` write
-   * debug-pack evidence (migration 139): host-owned, append-only, never runtime
-   * authority. The host logs a failed write with a code and resolves — a
-   * diagnostic record never fails the leg (swarm diagnostics plan, ruling 4).
-   */
-  /**
-   * The leaves among `leaves` that already carry a durable decision (claimed,
-   * consumed or interrupted — none can be answered again, BST-1720). A session
-   * grant skips such a sibling instead of refusing the user's own click over
-   * it: an answered leaf is a legitimate state that needs no second answer
-   * (BST-1749, PR #3209 review).
-   */
-  readonly readAnsweredToolActionLeaves?: (
-    leaves: readonly DelegatedToolActionLeaf[]
-  ) => Promise<readonly DelegatedToolActionLeaf[]>;
-  /**
    * This leg's generation and its native-run scope (migration 140). Unlike the
    * diagnostic records below this IS runtime authority: it decides the ledger
    * identity every leg of the generation publishes under. It throws when the
    * leg resumed a native run no host leg mapped, rather than guess.
    */
   readonly readBackgroundGeneration?: () => Promise<BackgroundGeneration>;
+  /**
+   * `recordLiveDecision`, `recordPromptManifest` and `recordWakeup` write
+   * debug-pack evidence (migration 139): host-owned, append-only, never runtime
+   * authority. The host logs a failed write with a code and resolves — a
+   * diagnostic record never fails the leg (swarm diagnostics plan, ruling 4).
+   */
+  /**
+   * The candidates among `candidates` that `recordToolActionAnswers` would
+   * refuse for a reason of their OWN, so a session grant skips them instead of
+   * refusing the user's own click over them. Two reasons, both settled:
+   * `'answered'` — the leaf already carries a durable decision (claimed,
+   * consumed or interrupted; none can be answered again, BST-1720) because
+   * another decision answered it (BST-1749, PR #3209 review); `'stopped'` —
+   * the leaf's thread chain carries a cancellation request for this turn, so
+   * the child will never resume and there is nothing to answer. A Stop that
+   * never reached `cancelStoredBackgroundInvocations` leaves exactly that
+   * pairing — a stopped subtree whose task is still suspended — and refusing
+   * over it refused the user's card on every retry that still carried the
+   * grant. Root-wide admission (the root run not running, or cancelled) is
+   * NOT read here: it refuses the user's own answer too and must stay fatal.
+   */
+  readonly readUnanswerableToolActionLeaves?: (
+    candidates: readonly DelegatedToolActionCandidate[]
+  ) => Promise<readonly DelegatedToolActionUnanswerable[]>;
   readonly recordLiveDecision?: (record: DelegatedLiveDecisionRecord) => Promise<void>;
   /**
    * Maps a native ROOT run to the host leg that started it (migration 140):

@@ -532,15 +532,15 @@ export async function createBackgroundFixture(
         activeClaim = undefined;
       },
       prepareToolAction: async () => {},
-      // The fixture holds no decision ledger, so no parked leaf is ever
-      // already answered; the real host answers this from the ledger.
-      readAnsweredToolActionLeaves: async () => [],
       // Migration 140: the generation this leg belongs to, and every native
       // ROOT run mapped to it — the ledger's scope across legs and runs.
       readBackgroundGeneration: async () => ({
         generationRunId: FIXTURE_GENERATION_RUN_ID,
         nativeRunIds: [...nativeRootRuns],
       }),
+      // The fixture holds no decision ledger, so no parked leaf is ever
+      // already answered; the real host answers this from the ledger.
+      readUnanswerableToolActionLeaves: async () => [],
       recordLiveDecision: async (record: DelegatedLiveDecisionRecord) => {
         liveDecisions.push(record);
       },
