@@ -4520,8 +4520,9 @@ shape), `root-stop-rediscovers-approvals.behavior.test.tsx` (real panel,
 adapter, run session, index, strip and notice; the cancelled pause leaving the
 strip, an answered approval keeping the mounted thread, and the draft typed
 before the Stop coming back in the composer that replaces it) and
-`assistant-ui-panel-wrapper.test.tsx` ("carries the live composer draft into
-the thread that re-reads after a Stop", over the real command store). The two
+`assistant-ui-panel-wrapper-stop-reread.test.tsx` ("carries the live composer
+draft into the thread that re-reads after a Stop", over the real command
+store, beside `use-stop-reread-draft-carry.test.ts`). The two
 halves are pinned separately — the panel against a fake host, the store against
 a mocked panel — because the app-shell harness mocks `@brainstrike/assistant-ui`
 wholesale and assistant-ui cannot import app-shell; mutations cover the seam

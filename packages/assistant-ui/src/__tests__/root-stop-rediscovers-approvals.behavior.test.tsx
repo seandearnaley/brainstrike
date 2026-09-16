@@ -361,7 +361,8 @@ describe('root Stop re-reads pauses from the host ledger', () => {
    * (app-shell's thread-scoped command store) is told BEFORE the remount and
    * hands the draft back as a replace command; this proves the command reaches
    * the NEW mount rather than the composer that is about to be discarded.
-   * `assistant-ui-panel-wrapper.test.tsx` proves the real store wiring.
+   * `assistant-ui-panel-wrapper-stop-reread.test.tsx` proves the real store
+   * wiring.
    */
   it('keeps a draft typed before the Stop in the composer that replaces it', async () => {
     const user = userEvent.setup();

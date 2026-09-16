@@ -1,7 +1,7 @@
 import type { ThreadMessage } from '@assistant-ui/react';
 import {
+  type DelegatedToolDecisionState,
   getToolActionIdentityKey,
-  isDelegatedToolActionIdentity,
 } from '@brainstrike/assistant-contract';
 import {
   isAssistantToolApprovalAction,
@@ -11,6 +11,7 @@ import {
   TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
 import {
+  isAssistantToolResumeAction,
   TOOL_SUSPEND_DATA_NAME,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-suspend';
@@ -33,6 +34,19 @@ interface DataPart {
 
 /** Whatever `getToolActionIdentityKey` can key: a pause, answer or decision. */
 type ToolActionIdentity = Parameters<typeof getToolActionIdentityKey>[0];
+
+/**
+ * The durable states that SETTLE a pause. Listed rather than inferred from
+ * "has a state", so a future non-terminal member (a `pending`, say) is not
+ * silently read as an answer — it would fall through as still undecided.
+ */
+const DECIDED_DECISION_STATES = new Set<DelegatedToolDecisionState | 'invalid'>([
+  'cancelled',
+  'claimed',
+  'consumed',
+  'interrupted',
+  'invalid',
+]);
 
 /**
  * The messages of the turn being stopped: from its anchoring user message
@@ -63,21 +77,10 @@ function readAppendedDecisionKey(message: ThreadMessage): string | undefined {
     return getToolActionIdentityKey(approval);
   }
   const resume = custom[TOOL_SUSPEND_RUN_CONFIG_KEY];
-  if (
-    !(
-      isRecord(resume) &&
-      typeof resume['runId'] === 'string' &&
-      typeof resume['toolCallId'] === 'string'
-    )
-  ) {
-    return;
-  }
-  const delegation = resume['delegation'];
-  return getToolActionIdentityKey({
-    ...(isDelegatedToolActionIdentity(delegation) ? { delegation } : {}),
-    runId: resume['runId'],
-    toolCallId: resume['toolCallId'],
-  });
+  // The contract's own guard, so this agrees with `isApprovalActionMessage`
+  // about what a resume marker is — which is what keeps the resume echo out of
+  // the turn anchor and its suspend pause inside the window.
+  return isAssistantToolResumeAction(resume) ? getToolActionIdentityKey(resume) : undefined;
 }
 
 /**
@@ -137,9 +140,14 @@ function indexPausePart(part: DataPart, decided: Set<string>, undecided: Set<str
     return;
   }
   const key = getToolActionIdentityKey(pause);
-  if (readRediscoveredPauseDisplay(pause)?.decisionState === undefined) {
-    undecided.add(key);
+  const decisionState = readRediscoveredPauseDisplay(pause)?.decisionState;
+  // Matched EXPLICITLY, not "any state is an answer": every member of the
+  // durable union is terminal today, and `invalid` means a decision exists but
+  // could not be read — all of them lock the card. Should the union ever gain
+  // a non-terminal member, it falls through to `undecided`, which re-reads.
+  if (decisionState !== undefined && DECIDED_DECISION_STATES.has(decisionState)) {
+    decided.add(key);
     return;
   }
-  decided.add(key);
+  undecided.add(key);
 }
