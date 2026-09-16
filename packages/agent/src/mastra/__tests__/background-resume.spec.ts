@@ -238,14 +238,23 @@ function startLeg(params: {
   readonly abortSignal?: AbortSignal;
   /** The host's per-call join (`hooks.afterToolCall`) a resumed executor runs before it settles. */
   readonly afterToolCall?: () => Promise<void>;
+  /** Holds the FIRST registration's tool resolution, parking the leg inside `register`. */
+  readonly holdFirstRegistration?: Promise<void>;
   readonly channel?: LiveDecisionChannel | undefined;
   readonly manager: BackgroundTaskManager;
   readonly resumes: readonly BackgroundTask[];
   readonly tools: Promise<ToolMap>;
 }) {
+  let registrations = 0;
   const runtime = {
     agent: {
-      getToolsForExecution: () => params.tools,
+      getToolsForExecution: async () => {
+        registrations += 1;
+        if (registrations === 1) {
+          await params.holdFirstRegistration;
+        }
+        return await params.tools;
+      },
       id: 'root',
       listSuspendedRuns: async () => ({ runs: [{ runId: 'root-run' }] }),
       stream: () => {
@@ -462,6 +471,44 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
     } finally {
       running.resolve();
     }
+  }, 2000);
+
+  it('never re-registers or deregisters a task a live decision already resumed', async () => {
+    // The leg owns the seam across its whole registration window, so a live
+    // decision can resume a task the leg has NOT reached yet. Registering that
+    // task again would overwrite a running task's context, orphan the join the
+    // reservation already pushed, and let the leg's own refusal deregister it.
+    const registering = Promise.withResolvers<void>();
+    const running = Promise.withResolvers<void>();
+    const channel = createLiveDecisionChannel();
+    const native = createNativeManager();
+    const first = native.add('t1');
+    const ahead = native.add('t2');
+    const { ended, leg } = startLeg({
+      channel,
+      holdFirstRegistration: registering.promise,
+      manager: native.manager,
+      resumes: [first, ahead],
+      tools: Promise.resolve({ [TOOL]: parkingTool(running.promise) }),
+    });
+    try {
+      await until(() => channel.owner !== undefined);
+      const owner = channel.owner;
+      if (!owner) {
+        throw new Error('The leg does not own its live decision seam.');
+      }
+      // t2 is resumed and running while the leg still awaits t1's registration.
+      await owner.reserve([ahead]).resume([{ resumeData: { approved: true }, task: ahead }]);
+      await until(() => native.calls.includes('execute:t2'));
+      registering.resolve();
+      await until(() => native.calls.includes('resume:t1'));
+      expect(native.calls).not.toContain('deregister:t2');
+      expect(native.calls.filter((call) => call === 'register:t2')).toHaveLength(1);
+    } finally {
+      running.resolve();
+    }
+    await expect(ended).resolves.toEqual({ error: undefined });
+    expect(leg.status).toBe('suspended');
   }, 2000);
 
   it('a resumed tool that writes after its leg closed does not throw into the execution', async () => {
