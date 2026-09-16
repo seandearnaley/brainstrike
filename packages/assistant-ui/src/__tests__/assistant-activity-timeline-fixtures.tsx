@@ -11,6 +11,7 @@ import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { TooltipProvider } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
 import { AssistantActivityParts } from '../assistant-activity-parts';
+import { SubagentInvocationIndexProvider } from '../subagent-invocation-index';
 
 // Named individually so `completedPartsWithEvents` below can splice the SAME
 // part objects between run events without re-deriving them via a tuple cast
@@ -207,7 +208,9 @@ export function Harness({
   return (
     <TooltipProvider>
       <AssistantRuntimeProvider runtime={runtime}>
-        {children ? children(content) : content}
+        <SubagentInvocationIndexProvider>
+          {children ? children(content) : content}
+        </SubagentInvocationIndexProvider>
       </AssistantRuntimeProvider>
     </TooltipProvider>
   );

@@ -249,6 +249,11 @@ describe('readLiveSubagentToolRows (in-flight run events)', () => {
           parentToolCallId: 'other-delegation',
           toolCallId: 'child-x',
         }),
+        liveEventPart({
+          kind: 'subagent.tool.started',
+          parentToolCallId: 'delegation-1',
+          toolCallId: '',
+        }),
         { data: { kind: 'tool.started' }, name: RUN_EVENT_NAME, type: 'data' },
         { text: 'hi', type: 'text' },
       ],

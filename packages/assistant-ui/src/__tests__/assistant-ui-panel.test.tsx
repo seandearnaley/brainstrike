@@ -323,6 +323,10 @@ vi.mock('@assistant-ui/react', () => {
     useAssistantDataUI: (dataUI: unknown) => useAssistantDataUIMock(dataUI),
     useAui: () => ({
       composer: () => ({ addAttachment: async () => undefined, setText: vi.fn() }),
+      subscribe: () => () => undefined,
+      thread: () => ({
+        getState: () => ({ messages: mockAuiState.thread.messages }),
+      }),
     }),
     useAuiEvent: () => undefined,
     useAuiState: <T,>(selector: (state: MockAuiState) => T) => selector(mockAuiState),
