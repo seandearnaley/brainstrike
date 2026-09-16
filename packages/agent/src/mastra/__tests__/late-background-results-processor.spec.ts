@@ -74,8 +74,8 @@ describe('LateBackgroundResultsProcessor', () => {
       throw new Error('Expected the tool message');
     }
     expect(tool.content[0]).toMatchObject({
-      output: { type: 'json', value: { text: 'CHILD_FINAL_EVIDENCE' } },
-      providerOptions: { mastra: { modelOutput: { type: 'json' } } },
+      output: { type: 'text', value: 'CHILD_FINAL_EVIDENCE' },
+      providerOptions: { mastra: { modelOutput: { type: 'text' } } },
     });
     expect(tool.content[1]).toMatchObject({ output: ack });
     // Untouched messages are the same objects; only the tool message is copied.

@@ -144,6 +144,7 @@ export async function createPgliteMastraMemory({
   }
 
   const store = new PgliteMemoryStore({
+    ...(backgroundTaskScope ? { backgroundTaskScope } : {}),
     database,
     ...(eventSink ? { eventSink } : {}),
     ...(runId ? { runId } : {}),

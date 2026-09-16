@@ -76,6 +76,12 @@ it("the root's own pause ends the leg once its children return: one card, no con
     expect(effect).toHaveBeenCalledTimes(1);
     const tasks = await runtime.backgroundTaskManager?.listTasks({});
     expect(tasks?.tasks.map((task) => task.status)).toEqual(['completed']);
+    const completedResult = tasks?.tasks[0]?.result;
+    const subAgentThreadId = (completedResult as { subAgentThreadId?: unknown } | undefined)
+      ?.subAgentThreadId;
+    if (typeof subAgentThreadId !== 'string') {
+      throw new Error('Completed background result omitted its child thread identity');
+    }
     // Approving the write resumes the parked root, which already holds the
     // child's returned result and reports without any wakeup.
     const rediscovered = await listSuspendedMastraRuns(scope, discoveryOptions);
@@ -107,6 +113,10 @@ it("the root's own pause ends the leg once its children return: one card, no con
       .flatMap((chunk) => (chunk.type === 'text-delta' ? [chunk.value] : []))
       .join('');
     expect(resumedText).toBe('PARENT_FINAL_OUTCOME');
+    const resumedProviderPrompt = JSON.stringify(model.prompts.at(-1)?.prompt);
+    expect(resumedProviderPrompt).toContain('CHILD_FINAL_EVIDENCE');
+    expect(resumedProviderPrompt).not.toContain(subAgentThreadId);
+    expect(resumedProviderPrompt).not.toContain('BACKGROUND_EVIDENCE');
     // The resumed run's final save wrote its stale acknowledgement back; the
     // leg restored the delivered result from the task row.
     const history = await backing.memory.recall({

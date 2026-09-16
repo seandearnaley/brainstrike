@@ -5,6 +5,7 @@ import type {
   ProcessLLMRequestResult,
   Processor,
 } from '@mastra/core/processors';
+import { projectBackgroundOutcomeForModel } from '../background-result-projection';
 import type { RuntimeData } from '../types';
 import type { MastraAgentRuntime } from './agent-runtime';
 import { completedBackgroundOutcome } from './background-result-delivery';
@@ -17,13 +18,7 @@ type ToolPart = ToolMessage['content'][number];
 type ToolResultOutput = Extract<ToolPart, { type: 'tool-result' }>['output'];
 
 function outcomeOutput(task: BackgroundTask): ToolResultOutput {
-  const outcome = completedBackgroundOutcome(task);
-  if (outcome.status === 'failed') {
-    return { type: 'error-text', value: outcome.error.message };
-  }
-  return typeof outcome.result === 'string'
-    ? { type: 'text', value: outcome.result }
-    : { type: 'json', value: outcome.result as never };
+  return projectBackgroundOutcomeForModel(completedBackgroundOutcome(task));
 }
 
 /**

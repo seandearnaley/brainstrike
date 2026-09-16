@@ -3811,26 +3811,42 @@ the table participates in database clear and factory reset. Task scope is the
 root resource/thread, not a renderer tab. Updates use expected-status comparison
 so competing lifecycle transitions cannot overwrite each other.
 
-Completed, failed and timed-out outcomes are reconciled before inference. The
-native task row carries `delivered_at`, separate from native status, so transcript
-retention cannot make an already delivered task poison every subsequent turn.
-Native completion hooks acknowledge only after native `onResult` flushes memory;
-resumed/repaired outcomes acknowledge only after the host message write succeeds.
-A failed acknowledgement remains recoverable and never re-executes the effect.
-Exactly one retained matching invocation is updated; ambiguous matches fail.
+Completed, failed and timed-out outcomes are reconciled at the PGlite message
+commit boundary before inference. The native task row carries `delivered_at`,
+separate from native status. Every ordinary save that names a retained task
+overlays its authoritative terminal outcome even after delivery, so a later
+stale native snapshot cannot restore the dispatch acknowledgement. The message
+write and delivery acknowledgement share one transaction; either both commit
+or neither does. Child completion and repair use the memory store's task-only
+operation, which locks the terminal task and reads current parent rows in that
+transaction instead of writing a recalled whole-message snapshot. Thus a
+callback cannot erase newer parent text or metadata. Progressive Mastra
+snapshots may repeat one tool call under fresh message ids; every matching row
+is updated while preserving each row's ordinary content. Duplicate matching
+invocation parts inside one row, a mismatched call/task pair, a foreign owner,
+or a missing retained task fails before acknowledgement.
 Delegated `subagent.*` history events carrying their originating turn attach only to
 that turn's exact tool call. An absent retained call does not redirect the event to
 another turn by run or reused call ID; ambiguous ownership fails visibly. Ordinary
 event kinds retain their existing assignment path. Native outcome repair below is
 the explicit recovery path for removed invocation messages.
-If retention removed the invocation, the task's durable input and outcome create
+If retention removed every invocation, the task's durable input and outcome create
 a deterministic recovery message that visibly explains the missing original and
 that no work was rerun. Missing failure details and timeouts get explicit error
-text, including uncertainty about external effects. Result/error and cleared
-pending-decision metadata are saved together. Recovery scans every undelivered
-page before acknowledging, so acknowledgements cannot shift pagination and skip
-a task. `background-outcome-recovery.integration.spec.ts` covers lost messages,
-all three terminal outcomes, repeat repair and delivery acknowledgement reload. Native resuspension joins the workflow snapshot before exposing a
+text, including uncertainty about external effects. Result/error, compact
+provider projection, cleared pending-decision metadata and delivery
+acknowledgement are saved together. The raw result remains UI/history evidence
+while `providerMetadata.mastra.modelOutput` contains only the child's text
+summary; the paused-run overlay uses the same projection. This mirrors Mastra's
+documented [subagent result context](https://mastra.ai/docs/subagents#subagent-result-context):
+the parent receives text while the full result remains available to the UI.
+Installed Mastra 1.64 public APIs and source remain the compatibility authority.
+Recovery snapshots
+every undelivered page before acknowledging, so acknowledgements cannot shift
+pagination and skip a task. `background-outcome-recovery.integration.spec.ts`
+and `pglite-background-result-reconciliation.integration.spec.ts` cover lost
+messages, all three terminal outcomes, progressive rows, stale callback/native
+saves, rollback, repeat repair and delivery acknowledgement reload. Native resuspension joins the workflow snapshot before exposing a
 new resumable decision. Native reconstructed-runtime recovery is tested separately
 from the actual desktop process-restart pending-approval case; it is not evidence
 of completed-undelivered recovery through every host restart boundary.

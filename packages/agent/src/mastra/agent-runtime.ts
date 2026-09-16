@@ -623,12 +623,9 @@ async function buildBackgroundAgentOptions(
   if (!(scope && hasSubAgents)) {
     return {};
   }
-  const delivery = requireBackgroundResultDelivery(await storage?.getStore('backgroundTasks'));
-  // Native onResult joins SaveQueueManager.flushMessages before these public hooks.
+  requireBackgroundResultDelivery(await storage?.getStore('backgroundTasks'));
   return {
     backgroundTasks: {
-      onTaskComplete: (task) => delivery.markResultDelivered(task.id),
-      onTaskFailed: (task) => delivery.markResultDelivered(task.id),
       tools: Object.fromEntries([...personas.keys()].map((id) => [id, true])),
       waitTimeoutMs: 0,
     },
