@@ -2978,12 +2978,16 @@ Flow (desktop assistant server → agent runtime):
    desktop/web `useLocalRuntime` in `data-stream-runtime.ts` wires none, so
    that branch is unreachable here — adding a remote thread list would make it
    reachable and would need its own observation channel, because `append`
-   reports it to no caller. A spent message never outlives its context, by two
-   routes: the approval notice DERIVES the alert (the failure carries the
-   run-outcome key the attempt was made in, so no effect adjusts it after the
-   fact and no frame shows a stale message), and the typed-resume notice clears
-   `sendError` on the `pending`/`completed` transition (this card's retry, or
-   the same pause answered from the delegated child view). Paired:
+   reports it to no caller. Both notices clear `sendError` when a new submit
+   starts; beyond that a spent message never outlives its context, by two
+   routes. The approval notice DERIVES the alert: the failure carries the
+   run-outcome key the attempt was made in, and that key names the DECISION it
+   was resolved from (its index) rather than `action`/`state` alone — two runs
+   both reach `retryable`, so on the pair alone a spent message would re-match
+   the second — leaving no effect to adjust it and no frame showing stale text.
+   The typed-resume notice clears `sendError` on the `pending`/`completed`
+   transition (this card's retry, or the same pause answered from the delegated
+   child view). Paired:
    `follow-up-queue-store.test.ts`,
    `assistant-tool-suspend-notice-send-failures.test.tsx`,
    `assistant-tool-approval-notice-panel.test.tsx` (the top-level describe for

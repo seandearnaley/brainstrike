@@ -433,6 +433,49 @@ describe('AssistantToolApprovalNotice', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('does not resurrect a spent send error when the outcome returns to retryable', async () => {
+    const decisionMessage = {
+      metadata: {
+        custom: {
+          brainstrikeToolApproval: {
+            action: 'approve' as const,
+            runId: 'run-approval-1',
+            toolCallId: 'tool-call-1',
+            toolName: 'workspace.writeFile',
+          },
+        },
+      },
+      role: 'user' as const,
+    };
+    const failedRun = {
+      role: 'assistant' as const,
+      status: { error: 'resume_failed', reason: 'error', type: 'incomplete' },
+    };
+    // An earlier decision's run failed, so the card is unlocked at `retryable`.
+    threadMessagesMock.push(decisionMessage, failedRun);
+    appendMessageMock.mockImplementationOnce(() => {
+      throw new Error('append failed');
+    });
+    const user = userEvent.setup();
+    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
+
+    // Another surface answers the same pause, and THAT run fails too — which
+    // returns the outcome to the very action/state the failure was stamped
+    // with. The message is two attempts old and must stay gone.
+    threadMessagesMock.push(decisionMessage);
+    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    threadMessagesMock.push(failedRun);
+    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled()
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('shows a send error from a retry made after an earlier run failed', async () => {
     // The card is unlocked for a retry (`retryable`), so a fresh failure here
     // describes the thread as it stands and must be visible.

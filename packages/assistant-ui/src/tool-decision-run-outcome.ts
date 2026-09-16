@@ -33,10 +33,22 @@ export type ApprovalRunOutcomeState = 'none' | 'pending' | 'retryable' | 'comple
 
 export interface ApprovalRunOutcome {
   action: AssistantToolApprovalDecision | null;
+  /**
+   * Index of the user decision message this outcome was resolved from, or -1
+   * while the pause has no answer. Successive runs repeat the same
+   * `action`/`state` pair — a failed run, another answer, a second failed run
+   * is `retryable` twice — so this is what tells one attempt from the next.
+   * The send-failure stamp in `use-approval-notice-state.ts` relies on it.
+   */
+  decisionIndex: number;
   state: ApprovalRunOutcomeState;
 }
 
-const emptyApprovalRunOutcome: ApprovalRunOutcome = { action: null, state: 'none' };
+const emptyApprovalRunOutcome: ApprovalRunOutcome = {
+  action: null,
+  decisionIndex: -1,
+  state: 'none',
+};
 function isMatchingApprovalAction(value: unknown, approval: AssistantToolApprovalRequest): boolean {
   return isMatchingToolAction(value, approval);
 }
@@ -99,11 +111,12 @@ export function resolveApprovalRunOutcome(
     return emptyApprovalRunOutcome;
   }
 
+  const decisionIndex = submittedMessageIndex;
   for (let index = submittedMessageIndex + 1; index < messages.length; index += 1) {
     const message = messages[index];
     const role = getMessageRole(message);
     if (role === 'user') {
-      return { action: submittedAction, state: 'pending' };
+      return { action: submittedAction, decisionIndex, state: 'pending' };
     }
     if (role !== 'assistant') {
       continue;
@@ -111,15 +124,15 @@ export function resolveApprovalRunOutcome(
 
     const status = getMessageStatus(message);
     if (status?.['type'] === 'complete') {
-      return { action: submittedAction, state: 'completed' };
+      return { action: submittedAction, decisionIndex, state: 'completed' };
     }
     if (status?.['type'] === 'incomplete') {
-      return { action: submittedAction, state: 'retryable' };
+      return { action: submittedAction, decisionIndex, state: 'retryable' };
     }
-    return { action: submittedAction, state: 'pending' };
+    return { action: submittedAction, decisionIndex, state: 'pending' };
   }
 
-  return { action: submittedAction, state: 'pending' };
+  return { action: submittedAction, decisionIndex, state: 'pending' };
 }
 
 export function isAssistantToolSuspendRequest(

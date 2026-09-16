@@ -29,14 +29,23 @@ const logger = createLogger('AssistantToolApprovalNotice');
 
 const APPROVAL_RUN_OUTCOME_SEPARATOR = ':';
 
+/**
+ * `<action>:<state>:<decisionIndex>`. The index is what makes this key name ONE
+ * attempt: a failed run, an answer from another surface and a second failed run
+ * repeat `approve:retryable`, so a send failure stamped during the first would
+ * re-match the second on the pair alone.
+ */
 type ApprovalRunOutcomeKey =
-  `${AssistantToolApprovalDecision | 'none'}${typeof APPROVAL_RUN_OUTCOME_SEPARATOR}${ApprovalRunOutcomeState}`;
+  `${AssistantToolApprovalDecision | 'none'}${typeof APPROVAL_RUN_OUTCOME_SEPARATOR}${ApprovalRunOutcomeState}${typeof APPROVAL_RUN_OUTCOME_SEPARATOR}${number}`;
 
 function toApprovalRunOutcomeKey(outcome: ApprovalRunOutcome): ApprovalRunOutcomeKey {
-  return `${outcome.action ?? 'none'}${APPROVAL_RUN_OUTCOME_SEPARATOR}${outcome.state}`;
+  return `${outcome.action ?? 'none'}${APPROVAL_RUN_OUTCOME_SEPARATOR}${outcome.state}${APPROVAL_RUN_OUTCOME_SEPARATOR}${outcome.decisionIndex}`;
 }
 
-function fromApprovalRunOutcomeKey(key: ApprovalRunOutcomeKey): ApprovalRunOutcome {
+/** The half the card renders; the key's index discriminates, it never displays. */
+function fromApprovalRunOutcomeKey(
+  key: ApprovalRunOutcomeKey
+): Pick<ApprovalRunOutcome, 'action' | 'state'> {
   const [action, state] = key.split(APPROVAL_RUN_OUTCOME_SEPARATOR) as [
     AssistantToolApprovalDecision | 'none',
     ApprovalRunOutcomeState,
@@ -51,9 +60,11 @@ function fromApprovalRunOutcomeKey(key: ApprovalRunOutcomeKey): ApprovalRunOutco
  * then dropped because the new status is authoritative.
  *
  * The stamp is what makes a message spend itself: any later answer for this
- * pause moves the outcome on, and a failure from before it no longer describes
- * the card. The derivation MASKS a spent failure rather than clearing it —
- * clearing would take an effect, which is the thing this shape avoids.
+ * pause moves the outcome on — to a different DECISION, not merely a different
+ * state, which is why the key carries the decision's index — and a failure
+ * from before it no longer describes the card. The derivation MASKS a spent
+ * failure rather than clearing it; clearing would take an effect, which is the
+ * thing this shape avoids.
  */
 interface SendFailure {
   readonly message: string;
