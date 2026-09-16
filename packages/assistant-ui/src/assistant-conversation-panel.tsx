@@ -11,6 +11,7 @@ import {
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import { PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { type AssistantUiPanelProps, ChatThreadUI } from './assistant-ui-panel';
+import { type DecisionRoute, DecisionRouteProvider } from './decision-route-context';
 import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
 import { MetadataProviders } from './openrouter-model-metadata-context';
 import { RewindProvider } from './rewind-context';
@@ -27,6 +28,7 @@ export type AssistantConversationPanelProps = Partial<
     readonly onSendActiveInput?: SendActiveConversationInput | undefined;
     readonly prepareActiveInput?: ((input: AssistantChildInput) => AssistantChildInput) | undefined;
     readonly className?: string;
+    readonly decisionRoute?: DecisionRoute | undefined;
     readonly label: string;
     /**
      * The owning root's thread when this view is a delegated child. The host
@@ -44,6 +46,7 @@ const EMPTY: never[] = [];
 /** The main thread's complete surface, bound to an existing conversation runtime. */
 export function AssistantConversationPanel({
   className,
+  decisionRoute,
   allowIdleInput = false,
   onSendActiveInput,
   prepareActiveInput,
@@ -80,28 +83,30 @@ export function AssistantConversationPanel({
           >
             <PlanModeExitProvider onExit={props.planMode?.onExit}>
               <RewindProvider value={null}>
-                <FollowUpQueueOwnershipContext value={false}>
-                  <AssistantPanelErrorBoundary>
-                    <ApprovalOwnerThreadContext value={ownerThread ?? null}>
-                      <ChatThreadUI
-                        disabledReason={undefined}
-                        fileMentions={fileMentions}
-                        hasGroupedProviders={providerGroups.length > 0}
-                        isComposerDisabled={isComposerDisabled}
-                        onFileMentionQueryChange={undefined}
-                        onModelChange={undefined}
-                        pickerModels={pickerModels}
-                        providerGroups={providerGroups}
-                        recentModels={undefined}
-                        selectedModel={undefined}
-                        selectedProvider={undefined}
-                        slashCommands={slashCommands}
-                        {...props}
-                        threadKey={threadKey}
-                      />
-                    </ApprovalOwnerThreadContext>
-                  </AssistantPanelErrorBoundary>
-                </FollowUpQueueOwnershipContext>
+                <DecisionRouteProvider route={decisionRoute ?? null}>
+                  <FollowUpQueueOwnershipContext value={false}>
+                    <AssistantPanelErrorBoundary>
+                      <ApprovalOwnerThreadContext value={ownerThread ?? null}>
+                        <ChatThreadUI
+                          disabledReason={undefined}
+                          fileMentions={fileMentions}
+                          hasGroupedProviders={providerGroups.length > 0}
+                          isComposerDisabled={isComposerDisabled}
+                          onFileMentionQueryChange={undefined}
+                          onModelChange={undefined}
+                          pickerModels={pickerModels}
+                          providerGroups={providerGroups}
+                          recentModels={undefined}
+                          selectedModel={undefined}
+                          selectedProvider={undefined}
+                          slashCommands={slashCommands}
+                          {...props}
+                          threadKey={threadKey}
+                        />
+                      </ApprovalOwnerThreadContext>
+                    </AssistantPanelErrorBoundary>
+                  </FollowUpQueueOwnershipContext>
+                </DecisionRouteProvider>
               </RewindProvider>
             </PlanModeExitProvider>
           </ActiveConversationInputProvider>

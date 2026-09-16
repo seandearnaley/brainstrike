@@ -16,6 +16,7 @@ import {
 import type { ApprovalCategoryKey } from './approval-presentation';
 import { usePendingApprovalsByCategory } from './approval-ranks-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
+import { useDecisionRoute } from './decision-route-context';
 import { useLiveDecisionTransport } from './live-decision-transport';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
 
@@ -55,6 +56,7 @@ export function ApprovalQueueStrip() {
   const aui = useAui();
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const threadKey = use(ActiveThreadKeyContext);
+  const decisionRoute = useDecisionRoute();
   const [inFlight, setInFlight] = useState<ReadonlySet<ToolRiskCategory>>(() => new Set());
 
   const entries = [...pending].flatMap(([key, keys]) => {
@@ -77,15 +79,18 @@ export function ApprovalQueueStrip() {
     // recorded and the next leg is already allowed (the card's own ordering).
     grants.grantCategoryForSession(category);
     const decision = buildApprovalDecisionMessage(first.request, 'approve');
-    submitDecisionOrQueue({
-      append: (message) => aui.thread().append(message),
-      deliverLive,
-      identityKey: decision.identityKey,
-      isRunning,
-      message: decision.message,
-      text: decision.text,
-      threadKey,
-    })
+    const dispatch = decisionRoute
+      ? decisionRoute.dispatch(decision.message)
+      : submitDecisionOrQueue({
+          append: (message) => aui.thread().append(message),
+          deliverLive,
+          identityKey: decision.identityKey,
+          isRunning,
+          message: decision.message,
+          text: decision.text,
+          threadKey,
+        });
+    dispatch
       .catch((error: unknown) => {
         logger.warn('Failed to deliver the category grant decision', { category, error });
       })

@@ -1,4 +1,4 @@
-import { createContext } from 'react';
+import { createContext, use } from 'react';
 
 /**
  * The owning root thread of a delegated child view: the public assistant-ui
@@ -14,3 +14,11 @@ export interface ApprovalOwnerThread {
 
 /** Present only inside a delegated child view; a root thread has no owner. */
 export const ApprovalOwnerThreadContext = createContext<ApprovalOwnerThread | null>(null);
+
+const NO_OWNER_MESSAGES: readonly unknown[] = [];
+export const ApprovalOwnerMessagesContext = createContext<readonly unknown[]>(NO_OWNER_MESSAGES);
+
+/** Root messages from the provider's single public-runtime subscription. */
+export function useApprovalOwnerMessages(): readonly unknown[] {
+  return use(ApprovalOwnerMessagesContext);
+}

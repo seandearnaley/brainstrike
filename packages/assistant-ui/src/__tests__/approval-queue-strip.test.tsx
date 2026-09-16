@@ -9,6 +9,8 @@ import { ActiveThreadKeyContext } from '../active-thread-key-context';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { ApprovalRanksProvider } from '../approval-presentation-context';
 import { ApprovalQueueStrip } from '../approval-queue-strip';
+import type { DecisionRoute } from '../decision-route-context';
+import { DecisionRouteProvider } from '../decision-route-context';
 import { resetFollowUpQueueStore } from '../follow-up-queue-store';
 import { LiveDecisionProvider } from '../live-decision-context';
 import type { LiveDecisionTransport } from '../live-decision-transport';
@@ -82,23 +84,27 @@ function makeHandlers() {
 }
 
 function Tree({
+  decisionRoute = null,
   handlers,
   transport,
 }: {
+  decisionRoute?: DecisionRoute | null;
   handlers: ToolApprovalGrantHandlers | null;
   transport: LiveDecisionTransport | null;
 }) {
   return (
     <ActiveThreadKeyContext.Provider value="thread-1">
-      <AnsweredApprovalsProvider>
-        <ApprovalRanksProvider>
-          <ToolApprovalGrantProvider handlers={handlers}>
-            <LiveDecisionProvider transport={transport}>
-              <ApprovalQueueStrip />
-            </LiveDecisionProvider>
-          </ToolApprovalGrantProvider>
-        </ApprovalRanksProvider>
-      </AnsweredApprovalsProvider>
+      <DecisionRouteProvider route={decisionRoute}>
+        <AnsweredApprovalsProvider>
+          <ApprovalRanksProvider>
+            <ToolApprovalGrantProvider handlers={handlers}>
+              <LiveDecisionProvider transport={transport}>
+                <ApprovalQueueStrip />
+              </LiveDecisionProvider>
+            </ToolApprovalGrantProvider>
+          </ApprovalRanksProvider>
+        </AnsweredApprovalsProvider>
+      </DecisionRouteProvider>
     </ActiveThreadKeyContext.Provider>
   );
 }
@@ -184,6 +190,39 @@ describe('ApprovalQueueStrip', () => {
       expect(screen.queryByTestId('approval-strip-grant-read')).not.toBeInTheDocument()
     );
     expect(screen.getByTestId('approval-strip-count-edit')).toHaveTextContent('1 edit');
+  });
+
+  it('routes a child bulk grant once through its owner without appending locally', async () => {
+    const user = userEvent.setup();
+    const handlers = makeHandlers();
+    const dispatch = vi.fn<DecisionRoute['dispatch']>().mockResolvedValue('delivered');
+    pushMessage({
+      content: [requestPart(approval(1, 'read')), requestPart(approval(2, 'read'))],
+      id: 'm1',
+      role: 'assistant',
+    });
+    render(
+      <Tree
+        decisionRoute={{ dispatch, queueThreadKey: 'root-thread' }}
+        handlers={handlers}
+        transport={null}
+      />
+    );
+    await user.click(screen.getByTestId('approval-strip-grant-read'));
+
+    expect(handlers.grantCategoryForSession).toHaveBeenCalledWith('read');
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
+      runConfig: {
+        custom: {
+          brainstrikeToolApproval: {
+            action: 'approve',
+            delegation: { path: [edge(1)], toolCallId: 'leaf-1' },
+          },
+        },
+      },
+    });
+    expect(appendMock).not.toHaveBeenCalled();
   });
 
   it('appends the decision when the thread is idle (the approval leg answers the siblings)', async () => {

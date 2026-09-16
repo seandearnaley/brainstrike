@@ -10,6 +10,7 @@ import {
   type ScanCursor,
 } from './answered-approvals-index-model';
 import {
+  ApprovalOwnerMessagesContext,
   type ApprovalOwnerThread,
   ApprovalOwnerThreadContext,
 } from './approval-owner-thread-context';
@@ -84,7 +85,8 @@ function useOwnerMessages(owner: ApprovalOwnerThread | null): readonly unknown[]
 export function AnsweredApprovalsProvider({ children }: { children: ReactNode }) {
   const messages = useAuiState((state) => state.thread.messages);
   const own = useIndexedMessages(messages);
-  const ownerIndex = useIndexedMessages(useOwnerMessages(use(ApprovalOwnerThreadContext)));
+  const ownerMessages = useOwnerMessages(use(ApprovalOwnerThreadContext));
+  const ownerIndex = useIndexedMessages(ownerMessages);
   // Consumers re-render only when either index changes; a thread with no
   // owner (every root thread) folds in the empty index.
   const value = useMemo(
@@ -92,6 +94,10 @@ export function AnsweredApprovalsProvider({ children }: { children: ReactNode })
     [own, ownerIndex]
   );
   return (
-    <AnsweredApprovalsContext.Provider value={value}>{children}</AnsweredApprovalsContext.Provider>
+    <ApprovalOwnerMessagesContext value={ownerMessages}>
+      <AnsweredApprovalsContext.Provider value={value}>
+        {children}
+      </AnsweredApprovalsContext.Provider>
+    </ApprovalOwnerMessagesContext>
   );
 }

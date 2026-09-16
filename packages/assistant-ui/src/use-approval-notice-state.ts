@@ -13,7 +13,9 @@ import {
   useDecisionQueueState,
   useDelegatedNoticeContext,
 } from './approval-notice-status';
+import { useApprovalOwnerMessages } from './approval-owner-thread-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
+import { useDecisionRoute } from './decision-route-context';
 import { useLiveDecisionTransport } from './live-decision-transport';
 import {
   type RediscoveredPauseDisplay,
@@ -30,24 +32,28 @@ const logger = createLogger('AssistantToolApprovalNotice');
 const APPROVAL_RUN_OUTCOME_SEPARATOR = ':';
 
 /**
- * `<action>:<state>:<decisionIndex>`. The index is what makes this key name ONE
+ * `<source>:<action>:<state>:<decisionIndex>`. The index is what makes this key name ONE
  * attempt: a failed run, an answer from another surface and a second failed run
  * repeat `approve:retryable`, so a send failure or optimistic lock stamped
  * during the first would re-match the second on the pair alone. Flattening it
  * also keeps the thread selector referentially stable.
  */
 type ApprovalRunOutcomeKey =
-  `${AssistantToolApprovalDecision | 'none'}${typeof APPROVAL_RUN_OUTCOME_SEPARATOR}${ApprovalRunOutcomeState}${typeof APPROVAL_RUN_OUTCOME_SEPARATOR}${number}`;
+  `${'child' | 'owner'}${typeof APPROVAL_RUN_OUTCOME_SEPARATOR}${AssistantToolApprovalDecision | 'none'}${typeof APPROVAL_RUN_OUTCOME_SEPARATOR}${ApprovalRunOutcomeState}${typeof APPROVAL_RUN_OUTCOME_SEPARATOR}${number}`;
 
-function toApprovalRunOutcomeKey(outcome: ApprovalRunOutcome): ApprovalRunOutcomeKey {
-  return `${outcome.action ?? 'none'}${APPROVAL_RUN_OUTCOME_SEPARATOR}${outcome.state}${APPROVAL_RUN_OUTCOME_SEPARATOR}${outcome.decisionIndex}`;
+function toApprovalRunOutcomeKey(
+  source: 'child' | 'owner',
+  outcome: ApprovalRunOutcome
+): ApprovalRunOutcomeKey {
+  return `${source}${APPROVAL_RUN_OUTCOME_SEPARATOR}${outcome.action ?? 'none'}${APPROVAL_RUN_OUTCOME_SEPARATOR}${outcome.state}${APPROVAL_RUN_OUTCOME_SEPARATOR}${outcome.decisionIndex}`;
 }
 
 /** The half the card renders; the key's index discriminates, it never displays. */
 function fromApprovalRunOutcomeKey(
   key: ApprovalRunOutcomeKey
 ): Pick<ApprovalRunOutcome, 'action' | 'state'> {
-  const [action, state] = key.split(APPROVAL_RUN_OUTCOME_SEPARATOR) as [
+  const [, action, state] = key.split(APPROVAL_RUN_OUTCOME_SEPARATOR) as [
+    'child' | 'owner',
     AssistantToolApprovalDecision | 'none',
     ApprovalRunOutcomeState,
   ];
@@ -126,9 +132,14 @@ export function useApprovalNoticeState(
   const [submittedDecision, setSubmittedDecision] = useState<SubmittedDecision | null>(null);
   const [sendFailure, setSendFailure] = useState<SendFailure | null>(null);
   const rediscovered = readRediscoveredPauseDisplay(approval);
-  const approvalRunOutcomeKey = useAuiState((state) =>
-    toApprovalRunOutcomeKey(resolveApprovalRunOutcome(state.thread.messages, approval))
+  const localApprovalRunOutcomeKey = useAuiState((state) =>
+    toApprovalRunOutcomeKey('child', resolveApprovalRunOutcome(state.thread.messages, approval))
   );
+  const ownerApprovalRunOutcome = resolveApprovalRunOutcome(useApprovalOwnerMessages(), approval);
+  const approvalRunOutcomeKey =
+    ownerApprovalRunOutcome.state === 'none'
+      ? localApprovalRunOutcomeKey
+      : toApprovalRunOutcomeKey('owner', ownerApprovalRunOutcome);
   const approvalRunOutcome = useMemo(
     () => fromApprovalRunOutcomeKey(approvalRunOutcomeKey),
     [approvalRunOutcomeKey]
@@ -136,6 +147,7 @@ export function useApprovalNoticeState(
   const { delegationOwner, hostAnswer } = useDelegatedNoticeContext(approval);
   const { isRunning, queued, threadKey } = useDecisionQueueState(approval);
   const deliverLive = useLiveDecisionTransport();
+  const decisionRoute = useDecisionRoute();
   const decisionLocked =
     rediscovered?.decisionState !== undefined ||
     (hostAnswer !== null && approvalRunOutcome.state !== 'retryable');
@@ -185,15 +197,18 @@ export function useApprovalNoticeState(
       // notice) until the run ends (`decision-dispatch.ts`). The notice locks
       // for the round trip so a second click cannot race the first.
       setSubmittedDecision({ action, outcomeKey: approvalRunOutcomeKey });
-      submitDecisionOrQueue({
-        append: sendNow,
-        deliverLive,
-        identityKey: decision.identityKey,
-        isRunning,
-        message: decision.message,
-        text: decision.text,
-        threadKey,
-      }).then(
+      const dispatch = decisionRoute
+        ? decisionRoute.dispatch(decision.message)
+        : submitDecisionOrQueue({
+            append: sendNow,
+            deliverLive,
+            identityKey: decision.identityKey,
+            isRunning,
+            message: decision.message,
+            text: decision.text,
+            threadKey,
+          });
+      dispatch.then(
         (outcome) => {
           if (outcome === 'queued') {
             setSubmittedDecision(null);
@@ -216,6 +231,7 @@ export function useApprovalNoticeState(
       approvalRunOutcomeKey,
       aui,
       decisionLocked,
+      decisionRoute,
       deliverLive,
       isRunning,
       submittedAction,

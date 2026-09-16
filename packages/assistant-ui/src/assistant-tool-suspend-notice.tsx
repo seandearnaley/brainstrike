@@ -29,14 +29,16 @@ import {
   useState,
 } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
+import { useApprovalOwnerMessages } from './approval-owner-thread-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
+import { useDecisionRoute } from './decision-route-context';
 import { followUpQueueKey, isDecisionQueued, useFollowUpQueueStore } from './follow-up-queue-store';
 import { useLiveDecisionTransport } from './live-decision-transport';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 import {
   isAssistantToolSuspendRequest,
-  resolveSuspendRunOutcome,
+  resolveSuspendRunOutcomeDetail,
 } from './tool-decision-run-outcome';
 import { rememberUnreadablePauseLogIdentity } from './unreadable-pause-log-cache';
 
@@ -190,23 +192,22 @@ function readAskUserQuestion(value: unknown): string | null {
  */
 function useSuspendResume(request: AssistantToolSuspendRequest | null) {
   const aui = useAui();
-  const [submitted, setSubmitted] = useState(false);
+  const [submittedOutcomeKey, setSubmittedOutcomeKey] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
-  const runOutcome = useAuiState((state) =>
-    resolveSuspendRunOutcome(state.thread.messages, request)
-  );
-  // A failed resume (`retryable`) must clear the optimistic local lock so the
-  // buttons re-enable for a retry. Adjust the state during render on the
-  // TRANSITION into `retryable` (prev-outcome comparison) instead of via an
-  // effect — routing it through useEffect forces an extra render with a stale,
-  // still-locked UI between commits. Same net behavior as the approval notice's
-  // reset, without a set-state-in-effect cascade.
-  const [prevRunOutcome, setPrevRunOutcome] = useState(runOutcome);
-  if (runOutcome !== prevRunOutcome) {
-    setPrevRunOutcome(runOutcome);
-    if (submitted && runOutcome === 'retryable') {
-      setSubmitted(false);
-    }
+  const localRunOutcomeKey = useAuiState((state) => {
+    const outcome = resolveSuspendRunOutcomeDetail(state.thread.messages, request);
+    return `child:${outcome.state}:${outcome.decisionIndex}`;
+  });
+  const ownerOutcome = resolveSuspendRunOutcomeDetail(useApprovalOwnerMessages(), request);
+  const runOutcomeKey =
+    ownerOutcome.state === 'none'
+      ? localRunOutcomeKey
+      : `owner:${ownerOutcome.state}:${ownerOutcome.decisionIndex}`;
+  const runOutcome = runOutcomeKey.split(':')[1];
+  const submitted = submittedOutcomeKey === runOutcomeKey;
+  const [prevRunOutcomeKey, setPrevRunOutcomeKey] = useState(runOutcomeKey);
+  if (runOutcomeKey !== prevRunOutcomeKey) {
+    setPrevRunOutcomeKey(runOutcomeKey);
     // A resume that DID start — this card's retry, or the same pause answered
     // from the delegated child view that shares it — settles the question the
     // error was about, so a stale "Decision not sent" must not sit beside the
@@ -219,9 +220,11 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
   const threadKey = use(ActiveThreadKeyContext);
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const deliverLive = useLiveDecisionTransport();
+  const decisionRoute = useDecisionRoute();
+  const queueThreadKey = decisionRoute?.queueThreadKey ?? threadKey;
   const queued = useFollowUpQueueStore((state) =>
     request
-      ? isDecisionQueued(state, followUpQueueKey(threadKey), getToolActionIdentityKey(request))
+      ? isDecisionQueued(state, followUpQueueKey(queueThreadKey), getToolActionIdentityKey(request))
       : false
   );
   const locked =
@@ -253,7 +256,7 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
       } satisfies CreateAppendMessage;
 
       const sendNow = (queued: CreateAppendMessage): void => {
-        setSubmitted(true);
+        setSubmittedOutcomeKey(runOutcomeKey);
         // `append` returns void in the installed assistant-ui: a failed resumed
         // run arrives as thread state (`retryable` above), never as a rejection
         // here. Only a synchronous throw (e.g. an unavailable thread scope) is
@@ -261,7 +264,7 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
         try {
           aui.thread().append(queued);
         } catch (error) {
-          setSubmitted(false);
+          setSubmittedOutcomeKey(null);
           setSendError(getErrorMessage(error));
           logger.warn('Failed to append tool resume action', {
             error,
@@ -273,23 +276,26 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
       // Same rule as the approval notice: a typed answer during a run is
       // delivered into the run when the host offers a live transport, and
       // otherwise waits in the follow-up queue instead of cancelling the run.
-      setSubmitted(true);
-      submitDecisionOrQueue({
-        append: sendNow,
-        deliverLive,
-        identityKey: getToolActionIdentityKey(request),
-        isRunning,
-        message,
-        text: summary,
-        threadKey,
-      }).then(
+      setSubmittedOutcomeKey(runOutcomeKey);
+      const dispatch = decisionRoute
+        ? decisionRoute.dispatch(message)
+        : submitDecisionOrQueue({
+            append: sendNow,
+            deliverLive,
+            identityKey: getToolActionIdentityKey(request),
+            isRunning,
+            message,
+            text: summary,
+            threadKey,
+          });
+      dispatch.then(
         (outcome) => {
           if (outcome === 'queued') {
-            setSubmitted(false);
+            setSubmittedOutcomeKey(null);
           }
         },
         (error: unknown) => {
-          setSubmitted(false);
+          setSubmittedOutcomeKey(null);
           setSendError(getErrorMessage(error));
           logger.warn('Failed to deliver tool resume action', {
             error,
@@ -299,7 +305,7 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
         }
       );
     },
-    [aui, deliverLive, isRunning, locked, request, threadKey]
+    [aui, decisionRoute, deliverLive, isRunning, locked, request, runOutcomeKey, threadKey]
   );
 
   return { locked, sendError, submit };

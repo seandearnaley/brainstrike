@@ -220,7 +220,14 @@ function getMessageStatusType(message: unknown): string | undefined {
  *                    approval notice — a stale/failed resume must not lock forever).
  *   - `completed`  — the resumed run finished successfully; controls stay locked.
  */
-type SuspendRunOutcomeState = 'none' | 'pending' | 'retryable' | 'completed';
+export type SuspendRunOutcomeState = 'none' | 'pending' | 'retryable' | 'completed';
+
+export interface SuspendRunOutcome {
+  readonly decisionIndex: number;
+  readonly state: SuspendRunOutcomeState;
+}
+
+const emptySuspendRunOutcome: SuspendRunOutcome = { decisionIndex: -1, state: 'none' };
 
 /**
  * Scan the thread for a `user` message carrying a matching `brainstrikeToolSuspend`
@@ -228,12 +235,12 @@ type SuspendRunOutcomeState = 'none' | 'pending' | 'retryable' | 'completed';
  * `resolveApprovalRunOutcome`: a failed resume is `retryable` (controls unlock),
  * never permanently locked.
  */
-export function resolveSuspendRunOutcome(
+export function resolveSuspendRunOutcomeDetail(
   messages: readonly unknown[],
   request: AssistantToolSuspendRequest | null
-): SuspendRunOutcomeState {
+): SuspendRunOutcome {
   if (!request) {
-    return 'none';
+    return emptySuspendRunOutcome;
   }
   let submittedIndex = -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -247,26 +254,33 @@ export function resolveSuspendRunOutcome(
     }
   }
   if (submittedIndex < 0) {
-    return 'none';
+    return emptySuspendRunOutcome;
   }
 
   for (let index = submittedIndex + 1; index < messages.length; index += 1) {
     const message = messages[index];
     const role = getMessageRole(message);
     if (role === 'user') {
-      return 'pending';
+      return { decisionIndex: submittedIndex, state: 'pending' };
     }
     if (role !== 'assistant') {
       continue;
     }
     const statusType = getMessageStatusType(message);
     if (statusType === 'complete') {
-      return 'completed';
+      return { decisionIndex: submittedIndex, state: 'completed' };
     }
     if (statusType === 'incomplete') {
-      return 'retryable';
+      return { decisionIndex: submittedIndex, state: 'retryable' };
     }
-    return 'pending';
+    return { decisionIndex: submittedIndex, state: 'pending' };
   }
-  return 'pending';
+  return { decisionIndex: submittedIndex, state: 'pending' };
+}
+
+export function resolveSuspendRunOutcome(
+  messages: readonly unknown[],
+  request: AssistantToolSuspendRequest | null
+): SuspendRunOutcomeState {
+  return resolveSuspendRunOutcomeDetail(messages, request).state;
 }

@@ -761,6 +761,23 @@ renderers remain available and receive the selected `threadKey` as their owner.
 The existing global saved detail preference remains the default; this surface
 alone does not add a new per-child preference store.
 
+A child inspection panel never appends an approval or typed resume into its
+external child runtime. Appending while that runtime reports running invokes
+the runtime's cancellation path and cannot reach the owning root's live
+decision transport. The app-shell supplies an explicit decision route to the
+panel instead. That route validates and augments the durable child identity,
+then asks the registered root owner to deliver the decision live or enqueue it
+under the root thread key. The root alone decides live-versus-queue admission;
+cards and the category grant strip read the same root queue key for their
+queued/locked state. A rejected route stays visible, unlocks the control and
+must not report delivery. Neither routed decisions nor category grants cancel
+the root or selected child runtime. Once a routed decision is appended, its
+pending/completed/retryable outcome also comes from that owning root thread;
+the child transcript does not contain the resulting run. The provider shares
+one owner-thread subscription across these readers. Outcome identities include
+the owner-versus-child source and decision index so repeated incomplete runs
+unlock the next retry without reviving an earlier optimistic lock.
+
 Paired runtime/DOM tests: `assistant-conversation-panel.test.tsx` proves isolated
 snapshots/running state/drafts, child-only send/stop/approval routing, chronology,
 reasoning disclosure, host result ownership and zero-part errors. Its browser
