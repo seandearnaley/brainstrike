@@ -338,18 +338,175 @@ describe('AssistantToolApprovalNotice', () => {
     expect(screen.getByText('Pending')).toBeInTheDocument();
   });
 
-  it('reenables approval actions after an asynchronous append failure', async () => {
-    appendMessageMock.mockImplementationOnce(() => Promise.reject(new Error('append failed')));
+  it('shows why the decision was not sent after a synchronous append failure', async () => {
+    appendMessageMock.mockImplementationOnce(() => {
+      throw new Error('append failed');
+    });
     const user = userEvent.setup();
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
 
+    expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
+  });
+
+  it('clears the send error once a retried decision is sent', async () => {
+    appendMessageMock.mockImplementationOnce(() => {
+      throw new Error('append failed');
+    });
+    const user = userEvent.setup();
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await expandApprovalRow(user);
+
+    expect(appendMessageMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('drops a stale send error once the approval is answered another way', async () => {
+    appendMessageMock.mockImplementationOnce(() => {
+      throw new Error('append failed');
+    });
+    const user = userEvent.setup();
+    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
+
+    // Another surface (the composer's approval strip) answered the same pause.
+    // A failure from the earlier attempt must not sit next to the new status.
+    threadMessagesMock.push({
+      metadata: {
+        custom: {
+          brainstrikeToolApproval: {
+            action: 'approve',
+            runId: 'run-approval-1',
+            toolCallId: 'tool-call-1',
+            toolName: 'workspace.writeFile',
+          },
+        },
+      },
+      role: 'user',
+    });
+    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    await expandApprovalRow(user);
+
+    expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does not resurrect the send error when that other run later fails', async () => {
+    appendMessageMock.mockImplementationOnce(() => {
+      throw new Error('append failed');
+    });
+    const user = userEvent.setup();
+    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    threadMessagesMock.push({
+      metadata: {
+        custom: {
+          brainstrikeToolApproval: {
+            action: 'approve',
+            runId: 'run-approval-1',
+            toolCallId: 'tool-call-1',
+            toolName: 'workspace.writeFile',
+          },
+        },
+      },
+      role: 'user',
+    });
+    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    // That run fails, so the card unlocks again — with no stale failure text.
+    threadMessagesMock.push({
+      role: 'assistant',
+      status: { error: 'resume_failed', reason: 'error', type: 'incomplete' },
+    });
+    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled()
     );
-    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
-    expect(screen.getByText('Pending')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does not resurrect a spent send error when the outcome returns to retryable', async () => {
+    const decisionMessage = {
+      metadata: {
+        custom: {
+          brainstrikeToolApproval: {
+            action: 'approve' as const,
+            runId: 'run-approval-1',
+            toolCallId: 'tool-call-1',
+            toolName: 'workspace.writeFile',
+          },
+        },
+      },
+      role: 'user' as const,
+    };
+    const failedRun = {
+      role: 'assistant' as const,
+      status: { error: 'resume_failed', reason: 'error', type: 'incomplete' },
+    };
+    // An earlier decision's run failed, so the card is unlocked at `retryable`.
+    threadMessagesMock.push(decisionMessage, failedRun);
+    appendMessageMock.mockImplementationOnce(() => {
+      throw new Error('append failed');
+    });
+    const user = userEvent.setup();
+    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
+
+    // Another surface answers the same pause, and THAT run fails too — which
+    // returns the outcome to the very action/state the failure was stamped
+    // with. The message is two attempts old and must stay gone.
+    threadMessagesMock.push(decisionMessage);
+    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    threadMessagesMock.push(failedRun);
+    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled()
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows a send error from a retry made after an earlier run failed', async () => {
+    // The card is unlocked for a retry (`retryable`), so a fresh failure here
+    // describes the thread as it stands and must be visible.
+    threadMessagesMock.push({
+      metadata: {
+        custom: {
+          brainstrikeToolApproval: {
+            action: 'approve',
+            runId: 'run-approval-1',
+            toolCallId: 'tool-call-1',
+            toolName: 'workspace.writeFile',
+          },
+        },
+      },
+      role: 'user',
+    });
+    threadMessagesMock.push({
+      role: 'assistant',
+      status: { error: 'resume_failed', reason: 'error', type: 'incomplete' },
+    });
+    appendMessageMock.mockImplementationOnce(() => {
+      throw new Error('append failed again');
+    });
+    const user = userEvent.setup();
+    // An unanswered, unlocked notice renders as the full card, so the actions
+    // are on screen without expanding a row.
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed again');
   });
 
   it('does not reenable approval actions after the matching run completes successfully', async () => {
@@ -754,6 +911,9 @@ describe('AssistantToolApprovalNotice while a run is active', () => {
       undefined
     );
     expect(screen.getByText('Pending')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Decision not sent: The decision was not applied: refused'
+    );
   });
 
   it('appends immediately when no run is active', async () => {
