@@ -2,10 +2,13 @@
 // only — the rail colour and row geometry must come from those two files.
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
-import { render } from '@testing-library/react';
+import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { CSSProperties } from 'react';
 import { afterEach, expect, test } from 'vitest';
 import { ApprovalRails } from '../approval-rails';
+import { ApprovalRow } from '../approval-row';
+import type { ApprovalNoticeState } from '../use-approval-notice-state';
 import { mustFind } from './browser-dom';
 
 const path = [
@@ -68,4 +71,39 @@ test('depth indents the surface by 1.25rem per level', () => {
   const container = renderRails();
   const surface = mustFind(container, '.bs-approval');
   expect(getComputedStyle(surface).marginInlineStart).toBe('40px');
+});
+
+test('an expanded row owns the indent and the rail: the embedded card adds neither', () => {
+  const approval: AssistantToolApprovalRequest = {
+    args: { path: 'apps/desktop' },
+    delegation: { path, toolCallId: 'leaf-deep' },
+    riskCategory: 'read',
+    runId: 'root-run',
+    toolCallId: 'delegate-1',
+    toolName: 'brainstrike.readWorkspaceDirectory',
+  };
+  const state: ApprovalNoticeState = {
+    actionButtonsDisabled: true,
+    answered: true,
+    decisionLocked: true,
+    delegationOwner: null,
+    hostAnswer: null,
+    rediscovered: null,
+    status: 'Approved',
+    submitApprovalAction: () => undefined,
+  };
+  const { container } = render(
+    <div className="assistant-ui-panel">
+      <ApprovalRow approval={approval} state={state} />
+    </div>
+  );
+  fireEvent.click(screen.getByRole('button', { name: /show approval details/i }));
+  const row = getComputedStyle(mustFind(container, '.bs-approval-row'));
+  const card = getComputedStyle(mustFind(container, '[data-testid="approval-row-card"]'));
+  expect(row.marginInlineStart).toBe('40px');
+  expect(row.borderInlineStartWidth).toBe('3px');
+  expect(card.marginInlineStart).toBe('0px');
+  // The card's own border (a Tailwind utility, absent from this lane) is
+  // symmetric; only a delegation rail widens its inline-start side.
+  expect(card.borderInlineStartWidth).toBe(card.borderInlineEndWidth);
 });

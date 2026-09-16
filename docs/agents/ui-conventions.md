@@ -859,7 +859,11 @@ of the delegation call id (`delegation-colour.ts`) so a reloaded thread keeps
 its colours. Colour is never the only signal: the persona chain text and the
 status chip text always accompany a rail, and a root pause has no rail at
 all. Nesting is `--bs-approval-depth` (1.25rem per level) plus one rail per
-ancestor edge; it never re-parents DOM. The row's toggle is named by its
+ancestor edge; it never re-parents DOM. The outermost surface owns the
+nesting: the card an expanded row embeds (`presentation="embedded"`) carries
+no `.bs-approval` class, depth, delegation colour or rails. The depth custom
+property inherits, so an embedded card that kept the class would indent a
+second time (`approval-row.browser.test.tsx`). The row's toggle is named by its
 visible content with the affordance trailing ("Explorer listed apps/desktop,
 show approval details"), the same Label-in-Name rule as step rows.
 

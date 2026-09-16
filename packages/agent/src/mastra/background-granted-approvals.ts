@@ -1,3 +1,4 @@
+import type { DelegatedToolActionIdentity } from '@brainstrike/assistant-contract';
 import type {
   AssistantToolApprovalAction,
   AssistantToolApprovalAnswered,
@@ -9,10 +10,19 @@ import type { RuntimeData, StreamChunkToolApprovalAnswered } from '../types';
 import type { MastraAgentRuntime } from './agent-runtime';
 import { withBackgroundIdleLoop } from './background-idle-loop';
 import { createBackgroundLedgerSource, personaLabelFor } from './background-ledger';
-import type { BackgroundResume } from './background-resume';
-import type { DelegatedToolActionScope } from './delegated-conversation-binding';
+import { type BackgroundResume, findPendingBackgroundTask } from './background-resume';
+import type {
+  DelegatedToolActionAnswer,
+  DelegatedToolActionLeaf,
+  DelegatedToolActionScope,
+} from './delegated-conversation-binding';
 import { assertDelegatedToolActionPending } from './delegated-tool-actions';
+import {
+  readLateBackgroundResults,
+  recordLateOverlayWakeup,
+} from './late-background-results-processor';
 import type { buildStreamOptions } from './runtime-assembly/stream-options';
+import type { DelegationOutcomeCapture } from './subagent-delegation';
 import { resolveDiscoveredApprovalToolName } from './suspended-run-discovery';
 
 const logger = createLogger('BackgroundGrantedApprovals');
@@ -146,6 +156,13 @@ export { allowedBySnapshot } from './approval-gate';
  * tasks are candidates (the explicit decision's siblings, or one task that
  * parked later). An ambiguous or unauthorized parked task throws, exactly as
  * the user's own click on it would.
+ *
+ * A sibling whose leaf ALREADY carries a durable decision is skipped, not
+ * answered again: another decision answered it, which is a legitimate state
+ * that needs nothing from this grant. Refusing the whole leg over it used to
+ * refuse the user's own click on every retry that still carried the grant
+ * (BST-1749, PR #3209 review). A leaf answered in the window between this
+ * read and the write still refuses the write, which stays all-or-none.
  */
 export async function findGrantedBackgroundApprovals(params: {
   readonly allows: (registeredToolName: string) => boolean;
@@ -156,7 +173,8 @@ export async function findGrantedBackgroundApprovals(params: {
 }): Promise<readonly GrantedBackgroundApproval[]> {
   const { allows, manager, runtime, scope } = params;
   const resolveParkedInvocation = runtime.conversationBinding?.resolveParkedInvocation;
-  if (!resolveParkedInvocation) {
+  const readAnsweredLeaves = runtime.conversationBinding?.readAnsweredToolActionLeaves;
+  if (!(resolveParkedInvocation && readAnsweredLeaves)) {
     throw new Error('Granted background approvals require host-owned ancestry discovery.');
   }
   const { tasks } = await manager.listTasks({
@@ -164,7 +182,12 @@ export async function findGrantedBackgroundApprovals(params: {
     status: 'suspended',
     threadId: scope.threadId,
   });
-  const granted: GrantedBackgroundApproval[] = [];
+  const candidates: {
+    readonly delegation: DelegatedToolActionIdentity;
+    readonly leafRunId: string;
+    readonly task: BackgroundTask;
+    readonly toolName: string;
+  }[] = [];
   for (const task of tasks) {
     if (!(params.select(task) && isApprovalSuspension(task))) {
       continue;
@@ -178,12 +201,42 @@ export async function findGrantedBackgroundApprovals(params: {
     if (!allows(leaf.toolName)) {
       continue;
     }
-    const delegation = { path: scopes.map((entry) => entry.identity), toolCallId: leaf.toolCallId };
-    const toolName = resolveDiscoveredApprovalToolName(
-      leaf.toolName,
-      runtime.toolNameMap,
-      task.runId
-    );
+    const identities = scopes.map((entry) => entry.identity);
+    const leafRunId = identities.at(-1)?.childRuntimeRunId;
+    if (!leafRunId) {
+      throw new Error('Parked background decision has no authorized child address.');
+    }
+    candidates.push({
+      delegation: { path: identities, toolCallId: leaf.toolCallId },
+      leafRunId,
+      task,
+      toolName: resolveDiscoveredApprovalToolName(leaf.toolName, runtime.toolNameMap, task.runId),
+    });
+  }
+  const leafKey = (leaf: DelegatedToolActionLeaf): string =>
+    JSON.stringify([leaf.childRuntimeRunId, leaf.toolCallId]);
+  const answered = new Set(
+    (
+      await readAnsweredLeaves(
+        candidates.map((candidate) => ({
+          childRuntimeRunId: candidate.leafRunId,
+          toolCallId: candidate.delegation.toolCallId,
+        }))
+      )
+    ).map(leafKey)
+  );
+  const granted: GrantedBackgroundApproval[] = [];
+  for (const { delegation, leafRunId, task, toolName } of candidates) {
+    if (
+      answered.has(leafKey({ childRuntimeRunId: leafRunId, toolCallId: delegation.toolCallId }))
+    ) {
+      logger.info('A parked sibling is already answered; the grant skips it', {
+        code: 'background_granted_approval_skipped',
+        taskId: task.id,
+        toolName,
+      });
+      continue;
+    }
     granted.push({
       action: {
         action: 'approve',
@@ -207,20 +260,28 @@ export async function findGrantedBackgroundApprovals(params: {
 }
 
 /**
- * Record every granted approval with the host, after the same native
- * freshness check a click gets, and return the notice updates that lock
- * their cards. A policy answer is recorded as consumed outright
- * (`recordToolActionAnswer`), never as the root's single active claim:
- * claiming it too would collide with the ledger's one-active-claim-per-root
- * rule (thread-796a942d, 2026-09-14).
+ * Validate every granted approval with the same native freshness check a
+ * click gets, then record them — and a live leg's own user answer, already
+ * validated by its caller — with the host in ONE all-or-none write
+ * (`recordToolActionAnswers`), and return the notice updates that lock the
+ * siblings' cards. A refused answer (a sibling answered concurrently) records
+ * nothing, so the user's own pause stays answerable (BST-1749 review). An
+ * answer is recorded as consumed outright, never as the root's single active
+ * claim: claiming it too would collide with the ledger's
+ * one-active-claim-per-root rule (thread-796a942d, 2026-09-14).
  */
 export async function recordGrantedBackgroundApprovals(params: {
+  /** A live leg's own user answer, recorded in the same write as the siblings. */
+  readonly explicit?: DelegatedToolActionAnswer;
   readonly granted: readonly GrantedBackgroundApproval[];
   readonly runtime: Pick<MastraAgentRuntime, 'agent' | 'conversationBinding'>;
 }): Promise<readonly StreamChunkToolApprovalAnswered[]> {
-  const { granted, runtime } = params;
-  const record = runtime.conversationBinding?.recordToolActionAnswer;
-  if (granted.length > 0 && !record) {
+  const { explicit, granted, runtime } = params;
+  if (!explicit && granted.length === 0) {
+    return [];
+  }
+  const record = runtime.conversationBinding?.recordToolActionAnswers;
+  if (!record) {
     throw new Error('Granted background approvals require host-owned answer records.');
   }
   for (const entry of granted) {
@@ -230,12 +291,15 @@ export async function recordGrantedBackgroundApprovals(params: {
       binding: runtime.conversationBinding,
       requiresApproval: true,
     });
-    await record?.({
-      delegation: entry.action.delegation,
-      runId: entry.action.runId,
-      toolCallId: entry.action.toolCallId,
-    });
   }
+  await record([
+    ...(explicit ? [explicit] : []),
+    ...granted.map(({ action }) => ({
+      delegation: action.delegation,
+      runId: action.runId,
+      toolCallId: action.toolCallId,
+    })),
+  ]);
   if (granted.length > 0) {
     logger.info('Session grant answers parked background children', {
       code: 'background_granted_approvals',
@@ -257,7 +321,9 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
   runtimeData: RuntimeData | undefined,
   output: Output,
   options: ReturnType<typeof buildStreamOptions>,
-  abortSignal: AbortSignal
+  abortSignal: AbortSignal,
+  /** The capture the leg's delegation config records refusals in (`buildStreamOptions`). */
+  delegationOutcomes: DelegationOutcomeCapture | undefined
 ): Output {
   const manager = runtime.backgroundTaskManager;
   if (!manager) {
@@ -274,14 +340,67 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
     ledger: createBackgroundLedgerSource({
       manager,
       personaLabel: personaLabelFor(runtime),
+      rejectedDelegations: delegationOutcomes,
+      resolveInvocation: runtime.conversationBinding?.resolveParkedInvocation,
       scope,
     }),
     manager,
     maxIdleMs: runtime.backgroundIdleMs,
     options,
     recordWakeup: runtime.conversationBinding?.recordWakeup,
+    rejectedDelegations: delegationOutcomes,
     scope,
   });
+}
+
+/**
+ * Everything an approval leg does between its durable claim and native
+ * resume: locate the parked task, then answer the parked siblings its policy
+ * covers. RECORD LAST (BST-1749, PR #3209 review): every fallible step runs
+ * BEFORE the answers are recorded, so the leg's last durable act is the
+ * record and only the native resume follows it. The caller runs this inside
+ * `beforeDelegatedToolActionResume`, which releases the claim when it fails.
+ */
+export async function prepareApprovalResume(params: {
+  readonly action: AssistantToolApprovalAction & { readonly action: 'approve' | 'decline' };
+  /** A background resume needs durable memory; a foreground one does not. */
+  readonly hasDurableMemory: boolean;
+  readonly runtime: MastraAgentRuntime;
+  readonly runtimeData: RuntimeData | undefined;
+  readonly signal: AbortSignal;
+}): Promise<{
+  readonly answeredApprovals: readonly StreamChunkToolApprovalAnswered[];
+  readonly backgroundTask: BackgroundTask | undefined;
+  readonly late: BackgroundTask[];
+  readonly resumes: readonly BackgroundResume[];
+}> {
+  const { action, runtime, runtimeData } = params;
+  params.signal.throwIfAborted();
+  const task = await findPendingBackgroundTask(
+    runtime.backgroundTaskManager,
+    runtimeData?.memory,
+    action
+  );
+  if (!task) {
+    const late = await readLateBackgroundResults(runtime, runtimeData, action.runId);
+    await recordLateOverlayWakeup(runtime, late);
+    return { answeredApprovals: [], backgroundTask: undefined, late, resumes: [] };
+  }
+  if (!params.hasDurableMemory) {
+    throw new Error('Background resume requires durable memory.');
+  }
+  // A session grant recorded with this approval reaches the runtime as its
+  // permission snapshot; every parked sibling that snapshot now allows is
+  // answered and resumed in this same leg.
+  return {
+    backgroundTask: task,
+    late: [],
+    ...(await claimGrantedBackgroundResumes({
+      decision: { resumeData: { approved: action.action === 'approve' }, task },
+      runtime,
+      runtimeData,
+    })),
+  };
 }
 
 /**

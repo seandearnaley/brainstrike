@@ -3686,6 +3686,13 @@ export function createAssistantThreadHistoryAdapter({
         actionRunId !== undefined && repository.getThreadRunTurnMessageId
           ? await repository.getThreadRunTurnMessageId(actionRunId, threadId)
           : null;
+      // An approval on a still-streaming leg aborts that leg, and its terminal
+      // runEnd append can persist the suspended message's own edge (advancing
+      // the tail to that message) while the lookup is pending. That edge is
+      // authoritative; backfilling from the advanced tail would self-parent.
+      if (persistedEdgeIds.has(resolvedParentId)) {
+        return;
+      }
       suspendedParentId = turnMessageId ?? durableTailId;
     }
     await recordParentEdge(resolvedParentId, suspendedParentId);

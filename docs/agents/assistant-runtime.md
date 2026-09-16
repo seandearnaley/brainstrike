@@ -2962,7 +2962,27 @@ Flow (desktop assistant server → agent runtime):
    dispatched one per run end by `FollowUpQueueBridge` exactly like a typed
    follow-up. The host serializes the resulting legs. `submitDecisionOrQueue`
    is async and reports `'delivered' | 'queued' | 'sent'`; a transport
-   rejection (409 host refusal, 500) propagates so the card unlocks and warns. Paired: `follow-up-queue-store.test.ts`,
+   rejection (409 host refusal, 500) propagates so the card unlocks and warns.
+   The typed-resume notice (`useSuspendResume` in
+   `assistant-tool-suspend-notice.tsx`) also shows `Decision not sent: <reason>`
+   inline (`sendError`, `role="alert"`, cleared when a new submit starts) for
+   that rejection and for a synchronous `thread().append` throw (e.g. an
+   unavailable thread scope). The installed assistant-ui `thread().append`
+   returns `void` and rethrows any failure other than `MessageNotSentError`
+   from a detached handler (it reaches `unhandledrejection`), so the notice
+   never wraps it in a promise: a failed resumed run is observed through thread
+   state (`incomplete` → `retryable` unlocks the controls). The swallowed
+   `MessageNotSentError` is the runtime's own rollback signal and is raised
+   ONLY when a thread-list initializer rejects (`RemoteThreadResource`); the
+   desktop/web `useLocalRuntime` in `data-stream-runtime.ts` wires none, so
+   that branch is unreachable here — adding a remote thread list would make it
+   reachable and would need its own observation channel, because `append`
+   reports it to no caller. A started resume (this card's retry, or the same
+   pause answered from the delegated child view) clears `sendError` on the
+   `pending`/`completed` transition so a stale "not sent" cannot outlive its
+   context. Paired:
+   `follow-up-queue-store.test.ts`,
+   `assistant-tool-suspend-notice-send-failures.test.tsx`,
    `assistant-tool-approval-notice-panel.test.tsx` ("while a run is active"),
    `follow-up-queue.behavior.test.tsx` (real local runtime dispatch of a queued
    decision) and app-shell `delegated-conversation-root.test.ts`. SETTLED
@@ -2970,9 +2990,26 @@ Flow (desktop assistant server → agent runtime):
    row per root (partial unique index, the serialization rule for user resumes
    across reconstructed runtimes), so claiming siblings in the same leg is
    refused with `tool-action-already-consumed-or-root-busy`. The host records
-   a policy answer through `recordToolActionAnswer` directly as `consumed`
+   a policy answer through `recordToolActionAnswers` directly as `consumed`
    under the leg (same admission guards; the unique leaf key still refuses a
    second answer; the child's history is frozen as `prepareToolAction` does).
+   ALL OR NONE (BST-1749 review): every answer a leg records at once — a live
+   user decision and each sibling its grant answers, after every leaf passes
+   the native freshness check — is ONE host transaction (the binding requires
+   `database.transaction`), and it names each leaf at most once. A refused
+   answer records nothing, so the user's own pause stays answerable instead
+   of consumed, unresumed and refused on every retry. ALREADY ANSWERED IS NOT
+   A REFUSAL (PR #3209 review): discovery skips a parked sibling whose leaf
+   already carries a durable decision — claimed, consumed or interrupted
+   (`readAnsweredToolActionLeaves`) — because another decision answered it
+   and this grant owes it nothing; refusing over it re-conflicted on every
+   retry that still carried the grant. An ADMISSION refusal (root not
+   running, cancelling, or a stopped subtree) stays fatal for the whole
+   write, as does a leaf answered in the window between that read and the
+   write. Paired: desktop rows "a live grant skips a sibling another decision
+   already answered and still delivers the user own answer" and "a live grant
+   refused on a stopped sibling records nothing: the user's own card stays
+   answerable".
    The agent fixture now holds one active claim and refuses a second, exactly
    like the host, and `delegated-runtime.integration.test.ts` ("a session
    grant answers the parked background sibling through the real host ledger")
@@ -4468,6 +4505,68 @@ snapshot and hydrates its durable history. The default composer Cancel is hidden
 when this explicit child control owns cancellation, so there is only one Stop.
 Root messaging remains usable after the child is stopped. The actual Electron
 worker test covers that transition and the subsequent reload/reopen.
+
+A ROOT STOP RE-READS UNDECIDED PAUSES (BST-1749 review finding, 2026-09-15).
+The root composer's Stop posts `/assistant/cancel`, which cancels the turn's
+paused work before it answers. A pause notice already published into that turn
+(a background child's root card while the dispatching turn is still open) stays
+in the cancelled message, and its durable decision state reaches the renderer
+only through rediscovery on history load: the card read "Pending" with live
+buttons and the composer strip kept counting it until the thread was reloaded.
+The data-stream adapter hands `onCancel` the messages it cancelled; after a
+SUCCESSFUL cancel the run session (`use-assistant-server-run-session.ts`) calls
+the panel's `onPausesCancelled` when those messages held a pause notice with no
+durable `decisionState` (`undecided-pause-notices.ts`). The panel bumps its
+stop generation in the data-stream runtime key beside `historyGeneration`, so
+hydration re-runs discovery: the pause returns with `decisionState:
+'cancelled'` (a non-actionable "Turn cancelled" row) or, once its snapshot is
+deleted, not at all. Liveness is never derived from message status: a failed
+leg keeps its pauses actionable. The remount is GATED NARROWLY, because it
+throws the live runtime away where the child Stop reloads history in place:
+`undecided-pause-notices.ts` looks only at the STOPPED TURN (from
+`resolveTurnAnchorMessageId`, so a pause parked by an earlier turn that this
+cancel never touched is ignored) and only counts a pause NOTHING has answered —
+a durable `decisionState`, the host's streamed `tool-approval-answered`, or the
+user's own appended decision all settle it. In-session answers carry no durable
+state, so counting them remounted the thread on the ordinary "approve a tool,
+keep going, Stop" path (PR #3214 review). The host writes that durable state
+BEFORE it answers: `cancelDesktopAssistantRun` marks the turn's runs
+`cancelling` before awaiting owners, and `delegated-waiting-cancel.integration.test.ts`
+reads `readDelegatedDecisionStates` as `cancelled` only after the endpoint
+returned 200. The live composer DRAFT SURVIVES the remount (owner ruling
+2026-09-15): the panel calls `onStopReread` immediately AFTER the bump in the
+same React batch, so the command reaches the replacement rather than the
+composer being discarded, and app-shell re-enqueues that thread's recorded
+draft as a `replace` composer command (`use-stop-reread-draft-carry.ts` →
+`assistant-composer-command-store.ts`), which the remounted
+`ComposerDraftCommandBridge` applies once and the wrapper acknowledges. Only
+the TEXT draft travels; attachments and other per-mount composer state are
+still discarded. Thread-scoped by construction — the command carries its
+`threadId`, each wrapper passes only its own thread's command, the id is
+captured at Stop time, and a stale callback whose panel has since switched
+threads neither bumps nor notifies (reopening that thread hydrates from the
+ledger anyway). NOT the global rewind slot (`rewind-composer-store.ts`): it is
+one unkeyed slot that every open thread's bridge drains, so a draft handed to
+it could surface in another thread's composer (Conversation Rewind's own
+exposure there is untouched). The panel keeps no draft state: a host wiring no
+`onStopReread` keeps the old behaviour. A failed cancel is logged and changes
+nothing (the pause was not cancelled); a failed rediscovery during the re-read
+renders the existing discovery error notice. Paired:
+`undecided-pause-notices.test.ts` (the gate: stopped turn only, every answer
+shape), `root-stop-rediscovers-approvals.behavior.test.tsx` (real panel,
+adapter, run session, index, strip and notice; the cancelled pause leaving the
+strip, an answered approval keeping the mounted thread, and the draft typed
+before the Stop coming back in the composer that replaces it) and
+`assistant-ui-panel-wrapper-stop-reread.test.tsx` ("carries the live composer
+draft into the thread that re-reads after a Stop", over the real command
+store, beside `use-stop-reread-draft-carry.test.ts`). The two
+halves are pinned separately — the panel against a fake host, the store against
+a mocked panel — because the app-shell harness mocks `@brainstrike/assistant-ui`
+wholesale and assistant-ui cannot import app-shell; mutations cover the seam
+(dropping the enqueue, enqueueing under another thread id, or dropping the
+panel's host call each go red). `data-stream-runtime.test.ts` ("invokes
+onCancel for normal aborts…") pins the cancelled messages.
+
 Binding cleanup and delegated persistence both own after-tool-call work. Stream
 option assembly joins both hooks, including when either fails. Background resume
 supplies the original native task thread and call identity to that completion hook;

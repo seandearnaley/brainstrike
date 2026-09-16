@@ -5,7 +5,6 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { MASTRA_BACKGROUND_TASKS_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import {
@@ -100,8 +99,8 @@ import {
 import {
   PROCESS_COUNTER_RING_CAPACITY,
   ProcessCounterRing,
-  type ProcessCounterSample,
 } from './diagnostics/process-counter-ring';
+import { createProcessCounterSampler } from './diagnostics/process-counter-sampler';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-file-sink';
 import { installWebAssemblyCounter } from './diagnostics/webassembly-counter';
 import {
@@ -361,42 +360,12 @@ const mainLogBuffer = new LogBuffer({ size: 3000 });
 const mainWebAssemblyCounter = installWebAssemblyCounter();
 const processCounterRing = new ProcessCounterRing(PROCESS_COUNTER_RING_CAPACITY);
 
-/**
- * One `main-process-health` sample. The database read is deliberately kept
- * OFF the health line's own path: that line must be logged unconditionally
- * (its absence is the freeze signal), so it carries this tick's WebAssembly
- * counts plus the LAST completed background-task count, never an await.
- */
-async function sampleProcessCounters(mem: NodeJS.MemoryUsage): Promise<void> {
-  const wasm = mainWebAssemblyCounter.snapshot();
-  let backgroundTasks: ProcessCounterSample['backgroundTasks'] = null;
-  let backgroundTasksUnavailableReason: string | undefined;
-  try {
-    const db = await getDbHostManager().getDatabase();
-    const rows = (
-      await db.query<{ count: number; status: 'pending' | 'running' | 'suspended' }>(
-        `SELECT status, COUNT(*)::int AS count FROM ${MASTRA_BACKGROUND_TASKS_TABLE}
-         WHERE status IN ('pending', 'running', 'suspended') GROUP BY status`
-      )
-    ).rows;
-    const counts = { pending: 0, running: 0, suspended: 0 };
-    for (const row of rows) {
-      counts[row.status] = row.count;
-    }
-    backgroundTasks = counts;
-  } catch (error) {
-    backgroundTasksUnavailableReason = error instanceof Error ? error.message : String(error);
-  }
-  processCounterRing.push({
-    at: new Date().toISOString(),
-    backgroundTasks,
-    ...(backgroundTasksUnavailableReason === undefined ? {} : { backgroundTasksUnavailableReason }),
-    heapUsedKb: Math.round(mem.heapUsed / 1024),
-    rssKb: Math.round(mem.rss / 1024),
-    wasm: wasm.counts,
-    wasmRecentFailures: wasm.recentFailures,
-  });
-}
+const processCounterSampler = createProcessCounterSampler({
+  counter: mainWebAssemblyCounter,
+  getDatabase,
+  ring: processCounterRing,
+  runScheduledWork: runDesktopScheduledDatabaseWork,
+});
 const removeLogBufferListener = addLogListener((record) => {
   mainLogBuffer.push(record);
 });
@@ -683,6 +652,8 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
         desktopDimensionIndexMaintenanceScheduler = null;
         desktopDatabaseMaintenanceScheduler?.stop();
         desktopDatabaseMaintenanceScheduler = null;
+        // Before the idle join: a submitted sample drains; later ticks are no-ops.
+        processCounterSampler.stop();
         await cleanupDesktopLiveSubscriptionsForShutdown();
         await waitForDesktopDatabaseWorkSchedulerIdle();
         await cleanupDesktopLiveSubscriptionsForShutdown();
@@ -1448,8 +1419,9 @@ if (singleInstanceLockAcquired) {
               database as unknown as EditCheckpointDatabase,
               mainProcessStartedAt
             );
-            if (reapReport.reaped.length > 0) {
+            if (reapReport.reaped.length > 0 || reapReport.reapedBackgroundTaskIds.length > 0) {
               logger.info('Startup thread-run reap completed', {
+                reapedBackgroundTaskIds: reapReport.reapedBackgroundTaskIds,
                 reapedRunIds: reapReport.reaped.map((row) => row.id),
               });
             }
@@ -2186,7 +2158,7 @@ if (singleInstanceLockAcquired) {
               process as NodeJS.Process & { _getActiveRequests?: () => unknown[] }
             )._getActiveRequests?.()?.length ?? -1;
 
-          void sampleProcessCounters(mem);
+          void processCounterSampler.sample(mem);
           const payload = {
             backgroundRuntimeMetrics: collectBackgroundRuntimeMetrics(),
             backgroundTasks: processCounterRing.list().at(-1)?.backgroundTasks ?? null,

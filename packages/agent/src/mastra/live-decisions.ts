@@ -9,7 +9,10 @@ import {
   recordGrantedBackgroundApprovals,
 } from './background-granted-approvals';
 import { findPendingBackgroundTask } from './background-resume';
-import type { DelegatedLiveDecisionRecord } from './delegated-conversation-binding';
+import type {
+  DelegatedLiveDecisionRecord,
+  DelegatedToolActionAnswer,
+} from './delegated-conversation-binding';
 import { assertDelegatedToolActionPending } from './delegated-tool-actions';
 import {
   type LiveBackgroundOwner,
@@ -154,12 +157,14 @@ function rememberedDecisionRecord(input: {
  * 2026-09-14, do not relitigate: a decision reaches the RUNNING leg).
  *
  * `deliver`: the explicit decision is validated against the live native
- * snapshot exactly as a click on a new leg would be, recorded with the host
- * as consumed (never the root's single active claim — the leg may hold that
- * claim already), its parked siblings that the request's fresh snapshot now
- * allows are recorded the same way, the answers are published on the leg's
- * own stream so every card locks, and the owning phase resumes the tasks
- * in-process. A lasting grant is remembered once the records succeed and
+ * snapshot exactly as a click on a new leg would be, as is every parked
+ * sibling the request's fresh snapshot now allows (one a durable decision
+ * already answered is skipped, not refused); then the decision and those
+ * siblings are recorded with the host as consumed in ONE all-or-none write
+ * (never the root's single active claim — the leg may hold that claim
+ * already; a refused answer records nothing), the answers are published on
+ * the leg's own stream so every card locks, and the owning phase resumes the
+ * tasks in-process. A lasting grant is remembered once the records succeed and
  * BEFORE the in-process resume; from then on every ask tool's function-form
  * flag (approval-gate.ts) lets each later call the grant allows run without
  * a pause — the user granted reads for the session; a fifth specialist's
@@ -183,20 +188,18 @@ export function armLiveDecisions(
     }
     return { manager, scope };
   };
-  const requireRecord = () => {
-    const record = runtime.conversationBinding?.recordToolActionAnswer;
-    if (!record) {
+  const requireAnswerRecords = () => {
+    if (!runtime.conversationBinding?.recordToolActionAnswers) {
       throw new Error('Live decisions require host-owned answer records.');
     }
-    return record;
   };
   const answerGranted = async (
     owner: LiveBackgroundOwner,
     granted: readonly GrantedBackgroundApproval[],
     explicit?: {
+      readonly answer: DelegatedToolActionAnswer;
       readonly answered: StreamChunkToolApprovalAnswered | undefined;
       readonly resume: { readonly resumeData: unknown; readonly task: BackgroundTask };
-      readonly record: () => Promise<void>;
     },
     remember?: () => void
   ) => {
@@ -206,10 +209,16 @@ export function armLiveDecisions(
     ]);
     let answered: readonly StreamChunkToolApprovalAnswered[];
     try {
-      await explicit?.record();
+      // The user's answer and every granted sibling's are ONE all-or-none
+      // host write: a refused sibling must never leave the user's own pause
+      // consumed with nothing resumed (BST-1749 review).
       answered = [
         ...(explicit?.answered ? [explicit.answered] : []),
-        ...(await recordGrantedBackgroundApprovals({ granted, runtime })),
+        ...(await recordGrantedBackgroundApprovals({
+          ...(explicit ? { explicit: explicit.answer } : {}),
+          granted,
+          runtime,
+        })),
       ];
     } catch (error) {
       reservation.release();
@@ -253,7 +262,7 @@ export function armLiveDecisions(
       if (!(leaf?.toolName && delegation)) {
         throw new Error('Live decision has no delegated native leaf.');
       }
-      const record = requireRecord();
+      requireAnswerRecords();
       const toolName = resolveDiscoveredApprovalToolName(
         leaf.toolName,
         runtime.toolNameMap,
@@ -274,6 +283,7 @@ export function armLiveDecisions(
         owner,
         granted,
         {
+          answer: { delegation, runId: action.runId, toolCallId: action.toolCallId },
           answered: approval
             ? {
                 decision: action.action,
@@ -285,7 +295,6 @@ export function armLiveDecisions(
                 type: 'tool-approval-answered',
               }
             : undefined,
-          record: () => record({ delegation, runId: action.runId, toolCallId: action.toolCallId }),
           resume: {
             resumeData: approval
               ? { approved: action.action === 'approve' }

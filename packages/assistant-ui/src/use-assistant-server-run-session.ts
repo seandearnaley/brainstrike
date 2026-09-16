@@ -17,7 +17,9 @@ import {
 import {
   AssistantRequestPreparationTimeoutError,
   AssistantStreamReplayUnavailableError,
+  type CancelledAssistantRun,
 } from './data-stream-runtime';
+import { hasUndecidedPauseNotice } from './undecided-pause-notices';
 
 type PreparedRequestStatus = 'cancelled' | 'completed' | 'failed';
 
@@ -31,6 +33,13 @@ interface UseAssistantServerRunSessionOptions {
         error?: string
       ) => Promise<void> | void)
     | undefined;
+  /**
+   * Called after a SUCCESSFUL server cancel whose run still showed a pause
+   * notice without a durable decision. The host cancelled that paused work;
+   * its decision state reaches the renderer only through rediscovery, so the
+   * caller must re-read history.
+   */
+  readonly onPausesCancelled?: (() => void) | undefined;
   readonly prepareLocalModel?: ((abortSignal?: AbortSignal) => Promise<void>) | undefined;
   readonly prepareRequestData?:
     | ((
@@ -44,7 +53,7 @@ interface UseAssistantServerRunSessionOptions {
 
 interface AssistantServerRunSessionController {
   readonly activeRunSession: AssistantActiveRunSession | undefined;
-  readonly onCancel: () => void;
+  readonly onCancel: (cancelled: CancelledAssistantRun) => void;
   readonly onError: (error: Error) => void;
   readonly onFinish: () => void;
   readonly onReplayError: (error: Error) => void;
@@ -140,6 +149,7 @@ export function useAssistantServerRunSession({
   api,
   authHeaders,
   completePreparedRequest,
+  onPausesCancelled,
   prepareLocalModel,
   prepareRequestData,
   threadKey,
@@ -259,33 +269,50 @@ export function useAssistantServerRunSession({
     ]
   );
 
-  const onCancel = useCallback((): void => {
-    const runId =
-      readPreparedRunId(preparedRequestRef.current?.data) ?? activeRunSessionRef.current?.runId;
-    if (!(desktopAssistantBaseUrl && runId)) {
-      void completeLatestPreparedRequest('cancelled');
-      return;
-    }
-    const cancellingRequest = preparedRequestRef.current;
-    if (cancellingRequest) {
-      cancellingRequest.cancelRequested = true;
-    }
-    void requestAssistantRunCancel({
-      authHeaders,
-      baseUrl: desktopAssistantBaseUrl,
-      runId,
-    })
-      .then(async () => {
-        if (cancellingRequest && preparedRequestRef.current === cancellingRequest) {
-          preparedRequestRef.current = null;
-          await completePreparedRequestRef.current?.(cancellingRequest.data, 'cancelled');
-        }
-        clearActiveRunSession();
+  const onCancel = useCallback(
+    (cancelled: CancelledAssistantRun): void => {
+      const runId =
+        readPreparedRunId(preparedRequestRef.current?.data) ?? activeRunSessionRef.current?.runId;
+      if (!(desktopAssistantBaseUrl && runId)) {
+        void completeLatestPreparedRequest('cancelled');
+        return;
+      }
+      const cancellingRequest = preparedRequestRef.current;
+      if (cancellingRequest) {
+        cancellingRequest.cancelRequested = true;
+      }
+      // Read at abort time: the thread the user stopped, not whatever a
+      // later render shows by the time the host answers.
+      const pausesMayBeCancelled = hasUndecidedPauseNotice(cancelled.messages);
+      void requestAssistantRunCancel({
+        authHeaders,
+        baseUrl: desktopAssistantBaseUrl,
+        runId,
       })
-      .catch((error: unknown) => {
-        assistantEndpointLogger.error('Failed to cancel server-owned assistant run', { error });
-      });
-  }, [authHeaders, clearActiveRunSession, completeLatestPreparedRequest, desktopAssistantBaseUrl]);
+        .then(async () => {
+          if (cancellingRequest && preparedRequestRef.current === cancellingRequest) {
+            preparedRequestRef.current = null;
+            await completePreparedRequestRef.current?.(cancellingRequest.data, 'cancelled');
+          }
+          clearActiveRunSession();
+          // The host cancelled the turn's paused work before answering; only
+          // rediscovery carries that decision state to the renderer.
+          if (pausesMayBeCancelled) {
+            onPausesCancelled?.();
+          }
+        })
+        .catch((error: unknown) => {
+          assistantEndpointLogger.error('Failed to cancel server-owned assistant run', { error });
+        });
+    },
+    [
+      authHeaders,
+      clearActiveRunSession,
+      completeLatestPreparedRequest,
+      desktopAssistantBaseUrl,
+      onPausesCancelled,
+    ]
+  );
 
   const onError = useCallback(
     (error: Error): void => {

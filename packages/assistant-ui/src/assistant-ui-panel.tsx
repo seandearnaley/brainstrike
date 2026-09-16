@@ -20,7 +20,7 @@ import type {
   LocalLlmBackendFactory,
   OpenRouterModelMetadataLookup,
 } from '@brainstrike/assistant-contract';
-import { type ReactNode, use, useEffect, useMemo } from 'react';
+import { type ReactNode, use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnsweredApprovalsProvider } from './answered-approvals-index';
 import { ApprovalRanksProvider } from './approval-presentation-context';
 import { ApprovalQueueStrip } from './approval-queue-strip';
@@ -300,6 +300,18 @@ export interface AssistantUiPanelProps
    * thread-total readout and clears the sum once durable usage lands.
    */
   onStepUsage?: (step: { inputTokens: number; outputTokens: number }) => void;
+  /**
+   * A settled root Stop cancelled a pause this thread still showed, so the
+   * data-stream runtime is about to REMOUNT and re-read history. Called
+   * immediately after that bump and in the SAME React batch, while the live
+   * composer still exists, so the host can carry its draft into the new mount
+   * through its own thread-scoped channel (app-shell's composer command
+   * store) and the command reaches the replacement rather than the composer
+   * being discarded. Not called when the bump cannot take effect (this panel
+   * has since moved to another thread). The panel keeps no draft state of its
+   * own; a host that wires nothing keeps today's behaviour.
+   */
+  onStopReread?: () => void;
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
   onStreamActivity?: () => void;
   onThreadRunStart?: () => void;
@@ -616,6 +628,7 @@ const DataStreamRuntimeChat = ({
   authHeaders,
   completePreparedRequest,
   historyAdapter,
+  onPausesCancelled,
   requestBodyLimitBytes,
   requestData,
   prepareRequestData,
@@ -643,6 +656,8 @@ const DataStreamRuntimeChat = ({
       ) => Promise<void> | void)
     | undefined;
   historyAdapter: AssistantUiThreadHistoryAdapter | undefined;
+  /** A settled root Stop cancelled a pause this runtime still shows: re-read history. */
+  onPausesCancelled: () => void;
   requestData: Record<string, unknown> | undefined;
   prepareRequestData?:
     | ((
@@ -662,6 +677,7 @@ const DataStreamRuntimeChat = ({
     api,
     authHeaders,
     completePreparedRequest,
+    onPausesCancelled,
     prepareLocalModel,
     prepareRequestData,
     threadKey,
@@ -1093,9 +1109,39 @@ export const AssistantUiPanel = ({
   historyGeneration = 0,
   loadLocalLlmBackend,
   localChatTransport = 'local-runtime',
+  onStopReread,
   threadKey,
 }: AssistantUiPanelProps) => {
   const api = useAssistantEndpointApi();
+  // A settled root Stop that cancelled a pause the runtime still shows moves
+  // this counter, re-running hydration (and its rediscovery) like a rewind. It
+  // carries the thread it was raised FOR: this panel may have switched threads
+  // while the cancel settled, and the thread it now shows was never stopped.
+  const [stopReread, setStopReread] = useState<{
+    generation: number;
+    threadKey: string | undefined;
+  }>({ generation: 0, threadKey: undefined });
+  // Latest-ref sync in an unconditional effect (never during render): the
+  // cancel settles long after the Stop, holding the callback from that render.
+  const currentThreadKeyRef = useRef(threadKey);
+  useEffect(() => {
+    currentThreadKeyRef.current = threadKey;
+  });
+  const rereadAfterStop = useCallback(() => {
+    // A stale callback from a thread this panel has since left would bump a
+    // generation the key gate ignores, and telling the host then would queue a
+    // draft command for a thread that never remounts. Reopening that thread
+    // hydrates from the ledger anyway (PR #3214 review).
+    if (currentThreadKeyRef.current !== threadKey) {
+      return;
+    }
+    setStopReread((current) => ({ generation: current.generation + 1, threadKey }));
+    // Told after the bump and in the same batch, so the draft the host hands
+    // back reaches the NEW mount instead of the composer being discarded —
+    // the ordering Conversation Rewind's own handoff documents.
+    onStopReread?.();
+  }, [onStopReread, threadKey]);
+  const stopRereadGeneration = stopReread.threadKey === threadKey ? stopReread.generation : 0;
   useEffect(() => {
     void preloadMarkdownText();
   }, []);
@@ -1187,10 +1233,16 @@ export const AssistantUiPanel = ({
             effectiveInputBudget={effectiveInputBudget}
             fileMentions={fileMentions}
             historyAdapter={historyAdapter}
-            // `historyGeneration` is in the key because hydration runs once per
-            // MOUNT: an out-of-band change to this thread's durable history
-            // (Conversation Rewind) has no other way to reach a mounted runtime.
-            key={threadKey ? `data-stream:${threadKey}:${historyGeneration}` : 'data-stream'}
+            // `historyGeneration` and `stopGeneration` are in the key because
+            // hydration runs once per MOUNT: an out-of-band change to this
+            // thread's durable history (Conversation Rewind) or its pauses (a
+            // root Stop cancelling paused work) has no other way to reach a
+            // mounted runtime.
+            key={
+              threadKey
+                ? `data-stream:${threadKey}:${historyGeneration}:${stopRereadGeneration}`
+                : `data-stream:${stopRereadGeneration}`
+            }
             localLoadingState={localLoadingState}
             modelName={modelName}
             omSegment={omSegment}
@@ -1201,6 +1253,7 @@ export const AssistantUiPanel = ({
             onDelegatedConversation={onDelegatedConversation}
             onFileMentionQueryChange={onFileMentionQueryChange}
             onModelChange={onModelChange}
+            onPausesCancelled={rereadAfterStop}
             onProviderSettingsChange={onProviderSettingsChange}
             onRunEditActivity={onRunEditActivity}
             onRunFailed={onRunFailed}

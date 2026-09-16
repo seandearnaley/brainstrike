@@ -32,6 +32,7 @@ import {
   LiveDecisionUnavailableError,
 } from './live-decision-channel';
 import type { BrainstrikeAgentStreamOptions } from './runtime-assembly/stream-options';
+import type { DelegationOutcomeCapture } from './subagent-delegation';
 import type { AgentStreamOptions } from './turn-attempts';
 
 const logger = createLogger('BackgroundResume');
@@ -198,6 +199,7 @@ function readResumeScope(resumes: readonly BackgroundResume[]): {
 function createResumeLedger(params: {
   readonly enqueue: (chunk: StreamChunk) => boolean;
   readonly manager: BackgroundTaskManager;
+  readonly rejectedDelegations: DelegationOutcomeCapture | undefined;
   readonly resumes: readonly BackgroundResume[];
   readonly runtime: MastraAgentRuntime;
   readonly scope: { readonly resourceId: string; readonly threadId: string };
@@ -215,6 +217,10 @@ function createResumeLedger(params: {
   const source = createBackgroundLedgerSource({
     manager: params.manager,
     personaLabel: personaLabelFor(params.runtime),
+    rejectedDelegations: params.rejectedDelegations,
+    // The resumed runs were dispatched by an EARLIER leg: only the host's
+    // graph names a refusal among their rows.
+    resolveInvocation: params.runtime.conversationBinding?.resolveParkedInvocation,
     scope: params.scope,
   });
   const runIds = new Set(params.resumes.map(({ task }) => task.runId));
@@ -243,6 +249,8 @@ function createResumeLedger(params: {
 export function createBackgroundResumeStream(params: {
   /** The leg's live decision channel; owned during the terminal wait. */
   readonly channel?: LiveDecisionChannel | undefined;
+  /** The leg's delegation outcomes: a delegation its continuation refuses at start wakes nothing. */
+  readonly delegationOutcomes: DelegationOutcomeCapture | undefined;
   readonly resumes: readonly BackgroundResume[];
   readonly runtime: MastraAgentRuntime;
   readonly memory: MastraMemory;
@@ -372,6 +380,7 @@ export function createBackgroundResumeStream(params: {
         const ledger = createResumeLedger({
           enqueue: owner.publish,
           manager,
+          rejectedDelegations: params.delegationOutcomes,
           resumes,
           runtime,
           scope,
@@ -456,6 +465,7 @@ export function createBackgroundResumeStream(params: {
             maxIdleMs: runtime.backgroundIdleMs,
             options,
             recordWakeup: runtime.conversationBinding?.recordWakeup,
+            rejectedDelegations: params.delegationOutcomes,
             scope,
           }
         );

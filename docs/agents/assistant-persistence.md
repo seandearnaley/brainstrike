@@ -393,6 +393,21 @@ accepted by normal storage is not rejected merely by `structuredClone`.
    Paired tests: packages/assistant-data
    `assistant-approval-topology.integration.test.ts` and the desktop E2E
    `assistant-approval-reload-linearity.desktop.test.ts`.
+   **Aborted-leg backfill race (2026-09-15, fan-out verifier runs 19 and 24):**
+   an approval can arrive while its root leg is still streaming (background
+   children returned and the parent continued). Approving appends the echo and
+   starts the resume run, which aborts that leg, so the suspended message's own
+   terminal runEnd append DOES fire and races the echo backfill. The backfill
+   re-checks `persistedEdgeIds` after its turn-link lookup and defers to that
+   authoritative edge. Adapter session state read across an await is
+   re-validated, never trusted: the stale tail read wrote a self-parent edge and
+   threw `conflicting branch topology`. In both runs the echo marker carried the
+   native run id, which named no `brainstrike_assistant_thread_runs` row, so the
+   turn-link lookup missed. The throw reached the renderer's global
+   unhandled-rejection hook because assistant-ui's public `ThreadRuntime.append`
+   returns void and rethrows non-`MessageNotSentError` failures from a detached
+   `.catch`; callers cannot observe it. Paired test: "keeps the edge an aborted
+   leg persists while the echo turn lookup is pending" in the same topology file.
    The UI transport preserves each assistant-ui user message id through the
    generic-message conversion, and the desktop request parser preserves
    assistant-ui's `unstable_assistantMessageId`; the stream session and Mastra
@@ -1205,7 +1220,28 @@ propagates it:
   whenReady, so a row this boot minted can never match) marks them `failed`
   with a visible error, un-sticking `hasInFlightThreadRun`'s rewind gate
   without weakening it — live runs and unknown statuses still refuse.
-  Paired test: `thread-run-startup-reaper.integration.test.ts`.
+  The same sweep fails pre-boot `pending`/`running` `mastra_background_tasks`
+  rows (`"createdAt"` before boot less the same clock-skew margin) with
+  `ORPHANED_BACKGROUND_TASK_ERROR`; a `suspended` task is never touched.
+  `delivered_at` stays NULL, so the thread's next turn delivers the failure
+  once through the ordinary undelivered-outcome repair. Mastra's own
+  `recoverStaleTasks` cannot replace this: it is thread-scoped and runs only
+  inside that thread's next run, while unpreemptable maintenance admission
+  reads these rows across every thread (database.md, maintenance admission).
+  Reaping supersedes no retry path, and a crashed task is never rerun: the
+  host pins background retries to 0 — `createTask` pins a model-requested
+  count down, and `updateTask` refuses to re-arm one on an existing row. Both
+  halves are pinned by `pglite-background-store.integration.spec.ts` ("limits
+  native manager recovery and every task operation to its conversation
+  owner"); cite that test rather than line numbers, which rot silently. No
+  host write path can produce `max_retries > 0`, so never add a
+  `retry_count < max_retries` carve-out to the reap. This paragraph is the
+  canonical statement of that rule; database.md's maintenance admission
+  section points here.
+  Paired test: `thread-run-startup-reaper.integration.test.ts`, whose cases
+  also pin the statement ORDER (the native-decision repair runs before the
+  background sweep, so a failing sweep can never skip it) and the clock-skew
+  margin from both sides.
 
 Neither carve-out is a regression introduced alongside this ruling, and neither
 is currently worth runtime machinery — but they are why the provenance invariant

@@ -89,7 +89,7 @@ describe('useAssistantServerRunSession stale-record reclaim', () => {
       await result.current.prepareRequest();
     });
     await act(async () => {
-      result.current.onCancel();
+      result.current.onCancel({ messages: [] });
       result.current.onError(new Error('abort'));
     });
     expect(completePreparedRequest).not.toHaveBeenCalled();

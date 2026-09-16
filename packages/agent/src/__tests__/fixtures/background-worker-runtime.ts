@@ -181,6 +181,14 @@ export async function createBackgroundFixture(
      */
     readonly rootReadsLedger?: boolean;
     /**
+     * The ROOT dispatches a fresh `agent-explore` call on EVERY turn — the
+     * broken scripted parent of `delegated-worker-write.desktop.test.ts`
+     * (2026-09-15) — and stops only after this many dispatches, so a host
+     * that never bounds its wakeups still lets the test end. Each turn is the
+     * dispatch step plus the step that reads its acknowledgement.
+     */
+    readonly rootRedelegates?: number;
+    /**
      * Give the binding a durable-style budget port so the child runs through
      * `createDelegatedWorkBudget`: `maxSteps` working+synthesis steps, the
      * last reserved with `synthesisOutputTokens`. The child then loops reads
@@ -245,8 +253,22 @@ export async function createBackgroundFixture(
       ? {}
       : { _background: typeof background === 'boolean' ? { enabled: background } : background }),
   };
+  let rootCalls = 0;
   const model = scriptedAgentModel((options) => {
     if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
+      if (fanout.rootRedelegates !== undefined) {
+        rootCalls += 1;
+        if (rootCalls % 2 === 0) {
+          return textParts('PARENT_USEFUL_PROGRESS');
+        }
+        const dispatch = (rootCalls + 1) / 2;
+        return dispatch > fanout.rootRedelegates
+          ? textParts('PARENT_FINAL_OUTCOME')
+          : toolCallParts('agent-explore', `redelegate-${dispatch}`, {
+              ...delegationArgs,
+              prompt: 'Read background evidence',
+            });
+      }
       if (!hasToolResult(options, 'agent-explore')) {
         return fanout.siblings === undefined
           ? toolCallParts('agent-explore', 'background-child', {
@@ -407,11 +429,14 @@ export async function createBackgroundFixture(
         activeClaim = undefined;
       },
       prepareToolAction: async () => {},
+      // The fixture holds no decision ledger, so no parked leaf is ever
+      // already answered; the real host answers this from the ledger.
+      readAnsweredToolActionLeaves: async () => [],
       recordLiveDecision: async (record: DelegatedLiveDecisionRecord) => {
         liveDecisions.push(record);
       },
-      recordToolActionAnswer: async (action: { toolCallId: string; delegation: unknown }) => {
-        policyAnswers.push(action.toolCallId);
+      recordToolActionAnswers: async (actions: readonly { toolCallId: string }[]) => {
+        policyAnswers.push(...actions.map((action) => action.toolCallId));
       },
       recordWakeup: async (record: DelegatedWakeupRecord) => {
         wakeups.push({ ...record, promptsAtRecord: model.prompts.length });

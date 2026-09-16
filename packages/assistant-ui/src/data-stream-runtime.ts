@@ -49,6 +49,7 @@ import {
   type DelegatedConversationUpdate,
 } from './delegated-conversation-receiver';
 import { insulateAssistantStreamPipeline } from './stream-insulation';
+import { resolveTurnAnchorMessageId } from './turn-anchor';
 
 export { excludeApprovalActionMessages, isApprovalActionMessage };
 
@@ -71,6 +72,11 @@ export interface AssistantUsage {
   readonly outputTokens: number;
 }
 
+/** What an explicit Stop cancelled, as the thread showed it at abort time. */
+export interface CancelledAssistantRun {
+  readonly messages: readonly ThreadMessage[];
+}
+
 export type BrainstrikeDataStreamRuntimeOptions = {
   activeRunSession?: AssistantActiveRunSession;
   api: string;
@@ -88,7 +94,13 @@ export type BrainstrikeDataStreamRuntimeOptions = {
    * Hook failures are logged and must never break the stream.
    */
   onActivity?: () => void;
-  onCancel?: () => void;
+  /**
+   * An explicit Stop (never a detach). Receives the messages the run was
+   * cancelling — the prior messages plus the live assistant message at abort
+   * time — so the run session can tell whether a pause notice in them may have
+   * been cancelled with the turn.
+   */
+  onCancel?: (cancelled: CancelledAssistantRun) => void;
   onError?: (error: Error) => void;
   onFinish?: (message: ThreadMessage) => void;
   /** Reports replay-only failures so the active session can schedule a bounded retry. */
@@ -186,21 +198,10 @@ export interface PrepareRequestBodyContext {
   readonly turnAnchorMessageId: string | null;
 }
 
-/**
- * The turn anchor for a run leg — see
- * {@link PrepareRequestBodyContext.turnAnchorMessageId}. Mirrors the desktop
- * server's `resolveTurnAnchorMessageId` (snapshot-turn-boundaries.ts) with the
- * renderer-side extra of skipping action echoes, which never reach the server.
- */
-export function resolveTurnAnchorMessageId(messages: readonly ThreadMessage[]): string | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const candidate = messages[index];
-    if (candidate?.role === 'user' && !isApprovalActionMessage(candidate)) {
-      return candidate.id;
-    }
-  }
-  return null;
-}
+// The turn anchor lives in `turn-anchor.ts` — see
+// {@link PrepareRequestBodyContext.turnAnchorMessageId}. Re-exported here
+// because this module was its original home.
+export { resolveTurnAnchorMessageId };
 
 const NO_BODY_CONTEXT: PrepareRequestBodyContext = { turnAnchorMessageId: null };
 
@@ -1256,13 +1257,27 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     this.options.onFinish?.(unstable_getMessage());
   }
 
-  private registerCancelHandler(abortSignal: AbortSignal): void {
+  private registerCancelHandler(
+    abortSignal: AbortSignal,
+    readCancelledMessages: () => readonly ThreadMessage[]
+  ): void {
     abortSignal.addEventListener(
       'abort',
       () => {
-        if (!(abortSignal.reason as { detach?: unknown } | undefined)?.detach) {
-          this.options.onCancel?.();
+        if ((abortSignal.reason as { detach?: unknown } | undefined)?.detach) {
+          return;
         }
+        // Reading the live message can throw (a runtime torn down under the
+        // abort). The cancel path itself must still run: this file's rule is
+        // that hook failures never break the stream, and an empty set only
+        // means "nothing here looks stale", which is the safe direction.
+        let messages: readonly ThreadMessage[] = [];
+        try {
+          messages = readCancelledMessages();
+        } catch (error: unknown) {
+          logger.warn('Could not read the cancelled thread for the Stop notice', { error });
+        }
+        this.options.onCancel?.({ messages });
       },
       { once: true }
     );
@@ -1279,7 +1294,10 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     }
   ) {
     const { abortSignal } = runOptions;
-    this.registerCancelHandler(abortSignal);
+    this.registerCancelHandler(abortSignal, () => [
+      ...runOptions.messages,
+      runOptions.unstable_getMessage(),
+    ]);
     try {
       const requestPreparationTimeoutMs =
         this.options.requestPreparationTimeoutMs === undefined
@@ -1320,7 +1338,7 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     unstable_assistantMessageId,
     unstable_getMessage,
   }: ChatModelRunOptions) {
-    this.registerCancelHandler(abortSignal);
+    this.registerCancelHandler(abortSignal, () => [...messages, unstable_getMessage()]);
 
     try {
       const requestPreparationTimeoutMs =

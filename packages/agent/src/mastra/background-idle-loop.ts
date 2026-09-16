@@ -1,3 +1,4 @@
+import { DELEGATION_LIMITS } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { Agent } from '@mastra/core/agent';
 import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
@@ -17,6 +18,7 @@ import {
   LiveDecisionUnavailableError,
 } from './live-decision-channel';
 import type { BrainstrikeAgentStreamOptions } from './runtime-assembly/stream-options';
+import type { DelegationOutcomeCapture } from './subagent-delegation';
 import { type AgentStreamOptions, readNativeStreamStatus } from './turn-attempts';
 
 const logger = createLogger('BackgroundIdleLoop');
@@ -55,6 +57,15 @@ const logger = createLogger('BackgroundIdleLoop');
  * still running keep the leg open until they return (their results land in
  * the parent's history, which the resumed leg reads); the leg then closes as
  * the pause it is.
+ *
+ * A delegation REFUSED at start is not returned work (REJECTED ADMISSION IS
+ * NO INVOCATION, settled 2026-09-15). Mastra runs the delegation hook inside
+ * the background task it already created, so the refusal completes as a task
+ * row; the leg's delegation outcome capture names it, and its terminal wakes
+ * nothing. A leg woken for more invocations than one turn may admit FAILS:
+ * the next wakeup would be one more parent inference on work that never ran
+ * (the 2026-09-15 E2E ledger reached "1160 total: 1160 returned" and the root
+ * made 2337 model calls before the test timed out).
  */
 
 export const WAKING_TASK_EVENTS: ReadonlySet<string> = new Set([
@@ -152,6 +163,18 @@ export function isParentWakeup(event: TaskEvent): boolean {
   return WAKING_TASK_EVENTS.has(event.type) && event.payload.suspendedAt === undefined;
 }
 
+/** A refused delegation still completes its task (BST-1751); its leg's capture names it. */
+function isRejectedDelegation(
+  event: TaskEvent,
+  rejectedDelegations: BackgroundIdleLoopParams['rejectedDelegations']
+): boolean {
+  const toolCallId = event.payload.toolCallId;
+  return (
+    typeof toolCallId === 'string' &&
+    rejectedDelegations?.rejected(toolCallId, readTaskRunId(event)) === true
+  );
+}
+
 /** The deferral a parked parent leg records: the model is sent nothing. */
 export const PARKED_PARENT_DEFERRED_DIRECTIVE =
   'Parked parent leg closed; returned work waits in its history for the resumed leg. No model-facing wakeup text was sent.';
@@ -221,6 +244,11 @@ export interface BackgroundIdleLoopParams {
    * parked leg's deferral is joined before the leg closes.
    */
   readonly recordWakeup?: ((record: DelegatedWakeupRecord) => Promise<void>) | undefined;
+  /**
+   * The capture the leg's delegation config records refusals in
+   * (`buildStreamOptions`): a refused delegation's completed task wakes no parent.
+   */
+  readonly rejectedDelegations: Pick<DelegationOutcomeCapture, 'rejected'> | undefined;
   readonly scope: { readonly threadId: string; readonly resourceId: string };
 }
 
@@ -249,6 +277,11 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   const settled = new Set<string>();
   const pending: TaskEvent[] = [];
   const seenTerminals = new Set<string>();
+  /**
+   * Tasks whose terminal queued a parent wakeup. Persona delegations are the
+   * only background-eligible tools, so one turn's `maxInvocations` bounds it.
+   */
+  const woken = new Set<string>();
   const isNewSuspension = createSuspensionLedger();
   const loopAbort = new AbortController();
   let processing = true;
@@ -515,7 +548,22 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     seenTerminals.add(terminalKey);
     settled.add(taskId);
     running.delete(taskId);
-    if (isParentWakeup(event)) {
+    if (isParentWakeup(event) && !isRejectedDelegation(event, params.rejectedDelegations)) {
+      woken.add(taskId);
+      if (woken.size > DELEGATION_LIMITS.maxInvocations) {
+        logger.error('Background work woke the parent for more invocations than one turn admits', {
+          code: 'background_parent_wakeup_limit_exceeded',
+          invocation: describeInvocation(event),
+          limit: DELEGATION_LIMITS.maxInvocations,
+          taskIds: [...woken],
+        });
+        fail(
+          new Error(
+            `Background work woke the parent for ${woken.size} invocations; one turn admits at most ${DELEGATION_LIMITS.maxInvocations}, so the leg stops instead of waking the parent again.`
+          )
+        );
+        return;
+      }
       pending.push(event);
     }
     if (event.type === 'background-task-suspended' && params.channel) {

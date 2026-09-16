@@ -34,12 +34,13 @@ import {
   streamAttemptChunks,
 } from './agent-streaming';
 import { resolveRequireToolApproval } from './approval-gate';
-import { claimGrantedBackgroundResumes, driveBackgroundWork } from './background-granted-approvals';
+import { driveBackgroundWork, prepareApprovalResume } from './background-granted-approvals';
 import { repairBackgroundResults, restoreLateBackgroundResults } from './background-results';
 import { createBackgroundResumeStream, findPendingBackgroundTask } from './background-resume';
 import { stopBackgroundTree } from './background-stop';
 import {
   assertDelegatedToolActionPending,
+  beforeDelegatedToolActionResume,
   claimDelegatedToolAction,
 } from './delegated-tool-actions';
 import {
@@ -282,7 +283,8 @@ async function createInitialTurnAttempt(
           ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
           : await runtime.agent.stream(streamInput),
       resolvedStreamOptions ?? streamOptions,
-      streamAbortContext.signal
+      streamAbortContext.signal,
+      delegationOutcomes
     );
     await bindStartedNativeBranch(streamResult, onNativeStart, streamAbortContext.abort);
     await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
@@ -560,35 +562,29 @@ async function createToolApprovalTurnAttempt({
       agent: runtime.agent,
       requiresApproval: true,
     });
-    streamAbortContext.signal.throwIfAborted();
-    const backgroundTask = await findPendingBackgroundTask(
-      runtime.backgroundTaskManager,
-      runtimeData?.memory,
-      action
-    );
-    if (backgroundTask && !memory) {
-      throw new Error('Background resume requires durable memory.');
-    }
-    // A session grant recorded with this approval reaches the runtime as its
-    // permission snapshot; every parked sibling that snapshot now allows is
-    // claimed and resumed in this same leg (see background-granted-approvals).
-    const { answeredApprovals, resumes } = backgroundTask
-      ? await claimGrantedBackgroundResumes({
-          decision: { resumeData: { approved: action.action === 'approve' }, task: backgroundTask },
-          runtime,
-          runtimeData,
-        })
-      : { answeredApprovals: [], resumes: [] };
-    const late = backgroundTask
-      ? []
-      : await readLateBackgroundResults(runtime, runtimeData, action.runId);
+    // Native resume is not invoked until the stream below, so a failure here
+    // releases the claim rather than letting disposal consume it.
+    const { answeredApprovals, backgroundTask, late, resumes } =
+      await beforeDelegatedToolActionResume(
+        action,
+        runtime.conversationBinding,
+        { requiresApproval: true },
+        () =>
+          prepareApprovalResume({
+            action,
+            hasDurableMemory: Boolean(memory),
+            runtime,
+            runtimeData,
+            signal: streamAbortContext.signal,
+          })
+      );
     const resumedOptions = withLateBackgroundResults(approvalOptions, late);
-    await recordLateOverlayWakeup(runtime, late);
     const streamResult =
       backgroundTask && memory
         ? createBackgroundResumeStream({
             attachParent: (stream) => attachAbortedTurnMessageList(abortedTurnPersistence, stream),
             channel: runtime.liveDecisions,
+            delegationOutcomes,
             memory,
             options: approvalOptions,
             resumes,
@@ -601,7 +597,8 @@ async function createToolApprovalTurnAttempt({
               ? await runtime.agent.approveToolCall(resumedOptions as AgentToolApprovalOptions)
               : await runtime.agent.declineToolCall(resumedOptions as AgentToolApprovalOptions),
             resumedOptions,
-            streamAbortContext.signal
+            streamAbortContext.signal,
+            delegationOutcomes
           );
     if ('messageList' in streamResult) {
       await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
@@ -955,6 +952,7 @@ async function createToolResumeTurnAttempt({
         ? createBackgroundResumeStream({
             attachParent: (stream) => attachAbortedTurnMessageList(abortedTurnPersistence, stream),
             channel: runtime.liveDecisions,
+            delegationOutcomes,
             memory,
             options: resumeOptions,
             resumes: [{ resumeData, task: backgroundTask }],
@@ -968,7 +966,8 @@ async function createToolResumeTurnAttempt({
               resumedOptions as AgentResumeStreamOptions
             ),
             resumedOptions,
-            streamAbortContext.signal
+            streamAbortContext.signal,
+            delegationOutcomes
           );
     if ('messageList' in streamResult) {
       await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);

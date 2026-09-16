@@ -479,7 +479,9 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
     at delegation start. Mastra still returns a SUCCESSFUL tool call carrying
     `[Delegation Rejected] …`, so `onDelegationStart` records the refusal in the
     same outcome capture and the mapper emits `subagent.failed`/`failed` with
-    `outcome = 'rejected'` (card: `Rejected`, amber). Paired specs:
+    `outcome = 'rejected'` (card: `Rejected`, amber). A BACKGROUND refusal
+    still completes its task row, yet wakes no parent and is no ledger entry
+    (REJECTED ADMISSION IS NO INVOCATION). Paired specs:
     `subagent-delegation.spec.ts` ("asks the durable budget at start"),
     `delegation-rejection.integration.spec.ts`.
   - **The child's LAST step is reserved for its summary — via Mastra's own
@@ -1190,7 +1192,16 @@ marks abandoned claims interrupted and retains their identity, without replay.
 The record describes admission, not whether a tool effect succeeded. If the
 post-admission snapshot recheck fails before native resume is invoked, the host
 rolls back only that binding's matching unexecuted claim and propagates the
-failure. Subsequent native failures or cancellation do not release the leaf:
+failure; so does any later failure before the approval leg invokes native
+resume — locating the parked task or answering the parked siblings its
+grant covers (`beforeDelegatedToolActionResume` around
+`claimGrantedBackgroundResumes`, which releases through the owner that took
+the claim: the continuation host for a child continuation decision, the
+delegated ledger otherwise). Left to disposal, `finishToolActions` consumed
+the never-executed claim and refused the still-parked card for good
+(BST-1749 review; desktop row "an approval leg whose granted sibling is
+refused releases the user's claim", `delegated-tool-actions.spec.ts`).
+Subsequent native failures or cancellation do not release the leaf:
 the effect may already have occurred. Disposal attempts all cleanup owners in
 order and preserves multiple failures in an `AggregateError`; it never logs
 and swallows a failed decision settlement. Construction failures on every
@@ -1879,6 +1890,91 @@ mutation: dropping the join from `settle`), and the harness row "the wakeup
 carries the whole ledger: a root that trusts it reports the final outcome
 exactly once nothing is still running" (`fanout.rootReadsLedger`; the
 scripted root answers from the LAST user message, never its own count).
+SETTLED 2026-09-15, REJECTED ADMISSION IS NO INVOCATION (do not relitigate): a
+delegation refused at start (BST-1751: unknown persona, a per-leg backstop, or
+the host's durable budget) is never returned background work. Mastra 1.64 runs
+`onDelegationStart` INSIDE the background task it has already created
+(`createBackgroundTask` → `enqueue` → `storage.createTask`, then the task's
+executor calls the tool), so a refusal still writes a task row that completes
+normally with `[Delegation Rejected] …` as its result. The idle loop used to
+queue that terminal as a parent wakeup and the ledger counted the row
+`returned`: `delegated-worker-write.desktop.test.ts`, its scripted parent broken
+to delegate on every turn, reached "1160 total: 1160 returned" and 2337 parent
+model calls in ~90 s. Nothing in the host bounded it — a refused task completes
+at once, so idle expiry never applies. Now the leg's `DelegationOutcomeCapture`
+(the authority the mapper already reads for `outcome = 'rejected'`) reaches
+`withBackgroundIdleLoop` and `createBackgroundLedgerSource` as
+`rejectedDelegations`; `driveBackgroundWork` and `createBackgroundResumeStream`
+pass their leg's capture, and the key is required on both the ledger source and
+the loop so neither can forget it. The refused terminal wakes nothing, and the
+row is no ledger entry (no child ran; admission reserved nothing). The model
+still reads the refusal as that call's saved result and the user still sees the
+`Rejected` card, so a refusal that lands while nothing else runs closes the leg
+without a parent turn. The loop's bound is explicit: once more distinct
+background tasks wake the parent in one leg than one original root turn may
+admit invocations (`DELEGATION_LIMITS.maxInvocations`, the host's tree limit
+for that turn, resumes and descendants included), the leg FAILS with
+"Background work woke the parent for N invocations; one turn admits at most
+<maxInvocations>, so the leg stops instead of waking the parent again" and logs
+`background_parent_wakeup_limit_exceeded` (the tripping invocation and every
+woken task id) — never a silent close. The bound counts background tasks, which
+equal delegations only because persona delegations are the sole
+background-eligible tools: `buildBackgroundAgentOptions` (`agent-runtime.ts`)
+lists persona ids alone and no tool sets its own `backgroundConfig`. A new
+background-capable tool must revisit this bound. A task wakes a leg at most
+once, so the bound trips only when more work woke the parent than the turn's
+admission allows. The capture is leg-scoped and in memory (Mastra writes no
+durable rejection marker on the row), so the LEDGER also asks the host's
+invocation graph — the durable record. A refusal persists no invocation (start
+admission reserves nothing and `persist` never runs), so a `completed` row whose
+dispatch address `resolveParkedInvocation` answers `undefined` for ("that
+address delegated nothing") was refused, whichever leg dispatched it. That
+closes the case the capture cannot see: a resume leg reads the rows of the run
+it resumes, and a refusal dispatched in the same parent step as a parked sibling
+used to read `returned` there — two admitted siblings and one refusal gave "3
+total: 2 returned, 0 failed, 0 cancelled, 1 still running" once one sibling
+resumed, so the resumed parent was told a specialist returned when none ran.
+`createBackgroundLedgerSource` takes `resolveInvocation` as a required key
+beside `rejectedDelegations`; `driveBackgroundWork` and `createResumeLedger` pass
+the binding's member. Only a `completed` row asks: a child still starting has
+not persisted its invocation yet, and a refusal always completes. That ordering
+is guaranteed, not assumed — the child's `inputProcessor` AWAITS `persist`
+before the child streams a part, and Mastra writes a task's `completed` status
+together with its executor result — so a completed row's answer is settled and
+the leg remembers it, with overlapping reads (the loop publishes a row per
+lifecycle event) sharing one pending answer. A host that CANNOT answer fails
+the read: no row is published (`background_ledger_read_failed`) and the wakeup
+fails loudly, because answering "not refused" would count a refusal as returned
+— the defect the graph exists to answer. That failure is not remembered, so the
+next read asks again. The same persona-only
+eligibility makes every row a delegation the graph can answer for; a new
+background-capable tool must revisit this too. Without a host the key is
+undefined and the capture answers alone: no other leg can read those rows,
+because every delegated decision needs `resolveToolAction`. Reading `undefined`
+as "refused" makes DURABILITY part of the binding contract, stated on
+`resolveParkedInvocation`: an invocation, once persisted, must stay resolvable
+from its dispatch address for the life of the parent thread. No code prunes
+`brainstrike_delegated_invocations` today; a host that added pruning would not
+answer late — the ledger would quietly stop counting a child that ran, the
+mirror of the defect above and a silent one. Never sniff the
+`[Delegation Rejected]` result text — a child can echo it. Paired:
+`background-rejected-delegation.integration.spec.ts` (nine task rows, eight
+wakeups, 18 root prompts, "8 of 8 specialists returned"; RED: 20 rows and 20
+wakeups until the script stopped; and "a resume leg leaves a sibling refused in
+the same parent run out of its ledger": "2 total: 1 returned, 0 failed, 0
+cancelled, 1 still running" and "1 of 2 specialists returned · 1 running"),
+`background-idle-loop.spec.ts` ("a delegation rejected at start wakes no parent
+turn and is no ledger entry", "fails the leg loudly once more invocations wake
+the parent than one turn may admit"), `background-ledger.spec.ts` ("leaves out a
+delegation rejected at start", "leaves out a completed delegation the host holds
+no invocation for, whichever leg dispatched it" — mutations: ignoring the host's
+answer; asking about a row that has not completed — plus "asks the host once per
+completed row", "asks once even when two reads overlap", "fails the read when the
+host cannot answer, and asks again on the next read" and "reads the leg capture
+before the host"), and the desktop host's "resolves a parked invocation from its
+dispatch address without a leaf identity" (an address that delegated nothing
+answers `undefined`). A scripted harness root that must delegate on every turn
+uses `fanout.rootRedelegates`.
 SETTLED 2026-09-14 (do not relitigate): EVERY parked leaf decision has a card in
 the ROOT thread. A foreground child's pause suspends the parent run on the
 delegation call, so Mastra's parent-level pause becomes that card once
@@ -1987,9 +2083,13 @@ loop or the resume stream's terminal wait — owns it and hands out
 RESERVATIONS that keep the phase from settling until the reserved tasks are
 resumed or released); `live-decisions.ts` `armLiveDecisions` (every leg arms
 it: validates against the live native snapshot exactly as a click would,
-records the answer with the host as consumed — never the root's single active
-claim, the leg may hold that already — answers parked siblings the request's
-FRESH snapshot allows via `allowedBySnapshot`, publishes the
+validates the parked siblings the request's FRESH snapshot allows via
+`allowedBySnapshot` the same way, records the answer and theirs with the host
+as consumed in ONE all-or-none write (`recordToolActionAnswers`: a refused
+answer records nothing, so the user's pause stays answerable; a sibling whose
+leaf a durable decision already answered is SKIPPED by discovery rather than
+refusing the leg; BST-1749 and PR #3209 reviews) — never the root's single
+active claim, the leg may hold that already — publishes the
 `tool-approval-answered` chunks on the leg's own stream, resumes in-process
 through `manager.resume`, and REMEMBERS a lasting grant so every ask tool's
 live flag lets each later call the grant allows run without parking (SESSION
@@ -2046,7 +2146,13 @@ clone captured at clone time fails "the clone reads the gate on EVERY call"),
 `build-persona-subagents-approval-gate.spec.ts` ("child approval gate": the
 converted child tool carries `requireApproval: true` + `needsApprovalFn`,
 lifted by `channel.remember`, and `defaultOptions.requireToolApproval` is
-undefined), `background-worker-policy.integration.spec.ts` ("after a live
+undefined), `root-live-approval-gate.integration.spec.ts` (the ROOT's executed
+map: every `runtime.askTools` id carries the function form — eager ids as
+converted `requireApproval: true` + `needsApprovalFn`, deferred ids as loaded
+through `toolSearchProcessor` — and an ask-gated Anthropic web search stays the
+Tavily clone; mutations: dropping the root `applyLiveApprovalGate` call,
+settlement not copying descriptors, or the web-search swap ignoring `askTools`
+fail it), `background-worker-policy.integration.spec.ts` ("after a live
 session grant the sibling's NEXT gated read runs without a pause": exactly one
 root card for the leg, `effect` called for every read — mutation:
 `needsApprovalFn` → `() => true` fails it; "a live session grant is remembered
