@@ -307,7 +307,7 @@ describe('desktop live decisions through the real host ledger', () => {
     sessionGrants: ['read'],
   };
 
-  it('a live grant skips a sibling another decision already answered and still delivers the user own answer', async () => {
+  it("a live grant skips a sibling another decision already answered and still delivers the user's own answer", async () => {
     // BST-1749, PR #3209 review: an answered sibling is a legitimate state, not
     // a reason to refuse the user's click. Refusing it re-conflicted on every
     // retry that still carried the grant, so the card could never be answered.

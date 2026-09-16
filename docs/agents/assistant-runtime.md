@@ -2999,7 +2999,7 @@ Flow (desktop assistant server → agent runtime):
    as does a leaf answered or stopped in the WINDOW between that read and the
    write, now the only fatal per-sibling refusal. Paired: desktop rows "a live
    grant skips a sibling another decision already answered and still delivers
-   the user own answer", "a live grant skips a sibling whose subtree was
+   the user's own answer", "a live grant skips a sibling whose subtree was
    stopped and still delivers the user's own answer" and "a live grant refused
    on a sibling answered inside the write window records nothing: the user's
    own card stays answerable".
