@@ -1,5 +1,9 @@
 import { createLogger } from '@brainstrike/logging';
-import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/background-tasks';
+import type {
+  BackgroundTask,
+  BackgroundTaskManager,
+  TaskContext,
+} from '@mastra/core/background-tasks';
 import type { MastraMemory } from '@mastra/core/memory';
 import type { RuntimeData, StreamChunk } from '../types';
 import type { attachAbortedTurnMessageList } from './aborted-turn-persistence';
@@ -81,7 +85,8 @@ function createTerminalWait(
   channel: LiveDecisionChannel | undefined,
   onTerminal: (taskId: string, event: TaskEvent) => void
 ): {
-  readonly add: (taskId: string) => void;
+  /** Wait for this task's terminal; `false` when the leg already awaited it. */
+  readonly add: (taskId: string) => boolean;
   /** Stop accepting tasks (the leg stopped waiting). */
   readonly close: () => void;
   /**
@@ -110,7 +115,11 @@ function createTerminalWait(
   };
   return {
     add: (taskId) => {
+      if (awaited.has(taskId)) {
+        return false;
+      }
       awaited.add(taskId);
+      return true;
     },
     close: () => {
       closed = true;
@@ -180,6 +189,58 @@ interface ResumedExecutors {
   readonly terminal: (taskId: string, event: TaskEvent) => void;
 }
 
+/**
+ * THE RESUMED-EXECUTOR LIFECYCLE (BST-1749, the #3207 reviews). Owning a task's
+ * context IS the contract: Mastra looks the executor up when its workflow runs
+ * the task, so a context dropped too early strands the child ("No executor
+ * registered") and one dropped too late leaks on a manager that outlives this
+ * leg. Every state below is per task, and concurrent callers are the norm — the
+ * leg owns the live seam across its whole registration window, and
+ * `findGrantedBackgroundApprovals` selects any row still `suspended`.
+ *
+ * REGISTERED  a context of this leg's is on the manager, no resume accepted yet
+ * IN FLIGHT   `manager.resume` called and not returned (COUNTED: two callers
+ *             can hold one task, and neither may clear the other's mark)
+ * ACCEPTED    Mastra took some caller's resume; the task is running
+ * DRAINED     the leg ended and released what Mastra never accepted
+ *
+ * | event \ state    | REGISTERED          | IN FLIGHT          | ACCEPTED           |
+ * | resume accepted  | joins, leaves       | —                  | skipped: no second |
+ * |                  | `unresumed`         |                    | `manager.resume`   |
+ * | resume refused   | that call drops its | drops only if it   | keeps the context  |
+ * |                  | own context         | is the last in     | (a concurrent call |
+ * |                  |                     | flight             | won the race)      |
+ * | leg drains       | drops the context   | skips: the in-     | keeps the context  |
+ * |                  |                     | flight call drops  |                    |
+ * |                  |                     | its own            |                    |
+ * | register asked   | single-flight: the task's one live registration is       |
+ * |                  | shared by every caller, so no context is ever replaced   |
+ * |                  | and no join orphaned (drained: refused, manager          |
+ * |                  | untouched — the registration is a thunk the leg calls    |
+ * |                  | only once the tools have resolved AND it still may)      |
+ * | terminal arrives | settles the task's executor and RETIRES both its         |
+ * |                  | registration and its acceptance — acceptance is per      |
+ * |                  | RESUME, so a child that parks again is registered and   |
+ * |                  | resumed afresh, with its own join (a suspension settles  |
+ * |                  | no executor: only a running one parks, and it settles    |
+ * |                  | itself after its host join)                              |
+ *
+ * Pins, all in `background-resume.spec.ts`: "registers every resumed executor
+ * before Mastra is asked to resume any task", "fails the leg before any resume
+ * when a resumed executor is unavailable, keeping no context", "deregisters the
+ * tail Mastra never resumed…", "never re-registers or deregisters a task a live
+ * decision already resumed", "joins the executor Mastra accepted when the leg
+ * registers the same task later", "keeps the context of a live resume that is in
+ * flight when the leg is stopped", "refuses a live registration that lands after
+ * the leg released its executors", "never deregisters an accepted task when a
+ * held registration lands on a drained leg", "keeps the context when a second
+ * concurrent resume is refused while the first is in flight", "a task cancelled
+ * while its resumed executor is still in flight settles the join" and "the pause
+ * branch still joins a resumed executor whose host join outlives its suspension".
+ * The one cell with no test is REGISTERED + terminal for a task never resumed:
+ * the wait only records terminals for awaited tasks, and a task enters the wait
+ * through a resume, so it is unreachable.
+ */
 function createResumedExecutors(params: {
   readonly controller: ReadableStreamDefaultController<unknown>;
   readonly manager: BackgroundTaskManager;
@@ -189,8 +250,14 @@ function createResumedExecutors(params: {
   readonly runtime: MastraAgentRuntime;
   readonly scope: { readonly resourceId: string; readonly threadId: string };
 }): ResumedExecutors {
-  /** Every registration this leg made for a task; a terminal settles them all. */
-  const executors = new Map<string, ResumedExecutor[]>();
+  /** The task's current executor; its terminal settles it and retires it. */
+  const executors = new Map<string, ResumedExecutor>();
+  /**
+   * One registration per task at a time, shared by concurrent callers. A task
+   * is registered once until its terminal retires it; a parked child resumed
+   * again in this leg then registers afresh.
+   */
+  const registrations = new Map<string, Promise<ResumedExecutor>>();
   /** Registered contexts Mastra has not accepted a resume for. */
   const unresumed = new Set<string>();
   /** Tasks Mastra accepted a resume for — this leg's, or another caller's. */
@@ -201,37 +268,47 @@ function createResumedExecutors(params: {
    * own lookup ("No executor registered"). Each releases its own context
    * instead, once it knows whether Mastra took it.
    */
-  const resuming = new Set<string>();
+  const resuming = new Map<string, number>();
   /** The leg released its registrations; nothing may hold one after that. */
   let drained = false;
   const settled: Promise<void>[] = [];
   /** The leg's own resumes, registered before any of them is resumed. */
   const registered: { readonly executor: ResumedExecutor; readonly resume: BackgroundResume }[] =
     [];
-  const register = async (task: BackgroundTask): Promise<ResumedExecutor> => {
-    // A task another caller already resumed keeps the registration it is
-    // running under: registering again would overwrite a running task's
-    // context, re-arm it for deregistration, and orphan the join that caller
-    // pushed (the leg owns the seam across its whole registration window).
-    const live = accepted.has(task.id) ? executors.get(task.id)?.at(-1) : undefined;
-    if (live) {
-      return live;
+  const register = (task: BackgroundTask): Promise<ResumedExecutor> => {
+    // Single-flight per task: whoever asks second shares the first
+    // registration. A second `registerTaskContext` would replace the context
+    // Mastra is about to run and orphan the join already pushed for the first.
+    const existing = registrations.get(task.id);
+    if (existing) {
+      return existing;
     }
-    const executor = await registerResumedExecutor({ ...params, task });
-    if (drained) {
-      // The leg released its registrations while this one was in flight;
-      // nothing would ever drain it from the runtime-wide manager.
-      params.manager.deregisterTaskContext(task.id);
-      throw new LiveDecisionUnavailableError('The resume leg has released its executors.');
-    }
-    executors.set(task.id, [...(executors.get(task.id) ?? []), executor]);
-    // A registration that only LANDS after another caller's resume was
-    // accepted (its check above ran before this await) must not re-arm the
-    // task: the leg would then deregister a running task's context.
-    if (!accepted.has(task.id)) {
-      unresumed.add(task.id);
-    }
-    return executor;
+    const pending = (async () => {
+      const commit = await prepareResumedExecutor({ ...params, task });
+      // Resolving the tools was async: the leg may have released its
+      // executors meanwhile, and nothing would ever drain a context
+      // registered now — so the shared manager is left untouched.
+      if (drained) {
+        throw new LiveDecisionUnavailableError('The resume leg has released its executors.');
+      }
+      const executor = commit();
+      executors.set(task.id, executor);
+      // A registration that only LANDS after another caller's resume was
+      // accepted must not re-arm the task: the leg would then deregister a
+      // running task's context.
+      if (!accepted.has(task.id)) {
+        unresumed.add(task.id);
+      }
+      return executor;
+    })();
+    registrations.set(task.id, pending);
+    pending.catch(() => {
+      // A failed registration is not the task's registration.
+      if (registrations.get(task.id) === pending) {
+        registrations.delete(task.id);
+      }
+    });
+    return pending;
   };
   const resume = async (
     task: BackgroundTask,
@@ -244,7 +321,7 @@ function createResumedExecutors(params: {
     if (accepted.has(task.id)) {
       return;
     }
-    resuming.add(task.id);
+    resuming.set(task.id, (resuming.get(task.id) ?? 0) + 1);
     try {
       await params.manager.resume(task.id, resumeData);
     } catch (error) {
@@ -252,12 +329,20 @@ function createResumedExecutors(params: {
       // resumed meanwhile — a live decision reaching the seam during this
       // leg's registration window — is already running under the context
       // Mastra is about to look up, and a refusal here must not remove it.
-      if (!accepted.has(task.id) && unresumed.delete(task.id)) {
+      // Only when this is the ONLY resume in flight for the task: a concurrent
+      // one may still be accepted, and it needs this context. This call's own
+      // entry is still counted here — its `finally` runs after.
+      if (!accepted.has(task.id) && resuming.get(task.id) === 1 && unresumed.delete(task.id)) {
         params.manager.deregisterTaskContext(task.id);
       }
       throw error;
     } finally {
-      resuming.delete(task.id);
+      const inFlight = (resuming.get(task.id) ?? 1) - 1;
+      if (inFlight > 0) {
+        resuming.set(task.id, inFlight);
+      } else {
+        resuming.delete(task.id);
+      }
     }
     unresumed.delete(task.id);
     accepted.add(task.id);
@@ -295,11 +380,13 @@ function createResumedExecutors(params: {
       }
     },
     terminal: (taskId, event) => {
-      // Every registration for the task, so a later one cannot orphan a join
-      // already pushed; settling an executor twice is a no-op.
-      for (const executor of executors.get(taskId) ?? []) {
-        executor.terminal(event);
-      }
+      // The terminal retires the task's registration AND its acceptance:
+      // acceptance is per resume, not per task, so a parked child resumed
+      // again in this leg registers afresh and is resumed again, with its own
+      // join. Keeping the acceptance would skip that second resume entirely.
+      registrations.delete(taskId);
+      accepted.delete(taskId);
+      executors.get(taskId)?.terminal(event);
     },
   };
 }
@@ -509,13 +596,19 @@ export function createBackgroundResumeStream(params: {
             if (wait.closed()) {
               throw new LiveDecisionUnavailableError('The resume leg is no longer waiting.');
             }
-            for (const task of tasks) {
-              wait.add(task.id);
-            }
+            // Only the tasks this reservation ADDED are its to give back: one
+            // the leg is already waiting for stays awaited whatever becomes of
+            // the decision, or the leg would stop observing its terminal.
+            const added = new Set(tasks.filter((task) => wait.add(task.id)).map((task) => task.id));
+            const giveBack = (taskId: string) => {
+              if (added.delete(taskId)) {
+                wait.remove(taskId);
+              }
+            };
             return {
               release: () => {
                 for (const task of tasks) {
-                  wait.remove(task.id);
+                  giveBack(task.id);
                 }
               },
               resume: async (more) => {
@@ -523,7 +616,7 @@ export function createBackgroundResumeStream(params: {
                   try {
                     await resumed.resume(task, await resumed.register(task), resumeData);
                   } catch (error) {
-                    wait.remove(task.id);
+                    giveBack(task.id);
                     throw error;
                   }
                 }
@@ -689,11 +782,13 @@ interface ResumedExecutor {
 }
 
 /**
- * Register one task's in-process executor and result delivery with the
- * manager. Resolves once registered — never waiting for the execution, which
- * `executed` joins.
+ * Prepare one task's in-process executor and result delivery. Resolving the
+ * tools is async, so the REGISTRATION itself is handed back as a thunk: by the
+ * time it resolves the task may already be running under another caller's
+ * context, or the leg may have released its own, and neither may touch the
+ * shared manager. Calling the thunk registers; `executed` joins the execution.
  */
-async function registerResumedExecutor(params: {
+async function prepareResumedExecutor(params: {
   readonly controller: ReadableStreamDefaultController<unknown>;
   readonly manager: BackgroundTaskManager;
   readonly memory: MastraMemory;
@@ -702,7 +797,7 @@ async function registerResumedExecutor(params: {
   readonly runtime: MastraAgentRuntime;
   readonly scope: { readonly resourceId: string; readonly threadId: string };
   readonly task: BackgroundTask;
-}): Promise<ResumedExecutor> {
+}): Promise<() => ResumedExecutor> {
   const { controller, manager, memory, options, runtime, scope, task } = params;
   const executed = Promise.withResolvers<void>();
   // The leg's stream can close before a resumed executor settles: a cancel
@@ -741,7 +836,7 @@ async function registerResumedExecutor(params: {
   if (!execute) {
     throw new Error('The original background executor is unavailable.');
   }
-  manager.registerTaskContext(task.id, {
+  const context: TaskContext = {
     executor: {
       execute: async (args, nativeOptions) => {
         let output: unknown;
@@ -791,13 +886,16 @@ async function registerResumedExecutor(params: {
         throw error;
       }
     },
-  });
-  return {
-    executed: executed.promise,
-    terminal: (event) => {
-      if (event.type !== 'background-task-suspended') {
-        executed.resolve();
-      }
-    },
+  };
+  return () => {
+    manager.registerTaskContext(task.id, context);
+    return {
+      executed: executed.promise,
+      terminal: (event) => {
+        if (event.type !== 'background-task-suspended') {
+          executed.resolve();
+        }
+      },
+    };
   };
 }

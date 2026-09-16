@@ -522,36 +522,32 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
     expect(leg.status).toBe('suspended');
   }, 2000);
 
-  it('joins the executor Mastra accepted when the leg registers the same task later', async () => {
-    // The leg's own registration can LAND after a live decision resumed the
-    // same task: its join holds that caller's executor, so a terminal must
-    // settle THAT one and the late registration must not re-arm the task.
-    const registering = Promise.withResolvers<void>();
+  it('shares one registration when a live decision resumes a task the leg also holds', async () => {
+    // Single-flight: the leg's registration and the decision's are the SAME
+    // one, so the context Mastra runs is never replaced and the join already
+    // pushed is never orphaned. Its terminal still settles that join.
     const running = Promise.withResolvers<void>();
     const channel = createLiveDecisionChannel();
     const native = createNativeManager();
     const shared = native.add('t1');
     const { ended, leg } = startLeg({
       channel,
-      holdFirstRegistration: registering.promise,
       manager: native.manager,
       resumes: [shared],
       tools: Promise.resolve({ [TOOL]: parkingTool(running.promise) }),
     });
     try {
-      await until(() => channel.owner !== undefined);
+      await until(() => native.calls.includes('execute:t1'));
       const owner = channel.owner;
       if (!owner) {
         throw new Error('The leg does not own its live decision seam.');
       }
       await owner.reserve([shared]).resume([{ resumeData: { approved: true }, task: shared }]);
-      await until(() => native.calls.includes('execute:t1'));
-      registering.resolve();
-      await until(() => native.calls.filter((call) => call === 'register:t1').length === 2);
       // The task is cancelled while its executor is still in flight.
       native.cancel('t1');
       await expect(ended).resolves.toEqual({ error: undefined });
       expect(leg.status).toBe('suspended');
+      expect(native.calls.filter((call) => call === 'register:t1')).toHaveLength(1);
       expect(native.calls.filter((call) => call === 'resume:t1')).toHaveLength(1);
       expect(native.calls).not.toContain('deregister:t1');
     } finally {
@@ -631,8 +627,10 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
       });
       holding.resolve();
       await expect(refused).rejects.toBeInstanceOf(LiveDecisionUnavailableError);
+      // The shared manager is never touched: no registration to undo.
       expect(native.calls).not.toContain('resume:t2');
-      expect(native.calls).toContain('deregister:t2');
+      expect(native.calls).not.toContain('register:t2');
+      expect(native.calls).not.toContain('deregister:t2');
     } finally {
       holding.resolve();
       running.resolve();
@@ -718,6 +716,56 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
       await expect(ended).resolves.toEqual({ error: undefined });
     } finally {
       running.resolve();
+    }
+  }, 2000);
+
+  it('registers afresh when a parked task is resumed again in the same leg', async () => {
+    // A terminal retires the task's registration, so the second resume is a
+    // new execution with its own join: the leg cannot close while it runs.
+    const sibling = Promise.withResolvers<void>();
+    const secondRead = Promise.withResolvers<void>();
+    const channel = createLiveDecisionChannel();
+    const native = createNativeManager();
+    const parked = native.add('t1');
+    let runs = 0;
+    const tool: { readonly execute: ToolExecute } = {
+      execute: async (args, options) => {
+        if (String(args['prompt']).endsWith('t2')) {
+          await sibling.promise;
+        } else {
+          runs += 1;
+          if (runs > 1) {
+            await secondRead.promise;
+          }
+        }
+        await options.suspend?.({ reason: 'next gated read' });
+      },
+    };
+    const { ended, leg } = startLeg({
+      channel,
+      manager: native.manager,
+      resumes: [parked, native.add('t2')],
+      tools: Promise.resolve({ [TOOL]: tool }),
+    });
+    try {
+      // t1 parked again; t2 keeps the leg's wait open.
+      await until(() => native.calls.filter((call) => call === 'execute:t1').length === 1);
+      const owner = channel.owner;
+      if (!owner) {
+        throw new Error('The leg does not own its live decision seam.');
+      }
+      await owner.reserve([parked]).resume([{ resumeData: { approved: true }, task: parked }]);
+      await until(() => native.calls.filter((call) => call === 'execute:t1').length === 2);
+      await macrotask();
+      expect(native.calls).not.toContain('shutdown');
+      secondRead.resolve();
+      sibling.resolve();
+      await expect(ended).resolves.toEqual({ error: undefined });
+      expect(leg.status).toBe('suspended');
+      expect(native.calls.filter((call) => call === 'register:t1')).toHaveLength(2);
+    } finally {
+      secondRead.resolve();
+      sibling.resolve();
     }
   }, 2000);
 

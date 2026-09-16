@@ -2232,20 +2232,25 @@ only before it publishes `task.resume`, so a refusal dispatched nothing). A
 refusal drops ONLY a context the leg still owns. Because the leg owns the seam
 across its whole registration window, a live decision can resume a task this
 leg has not reached yet (nothing rejects that —
-`findGrantedBackgroundApprovals` selects on `status: 'suspended'` alone). Such
-a task therefore keeps A registration, is resumed no second time, and is never
-deregistered — not by a refusal already in flight, and not when the leg
-releases its executors. The check runs before the registration's await, so a
-task whose acceptance lands DURING it may still have its stored context
-replaced by an equivalent one (same tools, controller and task): idempotent in
-effect, not in fact. Removing that context would strand the running task on the
+`findGrantedBackgroundApprovals` selects on `status: 'suspended'` alone). Registration is therefore
+SINGLE-FLIGHT per task: every caller shares the one live registration, so the
+context Mastra runs is never replaced, the task is never resumed twice while it
+runs, and it is never deregistered — not by a refusal already in flight, and
+not when the leg releases its executors. Its terminal retires both the
+registration and the acceptance (acceptance is per resume), so a child that
+parks again is registered and resumed afresh with its own join. Removing that context would strand the running task on the
 "No executor registered" failure this contract exists to prevent. A terminal
 settles EVERY registration the leg made for a task, so one that lands late
 cannot orphan the join already made. A register or resume still in flight when
-the leg releases its executors is skipped by that release and drops its own
-context instead: a resume Mastra accepted keeps it, and a registration that
-lands afterwards is refused as not live rather than left on the shared
-manager.
+the leg releases its executors is skipped by that release and drops ONLY a
+context the leg still owns: a resume Mastra accepted keeps it, a refusal drops
+its own only when no concurrent resume is still in flight, and a registration
+that lands after the release is refused as not live without ever touching the
+shared manager (resolving the tools is async, so the registration itself is a
+thunk the leg calls only once both checks still hold). The full state table —
+registered, in flight, accepted, drained against every event, with the pin for
+each cell — is the module doc of `createResumedExecutors` in
+`background-resume.ts`; keep it in step with that code.
 The leg's pause branch joins each resumed execution (`Promise.all(settled)`),
 and a join exists only for a task Mastra accepted. A join settles when its
 executor settles, or when Mastra publishes a terminal that ends the task.
