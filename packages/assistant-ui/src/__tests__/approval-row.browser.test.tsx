@@ -105,14 +105,16 @@ test('an expanded row owns the indent and the rail: the embedded card adds neith
   expect(row.borderInlineStartWidth).toBe('3px');
   expect(card.marginInlineStart).toBe('0px');
   // The rail needs BOTH halves of `.bs-approval[data-delegation-colour]`; the
-  // base `.bs-approval` rule sets margin only. The class assertion catches a
-  // re-added surface — and catches it first. The 0px earns its place on the
-  // opposite case: a rail arriving by any OTHER route (a new selector, a
-  // `border-l-*` utility, an inline style) that never touches `.bs-approval`.
-  // 0px rather than 1px because this lane loads no Tailwind by design, per the
-  // banner above `.bs-approval` in overrides.css; being a negative assertion it
-  // is the more stylesheet-sensitive of the two literals here, so it is the one
-  // to revisit first if the lane ever gains utilities.
+  // base `.bs-approval` rule sets margin only. The class assertion names the
+  // cause directly, and does not depend on the margin rule above continuing to
+  // exist. The 0px covers what neither reaches: a rail arriving by some OTHER
+  // route (a new selector, a `border-l-*` utility, an inline style) that never
+  // touches `.bs-approval`. 0px rather than 1px because this lane loads no
+  // Tailwind by design, per the banner above `.bs-approval` in overrides.css;
+  // being a negative assertion it is the more stylesheet-sensitive of the two
+  // literals here, so it is the one to revisit first if the lane ever gains
+  // utilities. No claim about which of these fails first — for a re-added
+  // surface the `card.marginInlineStart` assertion above trips before either.
   expect(card.borderInlineStartWidth).toBe('0px');
   expect(cardEl).not.toHaveClass('bs-approval');
   // The card now leans on `ApprovalRails` early-returning for an empty path
