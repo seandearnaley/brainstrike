@@ -181,13 +181,6 @@ export interface DelegatedConversationBinding {
   /** Freeze child history after admission and before invoking native resume. */
   readonly prepareToolAction?: NonNullable<DelegatedConversationBinding['claimToolAction']>;
   /**
-   * This leg's generation and its native-run scope (migration 140). Unlike the
-   * diagnostic records below this IS runtime authority: it decides the ledger
-   * identity every leg of the generation publishes under. It throws when the
-   * leg resumed a native run no host leg mapped, rather than guess.
-   */
-  readonly readBackgroundGeneration?: () => Promise<BackgroundGeneration>;
-  /**
    * `recordLiveDecision`, `recordPromptManifest` and `recordWakeup` write
    * debug-pack evidence (migration 139): host-owned, append-only, never runtime
    * authority. The host logs a failed write with a code and resolves — a
@@ -203,6 +196,13 @@ export interface DelegatedConversationBinding {
   readonly readAnsweredToolActionLeaves?: (
     leaves: readonly DelegatedToolActionLeaf[]
   ) => Promise<readonly DelegatedToolActionLeaf[]>;
+  /**
+   * This leg's generation and its native-run scope (migration 140). Unlike the
+   * diagnostic records below this IS runtime authority: it decides the ledger
+   * identity every leg of the generation publishes under. It throws when the
+   * leg resumed a native run no host leg mapped, rather than guess.
+   */
+  readonly readBackgroundGeneration?: () => Promise<BackgroundGeneration>;
   readonly recordLiveDecision?: (record: DelegatedLiveDecisionRecord) => Promise<void>;
   /**
    * Maps a native ROOT run to the host leg that started it (migration 140):
