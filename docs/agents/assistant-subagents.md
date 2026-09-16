@@ -600,12 +600,15 @@ it folds no retained payloads, but rebuilds if any retained part changed. The
 only permitted same-length difference is the known mutable final
 text/reasoning/tool-call part. Tests in
 `subagent-invocation-index-model.test.ts` pin 1k/5k/10k retained-part work counts,
-same-array append, sibling-message resume, settlement, authoritative same-id
+same-array and immutable-array append, sibling-message resume, settlement, authoritative same-id
 replacement with stable metadata, shrink/reorder/outcome rebuilds, metadata-only
 updates, snapshot isolation and listener cleanup.
 `subagent-invocation-index.test.tsx` mounts the provider against the real public
 assistant-ui local runtime and covers append, settlement, same-id replacement,
-runtime switch, StrictMode, and unmount with zero React warnings. The public API rationale follows the current
+runtime switch, StrictMode, and unmount with zero React warnings. A controlled
+stream proves started/completed data parts publish before the run settles;
+disabling the subscription makes this regression fail. The public API rationale
+follows the current
 assistant-ui state selector, external projection, store state, and rendering-list
 guidance: `docs/api-reference/hooks/state`, `docs/guides/state-outside-the-thread`,
 `tap/docs/store/state`, and `tap/docs/store/rendering-lists`.

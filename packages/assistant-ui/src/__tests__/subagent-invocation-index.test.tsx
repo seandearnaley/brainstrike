@@ -86,12 +86,14 @@ function Snapshot() {
 
 function Harness({
   initialMessage,
+  model = adapter,
   onRuntime,
 }: {
   readonly initialMessage: ThreadMessage;
+  readonly model?: ChatModelAdapter;
   readonly onRuntime: (runtime: ThreadRuntime) => void;
 }) {
-  const runtime = useLocalRuntime(adapter, { initialMessages: [initialMessage] });
+  const runtime = useLocalRuntime(model, { initialMessages: [initialMessage] });
   useEffect(() => onRuntime(runtime.thread), [onRuntime, runtime.thread]);
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -150,6 +152,70 @@ describe('SubagentInvocationIndexProvider', () => {
     act(() => runtime?.reset([message('child-after-unmount')]));
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
+  });
+
+  it('publishes started and completed data parts before the stream settles', async () => {
+    let runtime: ThreadRuntime | undefined;
+    const completed = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    const startedPart = message('live-child').content[0];
+    if (startedPart?.type !== 'data') {
+      throw new Error('Expected a run-event data fixture');
+    }
+    const model: ChatModelAdapter = {
+      async *run() {
+        yield { content: [startedPart] };
+        await completed.promise;
+        yield {
+          content: [
+            startedPart,
+            {
+              ...startedPart,
+              data: {
+                id: 'completed-live-child',
+                kind: 'subagent.tool.completed',
+                label: 'completed',
+                metadata: {
+                  childToolName: 'read',
+                  parentToolCallId: 'delegation-1',
+                  toolCallId: 'live-child',
+                },
+                status: 'completed',
+                timestamp: '2026-09-15T00:00:01.000Z',
+              },
+            },
+          ],
+        };
+        await finish.promise;
+      },
+    };
+    const view = render(
+      <Harness
+        initialMessage={message('previous', 'complete')}
+        model={model}
+        onRuntime={(next) => {
+          runtime = next;
+        }}
+      />
+    );
+    try {
+      act(() => runtime?.append('start'));
+      await waitFor(() =>
+        expect(screen.getByTestId('snapshot')).toHaveTextContent('live-child:running')
+      );
+      expect(runtime?.getState().isRunning).toBe(true);
+      act(() => completed.resolve());
+      await waitFor(() =>
+        expect(screen.getByTestId('snapshot')).toHaveTextContent('live-child:success')
+      );
+      expect(runtime?.getState().isRunning).toBe(true);
+      act(() => finish.resolve());
+      await waitFor(() => expect(runtime?.getState().isRunning).toBe(false));
+    } finally {
+      completed.resolve();
+      finish.resolve();
+      view.unmount();
+    }
   });
 
   it('disposes the old store when the runtime changes', async () => {

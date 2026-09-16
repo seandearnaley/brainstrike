@@ -14,11 +14,7 @@ interface ThreadStateReader {
 }
 
 function readRuntimeMessages(thread: ThreadStateReader) {
-  return thread.getState().messages.map((message) => ({
-    id: message.id,
-    parts: message.parts,
-    status: message.status,
-  }));
+  return thread.getState().messages;
 }
 
 export function SubagentInvocationIndexProvider({ children }: { readonly children: ReactNode }) {

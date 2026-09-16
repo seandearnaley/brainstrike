@@ -56,6 +56,12 @@ describe('subagent invocation index', () => {
       expect(inspect).toHaveBeenCalledTimes(count + 1);
       expect(index.getSnapshot('delegation-0')).toBe(snapshots[0]);
       expect(index.getSnapshot('delegation-2')).not.toBe(snapshots[2]);
+
+      const immutableAppend = [...parts, event('delegation-3', `child-${count + 1}`)];
+      index.advance([message('assistant-1', immutableAppend)]);
+      expect(inspect).toHaveBeenCalledTimes(count + 2);
+      expect(index.getSnapshot('delegation-0')).toBe(snapshots[0]);
+      expect(index.getSnapshot('delegation-3')).not.toBe(snapshots[3]);
     }
   );
 
