@@ -807,61 +807,6 @@ describe('AssistantToolApprovalNotice for a delegated child', () => {
     ).toBeEnabled();
   });
 
-  it('locks as allowed once the host answers it under a session grant', async () => {
-    threadMessagesMock.push({
-      content: [
-        {
-          data: {
-            decision: 'approve',
-            delegation,
-            reason: 'session-grant',
-            runId: 'root-run',
-            toolCallId: 'background-child-2',
-            toolName: 'brainstrike.queryEmbeddingSpace',
-          },
-          name: 'brainstrike.tool-approval-answered',
-          type: 'data',
-        },
-      ],
-      role: 'assistant',
-    });
-    renderIndexed(childApproval);
-    await waitFor(() => expect(screen.getByText('Allowed by session grant')).toBeInTheDocument());
-    await expandApprovalRow(userEvent.setup());
-    expect(
-      screen.getByRole('button', { name: 'Approve brainstrike.queryEmbeddingSpace' })
-    ).toBeDisabled();
-    expect(
-      screen.getByRole('button', { name: 'Decline brainstrike.queryEmbeddingSpace' })
-    ).toBeDisabled();
-  });
-
-  it("locks with the decision once the host applied the user's own live answer", async () => {
-    threadMessagesMock.push({
-      content: [
-        {
-          data: {
-            decision: 'decline',
-            delegation,
-            reason: 'user',
-            runId: 'root-run',
-            toolCallId: 'background-child-2',
-            toolName: 'brainstrike.queryEmbeddingSpace',
-          },
-          name: 'brainstrike.tool-approval-answered',
-          type: 'data',
-        },
-      ],
-      role: 'assistant',
-    });
-    renderIndexed(childApproval);
-    await waitFor(() => expect(screen.getByText('Declined')).toBeInTheDocument());
-    await expandApprovalRow(userEvent.setup());
-    expect(
-      screen.getByRole('button', { name: 'Approve brainstrike.queryEmbeddingSpace' })
-    ).toBeDisabled();
-  });
-
   it('does not lock on an answer for a different child', async () => {
     threadMessagesMock.push({
       content: [

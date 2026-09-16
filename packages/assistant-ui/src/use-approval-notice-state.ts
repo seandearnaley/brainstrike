@@ -136,7 +136,9 @@ export function useApprovalNoticeState(
   const { delegationOwner, hostAnswer } = useDelegatedNoticeContext(approval);
   const { isRunning, queued, threadKey } = useDecisionQueueState(approval);
   const deliverLive = useLiveDecisionTransport();
-  const decisionLocked = rediscovered?.decisionState !== undefined || hostAnswer !== null;
+  const decisionLocked =
+    rediscovered?.decisionState !== undefined ||
+    (hostAnswer !== null && approvalRunOutcome.state !== 'retryable');
   const actionLockedByRun =
     approvalRunOutcome.state === 'pending' || approvalRunOutcome.state === 'completed';
   // Derived, not adjusted in an effect: the optimistic lock belongs to the run
