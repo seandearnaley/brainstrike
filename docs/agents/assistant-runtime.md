@@ -1919,6 +1919,18 @@ model exposure remains a separate permission/discovery slice. Proofs:
 mastra-tool-execution.integration.spec ('streams incremental shell-output …'),
 execute-command-tool.test / execute-command-live-loop.test, shell-output-parts.test.
 
+executeCommand cwd validation is model-correctable BY CONTRACT: `resolveCommandCwd`
+throws `ToolInputError` (never a plain `Error`) for a nonexistent cwd and for a cwd
+that resolves outside the workspace root, so the per-tool guard surfaces the bounded,
+actionable message as `tool_input_invalid` instead of redacting it into the generic
+`tool_failed` text (a model that mis-specifies `cwd` must learn WHAT was wrong —
+"does not exist" vs "outside the root" — not merely that the call failed). The same
+typing applies to the workspace-root qualifier failures in `resolveWorkspaceRoot`
+(no folder open, unknown/ambiguous root). Proof: the `runExecuteCommand — cwd
+containment` cases in execute-command-tool.integration.test.ts (assert the
+`ToolInputError` class AND message per failure mode, including the nonexistent-cwd
+message that names the requested cwd).
+
 Persistent command sessions (desktop application layer):
 `apps/desktop/src/assistant-server/command-session-manager.ts` is the
 desktop-main source of truth for commands that must outlive one tool call (for

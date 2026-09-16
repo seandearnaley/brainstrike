@@ -261,12 +261,12 @@ async function resolveCommandCwd(
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
-      throw new Error(`cwd "${requestedCwd}" does not exist.`);
+      throw new ToolInputError(`cwd "${requestedCwd}" does not exist.`);
     }
     throw error;
   }
   if (!isWithinRoot(canonicalRootPath, canonicalCwd)) {
-    throw new Error(
+    throw new ToolInputError(
       `cwd "${requestedCwd}" resolves outside the workspace root "${root.displayName}". A command's start directory must be inside an open folder.`
     );
   }

@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { NATIVE_TOOL_RESULT_CHAR_BUDGET, type RuntimeData } from '@brainstrike/agent';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import {
@@ -487,18 +488,28 @@ describe('runExecuteCommand — ANSI stripping', () => {
 });
 
 describe('runExecuteCommand — cwd containment', () => {
-  it('rejects an absolute cwd outside the workspace root', async () => {
+  it('rejects an absolute cwd outside the workspace root as a ToolInputError', async () => {
     const root = await makeWorkspace();
-    await expect(
-      runExecuteCommand({ command: 'pwd', cwd: '/tmp' }, singleRoot(root))
-    ).rejects.toThrow(/outside the workspace root/i);
+    const rejection = runExecuteCommand({ command: 'pwd', cwd: '/tmp' }, singleRoot(root));
+    // The guard only preserves the bounded, model-correctable message for
+    // ToolInputError; a plain Error would be redacted to a generic tool_failed,
+    // hiding the actionable "outside the workspace root" diagnosis.
+    await expect(rejection).rejects.toThrow(ToolInputError);
+    await expect(rejection).rejects.toThrow(/outside the workspace root/i);
   });
 
-  it('rejects a relative cwd that escapes the root', async () => {
+  it('rejects a relative cwd that escapes the root as a ToolInputError', async () => {
     const root = await makeWorkspace();
-    await expect(
-      runExecuteCommand({ command: 'pwd', cwd: '../..' }, singleRoot(root))
-    ).rejects.toThrow(/outside the workspace root/i);
+    const rejection = runExecuteCommand({ command: 'pwd', cwd: '../..' }, singleRoot(root));
+    await expect(rejection).rejects.toThrow(ToolInputError);
+    await expect(rejection).rejects.toThrow(/outside the workspace root/i);
+  });
+
+  it('rejects a nonexistent cwd as a ToolInputError naming the requested cwd', async () => {
+    const root = await makeWorkspace();
+    const rejection = runExecuteCommand({ command: 'pwd', cwd: 'no-such-dir' }, singleRoot(root));
+    await expect(rejection).rejects.toThrow(ToolInputError);
+    await expect(rejection).rejects.toThrow(/cwd "no-such-dir" does not exist/i);
   });
 
   it('accepts a cwd inside the root and starts there', async () => {
@@ -510,10 +521,10 @@ describe('runExecuteCommand — cwd containment', () => {
     expect(result.stdout.trim()).toBe(await fsPromises.realpath(sub));
   });
 
-  it('throws when no folder is open in the workspace', async () => {
-    await expect(runExecuteCommand({ command: 'echo hi' }, undefined)).rejects.toThrow(
-      /No folder is open/i
-    );
+  it('throws when no folder is open in the workspace as a ToolInputError', async () => {
+    const rejection = runExecuteCommand({ command: 'echo hi' }, undefined);
+    await expect(rejection).rejects.toThrow(ToolInputError);
+    await expect(rejection).rejects.toThrow(/No folder is open/i);
   });
 });
 
