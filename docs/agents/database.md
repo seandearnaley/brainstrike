@@ -1603,8 +1603,14 @@ hand-seeded host leg in a test must declare its generation exactly as
 the upgrade cohort feels only the second: `createLedgerPublisher.publish`
 catches a failed read and logs `background_ledger_read_failed`, so the leg
 survives and merely loses that status row, while the resume path calls
-`requireBackgroundGeneration` eagerly — so a task parked BEFORE migration 140
-fails its approval leg outright rather than losing a row.
+`requireBackgroundGeneration` eagerly before sibling answers are recorded or
+native resume begins. A task parked BEFORE migration 140 is therefore refused
+without consuming the user's claim or changing any parked sibling. The typed
+refusal keeps the bounded `background-generation-unmapped` reason. Both the
+live-decision 409 and the cold approval stream initializer carry its actionable
+public message to Stop or cancel the pending work, then start a new request.
+The host never guesses a generation or automatically replays unknown effects;
+a fresh user request follows the normal self-generation path.
 
 The mapping is FIRST-WRITER-WINS: an approval leg re-streams the very run it
 resumed, so the row keeps the leg that STARTED it, and a run already mapped under
@@ -1616,8 +1622,13 @@ with that reason and needs no clear-path entry. Paired:
 backfill-to-own-id upgrade, cascade, constraint rejection, replay and rollback),
 the `background generation ports (migration 140)` cases in
 `delegated-generation-ports.integration.test.ts` (both ports plus every
-derivation branch over real invocation, continuation and mapping rows), `background-ledger.spec.ts`,
+derivation branch over real invocation, continuation and mapping rows, the
+NULL-generation no-write refusal, and fresh-generation recovery), `background-ledger.spec.ts`,
 `background-idle-loop.spec.ts` and
 `background-ledger-generation.integration.spec.ts` (one ledger id across a turn's
-legs), and `assistant-run-schema-upgrade-path.test.ts`, whose
+legs, plus early refusal, claim release, and no sibling-answer write),
+`decide-endpoint.test.ts` (actionable live 409 transport),
+`stream-init-tool-budget.test.ts` (cause-wrapped cold approval transport and its
+generic-error negative matrix), and
+`assistant-run-schema-upgrade-path.test.ts`, whose
 bootstrap-convergence control now expects exactly this column to differ.

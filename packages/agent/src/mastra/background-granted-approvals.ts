@@ -433,6 +433,12 @@ export async function prepareApprovalResume(params: {
     runtimeData?.memory,
     action
   );
+  // Migration 140 cannot reconstruct the generation of a pause that predates
+  // its native-run mapping. Validate before both background-child claims and
+  // root-own late-result wakeups so every parked task stays untouched.
+  if (runtime.backgroundTaskManager && runtimeData?.memory) {
+    await requireBackgroundGeneration(runtime.conversationBinding)();
+  }
   if (!task) {
     const late = await readLateBackgroundResults(runtime, runtimeData, action.runId);
     await recordLateOverlayWakeup(runtime, late);

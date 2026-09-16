@@ -220,6 +220,28 @@ describe('background generation ports (migration 140)', () => {
         )
       ).rows
     ).toEqual([{ generationRunId: null }]);
-    await expect(orphan.readBackgroundGeneration()).rejects.toThrow();
+    await expect(orphan.readBackgroundGeneration()).rejects.toMatchObject({
+      actionableMessage:
+        'This approval predates the background ledger upgrade and cannot resume safely. Stop or cancel the pending work, then start a new request.',
+      reason: 'background-generation-unmapped',
+    });
+  });
+
+  it('refuses to map a native run from an unmapped host without writing it', async () => {
+    const orphan = await newLeg('unmapped-host-leg', {
+      delegated: false,
+      runId: 'never-mapped-run',
+      toolCallId: 'root-write',
+    });
+
+    await expect(orphan.recordNativeRootRun('native-from-unmapped-host')).rejects.toThrow();
+    expect(
+      (
+        await database.query(
+          'SELECT native_run_id FROM brainstrike_assistant_native_runs WHERE native_run_id = $1',
+          ['native-from-unmapped-host']
+        )
+      ).rows
+    ).toEqual([]);
   });
 });

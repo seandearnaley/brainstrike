@@ -1,3 +1,4 @@
+import type { MastraAgentRuntimeOptions, StreamChunk } from '@brainstrike/agent';
 import {
   getProviderDefaultModel,
   resolveScaledToolResultBudget,
@@ -7,11 +8,15 @@ import {
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
-import { initializeAgentStream, resolveToolBuildBudget } from '../stream-init';
+import {
+  type AgentStreamMemoryResult,
+  initializeAgentStream,
+  resolveToolBuildBudget,
+} from '../stream-init';
 
 interface CapturedMemoryOptions {
   conversationBinding?: unknown;
-  getDelegatedSystemContext?: () => readonly { role: string; content: string }[];
+  getDelegatedSystemContext?: () => readonly unknown[];
   toolOutputArtifactInlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
 }
 
@@ -24,9 +29,15 @@ function requireCapturedMemoryOptions(
   return value;
 }
 
-const streamCapture = vi.hoisted((): { memoryOptions: CapturedMemoryOptions | undefined } => ({
-  memoryOptions: undefined,
-}));
+const streamCapture = vi.hoisted(
+  (): {
+    approvalError: Error | undefined;
+    memoryOptions: CapturedMemoryOptions | undefined;
+  } => ({
+    approvalError: undefined,
+    memoryOptions: undefined,
+  })
+);
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -35,6 +46,13 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
     streamMastraChildFollowup: vi.fn((_input: unknown, options: CapturedMemoryOptions) => {
       streamCapture.memoryOptions = options;
       return (async function* emptyStream() {})();
+    }),
+    streamMastraToolApprovalAction: vi.fn(async (input, options: MastraAgentRuntimeOptions) => {
+      streamCapture.memoryOptions = options;
+      if (streamCapture.approvalError) {
+        throw streamCapture.approvalError;
+      }
+      return actual.streamMastraToolApprovalAction(input, options);
     }),
     toAiSdkStyleStream: vi.fn(
       (
@@ -54,6 +72,9 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 const logger = {
   warn: vi.fn(),
 } as unknown as ScopedLogger;
+
+const GENERATION_RECOVERY_MESSAGE =
+  'This approval predates the background ledger upgrade and cannot resume safely. Stop or cancel the pending work, then start a new request.';
 
 describe('resolveToolBuildBudget', () => {
   it('matches the runtime resolver for the same normalized provider and model', () => {
@@ -104,7 +125,9 @@ describe('webExtract artifact settlement budget', () => {
     const approval = kind === 'approval' || kind === 'approval-unavailable';
     const resume = kind === 'resume' || kind === 'resume-unavailable';
     streamCapture.memoryOptions = undefined;
-    const passthroughStream = <T>(stream: T): T => stream;
+    streamCapture.approvalError = undefined;
+    const passthroughStream = (stream: AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> =>
+      stream;
     const identity = {
       childRuntimeRunId: 'child-run',
       parentRuntimeRunId: 'parent-run',
@@ -138,6 +161,11 @@ describe('webExtract artifact settlement budget', () => {
       prepare: vi.fn(),
       resolveToolAction,
     };
+    const memoryResult = {
+      conversationBinding,
+      memory: {},
+      storage: {},
+    } as unknown as AgentStreamMemoryResult;
     const target = {
       delegation: { path: [identity], toolCallId: 'leaf-call' },
       runId: 'parent-run',
@@ -149,7 +177,7 @@ describe('webExtract artifact settlement budget', () => {
       },
       compaction: {
         createContextOverflowRecovery: vi.fn(),
-        runPreRequest: vi.fn(async () => ({ kind: 'noop' })),
+        runPreRequest: vi.fn(async () => ({ kind: 'noop' as const })),
       },
       contextInjectors: {
         activatedSkills: vi.fn(async (messages) => messages),
@@ -175,7 +203,7 @@ describe('webExtract artifact settlement budget', () => {
         })),
       },
       memory: {
-        create: vi.fn(async () => ({ conversationBinding, memory: {}, storage: {} })),
+        create: vi.fn(async () => memoryResult),
         matchCredentialMissingError: vi.fn(),
       },
       personas: {
@@ -239,7 +267,7 @@ describe('webExtract artifact settlement budget', () => {
       toolApprovalAction: approval ? { ...target, action: 'approve' } : undefined,
       toolDependencies: {},
       toolResumeAction: resume ? { ...target, resumeData: { answer: 'yes' } } : undefined,
-    } as never);
+    });
 
     if (approval || resume) {
       expect(resolveToolAction).toHaveBeenCalledWith(expect.objectContaining(target));
@@ -275,5 +303,87 @@ describe('webExtract artifact settlement budget', () => {
         NATIVE_TOOL_ID.webExtract
       )
     ).toBe(resolveScaledToolResultBudget(32_768).domainModelResultCharBudget);
+
+    if (kind === 'fresh') {
+      const initializeRootApproval = async (error: Error) => {
+        streamCapture.approvalError = error;
+        return initializeAgentStream({
+          apiKey: undefined,
+          capabilities,
+          getDatabase: vi.fn(async () => ({})),
+          logger: {
+            error: vi.fn(),
+            info: vi.fn(),
+            warn: vi.fn(),
+          } as unknown as ScopedLogger,
+          mcpConfig: undefined,
+          messages: [],
+          resolveProviderApiKey: vi.fn(async () => undefined),
+          runId: 'approval-leg',
+          runtimeData: {
+            memory: { resourceId: 'resource-1', threadId: 'thread-1' },
+            model: 'runtime-model',
+            provider: 'ollama',
+          },
+          signal: new AbortController().signal,
+          toolApprovalAction: {
+            action: 'approve',
+            runId: 'root-native-run',
+            toolCallId: 'root-write',
+          },
+          toolDependencies: {},
+          toolResumeAction: undefined,
+        });
+      };
+      const identityError = Object.assign(new Error('generic identity failure'), {
+        actionableMessage: GENERATION_RECOVERY_MESSAGE,
+        name: 'DelegatedConversationIdentityError',
+        reason: 'background-generation-unmapped',
+      });
+      expect(
+        await initializeRootApproval(
+          new Error('mastra_agent_stream_failure', { cause: identityError })
+        )
+      ).toEqual({
+        ok: false,
+        payload: {
+          code: 'background-generation-unmapped',
+          error: 'decision_refused',
+          message: GENERATION_RECOVERY_MESSAGE,
+          stage: 'stream_construction',
+        },
+        status: 409,
+      });
+
+      const genericFailure = {
+        ok: false,
+        payload: {
+          correlationId: expect.any(String),
+          error: 'agent_stream_init_failed',
+          message: 'Assistant stream initialization failed.',
+          stage: 'stream_construction',
+        },
+        status: 502,
+      };
+      for (const rejected of [
+        new Error('ordinary nested error'),
+        Object.assign(new Error('wrong reason'), {
+          actionableMessage: GENERATION_RECOVERY_MESSAGE,
+          name: 'DelegatedConversationIdentityError',
+          reason: 'host-scope-invalid',
+        }),
+        Object.assign(new Error('oversize message'), {
+          actionableMessage: 'x'.repeat(501),
+          name: 'DelegatedConversationIdentityError',
+          reason: 'background-generation-unmapped',
+        }),
+      ]) {
+        expect(
+          await initializeRootApproval(
+            new Error('mastra_agent_stream_failure', { cause: rejected })
+          )
+        ).toEqual(genericFailure);
+      }
+    }
   });
 });

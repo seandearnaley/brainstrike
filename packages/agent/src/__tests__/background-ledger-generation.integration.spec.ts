@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
 import {
   createStreamIteratorFromRuntime,
@@ -69,7 +69,8 @@ it('one turn, one ledger: the resume leg reports the whole GENERATION, not the r
     if (!approval) {
       throw new Error('No pending approval for the late child gate');
     }
-    resumedRuntime = await createMastraAgentRuntime(discoveryOptions);
+    const approvalRuntime = await createMastraAgentRuntime(discoveryOptions);
+    resumedRuntime = approvalRuntime;
     const second: StreamChunk[] = [];
     for await (const chunk of await createToolApprovalIteratorFromRuntime({
       action: {
@@ -139,7 +140,8 @@ it("a root's own pause: the approval leg's ledger still covers the whole generat
     if (!approval) {
       throw new Error('No pending root approval for root-write');
     }
-    resumedRuntime = await createMastraAgentRuntime(discoveryOptions);
+    const approvalRuntime = await createMastraAgentRuntime(discoveryOptions);
+    resumedRuntime = approvalRuntime;
     const second: StreamChunk[] = [];
     for await (const chunk of await createToolApprovalIteratorFromRuntime({
       action: { action: 'approve', runId: approval.runId, toolCallId: approval.toolCallId },
@@ -162,6 +164,148 @@ it("a root's own pause: the approval leg's ledger still covers the whole generat
     expect(wakeup?.directive).toContain('background-child');
     expect(wakeup?.directive).toContain('background-late-1');
     expect(wakeup?.directive).toContain('background-final');
+  } finally {
+    release.resolve();
+    await resumedRuntime?.dispose();
+    await runtime.dispose();
+    await database.close();
+  }
+}, 120_000);
+
+it('an unmapped pre-upgrade pause refuses before side effects and releases its claim', async () => {
+  const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
+    continuationDispatch: true,
+  });
+  const { backing, runtime, runtimeData, release, database, scope, discoveryOptions } = fixture;
+  release.resolve();
+  let resumedRuntime: Awaited<ReturnType<typeof createMastraAgentRuntime>> | undefined;
+  try {
+    for await (const _chunk of await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [{ id: 'pre-upgrade', parts: [{ text: 'Survey', type: 'text' }], role: 'user' }],
+      runtime,
+      runtimeData,
+    })) {
+      // Drive the original generation until its delegated child parks.
+    }
+    const rediscovered = await listSuspendedMastraRuns(scope, discoveryOptions);
+    const approval = rediscovered.approvals.find(
+      (entry) => entry.delegation?.toolCallId === 'late-read'
+    );
+    if (!approval) {
+      throw new Error('No pending approval for the pre-upgrade child gate');
+    }
+    const binding = discoveryOptions.conversationBinding;
+    if (!binding) {
+      throw new Error('Missing durable conversation binding');
+    }
+    const releaseClaim = vi.spyOn(binding, 'releaseUnexecutedToolAction');
+    const recordAnswers = vi.spyOn(binding, 'recordToolActionAnswers');
+    vi.spyOn(binding, 'readBackgroundGeneration').mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          'This approval predates the background ledger upgrade and cannot resume safely. Stop or cancel the pending work, then start a new request.'
+        ),
+        {
+          name: 'DelegatedConversationIdentityError',
+          reason: 'background-generation-unmapped',
+        }
+      )
+    );
+    const approvalRuntime = await createMastraAgentRuntime(discoveryOptions);
+    resumedRuntime = approvalRuntime;
+    await expect(async () => {
+      for await (const _chunk of await createToolApprovalIteratorFromRuntime({
+        action: {
+          action: 'approve',
+          runId: approval.runId,
+          toolCallId: approval.toolCallId,
+          ...(approval.delegation ? { delegation: approval.delegation } : {}),
+        },
+        memory: backing.memory,
+        runtime: approvalRuntime,
+        runtimeData,
+      })) {
+        // The generation guard rejects before a stream can begin.
+      }
+    }).rejects.toMatchObject({
+      cause: {
+        message:
+          'This approval predates the background ledger upgrade and cannot resume safely. Stop or cancel the pending work, then start a new request.',
+        reason: 'background-generation-unmapped',
+      },
+    });
+    expect(releaseClaim).toHaveBeenCalledOnce();
+    expect(recordAnswers).not.toHaveBeenCalled();
+    expect(fixture.policyAnswers).toEqual([]);
+  } finally {
+    release.resolve();
+    await resumedRuntime?.dispose();
+    await runtime.dispose();
+    await database.close();
+  }
+}, 120_000);
+
+it('an unmapped pre-upgrade root pause refuses before late-result writes or native resume', async () => {
+  const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
+    continuationDispatch: true,
+    rootGate: true,
+  });
+  const { backing, runtime, runtimeData, release, database, scope, discoveryOptions } = fixture;
+  release.resolve();
+  let resumedRuntime: Awaited<ReturnType<typeof createMastraAgentRuntime>> | undefined;
+  try {
+    for await (const _chunk of await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [
+        { id: 'pre-upgrade-root', parts: [{ text: 'Report', type: 'text' }], role: 'user' },
+      ],
+      runtime,
+      runtimeData,
+    })) {
+      // Drive the original generation until its root tool call parks.
+    }
+    const rediscovered = await listSuspendedMastraRuns(scope, discoveryOptions);
+    const approval = rediscovered.approvals.find(
+      (entry) => entry.toolCallId === 'root-write' && entry.delegation === undefined
+    );
+    if (!approval) {
+      throw new Error('No pending root approval for the pre-upgrade gate');
+    }
+    const binding = discoveryOptions.conversationBinding;
+    if (!binding) {
+      throw new Error('Missing durable conversation binding');
+    }
+    const recordWakeup = vi.spyOn(binding, 'recordWakeup');
+    vi.spyOn(binding, 'readBackgroundGeneration').mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          'This approval predates the background ledger upgrade and cannot resume safely. Stop or cancel the pending work, then start a new request.'
+        ),
+        {
+          name: 'DelegatedConversationIdentityError',
+          reason: 'background-generation-unmapped',
+        }
+      )
+    );
+    const promptsBeforeApproval = fixture.model.prompts.length;
+    const approvalRuntime = await createMastraAgentRuntime(discoveryOptions);
+    resumedRuntime = approvalRuntime;
+    await expect(async () => {
+      for await (const _chunk of await createToolApprovalIteratorFromRuntime({
+        action: { action: 'approve', runId: approval.runId, toolCallId: approval.toolCallId },
+        memory: backing.memory,
+        runtime: approvalRuntime,
+        runtimeData,
+      })) {
+        // The generation guard rejects before a stream can begin.
+      }
+    }).rejects.toMatchObject({
+      cause: { reason: 'background-generation-unmapped' },
+    });
+    expect(recordWakeup).not.toHaveBeenCalled();
+    expect(fixture.model.prompts).toHaveLength(promptsBeforeApproval);
+    expect(fixture.policyAnswers).toEqual([]);
   } finally {
     release.resolve();
     await resumedRuntime?.dispose();

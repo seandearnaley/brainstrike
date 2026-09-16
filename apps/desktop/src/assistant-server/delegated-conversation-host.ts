@@ -704,7 +704,10 @@ export function createDesktopDelegatedConversationHost(
       }
       const { generationRunId } = parsed.data;
       if (!generationRunId) {
-        throw new DelegatedConversationIdentityError('background-generation-unmapped');
+        throw new DelegatedConversationIdentityError(
+          'background-generation-unmapped',
+          'This approval predates the background ledger upgrade and cannot resume safely. Stop or cancel the pending work, then start a new request.'
+        );
       }
       return { generationRunId, nativeRunIds: parsed.data.nativeRunIds };
     },
@@ -792,7 +795,7 @@ export function createDesktopDelegatedConversationHost(
            SELECT runs.id, runs.thread_id, runs.resource_id, runs.generation_run_id
            FROM brainstrike_assistant_thread_runs runs
            JOIN mastra_threads root ON root.id = runs.thread_id AND root."resourceId" = runs.resource_id
-           WHERE runs.id = $2
+           WHERE runs.id = $2 AND runs.generation_run_id IS NOT NULL
          ), inserted AS (
            INSERT INTO brainstrike_assistant_native_runs (native_run_id, host_run_id)
            SELECT $1, current_run.id FROM current_run
