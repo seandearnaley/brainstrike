@@ -3,6 +3,7 @@ import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { useAnsweredApprovals } from './answered-approvals-context';
 import { approvalCategoryKey, rankPendingApprovals } from './approval-presentation';
 import { ApprovalRanksContext } from './approval-ranks-context';
+import { useDecisionRoute } from './decision-route-context';
 import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store';
 
 /**
@@ -16,7 +17,8 @@ import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store
  */
 export function ApprovalRanksProvider({ children }: { children: ReactNode }) {
   const index = useAnsweredApprovals();
-  const threadKey = use(ActiveThreadKeyContext);
+  const activeThreadKey = use(ActiveThreadKeyContext);
+  const threadKey = useDecisionRoute()?.queueThreadKey ?? activeThreadKey;
   const queued = useFollowUpQueueStore(
     (state) => state.queuedByThread[followUpQueueKey(threadKey)]
   );

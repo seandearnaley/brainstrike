@@ -90,7 +90,11 @@ export function AnsweredApprovalsProvider({ children }: { children: ReactNode })
   // Consumers re-render only when either index changes; a thread with no
   // owner (every root thread) folds in the empty index.
   const value = useMemo(
-    () => ({ ...own, answers: new Map([...ownerIndex.answers, ...own.answers]) }),
+    () => ({
+      ...own,
+      answers: new Map([...ownerIndex.answers, ...own.answers]),
+      userDecisions: new Map([...ownerIndex.userDecisions, ...own.userDecisions]),
+    }),
     [own, ownerIndex]
   );
   return (

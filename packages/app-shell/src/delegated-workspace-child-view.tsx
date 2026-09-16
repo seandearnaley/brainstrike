@@ -183,7 +183,7 @@ function ReadyChildView({
                       resolveDelegatedWorkspaceDecision(repository, node, decision)
                     );
                   },
-                  queueThreadKey: node.rootThreadId,
+                  queueThreadKey: ownerThread ? ownerThread.getState().threadId : node.rootThreadId,
                 },
                 ownerThread,
                 workspaceBar: (

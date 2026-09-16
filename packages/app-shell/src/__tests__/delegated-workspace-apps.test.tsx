@@ -159,6 +159,8 @@ describe('delegated workspace app registration', () => {
     });
     useWorkspaceTabSelectionStore.getState().hydrate([], { kind: 'empty' });
     let publish: ((text: string) => void) | undefined;
+    let registerOwner: (() => void) | undefined;
+    const ownerMessages = [] as const;
     function OpenChild() {
       const open = use(SubagentConversationNavigationContext);
       return (
@@ -169,6 +171,15 @@ describe('delegated workspace app registration', () => {
     }
     function Harness() {
       const root = useDelegatedConversationRoot('owner', 'root');
+      registerOwner = () => {
+        root?.onRuntimeReady({
+          thread: {
+            append: vi.fn(),
+            getState: () => ({ messages: ownerMessages, threadId: 'registered-root' }),
+            subscribe: () => () => undefined,
+          },
+        });
+      };
       publish = (text) => root?.onDelegatedConversation(delegatedUpdate('child', 'initial', text));
       const apps = useDelegatedWorkspaceApps();
       return (
@@ -201,6 +212,7 @@ describe('delegated workspace app registration', () => {
       </FileExplorerProvider>
     );
     act(() => {
+      registerOwner?.();
       publish?.('First live child transcript.');
     });
     const user = userEvent.setup();
@@ -209,7 +221,7 @@ describe('delegated workspace app registration', () => {
     const route = mocks.childRoute.mock.lastCall?.[0] as
       | import('@brainstrike/assistant-ui').DecisionRoute
       | undefined;
-    expect(route?.queueThreadKey).toBe('root');
+    expect(route?.queueThreadKey).toBe('registered-root');
     await expect(route?.dispatch('invalid decision')).rejects.toThrow('structured run metadata');
     expect(screen.getByTestId('child-workspace-mode')).toHaveTextContent(
       'Shared workspace: bound folder is no longer open'
