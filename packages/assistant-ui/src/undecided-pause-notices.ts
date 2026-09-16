@@ -15,7 +15,10 @@ import {
   TOOL_SUSPEND_DATA_NAME,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
+import {
+  type RediscoveredPauseDisplay,
+  readRediscoveredPauseDisplay,
+} from './rediscovered-pause-display';
 import {
   isAssistantToolApprovalRequest,
   isAssistantToolSuspendRequest,
@@ -36,17 +39,52 @@ interface DataPart {
 type ToolActionIdentity = Parameters<typeof getToolActionIdentityKey>[0];
 
 /**
- * The durable states that SETTLE a pause. Listed rather than inferred from
- * "has a state", so a future non-terminal member (a `pending`, say) is not
- * silently read as an answer — it would fall through as still undecided.
+ * Constrains what `PauseDecisionState` may resolve to. The totality pin below
+ * is only a pin while that type is a FINITE literal union: were the reader's
+ * `decisionState` ever widened to `string`, `Record<…, boolean>` would quietly
+ * become an index signature accepting anything, and the guarantee would be gone
+ * with nothing red. This fails to compile instead.
  */
-const DECIDED_DECISION_STATES = new Set<DelegatedToolDecisionState | 'invalid'>([
-  'cancelled',
-  'claimed',
-  'consumed',
-  'interrupted',
-  'invalid',
-]);
+type FiniteDecisionState<T extends DelegatedToolDecisionState | 'invalid'> = T;
+
+/**
+ * Exactly what `readRediscoveredPauseDisplay` can report: the durable
+ * `DelegatedToolDecisionState` union plus the `invalid` sentinel that reader
+ * stamps when a decision exists and could not be read.
+ */
+type PauseDecisionState = FiniteDecisionState<
+  NonNullable<RediscoveredPauseDisplay['decisionState']>
+>;
+
+/**
+ * Whether each state SETTLES a pause: `true` locks the card, `false` leaves it
+ * undecided so the Stop gate re-reads it. Classified state by state rather than
+ * inferred from "has a state", so a non-terminal member is never read as an
+ * answer.
+ *
+ * A TOTAL record over the union, not a list of the settling members, because a
+ * list accepts a subset in silence: a state added to the union would default to
+ * "still undecided" and reintroduce the spurious remounts this gate exists to
+ * prevent, with nothing red. (The union's other consumers here only pin its
+ * LABELS — `DELEGATED_DECISION_STATUS_LABELS` and the explanation record in
+ * `rediscovered-pause-lines.tsx` — so satisfying those says nothing about how
+ * the gate classifies it.) This fails to compile until the new state is
+ * classified; a genuinely non-terminal one can still map to `false` and fall
+ * through to `undecided`, but DELIBERATELY.
+ *
+ * Every value is `true` today, so at RUNTIME this is still equivalent to "has a
+ * state" — the divergence a `false` would create does not exist yet. The record
+ * earns its place at compile time, as the forcing function.
+ */
+const PAUSE_SETTLED_BY_DECISION_STATE: Record<PauseDecisionState, boolean> = {
+  cancelled: true,
+  claimed: true,
+  consumed: true,
+  interrupted: true,
+  // Not a durable state: a decision exists and could not be read. It still
+  // locks the card, so it still settles the pause.
+  invalid: true,
+};
 
 /**
  * The messages of the turn being stopped: from its anchoring user message
@@ -141,11 +179,19 @@ function indexPausePart(part: DataPart, decided: Set<string>, undecided: Set<str
   }
   const key = getToolActionIdentityKey(pause);
   const decisionState = readRediscoveredPauseDisplay(pause)?.decisionState;
-  // Matched EXPLICITLY, not "any state is an answer": every member of the
-  // durable union is terminal today, and `invalid` means a decision exists but
-  // could not be read — all of them lock the card. Should the union ever gain
-  // a non-terminal member, it falls through to `undecided`, which re-reads.
-  if (decisionState !== undefined && DECIDED_DECISION_STATES.has(decisionState)) {
+  // Classified EXPLICITLY, not "any state is an answer": every state the reader
+  // can report is terminal today, so all of them lock the card. Should the
+  // union gain a non-terminal member, `PAUSE_SETTLED_BY_DECISION_STATE` forces
+  // a ruling on it, and a `false` there falls through to `undecided`.
+  //
+  // `=== true`, not truthiness: an object literal reaches `Object.prototype`,
+  // so a key like `constructor` or `toString` would index to a truthy FUNCTION
+  // and silently settle the pause — the "card reads decided when it isn't"
+  // failure this gate exists to prevent. No inherited member is `true`, so this
+  // keeps the structural safety the old `Set.has` had for free. Unreachable
+  // today (the reader normalizes every unrecognized state to `invalid`), and
+  // the cost of not depending on that is one operator.
+  if (decisionState !== undefined && PAUSE_SETTLED_BY_DECISION_STATE[decisionState] === true) {
     decided.add(key);
     return;
   }
