@@ -159,7 +159,7 @@ function ReadyChildView({
               label={node.displayName}
               panelProps={{
                 decisionRoute: {
-                  dispatch: (message) => {
+                  dispatch: async (message) => {
                     if (typeof message === 'string') {
                       throw new Error('A delegated decision requires structured run metadata.');
                     }

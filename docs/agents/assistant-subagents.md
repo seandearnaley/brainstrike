@@ -777,6 +777,9 @@ the child transcript does not contain the resulting run. The provider shares
 one owner-thread subscription across these readers. Outcome identities include
 the owner-versus-child source and decision index so repeated incomplete runs
 unlock the next retry without reviving an earlier optimistic lock.
+`child-decision-owner-outcomes.test.tsx` covers both direct and delegated
+approval/resume identities. The real workspace route rejects malformed input
+as a promise so every control can observe failure and release its lock.
 
 Paired runtime/DOM tests: `assistant-conversation-panel.test.tsx` proves isolated
 snapshots/running state/drafts, child-only send/stop/approval routing, chronology,

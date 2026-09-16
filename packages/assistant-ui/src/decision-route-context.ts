@@ -1,5 +1,5 @@
 import type { CreateAppendMessage } from '@assistant-ui/react';
-import { createContext, type ReactNode, use } from 'react';
+import { createContext, use } from 'react';
 import type { DecisionDispatchOutcome } from './decision-dispatch';
 
 export interface DecisionRoute {
@@ -7,17 +7,7 @@ export interface DecisionRoute {
   readonly queueThreadKey: string;
 }
 
-const DecisionRouteContext = createContext<DecisionRoute | null>(null);
-
-export function DecisionRouteProvider({
-  children,
-  route,
-}: {
-  readonly children: ReactNode;
-  readonly route: DecisionRoute | null;
-}) {
-  return <DecisionRouteContext.Provider value={route}>{children}</DecisionRouteContext.Provider>;
-}
+export const DecisionRouteContext = createContext<DecisionRoute | null>(null);
 
 export function useDecisionRoute(): DecisionRoute | null {
   return use(DecisionRouteContext);

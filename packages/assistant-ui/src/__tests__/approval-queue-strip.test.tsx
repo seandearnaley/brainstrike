@@ -10,7 +10,7 @@ import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { ApprovalRanksProvider } from '../approval-presentation-context';
 import { ApprovalQueueStrip } from '../approval-queue-strip';
 import type { DecisionRoute } from '../decision-route-context';
-import { DecisionRouteProvider } from '../decision-route-context';
+import { DecisionRouteContext } from '../decision-route-context';
 import { resetFollowUpQueueStore } from '../follow-up-queue-store';
 import { LiveDecisionProvider } from '../live-decision-context';
 import type { LiveDecisionTransport } from '../live-decision-transport';
@@ -94,7 +94,7 @@ function Tree({
 }) {
   return (
     <ActiveThreadKeyContext.Provider value="thread-1">
-      <DecisionRouteProvider route={decisionRoute}>
+      <DecisionRouteContext value={decisionRoute}>
         <AnsweredApprovalsProvider>
           <ApprovalRanksProvider>
             <ToolApprovalGrantProvider handlers={handlers}>
@@ -104,7 +104,7 @@ function Tree({
             </ToolApprovalGrantProvider>
           </ApprovalRanksProvider>
         </AnsweredApprovalsProvider>
-      </DecisionRouteProvider>
+      </DecisionRouteContext>
     </ActiveThreadKeyContext.Provider>
   );
 }

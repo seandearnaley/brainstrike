@@ -88,79 +88,115 @@ describe('child decisions follow owning-root outcomes', () => {
     resetFollowUpQueueStore();
   });
 
-  it('unlocks approval retries after repeated owner failures without observing pending', async () => {
-    const owner = createOwnerThreadStore();
-    let attempt = 0;
-    const dispatch = vi.fn<DecisionRoute['dispatch']>(async (message) => {
-      if (typeof message === 'string') {
-        throw new Error('Expected a structured decision.');
-      }
-      attempt += 1;
-      owner.appendFailedAttempt(message, attempt);
-      return 'sent';
-    });
-    const view = render(
-      <RoutedChild
-        decisionRoute={{ dispatch, queueThreadKey: 'root-thread' }}
-        messages={[
-          dataMessage(TOOL_APPROVAL_DATA_NAME, {
-            args: { path: 'evidence.txt' },
-            riskCategory: 'edit',
-            runId: 'child-run',
-            toolCallId: 'child-tool',
-            toolName: 'workspace.writeFile',
-          }),
-        ]}
-        ownerThread={owner.thread}
-      />
-    );
-    const approve = () => screen.getByRole('button', { name: 'Approve workspace.writeFile' });
+  it.each([false, true])(
+    'unlocks approval retries after repeated owner failures (delegated=%s)',
+    async (delegated) => {
+      const owner = createOwnerThreadStore();
+      let attempt = 0;
+      const dispatch = vi.fn<DecisionRoute['dispatch']>(async (message) => {
+        if (typeof message === 'string') {
+          throw new Error('Expected a structured decision.');
+        }
+        attempt += 1;
+        owner.appendFailedAttempt(message, attempt);
+        return 'sent';
+      });
+      const view = render(
+        <RoutedChild
+          decisionRoute={{ dispatch, queueThreadKey: 'root-thread' }}
+          messages={[
+            dataMessage(TOOL_APPROVAL_DATA_NAME, {
+              args: { path: 'evidence.txt' },
+              riskCategory: 'edit',
+              ...(delegated
+                ? {
+                    delegation: {
+                      path: [
+                        {
+                          childRuntimeRunId: 'child-run',
+                          parentRuntimeRunId: 'root-run',
+                          parentToolCallId: 'parent-call',
+                          personaId: 'explore',
+                        },
+                      ],
+                      toolCallId: 'child-tool',
+                    },
+                  }
+                : {}),
+              runId: 'child-run',
+              toolCallId: 'child-tool',
+              toolName: 'workspace.writeFile',
+            }),
+          ]}
+          ownerThread={owner.thread}
+        />
+      );
+      const approve = () => screen.getByRole('button', { name: 'Approve workspace.writeFile' });
 
-    await userEvent.click(approve());
-    await waitFor(() => expect(approve()).toBeEnabled());
-    await userEvent.click(approve());
-    await waitFor(() => expect(approve()).toBeEnabled());
-    expect(dispatch).toHaveBeenCalledTimes(2);
-    expect(owner.listenerCount()).toBe(1);
-    view.unmount();
-    expect(owner.listenerCount()).toBe(0);
-  });
+      await userEvent.click(approve());
+      await waitFor(() => expect(approve()).toBeEnabled());
+      await userEvent.click(approve());
+      await waitFor(() => expect(approve()).toBeEnabled());
+      expect(dispatch).toHaveBeenCalledTimes(2);
+      expect(owner.listenerCount()).toBe(1);
+      view.unmount();
+      expect(owner.listenerCount()).toBe(0);
+    }
+  );
 
-  it('unlocks typed resume retries after repeated owner failures without observing pending', async () => {
-    const owner = createOwnerThreadStore();
-    let attempt = 0;
-    const dispatch = vi.fn<DecisionRoute['dispatch']>(async (message) => {
-      if (typeof message === 'string') {
-        throw new Error('Expected a structured decision.');
-      }
-      attempt += 1;
-      owner.appendFailedAttempt(message, attempt);
-      return 'sent';
-    });
-    render(
-      <RoutedChild
-        decisionRoute={{ dispatch, queueThreadKey: 'root-thread' }}
-        messages={[
-          dataMessage(TOOL_SUSPEND_DATA_NAME, {
-            runId: 'child-run',
-            suspendPayload: { question: 'Which directory?' },
-            toolCallId: 'child-question',
-            toolName: 'brainstrike.askUser',
-          }),
-        ]}
-        ownerThread={owner.thread}
-      />
-    );
-    await userEvent.type(
-      screen.getByRole('textbox', { name: 'Your answer' }),
-      'packages/app-shell'
-    );
-    const send = () => screen.getByRole('button', { name: 'Send' });
+  it.each([false, true])(
+    'unlocks typed resume retries after repeated owner failures (delegated=%s)',
+    async (delegated) => {
+      const owner = createOwnerThreadStore();
+      let attempt = 0;
+      const dispatch = vi.fn<DecisionRoute['dispatch']>(async (message) => {
+        if (typeof message === 'string') {
+          throw new Error('Expected a structured decision.');
+        }
+        attempt += 1;
+        owner.appendFailedAttempt(message, attempt);
+        return 'sent';
+      });
+      render(
+        <RoutedChild
+          decisionRoute={{ dispatch, queueThreadKey: 'root-thread' }}
+          messages={[
+            dataMessage(TOOL_SUSPEND_DATA_NAME, {
+              ...(delegated
+                ? {
+                    delegation: {
+                      path: [
+                        {
+                          childRuntimeRunId: 'child-run',
+                          parentRuntimeRunId: 'root-run',
+                          parentToolCallId: 'parent-call',
+                          personaId: 'explore',
+                        },
+                      ],
+                      toolCallId: 'child-question',
+                    },
+                  }
+                : {}),
+              runId: 'child-run',
+              suspendPayload: { question: 'Which directory?' },
+              toolCallId: 'child-question',
+              toolName: 'brainstrike.askUser',
+            }),
+          ]}
+          ownerThread={owner.thread}
+        />
+      );
+      await userEvent.type(
+        screen.getByRole('textbox', { name: 'Your answer' }),
+        'packages/app-shell'
+      );
+      const send = () => screen.getByRole('button', { name: 'Send' });
 
-    await userEvent.click(send());
-    await waitFor(() => expect(send()).toBeEnabled());
-    await userEvent.click(send());
-    await waitFor(() => expect(send()).toBeEnabled());
-    expect(dispatch).toHaveBeenCalledTimes(2);
-  });
+      await userEvent.click(send());
+      await waitFor(() => expect(send()).toBeEnabled());
+      await userEvent.click(send());
+      await waitFor(() => expect(send()).toBeEnabled());
+      expect(dispatch).toHaveBeenCalledTimes(2);
+    }
+  );
 });

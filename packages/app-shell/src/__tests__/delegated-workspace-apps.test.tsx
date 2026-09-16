@@ -13,7 +13,7 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { use } from 'react';
+import { type ComponentProps, createElement, use } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
 import { DelegatedWorkspaceNavigation } from '../delegated-workspace-navigation';
@@ -22,7 +22,24 @@ import { useDelegatedConversationRoot } from '../use-delegated-conversation-root
 import { useDelegatedWorkspaceApps } from '../use-delegated-workspace-apps';
 import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 
-const mocks = vi.hoisted(() => ({ db: { query: vi.fn() }, get: vi.fn(), insights: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  childRoute: vi.fn(),
+  db: { query: vi.fn() },
+  get: vi.fn(),
+  insights: vi.fn(),
+}));
+vi.mock('../delegated-child-conversation-panel', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../delegated-child-conversation-panel')>();
+  return {
+    ...original,
+    DelegatedChildConversationPanel(
+      props: ComponentProps<typeof original.DelegatedChildConversationPanel>
+    ) {
+      mocks.childRoute(props.panelProps?.decisionRoute);
+      return createElement(original.DelegatedChildConversationPanel, props);
+    },
+  };
+});
 vi.mock('@brainstrike/db/react', () => ({
   useDbProviderError: () => null,
   useOptionalPGliteDatabase: () => mocks.db,
@@ -189,6 +206,11 @@ describe('delegated workspace app registration', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Open Cedar' }));
     expect(await screen.findByText('First live child transcript.')).toBeVisible();
+    const route = mocks.childRoute.mock.lastCall?.[0] as
+      | import('@brainstrike/assistant-ui').DecisionRoute
+      | undefined;
+    expect(route?.queueThreadKey).toBe('root');
+    await expect(route?.dispatch('invalid decision')).rejects.toThrow('structured run metadata');
     expect(screen.getByTestId('child-workspace-mode')).toHaveTextContent(
       'Shared workspace: bound folder is no longer open'
     );

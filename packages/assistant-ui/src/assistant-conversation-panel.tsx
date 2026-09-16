@@ -11,7 +11,7 @@ import {
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import { PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { type AssistantUiPanelProps, ChatThreadUI } from './assistant-ui-panel';
-import { type DecisionRoute, DecisionRouteProvider } from './decision-route-context';
+import { type DecisionRoute, DecisionRouteContext } from './decision-route-context';
 import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
 import { MetadataProviders } from './openrouter-model-metadata-context';
 import { RewindProvider } from './rewind-context';
@@ -83,7 +83,7 @@ export function AssistantConversationPanel({
           >
             <PlanModeExitProvider onExit={props.planMode?.onExit}>
               <RewindProvider value={null}>
-                <DecisionRouteProvider route={decisionRoute ?? null}>
+                <DecisionRouteContext value={decisionRoute ?? null}>
                   <FollowUpQueueOwnershipContext value={false}>
                     <AssistantPanelErrorBoundary>
                       <ApprovalOwnerThreadContext value={ownerThread ?? null}>
@@ -106,7 +106,7 @@ export function AssistantConversationPanel({
                       </ApprovalOwnerThreadContext>
                     </AssistantPanelErrorBoundary>
                   </FollowUpQueueOwnershipContext>
-                </DecisionRouteProvider>
+                </DecisionRouteContext>
               </RewindProvider>
             </PlanModeExitProvider>
           </ActiveConversationInputProvider>
