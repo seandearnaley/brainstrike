@@ -573,6 +573,46 @@ parent-scoped by construction, so the wider read cannot pick up another
 delegation's rows. The same thread-wide rule applies to the no-answer outcome
 read (`readSubagentDelegationOutcomeFromMessages`).
 
+The thread-wide projection is maintained by ONE `SubagentInvocationIndexProvider`
+per mounted thread. Cards subscribe by `parentToolCallId`; a child event changes
+only that invocation's immutable snapshot. The index walks the O(message count)
+outer list on a thread-store notification, but it never revisits retained parts:
+new message parts are folded from the previous length, an unrelated text update
+reads zero run-event parts, and a message settlement revises its unresolved rows
+to `interrupted` without a part scan. Message ids are required by assistant-ui's
+public `MessageState` contract. The provider subscribes through the public root
+client, then rereads once after subscription to close the render/effect gap;
+render and snapshot reads never mutate or notify. Removal/reorder/id replacement
+or part shrink rebuilds the authoritative projection. A settled message is
+immutable during a normal run, so a new parts array for the same settled id is
+the public runtime boundary for hydration, import, reset, or branch replacement
+and also rebuilds the projection. Metadata identity is deliberately ignored:
+ordinary metadata publication must not rescan retained content.
+
+The incremental cursor relies on an installed producer invariant, not array
+identity: `assistant-stream` 0.3.41's `appendData` creates a finished part stream,
+`handlePartStart` constructs a new data object, and `appendPart` installs a new
+parts array. Later delta handlers can replace text/reasoning/tool indexes, but
+there is no data-part delta handler. An already emitted run-event data payload
+therefore cannot mutate at the same index. When a running message publishes a
+new parts array, the index makes a cheap identity pass over the retained prefix;
+it folds no retained payloads, but rebuilds if any retained part changed. The
+only permitted same-length difference is the known mutable final
+text/reasoning/tool-call part. Tests in
+`subagent-invocation-index-model.test.ts` pin 1k/5k/10k retained-part work counts,
+same-array and immutable-array append, sibling-message resume, settlement, authoritative same-id
+replacement with stable metadata, shrink/reorder/outcome rebuilds, metadata-only
+updates, snapshot isolation and listener cleanup.
+`subagent-invocation-index.test.tsx` mounts the provider against the real public
+assistant-ui local runtime and covers append, settlement, same-id replacement,
+runtime switch, StrictMode, and unmount with zero React warnings. A controlled
+stream proves started/completed data parts publish before the run settles;
+disabling the subscription makes this regression fail. The public API rationale
+follows the current
+assistant-ui state selector, external projection, store state, and rendering-list
+guidance: `docs/api-reference/hooks/state`, `docs/guides/state-outside-the-thread`,
+`tap/docs/store/state`, and `tap/docs/store/rendering-lists`.
+
 Because every `subagent.*` row is HIDDEN from the main run timeline (it belongs
 to the card), the timeline's `.started` → terminal pairing never had to be right
 for them — and it was not: `getMatchingCompletedKind` rewrote the suffix, so
