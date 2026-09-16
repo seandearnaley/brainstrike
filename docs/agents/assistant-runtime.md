@@ -2970,9 +2970,26 @@ Flow (desktop assistant server → agent runtime):
    row per root (partial unique index, the serialization rule for user resumes
    across reconstructed runtimes), so claiming siblings in the same leg is
    refused with `tool-action-already-consumed-or-root-busy`. The host records
-   a policy answer through `recordToolActionAnswer` directly as `consumed`
+   a policy answer through `recordToolActionAnswers` directly as `consumed`
    under the leg (same admission guards; the unique leaf key still refuses a
    second answer; the child's history is frozen as `prepareToolAction` does).
+   ALL OR NONE (BST-1749 review): every answer a leg records at once — a live
+   user decision and each sibling its grant answers, after every leaf passes
+   the native freshness check — is ONE host transaction (the binding requires
+   `database.transaction`), and it names each leaf at most once. A refused
+   answer records nothing, so the user's own pause stays answerable instead
+   of consumed, unresumed and refused on every retry. ALREADY ANSWERED IS NOT
+   A REFUSAL (PR #3209 review): discovery skips a parked sibling whose leaf
+   already carries a durable decision — claimed, consumed or interrupted
+   (`readAnsweredToolActionLeaves`) — because another decision answered it
+   and this grant owes it nothing; refusing over it re-conflicted on every
+   retry that still carried the grant. An ADMISSION refusal (root not
+   running, cancelling, or a stopped subtree) stays fatal for the whole
+   write, as does a leaf answered in the window between that read and the
+   write. Paired: desktop rows "a live grant skips a sibling another decision
+   already answered and still delivers the user own answer" and "a live grant
+   refused on a stopped sibling records nothing: the user's own card stays
+   answerable".
    The agent fixture now holds one active claim and refuses a second, exactly
    like the host, and `delegated-runtime.integration.test.ts` ("a session
    grant answers the parked background sibling through the real host ledger")
