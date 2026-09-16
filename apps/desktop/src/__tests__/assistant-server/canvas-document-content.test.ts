@@ -90,9 +90,11 @@ describe('isEmptyCanvasDocument', () => {
     // A script with no explicit head before it is content, not an implied head.
     // Mutation: stripping every leading script fails this row.
     ['a script-only document', '<script>render()</script>'],
-    // HEAD_TOKEN carries `/i` but the guard Set is lowercase, so only uppercase
-    // input reaches the one case-sensitive step. Mutation: dropping
-    // `rawText.toLowerCase()` consumes this as an implied head and empties it.
+    // The guard Set is lowercase, so only uppercase input distinguishes a
+    // missing case fold. Mutation: dropping `rawText.toLowerCase()` stops the
+    // guard matching, and the script is consumed as an implied head and read
+    // as empty. (HEAD_TOKEN's own `/i` is pinned separately by the uppercase
+    // `<!DOCTYPE>` in the doctype row above.)
     ['an uppercase script-only document', '<SCRIPT>render()</SCRIPT>'],
     // Mutation: scanning past `</head>` strips this script with the head.
     ['a script after a closed head', '<head><title>T</title></head><script>render()</script>'],
