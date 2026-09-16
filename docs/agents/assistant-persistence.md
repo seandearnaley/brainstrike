@@ -374,8 +374,13 @@ accepted by normal storage is not rejected merely by `structuredClone`.
    `turn_message_id` (BST-1163 — every leg of a turn stamps the same link, so
    this stays exact when other sends land during the suspension and when the
    suspended run is a regeneration branched from an older prompt). There is NO
-   third fallback: a live pause always names its host leg, so a missing one is
-   a producer defect and throws.
+   third fallback. An echo only REACHES that branch when neither earlier
+   authority answered — the suspended message was not hydrated and carries no
+   persisted edge — and every pause that can reach it names its host leg, so a
+   missing one THERE is a producer defect and throws. A CHILD-CONTINUATION echo
+   is not an exception to that rule but a case that never reaches the branch:
+   its follow-up leg's root message completes, so the edge check above answers
+   first (see the continuation paragraph below).
 
    **THE ANCHOR IS THE HOST LEG, NEVER THE MARKER'S `runId` (2026-09-15, do
    not relitigate).** The action marker's `runId` is the NATIVE Mastra run the
