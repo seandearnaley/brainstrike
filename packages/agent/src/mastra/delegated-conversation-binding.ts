@@ -38,10 +38,19 @@ export interface DelegatedToolActionLeaf {
 }
 
 /**
- * A parked leaf a session grant would answer, with the thread chain that
- * authorizes it — the SAME chain `recordToolActionAnswers` refuses on, because
- * stopping a parent with `scope: 'child'` marks only that child's invocation
- * row and a deeper leaf is refused solely through its ancestry.
+ * A parked leaf a session grant would answer, with the thread chain the host
+ * reads its stopped-subtree guard over. `threadIds` MUST be exactly the write's
+ * authorized ancestry — every child thread from the root's own child down to
+ * the leaf's, no more and no less — not merely "a chain that authorizes it".
+ * Both deviations are faults, and neither is caught by the host: SHORT restores
+ * the BST-1749 permanent refusal (the write refuses what the read missed, and
+ * `scope: 'child'` marks only the named child's invocation row, so an ancestor
+ * stop is visible only through the full chain); LONG silently over-skips a
+ * sibling the write would have answered, leaving its task suspended with no
+ * recovery path (assistant-subagents.md). The one caller derives it from
+ * `resolveParkedInvocation`'s host-resolved scopes, walked over the same edges
+ * `resolveToolAction` re-walks for the write, so the two agree by construction
+ * (PR #3221 review).
  */
 export interface DelegatedToolActionCandidate extends DelegatedToolActionLeaf {
   readonly threadIds: readonly string[];

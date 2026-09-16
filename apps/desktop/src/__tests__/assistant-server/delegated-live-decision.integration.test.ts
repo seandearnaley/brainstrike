@@ -416,8 +416,9 @@ describe('desktop live decisions through the real host ledger', () => {
         if (!(user && sibling)) {
           throw new Error('The parked cards are missing');
         }
-        answerLeafInGrantWindow(database, sibling);
+        const raced = answerLeafInGrantWindow(database, sibling);
         const refusal = await settle(deliverLive(user, READ_GRANT));
+        raced();
         const rowsAfterRefusal = await decisionRows(database);
         return { refusal, retried: await settle(deliverLive(user)), rowsAfterRefusal };
       }
@@ -449,13 +450,14 @@ describe('desktop live decisions through the real host ledger', () => {
     // disposal's `finishToolActions` turned the unexecuted claim into
     // `consumed`, so the user's card was refused for good.
     const fanout = await setupFanout(database, TWO);
-    answerLeafInGrantWindow(database, fanout.notice('2'));
+    const raced = answerLeafInGrantWindow(database, fanout.notice('2'));
     const refusal = await fanout
       .decide(fanout.notice('1'), 'approve', { ...READ_ASK, sessionGrants: ['read'] })
       .then(
         () => undefined,
         (error: unknown) => error
       );
+    raced();
     // The leg's construction failure carries the host's refusal as its cause.
     expect(refusal).toMatchObject({
       cause: { reason: 'tool-action-already-consumed-or-root-busy' },

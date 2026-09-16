@@ -424,21 +424,41 @@ export async function stopSubtree(
  * per-sibling refusal left now that discovery skips answered and stopped
  * leaves. The window is inside ONE host call with no seam to hook from
  * outside, so the anchor is that read's own CTE name.
+ *
+ * Returns a disposer the caller MUST run: the patch is removed unconditionally
+ * (a rejecting query in the interval, or an anchor that never matches, would
+ * otherwise leave a shared handle patched into teardown), and disposing also
+ * asserts the hook actually fired, so anchor drift reports itself instead of
+ * surfacing as a confusing assertion diff (PR #3221 review).
  */
 export function answerLeafInGrantWindow(
   database: PGlite,
   card: { readonly delegation?: { readonly toolCallId: string }; readonly toolCallId: string }
-): void {
+): () => void {
   type Query = PGlite['query'];
   const original: Query = database.query.bind(database);
+  let fired = false;
+  const restore = () => {
+    Reflect.deleteProperty(database, 'query');
+  };
   database.query = (async (...args: Parameters<Query>) => {
-    const result = await original(...args);
-    if (typeof args[0] === 'string' && args[0].includes('unanswerable AS (')) {
-      database.query = original;
-      await answerLeafConcurrently(database, card);
+    try {
+      const result = await original(...args);
+      if (typeof args[0] === 'string' && args[0].includes('unanswerable AS (')) {
+        fired = true;
+        restore();
+        await answerLeafConcurrently(database, card);
+      }
+      return result;
+    } catch (error) {
+      restore();
+      throw error;
     }
-    return result;
   }) as Query;
+  return () => {
+    restore();
+    expect(fired, "the grant's discovery read never ran, so nothing raced it").toBe(true);
+  };
 }
 
 export async function decisionRows(

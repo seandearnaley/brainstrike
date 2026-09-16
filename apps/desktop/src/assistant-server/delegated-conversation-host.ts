@@ -97,6 +97,30 @@ const hostScopeSchema = z.object({
   turnMessageId: identityString,
 });
 
+/**
+ * The ONE stopped-subtree predicate: an invocation row on any thread in
+ * `threads` carrying a cancellation request for this turn. Every site that
+ * must agree on "this subtree was stopped" builds its SQL from here — the
+ * claim guard, the answer write, and the grant's skip read — because the two
+ * drift directions are both live faults: a read NARROWER than the write
+ * restores the BST-1749 permanent refusal, and a read BROADER silently
+ * over-skips a sibling the write would have answered, leaving its task
+ * suspended with no recovery path (assistant-subagents.md). Every argument is
+ * a compile-time placeholder or column reference from this module; no caller
+ * value is interpolated. (PR #3221 review.)
+ */
+function stoppedSubtreeExists(bind: {
+  readonly owner: string;
+  readonly root: string;
+  readonly threads: string;
+  readonly turn: string;
+}): string {
+  return `SELECT 1 FROM brainstrike_delegated_invocations stopped
+     JOIN jsonb_array_elements_text(${bind.threads}) target(thread_id) ON target.thread_id = stopped.thread_id
+     WHERE stopped.owner_resource_id = ${bind.owner} AND stopped.root_thread_id = ${bind.root}
+       AND stopped.turn_message_id = ${bind.turn} AND stopped.cancellation_requested_at IS NOT NULL`;
+}
+
 async function readRequiredBranchHistory(
   database: DelegatedConversationDatabase,
   threadId: string,
@@ -474,12 +498,12 @@ export function createDesktopDelegatedConversationHost(
              WHERE cancelled.resource_id = runs.resource_id AND cancelled.thread_id = runs.thread_id
                AND cancelled.turn_message_id = runs.turn_message_id AND cancelled.status IN ('cancelling', 'cancelled')
            )
-           AND NOT EXISTS (
-             SELECT 1 FROM brainstrike_delegated_invocations stopped
-             JOIN jsonb_array_elements_text($11::jsonb) target(thread_id) ON target.thread_id = stopped.thread_id
-             WHERE stopped.owner_resource_id = $2 AND stopped.root_thread_id = $3
-               AND stopped.turn_message_id = $10 AND stopped.cancellation_requested_at IS NOT NULL
-           )
+           AND NOT EXISTS (${stoppedSubtreeExists({
+             owner: '$2',
+             root: '$3',
+             threads: '$11::jsonb',
+             turn: '$10',
+           })})
          ON CONFLICT DO NOTHING RETURNING id`,
         [
           id,
@@ -650,9 +674,13 @@ export function createDesktopDelegatedConversationHost(
       // read together so the skip cannot drift from the write it predicts.
       // ANSWERED: the enumerated durable states, not "any row" — a state added
       // later must fail loudly on the write rather than silently over-skip a
-      // leaf that is still answerable. STOPPED: the leaf's whole thread chain,
-      // because `scope: 'child'` marks only the named child's invocation row.
-      // A leaf that is both reports `'stopped'`, the more actionable state.
+      // leaf that is still answerable. STOPPED: `stoppedSubtreeExists`, the
+      // SAME predicate the write refuses on, over the leaf's whole thread
+      // chain (`scope: 'child'` marks only the named child's invocation row).
+      // ONE ROW PER LEAF, and the precedence is the query's own: `DISTINCT ON`
+      // with `reason DESC` keeps `'stopped'` over `'answered'` for a leaf in
+      // both states, rather than leaving it to how the caller folds duplicates
+      // (PR #3221 review).
       const unanswerable = await database.query(
         `WITH candidate AS (
            SELECT probe.leaf->>0 AS child_runtime_run_id, probe.leaf->>1 AS tool_call_id,
@@ -661,21 +689,26 @@ export function createDesktopDelegatedConversationHost(
          ), unanswerable AS (
            SELECT candidate.child_runtime_run_id, candidate.tool_call_id, 'answered' AS reason
            FROM candidate
-           JOIN brainstrike_delegated_tool_decisions AS decision
-             ON decision.child_runtime_run_id = candidate.child_runtime_run_id
-             AND decision.tool_call_id = candidate.tool_call_id
-           WHERE decision.owner_resource_id = $1 AND decision.root_thread_id = $2
-             AND decision.state IN ('claimed', 'consumed', 'interrupted')
-           UNION
+           WHERE EXISTS (
+             SELECT 1 FROM brainstrike_delegated_tool_decisions AS decision
+             WHERE decision.child_runtime_run_id = candidate.child_runtime_run_id
+               AND decision.tool_call_id = candidate.tool_call_id
+               AND decision.owner_resource_id = $1 AND decision.root_thread_id = $2
+               AND decision.state IN ('claimed', 'consumed', 'interrupted')
+           )
+           UNION ALL
            SELECT candidate.child_runtime_run_id, candidate.tool_call_id, 'stopped'
            FROM candidate
-           JOIN jsonb_array_elements_text(candidate.thread_ids) AS target(thread_id) ON true
-           JOIN brainstrike_delegated_invocations AS stopped ON stopped.thread_id = target.thread_id
-           WHERE stopped.owner_resource_id = $1 AND stopped.root_thread_id = $2
-             AND stopped.turn_message_id = $4 AND stopped.cancellation_requested_at IS NOT NULL
+           WHERE EXISTS (${stoppedSubtreeExists({
+             owner: '$1',
+             root: '$2',
+             threads: 'candidate.thread_ids',
+             turn: '$4',
+           })})
          )
-         SELECT child_runtime_run_id AS "childRuntimeRunId", tool_call_id AS "toolCallId", reason
-         FROM unanswerable ORDER BY reason`,
+         SELECT DISTINCT ON (child_runtime_run_id, tool_call_id)
+           child_runtime_run_id AS "childRuntimeRunId", tool_call_id AS "toolCallId", reason
+         FROM unanswerable ORDER BY child_runtime_run_id, tool_call_id, reason DESC`,
         [
           scope.ownerResourceId,
           scope.rootThreadId,
@@ -775,12 +808,12 @@ export function createDesktopDelegatedConversationHost(
                  WHERE cancelled.resource_id = runs.resource_id AND cancelled.thread_id = runs.thread_id
                    AND cancelled.turn_message_id = runs.turn_message_id AND cancelled.status IN ('cancelling', 'cancelled')
                )
-               AND NOT EXISTS (
-                 SELECT 1 FROM brainstrike_delegated_invocations stopped
-                 JOIN jsonb_array_elements_text($11::jsonb) target(thread_id) ON target.thread_id = stopped.thread_id
-                 WHERE stopped.owner_resource_id = $2 AND stopped.root_thread_id = $3
-                   AND stopped.turn_message_id = $10 AND stopped.cancellation_requested_at IS NOT NULL
-               )
+               AND NOT EXISTS (${stoppedSubtreeExists({
+                 owner: '$2',
+                 root: '$3',
+                 threads: '$11::jsonb',
+                 turn: '$10',
+               })})
              ON CONFLICT DO NOTHING RETURNING id`,
             [
               randomUUID(),
