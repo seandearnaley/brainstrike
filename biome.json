@@ -421,8 +421,6 @@
         "apps/desktop/scripts/__tests__/start-agent-devtools-session.test.mjs",
         "apps/desktop/src/__tests__/assistant-server/agent-stream-init-and-memory.integration.test.ts",
         "apps/desktop/src/__tests__/assistant-server/assistant-tools-read.integration.test.ts",
-        "apps/desktop/src/__tests__/assistant-server/delegated-conversation-host.integration.test.ts",
-        "apps/desktop/src/__tests__/assistant-server/delegated-sibling-grant.integration.test.ts",
         "apps/desktop/src/__tests__/assistant-server/git-service.integration.test.ts",
         "apps/desktop/src/__tests__/llm-host-manager.test.ts",
         "apps/desktop/src/__tests__/main/embedding-backfill.test.ts",
