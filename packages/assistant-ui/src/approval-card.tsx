@@ -172,8 +172,8 @@ export interface ApprovalCardProps {
 interface ApprovalCardNesting {
   /** The leaf delegation's rail colour; `undefined` omits the attribute. */
   readonly delegationColour: ReturnType<typeof delegationColourIndex> | undefined;
-  /** Ancestor edges drawn as rails; `null` draws none. */
-  readonly railPath: NonNullable<AssistantToolApprovalRequest['delegation']>['path'] | null;
+  /** Ancestor edges drawn as rails; empty draws none (`ApprovalRails` no-ops). */
+  readonly railPath: NonNullable<AssistantToolApprovalRequest['delegation']>['path'];
   readonly style: CSSProperties | undefined;
   /** `.bs-approval`: the indent surface that reads `--bs-approval-depth`. */
   readonly surfaceClassName: 'bs-approval' | undefined;
@@ -205,7 +205,7 @@ function resolveApprovalCardNesting(
     case 'embedded':
       return {
         delegationColour: undefined,
-        railPath: null,
+        railPath: [],
         style: undefined,
         surfaceClassName: undefined,
         testId: 'approval-row-card',
@@ -255,7 +255,7 @@ export function ApprovalCard({ approval, presentation, state }: ApprovalCardProp
     >
       <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
         <div aria-hidden="true" className="flex items-start gap-1.5 pt-0.5">
-          {nesting.railPath ? <ApprovalRails path={nesting.railPath} /> : null}
+          <ApprovalRails path={nesting.railPath} />
           <AlertTriangle className="size-4 text-amber-700 dark:text-amber-400" />
         </div>
         <div className="min-w-0">

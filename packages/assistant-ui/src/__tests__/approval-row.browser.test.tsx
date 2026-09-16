@@ -100,11 +100,35 @@ test('an expanded row owns the indent and the rail: the embedded card adds neith
   );
   fireEvent.click(screen.getByRole('button', { name: /show approval details/i }));
   const row = getComputedStyle(mustFind(container, '.bs-approval-row'));
-  const card = getComputedStyle(mustFind(container, '[data-testid="approval-row-card"]'));
+  const cardEl = mustFind(container, '[data-testid="approval-row-card"]');
+  const card = getComputedStyle(cardEl);
   expect(row.marginInlineStart).toBe('40px');
   expect(row.borderInlineStartWidth).toBe('3px');
   expect(card.marginInlineStart).toBe('0px');
-  // The card's own border (a Tailwind utility, absent from this lane) is
-  // symmetric; only a delegation rail widens its inline-start side.
-  expect(card.borderInlineStartWidth).toBe(card.borderInlineEndWidth);
+  // The rail needs BOTH halves of `.bs-approval[data-delegation-colour]`; the
+  // base `.bs-approval` rule sets margin only. The class assertion names the
+  // cause directly, and does not depend on the margin rule above continuing to
+  // exist. The 0px covers what neither reaches: a rail arriving by some OTHER
+  // route (a new selector, a `border-l-*` utility, an inline style) that never
+  // touches `.bs-approval`. 0px rather than 1px because this lane loads no
+  // Tailwind by design, per the banner above `.bs-approval` in overrides.css;
+  // being a negative assertion it is the more stylesheet-sensitive of the two
+  // literals here, so it is the one to revisit first if the lane ever gains
+  // utilities. No claim about which of these fails first — for a re-added
+  // surface the `card.marginInlineStart` assertion above trips before either.
+  expect(card.borderInlineStartWidth).toBe('0px');
+  expect(cardEl).not.toHaveClass('bs-approval');
+  // The card now leans on `ApprovalRails` early-returning for an empty path
+  // (the call site lost its length guard). If it ever emitted a wrapper
+  // instead, that wrapper would become a second flex item and `gap-1.5` would
+  // shove the warning icon 6px inward in every embedded approval — a
+  // production consequence this lane cannot measure, since `gap-1.5` never
+  // resolves here, so pin the structure it depends on instead. Identity as
+  // well as count: `aria-hidden` is not unique forever, and a decorative node
+  // added earlier with exactly one child would retarget this anchor and pass
+  // both structural assertions vacuously.
+  const iconRow = mustFind(cardEl, '[aria-hidden="true"]');
+  expect(iconRow.querySelector('.bs-approval-rails')).toBeNull();
+  expect(iconRow.childElementCount).toBe(1);
+  expect(iconRow.firstElementChild?.tagName).toBe('svg');
 });
