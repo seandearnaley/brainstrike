@@ -4692,3 +4692,14 @@ for the child's signal. A mutation already started completes ordinary checkpoint
 and index settlement, preserving inspectable completed work. Real lock-contention
 integration cases verify all four cancelled mutations and an unaffected sibling;
 this boundary does not itself claim UI selective-Stop acceptance.
+
+### Live approval answers while the parent is parked (BST-1771)
+
+A host `tool-approval-answered` is an interaction boundary, like the approval
+request. The data-stream mapper flushes queued data and publishes the answer at the
+text boundary. Still-streaming tool arguments retain their existing deferral
+until the argument boundary; an answer must never truncate them. Do not defer answers
+behind a root text part: a root can wait there for background children while
+a session grant has already consumed its sibling approvals. Paired checks:
+`data-stream-approval-answered.spec.ts`, `data-stream-text-continuity.spec.ts`,
+and the live three-child grant in `background-grant-wire.integration.spec.ts`.

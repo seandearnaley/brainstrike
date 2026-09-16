@@ -1522,6 +1522,9 @@ collapse toggle. Navigation binds the exact parent tool-call id to its host
 baseline thread id; contradictory addresses surface as card-local alerts, with
 no navigation action, rather than throwing from the streaming selector. The action is absent
 until the workspace supplies a navigation capability.
+Pending invocation lookup failures stay visible beside the Open conversation
+action. The action clears that error and performs one fresh lookup when the user
+explicitly retries; the shared UI never polls or silently retries a host binding.
 
 `DelegatedWorkspaceTabsProvider` registers saved child tab addresses before the
 ordinary workspace provider reconciles selection. It resolves native graph

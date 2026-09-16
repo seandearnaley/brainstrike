@@ -8,6 +8,7 @@
  */
 import type { StreamChunk } from '@brainstrike/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { desktopAssistantServerLogger } from '../../assistant-server/logger';
 import {
   observeDesktopAssistantRunEvents,
   persistDesktopChildRunUsage,
@@ -452,4 +453,48 @@ describe('tool-call telemetry durable persistence (BST-1190)', () => {
     expect(seen).toEqual([]);
     expect(mockDesktopDatabase.query).not.toHaveBeenCalled();
   });
+});
+
+it('records the rejected delegated usage identity and still rejects the stream', async () => {
+  const errorLog = vi.spyOn(desktopAssistantServerLogger, 'error');
+  const value = {
+    delegation: {
+      parentRuntimeRunId: 'native-parent',
+      parentToolCallId: 'delegate-call',
+      resourceId: 'child-resource',
+      threadId: 'child-thread',
+    },
+    estimated: false,
+    inputTokens: 42,
+    model: 'x-ai/grok-4.6',
+    outputTokens: 7,
+    personaId: 'explore',
+    provider: 'openrouter',
+    source: 'subagent' as const,
+  };
+  async function* source(): AsyncIterable<StreamChunk> {
+    yield { type: 'child-run-usage', value };
+  }
+  try {
+    const iterator = persistDesktopChildRunUsage(
+      source(),
+      'host-run',
+      undefined,
+      async () => mockDesktopDatabase
+    );
+    await expect(iterator[Symbol.asyncIterator]().next()).rejects.toThrow();
+    expect(errorLog).toHaveBeenCalledWith(
+      'Failed to persist bound delegated usage',
+      expect.objectContaining({
+        code: 'assistant_delegated_usage_write_failed',
+        delegation: value.delegation,
+        model: value.model,
+        personaId: value.personaId,
+        provider: value.provider,
+        runId: 'host-run',
+      })
+    );
+  } finally {
+    errorLog.mockRestore();
+  }
 });

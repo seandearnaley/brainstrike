@@ -3983,3 +3983,13 @@ resolver. Real migrated database tests cover siblings, grandchildren, repeated
 finish reports, continuation usage, reported costs/cache classes and changed
 native ownership. Mounted toolbar tests reuse the main usage renderer and prove
 that selecting another child does not retain the previous child's totals.
+
+### Rejected delegated usage evidence (BST-1771)
+
+`assistant_delegated_usage_write_failed` records the attempted delegation
+identity (native parent run/call, child thread/resource), persona, model and
+provider alongside the host run and error. No prompt or tool payload is logged.
+The write remains fail-closed and the failed usage chunk is not forwarded.
+This evidence distinguishes attribution mismatches without weakening the
+repository's identity checks; it does not itself fix a rejected write. Paired:
+`run-persistence-direct.test.ts`.
