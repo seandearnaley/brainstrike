@@ -1,4 +1,7 @@
-import type { DelegatedBudgetPort } from '@brainstrike/assistant-contract';
+import {
+  type DelegatedBudgetPort,
+  DelegatedOutputReservationExceededError,
+} from '@brainstrike/assistant-contract';
 import { Agent } from '@mastra/core/agent';
 import { InMemoryStore } from '@mastra/core/storage';
 import { createTool } from '@mastra/core/tools';
@@ -93,7 +96,7 @@ describe('native delegated work budget boundaries', () => {
         synthesis: false as const,
       })),
       settleStep: vi.fn(async () => {
-        throw new Error('Provider exceeded the delegated output reservation');
+        throw new DelegatedOutputReservationExceededError();
       }),
     };
     const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue());
@@ -212,65 +215,122 @@ describe('native delegated work budget boundaries', () => {
     await second;
   });
 
-  it('records a truncated synthesis outcome and streams it as a transient part', async () => {
-    const fixture = scriptedAgentModel(() => lengthParts('PARTIAL FINDINGS'));
-    const budget: DelegatedBudgetPort = {
-      admitInvocation: async () => ({ admitted: true as const }),
-      reserveStep: vi.fn(async () => ({
-        cap: 'steps' as const,
-        id: 'reserved-summary',
-        limit: 4,
-        outputTokens: 2048,
-        synthesis: true as const,
-        used: 3,
-      })),
-      settleStep: vi.fn(async () => undefined),
-    };
-    const outcomes = createDelegatedSynthesisOutcomes();
-    const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue(), undefined, outcomes);
-    const agent = new Agent({
-      id: 'worker',
-      inputProcessors: [work.processor],
-      instructions: 'Summarize.',
-      memory: new Memory({ storage: new InMemoryStore({ id: 'budget-truncated' }) }),
-      model: fixture.model,
-      name: 'Worker',
-      outputProcessors: [work.processor],
-    });
-    const stream = await agent.stream('Summarize existing work.', {
-      maxSteps: 2,
-      memory: { resource: 'resource', thread: 'child' },
-      onError: () => work.release(),
-      onFinish: () => work.release(),
-    });
-    const parts: unknown[] = [];
-    for await (const part of stream.fullStream) {
-      parts.push(part);
+  it.each(['persistence', 'uncut'])(
+    'does not recover a %s failure on the final summary',
+    async (failure) => {
+      const fixture = scriptedAgentModel(() =>
+        failure === 'uncut' ? textParts('SUMMARY') : lengthParts('PARTIAL')
+      );
+      const budget: DelegatedBudgetPort = {
+        admitInvocation: async () => ({ admitted: true as const }),
+        reserveStep: async () => ({
+          cap: 'steps',
+          id: 'summary',
+          limit: 4,
+          outputTokens: 1024,
+          synthesis: true,
+          used: 3,
+        }),
+        settleStep: async () => {
+          throw failure === 'persistence'
+            ? new Error('storage failed')
+            : new DelegatedOutputReservationExceededError();
+        },
+      };
+      const outcomes = createDelegatedSynthesisOutcomes();
+      const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue(), undefined, outcomes);
+      const agent = new Agent({
+        id: 'worker',
+        inputProcessors: [work.processor],
+        instructions: 'Summarize.',
+        memory: new Memory({ storage: new InMemoryStore({ id: 'summary-failure' }) }),
+        model: fixture.model,
+        name: 'Worker',
+        outputProcessors: [work.processor],
+      });
+      await expect(
+        finish(
+          await agent.stream('Summarize.', { memory: { resource: 'resource', thread: 'child' } })
+        )
+      ).rejects.toThrow(failure === 'persistence' ? /storage failed/ : /Provider exceeded/);
+      expect(outcomes.read('child')).toBeUndefined();
+      expect(fixture.prompts).toHaveLength(1);
     }
-    await stream.getFullOutput();
-    expect(outcomes.read('child')).toEqual({
-      cap: 'steps',
-      limit: 4,
-      outputTokens: 512,
-      reservedOutputTokens: 2048,
-      truncated: true,
-      used: 3,
-    });
-    const published = parts.map(readDelegatedSynthesisPart).filter(Boolean);
-    expect(published).toEqual([
-      {
+  );
+
+  it.each([512, 1999])(
+    'preserves a cut final summary with %i total tokens after settlement',
+    async (outputTokens) => {
+      const fixture = scriptedAgentModel(() =>
+        lengthParts('PARTIAL FINDINGS').map((part) =>
+          part.type === 'finish'
+            ? { ...part, usage: { inputTokens: 1, outputTokens, totalTokens: outputTokens + 1 } }
+            : part
+        )
+      );
+      const budget: DelegatedBudgetPort = {
+        admitInvocation: async () => ({ admitted: true as const }),
+        reserveStep: vi.fn(async () => ({
+          cap: 'steps' as const,
+          id: 'reserved-summary',
+          limit: 4,
+          outputTokens: 1024,
+          synthesis: true as const,
+          used: 3,
+        })),
+        settleStep: vi.fn(async () => {
+          if (outputTokens > 1024) {
+            throw new DelegatedOutputReservationExceededError();
+          }
+        }),
+      };
+      const outcomes = createDelegatedSynthesisOutcomes();
+      const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue(), undefined, outcomes);
+      const agent = new Agent({
+        id: 'worker',
+        inputProcessors: [work.processor],
+        instructions: 'Summarize.',
+        memory: new Memory({ storage: new InMemoryStore({ id: 'budget-truncated' }) }),
+        model: fixture.model,
+        name: 'Worker',
+        outputProcessors: [work.processor],
+      });
+      const stream = await agent.stream('Summarize existing work.', {
+        maxSteps: 2,
+        memory: { resource: 'resource', thread: 'child' },
+        onError: () => work.release(),
+        onFinish: () => work.release(),
+      });
+      const parts: unknown[] = [];
+      for await (const part of stream.fullStream) {
+        parts.push(part);
+      }
+      await stream.getFullOutput();
+      expect(outcomes.read('child')).toEqual({
         cap: 'steps',
         limit: 4,
-        outputTokens: 512,
-        reservedOutputTokens: 2048,
-        resourceId: 'resource',
-        threadId: 'child',
+        outputTokens,
+        reservedOutputTokens: 1024,
         truncated: true,
         used: 3,
-      },
-    ]);
-    expect(budget.settleStep).toHaveBeenCalledExactlyOnceWith('reserved-summary', 512);
-  });
+      });
+      const published = parts.map(readDelegatedSynthesisPart).filter(Boolean);
+      expect(published).toEqual([
+        {
+          cap: 'steps',
+          limit: 4,
+          outputTokens,
+          reservedOutputTokens: 1024,
+          resourceId: 'resource',
+          threadId: 'child',
+          truncated: true,
+          used: 3,
+        },
+      ]);
+      expect(budget.settleStep).toHaveBeenCalledExactlyOnceWith('reserved-summary', outputTokens);
+      expect(fixture.prompts).toHaveLength(1);
+    }
+  );
 
   it('records a synthesis that finished normally as NOT truncated, and nothing for an ordinary step', async () => {
     const fixture = scriptedAgentModel(() => textParts('COMPLETE SUMMARY'));

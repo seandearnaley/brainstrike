@@ -1,5 +1,8 @@
 import { addAbortListener } from 'node:events';
-import type { DelegatedBudgetPort } from '@brainstrike/assistant-contract';
+import {
+  type DelegatedBudgetPort,
+  DelegatedOutputReservationExceededError,
+} from '@brainstrike/assistant-contract';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
@@ -47,6 +50,7 @@ function createScriptedBudgetPort(limits: {
   readonly synthesisOutputTokens: number;
 }): DelegatedBudgetPort {
   const steps = new Map<string, number>();
+  const reservations = new Map<string, number>();
   return {
     admitInvocation: async () => ({ admitted: true as const }),
     reserveStep: async ({ threadId }) => {
@@ -56,6 +60,7 @@ function createScriptedBudgetPort(limits: {
       }
       steps.set(threadId, used + 1);
       const id = `${threadId}-step-${used + 1}`;
+      reservations.set(id, used === limits.maxSteps - 1 ? limits.synthesisOutputTokens : 8192);
       return used === limits.maxSteps - 1
         ? {
             cap: 'steps' as const,
@@ -67,7 +72,16 @@ function createScriptedBudgetPort(limits: {
           }
         : { id, outputTokens: 8192, synthesis: false as const };
     },
-    settleStep: async () => undefined,
+    settleStep: async (id, outputTokens) => {
+      const reserved = reservations.get(id);
+      if (reserved === undefined) {
+        throw new Error('Unknown or settled reservation.');
+      }
+      reservations.delete(id);
+      if (outputTokens !== undefined && outputTokens > reserved) {
+        throw new DelegatedOutputReservationExceededError();
+      }
+    },
   };
 }
 
@@ -211,7 +225,11 @@ export async function createBackgroundFixture(
      * until the synthesis system message arrives and answers with a `length`
      * finish (the GLM synthesis cut).
      */
-    readonly budget?: { readonly maxSteps: number; readonly synthesisOutputTokens: number };
+    readonly budget?: {
+      readonly maxSteps: number;
+      readonly synthesisOutputTokens: number;
+      readonly reportedSynthesisTokens?: number;
+    };
     /**
      * The root dispatches MORE background work from CONTINUATIONS, so one turn
      * spans several native parent runs: `background-child` in the first run,
@@ -401,7 +419,18 @@ export async function createBackgroundFixture(
           message.content.includes('Delegated work budget exhausted')
       );
       if (synthesis) {
-        return lengthParts('PARTIAL_CHILD_FINDINGS');
+        return lengthParts('PARTIAL_CHILD_FINDINGS').map((part) =>
+          part.type === 'finish' && fanout.budget?.reportedSynthesisTokens !== undefined
+            ? {
+                ...part,
+                usage: {
+                  inputTokens: 1,
+                  outputTokens: fanout.budget.reportedSynthesisTokens,
+                  totalTokens: fanout.budget.reportedSynthesisTokens + 1,
+                },
+              }
+            : part
+        );
       }
       const reads = options.prompt.filter((message) => message.role === 'tool').length;
       return toolCallParts('brainstrike_grepSearch', `background-read-${reads + 1}`, {

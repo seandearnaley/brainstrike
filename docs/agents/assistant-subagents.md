@@ -1780,6 +1780,20 @@ budget settings"), `delegated-conversation-insights.integration.test.ts`
 `subagent-settings-section.test.tsx`, and the truncated rows in
 `subagent-tool-rows.test.ts` and `subagent-execution-card.test.tsx`.
 
+A provider may cap visible text while billing reasoning in addition (BST-1771:
+Grok 4.6/OpenRouter reported 1,999 total tokens for a 1,024-token request, including
+975 reasoning tokens). Settlement still charges ALL reported tokens and throws
+`DelegatedOutputReservationExceededError` only AFTER the transaction commits.
+Only a reserved synthesis ending with `length` and no tool calls may retain its
+already-produced partial findings after that specific error. It remains visibly
+truncated, discloses actual versus reserved tokens to the parent, and cannot
+reserve another child step. Working-step overages, tool calls, uncut summaries,
+duplicate settlements and persistence failures still reject. This does not claim
+an enforceable combined-token cap for that provider or omit reasoning cost.
+Paired checks: `delegated-work-budget.integration.spec.ts`,
+`background-worker-policy.integration.spec.ts`, `delegated-synthesis-outcome.spec.ts`
+and desktop `delegated-budget-settings.integration.test.ts`.
+
 Every child stream creates its own budget processor. A native same-persona sibling
 barrier proves two models run concurrently with distinct child reservations and
 exactly one settlement per matching reservation. Mastra 1.64 can omit the

@@ -79,10 +79,15 @@ export function describeTruncatedSynthesis(
       : outcome.cap === 'child-output'
         ? 'its output token budget'
         : "the turn's shared output token budget";
+  const overage =
+    outcome.outputTokens !== undefined && outcome.outputTokens > outcome.reservedOutputTokens
+      ? ` The provider reported ${outcome.outputTokens} total output tokens, exceeding the ${outcome.reservedOutputTokens}-token reservation. All reported tokens remain charged; no further child work is allowed.`
+      : '';
   return (
     `\n\n[Truncated summary] The ${personaId} subagent exhausted ${cap} and its final summary ` +
-    `was cut by the model at the ${outcome.reservedOutputTokens}-token synthesis reservation. ` +
-    'Treat the text above as partial findings from the files it actually read; do not re-run ' +
+    `was cut by the model at the ${outcome.reservedOutputTokens}-token synthesis reservation.` +
+    overage +
+    ' Treat the text above as partial findings from the files it actually read; do not re-run ' +
     'this delegation.'
   );
 }

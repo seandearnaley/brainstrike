@@ -1,4 +1,5 @@
 import type { DelegatedConversationIdentity } from '@brainstrike/agent';
+import { DelegatedOutputReservationExceededError } from '@brainstrike/assistant-contract';
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
@@ -113,6 +114,34 @@ describe('delegation budgets from RuntimeSubagentSettings', () => {
       used: 5,
     });
     await expect(host.budget.reserveStep(scope)).rejects.toThrow(/synthesis/);
+  });
+
+  it('charges an over-budget final summary once and refuses all later child work', async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'leg', undefined, undefined, {
+      ...settings,
+      maxChildSteps: 2,
+    });
+    const identity = await child('summary-overage', 32);
+    await host.persist(identity);
+    const scope = { resourceId: identity.childResourceId, threadId: identity.childThreadId };
+    const working = await host.budget.reserveStep(scope);
+    await host.budget.settleStep(working.id, 1);
+    const summary = await host.budget.reserveStep(scope);
+    expect(summary).toMatchObject({ outputTokens: 1024, synthesis: true });
+    await expect(host.budget.settleStep(summary.id, 1999)).rejects.toBeInstanceOf(
+      DelegatedOutputReservationExceededError
+    );
+    await expect(host.budget.reserveStep(scope)).rejects.toThrow(/synthesis/);
+    await expect(host.budget.settleStep(summary.id, 0)).rejects.toThrow(/already settled/);
+    for (const table of [
+      'brainstrike_delegation_budgets',
+      'brainstrike_delegation_child_budgets',
+    ]) {
+      const rows = await database.query<{ charged_output_tokens: number }>(
+        `SELECT charged_output_tokens FROM ${table}`
+      );
+      expect(rows.rows).toEqual([{ charged_output_tokens: 2000 }]);
+    }
   });
 
   it('names the child-output cap when the child, not the tree, is exhausted', async () => {

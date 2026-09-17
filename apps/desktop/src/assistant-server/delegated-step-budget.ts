@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import type {
-  DelegatedBudgetPort,
-  DelegatedStepReservation,
+import {
+  type DelegatedBudgetPort,
+  DelegatedOutputReservationExceededError,
+  type DelegatedStepReservation,
 } from '@brainstrike/assistant-contract';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import {
@@ -223,9 +224,7 @@ export function createDelegatedStepBudget(
       });
       // Commit observed overage before rejecting model tool execution; never erase its cost.
       if (exceeded) {
-        throw new Error(
-          'Provider exceeded the delegated output reservation; tool execution rejected.'
-        );
+        throw new DelegatedOutputReservationExceededError();
       }
     },
   };

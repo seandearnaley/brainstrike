@@ -134,6 +134,25 @@ describe('the delegation hook on a truncated child', () => {
     return { capture, config };
   }
 
+  it('discloses charged overage alongside partial findings', async () => {
+    const { config } = configWith(outcome({ outputTokens: 1999, reservedOutputTokens: 1024 }));
+    const result = await config.onDelegationComplete?.(
+      completeContext({
+        finishReason: 'length',
+        subAgentResourceId: 'r',
+        subAgentThreadId: 'child-thread',
+        text: 'PARTIAL',
+      })
+    );
+    expect(result?.resultText).toContain('PARTIAL');
+    expect(result?.resultText).toContain(
+      '1999 total output tokens, exceeding the 1024-token reservation'
+    );
+    expect(result?.resultText).toContain(
+      'All reported tokens remain charged; no further child work is allowed.'
+    );
+  });
+
   it('appends the truncation note to the parent-facing text and records the outcome', async () => {
     const { capture, config } = configWith(outcome());
     const result = await config.onDelegationComplete?.(
