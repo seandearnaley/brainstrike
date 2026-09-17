@@ -1993,6 +1993,23 @@ load-bearing, since no continuation keeps the leg open), persisted like
 every run event. Because the wakeup QUOTES each child's prompt, a scripted
 harness must tell the root's wakeup apart by its header ("Background
 invocations of this turn") before it uses prompt text to pick a child.
+ACTIVE PARENT STEPS (BST-1771, 2026-09-17): the idle loop queues terminal
+wakeups while a parent turn is streaming. A UI ledger reaching zero running
+therefore did not mean that an active parent model saw that update. Root stream
+options now refresh the same generation-scoped ledger and compact saved terminal
+outcomes before each input step, including inside a continuation. One owned
+native `context` message is replaced before the input token limiter; it remains
+user-role tool data, is not drained into durable user/response history, and does
+not start another inference. Child-runtime legs do not install this processor.
+Suspended tasks remain running and refused delegations remain excluded. Read
+failures propagate. A provider-boundary observer acknowledges only terminal
+notices still present after input processing; the idle loop drops their queued
+wakeups once the active turn closes, avoiding a second report-producing inference.
+Unseen terminal outcomes still wake the parent. Transcript reconciliation is unchanged. Paired: `active-parent-background-results.integration.spec.ts`
+holds the original parent or a later native continuation open, completes the
+last child, and checks the next model request and absence of a persisted context
+message; `active-background-results-processor.spec.ts` pins replacement, scope,
+terminal states, suspension, authority and read failure.
 An approval for work parked before migration 140 can lack the durable native
 run mapping required to name this generation. Approval preparation validates
 that mapping before recording any policy-granted sibling answers or starting a

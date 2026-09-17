@@ -15,8 +15,10 @@
  */
 import { createLogger } from '@brainstrike/logging';
 import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/background-tasks';
+import { projectBackgroundOutcomeForModel } from '../background-result-projection';
 import type { AssistantRunEventMetadata } from '../run-events';
 import type { StreamChunk } from '../types';
+import { completedBackgroundOutcome } from './background-result-delivery';
 import type {
   BackgroundGeneration,
   DelegatedConversationBinding,
@@ -33,10 +35,13 @@ export const MAX_LEDGER_PROMPT_CHARS = 120;
 export type BackgroundLedgerState = 'cancelled' | 'failed' | 'returned' | 'running';
 
 export interface BackgroundLedgerEntry {
+  /** Compact terminal output from the same durable snapshot as the status. */
+  readonly outcome?: ReturnType<typeof projectBackgroundOutcomeForModel>;
   readonly persona: string | undefined;
   readonly prompt: string | undefined;
   readonly reason: string | undefined;
   readonly state: BackgroundLedgerState;
+  readonly taskId?: string;
   readonly toolCallId: string;
   readonly toolName: string;
 }
@@ -200,10 +205,16 @@ export function createBackgroundLedgerSource(params: {
         .filter((_task, index) => !refused[index])
         .map(
           (task): BackgroundLedgerEntry => ({
+            ...(ledgerStateOf(task.status) === 'running'
+              ? {}
+              : {
+                  outcome: projectBackgroundOutcomeForModel(completedBackgroundOutcome(task)),
+                }),
             persona: params.personaLabel(task.toolName),
             prompt: promptOf(task),
             reason: reasonOf(task),
             state: ledgerStateOf(task.status),
+            taskId: task.id,
             toolCallId: task.toolCallId,
             toolName: task.toolName,
           })
