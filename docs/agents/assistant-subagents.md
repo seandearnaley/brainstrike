@@ -2534,6 +2534,31 @@ exact terminal events and a concurrent sibling continuing to completion; the
 approval-resume case also checks persisted usage and reload. This does not
 resolve the separate usage-binding-conflict whose rejected tuple is missing.
 
+### Downstream usage failure and cancelled child projections (BST-1771)
+
+A rejected bound usage write closes the upstream iterator: its cleanup joins
+native background cancellation, but its catch and remaining streamed terminal
+parts cannot reach the event observer. The root failure writer therefore atomically
+records the failed root and reconciles still-running child headers whose exact
+native invocation is already cancelled. It appends one cancellation event per
+settled header, retaining the observed native identity. Foreground descendants
+of that cancelled invocation are included through their bound native ancestry.
+
+This is a projection of settled native cancellation, never a native state override
+or permission to accept rejected usage. The ownership graph, original root turn,
+native task owner/run/tool-call tuple and child event identity must agree.
+Suspended or running native siblings, other turns/roots, changed owners and
+already-terminal headers remain unchanged. Repeating root failure does not append
+another child terminal. A terminal-event write failure rolls back the root and
+child status transition together. No rejected usage refresh or replacement row
+is emitted; the original persistence error remains visible.
+
+Paired checks: `delegated-usage-failure.integration.test.ts` exercises two real
+native children and the production persistence pipeline; `delegated-stream-failure.integration.test.ts`
+pins scope isolation, descendants, idempotency and atomic rollback. The injected
+wrong-resource rejection proves failure containment, not the missing original
+usage tuple's cause.
+
 ### Selected child cancellation (BST-1723)
 
 The child projection captures the invocation's existing abort signal at native

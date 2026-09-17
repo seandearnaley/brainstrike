@@ -15,6 +15,7 @@ import {
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { AssistantRunErrorRepository } from '@brainstrike/db';
 import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
+import { completeFailedRootRun } from './delegated-stream-failure';
 import type { HookRunVerdict } from './hooks/run-verdict';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { runCriticalDatabaseOperation } from './run-critical-database';
@@ -611,6 +612,10 @@ async function completeDesktopAssistantThreadRun(
 ): Promise<void> {
   const now = new Date();
   const database = await getDatabase();
+  if (status === 'failed') {
+    await completeFailedRootRun(database, runId, error);
+    return;
+  }
   await database.query(
     `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
      SET status = $2, error = $3, completed_at = $4, updated_at = $5
