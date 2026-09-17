@@ -2001,15 +2001,23 @@ outcomes before each input step, including inside a continuation. One owned
 native `context` message is replaced before the input token limiter; it remains
 user-role tool data, is not drained into durable user/response history, and does
 not start another inference. Child-runtime legs do not install this processor.
-Suspended tasks remain running and refused delegations remain excluded. Read
-failures propagate. A provider-boundary observer acknowledges only terminal
-notices still present after input processing; the idle loop drops their queued
-wakeups once the active turn closes, avoiding a second report-producing inference.
-Unseen terminal outcomes still wake the parent. Transcript reconciliation is unchanged. Paired: `active-parent-background-results.integration.spec.ts`
+Suspended tasks remain running and refused delegations remain excluded. The
+generation port was already mandatory for background wakeups; missing bindings
+now fail before inference. Durable read failures propagate rather than letting
+the root publish from a known-stale completion ledger (no silent degradation).
+A provider-boundary observer records only terminal notices retained verbatim
+after input processing. The idle loop drops their queued wakeups only after the
+active native turn succeeds, avoiding a second report-producing inference.
+Failed, aborted, unknown-status or parked turns retain pending delivery; an
+altered/trimmed notice is conservatively unacknowledged. Transcript
+reconciliation is unchanged.
+Paired: `active-parent-background-results.integration.spec.ts`
 holds the original parent or a later native continuation open, completes the
 last child, and checks the next model request and absence of a persisted context
 message; `active-background-results-processor.spec.ts` pins replacement, scope,
-terminal states, suspension, authority and read failure.
+terminal states, suspension, authority and read failure. The idle-loop test
+`keeps a presented outcome queued when the parent request fails` pins the
+acknowledgement/response-failure boundary.
 An approval for work parked before migration 140 can lack the durable native
 run mapping required to name this generation. Approval preparation validates
 that mapping before recording any policy-granted sibling answers or starting a

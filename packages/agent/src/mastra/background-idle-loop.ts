@@ -293,6 +293,7 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   const isNewSuspension = createSuspensionLedger();
   const loopAbort = new AbortController();
   let processing = true;
+  let parentSucceeded = false;
   let closed = false;
   /** The parent's own pause ended a turn: the run is parked on the user. */
   let parked = false;
@@ -397,6 +398,9 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     );
   };
   const discardPresentedWakeups = () => {
+    if (!parentSucceeded) {
+      return;
+    }
     // An active step may have consumed a terminal while this loop was piping it.
     // Do not start another inference for an outcome the model already received.
     for (let index = pending.length - 1; index >= 0; index -= 1) {
@@ -491,7 +495,9 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   };
   /** Pipe one parent turn; a turn that closes suspended parks the run on the user. */
   const pipeTurn = async (turn: NativeOutput) => {
+    parentSucceeded = false;
     await pipe(turn.fullStream);
+    parentSucceeded = readNativeStreamStatus(turn) === 'success';
     if (readNativeStreamStatus(turn) === 'suspended') {
       parked = true;
     }

@@ -45,6 +45,7 @@ it.each([false, true])(
         }
       }
     })();
+    observation.catch(() => {});
     const original = fixture.model.model.doStream.bind(fixture.model.model);
     let held = false;
     let nextPrompt: Parameters<typeof fixture.model.model.doStream>[0]['prompt'] | undefined;
