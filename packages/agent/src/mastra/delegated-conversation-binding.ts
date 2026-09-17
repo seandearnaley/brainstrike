@@ -488,7 +488,11 @@ export function createDelegatedConversationBinding(
       preparedKeys.set(key, nativeKey);
       signals.set(
         context.requestContext,
-        parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal
+        AbortSignal.any([
+          controller.signal,
+          ...(parentSignal ? [parentSignal] : []),
+          ...(executionSignal ? [executionSignal] : []),
+        ])
       );
       scopes.set(context.requestContext, {
         configuration: structuredClone(configuration),

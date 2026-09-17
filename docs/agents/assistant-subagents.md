@@ -1780,8 +1780,14 @@ exactly one settlement per matching reservation. Mastra 1.64 can omit the
 processor abortSignal during unwind and does not call user onFinish on abort.
 Therefore admission uses the invocation signal supplied by the conversation
 binding (which already includes host-leg cancellation), composed with the
-processor signal when present, and releases a held permit on abort. Without a
-bound invocation it uses the host-leg signal. A native cancelled task alone does
+processor signal when present, and releases a held permit on abort. Admission
+also includes the native executor deadline captured by the delegation hook;
+otherwise a timed-out child can enter an unwinding model step and strand a work
+permit while a sibling holds the other slot. The desktop deadline regression
+starts a replacement after Alpha times out, proves its usage persists while
+Beta remains running, and then completes Beta. The selected-Stop controller
+remains separate, so a deadline stays failed/timed_out rather than cancelled.
+Without a bound invocation it uses the host-leg signal. A native cancelled task alone does
 not prove this release: the desktop regression "releases a stopped model permit
 while Beta streams and Gamma completes" holds both model permits, stops Alpha,
 and proves queued Gamma completes while Beta remains running. Using only the

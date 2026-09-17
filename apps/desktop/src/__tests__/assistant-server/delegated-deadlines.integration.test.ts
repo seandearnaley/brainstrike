@@ -303,6 +303,142 @@ describe('desktop delegated deadline outcomes', () => {
     }
   );
 
+  it('persists replacement usage after a sibling deadline while another child remains active', async () => {
+    await database.exec(
+      "UPDATE brainstrike_assistant_thread_runs SET generation_run_id='host-leg' WHERE id='host-leg'"
+    );
+    const release = Promise.withResolvers<void>();
+    let parentCalls = 0;
+    holder.model = scriptedAgentModel((options) => {
+      if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
+        parentCalls += 1;
+        if (parentCalls === 1) {
+          return parallelToolCallParts(
+            ['Alpha', 'Beta'].map((name) => ({
+              args: {
+                _background: {
+                  enabled: true,
+                  maxRetries: 0,
+                  timeoutMs: name === 'Alpha' ? 1000 : 30_000,
+                },
+                prompt: name,
+              },
+              toolCallId: name,
+              toolName: 'agent-explore',
+            }))
+          );
+        }
+        if (parentCalls === 3) {
+          return toolCallParts('agent-explore', 'replacement', { prompt: 'Replacement evidence' });
+        }
+        return textParts('Parent progress.');
+      }
+      const prompt = JSON.stringify(
+        options.prompt.filter((message) => message.role === 'user').at(-1)
+      );
+      if (
+        prompt?.includes('Replacement evidence') ||
+        hasToolResult(options, 'brainstrike_grepSearch')
+      ) {
+        return textParts('Child evidence.');
+      }
+      return toolCallParts(
+        'brainstrike_grepSearch',
+        prompt?.includes('Alpha') ? 'alpha-read' : 'beta-read',
+        { pattern: 'held' }
+      );
+    }).model;
+    const runtime = {
+      apiKey: 'test-key',
+      memory: { memorySettings: settings, resourceId: 'owner', threadId: 'root' },
+      model: 'test',
+      provider: 'openai',
+    };
+    const memory = await getDesktopMastraMemory(settings, 'host-leg', undefined, runtime);
+    const stream = await streamMastraAgent(
+      [{ id: 'user-turn', parts: [{ text: 'Run evidence children', type: 'text' }], role: 'user' }],
+      {
+        ...memory,
+        personas: [persona],
+        runtime,
+        tools: {
+          'brainstrike.grepSearch': {
+            description: 'Read evidence',
+            execute: async (_input: unknown, context?: { readonly abortSignal?: AbortSignal }) => {
+              const signal = context?.abortSignal;
+              if (!signal) {
+                throw new Error('Missing native executor signal');
+              }
+              const aborted = Promise.withResolvers<void>();
+              const onAbort = () => aborted.resolve();
+              signal.addEventListener('abort', onAbort, { once: true });
+              try {
+                await Promise.race([release.promise, aborted.promise]);
+                return { matches: ['FLAG'] };
+              } finally {
+                signal.removeEventListener('abort', onAbort);
+              }
+            },
+            id: 'brainstrike.grepSearch',
+            inputSchema: z.object({ pattern: z.string() }),
+          },
+        },
+      }
+    );
+    let replacementUsage = false;
+    try {
+      for await (const chunk of persistDesktopChildRunUsage(
+        observeDesktopAssistantRunEvents(stream, 'host-leg', [], async () => database),
+        'host-leg',
+        undefined,
+        async () => database,
+        true
+      )) {
+        if (chunk.type === 'run-event') {
+          expect(chunk.event.kind).not.toBe('run.failed');
+        }
+        if (
+          chunk.type === 'child-run-usage' &&
+          chunk.value.delegation?.parentToolCallId === 'replacement'
+        ) {
+          replacementUsage = true;
+          expect(
+            (
+              await database.query(
+                "SELECT tool_call_id,status FROM mastra_background_tasks WHERE tool_call_id IN ('Alpha','Beta') ORDER BY tool_call_id"
+              )
+            ).rows
+          ).toEqual([
+            { status: 'timed_out', tool_call_id: 'Alpha' },
+            { status: 'running', tool_call_id: 'Beta' },
+          ]);
+          release.resolve();
+        }
+      }
+      expect(replacementUsage).toBe(true);
+      expect(
+        (
+          await database.query(
+            "SELECT delegation_tool_call_id,input_tokens,output_tokens FROM brainstrike_assistant_run_usage WHERE run_kind='subagent' ORDER BY delegation_tool_call_id"
+          )
+        ).rows
+      ).toEqual([
+        { delegation_tool_call_id: 'Alpha', input_tokens: 1, output_tokens: 1 },
+        { delegation_tool_call_id: 'Beta', input_tokens: 2, output_tokens: 2 },
+        { delegation_tool_call_id: 'replacement', input_tokens: 1, output_tokens: 1 },
+      ]);
+      const invocations = (
+        await database.query<{ parent_runtime_run_id: string }>(
+          'SELECT parent_runtime_run_id FROM brainstrike_delegated_invocations'
+        )
+      ).rows;
+      expect(invocations).toHaveLength(3);
+      expect(new Set(invocations.map((row) => row.parent_runtime_run_id)).size).toBe(2);
+    } finally {
+      release.resolve();
+    }
+  });
+
   it.each(['stop', 'approve', 'deadline'] as const)(
     'persists the actual model response before a delegated approval and retains exact usage after %s and reload',
     async (mode) => {
