@@ -272,7 +272,7 @@ export const SubagentExecutionCard = ({
         </p>
       ) : null}
       <SubagentPresentationError error={presentationError} onReload={onReloadPresentation} />
-      {onOpenConversation && !navigationError ? (
+      {onOpenConversation ? (
         <div className="flex justify-end border-border border-t px-2 py-1">
           <Button
             aria-label={`Open ${presentation?.displayName ?? label} conversation`}

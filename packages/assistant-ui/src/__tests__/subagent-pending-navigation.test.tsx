@@ -91,13 +91,56 @@ it('opens the exact pending invocation when two turns reuse a native tool-call I
     parentToolCallId: 'reused-call',
   });
 });
-it('renders a contradictory invocation as a local navigation error without losing the conversation', async () => {
+
+it('keeps a rejected pending lookup visible and lets the user retry it', async () => {
+  const resolve = vi
+    .fn<({ parentRuntimeRunId }: { parentRuntimeRunId: string }) => Promise<string>>()
+    .mockRejectedValueOnce(new Error('The child invocation is not attached yet.'))
+    .mockResolvedValueOnce('child-run-one');
+  const open = vi.fn();
   render(
-    <Harness adapter={adapter} initialMessages={[message('conflict', ['run-one', 'run-two'])]} />
+    <SubagentConversationNavigationContext value={open}>
+      <SubagentInvocationResolverContext value={resolve}>
+        <Harness adapter={adapter} initialMessages={[message('pending', ['run-one'])]} />
+      </SubagentInvocationResolverContext>
+    </SubagentConversationNavigationContext>
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByTestId('assistant-activity-summary'));
+  const button = await screen.findByRole('button', { name: 'Open Worker conversation' });
+
+  await user.click(button);
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'The child invocation is not attached yet.'
+  );
+  expect(open).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole('button', { name: 'Open Worker conversation' }));
+  expect(resolve).toHaveBeenCalledTimes(2);
+  expect(open).toHaveBeenCalledWith('child-run-one', button);
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+it('renders a contradictory invocation as a local navigation error without losing the conversation', async () => {
+  const open = vi.fn();
+  const resolve = vi.fn(async () => 'must-not-open');
+  render(
+    <SubagentConversationNavigationContext value={open}>
+      <SubagentInvocationResolverContext value={resolve}>
+        <Harness
+          adapter={adapter}
+          initialMessages={[message('conflict', ['run-one', 'run-two'])]}
+        />
+      </SubagentInvocationResolverContext>
+    </SubagentConversationNavigationContext>
   );
   const user = userEvent.setup();
   await user.click(await screen.findByTestId('assistant-activity-summary'));
   expect(await screen.findByText('Conflicting native invocation addresses.')).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: 'Open Worker conversation' })
+  ).not.toBeInTheDocument();
+  expect(resolve).not.toHaveBeenCalled();
+  expect(open).not.toHaveBeenCalled();
   expect(screen.getByRole('textbox', { name: 'Message' })).toBeVisible();
 });
 

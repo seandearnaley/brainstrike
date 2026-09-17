@@ -235,7 +235,11 @@ async function persistBoundDelegatedUsage(
   } catch (error: unknown) {
     logger.error('Failed to persist bound delegated usage', {
       code: 'assistant_delegated_usage_write_failed',
+      delegation: value.delegation,
       error,
+      model: value.model,
+      personaId: value.personaId,
+      provider: value.provider,
       runId,
     });
     throw error;

@@ -906,10 +906,15 @@ export class DataStreamMapper {
       code: DataStreamCode.auiDataPart,
       value: { data, name: TOOL_APPROVAL_ANSWERED_DATA_NAME },
     } satisfies EncodedChunk;
-    if (this.mustDeferDataParts()) {
+    // A live grant is an interaction boundary, like an approval request. The
+    // parent may be parked after text while children resume, so waiting for its
+    // next text/tool/finish boundary leaves consumed sibling controls actionable.
+    // Do not truncate a concurrent parent tool's still-streaming arguments.
+    if (this.openArgsCallId !== null) {
       this.pendingRunEventChunks.push(encoded);
       return;
     }
+    yield* this.flushPendingRunEvents();
     yield encoded;
   }
 

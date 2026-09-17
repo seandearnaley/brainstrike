@@ -225,7 +225,7 @@ export async function createBackgroundFixture(
     /**
      * The ROOT's first turn stays OPEN while its background children stream
      * and park: its post-dispatch step streams only once every dispatched
-     * child's task is suspended. A production root is slow there (GLM run 19,
+     * non-held child's task is suspended. A production root is slow there (GLM run 19,
      * 2026-09-15: parallel reads and long reasoning in the dispatching turn),
      * and a root that answers instantly closes its turn before any child
      * output exists.
@@ -474,7 +474,7 @@ export async function createBackgroundFixture(
         if (!manager) {
           throw new Error('slowRootTurn requires the runtime background task manager.');
         }
-        await waitForParkedTasks(manager, scope, siblings);
+        await waitForParkedTasks(manager, scope, siblings - (fanout.heldSibling ? 1 : 0));
       }
       return scripted(options);
     };
