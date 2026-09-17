@@ -228,9 +228,9 @@ describe('tool-lifecycle hooks P2 (Stop notice + blocked-run status)', () => {
       );
       expect(statusUpdate).toBeDefined();
       const params = statusUpdate?.[1] as unknown[] | undefined;
-      // completeDesktopAssistantThreadRun params: [runId, status, error, now, now]
-      expect(params?.[0]).toBe('run-B');
-      expect(params?.[1]).toBe('failed');
+      // Failed status is literal in the atomic root/child terminal statement.
+      expect(statusUpdate?.[0]).toContain("SET status = 'failed', error = $2");
+      expect(params).toEqual(['run-B', 'nope-blocked']);
     } finally {
       rmSync(tmp, { force: true, recursive: true });
     }
