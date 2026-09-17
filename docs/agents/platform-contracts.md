@@ -482,6 +482,8 @@ Implementation:
       re-mounted repo's hooks require fresh review — see TOOL-LIFECYCLE HOOKS;
       and `worktree-setup-consent.v1` — per-repository approvals and denials for
       `.brainstrike/worktree-setup.sh`, keyed by Git common directory).
+    - Session composer text (`assistant-composer-drafts.v1`) is cleared by the
+      blanket sessionStorage clear and the app-shell composer-store reset.
     - Electron renderer storage bridge.
     - IndexedDB (enumerated + fallback list).
     - CacheStorage.

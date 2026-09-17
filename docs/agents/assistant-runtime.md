@@ -4621,7 +4621,13 @@ draft as a `replace` composer command (`use-stop-reread-draft-carry.ts` →
 `assistant-composer-command-store.ts`), which the remounted
 `ComposerDraftCommandBridge` applies once and the wrapper acknowledges. Only
 the TEXT draft travels; attachments and other per-mount composer state are
-still discarded. Thread-scoped by construction — the command carries its
+still discarded. The same thread-scoped text now survives renderer reload in
+`assistant-composer-drafts.v1` sessionStorage. Zustand hydrates only the draft
+map and creates one replacement command per nonempty draft; queued commands
+and attachments are never persisted. Sending/clearing records an empty draft,
+so it is not restored. Factory reset clears sessionStorage and invokes the
+existing composer-store reset. `assistant-composer-command-store.test.ts`
+proves thread isolation, no command replay, cleared drafts, and reset. Thread-scoped by construction — the command carries its
 `threadId`, each wrapper passes only its own thread's command, the id is
 captured at Stop time, and a stale callback whose panel has since switched
 threads neither bumps nor notifies (reopening that thread hydrates from the

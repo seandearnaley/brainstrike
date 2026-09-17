@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 
 describe('assistant composer command store', () => {
@@ -41,7 +41,7 @@ describe('assistant composer command store', () => {
     );
   });
 
-  it('publishes exact composer drafts by thread without persistence', () => {
+  it('publishes exact composer drafts by thread', () => {
     useAssistantComposerCommandStore.getState().recordDraft('thread-a', 'Working draft');
     useAssistantComposerCommandStore.getState().recordDraft('thread-b', 'Other draft');
 
@@ -59,5 +59,47 @@ describe('assistant composer command store', () => {
         threadId: 'thread-a',
       })
     ).toThrow(/non-whitespace text/i);
+  });
+  it('restores only unsent text through thread-scoped commands after renderer reload', async () => {
+    const state = useAssistantComposerCommandStore.getState();
+    state.recordDraft('root', 'Unsent root draft');
+    state.recordDraft('child', 'Different child draft');
+    state.enqueue({ mode: 'append', text: 'Not applied yet', threadId: 'root' });
+    vi.resetModules();
+    const { useAssistantComposerCommandStore: reloaded } = await import(
+      '../assistant-composer-command-store'
+    );
+    expect(reloaded.getState().commandsByThreadId['root']).toEqual([
+      expect.objectContaining({ mode: 'replace', text: 'Unsent root draft', threadId: 'root' }),
+    ]);
+    expect(reloaded.getState().commandsByThreadId['child']).toEqual([
+      expect.objectContaining({
+        mode: 'replace',
+        text: 'Different child draft',
+        threadId: 'child',
+      }),
+    ]);
+    reloaded.getState().recordDraft('root', '');
+    vi.resetModules();
+    const { useAssistantComposerCommandStore: afterSend } = await import(
+      '../assistant-composer-command-store'
+    );
+    expect(afterSend.getState().commandsByThreadId['root']).toBeUndefined();
+    afterSend.getState().reset();
+    vi.resetModules();
+    const { useAssistantComposerCommandStore: afterReset } = await import(
+      '../assistant-composer-command-store'
+    );
+    expect(afterReset.getState().draftTextByThreadId).toEqual({});
+    expect(afterReset.getState().commandsByThreadId).toEqual({});
+  });
+  it('starts empty when this session has no saved draft', async () => {
+    sessionStorage.removeItem('assistant-composer-drafts.v1');
+    vi.resetModules();
+    const { useAssistantComposerCommandStore: fresh } = await import(
+      '../assistant-composer-command-store'
+    );
+    expect(fresh.getState().draftTextByThreadId).toEqual({});
+    expect(fresh.getState().commandsByThreadId).toEqual({});
   });
 });
