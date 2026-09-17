@@ -32,6 +32,11 @@ const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
  */
 const ALLOWLIST = new Map([
   [
+    'packages/app-shell/src/assistant-composer-command-store.ts',
+    'Reports errors through an already initialized logger and imported toast function. ' +
+      'Never reads its own store binding; draft reconstruction lives in merge.',
+  ],
+  [
     'packages/app-state/src/stores/import-settings-store.ts',
     'Touches only `useTokenPreferencesStore` — a DIFFERENT store binding, ' +
       'imported at module top and already initialized by the time this module ' +

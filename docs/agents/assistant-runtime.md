@@ -4621,7 +4621,13 @@ draft as a `replace` composer command (`use-stop-reread-draft-carry.ts` →
 `assistant-composer-command-store.ts`), which the remounted
 `ComposerDraftCommandBridge` applies once and the wrapper acknowledges. Only
 the TEXT draft travels; attachments and other per-mount composer state are
-still discarded. Thread-scoped by construction — the command carries its
+still discarded. The same thread-scoped text now survives renderer reload in
+`assistant-composer-drafts.v1` sessionStorage. Zustand hydrates only the draft
+map and creates one replacement command per nonempty draft; queued commands
+and attachments are never persisted. Sending/clearing records an empty draft,
+so it is not restored. Factory reset clears sessionStorage and invokes the
+existing composer-store reset. `assistant-composer-command-store.test.ts`
+proves thread isolation, no command replay, cleared drafts, and reset. Thread-scoped by construction — the command carries its
 `threadId`, each wrapper passes only its own thread's command, the id is
 captured at Stop time, and a stale callback whose panel has since switched
 threads neither bumps nor notifies (reopening that thread hydrates from the
@@ -4646,6 +4652,9 @@ wholesale and assistant-ui cannot import app-shell; mutations cover the seam
 (dropping the enqueue, enqueueing under another thread id, or dropping the
 panel's host call each go red). `data-stream-runtime.test.ts` ("invokes
 onCancel for normal aborts…") pins the cancelled messages.
+Storage read/write failures are logged and shown as a destructive toast; failed
+writes do not throw through the composer effect or claim reload recovery succeeded.
+Session storage is session-scoped, not a guarantee that text stays only in memory.
 
 Binding cleanup and delegated persistence both own after-tool-call work. Stream
 option assembly joins both hooks, including when either fails. Background resume
