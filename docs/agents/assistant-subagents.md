@@ -2499,7 +2499,10 @@ retry, native task-state override or dependency patch is introduced.
 Child projection reads that execution signal separately from explicit selected
 cancellation authority. An expired execution produces one failed child terminal
 with the native abort reason; selected Stop remains cancelled. Signal ownership
-survives queued output and is replaced on the next execution of the invocation.
+survives queued output and is replaced on the next admitted execution of the
+invocation. Rejected duplicate preparation preserves the active deadline signal.
+Host resume capture also stages the signal by parent thread/tool call so native
+preparation retains that execution's deadline.
 `delegated-deadlines.integration.test.ts` pins native timed_out, durable failed,
 exact terminal events and a concurrent sibling continuing to completion; the
 approval-resume case also checks persisted usage and reload. This does not

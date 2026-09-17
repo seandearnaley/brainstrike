@@ -178,7 +178,7 @@ export interface DelegatedConversationBinding {
   }>;
   readonly budget?: DelegatedBudgetPort;
   readonly captureExecutionAbortSignal?: (
-    identity: DelegatedCancellationTarget,
+    identity: DelegatedCancellationTarget & { readonly parentThreadId: string },
     signal: AbortSignal | undefined
   ) => void;
   /** Exact settings supplied by the constructed native child before its first input persists. */
@@ -368,10 +368,13 @@ export function createDelegatedConversationBinding(
       }
     },
     captureExecutionAbortSignal: (identity, signal) => {
+      const key = inputKey(identity.parentThreadId, identity.parentToolCallId);
       if (signal) {
         executionSignals.set(invocationKey(identity), signal);
+        pendingExecutionSignals.set(key, signal);
       } else {
         executionSignals.delete(invocationKey(identity));
+        pendingExecutionSignals.delete(key);
       }
     },
     captureExecutionConfiguration(context, execution) {
@@ -466,13 +469,6 @@ export function createDelegatedConversationBinding(
         parentRuntimeRunId: requireIdentity(context.runId),
         parentToolCallId: requireIdentity(context.toolCallId),
       });
-      const executionSignal = pendingExecutionSignals.get(key);
-      pendingExecutionSignals.delete(key);
-      if (executionSignal) {
-        executionSignals.set(nativeKey, executionSignal);
-      } else {
-        executionSignals.delete(nativeKey);
-      }
       const existing = controllers.get(nativeKey);
       if (existing && preparedKeys.has(key)) {
         throw new Error('Delegated cancellation already owns this native invocation.');
@@ -480,6 +476,13 @@ export function createDelegatedConversationBinding(
       // Native approval resume re-enters admission after the earlier tool hook.
       // Preserve the same cancellation owner; a stopped invocation cannot restart.
       existing?.signal.throwIfAborted();
+      const executionSignal = pendingExecutionSignals.get(key);
+      pendingExecutionSignals.delete(key);
+      if (executionSignal) {
+        executionSignals.set(nativeKey, executionSignal);
+      } else {
+        executionSignals.delete(nativeKey);
+      }
       const controller = existing ?? new AbortController();
       controllers.set(nativeKey, controller);
       preparedKeys.set(key, nativeKey);

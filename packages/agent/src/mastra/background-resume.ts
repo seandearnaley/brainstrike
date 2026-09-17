@@ -874,7 +874,11 @@ async function prepareResumedExecutor(params: {
     executor: {
       execute: async (args, nativeOptions) => {
         runtime.conversationBinding?.captureExecutionAbortSignal?.(
-          { parentRuntimeRunId: task.runId, parentToolCallId: task.toolCallId },
+          {
+            parentRuntimeRunId: task.runId,
+            parentThreadId: scope.threadId,
+            parentToolCallId: task.toolCallId,
+          },
           nativeOptions?.abortSignal
         );
         let output: unknown;

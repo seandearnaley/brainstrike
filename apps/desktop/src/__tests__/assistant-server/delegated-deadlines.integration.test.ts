@@ -499,11 +499,11 @@ describe('desktop delegated deadline outcomes', () => {
           expect(
             (
               await reloaded.query(
-                "SELECT kind FROM brainstrike_assistant_run_events WHERE thread_id=$1 AND kind IN ('run.finished','run.failed','run.cancelled')",
+                "SELECT kind, detail FROM brainstrike_assistant_run_events WHERE thread_id=$1 AND kind IN ('run.finished','run.failed','run.cancelled')",
                 [child.thread_id]
               )
             ).rows
-          ).toEqual([{ kind: 'run.failed' }]);
+          ).toEqual([{ detail: 'Error: Task timed out after 1000ms', kind: 'run.failed' }]);
         }
       } finally {
         await reloaded.close();

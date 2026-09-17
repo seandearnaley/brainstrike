@@ -805,13 +805,39 @@ describe('child prompt manifests', () => {
 });
 
 describe('native delegation deadline ownership', () => {
+  it('preserves the active execution deadline when duplicate preparation is rejected', () => {
+    const binding = createDelegatedConversationBinding(async () => undefined);
+    const context = startContext({ resourceId: 'owner', threadId: 'root' });
+    binding.prepare(context, { maxSteps: 8, persona });
+    const identity = {
+      parentRuntimeRunId: context.runId,
+      parentThreadId: 'root',
+      parentToolCallId: context.toolCallId,
+    };
+    const deadline = new AbortController();
+    binding.captureExecutionAbortSignal?.(identity, deadline.signal);
+    const duplicate = startContext({
+      resourceId: 'owner',
+      threadId: 'root',
+      toolCallId: context.toolCallId,
+    });
+    expect(() => binding.prepare(duplicate, { maxSteps: 8, persona })).toThrow(
+      'Delegated cancellation already owns this native invocation.'
+    );
+    expect(binding.getExecutionAbortSignal?.(identity)).toBe(deadline.signal);
+  });
+
   it.each([false, true])(
     'settles an expired execution without overwriting an existing error (%s)',
     (hasError) => {
       const binding = createDelegatedConversationBinding(async () => undefined);
       const context = startContext({ resourceId: 'owner', threadId: 'root' });
       binding.prepare(context, { maxSteps: 8, persona });
-      const identity = { parentRuntimeRunId: context.runId, parentToolCallId: context.toolCallId };
+      const identity = {
+        parentRuntimeRunId: context.runId,
+        parentThreadId: 'root',
+        parentToolCallId: context.toolCallId,
+      };
       const deadline = new AbortController();
       binding.captureExecutionAbortSignal?.(identity, deadline.signal);
       const reason = new Error('Task timed out after 1000ms');
