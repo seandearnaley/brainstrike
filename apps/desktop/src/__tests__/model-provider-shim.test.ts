@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type ModelProviderScript,
   type ModelProviderShim,
@@ -15,6 +15,7 @@ const child: ModelProviderScript = {
 };
 let shim: ModelProviderShim | undefined;
 afterEach(async () => {
+  vi.restoreAllMocks();
   await shim?.close();
   shim = undefined;
 });
@@ -30,6 +31,38 @@ async function request(body: Record<string, unknown>): Promise<unknown> {
 }
 
 describe('model provider shim', () => {
+  it('uses distinct call ids for concurrent responses in the same millisecond', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(123_456_789);
+    shim = await startModelProviderShim(parent);
+    const responses = await Promise.all(
+      [false, false, true, true].map(async (stream) => {
+        const response = await fetch(`${shim?.baseUrl}/chat/completions`, {
+          body: JSON.stringify({ messages: [], stream }),
+          headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+        });
+        expect(response.status).toBe(200);
+        return response.text();
+      })
+    );
+    const ids = responses.flatMap((body) =>
+      [...body.matchAll(/"id":"(call_e2e_[^"]+)"/g)].map((match) => match[1])
+    );
+    expect(ids).toHaveLength(4);
+    expect(new Set(ids).size).toBe(4);
+  });
+
+  it('rejects both toolCall forms even when the batch is empty', async () => {
+    shim = await startModelProviderShim({ ...parent, toolCalls: [] });
+    const response = await fetch(`${shim.baseUrl}/chat/completions`, {
+      body: JSON.stringify({ messages: [], stream: false }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain('either toolCall or toolCalls');
+  });
+
   it('returns JSON when a non-streaming title request omits stream', async () => {
     shim = await startModelProviderShim({ finalText: 'Worker workspace task' });
     expect(
@@ -112,5 +145,51 @@ describe('model provider shim', () => {
     expect(await request({ messages: [{ content: 'Next turn', role: 'user' }] })).toMatchObject({
       choices: [{ message: { tool_calls: [{ function: { name: 'read_file' } }] } }],
     });
+  });
+
+  it('emits parallel tool calls once and waits for every result before final text', async () => {
+    shim = await startModelProviderShim({
+      finalText: 'All specialists settled',
+      toolCalls: [
+        { arguments: { prompt: 'First' }, name: 'agent-explore' },
+        { arguments: { prompt: 'Second' }, name: 'agent-worker' },
+      ],
+    });
+    const messages = [{ content: 'Delegate both', role: 'user' }];
+    expect(await request({ messages })).toMatchObject({
+      choices: [
+        {
+          message: {
+            tool_calls: [
+              { function: { name: 'agent-explore' } },
+              { function: { name: 'agent-worker' } },
+            ],
+          },
+        },
+      ],
+    });
+    const partial = await fetch(`${shim.baseUrl}/chat/completions`, {
+      body: JSON.stringify({
+        messages: [...messages, { content: 'First done', role: 'tool', tool_call_id: 'first' }],
+        stream: false,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    expect(partial.status).toBe(400);
+    expect(await partial.text()).toContain('all parallel tool results');
+    expect(
+      await request({
+        messages: [
+          ...messages,
+          { content: 'First done', role: 'tool', tool_call_id: 'first' },
+          { content: 'Second done', role: 'tool', tool_call_id: 'second' },
+        ],
+      })
+    ).toMatchObject({ choices: [{ message: { content: 'All specialists settled' } }] });
+    expect(shim.transcript().map(({ decision }) => decision)).toEqual([
+      'tool:agent-explore+agent-worker',
+      'final-text',
+    ]);
   });
 });

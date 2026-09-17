@@ -30,7 +30,8 @@ interface UseAssistantServerRunSessionOptions {
     | ((
         requestData: Record<string, unknown> | undefined,
         status: PreparedRequestStatus,
-        error?: string
+        error?: string,
+        hostOwnsRun?: boolean
       ) => Promise<void> | void)
     | undefined;
   /**
@@ -166,6 +167,7 @@ export function useAssistantServerRunSession({
   const preparedRequestRef = useRef<{
     readonly data: Record<string, unknown> | undefined;
     cancelRequested?: boolean;
+    hostOwnsRun?: boolean;
   } | null>(null);
   const completePreparedRequestRef = useRef(completePreparedRequest);
   const replayRetryCountRef = useRef(0);
@@ -193,7 +195,12 @@ export function useAssistantServerRunSession({
         return;
       }
       preparedRequestRef.current = null;
-      await completePreparedRequestRef.current?.(preparedRequest.data, status, error);
+      await completePreparedRequestRef.current?.(
+        preparedRequest.data,
+        status,
+        error,
+        preparedRequest.hostOwnsRun === true
+      );
     },
     []
   );
@@ -292,7 +299,12 @@ export function useAssistantServerRunSession({
         .then(async () => {
           if (cancellingRequest && preparedRequestRef.current === cancellingRequest) {
             preparedRequestRef.current = null;
-            await completePreparedRequestRef.current?.(cancellingRequest.data, 'cancelled');
+            await completePreparedRequestRef.current?.(
+              cancellingRequest.data,
+              'cancelled',
+              undefined,
+              true
+            );
           }
           clearActiveRunSession();
           // The host cancelled the turn's paused work before answering; only
@@ -381,6 +393,11 @@ export function useAssistantServerRunSession({
         throw new Error(
           'Desktop assistant response is missing the active-run replay cursor or run id.'
         );
+      }
+      // A valid desktop session response transfers durable completion to the host.
+      // Renderer callbacks still release local activity, including on disconnect.
+      if (preparedRequestRef.current) {
+        preparedRequestRef.current.hostOwnsRun = true;
       }
       const record = { assistantMessageId, eventId, runId };
       writeAssistantActiveRunSession(threadKey, record);

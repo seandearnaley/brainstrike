@@ -316,7 +316,12 @@ describe('root Stop re-reads pauses from the host ledger', () => {
     await user.click(await screen.findByRole('button', { name: 'Stop' }));
 
     await waitFor(() =>
-      expect(completePreparedRequest).toHaveBeenCalledWith(expect.any(Object), 'cancelled')
+      expect(completePreparedRequest).toHaveBeenCalledWith(
+        expect.any(Object),
+        'cancelled',
+        undefined,
+        true
+      )
     );
     expect(host.cancelBodies).toEqual([JSON.stringify({ runId: RUN_ID })]);
     // A positive signal that the cancel path finished in the UI, so the
@@ -346,7 +351,12 @@ describe('root Stop re-reads pauses from the host ledger', () => {
     await user.click(await screen.findByRole('button', { name: 'Stop' }));
 
     await waitFor(() =>
-      expect(completePreparedRequest).toHaveBeenCalledWith(expect.any(Object), 'cancelled')
+      expect(completePreparedRequest).toHaveBeenCalledWith(
+        expect.any(Object),
+        'cancelled',
+        undefined,
+        true
+      )
     );
     expect(host.cancelBodies).toHaveLength(1);
     await waitFor(() =>

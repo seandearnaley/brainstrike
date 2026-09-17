@@ -18,6 +18,7 @@
  * executable on PATH; this is the same idea for the model provider via a
  * real local HTTP server. A durable E2E asset — reuse it, don't fork it.
  */
+import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 export interface ScriptedToolCall {
@@ -43,6 +44,8 @@ export interface ModelProviderScript {
   readonly finalText: string;
   /** Omit for a response-only turn, including native background wakeups. */
   readonly toolCall?: ScriptedToolCall;
+  /** Emit one model turn containing independent parallel tool calls. */
+  readonly toolCalls?: readonly ScriptedToolCall[];
 }
 
 /**
@@ -147,18 +150,28 @@ function countToolResultMessages(messages: unknown[] | undefined): number {
 function resolveTurn(
   script: ModelProviderScript,
   toolResultCount: number
-): { call: ScriptedToolCall } | { finalText: string } {
-  if (!script.toolCall) {
+): { calls: readonly ScriptedToolCall[] } | { finalText: string } {
+  if (script.toolCalls && script.toolCall) {
+    throw new Error('Model provider shim scripts must use either toolCall or toolCalls.');
+  }
+  const calls = script.toolCalls ?? (script.toolCall ? [script.toolCall] : []);
+  if (script.deferredTool && calls.length !== 1) {
+    throw new Error('Deferred model provider scripts support exactly one tool call.');
+  }
+  if (calls.length === 0) {
     return { finalText: script.finalText };
   }
   if (!script.deferredTool) {
-    return toolResultCount === 0 ? { call: script.toolCall } : { finalText: script.finalText };
+    if (toolResultCount > 0 && toolResultCount < calls.length) {
+      throw new Error('Model provider shim requires all parallel tool results before continuing.');
+    }
+    return toolResultCount === 0 ? { calls } : { finalText: script.finalText };
   }
   if (toolResultCount === 0) {
-    return { call: { arguments: { toolName: script.toolCall.name }, name: 'load_tool' } };
+    return { calls: [{ arguments: { toolName: calls[0]?.name }, name: 'load_tool' }] };
   }
   if (toolResultCount === 1) {
-    return { call: script.toolCall };
+    return { calls };
   }
   return { finalText: script.finalText };
 }
@@ -168,30 +181,31 @@ function completionIdentity(): { created: number; id: string } {
   return { created: Math.floor(now / 1000), id: `chatcmpl-e2e-${now}` };
 }
 
-function toolCallMessage(call: ScriptedToolCall, toolCallId: string): Record<string, unknown> {
+function toolCallMessage(
+  calls: readonly ScriptedToolCall[],
+  toolCallIds: readonly string[]
+): Record<string, unknown> {
   return {
     content: null,
     role: 'assistant',
-    ['tool_calls']: [
-      {
-        function: {
-          arguments: JSON.stringify(call.arguments),
-          name: call.name,
-        },
-        id: toolCallId,
-        type: 'function',
+    ['tool_calls']: calls.map((call, index) => ({
+      function: {
+        arguments: JSON.stringify(call.arguments),
+        name: call.name,
       },
-    ],
+      id: toolCallIds[index],
+      type: 'function',
+    })),
   };
 }
 
 async function writeStreamingToolCall(
   response: ServerResponse,
-  call: ScriptedToolCall,
+  calls: readonly ScriptedToolCall[],
   beforeFinish?: Promise<void>
 ): Promise<void> {
   const { created, id } = completionIdentity();
-  const toolCallId = `call_e2e_${Date.now()}`;
+  const toolCallIds = calls.map(() => `call_e2e_${randomUUID()}`);
   response.writeHead(200, {
     'Cache-Control': 'no-cache',
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -203,17 +217,15 @@ async function writeStreamingToolCall(
         {
           delta: {
             role: 'assistant',
-            ['tool_calls']: [
-              {
-                function: {
-                  arguments: JSON.stringify(call.arguments),
-                  name: call.name,
-                },
-                id: toolCallId,
-                index: 0,
-                type: 'function',
+            ['tool_calls']: calls.map((call, index) => ({
+              function: {
+                arguments: JSON.stringify(call.arguments),
+                name: call.name,
               },
-            ],
+              id: toolCallIds[index],
+              index,
+              type: 'function',
+            })),
           },
           ['finish_reason']: null,
           index: 0,
@@ -276,13 +288,16 @@ function writeStreamingFinalText(response: ServerResponse, finalText: string): v
 
 function writeJsonCompletion(
   response: ServerResponse,
-  turn: { call: ScriptedToolCall } | { finalText: string }
+  turn: { calls: readonly ScriptedToolCall[] } | { finalText: string }
 ): void {
   const { created, id } = completionIdentity();
   const finalTurn = 'finalText' in turn;
   const message = finalTurn
     ? { content: turn.finalText, role: 'assistant' }
-    : toolCallMessage(turn.call, `call_e2e_${Date.now()}`);
+    : toolCallMessage(
+        turn.calls,
+        turn.calls.map(() => `call_e2e_${randomUUID()}`)
+      );
   response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
   response.end(
     JSON.stringify({
@@ -364,7 +379,10 @@ export async function startModelProviderShim(
             : script;
         const turn = resolveTurn(selectedScript, toolResultCount);
         transcript.push({
-          decision: 'finalText' in turn ? 'final-text' : `tool:${turn.call.name}`,
+          decision:
+            'finalText' in turn
+              ? 'final-text'
+              : `tool:${turn.calls.map((call) => call.name).join('+')}`,
           requestIndex: requestOrdinal,
           roles: messageRoles(messages),
           toolResultCount,
@@ -377,7 +395,7 @@ export async function startModelProviderShim(
           writeStreamingFinalText(response, turn.finalText);
           return;
         }
-        await writeStreamingToolCall(response, turn.call, selectedScript.beforeToolFinish);
+        await writeStreamingToolCall(response, turn.calls, selectedScript.beforeToolFinish);
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);

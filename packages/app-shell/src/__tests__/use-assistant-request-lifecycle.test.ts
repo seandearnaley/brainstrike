@@ -65,6 +65,45 @@ describe('useAssistantRequestLifecycle', () => {
     __resetPermissionPolicyStoreForTests();
   });
 
+  it.each(
+    (['failed', 'completed', 'cancelled'] as const).flatMap((status) =>
+      [false, true].map((detached) => ({ detached, status }))
+    )
+  )(
+    'releases host-owned $status activity when repository detached=$detached',
+    async ({ status, detached }) => {
+      const repository = createRepositoryStub();
+      const { result, rerender } = renderHook(
+        ({ available }) =>
+          useAssistantRequestLifecycle({
+            assistantThreadRepository: available ? repository : null,
+            focusedRootId: 'root',
+            memoryResourceId: 'workspace-a',
+            modelSettings: undefined,
+            permissionEnforceable: true,
+            planModeAvailable: false,
+            providerOptions: undefined,
+            requestData: baseRequestData,
+            resolvedModelName: 'model',
+            selectedMemoryThreadId: 'thread-a',
+            selectedProvider: 'openai',
+          }),
+        { initialProps: { available: true } }
+      );
+      const prepared = await act(async () => result.current.prepareRequestData());
+      expect(getAssistantForegroundActivitySnapshot()).toBe(true);
+      if (detached) {
+        rerender({ available: false });
+      }
+      await act(async () => {
+        await result.current.completePreparedRequest(prepared, status, 'network error', true);
+      });
+      expect(repository.completeThreadRun).not.toHaveBeenCalled();
+      expect(getAssistantForegroundActivitySnapshot()).toBe(false);
+      expect(result.current.getActiveSteerableRunId()).toBeNull();
+    }
+  );
+
   it.each([
     {
       expected: { turnMessageId: 'child-input' },
