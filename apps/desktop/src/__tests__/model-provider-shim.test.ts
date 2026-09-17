@@ -30,6 +30,17 @@ async function request(body: Record<string, unknown>): Promise<unknown> {
 }
 
 describe('model provider shim', () => {
+  it('rejects both toolCall forms even when the batch is empty', async () => {
+    shim = await startModelProviderShim({ ...parent, toolCalls: [] });
+    const response = await fetch(`${shim.baseUrl}/chat/completions`, {
+      body: JSON.stringify({ messages: [], stream: false }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain('either toolCall or toolCalls');
+  });
+
   it('returns JSON when a non-streaming title request omits stream', async () => {
     shim = await startModelProviderShim({ finalText: 'Worker workspace task' });
     expect(
@@ -135,6 +146,16 @@ describe('model provider shim', () => {
         },
       ],
     });
+    const partial = await fetch(`${shim.baseUrl}/chat/completions`, {
+      body: JSON.stringify({
+        messages: [...messages, { content: 'First done', role: 'tool', tool_call_id: 'first' }],
+        stream: false,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    expect(partial.status).toBe(400);
+    expect(await partial.text()).toContain('all parallel tool results');
     expect(
       await request({
         messages: [

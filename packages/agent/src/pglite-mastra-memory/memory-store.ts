@@ -160,8 +160,7 @@ function outcomeFromTaskRow(task: BackgroundOutcomeRow): BackgroundOutcome {
   if (task.status === 'cancelled') {
     return {
       error: {
-        message:
-          'Background task cancelled by the user; it has no result. Do not rerun unless requested.',
+        message: 'Background task was cancelled; it has no result. Do not rerun unless requested.',
       },
       status: 'failed',
     };

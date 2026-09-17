@@ -441,14 +441,14 @@ export function useAssistantRequestLifecycle({
       if (!runId) {
         return;
       }
-      if (!assistantThreadRepository) {
-        throw new Error('Assistant run completion requires an active thread repository.');
-      }
       try {
         // Desktop owns terminal persistence after session admission. A renderer
         // disconnect must release its local leases without terminating that run.
         if (hostOwnsRun) {
           return;
+        }
+        if (!assistantThreadRepository) {
+          throw new Error('Assistant run completion requires an active thread repository.');
         }
         await assistantThreadRepository.completeThreadRun(runId, {
           status,

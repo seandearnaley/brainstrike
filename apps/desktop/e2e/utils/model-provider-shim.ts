@@ -150,18 +150,21 @@ function resolveTurn(
   script: ModelProviderScript,
   toolResultCount: number
 ): { calls: readonly ScriptedToolCall[] } | { finalText: string } {
-  const calls = script.toolCalls ?? (script.toolCall ? [script.toolCall] : []);
-  if (calls.length === 0) {
-    return { finalText: script.finalText };
-  }
   if (script.toolCalls && script.toolCall) {
     throw new Error('Model provider shim scripts must use either toolCall or toolCalls.');
   }
+  const calls = script.toolCalls ?? (script.toolCall ? [script.toolCall] : []);
   if (script.deferredTool && calls.length !== 1) {
     throw new Error('Deferred model provider scripts support exactly one tool call.');
   }
+  if (calls.length === 0) {
+    return { finalText: script.finalText };
+  }
   if (!script.deferredTool) {
-    return toolResultCount < calls.length ? { calls } : { finalText: script.finalText };
+    if (toolResultCount > 0 && toolResultCount < calls.length) {
+      throw new Error('Model provider shim requires all parallel tool results before continuing.');
+    }
+    return toolResultCount === 0 ? { calls } : { finalText: script.finalText };
   }
   if (toolResultCount === 0) {
     return { calls: [{ arguments: { toolName: calls[0]?.name }, name: 'load_tool' }] };
