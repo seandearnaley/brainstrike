@@ -805,6 +805,23 @@ describe('child prompt manifests', () => {
 });
 
 describe('native delegation deadline ownership', () => {
+  it('aborts admitted child work on its execution deadline without granting selected Stop authority', () => {
+    const binding = createDelegatedConversationBinding(async () => undefined);
+    const context = startContext({ resourceId: 'owner', threadId: 'root' });
+    const identity = {
+      parentRuntimeRunId: context.runId,
+      parentThreadId: 'root',
+      parentToolCallId: context.toolCallId,
+    };
+    const deadline = new AbortController();
+    binding.captureExecutionAbortSignal?.(identity, deadline.signal);
+    binding.prepare(context, { maxSteps: 8, persona });
+    const reason = new Error('Task timed out');
+    deadline.abort(reason);
+    expect(binding.getAbortSignal?.(context.requestContext)?.reason).toBe(reason);
+    expect(binding.getInvocationAbortSignal?.(identity)?.aborted).toBe(false);
+  });
+
   it('preserves the active execution deadline when duplicate preparation is rejected', () => {
     const binding = createDelegatedConversationBinding(async () => undefined);
     const context = startContext({ resourceId: 'owner', threadId: 'root' });
