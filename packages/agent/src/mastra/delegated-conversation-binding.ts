@@ -341,6 +341,8 @@ export function createDelegatedConversationBinding(
 ): DelegatedConversationBinding {
   const scopes = new WeakMap<DelegationStartContext['requestContext'], ParentIdentity>();
   const inputs = new Map<string, DelegatedOriginalToolCall>();
+  // Native completion can precede downstream projection. Retain cancellation
+  // authority for this runtime-owned binding, including already queued output.
   const controllers = new Map<string, AbortController>();
   const preparedKeys = new Map<string, string>();
   const signals = new WeakMap<DelegationStartContext['requestContext'], AbortSignal>();
@@ -376,12 +378,7 @@ export function createDelegatedConversationBinding(
         }
         const threadId = requireIdentity(readToolExecutionThreadId([input, context]));
         const toolCallId = requireIdentity(readToolCallId([input, context]));
-        const preparedKey = inputKey(threadId, toolCallId);
-        const nativeKey = preparedKeys.get(preparedKey);
-        if (nativeKey) {
-          controllers.delete(nativeKey);
-          preparedKeys.delete(preparedKey);
-        }
+        preparedKeys.delete(inputKey(threadId, toolCallId));
       },
       beforeToolCall({ input, context, toolName }) {
         if (!toolName.startsWith('agent-')) {
