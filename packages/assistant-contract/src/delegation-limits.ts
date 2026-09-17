@@ -53,3 +53,11 @@ export interface DelegatedBudgetPort {
   reserveStep(scope: { threadId: string; resourceId: string }): Promise<DelegatedStepReservation>;
   settleStep(reservationId: string, outputTokens: number | undefined): Promise<void>;
 }
+
+/** Usage was committed before rejecting further execution for this reservation. */
+export class DelegatedOutputReservationExceededError extends Error {
+  constructor() {
+    super('Provider exceeded the delegated output reservation; tool execution rejected.');
+    this.name = 'DelegatedOutputReservationExceededError';
+  }
+}

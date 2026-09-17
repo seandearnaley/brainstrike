@@ -21,6 +21,7 @@ export {
   DELEGATION_LIMITS,
   type DelegatedBudgetPort,
   type DelegatedInvocationAdmission,
+  DelegatedOutputReservationExceededError,
   type DelegatedStepReservation,
   type DelegationBudgetCap,
 } from './delegation-limits.js';
