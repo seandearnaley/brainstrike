@@ -179,7 +179,7 @@ export interface DelegatedConversationBinding {
   readonly budget?: DelegatedBudgetPort;
   readonly captureExecutionAbortSignal?: (
     identity: DelegatedCancellationTarget,
-    signal: AbortSignal
+    signal: AbortSignal | undefined
   ) => void;
   /** Exact settings supplied by the constructed native child before its first input persists. */
   readonly captureExecutionConfiguration?: (
@@ -368,7 +368,11 @@ export function createDelegatedConversationBinding(
       }
     },
     captureExecutionAbortSignal: (identity, signal) => {
-      executionSignals.set(invocationKey(identity), signal);
+      if (signal) {
+        executionSignals.set(invocationKey(identity), signal);
+      } else {
+        executionSignals.delete(invocationKey(identity));
+      }
     },
     captureExecutionConfiguration(context, execution) {
       const parent = scopes.get(context);
@@ -385,7 +389,7 @@ export function createDelegatedConversationBinding(
     getExecutionAbortSignal: (identity) => executionSignals.get(invocationKey(identity)),
     getInvocationAbortSignal: (identity) => controllers.get(invocationKey(identity))?.signal,
     hooks: {
-      afterToolCall({ input, context, toolName }) {
+      afterToolCall({ input, context, toolName, error }) {
         // Snapshot resume has no process-local prepared controller to release.
         if (preparedKeys.size === 0 || !toolName.startsWith('agent-')) {
           return;
@@ -398,7 +402,7 @@ export function createDelegatedConversationBinding(
         pendingExecutionSignals.delete(key);
         // Mastra treats a resolved executor as successful even after its deadline.
         // Keep native timeout classification in charge by rejecting the aborted call.
-        if (nativeKey) {
+        if (error === undefined && nativeKey) {
           executionSignals.get(nativeKey)?.throwIfAborted();
         }
       },
@@ -466,6 +470,8 @@ export function createDelegatedConversationBinding(
       pendingExecutionSignals.delete(key);
       if (executionSignal) {
         executionSignals.set(nativeKey, executionSignal);
+      } else {
+        executionSignals.delete(nativeKey);
       }
       const existing = controllers.get(nativeKey);
       if (existing && preparedKeys.has(key)) {

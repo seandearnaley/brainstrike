@@ -2500,7 +2500,7 @@ Child projection reads that execution signal separately from explicit selected
 cancellation authority. An expired execution produces one failed child terminal
 with the native abort reason; selected Stop remains cancelled. Signal ownership
 survives queued output and is replaced on the next execution of the invocation.
-`delegated-runtime.integration.test.ts` pins native timed_out, durable failed,
+`delegated-deadlines.integration.test.ts` pins native timed_out, durable failed,
 exact terminal events and a concurrent sibling continuing to completion; the
 approval-resume case also checks persisted usage and reload. This does not
 resolve the separate usage-binding-conflict whose rejected tuple is missing.

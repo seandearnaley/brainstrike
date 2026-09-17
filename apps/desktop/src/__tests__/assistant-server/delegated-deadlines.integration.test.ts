@@ -106,7 +106,7 @@ describe('desktop delegated deadline outcomes', () => {
       const entered = Promise.withResolvers<void>();
       let started = 0;
       const alphaTerminal = Promise.withResolvers<void>();
-      const chunks: string[] = [];
+      const alphaFailureDetails: (string | undefined)[] = [];
       holder.model = scriptedAgentModel((options) => {
         if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
           if (hasToolResult(options, 'agent-explore')) {
@@ -193,7 +193,15 @@ describe('desktop delegated deadline outcomes', () => {
           async () => database,
           true
         )) {
-          chunks.push(JSON.stringify(chunk));
+          if (
+            chunk.type === 'delegated-conversation-chunk' &&
+            chunk.identity.parentToolCallId === 'Alpha' &&
+            chunk.chunk.type === 'run-event' &&
+            chunk.chunk.event.kind === 'run.failed'
+          ) {
+            alphaFailureDetails.push(chunk.chunk.event.detail);
+          }
+          // Unscoped run events belong to the root; child failures stay scoped.
           if (chunk.type === 'run-event') {
             expect(chunk.event.kind).not.toBe('run.failed');
           }
@@ -266,7 +274,7 @@ describe('desktop delegated deadline outcomes', () => {
         release.resolve();
         await consuming;
         if (ending === 'deadline') {
-          expect(chunks.join('\n')).toMatch(/timed.out|timeout/i);
+          expect(alphaFailureDetails).toEqual(['Error: Task timed out after 1000ms']);
         }
         expect(
           (

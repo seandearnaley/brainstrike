@@ -873,12 +873,10 @@ async function prepareResumedExecutor(params: {
   const context: TaskContext = {
     executor: {
       execute: async (args, nativeOptions) => {
-        if (nativeOptions?.abortSignal) {
-          runtime.conversationBinding?.captureExecutionAbortSignal?.(
-            { parentRuntimeRunId: task.runId, parentToolCallId: task.toolCallId },
-            nativeOptions.abortSignal
-          );
-        }
+        runtime.conversationBinding?.captureExecutionAbortSignal?.(
+          { parentRuntimeRunId: task.runId, parentToolCallId: task.toolCallId },
+          nativeOptions?.abortSignal
+        );
         let output: unknown;
         let failure: unknown;
         try {

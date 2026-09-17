@@ -3596,7 +3596,6 @@ headers are immutable. A rejected current event cannot settle prior headers.
 Paired: `delegated-conversation-insights.integration.test.ts` and
 `delegated-deadlines.integration.test.ts` (approval-resume then expiry/reload).
 
-
 Child lifecycle persistence is deliberately awaited before publication. It
 revalidates the invocation and makes the published event durable; an exhausted
 write or identity failure propagates through the root error path. The root's

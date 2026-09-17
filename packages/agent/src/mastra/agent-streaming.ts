@@ -1195,15 +1195,16 @@ export function createAttemptDelegatedProjection({
       };
     },
     mapPart: async (childPart, state, childToolNames) => {
+      const executionSignal = state.executionSignal;
       const result =
         state.cancellationSignal?.aborted || runtimeData?.signal?.aborted
           ? { chunks: makeDelegatedStreamTermination(state, true), finished: true }
-          : state.executionSignal?.aborted
+          : executionSignal?.aborted
             ? {
                 chunks: makeDelegatedStreamTermination(
                   state,
                   false,
-                  String(state.executionSignal.reason)
+                  String(executionSignal.reason)
                 ),
                 finished: true,
               }
@@ -1235,7 +1236,8 @@ export function createAttemptDelegatedProjection({
     delegatedProjection?.finalize((state) =>
       makeDelegatedStreamTermination(
         state,
-        Boolean(state.cancellationSignal?.aborted || runtimeData?.signal?.aborted)
+        Boolean(state.cancellationSignal?.aborted || runtimeData?.signal?.aborted),
+        state.executionSignal?.aborted ? String(state.executionSignal.reason) : undefined
       ).map((chunk) => {
         if (
           chunk.type === 'delegated-conversation-chunk' ||
