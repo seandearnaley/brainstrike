@@ -491,6 +491,10 @@ accepted by normal storage is not rejected merely by `structuredClone`.
    without writing a durable terminal status, including on network disconnect.
    Failures before session admission still terminate the renderer-prepared run;
    successful explicit Stop leaves terminal persistence to the host cancel path.
+   Desktop tests that mock the host response and seed completed history must
+   also seed the exact prepared run's completed status; replay headers transfer
+   ownership even in a transport mock. The delegated-workspace reload fixture
+   checks the exact run/resource/thread update before inspecting idle history.
    The durable run row is updated only after that
    session closes. Its mapper-owned terminal outcome is authoritative for
    abnormal model finishes: an output-limit or missing-finish terminal state is

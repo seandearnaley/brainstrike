@@ -31,11 +31,15 @@ test('restores distinct child tabs and native transcripts without executing a ru
   ).toHaveCount(1);
 
   const requests = (await readAssistantMockRequests(window)) as Array<{
-    data: { memory: { resourceId: string; threadId: string } };
+    data: { memory: { resourceId: string; runId: string; threadId: string } };
   }>;
   expect(requests).toHaveLength(1);
   const memory = requests[0]?.data.memory;
-  expect(memory).toMatchObject({ resourceId: expect.any(String), threadId: expect.any(String) });
+  expect(memory).toMatchObject({
+    resourceId: expect.any(String),
+    runId: expect.any(String),
+    threadId: expect.any(String),
+  });
   if (!memory) {
     throw new Error('The root request has no native memory identity');
   }
@@ -53,6 +57,19 @@ test('restores distinct child tabs and native transcripts without executing a ru
     )?.db?.query;
     if (!query) {
       throw new Error('Native database bridge unavailable');
+    }
+    // setupAssistantMock replaces the host transport, including its replay headers.
+    // This completed-history fixture must seed the terminal write that the real
+    // admitted host owns; renderer cleanup deliberately does not perform it.
+    const completed = await query(
+      `UPDATE brainstrike_assistant_thread_runs
+       SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND resource_id = $2 AND thread_id = $3 AND status = 'running'
+       RETURNING id`,
+      [memory.runId, memory.resourceId, memory.threadId]
+    );
+    if (completed.rows.length !== 1) {
+      throw new Error('Expected the exact mock-prepared run to complete');
     }
     const result = await query(
       `SELECT id, "resourceId" AS resource FROM mastra_threads WHERE id = $1 AND "resourceId" = $2`,
