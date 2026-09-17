@@ -194,8 +194,19 @@ describe('desktop delegated cancellation', () => {
       { ...childStarted, id: 'sibling-start' },
       0
     );
-    const completed = await createBudgetedHost(database, 'resume-leg').persistEvent(
-      run,
+    // A completed control is a distinct native invocation in the same child
+    // conversation. A terminal for the original invocation also settles its
+    // earlier host legs, so that invocation cannot remain available to Stop.
+    const completedHost = createBudgetedHost(database, 'resume-leg');
+    const completedRun = {
+      ...run,
+      childRuntimeRunId: 'completed-child-run',
+      parentRuntimeRunId: 'completed-parent-run',
+    };
+    await completedHost.persist({ ...identity, parentRuntimeRunId: 'completed-parent-run' });
+    await completedHost.bindRun(completedRun);
+    const completed = await completedHost.persistEvent(
+      completedRun,
       'completed-message',
       { ...childStarted, id: 'child-finished', kind: 'run.finished', status: 'completed' },
       1
