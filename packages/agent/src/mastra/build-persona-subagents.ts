@@ -682,6 +682,11 @@ async function createConfiguredChild({
     persona
   );
 
+  const childInputProcessors = [
+    ...(childProcessors.inputProcessors ?? []),
+    ...(workerSurface?.inputProcessors ?? []),
+  ];
+
   // The child agent id MUST equal the persona id: Mastra sets
   // `DelegationStartContext.primitiveId = agent.id`, and the delegation caps
   // (subagent-delegation.ts) resolve the persona by that id.
@@ -740,16 +745,16 @@ async function createConfiguredChild({
         params.conversationBinding?.budget,
         params.delegatedExecutionOptions?.workQueue
       );
+      const childSignal = requestContext
+        ? params.conversationBinding?.getAbortSignal?.(requestContext)
+        : undefined;
       const work = durable
         ? createDelegatedWorkBudget(
             durable.budget,
             durable.queue,
-            params.delegatedExecutionOptions?.abortSignal,
+            childSignal ?? params.delegatedExecutionOptions?.abortSignal,
             params.delegatedExecutionOptions?.synthesisOutcomes
           )
-        : undefined;
-      const childSignal = requestContext
-        ? params.conversationBinding?.getAbortSignal?.(requestContext)
         : undefined;
       return {
         ...(childSignal ? { abortSignal: childSignal } : {}),
@@ -774,11 +779,7 @@ async function createConfiguredChild({
         ...(work
           ? {
               errorProcessors: [work.processor, ...(childErrorProcessors ?? [])],
-              inputProcessors: [
-                ...(childProcessors.inputProcessors ?? []),
-                ...(workerSurface?.inputProcessors ?? []),
-                work.processor,
-              ],
+              inputProcessors: [...childInputProcessors, work.processor],
               onError: () => work.release(),
               onFinish: () => work.release(),
               outputProcessors: [...(childProcessors.outputProcessors ?? []), work.processor],

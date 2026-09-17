@@ -1778,8 +1778,14 @@ Every child stream creates its own budget processor. A native same-persona sibli
 barrier proves two models run concurrently with distinct child reservations and
 exactly one settlement per matching reservation. Mastra 1.64 can omit the
 processor abortSignal during unwind and does not call user onFinish on abort.
-Therefore admission uses the authoritative host-leg signal, composed with the
-processor signal when present, and releases a held permit on abort. The existing
+Therefore admission uses the invocation signal supplied by the conversation
+binding (which already includes host-leg cancellation), composed with the
+processor signal when present, and releases a held permit on abort. Without a
+bound invocation it uses the host-leg signal. A native cancelled task alone does
+not prove this release: the desktop regression "releases a stopped model permit
+while Beta streams and Gamma completes" holds both model permits, stops Alpha,
+and proves queued Gamma completes while Beta remains running. Using only the
+host-leg signal strands Alpha's permit when native unwind omits its signal. The existing
 native completion join still owns draining; no timeout or detached executor is
 introduced. Cancellation is the existing subagent.failed event with cancelled
 status, not a new event kind. The native recursive-worker integration checks
