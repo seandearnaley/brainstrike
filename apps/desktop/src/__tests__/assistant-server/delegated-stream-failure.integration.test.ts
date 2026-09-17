@@ -173,6 +173,20 @@ describe('failed stream native cancellation reconciliation', () => {
     ]);
   });
 
+  it('records the original failure when the root has no delegated children', async () => {
+    await completeFailedRootRun(database, 'initial-leg', 'nope-blocked');
+    expect(
+      (
+        await database.query(
+          "SELECT status,error FROM brainstrike_assistant_thread_runs WHERE id='initial-leg'"
+        )
+      ).rows
+    ).toEqual([{ error: 'nope-blocked', status: 'failed' }]);
+    expect((await database.query('SELECT id FROM brainstrike_assistant_run_events')).rows).toEqual(
+      []
+    );
+  });
+
   it('rolls back root and child status together when the terminal event cannot be written', async () => {
     const seeded = await child('cancelled');
     await database.exec(`CREATE FUNCTION reject_failure_terminal() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'terminal write refused'; END; $$;
