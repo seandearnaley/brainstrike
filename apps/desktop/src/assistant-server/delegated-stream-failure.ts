@@ -40,6 +40,13 @@ export async function completeFailedRootRun(
          AND invocation.root_thread_id = parent.root_thread_id AND invocation.owner_resource_id = parent.owner_resource_id
          AND invocation.turn_message_id = parent.turn_message_id
        JOIN owned_nodes child ON child.thread_id = invocation.thread_id AND child.parent_thread_id = parent.thread_id
+       JOIN owned_nodes parent_node ON parent_node.thread_id = parent.thread_id
+       WHERE NOT EXISTS (
+         SELECT 1 FROM mastra_background_tasks task
+         WHERE task.run_id = invocation.parent_runtime_run_id AND task.tool_call_id = invocation.parent_tool_call_id
+           AND task.thread_id = parent_node.thread_id AND task.resource_id = parent_node.resource_id
+           AND task.status <> 'cancelled'
+       )
      ), pending AS (
        SELECT DISTINCT run.id, identity.metadata FROM cancelled
        JOIN owned_nodes child ON child.thread_id = cancelled.thread_id

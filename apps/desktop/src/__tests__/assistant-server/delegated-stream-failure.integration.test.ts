@@ -76,7 +76,7 @@ describe('failed stream native cancellation reconciliation', () => {
         1
       );
     }
-    if (!options.parent) {
+    if (!options.parent || options.nativeStatus) {
       await database.query(
         `INSERT INTO mastra_background_tasks (id,tool_call_id,tool_name,agent_id,run_id,thread_id,resource_id,status,args,retry_count,max_retries,timeout_ms,"createdAt") VALUES ($1,$1,'agent-explore','parent',$2,$3,$4,$5,'{}',0,0,30000,NOW())`,
         [
@@ -97,6 +97,22 @@ describe('failed stream native cancellation reconciliation', () => {
   it('settles only cancelled native invocation trees once, preserving parked, active, completed and unrelated work', async () => {
     const cancelled = await child('cancelled');
     await child('nested', {
+      parent: {
+        resourceId: 'cancelled-owner',
+        runId: cancelled.identity.childRuntimeRunId,
+        threadId: 'cancelled',
+      },
+    });
+    await child('nested-active', {
+      nativeStatus: 'running',
+      parent: {
+        resourceId: 'cancelled-owner',
+        runId: cancelled.identity.childRuntimeRunId,
+        threadId: 'cancelled',
+      },
+    });
+    await child('nested-parked', {
+      nativeStatus: 'suspended',
       parent: {
         resourceId: 'cancelled-owner',
         runId: cancelled.identity.childRuntimeRunId,
@@ -128,6 +144,8 @@ describe('failed stream native cancellation reconciliation', () => {
       { status: 'running', thread_id: 'changed-owner' },
       { status: 'completed', thread_id: 'completed' },
       { status: 'cancelled', thread_id: 'nested' },
+      { status: 'running', thread_id: 'nested-active' },
+      { status: 'running', thread_id: 'nested-parked' },
       { status: 'running', thread_id: 'older-turn' },
       { status: 'running', thread_id: 'parked' },
     ]);

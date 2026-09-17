@@ -2543,6 +2543,8 @@ records the failed root and reconciles still-running child headers whose exact
 native invocation is already cancelled. It appends one cancellation event per
 settled header, retaining the observed native identity. Foreground descendants
 of that cancelled invocation are included through their bound native ancestry.
+A descendant with its own non-cancelled native task is excluded; ancestry alone
+does not override that task, including when it is parked for approval.
 
 This is a projection of settled native cancellation, never a native state override
 or permission to accept rejected usage. The ownership graph, original root turn,
