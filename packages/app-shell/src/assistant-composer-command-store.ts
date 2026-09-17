@@ -1,5 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
-import { toast } from '@brainstrike/ui';
+import { toast } from '@brainstrike/ui/use-toast';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 

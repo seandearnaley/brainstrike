@@ -76,6 +76,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./use-toast": {
+      "types": "./dist/use-toast.d.ts",
+      "import": "./dist/use-toast.js"
+    },
     "./code-block": {
       "types": "./dist/code-block/index.d.ts",
       "import": "./dist/code-block/index.js"
