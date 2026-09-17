@@ -369,7 +369,7 @@ export async function startModelProviderShim(
           roles: messageRoles(messages),
           toolResultCount,
         });
-        if (stream === false) {
+        if (stream !== true) {
           writeJsonCompletion(response, turn);
           return;
         }

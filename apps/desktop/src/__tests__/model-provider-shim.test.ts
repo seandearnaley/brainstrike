@@ -30,6 +30,19 @@ async function request(body: Record<string, unknown>): Promise<unknown> {
 }
 
 describe('model provider shim', () => {
+  it('returns JSON when a non-streaming title request omits stream', async () => {
+    shim = await startModelProviderShim({ finalText: 'Worker workspace task' });
+    expect(
+      await request({
+        messages: [{ content: 'Name this conversation', role: 'user' }],
+        stream: undefined,
+      })
+    ).toMatchObject({
+      choices: [{ message: { content: 'Worker workspace task' } }],
+      object: 'chat.completion',
+    });
+  });
+
   it('selects parent and child scripts from each request without crossing their histories', async () => {
     const seen: unknown[] = [];
     shim = await startModelProviderShim((context) => {
