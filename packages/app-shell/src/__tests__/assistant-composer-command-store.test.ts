@@ -1,7 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useToast } from '@brainstrike/ui';
+import { act, renderHook } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 
 describe('assistant composer command store', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
   beforeEach(() => {
     useAssistantComposerCommandStore.getState().reset();
   });
@@ -60,6 +65,25 @@ describe('assistant composer command store', () => {
       })
     ).toThrow(/non-whitespace text/i);
   });
+  it('reports rejected storage writes without throwing through the composer', () => {
+    const { result } = renderHook(() => useToast());
+    const failure = new DOMException('Storage full', 'QuotaExceededError');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw failure;
+    });
+    expect(() =>
+      act(() => useAssistantComposerCommandStore.getState().recordDraft('root', 'Still editing'))
+    ).not.toThrow();
+    expect(useAssistantComposerCommandStore.getState().draftTextByThreadId['root']).toBe(
+      'Still editing'
+    );
+    expect(result.current.toasts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: 'Draft not saved', variant: 'destructive' }),
+      ])
+    );
+  });
+
   it('restores only unsent text through thread-scoped commands after renderer reload', async () => {
     const state = useAssistantComposerCommandStore.getState();
     state.recordDraft('root', 'Unsent root draft');

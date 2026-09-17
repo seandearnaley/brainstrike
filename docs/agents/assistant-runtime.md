@@ -4652,6 +4652,9 @@ wholesale and assistant-ui cannot import app-shell; mutations cover the seam
 (dropping the enqueue, enqueueing under another thread id, or dropping the
 panel's host call each go red). `data-stream-runtime.test.ts` ("invokes
 onCancel for normal aborts…") pins the cancelled messages.
+Storage read/write failures are logged and shown as a destructive toast; failed
+writes do not throw through the composer effect or claim reload recovery succeeded.
+Session storage is session-scoped, not a guarantee that text stays only in memory.
 
 Binding cleanup and delegated persistence both own after-tool-call work. Stream
 option assembly joins both hooks, including when either fails. Background resume

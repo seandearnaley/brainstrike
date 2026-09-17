@@ -1,8 +1,19 @@
 import { createLogger } from '@brainstrike/logging';
+import { toast } from '@brainstrike/ui';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 const logger = createLogger('AssistantComposerDrafts');
+let saveFailureReported = false;
+
+function reportDraftStorageError(error: unknown, title: string): void {
+  logger.error(title, { error });
+  toast({
+    description: 'Composer text could not be saved or restored. Keep a copy before reloading.',
+    title,
+    variant: 'destructive',
+  });
+}
 
 export type ComposerDraftMode = 'append' | 'replace';
 
@@ -37,7 +48,7 @@ function isDraftRecord(value: unknown): value is Record<string, string> {
     typeof value === 'object' &&
     value !== null &&
     !Array.isArray(value) &&
-    Object.values(value).every((text) => typeof text === 'string')
+    Object.entries(value).every(([threadId, text]) => threadId.trim() && typeof text === 'string')
   );
 }
 
@@ -138,11 +149,25 @@ export const useAssistantComposerCommandStore = create<AssistantComposerCommandS
       name: 'assistant-composer-drafts.v1',
       onRehydrateStorage: () => (_state, error) => {
         if (error) {
-          logger.error('Failed to restore saved composer drafts', { error });
+          reportDraftStorageError(error, 'Draft could not be restored');
         }
       },
       partialize: (state) => ({ draftTextByThreadId: state.draftTextByThreadId }),
-      storage: createJSONStorage(() => sessionStorage),
+      storage: createJSONStorage(() => ({
+        getItem: (name) => sessionStorage.getItem(name),
+        removeItem: (name) => sessionStorage.removeItem(name),
+        setItem: (name, value) => {
+          try {
+            sessionStorage.setItem(name, value);
+            saveFailureReported = false;
+          } catch (error) {
+            if (!saveFailureReported) {
+              saveFailureReported = true;
+              reportDraftStorageError(error, 'Draft not saved');
+            }
+          }
+        },
+      })),
     }
   )
 );
