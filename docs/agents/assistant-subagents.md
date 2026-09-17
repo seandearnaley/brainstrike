@@ -2750,7 +2750,10 @@ conversation's cumulative usage component and pricing resolver. Inclusive totals
 already include the selected child and must not be added to direct totals. A
 missing usage record is not zero spend; unknown model pricing remains unavailable.
 The reader follows exact invocation and continuation attribution because ordinary
-child usage rows are stored under the root thread. It does not sum the root's
+child usage rows are stored under the root thread. The assembled desktop
+acceptance uses that same root/resource/parent-run/tool-call attribution when
+checking each survivor's usage, and opens the child conversation to verify its
+answer when the root activity is collapsed. It does not sum the root's
 entire bill into each child. Only retained conversation attribution is shown;
 ordinary root totals still retain numeric history after child deletion. Current
 work may not yet have reported its final usage.

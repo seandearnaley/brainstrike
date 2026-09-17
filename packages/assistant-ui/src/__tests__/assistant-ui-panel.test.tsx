@@ -846,7 +846,8 @@ describe('AssistantUiPanel model picker', () => {
         },
       },
       'completed',
-      undefined
+      undefined,
+      false
     );
   });
 
@@ -896,7 +897,12 @@ describe('AssistantUiPanel model picker', () => {
     expect(completePreparedRequest).not.toHaveBeenCalled();
     cancellation.resolve(new Response(null, { status: 200 }));
     await waitFor(() =>
-      expect(completePreparedRequest).toHaveBeenCalledWith(expect.any(Object), 'cancelled')
+      expect(completePreparedRequest).toHaveBeenCalledWith(
+        expect.any(Object),
+        'cancelled',
+        undefined,
+        true
+      )
     );
     expect(completePreparedRequest).toHaveBeenCalledTimes(1);
     await waitFor(() =>
@@ -1083,7 +1089,8 @@ describe('AssistantUiPanel model picker', () => {
         },
       },
       'completed',
-      undefined
+      undefined,
+      false
     );
   });
 
@@ -1139,7 +1146,8 @@ describe('AssistantUiPanel model picker', () => {
         },
       },
       'cancelled',
-      undefined
+      undefined,
+      false
     );
   });
 
@@ -1179,7 +1187,8 @@ describe('AssistantUiPanel model picker', () => {
         },
       },
       'failed',
-      'stream failed'
+      'stream failed',
+      false
     );
   });
 

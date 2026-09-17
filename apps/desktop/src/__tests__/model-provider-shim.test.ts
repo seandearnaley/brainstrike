@@ -113,4 +113,40 @@ describe('model provider shim', () => {
       choices: [{ message: { tool_calls: [{ function: { name: 'read_file' } }] } }],
     });
   });
+
+  it('emits parallel tool calls once and waits for every result before final text', async () => {
+    shim = await startModelProviderShim({
+      finalText: 'All specialists settled',
+      toolCalls: [
+        { arguments: { prompt: 'First' }, name: 'agent-explore' },
+        { arguments: { prompt: 'Second' }, name: 'agent-worker' },
+      ],
+    });
+    const messages = [{ content: 'Delegate both', role: 'user' }];
+    expect(await request({ messages })).toMatchObject({
+      choices: [
+        {
+          message: {
+            tool_calls: [
+              { function: { name: 'agent-explore' } },
+              { function: { name: 'agent-worker' } },
+            ],
+          },
+        },
+      ],
+    });
+    expect(
+      await request({
+        messages: [
+          ...messages,
+          { content: 'First done', role: 'tool', tool_call_id: 'first' },
+          { content: 'Second done', role: 'tool', tool_call_id: 'second' },
+        ],
+      })
+    ).toMatchObject({ choices: [{ message: { content: 'All specialists settled' } }] });
+    expect(shim.transcript().map(({ decision }) => decision)).toEqual([
+      'tool:agent-explore+agent-worker',
+      'final-text',
+    ]);
+  });
 });

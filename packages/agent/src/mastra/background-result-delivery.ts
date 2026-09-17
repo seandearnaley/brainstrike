@@ -29,6 +29,15 @@ export function completedBackgroundOutcome(task: BackgroundTask) {
   if (task.status === 'completed') {
     return { result: task.result, status: 'completed' as const };
   }
+  if (task.status === 'cancelled') {
+    return {
+      error: {
+        message:
+          'Background task cancelled by the user; it has no result. Do not rerun unless requested.',
+      },
+      status: 'failed' as const,
+    };
+  }
   if (task.status !== 'failed' && task.status !== 'timed_out') {
     throw new Error('Background recovery returned an unfinished task.');
   }

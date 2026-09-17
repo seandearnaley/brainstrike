@@ -157,6 +157,15 @@ function outcomeFromTaskRow(task: BackgroundOutcomeRow): BackgroundOutcome {
   if (task.status === 'completed') {
     return { result: task.result, status: 'completed' };
   }
+  if (task.status === 'cancelled') {
+    return {
+      error: {
+        message:
+          'Background task cancelled by the user; it has no result. Do not rerun unless requested.',
+      },
+      status: 'failed',
+    };
+  }
   const persistedError = record(task.error)?.['message'];
   return {
     error: {
@@ -172,7 +181,7 @@ function outcomeFromTaskRow(task: BackgroundOutcomeRow): BackgroundOutcome {
 }
 
 function isTerminalTask(task: BackgroundOutcomeRow): boolean {
-  return ['completed', 'failed', 'timed_out'].includes(task.status);
+  return ['completed', 'failed', 'timed_out', 'cancelled'].includes(task.status);
 }
 
 async function upsertMessageContent(tx: PgliteDatabase, message: MastraDBMessage): Promise<void> {

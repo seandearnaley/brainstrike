@@ -16,7 +16,11 @@
  * new run proceeds; only a genuinely running durable run keeps the guard.
  * A failed probe keeps the guard (fail-safe, never silent).
  */
-import { ASSISTANT_RUN_STATUS_PATH } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_RUN_STATUS_PATH,
+  ASSISTANT_STREAM_EVENT_ID_HEADER,
+  ASSISTANT_STREAM_MESSAGE_ID_HEADER,
+} from '@brainstrike/assistant-contract';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { writeAssistantActiveRunSession } from '../assistant-run-reattachment';
@@ -65,6 +69,76 @@ describe('useAssistantServerRunSession stale-record reclaim', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'assistant');
+  });
+
+  it.each(['error', 'finish'] as const)(
+    'releases an admitted host run on %s without transferring terminal ownership',
+    async (event) => {
+      window.sessionStorage.clear();
+      const completePreparedRequest = vi.fn();
+      const data = { memory: { runId: 'host-owned' } };
+      const { result } = renderHook(() =>
+        useAssistantServerRunSession({
+          api: API,
+          completePreparedRequest,
+          prepareRequestData: async () => data,
+          threadKey: THREAD_KEY,
+        })
+      );
+      await act(async () => {
+        await result.current.prepareRequest();
+      });
+      act(() =>
+        result.current.onResponse(
+          new Response(null, {
+            headers: {
+              [ASSISTANT_STREAM_EVENT_ID_HEADER]: 'session:0',
+              [ASSISTANT_STREAM_MESSAGE_ID_HEADER]: 'message',
+            },
+          })
+        )
+      );
+      await act(async () => {
+        if (event === 'error') {
+          result.current.onError(new Error('network error'));
+        } else {
+          result.current.onFinish();
+        }
+      });
+      expect(completePreparedRequest).toHaveBeenCalledWith(
+        data,
+        event === 'error' ? 'failed' : 'completed',
+        event === 'error' ? 'network error' : undefined,
+        true
+      );
+      if (event === 'error') {
+        expect(window.sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
+      }
+    }
+  );
+
+  it('keeps renderer ownership when the request fails before host admission', async () => {
+    window.sessionStorage.clear();
+    const completePreparedRequest = vi.fn();
+    const data = { memory: { runId: 'not-admitted' } };
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        completePreparedRequest,
+        prepareRequestData: async () => data,
+        threadKey: THREAD_KEY,
+      })
+    );
+    await act(async () => {
+      await result.current.prepareRequest();
+      result.current.onError(new Error('connection refused'));
+    });
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      data,
+      'failed',
+      'connection refused',
+      false
+    );
   });
 
   it('retains cancelled-request authority on HTTP failure and reclaims only a terminal server run', async () => {

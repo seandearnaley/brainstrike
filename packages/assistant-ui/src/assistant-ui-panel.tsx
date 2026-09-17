@@ -213,7 +213,8 @@ export interface AssistantUiPanelProps
   completePreparedRequest?: (
     requestData: Record<string, unknown> | undefined,
     status: 'cancelled' | 'completed' | 'failed',
-    error?: string
+    error?: string,
+    hostOwnsRun?: boolean
   ) => Promise<void> | void;
   /** Full model context window size. Passed to the context meter. */
   contextWindow?: number | undefined;
@@ -393,7 +394,8 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
     | ((
         requestData: Record<string, unknown> | undefined,
         status: 'cancelled' | 'completed' | 'failed',
-        error?: string
+        error?: string,
+        hostOwnsRun?: boolean
       ) => Promise<void> | void)
     | undefined;
   contextWindow?: number | undefined;
@@ -653,7 +655,8 @@ const DataStreamRuntimeChat = ({
     | ((
         requestData: Record<string, unknown> | undefined,
         status: 'cancelled' | 'completed' | 'failed',
-        error?: string
+        error?: string,
+        hostOwnsRun?: boolean
       ) => Promise<void> | void)
     | undefined;
   historyAdapter: AssistantUiThreadHistoryAdapter | undefined;

@@ -425,3 +425,60 @@ it('rejects duplicate invocation parts before acknowledging the task', async () 
     ).rows
   ).toEqual([{ delivered: false }]);
 });
+
+it('reconciles cancellation across stale saves without terminalizing its running sibling', async () => {
+  const backing = await createPgliteMastraMemory({
+    backgroundTaskScope: scope,
+    database: port(database),
+    memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
+  });
+  const tasks = await backing.storage.getStore('backgroundTasks');
+  if (!tasks) {
+    throw new Error('Missing background task store');
+  }
+  for (const suffix of ['a', 'b']) {
+    await tasks.createTask({
+      ...scope,
+      agentId: 'parent',
+      args: { prompt: suffix },
+      createdAt: new Date(),
+      id: `task-${suffix}`,
+      maxRetries: 0,
+      retryCount: 0,
+      runId: 'native-run',
+      status: suffix === 'a' ? 'cancelled' : 'running',
+      timeoutMs: 30_000,
+      toolCallId: `call-${suffix}`,
+      toolName: `agent-worker-${suffix}`,
+    });
+  }
+  for (const snapshot of [parentMessage(), parentMessage()]) {
+    const saved = await backing.store.saveMessages({ messages: [snapshot] });
+    const cancelled = saved.messages[0]?.content.parts[1];
+    expect(cancelled).toMatchObject({
+      providerMetadata: {
+        mastra: {
+          modelOutput: { type: 'error-text', value: expect.stringContaining('cancelled') },
+        },
+      },
+      toolInvocation: { errorText: expect.stringContaining('cancelled'), state: 'output-error' },
+    });
+    if (cancelled?.type !== 'tool-invocation') {
+      throw new Error('Missing cancellation');
+    }
+    expect(cancelled.toolInvocation).not.toHaveProperty('result');
+    expect(saved.messages[0]?.content.parts[2]).toMatchObject(
+      parentMessage().content.parts[2] ?? {}
+    );
+  }
+  expect(
+    (
+      await database.query(
+        'SELECT id, status, delivered_at IS NOT NULL AS delivered FROM mastra_background_tasks ORDER BY id'
+      )
+    ).rows
+  ).toEqual([
+    { delivered: true, id: 'task-a', status: 'cancelled' },
+    { delivered: false, id: 'task-b', status: 'running' },
+  ]);
+});

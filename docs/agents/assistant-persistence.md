@@ -486,7 +486,12 @@ accepted by normal storage is not rejected merely by `structuredClone`.
    This end-to-end identity alignment is what lets a later edited prompt point
    to its durable assistant parent without correlation heuristics.
    Desktop generation continues in the main-process data-stream session when a
-   renderer response detaches. The durable run row is updated only after that
+   renderer response detaches. Once a valid desktop response admits the server
+   session, renderer completion callbacks release local leases and usage context
+   without writing a durable terminal status, including on network disconnect.
+   Failures before session admission still terminate the renderer-prepared run;
+   successful explicit Stop leaves terminal persistence to the host cancel path.
+   The durable run row is updated only after that
    session closes. Its mapper-owned terminal outcome is authoritative for
    abnormal model finishes: an output-limit or missing-finish terminal state is
    stored as `failed` with the bounded visible error, while only explicit
@@ -3811,8 +3816,11 @@ the table participates in database clear and factory reset. Task scope is the
 root resource/thread, not a renderer tab. Updates use expected-status comparison
 so competing lifecycle transitions cannot overwrite each other.
 
-Completed, failed and timed-out outcomes are reconciled at the PGlite message
-commit boundary before inference. The native task row carries `delivered_at`,
+Completed, failed, timed-out and cancelled outcomes are reconciled at the PGlite message
+commit boundary before inference. Cancellation clears the dispatch acknowledgement
+and projects an explicit cancellation error into the parent invocation and model
+input; the native task remains `cancelled`, and running siblings are unchanged.
+Recovery and late-result overlays include cancelled tasks. The native task row carries `delivered_at`,
 separate from native status. Every ordinary save that names a retained task
 overlays its authoritative terminal outcome even after delivery, so a later
 stale native snapshot cannot restore the dispatch acknowledgement. The message
@@ -3845,7 +3853,7 @@ Recovery snapshots
 every undelivered page before acknowledging, so acknowledgements cannot shift
 pagination and skip a task. `background-outcome-recovery.integration.spec.ts`
 and `pglite-background-result-reconciliation.integration.spec.ts` cover lost
-messages, all three terminal outcomes, progressive rows, stale callback/native
+messages, all four terminal outcomes, progressive rows, stale callback/native
 saves, rollback, repeat repair and delivery acknowledgement reload. Native resuspension joins the workflow snapshot before exposing a
 new resumable decision. Native reconstructed-runtime recovery is tested separately
 from the actual desktop process-restart pending-approval case; it is not evidence

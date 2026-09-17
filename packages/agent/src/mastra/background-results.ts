@@ -98,7 +98,7 @@ export async function repairBackgroundResults(params: {
       page,
       perPage: 100,
       resourceId: scope.resourceId,
-      status: ['completed', 'failed', 'timed_out'],
+      status: ['completed', 'failed', 'timed_out', 'cancelled'],
       threadId: scope.threadId,
     });
   const repaired: string[] = [];
@@ -164,7 +164,7 @@ export async function listLateBackgroundResults(
       perPage: 100,
       resourceId: scope.resourceId,
       runId,
-      status: ['completed', 'failed', 'timed_out'],
+      status: ['completed', 'failed', 'timed_out', 'cancelled'],
       threadId: scope.threadId,
     });
     total = result.total;

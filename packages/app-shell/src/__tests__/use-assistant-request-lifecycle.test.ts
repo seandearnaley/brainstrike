@@ -65,6 +65,36 @@ describe('useAssistantRequestLifecycle', () => {
     __resetPermissionPolicyStoreForTests();
   });
 
+  it.each(['failed', 'completed', 'cancelled'] as const)(
+    'releases local activity without writing host-owned %s status',
+    async (status) => {
+      const repository = createRepositoryStub();
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: true,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'model',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+      const prepared = await act(async () => result.current.prepareRequestData());
+      expect(getAssistantForegroundActivitySnapshot()).toBe(true);
+      await act(async () => {
+        await result.current.completePreparedRequest(prepared, status, 'network error', true);
+      });
+      expect(repository.completeThreadRun).not.toHaveBeenCalled();
+      expect(getAssistantForegroundActivitySnapshot()).toBe(false);
+      expect(result.current.getActiveSteerableRunId()).toBeNull();
+    }
+  );
+
   it.each([
     {
       expected: { turnMessageId: 'child-input' },
