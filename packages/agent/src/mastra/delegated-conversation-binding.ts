@@ -433,14 +433,18 @@ export function createDelegatedConversationBinding(
       if (originalToolCall && originalToolCall.toolName !== `agent-${context.primitiveId}`) {
         throw new Error('Captured delegation input belongs to a different native agent.');
       }
-      const controller = new AbortController();
       const nativeKey = invocationKey({
         parentRuntimeRunId: requireIdentity(context.runId),
         parentToolCallId: requireIdentity(context.toolCallId),
       });
-      if (controllers.has(nativeKey)) {
+      const existing = controllers.get(nativeKey);
+      if (existing && preparedKeys.has(key)) {
         throw new Error('Delegated cancellation already owns this native invocation.');
       }
+      // Native approval resume re-enters admission after the earlier tool hook.
+      // Preserve the same cancellation owner; a stopped invocation cannot restart.
+      existing?.signal.throwIfAborted();
+      const controller = existing ?? new AbortController();
       controllers.set(nativeKey, controller);
       preparedKeys.set(key, nativeKey);
       signals.set(

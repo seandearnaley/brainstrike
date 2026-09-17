@@ -2487,7 +2487,9 @@ The child projection captures the invocation's existing abort signal at native
 admission (BST-1770). Selected Stop therefore classifies that child's subsequent
 unwind as cancellation, even when native execution reports an admission error
 while unwinding. Retain the controller for the runtime-owned binding lifetime, beyond native
-tool-hook completion; queued stream parts still belong to that invocation. Never infer
+tool-hook completion; queued stream parts still belong to that invocation. Native approval resume may re-enter preparation after the prior hook completes;
+reuse that invocation's non-aborted controller while rejecting concurrent preparation
+and attempts to restart a stopped invocation. Never infer
 sibling cancellation from the root's state or suppress a persistence rejection.
 The real desktop runtime regression asserts Alpha native/durable cancellation,
 exactly one cancellation event, Beta still running, and Beta's later completion.
