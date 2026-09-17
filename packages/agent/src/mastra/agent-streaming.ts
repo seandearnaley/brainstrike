@@ -1168,7 +1168,7 @@ export function createAttemptDelegatedProjection({
 } {
   const delegatedProjection = createDelegatedStreamProjection({
     authorize: runtime.conversationBinding?.bindRun,
-    createState: (personaId, threadId) => {
+    createState: (personaId, threadId, identity) => {
       const provider =
         runtime.personasById.get(personaId)?.model?.provider ?? runtimeData?.provider;
       // Children own their execution scope and must not consume parent steering.
@@ -1186,17 +1186,22 @@ export function createAttemptDelegatedProjection({
       if (synthesisOutcomes) {
         childState.synthesisOutcomes = synthesisOutcomes;
       }
-      return childState;
+      return {
+        ...childState,
+        cancellationSignal: runtime.conversationBinding?.getInvocationAbortSignal?.(identity),
+      };
     },
     mapPart: async (childPart, state, childToolNames) => {
-      const result = await processMastraStreamPart(
-        childPart,
-        childToolNames,
-        state,
-        sanitizedNameMap,
-        runtime.askTools,
-        runtime.delegationToolPersonas
-      );
+      const result = state.cancellationSignal?.aborted
+        ? { chunks: makeDelegatedStreamTermination(state, true), finished: true }
+        : await processMastraStreamPart(
+            childPart,
+            childToolNames,
+            state,
+            sanitizedNameMap,
+            runtime.askTools,
+            runtime.delegationToolPersonas
+          );
       return {
         chunks: result.chunks.map((chunk) => {
           if (
@@ -1215,7 +1220,10 @@ export function createAttemptDelegatedProjection({
   });
   const settle = () =>
     delegatedProjection?.finalize((state) =>
-      makeDelegatedStreamTermination(state, Boolean(runtimeData?.signal?.aborted)).map((chunk) => {
+      makeDelegatedStreamTermination(
+        state,
+        Boolean(state.cancellationSignal?.aborted || runtimeData?.signal?.aborted)
+      ).map((chunk) => {
         if (
           chunk.type === 'delegated-conversation-chunk' ||
           chunk.type === 'child-continuation-chunk'

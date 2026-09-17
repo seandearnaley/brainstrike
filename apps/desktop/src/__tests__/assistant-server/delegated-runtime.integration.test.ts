@@ -4,6 +4,7 @@
 
 import {
   hasToolResult,
+  parallelToolCallParts,
   scriptedAgentModel,
   textParts,
   toolCallParts,
@@ -35,6 +36,7 @@ import {
   completeDelegatedConversationCancellation,
   revokeDelegatedConversationAdmission,
 } from '../../assistant-server/delegated-cancellation-admission';
+import { joinDesktopDelegatedCancellation } from '../../assistant-server/delegated-execution-controls';
 import { getDesktopMastraMemory } from '../../assistant-server/mastra-memory';
 import {
   observeDesktopAssistantRunEvents,
@@ -568,6 +570,161 @@ describe('desktop durable delegation production loop', () => {
       }
     }
   );
+
+  it('selectively stops Alpha while Beta keeps its native and durable running state', async () => {
+    await database.exec(
+      "UPDATE brainstrike_assistant_thread_runs SET generation_run_id='host-leg' WHERE id='host-leg'"
+    );
+    const release = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    let started = 0;
+    holder.model = scriptedAgentModel((options) => {
+      if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
+        if (hasToolResult(options, 'agent-explore')) {
+          return textParts('Parent progress.');
+        }
+        return parallelToolCallParts(
+          ['Alpha', 'Beta'].map((name) => ({
+            args: { prompt: name },
+            toolCallId: name,
+            toolName: 'agent-explore',
+          }))
+        );
+      }
+      if (hasToolResult(options, 'brainstrike_grepSearch')) {
+        return textParts('Child complete.');
+      }
+      const name = JSON.stringify(
+        options.prompt.filter((message) => message.role === 'user').at(-1)
+      )?.includes('Alpha')
+        ? 'Alpha'
+        : 'Beta';
+      return toolCallParts('brainstrike_grepSearch', `held-${name}`, { pattern: 'held' });
+    }).model;
+    const runtime = {
+      apiKey: 'test-key',
+      memory: { memorySettings: settings, resourceId: 'owner', threadId: 'root' },
+      model: 'test',
+      provider: 'openai',
+    };
+    const memory = await getDesktopMastraMemory(settings, 'host-leg', undefined, runtime);
+    const stream = await streamMastraAgent(
+      [{ id: 'user-turn', parts: [{ text: 'Run both children', type: 'text' }], role: 'user' }],
+      {
+        ...memory,
+        personas: [persona],
+        runtime,
+        tools: {
+          'brainstrike.grepSearch': {
+            description: 'Read flags',
+            execute: async (_input: unknown, context?: { readonly abortSignal?: AbortSignal }) => {
+              const signal = context?.abortSignal;
+              if (!signal) {
+                throw new Error('Missing native tool signal');
+              }
+              started += 1;
+              if (started === 2) {
+                entered.resolve();
+              }
+              const aborted = Promise.withResolvers<void>();
+              const onAbort = () => aborted.resolve();
+              signal.addEventListener('abort', onAbort, { once: true });
+              try {
+                await Promise.race([release.promise, aborted.promise]);
+                return { matches: ['FLAG'] };
+              } finally {
+                signal.removeEventListener('abort', onAbort);
+              }
+            },
+            id: 'brainstrike.grepSearch',
+            inputSchema: z.object({ pattern: z.string() }),
+          },
+        },
+      }
+    );
+    const consuming = (async () => {
+      for await (const chunk of persistDesktopChildRunUsage(
+        observeDesktopAssistantRunEvents(stream, 'host-leg', [], async () => database),
+        'host-leg',
+        undefined,
+        async () => database,
+        true
+      )) {
+        if (chunk.type === 'run-event') {
+          expect(chunk.event.kind).not.toBe('run.failed');
+        }
+      }
+    })();
+    consuming.catch(() => {});
+    try {
+      await Promise.race([
+        entered.promise,
+        consuming.then(() => {
+          throw new Error('Stream ended before both tools started');
+        }),
+      ]);
+      const scope = { ownerResourceId: 'owner', rootThreadId: 'root' };
+      const alpha = (
+        await database.query<{ thread_id: string }>(
+          "SELECT thread_id FROM brainstrike_delegated_invocations WHERE parent_tool_call_id='Alpha'"
+        )
+      ).rows[0];
+      if (!alpha) {
+        throw new Error('Missing Alpha');
+      }
+      const targets = await revokeDelegatedConversationAdmission(
+        database,
+        scope,
+        alpha.thread_id,
+        false
+      );
+      await joinDesktopDelegatedCancellation(database, scope, targets);
+      await completeDelegatedConversationCancellation(database, scope, targets);
+      const native = (
+        await database.query(
+          'SELECT tool_call_id, status FROM mastra_background_tasks ORDER BY tool_call_id'
+        )
+      ).rows;
+      expect(native).toEqual([
+        { status: 'cancelled', tool_call_id: 'Alpha' },
+        { status: 'running', tool_call_id: 'Beta' },
+      ]);
+      const durable = (
+        await database.query(
+          'SELECT invocation.parent_tool_call_id, runs.status FROM brainstrike_delegated_invocations invocation JOIN brainstrike_assistant_thread_runs runs ON runs.thread_id=invocation.thread_id ORDER BY invocation.parent_tool_call_id'
+        )
+      ).rows;
+      expect(durable).toEqual([
+        { parent_tool_call_id: 'Alpha', status: 'cancelled' },
+        { parent_tool_call_id: 'Beta', status: 'running' },
+      ]);
+      release.resolve();
+      await consuming;
+      expect(
+        (
+          await database.query(
+            "SELECT metadata->>'parentToolCallId' AS child, kind FROM brainstrike_assistant_run_events WHERE kind IN ('run.cancelled', 'run.failed', 'run.finished') AND run_id != 'host-leg' ORDER BY child"
+          )
+        ).rows
+      ).toEqual([
+        { child: 'Alpha', kind: 'run.cancelled' },
+        { child: 'Beta', kind: 'run.finished' },
+      ]);
+      expect(
+        (
+          await database.query(
+            'SELECT tool_call_id, status FROM mastra_background_tasks ORDER BY tool_call_id'
+          )
+        ).rows
+      ).toEqual([
+        { status: 'cancelled', tool_call_id: 'Alpha' },
+        { status: 'completed', tool_call_id: 'Beta' },
+      ]);
+    } finally {
+      release.resolve();
+      await Promise.allSettled([consuming]);
+    }
+  });
 
   it('binds a fast native child before metering it through a slow consumer, and survives engine reconstruction', async () => {
     let parentReceivedChildResult: (() => void) | undefined;

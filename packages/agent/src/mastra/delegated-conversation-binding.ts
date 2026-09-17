@@ -195,6 +195,9 @@ export interface DelegatedConversationBinding {
   readonly getAbortSignal?: (
     context: DelegationStartContext['requestContext']
   ) => AbortSignal | undefined;
+  readonly getInvocationAbortSignal?: (
+    identity: DelegatedCancellationTarget
+  ) => AbortSignal | undefined;
   readonly hooks?: ToolHooks;
   readonly inputProcessor: InputProcessor;
   prepare(
@@ -364,6 +367,7 @@ export function createDelegatedConversationBinding(
       });
     },
     getAbortSignal: (context) => signals.get(context),
+    getInvocationAbortSignal: (identity) => controllers.get(invocationKey(identity))?.signal,
     hooks: {
       afterToolCall({ input, context, toolName }) {
         // Snapshot resume has no process-local prepared controller to release.
