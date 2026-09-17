@@ -195,6 +195,9 @@ export interface DelegatedConversationBinding {
   readonly getAbortSignal?: (
     context: DelegationStartContext['requestContext']
   ) => AbortSignal | undefined;
+  readonly getInvocationAbortSignal?: (
+    identity: DelegatedCancellationTarget
+  ) => AbortSignal | undefined;
   readonly hooks?: ToolHooks;
   readonly inputProcessor: InputProcessor;
   prepare(
@@ -338,6 +341,8 @@ export function createDelegatedConversationBinding(
 ): DelegatedConversationBinding {
   const scopes = new WeakMap<DelegationStartContext['requestContext'], ParentIdentity>();
   const inputs = new Map<string, DelegatedOriginalToolCall>();
+  // Native completion can precede downstream projection. Retain cancellation
+  // authority for this runtime-owned binding, including already queued output.
   const controllers = new Map<string, AbortController>();
   const preparedKeys = new Map<string, string>();
   const signals = new WeakMap<DelegationStartContext['requestContext'], AbortSignal>();
@@ -364,6 +369,7 @@ export function createDelegatedConversationBinding(
       });
     },
     getAbortSignal: (context) => signals.get(context),
+    getInvocationAbortSignal: (identity) => controllers.get(invocationKey(identity))?.signal,
     hooks: {
       afterToolCall({ input, context, toolName }) {
         // Snapshot resume has no process-local prepared controller to release.
@@ -372,12 +378,7 @@ export function createDelegatedConversationBinding(
         }
         const threadId = requireIdentity(readToolExecutionThreadId([input, context]));
         const toolCallId = requireIdentity(readToolCallId([input, context]));
-        const preparedKey = inputKey(threadId, toolCallId);
-        const nativeKey = preparedKeys.get(preparedKey);
-        if (nativeKey) {
-          controllers.delete(nativeKey);
-          preparedKeys.delete(preparedKey);
-        }
+        preparedKeys.delete(inputKey(threadId, toolCallId));
       },
       beforeToolCall({ input, context, toolName }) {
         if (!toolName.startsWith('agent-')) {
@@ -432,14 +433,18 @@ export function createDelegatedConversationBinding(
       if (originalToolCall && originalToolCall.toolName !== `agent-${context.primitiveId}`) {
         throw new Error('Captured delegation input belongs to a different native agent.');
       }
-      const controller = new AbortController();
       const nativeKey = invocationKey({
         parentRuntimeRunId: requireIdentity(context.runId),
         parentToolCallId: requireIdentity(context.toolCallId),
       });
-      if (controllers.has(nativeKey)) {
+      const existing = controllers.get(nativeKey);
+      if (existing && preparedKeys.has(key)) {
         throw new Error('Delegated cancellation already owns this native invocation.');
       }
+      // Native approval resume re-enters admission after the earlier tool hook.
+      // Preserve the same cancellation owner; a stopped invocation cannot restart.
+      existing?.signal.throwIfAborted();
+      const controller = existing ?? new AbortController();
       controllers.set(nativeKey, controller);
       preparedKeys.set(key, nativeKey);
       signals.set(
