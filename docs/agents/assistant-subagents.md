@@ -761,6 +761,12 @@ renderers remain available and receive the selected `threadKey` as their owner.
 The existing global saved detail preference remains the default; this surface
 alone does not add a new per-child preference store.
 
+Child decisions and their queued-state indicators use the persisted root conversation ID
+for the follow-up queue, matching the root panel's `threadKey`. The published
+assistant-ui runtime thread ID is only a runtime registration identity; it may
+differ from the persisted ID. `delegated-conversation-root.test.ts` keeps those
+IDs distinct when proving live-delivery fallback and queued dispatch.
+
 A child inspection panel never appends an approval or typed resume into its
 external child runtime. Appending while that runtime reports running invokes
 the runtime's cancellation path and cannot reach the owning root's live

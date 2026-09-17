@@ -143,7 +143,7 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
           isRunning: owner.thread.getState().isRunning === true,
           message: input,
           text,
-          threadKey: owner.threadId,
+          threadKey: rootThreadId,
         });
       })(message);
       if (!outcome) {
