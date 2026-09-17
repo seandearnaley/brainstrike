@@ -221,7 +221,8 @@ describe('delegated workspace app registration', () => {
     const route = mocks.childRoute.mock.lastCall?.[0] as
       | import('@brainstrike/assistant-ui').DecisionRoute
       | undefined;
-    expect(route?.queueThreadKey).toBe('registered-root');
+    // Queue ownership follows the persisted root, not its runtime-local ID.
+    expect(route?.queueThreadKey).toBe('root');
     await expect(route?.dispatch('invalid decision')).rejects.toThrow('structured run metadata');
     expect(screen.getByTestId('child-workspace-mode')).toHaveTextContent(
       'Shared workspace: bound folder is no longer open'

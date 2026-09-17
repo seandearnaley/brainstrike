@@ -223,7 +223,8 @@ describe('owning root registration', () => {
     root.onRuntimeReady({
       thread: {
         append,
-        getState: () => ({ isRunning, messages: [], threadId: 'root' }),
+        // Runtime-local identity differs from the persisted queue owner.
+        getState: () => ({ isRunning, messages: [], threadId: 'runtime-local-root' }),
         subscribe: () => () => undefined,
       },
     });
