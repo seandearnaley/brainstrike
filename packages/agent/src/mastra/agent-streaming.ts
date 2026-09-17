@@ -1189,19 +1189,32 @@ export function createAttemptDelegatedProjection({
       return {
         ...childState,
         cancellationSignal: runtime.conversationBinding?.getInvocationAbortSignal?.(identity),
+        get executionSignal() {
+          return runtime.conversationBinding?.getExecutionAbortSignal?.(identity);
+        },
       };
     },
     mapPart: async (childPart, state, childToolNames) => {
-      const result = state.cancellationSignal?.aborted
-        ? { chunks: makeDelegatedStreamTermination(state, true), finished: true }
-        : await processMastraStreamPart(
-            childPart,
-            childToolNames,
-            state,
-            sanitizedNameMap,
-            runtime.askTools,
-            runtime.delegationToolPersonas
-          );
+      const result =
+        state.cancellationSignal?.aborted || runtimeData?.signal?.aborted
+          ? { chunks: makeDelegatedStreamTermination(state, true), finished: true }
+          : state.executionSignal?.aborted
+            ? {
+                chunks: makeDelegatedStreamTermination(
+                  state,
+                  false,
+                  String(state.executionSignal.reason)
+                ),
+                finished: true,
+              }
+            : await processMastraStreamPart(
+                childPart,
+                childToolNames,
+                state,
+                sanitizedNameMap,
+                runtime.askTools,
+                runtime.delegationToolPersonas
+              );
       return {
         chunks: result.chunks.map((chunk) => {
           if (

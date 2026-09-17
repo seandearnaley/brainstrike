@@ -177,6 +177,10 @@ export interface DelegatedConversationBinding {
     readonly baseline?: DelegatedConversationBaseline;
   }>;
   readonly budget?: DelegatedBudgetPort;
+  readonly captureExecutionAbortSignal?: (
+    identity: DelegatedCancellationTarget,
+    signal: AbortSignal
+  ) => void;
   /** Exact settings supplied by the constructed native child before its first input persists. */
   readonly captureExecutionConfiguration?: (
     context: DelegationStartContext['requestContext'],
@@ -194,6 +198,10 @@ export interface DelegatedConversationBinding {
   readonly finishToolActions?: () => Promise<void>;
   readonly getAbortSignal?: (
     context: DelegationStartContext['requestContext']
+  ) => AbortSignal | undefined;
+  /** Signal supplied to the native delegation executor, including its deadline. */
+  readonly getExecutionAbortSignal?: (
+    identity: DelegatedCancellationTarget
   ) => AbortSignal | undefined;
   readonly getInvocationAbortSignal?: (
     identity: DelegatedCancellationTarget
@@ -345,6 +353,8 @@ export function createDelegatedConversationBinding(
   // authority for this runtime-owned binding, including already queued output.
   const controllers = new Map<string, AbortController>();
   const preparedKeys = new Map<string, string>();
+  const executionSignals = new Map<string, AbortSignal>();
+  const pendingExecutionSignals = new Map<string, AbortSignal>();
   const signals = new WeakMap<DelegationStartContext['requestContext'], AbortSignal>();
   const invocationKey = (identity: DelegatedCancellationTarget) =>
     JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId]);
@@ -356,6 +366,9 @@ export function createDelegatedConversationBinding(
           .get(invocationKey(target))
           ?.abort(new Error('Delegated conversation stopped by user.'));
       }
+    },
+    captureExecutionAbortSignal: (identity, signal) => {
+      executionSignals.set(invocationKey(identity), signal);
     },
     captureExecutionConfiguration(context, execution) {
       const parent = scopes.get(context);
@@ -369,6 +382,7 @@ export function createDelegatedConversationBinding(
       });
     },
     getAbortSignal: (context) => signals.get(context),
+    getExecutionAbortSignal: (identity) => executionSignals.get(invocationKey(identity)),
     getInvocationAbortSignal: (identity) => controllers.get(invocationKey(identity))?.signal,
     hooks: {
       afterToolCall({ input, context, toolName }) {
@@ -378,7 +392,15 @@ export function createDelegatedConversationBinding(
         }
         const threadId = requireIdentity(readToolExecutionThreadId([input, context]));
         const toolCallId = requireIdentity(readToolCallId([input, context]));
-        preparedKeys.delete(inputKey(threadId, toolCallId));
+        const key = inputKey(threadId, toolCallId);
+        const nativeKey = preparedKeys.get(key);
+        preparedKeys.delete(key);
+        pendingExecutionSignals.delete(key);
+        // Mastra treats a resolved executor as successful even after its deadline.
+        // Keep native timeout classification in charge by rejecting the aborted call.
+        if (nativeKey) {
+          executionSignals.get(nativeKey)?.throwIfAborted();
+        }
       },
       beforeToolCall({ input, context, toolName }) {
         if (!toolName.startsWith('agent-')) {
@@ -405,6 +427,9 @@ export function createDelegatedConversationBinding(
           throw new Error('Delegation input capture already owns this native call.');
         }
         inputs.set(key, original);
+        if ('abortSignal' in context && context.abortSignal instanceof AbortSignal) {
+          pendingExecutionSignals.set(key, context.abortSignal);
+        }
       },
     },
     inputProcessor: {
@@ -437,6 +462,11 @@ export function createDelegatedConversationBinding(
         parentRuntimeRunId: requireIdentity(context.runId),
         parentToolCallId: requireIdentity(context.toolCallId),
       });
+      const executionSignal = pendingExecutionSignals.get(key);
+      pendingExecutionSignals.delete(key);
+      if (executionSignal) {
+        executionSignals.set(nativeKey, executionSignal);
+      }
       const existing = controllers.get(nativeKey);
       if (existing && preparedKeys.has(key)) {
         throw new Error('Delegated cancellation already owns this native invocation.');

@@ -803,3 +803,42 @@ describe('child prompt manifests', () => {
     ]);
   });
 });
+
+describe('native delegation deadline ownership', () => {
+  it('rejects an expired execution after cleanup without changing selected cancellation authority', () => {
+    const binding = createDelegatedConversationBinding(async () => undefined);
+    const context = startContext({ resourceId: 'owner', threadId: 'root' });
+    binding.prepare(context, { maxSteps: 8, persona });
+    const identity = { parentRuntimeRunId: context.runId, parentToolCallId: context.toolCallId };
+    const deadline = new AbortController();
+    binding.captureExecutionAbortSignal?.(identity, deadline.signal);
+    const reason = new Error('Task timed out after 1000ms');
+    deadline.abort(reason);
+    expect(() =>
+      binding.hooks?.afterToolCall?.({
+        context: { threadId: 'root', toolCallId: context.toolCallId },
+        input: {},
+        toolName: 'agent-explore',
+      })
+    ).toThrow(reason);
+    expect(binding.getExecutionAbortSignal?.(identity)?.reason).toBe(reason);
+    expect(binding.getInvocationAbortSignal?.(identity)?.aborted).toBe(false);
+    // A new execution at the released address replaces the expired signal.
+    const resumed = startContext({
+      resourceId: 'owner',
+      threadId: 'root',
+      toolCallId: context.toolCallId,
+    });
+    binding.prepare(resumed, { maxSteps: 8, persona });
+    const resumedSignal = new AbortController().signal;
+    binding.captureExecutionAbortSignal?.(identity, resumedSignal);
+    expect(binding.getExecutionAbortSignal?.(identity)).toBe(resumedSignal);
+    expect(() =>
+      binding.hooks?.afterToolCall?.({
+        context: { threadId: 'root', toolCallId: context.toolCallId },
+        input: {},
+        toolName: 'agent-explore',
+      })
+    ).not.toThrow();
+  });
+});
