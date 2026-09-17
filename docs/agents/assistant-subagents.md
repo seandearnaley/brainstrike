@@ -774,8 +774,8 @@ decision transport. The app-shell supplies an explicit decision route to the
 panel instead. That route validates and augments the durable child identity,
 then asks the registered root owner to deliver the decision live or enqueue it
 under the root thread key. The root alone decides live-versus-queue admission;
-cards and the category grant strip read the registered owner runtime queue key
-for their queued/locked state, even when it differs from the logical root id.
+cards and the category grant strip read that same persisted root queue key
+for their queued/locked state, even when the runtime registration ID differs.
 Ranking also includes root-submitted user decisions so bulk grants cannot
 resubmit an already dispatched approval. A rejected route stays visible, unlocks the control and
 must not report delivery. Neither routed decisions nor category grants cancel
