@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type ModelProviderScript,
   type ModelProviderShim,
@@ -15,6 +15,7 @@ const child: ModelProviderScript = {
 };
 let shim: ModelProviderShim | undefined;
 afterEach(async () => {
+  vi.restoreAllMocks();
   await shim?.close();
   shim = undefined;
 });
@@ -30,6 +31,27 @@ async function request(body: Record<string, unknown>): Promise<unknown> {
 }
 
 describe('model provider shim', () => {
+  it('uses distinct call ids for concurrent responses in the same millisecond', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(123_456_789);
+    shim = await startModelProviderShim(parent);
+    const responses = await Promise.all(
+      [false, false, true, true].map(async (stream) => {
+        const response = await fetch(`${shim?.baseUrl}/chat/completions`, {
+          body: JSON.stringify({ messages: [], stream }),
+          headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+        });
+        expect(response.status).toBe(200);
+        return response.text();
+      })
+    );
+    const ids = responses.flatMap((body) =>
+      [...body.matchAll(/"id":"(call_e2e_[^"]+)"/g)].map((match) => match[1])
+    );
+    expect(ids).toHaveLength(4);
+    expect(new Set(ids).size).toBe(4);
+  });
+
   it('rejects both toolCall forms even when the batch is empty', async () => {
     shim = await startModelProviderShim({ ...parent, toolCalls: [] });
     const response = await fetch(`${shim.baseUrl}/chat/completions`, {

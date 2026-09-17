@@ -18,6 +18,7 @@
  * executable on PATH; this is the same idea for the model provider via a
  * real local HTTP server. A durable E2E asset — reuse it, don't fork it.
  */
+import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 export interface ScriptedToolCall {
@@ -204,7 +205,7 @@ async function writeStreamingToolCall(
   beforeFinish?: Promise<void>
 ): Promise<void> {
   const { created, id } = completionIdentity();
-  const toolCallIds = calls.map((_, index) => `call_e2e_${Date.now()}_${index}`);
+  const toolCallIds = calls.map(() => `call_e2e_${randomUUID()}`);
   response.writeHead(200, {
     'Cache-Control': 'no-cache',
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -295,7 +296,7 @@ function writeJsonCompletion(
     ? { content: turn.finalText, role: 'assistant' }
     : toolCallMessage(
         turn.calls,
-        turn.calls.map((_, index) => `call_e2e_${Date.now()}_${index}`)
+        turn.calls.map(() => `call_e2e_${randomUUID()}`)
       );
   response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
   response.end(
