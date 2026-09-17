@@ -803,3 +803,79 @@ describe('child prompt manifests', () => {
     ]);
   });
 });
+
+describe('native delegation deadline ownership', () => {
+  it('preserves the active execution deadline when duplicate preparation is rejected', () => {
+    const binding = createDelegatedConversationBinding(async () => undefined);
+    const context = startContext({ resourceId: 'owner', threadId: 'root' });
+    binding.prepare(context, { maxSteps: 8, persona });
+    const identity = {
+      parentRuntimeRunId: context.runId,
+      parentThreadId: 'root',
+      parentToolCallId: context.toolCallId,
+    };
+    const deadline = new AbortController();
+    binding.captureExecutionAbortSignal?.(identity, deadline.signal);
+    const duplicate = startContext({
+      resourceId: 'owner',
+      threadId: 'root',
+      toolCallId: context.toolCallId,
+    });
+    expect(() => binding.prepare(duplicate, { maxSteps: 8, persona })).toThrow(
+      'Delegated cancellation already owns this native invocation.'
+    );
+    expect(binding.getExecutionAbortSignal?.(identity)).toBe(deadline.signal);
+  });
+
+  it.each([false, true])(
+    'settles an expired execution without overwriting an existing error (%s)',
+    (hasError) => {
+      const binding = createDelegatedConversationBinding(async () => undefined);
+      const context = startContext({ resourceId: 'owner', threadId: 'root' });
+      binding.prepare(context, { maxSteps: 8, persona });
+      const identity = {
+        parentRuntimeRunId: context.runId,
+        parentThreadId: 'root',
+        parentToolCallId: context.toolCallId,
+      };
+      const deadline = new AbortController();
+      binding.captureExecutionAbortSignal?.(identity, deadline.signal);
+      const reason = new Error('Task timed out after 1000ms');
+      deadline.abort(reason);
+      const finish = () =>
+        binding.hooks?.afterToolCall?.({
+          context: { threadId: 'root', toolCallId: context.toolCallId },
+          input: {},
+          toolName: 'agent-explore',
+          ...(hasError ? { error: new Error('Original executor failure') } : {}),
+        });
+      if (hasError) {
+        expect(finish).not.toThrow();
+      } else {
+        expect(finish).toThrow(reason);
+      }
+      expect(binding.getExecutionAbortSignal?.(identity)?.reason).toBe(reason);
+      expect(binding.getInvocationAbortSignal?.(identity)?.aborted).toBe(false);
+      // A new execution at the released address replaces the expired signal.
+      const resumed = startContext({
+        resourceId: 'owner',
+        threadId: 'root',
+        toolCallId: context.toolCallId,
+      });
+      binding.prepare(resumed, { maxSteps: 8, persona });
+      expect(binding.getExecutionAbortSignal?.(identity)).toBeUndefined();
+      const resumedSignal = new AbortController().signal;
+      binding.captureExecutionAbortSignal?.(identity, resumedSignal);
+      expect(binding.getExecutionAbortSignal?.(identity)).toBe(resumedSignal);
+      binding.captureExecutionAbortSignal?.(identity, undefined);
+      expect(binding.getExecutionAbortSignal?.(identity)).toBeUndefined();
+      expect(() =>
+        binding.hooks?.afterToolCall?.({
+          context: { threadId: 'root', toolCallId: context.toolCallId },
+          input: {},
+          toolName: 'agent-explore',
+        })
+      ).not.toThrow();
+    }
+  );
+});

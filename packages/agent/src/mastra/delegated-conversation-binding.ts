@@ -177,6 +177,10 @@ export interface DelegatedConversationBinding {
     readonly baseline?: DelegatedConversationBaseline;
   }>;
   readonly budget?: DelegatedBudgetPort;
+  readonly captureExecutionAbortSignal?: (
+    identity: DelegatedCancellationTarget & { readonly parentThreadId: string },
+    signal: AbortSignal | undefined
+  ) => void;
   /** Exact settings supplied by the constructed native child before its first input persists. */
   readonly captureExecutionConfiguration?: (
     context: DelegationStartContext['requestContext'],
@@ -194,6 +198,10 @@ export interface DelegatedConversationBinding {
   readonly finishToolActions?: () => Promise<void>;
   readonly getAbortSignal?: (
     context: DelegationStartContext['requestContext']
+  ) => AbortSignal | undefined;
+  /** Signal supplied to the native delegation executor, including its deadline. */
+  readonly getExecutionAbortSignal?: (
+    identity: DelegatedCancellationTarget
   ) => AbortSignal | undefined;
   readonly getInvocationAbortSignal?: (
     identity: DelegatedCancellationTarget
@@ -345,6 +353,8 @@ export function createDelegatedConversationBinding(
   // authority for this runtime-owned binding, including already queued output.
   const controllers = new Map<string, AbortController>();
   const preparedKeys = new Map<string, string>();
+  const executionSignals = new Map<string, AbortSignal>();
+  const pendingExecutionSignals = new Map<string, AbortSignal>();
   const signals = new WeakMap<DelegationStartContext['requestContext'], AbortSignal>();
   const invocationKey = (identity: DelegatedCancellationTarget) =>
     JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId]);
@@ -355,6 +365,16 @@ export function createDelegatedConversationBinding(
         controllers
           .get(invocationKey(target))
           ?.abort(new Error('Delegated conversation stopped by user.'));
+      }
+    },
+    captureExecutionAbortSignal: (identity, signal) => {
+      const key = inputKey(identity.parentThreadId, identity.parentToolCallId);
+      if (signal) {
+        executionSignals.set(invocationKey(identity), signal);
+        pendingExecutionSignals.set(key, signal);
+      } else {
+        executionSignals.delete(invocationKey(identity));
+        pendingExecutionSignals.delete(key);
       }
     },
     captureExecutionConfiguration(context, execution) {
@@ -369,16 +389,25 @@ export function createDelegatedConversationBinding(
       });
     },
     getAbortSignal: (context) => signals.get(context),
+    getExecutionAbortSignal: (identity) => executionSignals.get(invocationKey(identity)),
     getInvocationAbortSignal: (identity) => controllers.get(invocationKey(identity))?.signal,
     hooks: {
-      afterToolCall({ input, context, toolName }) {
+      afterToolCall({ input, context, toolName, error }) {
         // Snapshot resume has no process-local prepared controller to release.
         if (preparedKeys.size === 0 || !toolName.startsWith('agent-')) {
           return;
         }
         const threadId = requireIdentity(readToolExecutionThreadId([input, context]));
         const toolCallId = requireIdentity(readToolCallId([input, context]));
-        preparedKeys.delete(inputKey(threadId, toolCallId));
+        const key = inputKey(threadId, toolCallId);
+        const nativeKey = preparedKeys.get(key);
+        preparedKeys.delete(key);
+        pendingExecutionSignals.delete(key);
+        // Mastra treats a resolved executor as successful even after its deadline.
+        // Keep native timeout classification in charge by rejecting the aborted call.
+        if (error === undefined && nativeKey) {
+          executionSignals.get(nativeKey)?.throwIfAborted();
+        }
       },
       beforeToolCall({ input, context, toolName }) {
         if (!toolName.startsWith('agent-')) {
@@ -405,6 +434,9 @@ export function createDelegatedConversationBinding(
           throw new Error('Delegation input capture already owns this native call.');
         }
         inputs.set(key, original);
+        if ('abortSignal' in context && context.abortSignal instanceof AbortSignal) {
+          pendingExecutionSignals.set(key, context.abortSignal);
+        }
       },
     },
     inputProcessor: {
@@ -444,6 +476,13 @@ export function createDelegatedConversationBinding(
       // Native approval resume re-enters admission after the earlier tool hook.
       // Preserve the same cancellation owner; a stopped invocation cannot restart.
       existing?.signal.throwIfAborted();
+      const executionSignal = pendingExecutionSignals.get(key);
+      pendingExecutionSignals.delete(key);
+      if (executionSignal) {
+        executionSignals.set(nativeKey, executionSignal);
+      } else {
+        executionSignals.delete(nativeKey);
+      }
       const controller = existing ?? new AbortController();
       controllers.set(nativeKey, controller);
       preparedKeys.set(key, nativeKey);

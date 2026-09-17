@@ -3586,6 +3586,16 @@ gets its own opaque child host-run id; the root turn id is not a child user
 message id, so the nullable child header field stays unset. Usage remains in
 the existing root-attributed writer and is not duplicated for these headers.
 
+When that native invocation reaches a terminal outcome, its earlier host-leg
+headers can still be running after a parked approval. The authorized terminal
+event atomically settles those prior running headers to the same outcome. The
+match requires child resource/thread plus native parent run, tool call, child
+run and persona from retained events; it cannot close a different invocation
+in the same thread. No duplicate terminal event is minted and existing terminal
+headers are immutable. A rejected current event cannot settle prior headers.
+Paired: `delegated-conversation-insights.integration.test.ts` and
+`delegated-deadlines.integration.test.ts` (approval-resume then expiry/reload).
+
 Child lifecycle persistence is deliberately awaited before publication. It
 revalidates the invocation and makes the published event durable; an exhausted
 write or identity failure propagates through the root error path. The root's

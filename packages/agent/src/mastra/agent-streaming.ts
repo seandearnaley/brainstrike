@@ -1189,19 +1189,33 @@ export function createAttemptDelegatedProjection({
       return {
         ...childState,
         cancellationSignal: runtime.conversationBinding?.getInvocationAbortSignal?.(identity),
+        get executionSignal() {
+          return runtime.conversationBinding?.getExecutionAbortSignal?.(identity);
+        },
       };
     },
     mapPart: async (childPart, state, childToolNames) => {
-      const result = state.cancellationSignal?.aborted
-        ? { chunks: makeDelegatedStreamTermination(state, true), finished: true }
-        : await processMastraStreamPart(
-            childPart,
-            childToolNames,
-            state,
-            sanitizedNameMap,
-            runtime.askTools,
-            runtime.delegationToolPersonas
-          );
+      const executionSignal = state.executionSignal;
+      const result =
+        state.cancellationSignal?.aborted || runtimeData?.signal?.aborted
+          ? { chunks: makeDelegatedStreamTermination(state, true), finished: true }
+          : executionSignal?.aborted
+            ? {
+                chunks: makeDelegatedStreamTermination(
+                  state,
+                  false,
+                  String(executionSignal.reason)
+                ),
+                finished: true,
+              }
+            : await processMastraStreamPart(
+                childPart,
+                childToolNames,
+                state,
+                sanitizedNameMap,
+                runtime.askTools,
+                runtime.delegationToolPersonas
+              );
       return {
         chunks: result.chunks.map((chunk) => {
           if (
@@ -1222,7 +1236,8 @@ export function createAttemptDelegatedProjection({
     delegatedProjection?.finalize((state) =>
       makeDelegatedStreamTermination(
         state,
-        Boolean(state.cancellationSignal?.aborted || runtimeData?.signal?.aborted)
+        Boolean(state.cancellationSignal?.aborted || runtimeData?.signal?.aborted),
+        state.executionSignal?.aborted ? String(state.executionSignal.reason) : undefined
       ).map((chunk) => {
         if (
           chunk.type === 'delegated-conversation-chunk' ||

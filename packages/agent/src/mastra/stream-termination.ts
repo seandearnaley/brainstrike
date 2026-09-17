@@ -78,7 +78,8 @@ function settleActiveChildTools(state: ToolLifecycleState, cancelled: boolean): 
 /** A parent ending must settle every still-open child before its own finish. */
 export function makeDelegatedStreamTermination(
   state: ToolLifecycleState,
-  cancelled: boolean
+  cancelled: boolean,
+  detail?: string
 ): StreamChunk[] {
   return [
     ...makeCancelledDelegationRunEventChunks(state),
@@ -88,7 +89,7 @@ export function makeDelegatedStreamTermination(
       ? makeRunEventChunk('run.cancelled', 'cancelled', 'Child run cancelled')
       : makeRunFailedChunk(
           'Child stream interrupted',
-          'The parent stream ended before the child reported a terminal result.'
+          detail ?? 'The parent stream ended before the child reported a terminal result.'
         ),
     cancelled ? makeSyntheticFinishChunk() : makeErrorFinishChunk(),
   ];

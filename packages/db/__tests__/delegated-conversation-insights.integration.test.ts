@@ -52,6 +52,7 @@ beforeEach(async () => {
         id: `event-${threadId}`,
         kind: 'run.started',
         label: 'Child started',
+        metadata: { ...invocation(threadId), childRuntimeRunId: `${threadId}-native` },
         runId: `run-${threadId}`,
         sequence: 0,
         status: 'running',
@@ -243,3 +244,57 @@ it('reads the child budget of the most recent host turn, and null when no budget
     synthesisUsed: false,
   });
 });
+
+it.each([
+  ['run.finished', 'completed'],
+  ['run.failed', 'failed'],
+  ['run.cancelled', 'cancelled'],
+] as const)(
+  'settles earlier host legs of the same native invocation on %s only',
+  async (kind, status) => {
+    // An unrelated native invocation in the same thread must remain untouched.
+    await database.exec(`INSERT INTO brainstrike_assistant_thread_runs
+    (id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at)
+    VALUES ('unrelated-child-run','child-owner','child','openai','test','desktop','running',NOW(),NOW(),NOW());`);
+    await graph().recordInvocationEvent(
+      scope,
+      { ...invocation('child'), childRuntimeRunId: 'child-native' },
+      'original-host',
+      {
+        id: 'resumed-terminal',
+        kind,
+        label: 'Resumed child ended',
+        metadata: { ...invocation('child'), childRuntimeRunId: 'child-native' },
+        runId: 'resumed-child-run',
+        sequence: 0,
+        status,
+        timestamp: '2026-09-12T12:01:00.000Z',
+      }
+    );
+    expect(
+      (
+        await database.query(
+          "SELECT id,status FROM brainstrike_assistant_thread_runs WHERE thread_id='child' ORDER BY id"
+        )
+      ).rows
+    ).toEqual([
+      { id: 'resumed-child-run', status },
+      { id: 'run-child', status },
+      { id: 'unrelated-child-run', status: 'running' },
+    ]);
+    expect(
+      (
+        await database.query(
+          "SELECT status FROM brainstrike_assistant_thread_runs WHERE id='run-sibling'"
+        )
+      ).rows
+    ).toEqual([{ status: 'running' }]);
+    expect(
+      (
+        await database.query(
+          "SELECT id FROM brainstrike_assistant_run_events WHERE kind IN ('run.finished','run.failed','run.cancelled')"
+        )
+      ).rows
+    ).toEqual([{ id: 'resumed-terminal' }]);
+  }
+);

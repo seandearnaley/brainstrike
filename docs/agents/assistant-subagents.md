@@ -2487,6 +2487,27 @@ rows), `late-background-results-processor.spec.ts`,
 `delegated-cancellation.integration.test.ts` and
 `delegated-conversation-host.integration.test.ts`.
 
+### Background child deadlines (BST-1771)
+
+A background executor that resolves after its native task signal aborted must
+reject before native outcome classification. Mastra 1.64 otherwise marks the
+empty delegation result completed. The existing delegation tool hooks capture
+the executor signal by native parent run/tool-call identity and check it after
+execution; the host-owned resumed executor applies the same check. No timer,
+retry, native task-state override or dependency patch is introduced.
+
+Child projection reads that execution signal separately from explicit selected
+cancellation authority. An expired execution produces one failed child terminal
+with the native abort reason; selected Stop remains cancelled. Signal ownership
+survives queued output and is replaced on the next admitted execution of the
+invocation. Rejected duplicate preparation preserves the active deadline signal.
+Host resume capture also stages the signal by parent thread/tool call so native
+preparation retains that execution's deadline.
+`delegated-deadlines.integration.test.ts` pins native timed_out, durable failed,
+exact terminal events and a concurrent sibling continuing to completion; the
+approval-resume case also checks persisted usage and reload. This does not
+resolve the separate usage-binding-conflict whose rejected tuple is missing.
+
 ### Selected child cancellation (BST-1723)
 
 The child projection captures the invocation's existing abort signal at native
