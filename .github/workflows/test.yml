@@ -195,7 +195,8 @@ jobs:
     # execution dominated recent runs (8m + 12m). Three native Vitest shards
     # preserve every file and one worker per VM without making PGlite suites
     # compete on the same host. The remaining UI packages keep their own row.
-    # DB retains its two native shards. Rest owns every other affected package.
+    # DB and Agent retain two native shards each. Rest owns every other
+    # affected package.
     # scripts/__tests__/unit-shard-partition.test.mjs verifies complete,
     # disjoint coverage; Unit below remains the required fan-in.
     timeout-minutes: 30
@@ -212,6 +213,16 @@ jobs:
             partition: db
             pr_filters: --filter="@brainstrike/db"
             push_filters: --filter="@brainstrike/db"
+            vitest_shard: 2/2
+          - shard: agent-1
+            partition: agent
+            pr_filters: --filter="@brainstrike/agent"
+            push_filters: --filter="@brainstrike/agent"
+            vitest_shard: 1/2
+          - shard: agent-2
+            partition: agent
+            pr_filters: --filter="@brainstrike/agent"
+            push_filters: --filter="@brainstrike/agent"
             vitest_shard: 2/2
           - shard: desktop-1
             partition: desktop
@@ -243,6 +254,7 @@ jobs:
             partition: rest
             pr_filters: >-
               --filter="!@brainstrike/db"
+              --filter="!@brainstrike/agent"
               --filter="!@brainstrike/desktop"
               --filter="!@brainstrike/ui"
               --filter="!@brainstrike/file-explorer-ui"
@@ -250,6 +262,7 @@ jobs:
             vitest_shard: ''
             push_filters: >-
               --filter="!@brainstrike/db"
+              --filter="!@brainstrike/agent"
               --filter="!@brainstrike/desktop"
               --filter="!@brainstrike/ui"
               --filter="!@brainstrike/file-explorer-ui"
@@ -409,6 +422,8 @@ jobs:
         env:
           TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
           TURBO_SCM_HEAD: ${{ github.sha }}
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
@@ -429,6 +444,8 @@ jobs:
           # fence-host-gate.ts. Deliberately NOT set in the coverage lanes,
           # which install nothing and keep the loud-skip behaviour.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
@@ -457,6 +474,8 @@ jobs:
       - name: Push and manual unit tests
         if: github.event_name != 'pull_request'
         env:
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
@@ -470,6 +489,8 @@ jobs:
         env:
           # See the pull-request integration step above.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"

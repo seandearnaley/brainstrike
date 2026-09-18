@@ -40,8 +40,7 @@ import type {
 } from '@ai-sdk/provider';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
-import { PGlite } from '@electric-sql/pglite';
-import { vector } from '@electric-sql/pglite-pgvector';
+import type { PGlite } from '@electric-sql/pglite';
 import type { AgentMemoryOption } from '@mastra/core/agent';
 import type { MastraDBMessage, MastraMemory } from '@mastra/core/memory';
 import { createTool } from '@mastra/core/tools';
@@ -60,6 +59,7 @@ import type {
 } from '../providers/local/llm-host-client';
 import type { AgentHookRunner } from '../tools/hook-runner';
 import type { StreamChunk } from '../types';
+import { createAgentMemoryTestDb } from './helpers/migrated-agent-test-db';
 
 // vi.mock factories are hoisted above imports, so the model the fake provider
 // returns must live in a hoisted holder the factory can close over.
@@ -765,10 +765,7 @@ describe('mastra memory persistence through the live stream path', () => {
   let database: PGlite;
 
   beforeEach(async () => {
-    // BST-1325: the shared instance must load the vector extension like every
-    // other vector-touching construction site — a bare PGlite silently fails
-    // the OM vector store's CREATE EXTENSION and the VECTOR test goes toothless.
-    database = await PGlite.create({ extensions: { vector } });
+    database = await createAgentMemoryTestDb();
     // Loud fixture probe: on a bare PGlite this THROWS ('extension "vector" is
     // not available') instead of letting the suite drift back to a false green.
     // Idempotent with the vector store's own CREATE EXTENSION IF NOT EXISTS.

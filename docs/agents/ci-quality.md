@@ -65,6 +65,17 @@ without `DESKTOP_TEST_SHARD` execute the entire suite. The 30-minute job timeout
 is a failure ceiling, not a latency target. Aim for a complete PR verdict in
 15 minutes; compare queue, setup, unit, integration, and fan-in time separately.
 
+The September 18 Agent audit measured 664 seconds on the prior PR head and 614
+seconds on current `main` (`a589a066`, run `35381284576`); on that baseline the
+`rest` row spent 720 of its 831 seconds in integration. Agent therefore owns a
+dedicated two-runner native Vitest partition and is excluded from `rest`. Each
+Agent runner executes its unit phase and uncached integration phase serially,
+with one fork and no file parallelism. `AGENT_TEST_SHARD_REQUIRED` makes a
+missing or malformed shard identity fail before collection. Both phases inherit
+the event-loop watchdog and lost-file reporter from the shared Agent config,
+and the required `Unit` fan-in rejects a failure from either Agent shard. Local
+runs without `AGENT_TEST_SHARD` continue to execute the complete Agent suite.
+
 Turbo's native `affectedUsingTaskInputs` flag makes `--affected` follow
 declared task inputs and dependency edges, intersected with package partition
 filters. PR steps set `TURBO_SCM_BASE` to the event's exact base SHA and
@@ -1505,8 +1516,8 @@ Doctor, Claude Auto Review, and `@claude` handling use
 - quiet-head admission remains on GitHub `ubuntu-slim`
 - the lightweight Unit fan-in also uses GitHub `ubuntu-slim`
 - Static remains on the measured GitHub ARM lane
-- all seven physical Unit rows use one fixed Ubicloud runner class (two DB
-  shards, three desktop shards, and the heavy and rest rows)
+- all nine physical Unit rows use one fixed Ubicloud runner class (two DB
+  shards, two Agent shards, three desktop shards, and the heavy and rest rows)
 - Native Windows remains on GitHub Windows behind its affected gate
 - scheduled regression/coverage jobs remain GitHub-hosted until their existing
   baselines are green enough to support a runner comparison
@@ -1519,16 +1530,17 @@ Do not route individual shards to different providers: keeping one fixed
 runner contract avoids a provider-selection layer while preserving the exact
 partition, integration concurrency, and required `Unit` fan-in.
 
-The seven physical rows form four logical package partitions: `db`,
+The nine physical rows form five logical package partitions: `db`, `agent`,
 `desktop`, `heavy` (UI packages), and `rest`. DB uses `DB_TEST_SHARD=1/2`
-and `2/2`; desktop uses `DESKTOP_TEST_SHARD=1/3`, `2/3`, and `3/3` for both
-unit and integration. Each variable is scoped to its owning package's Turbo
-tasks, and each native shard runs files from one package only. Turbo CLI
+and `2/2`; Agent uses `AGENT_TEST_SHARD=1/2` and `2/2`; desktop uses
+`DESKTOP_TEST_SHARD=1/3`, `2/3`, and `3/3` for both unit and integration.
+Each variable is scoped to its owning package's Turbo tasks, and each native
+shard runs files from one package only. Turbo CLI
 passthrough is forbidden because it also reaches dependency/transit tasks.
 `scripts/unit-shard-partition.mjs` rejects missing, duplicate, mixed-count,
-or divergent-filter rows. Desktop config rejects a missing required shard;
-its environment participates in the unit cache key, so one third cannot replay
-an unsharded or different-third result.
+or divergent-filter rows. Agent and Desktop configs reject a missing required
+shard; each environment participates in its package task's cache key, so one
+shard cannot replay an unsharded or different-shard result.
 
 Do not add a provider-selection layer or an automatic GitHub fallback. An
 Ubicloud provisioning failure must queue or fail visibly; rollback is an
