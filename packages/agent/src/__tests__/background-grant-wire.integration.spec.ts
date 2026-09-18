@@ -11,14 +11,15 @@ const READ_ASK_POLICY = {
   yolo: false,
 } as const;
 
-it('publishes both consumed approvals while the root waits in text for a running sibling', async () => {
+it('delivers four specialist results after consuming each read approval without borrowing parent actions', async () => {
   const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
-    heldSibling: 3,
+    durableWork: true,
+    heldSibling: 4,
     permissionPolicy: {
       ...READ_ASK_POLICY,
       perToolOverrides: { 'brainstrike.readWorkspaceFile': 'allow' },
     },
-    siblings: 3,
+    siblings: 4,
     slowRootTurn: true,
   });
   const { backing, runtime, runtimeData, release, hold, database } = fixture;
@@ -28,6 +29,7 @@ it('publishes both consumed approvals while the root waits in text for a running
   const answered = Promise.withResolvers<void>();
   const notices: Extract<StreamChunk, { type: 'tool-approval-required' }>[] = [];
   let progress = false;
+  let parentText = '';
   let answers = 0;
   const wireAnswers: unknown[][] = [];
   const consuming = (async () => {
@@ -55,19 +57,22 @@ it('publishes both consumed approvals while the root waits in text for a running
       runtimeData,
     })) {
       const encoded = [...mapper.handleChunk(chunk)];
+      if (chunk.type === 'text-delta') {
+        parentText += chunk.value;
+      }
       if (chunk.type === 'text-delta' && chunk.value.includes('PARENT_USEFUL_PROGRESS')) {
         progress = true;
       }
       if (chunk.type === 'tool-approval-required') {
         notices.push(chunk);
       }
-      if (progress && notices.length >= 2) {
+      if (progress && notices.length >= 3) {
         ready.resolve();
       }
       if (chunk.type === 'tool-approval-answered') {
         wireAnswers.push(encoded);
         answers += 1;
-        if (answers === 2) {
+        if (answers === 3) {
           answered.resolve();
         }
       }
@@ -81,7 +86,7 @@ it('publishes both consumed approvals while the root waits in text for a running
         throw new Error('Stream ended before grant');
       }),
     ]);
-    expect(notices).toHaveLength(2);
+    expect(notices).toHaveLength(3);
     const notice = notices[0];
     if (!notice?.delegation) {
       throw new Error('Missing delegated approval');
@@ -105,7 +110,7 @@ it('publishes both consumed approvals while the root waits in text for a running
         throw new Error('Stream ended before answers');
       }),
     ]);
-    expect(answers).toBe(2);
+    expect(answers).toBe(3);
     for (const encoded of wireAnswers) {
       expect(encoded).toContainEqual(
         expect.objectContaining({
@@ -115,6 +120,15 @@ it('publishes both consumed approvals while the root waits in text for a running
     }
     hold.resolve();
     await consuming;
+    expect(parentText).toContain('PARENT_FINAL_OUTCOME');
+    const tasks = (await database.query('SELECT status, result FROM mastra_background_tasks')).rows;
+    expect(tasks).toHaveLength(4);
+    for (const task of tasks) {
+      expect(task).toMatchObject({
+        result: expect.objectContaining({ text: 'CHILD_FINAL_EVIDENCE' }),
+        status: 'completed',
+      });
+    }
     const childPrompts = fixture.model.prompts.filter(
       (options) => !options.tools?.some((tool) => tool.name === 'agent-explore')
     );
@@ -126,7 +140,7 @@ it('publishes both consumed approvals while the root waits in text for a running
       ).not.toContain('PARENT_ACTION');
       expect(
         JSON.stringify(options.prompt.filter((message) => message.role === 'user').at(-1))
-      ).toMatch(/Read background evidence [123]/);
+      ).toMatch(/Read background evidence [1234]/);
     }
   } finally {
     release.resolve();

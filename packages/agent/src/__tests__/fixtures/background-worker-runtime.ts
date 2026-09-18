@@ -192,6 +192,8 @@ export async function createBackgroundFixture(
     readonly permissionPolicy?: PermissionToolGateSnapshot;
     /** Dispatch this many independent children in one root step (`background-child-<n>`). */
     readonly siblings?: number;
+    /** Use production-style durable work admission without forcing synthesis in the model. */
+    readonly durableWork?: boolean;
     /**
      * This sibling reads through `brainstrike.readWorkspaceFile` instead, held
      * open until `hold` resolves: a running task that keeps the leg alive while
@@ -547,7 +549,13 @@ export async function createBackgroundFixture(
   const options = {
     backgroundTaskScope: scope,
     conversationBinding: {
-      ...(fanout.budget ? { budget: createScriptedBudgetPort(fanout.budget) } : {}),
+      ...(fanout.budget || fanout.durableWork
+        ? {
+            budget: createScriptedBudgetPort(
+              fanout.budget ?? { maxSteps: 32, synthesisOutputTokens: 2048 }
+            ),
+          }
+        : {}),
       // The desktop ledger holds ONE active claim per root; a second claim in
       // the same leg is refused (thread-796a942d, 2026-09-14). The fixture
       // refuses the same way so a multi-claim design cannot pass here.
