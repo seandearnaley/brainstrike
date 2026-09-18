@@ -1235,6 +1235,16 @@ Note this is a **per-process** property: each native DB shard is its own
 rows and two nightly coverage rows run those processes on separate runners;
 within each process, the selected files share that one snapshot.
 
+The agent integration lane has a narrower package-owned equivalent at
+`packages/agent/src/__tests__/helpers/migrated-agent-test-db.ts`. It builds one
+pristine Mastra-schema snapshot lazily per test file, keeps only its immutable
+tar bytes, and restores a fresh PGlite for every test. The restore path uses
+`createEnginePglite`, so it carries the same complete engine-extension set as
+production. Cold schema creation, initialization retry, and missing-sidecar
+cases must keep their explicit empty-database or mock path. Reload cases still
+construct a new store over the real PGlite owner; the snapshot is only for
+cases whose subject starts after a valid schema exists.
+
 **There is a second, correct declaration** — `packages/db/vitest.mutation.config.ts`
 also declares the same `globalSetup`, deliberately: the Stryker lane throws in
 `beforeEach` before any mutant runs without it. That is NOT the per-project

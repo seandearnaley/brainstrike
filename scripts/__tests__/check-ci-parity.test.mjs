@@ -426,6 +426,23 @@ function assertDbTestShardEnvIsScoped(rootConfig, dbConfig) {
   );
 }
 
+function assertAgentTestShardEnvIsScoped(rootConfig, agentConfig) {
+  const shardVariables = ['AGENT_TEST_SHARD', 'AGENT_TEST_SHARD_REQUIRED'];
+  for (const taskName of ['test', 'test:integration']) {
+    for (const variable of shardVariables) {
+      assert.ok(
+        !rootConfig.tasks[taskName].env?.includes(variable),
+        `root turbo ${taskName} must not hash ${variable} for every package in the filter closure`
+      );
+    }
+    assert.deepEqual(
+      agentConfig.tasks[taskName].env,
+      ['$TURBO_EXTENDS$', ...shardVariables],
+      `packages/agent ${taskName} must append the Agent shard identity to the inherited hashed environment`
+    );
+  }
+}
+
 function assertRootTestPhaseParity(rootPackage) {
   const commands = splitShellCommands(rootPackage.scripts.test);
   assert.equal(commands.length, 2, 'root pnpm test must run unit and integration as two phases');
@@ -815,9 +832,13 @@ test('CI workflows, root Vitest scripts, and pnpm check share one hashed timeout
   const dbTurboConfig = parseJsonc(
     readFileSync(path.join(repoRoot, 'packages/db/turbo.json'), 'utf8')
   );
+  const agentTurboConfig = parseJsonc(
+    readFileSync(path.join(repoRoot, 'packages/agent/turbo.json'), 'utf8')
+  );
   assertTimeoutMultiplierIsHashed(turboConfig);
   assertCacheableTestWorkerModeIsHashed(turboConfig);
   assertDbTestShardEnvIsScoped(turboConfig, dbTurboConfig);
+  assertAgentTestShardEnvIsScoped(turboConfig, agentTurboConfig);
 
   for (const taskName of ['test', 'test:browser', 'test:coverage', 'test:coverage:db:shard']) {
     const mutatedTurboConfig = structuredClone(turboConfig);
@@ -859,6 +880,22 @@ test('CI workflows, root Vitest scripts, and pnpm check share one hashed timeout
     () => assertDbTestShardEnvIsScoped(turboConfig, unscopedDbShard),
     /must append DB_TEST_SHARD/,
     'CONTROL: removing the package-local shard hash must turn the guard red'
+  );
+
+  const globallyHashedAgentShard = structuredClone(turboConfig);
+  globallyHashedAgentShard.tasks.test.env.push('AGENT_TEST_SHARD');
+  assert.throws(
+    () => assertAgentTestShardEnvIsScoped(globallyHashedAgentShard, agentTurboConfig),
+    /must not hash AGENT_TEST_SHARD for every package/,
+    'CONTROL: leaking the Agent shard environment into every unit task must turn the guard red'
+  );
+
+  const unscopedAgentShard = structuredClone(agentTurboConfig);
+  unscopedAgentShard.tasks['test:integration'].env = ['$TURBO_EXTENDS$'];
+  assert.throws(
+    () => assertAgentTestShardEnvIsScoped(turboConfig, unscopedAgentShard),
+    /must append the Agent shard identity/,
+    'CONTROL: removing the Agent integration shard hash must turn the guard red'
   );
 
   const mismatchedRootPhases = structuredClone(rootPackage);
@@ -966,8 +1003,8 @@ test('packages/db is tested by a green pnpm check', () => {
     );
   }
 
-  // Unfiltered turbo selection is the union of CI's three logical Unit
-  // partitions (four physical rows because DB uses two native Vitest shards).
+  // Unfiltered turbo selection is the union of CI's five logical Unit
+  // partitions (DB and Agent each use two native Vitest shards).
   assert.match(unit.command, /run-turbo-command\.mjs .*run test\b/);
   assert.doesNotMatch(unit.command, /--filter/);
 });

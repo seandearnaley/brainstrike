@@ -1,0 +1,11 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "env": ["$TURBO_EXTENDS$", "AGENT_TEST_SHARD", "AGENT_TEST_SHARD_REQUIRED"]
+    },
+    "test:integration": {
+      "env": ["$TURBO_EXTENDS$", "AGENT_TEST_SHARD", "AGENT_TEST_SHARD_REQUIRED"]
+    }
+  }
+}

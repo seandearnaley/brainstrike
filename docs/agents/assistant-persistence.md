@@ -224,7 +224,15 @@ the live-loop PGlite proof
 a user Stop landing right after a tool result carries the completed tool work
 and no partial text; a watchdog abort persists the stalled attempt's partial
 text as its OWN assistant row; an approval-resume cancel persists the partial
-text. For terminal watchdog aborts and user cancellation only,
+text. That live-loop proof and the ordinary `PgliteMemoryStore` integration
+cases start from `createAgentMemoryTestDb()`: one pristine schema snapshot
+supplies immutable bytes, while every case receives a fresh database. This
+removes repeated schema bootstrap from assertion timing without sharing mutable
+state. The store's cold initialization and transient-failure cases remain
+explicit empty-database/mock paths, and reload/abort cleanup still runs through
+the real PGlite and Mastra persistence owners.
+
+For terminal watchdog aborts and user cancellation only,
 `packages/agent/src/mastra/aborted-turn-persistence.ts` (created by
 `createRuntimeAbortedTurnPersistence` in `turn-attempts.ts`) therefore owns one
 bounded abort-finalization seam over Mastra's public live `MessageList`: it
