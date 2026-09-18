@@ -118,6 +118,20 @@ resource via public `parseMemoryRequestContext`, then uses Mastra's context-stor
 parser before the paused tool executes. Parent history is never borrowed. Skill
 metadata injection requires the corresponding permitted skill controls.
 Explorer/Analyst keep their curated tool surface and provenance/reporting role.
+Read-only specialists use native Memory with the same storage, retrieval options
+and embedding configuration, but working memory disabled. Sharing the root
+Memory instance also injected `updateWorkingMemory` and its mandatory per-response
+system instruction, bypassing the specialist's curated tools; the BST-1771 Grok
+capture spent its steps updating that scratchpad instead of inspecting files.
+Worker-mode children retain their configured working memory. This does not turn
+off child transcript persistence or change native thread ownership. Do not set
+`defaultOptions.memory` merely to override this option: Mastra then treats the
+child as owning its memory address and omits native child thread/resource injection.
+Paired native tests: `delegated-system-context.integration.spec.ts` checks root
+memory remains enabled while a read-only child reads evidence and reports without
+memory-write tools/instructions; `worker-delegation.integration.spec.ts` retains
+working memory and verifies delegated task content on initial and resumed workers.
+
 Model/key pins retain existing fail-closed resolution. Local renderer inference
 and surface capability rules are unchanged; no HTTP/runtime owner is added.
 

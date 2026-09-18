@@ -34,6 +34,7 @@ import { Agent, type AgentExecutionOptions, type ToolsInput } from '@mastra/core
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { type MastraMemory, parseMemoryRequestContext } from '@mastra/core/memory';
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
+import { Memory } from '@mastra/memory';
 import {
   resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
@@ -627,6 +628,22 @@ export function resolveChildToolCallConcurrency(approvalResumeLeg: boolean | und
   return { limit: approvalResumeLeg ? 1 : MAX_CHILD_TOOL_CALL_CONCURRENCY, strategy: 'called' };
 }
 
+function specialistMemory(
+  memory: NonNullable<BuildPersonaSubAgentsParams['memory']>,
+  persona: AssistantPersonaDefinition
+) {
+  if (personaMode(persona) === 'worker') {
+    return memory;
+  }
+  return new Memory({
+    ...(memory.embedder ? { embedder: memory.embedder } : {}),
+    ...(memory.embedderOptions ? { embedderOptions: memory.embedderOptions } : {}),
+    ...(memory.vector ? { vector: memory.vector } : {}),
+    options: { ...memory.getMergedThreadConfig(), workingMemory: { enabled: false } },
+    storage: memory.storage,
+  });
+}
+
 async function createConfiguredChild({
   params,
   persona,
@@ -705,7 +722,7 @@ async function createConfiguredChild({
   const childModelName = persona.model?.modelId ?? params.modelName;
   let descendants: Promise<PersonaSubAgentBuildResult> | undefined;
   return new Agent({
-    ...(params.memory ? { memory: params.memory } : {}),
+    ...(params.memory ? { memory: specialistMemory(params.memory, persona) } : {}),
     // Recursion is a WORKER capability. Read-only personas (Explorer, Analyst,
     // user profiles without `mode: worker`) are leaves: a research child that
     // can delegate delegates to more research children, ignores "do not
