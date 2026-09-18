@@ -24,6 +24,7 @@
     "react-resizable-panels": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/file-tree-test-fixtures": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@electric-sql/pglite": "catalog:",
     "@testing-library/jest-dom": "catalog:",

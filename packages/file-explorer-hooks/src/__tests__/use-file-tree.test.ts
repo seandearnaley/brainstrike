@@ -1,6 +1,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { createLogger } from '@brainstrike/logging';
-import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';

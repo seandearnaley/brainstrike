@@ -1,6 +1,12 @@
 {
   "extends": ["//"],
   "tasks": {
+    "build": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/verify-no-cross-chunk-cycles.mjs"]
+    },
+    "build:renderer": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/verify-no-cross-chunk-cycles.mjs"]
+    },
     "desktop-dev-dependencies": {
       // Synthetic transit task: build the complete desktop dependency graph
       // without a shell-sensitive `^...` filter or the desktop app itself.

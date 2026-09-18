@@ -1,4 +1,4 @@
-import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
+import { createDirectoryNode, createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { describe, expect, it } from 'vitest';
 import { fileExplorer, memoizedFileExplorer } from '../file-tree.js';
 

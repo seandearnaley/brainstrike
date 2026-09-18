@@ -1,0 +1,29 @@
+{
+  "extends": "../../packages/config/tsconfig/node-library.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "incremental": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "strictNullChecks": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "types": [
+      "node"
+    ]
+  },
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test.ts"
+  ],
+  "include": [
+    "src/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../types"
+    }
+  ]
+}

@@ -413,16 +413,16 @@ test('both renderer builds run the guard on their emitted bundle, enforced not j
   );
 });
 
-test('turbo.jsonc lists the guard so editing it invalidates the build cache', () => {
+test('app build tasks list the guard so editing it invalidates their build cache', () => {
   // A cached build never re-invokes the guard (or `build` at all) — see
-  // docs/agents/platform-contracts.md. Without this global.inputs entry,
+  // docs/agents/platform-contracts.md. Without task-local input entries,
   // editing the guard would leave a stale cache HIT reporting a build that
   // never actually ran the new guard logic.
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-  const turboConfig = readFileSync(path.join(repoRoot, 'turbo.jsonc'), 'utf8');
-
-  assert.ok(
-    turboConfig.includes('scripts/verify-no-cross-chunk-cycles.mjs'),
-    'turbo.jsonc global.inputs must list scripts/verify-no-cross-chunk-cycles.mjs so the build cache is invalidated when the guard changes.'
-  );
+  for (const app of ['web', 'desktop']) {
+    const turboConfig = readFileSync(path.join(repoRoot, `apps/${app}/turbo.json`), 'utf8');
+    assert.ok(turboConfig.includes('$TURBO_ROOT$/scripts/verify-no-cross-chunk-cycles.mjs'));
+  }
+  // ci-guard-input-locality.test.mjs runs the pinned Turbo binary to prove
+  // the actual task hashes AND affected selection, including negative controls.
 });

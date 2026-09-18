@@ -8,7 +8,7 @@ import {
   flattenTreeForCount,
   generateLargeTree,
   largeTreePresets,
-} from '../factories/file-node.js';
+} from './index.js';
 
 function countFiles(node: IFileNode): number {
   let count = node.type === 'file' ? 1 : 0;

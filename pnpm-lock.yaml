@@ -2111,6 +2111,9 @@ importers:
         specifier: ^5
         version: 5.0.15(@types/react@19.3.0)(immer@10.2.0)(react@19.3.0)(use-sync-external-store@1.6.0(react@19.3.0))
     devDependencies:
+      '@brainstrike/file-tree-test-fixtures':
+        specifier: workspace:*
+        version: link:../file-tree-test-fixtures
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
@@ -2178,6 +2181,9 @@ importers:
         specifier: ^19.3.0
         version: 19.3.0
     devDependencies:
+      '@brainstrike/file-tree-test-fixtures':
+        specifier: workspace:*
+        version: link:../file-tree-test-fixtures
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
@@ -2287,6 +2293,9 @@ importers:
         specifier: ^5
         version: 5.0.15(@types/react@19.3.0)(immer@10.2.0)(react@19.3.0)(use-sync-external-store@1.6.0(react@19.3.0))
     devDependencies:
+      '@brainstrike/file-tree-test-fixtures':
+        specifier: workspace:*
+        version: link:../file-tree-test-fixtures
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
@@ -2442,6 +2451,31 @@ importers:
       fake-indexeddb:
         specifier: 'catalog:'
         version: 6.2.5
+      happy-dom:
+        specifier: 'catalog:'
+        version: 20.14.0
+      typescript:
+        specifier: 'catalog:'
+        version: '@typescript/typescript6@6.0.2'
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.0(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(happy-dom@20.14.0)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/file-tree-test-fixtures:
+    dependencies:
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
+    devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.13.3
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 5.0.0(@vitest/browser@5.0.0)(vitest@5.0.0)
       happy-dom:
         specifier: 'catalog:'
         version: 20.14.0
@@ -3038,10 +3072,6 @@ importers:
         version: 5.0.0(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(happy-dom@20.14.0)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))
 
   packages/test-utils:
-    dependencies:
-      '@brainstrike/types':
-        specifier: workspace:*
-        version: link:../types
     devDependencies:
       '@playwright/test':
         specifier: 'catalog:'
@@ -3408,6 +3438,9 @@ importers:
         specifier: 'catalog:'
         version: 10.2.6
     devDependencies:
+      '@brainstrike/file-tree-test-fixtures':
+        specifier: workspace:*
+        version: link:../file-tree-test-fixtures
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
@@ -3568,6 +3601,9 @@ importers:
         specifier: workspace:*
         version: link:../utils
     devDependencies:
+      '@brainstrike/file-tree-test-fixtures':
+        specifier: workspace:*
+        version: link:../file-tree-test-fixtures
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils

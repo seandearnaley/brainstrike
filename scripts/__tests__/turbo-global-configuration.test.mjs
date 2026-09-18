@@ -230,8 +230,8 @@ async function configuredGlobalFiles(config = readTurboConfig()) {
   );
   const files = [...new Set(filesByPattern.flat())];
   assert.ok(
-    files.length >= 10,
-    `Only ${files.length} file(s) matched turbo.jsonc global.inputs (expected >= 10) — the cache-input sweep collapsed.`
+    files.length >= 9,
+    `Only ${files.length} file(s) matched turbo.jsonc global.inputs (expected >= 9) — the cache-input sweep collapsed.`
   );
   return files.map((file) => path.resolve(repoRoot, file)).sort();
 }

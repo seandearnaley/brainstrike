@@ -1,4 +1,4 @@
-import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
+import { createDirectoryNode, createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import type { FileFilterOptions } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 import { buildIgnorePatternRegex, fileFilter } from '../path-filter.js';
