@@ -1,47 +1,30 @@
-export type ResolvedChunkingStrategy =
-  | 'character'
-  | 'recursive'
-  | 'token'
-  | 'markdown'
-  | 'semantic-markdown'
-  | 'html'
-  | 'json'
-  | 'latex'
-  | 'sentence';
+import type { ResolvedChunkingStrategy } from '@brainstrike/indexing-contract';
 
-export type ChunkingStrategy = 'auto' | ResolvedChunkingStrategy;
-
-export type ChunkingPresetId =
-  | 'balanced'
-  | 'codebase'
-  | 'strict-code'
-  | 'docs'
-  | 'api-reference'
-  | 'structured-data'
-  | 'large-context';
-
-export type ChunkingPresetSelection = ChunkingPresetId | 'custom';
-
-export interface ChunkingPresetDefinition {
-  readonly adaptiveRouting: boolean;
-  readonly bestFor: readonly string[];
-  readonly chunkOverlap: number;
-  readonly chunkSize: number;
-  readonly description: string;
-  readonly id: ChunkingPresetId;
-  readonly isDefault?: boolean;
-  readonly label: string;
-  readonly strategy: ChunkingStrategy;
-  readonly tokenLimit: number;
-  readonly tradeoff: string;
-}
-
-export interface ChunkingRoutePreview {
-  readonly fileName: string;
-  readonly label: string;
-  readonly reason: string;
-  readonly resolvedStrategy: ResolvedChunkingStrategy;
-}
+export type {
+  ChunkingPresetDefinition,
+  ChunkingPresetId,
+  ChunkingPresetSelection,
+  ChunkingRoutePreview,
+  ChunkingStrategy,
+  ResolvedChunkingStrategy,
+} from '@brainstrike/indexing-contract';
+/**
+ * Chunking-policy ownership (BST-1144): `@brainstrike/indexing-contract` is the
+ * single canonical home of the chunking-policy surface — strategy/preset
+ * types, preset definitions, and strategy-resolution/route-preview behavior.
+ * This package re-exports that surface so existing `@brainstrike/text-splitter`
+ * consumers keep working. Do not reintroduce local copies here: the two
+ * packages previously drifted by a single character with no test catching it.
+ */
+export {
+  getChunkingPreset,
+  getChunkingPresetDefinitions,
+  getChunkingRoutePreview,
+  isChunkingStrategy,
+  isResolvedChunkingStrategy,
+  resolveChunkingStrategyForFile,
+  resolveEffectiveChunkingStrategy,
+} from '@brainstrike/indexing-contract';
 
 export interface RecursiveTextSplitterOptions {
   chunkOverlap: number;
@@ -66,182 +49,9 @@ export function isMarkdownBlockBoundaryLine(line: string): boolean {
   return MARKDOWN_CODE_FENCE_PATTERN.test(line) || /^(#{1,6})\s+/.test(line) || line.trim() === '';
 }
 
-const CODE_EXTENSIONS = new Set([
-  'js',
-  'ts',
-  'jsx',
-  'tsx',
-  'mjs',
-  'cjs',
-  'mts',
-  'cts',
-  'py',
-  'java',
-  'cpp',
-  'c',
-  'h',
-  'hpp',
-  'cs',
-  'php',
-  'rb',
-  'go',
-  'rs',
-  'swift',
-  'kt',
-  'kts',
-  'scala',
-  'vue',
-  'svelte',
-]);
-
-const RESOLVED_CHUNKING_STRATEGIES = new Set<ResolvedChunkingStrategy>([
-  'character',
-  'recursive',
-  'token',
-  'markdown',
-  'semantic-markdown',
-  'html',
-  'json',
-  'latex',
-  'sentence',
-]);
-
 const DEFAULT_SEPARATORS = ['\n\n', '\n', ' ', ''];
 const MAX_SEPARATOR_REGEX_CACHE_SIZE = 64;
 const SEPARATOR_REGEX_CACHE = new Map<string, RegExp>();
-
-export function isResolvedChunkingStrategy(value: unknown): value is ResolvedChunkingStrategy {
-  return (
-    typeof value === 'string' && RESOLVED_CHUNKING_STRATEGIES.has(value as ResolvedChunkingStrategy)
-  );
-}
-
-export function isChunkingStrategy(value: unknown): value is ChunkingStrategy {
-  return value === 'auto' || isResolvedChunkingStrategy(value);
-}
-
-const CHUNKING_PRESETS: readonly ChunkingPresetDefinition[] = [
-  {
-    adaptiveRouting: true,
-    bestFor: ['mixed repos', 'teams starting out', 'general retrieval'],
-    chunkOverlap: 50,
-    chunkSize: 256,
-    description: 'General-purpose defaults that auto-detect the best splitter for most files.',
-    id: 'balanced',
-    isDefault: true,
-    label: 'Balanced',
-    strategy: 'auto',
-    tokenLimit: 4096,
-    tradeoff: 'Not as aggressive as specialist presets for code-only or schema-heavy corpora.',
-  },
-  {
-    adaptiveRouting: true,
-    bestFor: ['monorepos', 'product docs + code', 'engineering assistants'],
-    chunkOverlap: 40,
-    chunkSize: 224,
-    description:
-      'Adaptive mixed-repo preset: code stays tight while docs and data keep their own structure.',
-    id: 'codebase',
-    label: 'Codebase',
-    strategy: 'auto',
-    tokenLimit: 3072,
-    tradeoff: 'More conservative chunk sizing can increase chunk count on very large repos.',
-  },
-  {
-    adaptiveRouting: false,
-    bestFor: ['source-only repos', 'symbol retrieval', 'diff-aware assistants'],
-    chunkOverlap: 40,
-    chunkSize: 192,
-    description:
-      'Forces recursive code-centric chunking for source-only corpora where locality matters most.',
-    id: 'strict-code',
-    label: 'Strict Code',
-    strategy: 'recursive',
-    tokenLimit: 3072,
-    tradeoff: 'Will over-treat docs and schemas as code if you point it at a mixed corpus.',
-  },
-  {
-    adaptiveRouting: false,
-    bestFor: ['handbooks', 'runbooks', 'README sets'],
-    chunkOverlap: 56,
-    chunkSize: 320,
-    description: 'Prefers semantic markdown grouping for guides, notes, and README-heavy content.',
-    id: 'docs',
-    label: 'Docs',
-    strategy: 'semantic-markdown',
-    tokenLimit: 4096,
-    tradeoff: 'Non-markdown files won’t benefit from the heading-family bias.',
-  },
-  {
-    adaptiveRouting: false,
-    bestFor: ['API docs', 'SDK references', 'parameter lookups'],
-    chunkOverlap: 32,
-    chunkSize: 192,
-    description: 'Smaller, denser chunks for reference docs where precision matters.',
-    id: 'api-reference',
-    label: 'API Reference',
-    strategy: 'markdown',
-    tokenLimit: 3072,
-    tradeoff: 'Can fragment long-form guides more than general-purpose presets.',
-  },
-  {
-    adaptiveRouting: false,
-    bestFor: ['JSON payloads', 'schemas', 'machine-readable docs'],
-    chunkOverlap: 64,
-    chunkSize: 384,
-    description: 'Structure-aware splitting for JSON-like payloads and schema-heavy content.',
-    id: 'structured-data',
-    label: 'Structured Data',
-    strategy: 'json',
-    tokenLimit: 6144,
-    tradeoff: 'Less effective for prose-heavy files that only happen to live near structured data.',
-  },
-  {
-    adaptiveRouting: false,
-    bestFor: ['large-context models', 'broad semantic recall', 'fewer chunk boundaries'],
-    chunkOverlap: 64,
-    chunkSize: 512,
-    description: 'Fewer, larger chunks when downstream models can tolerate bigger payloads.',
-    id: 'large-context',
-    label: 'Large Context',
-    strategy: 'token',
-    tokenLimit: 8192,
-    tradeoff: 'Bigger chunks can reduce precision for exact retrieval and reranking.',
-  },
-] as const;
-
-const ROUTE_PREVIEW_CANDIDATES: readonly Omit<ChunkingRoutePreview, 'resolvedStrategy'>[] = [
-  {
-    fileName: 'src/assistant/retrieval.ts',
-    label: 'Code module',
-    reason: 'Keeps symbols and local control flow together for code retrieval.',
-  },
-  {
-    fileName: 'docs/getting-started.md',
-    label: 'Guide / handbook',
-    reason: 'Preserves heading families so sections stay coherent in retrieval.',
-  },
-  {
-    fileName: 'schemas/search-response.json',
-    label: 'Structured payload',
-    reason: 'Favors object and array boundaries instead of sentence splits.',
-  },
-  {
-    fileName: 'public/reference/index.html',
-    label: 'Markup page',
-    reason: 'Uses block and tag boundaries so markup stays readable in context.',
-  },
-  {
-    fileName: 'notes/retrieval-paper.tex',
-    label: 'Research paper',
-    reason: 'Prefers section and environment boundaries for long technical writing.',
-  },
-  {
-    fileName: 'notes/retro.txt',
-    label: 'Plain notes',
-    reason: 'Falls back to natural sentence boundaries for general prose.',
-  },
-] as const;
 
 function assertInteger(value: number, label: string, allowZero: boolean): void {
   if (!Number.isInteger(value) || (allowZero ? value < 0 : value <= 0)) {
@@ -560,16 +370,6 @@ function splitTextIntoSections(text: string, matcher: RegExp, includeDelimiter =
   return sections.length > 0 ? sections : [text];
 }
 
-function getFileExtension(filePath: string): string {
-  const normalized = filePath.toLowerCase();
-  const lastSlash = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'));
-  const lastDot = normalized.lastIndexOf('.');
-  if (lastDot === -1 || lastDot < lastSlash) {
-    return '';
-  }
-  return normalized.slice(lastDot + 1);
-}
-
 const STRATEGY_SEPARATORS: Readonly<Record<ResolvedChunkingStrategy, string[]>> = {
   character: [''],
   html: ['</section>', '</article>', '</main>', '</div>', '</p>', '</li>', '<br', '\n', ' ', ''],
@@ -736,82 +536,6 @@ export function splitTextByStrategy(text: string, options: StrategyTextSplitterO
       });
     }
   }
-}
-
-export function getChunkingPresetDefinitions(): readonly ChunkingPresetDefinition[] {
-  return CHUNKING_PRESETS;
-}
-
-export function getChunkingPreset(id: ChunkingPresetId): ChunkingPresetDefinition {
-  const preset = CHUNKING_PRESETS.find((candidate) => candidate.id === id);
-  if (!preset) {
-    throw new Error(`Unknown chunking preset: ${id}`);
-  }
-  return preset;
-}
-
-const EXTENSION_STRATEGY_MAP = new Map<string, ResolvedChunkingStrategy>([
-  ['md', 'semantic-markdown'],
-  ['mdx', 'semantic-markdown'],
-  ['markdown', 'semantic-markdown'],
-  ['rst', 'semantic-markdown'],
-  ['adoc', 'semantic-markdown'],
-  ['asciidoc', 'semantic-markdown'],
-  ['html', 'html'],
-  ['htm', 'html'],
-  ['xhtml', 'html'],
-  ['xml', 'html'],
-  ['svg', 'html'],
-  ['json', 'json'],
-  ['jsonl', 'json'],
-  ['ndjson', 'json'],
-  ['geojson', 'json'],
-  ['ipynb', 'json'],
-  ['tex', 'latex'],
-  ['latex', 'latex'],
-  ['bib', 'latex'],
-]);
-
-export function resolveChunkingStrategyForFile(
-  filePath: string,
-  requested: ChunkingStrategy = 'auto'
-): ResolvedChunkingStrategy {
-  if (requested !== 'auto') {
-    return requested;
-  }
-
-  const extension = getFileExtension(filePath);
-  if (CODE_EXTENSIONS.has(extension)) {
-    return 'recursive';
-  }
-  return EXTENSION_STRATEGY_MAP.get(extension) ?? 'sentence';
-}
-
-export function resolveEffectiveChunkingStrategy({
-  requested,
-  resolvedAutoStrategy,
-  isCode,
-}: {
-  requested: ChunkingStrategy;
-  resolvedAutoStrategy: ResolvedChunkingStrategy;
-  isCode: boolean;
-}): ResolvedChunkingStrategy {
-  if (requested !== 'auto') {
-    return requested;
-  }
-  if (resolvedAutoStrategy === 'recursive' && !isCode) {
-    return 'sentence';
-  }
-  return resolvedAutoStrategy;
-}
-
-export function getChunkingRoutePreview(
-  requested: ChunkingStrategy = 'auto'
-): readonly ChunkingRoutePreview[] {
-  return ROUTE_PREVIEW_CANDIDATES.map((candidate) => ({
-    ...candidate,
-    resolvedStrategy: resolveChunkingStrategyForFile(candidate.fileName, requested),
-  }));
 }
 
 export class RecursiveTextSplitter {
