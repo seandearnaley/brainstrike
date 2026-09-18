@@ -853,13 +853,16 @@ it('the wakeup carries the whole ledger: a root that trusts it reports the final
     expect(text.indexOf('PARENT_FINAL_OUTCOME')).toBeGreaterThan(
       text.indexOf('PARENT_USEFUL_PROGRESS')
     );
-    const wakeups = fixture.wakeups.map((record) =>
-      JSON.stringify(
-        model.prompts[record.promptsAtRecord]?.prompt
-          .filter((message) => message.role === 'user')
-          .at(-1)
-      )
-    );
+    const wakeups = fixture.wakeups.map((record) => {
+      const prompt = model.prompts[record.promptsAtRecord];
+      expect(prompt).toBeDefined();
+      const received = prompt?.prompt
+        .filter((message) => message.role === 'user')
+        .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+        .find((part) => part.type === 'text' && part.text === record.directive);
+      expect(received).toBeDefined();
+      return received?.type === 'text' ? received.text : undefined;
+    });
     expect(wakeups).toHaveLength(2);
     expect(wakeups[0]).toContain('2 total: 1 returned, 0 failed, 0 cancelled, 1 still running');
     expect(wakeups[0]).toContain('Explorer): still running');
