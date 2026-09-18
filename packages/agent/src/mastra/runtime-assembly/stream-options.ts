@@ -28,6 +28,7 @@ import { SkillsProcessor } from '@mastra/core/processors';
 import type { ToolHooks } from '@mastra/core/tools';
 import { getDefaultModel } from '../../providers/provider-factory';
 import type { RuntimeData } from '../../types';
+import { createActiveBackgroundResultsProcessor } from '../active-background-results-processor';
 import type { MastraAgentRuntime, MastraAgentRuntimeOptions } from '../agent-runtime';
 import { buildBedrockMessageHygieneInputProcessor } from '../bedrock-message-hygiene';
 import { buildCompactionOverlayInputProcessor } from '../compaction-overlay-processor';
@@ -433,6 +434,15 @@ export function buildStreamOptions(
     // this key, even if one is passed.
     ...(leg === 'resume' || requireToolApproval === undefined ? {} : { requireToolApproval }),
   };
+  const backgroundResults = createActiveBackgroundResultsProcessor(
+    runtime,
+    runtimeData,
+    delegationOutcomes
+  );
+  if (backgroundResults) {
+    // Before history projections and the input-step token limiter.
+    options.inputProcessors = [backgroundResults, ...(options.inputProcessors ?? [])];
+  }
   // The run owner serializes stream legs; descendants read this same leg context lazily.
   if (runtime.delegatedExecutionOptions) {
     Object.assign(runtime.delegatedExecutionOptions, {

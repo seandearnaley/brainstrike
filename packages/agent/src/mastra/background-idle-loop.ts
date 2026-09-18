@@ -3,6 +3,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { Agent } from '@mastra/core/agent';
 import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
 import { MAX_BACKGROUND_TASK_TIMEOUT_MS } from '../pglite-mastra-memory/background-store';
+import { wasBackgroundOutcomePresented } from './active-background-results-processor';
 import {
   type BackgroundLedgerSource,
   createLedgerPublisher,
@@ -292,6 +293,7 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   const isNewSuspension = createSuspensionLedger();
   const loopAbort = new AbortController();
   let processing = true;
+  let parentSucceeded = false;
   let closed = false;
   /** The parent's own pause ended a turn: the run is parked on the user. */
   let parked = false;
@@ -395,6 +397,20 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       }
     );
   };
+  const discardPresentedWakeups = () => {
+    if (!parentSucceeded) {
+      return;
+    }
+    // An active step may have consumed a terminal while this loop was piping it.
+    // Do not start another inference for an outcome the model already received.
+    for (let index = pending.length - 1; index >= 0; index -= 1) {
+      const event = pending[index];
+      const taskId = event ? readTaskId(event) : undefined;
+      if (taskId && wasBackgroundOutcomePresented(params.options.inputProcessors, taskId)) {
+        pending.splice(index, 1);
+      }
+    }
+  };
   const settle = () => {
     // An in-flight ledger read is joined before the leg can close: a leg
     // settling right after the last terminal would otherwise close before
@@ -403,6 +419,7 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     if (closed || processing || answering > 0 || publisher.inFlight > 0 || recording > 0) {
       return;
     }
+    discardPresentedWakeups();
     if (parked) {
       if (running.size > 0) {
         armIdleTimer();
@@ -478,7 +495,9 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   };
   /** Pipe one parent turn; a turn that closes suspended parks the run on the user. */
   const pipeTurn = async (turn: NativeOutput) => {
+    parentSucceeded = false;
     await pipe(turn.fullStream);
+    parentSucceeded = readNativeStreamStatus(turn) === 'success';
     if (readNativeStreamStatus(turn) === 'suspended') {
       parked = true;
     }

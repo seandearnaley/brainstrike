@@ -97,12 +97,9 @@ it('a root pause on a BACKGROUND WAKE-UP continuation carries a SECOND native ru
       return scripted(options);
     }
     model.prompts.push(options);
-    const lastUser = JSON.stringify(
-      options.prompt.filter((message) => message.role === 'user').at(-1)
-    );
     const parts = hasToolResult(options, 'brainstrike_writeWorkspaceFile')
       ? textParts('ROOT_DONE')
-      : lastUser.includes('Background invocations of this turn')
+      : fixture.wakeups.length > 0
         ? toolCallParts('brainstrike_writeWorkspaceFile', 'root-write-on-wake', {
             pattern: 'report',
           })
@@ -129,10 +126,12 @@ it('a root pause on a BACKGROUND WAKE-UP continuation carries a SECOND native ru
     const consuming = (async () => {
       for await (const chunk of iterator) {
         chunks.push(chunk);
+        if (chunk.type === 'text-delta' && chunk.value.includes('ROOT_ACK_WAITING')) {
+          release.resolve();
+        }
       }
     })();
     await entered.promise;
-    release.resolve();
     await consuming;
 
     const [pause] = rootPauseRunIds(chunks);

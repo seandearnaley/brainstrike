@@ -1993,6 +1993,31 @@ load-bearing, since no continuation keeps the leg open), persisted like
 every run event. Because the wakeup QUOTES each child's prompt, a scripted
 harness must tell the root's wakeup apart by its header ("Background
 invocations of this turn") before it uses prompt text to pick a child.
+ACTIVE PARENT STEPS (BST-1771, 2026-09-17): the idle loop queues terminal
+wakeups while a parent turn is streaming. A UI ledger reaching zero running
+therefore did not mean that an active parent model saw that update. Root stream
+options now refresh the same generation-scoped ledger and compact saved terminal
+outcomes before each input step, including inside a continuation. One owned
+native `context` message is replaced before the input token limiter; it remains
+user-role tool data, is not drained into durable user/response history, and does
+not start another inference. Child-runtime legs do not install this processor.
+Suspended tasks remain running and refused delegations remain excluded. The
+generation port was already mandatory for background wakeups; missing bindings
+now fail before inference. Durable read failures propagate rather than letting
+the root publish from a known-stale completion ledger (no silent degradation).
+A provider-boundary observer records only terminal notices retained verbatim
+after input processing. The idle loop drops their queued wakeups only after the
+active native turn succeeds, avoiding a second report-producing inference.
+Failed, aborted, unknown-status or parked turns retain pending delivery; an
+altered/trimmed notice is conservatively unacknowledged. Transcript
+reconciliation is unchanged.
+Paired: `active-parent-background-results.integration.spec.ts`
+holds the original parent or a later native continuation open, completes the
+last child, and checks the next model request and absence of a persisted context
+message; `active-background-results-processor.spec.ts` pins replacement, scope,
+terminal states, suspension, authority and read failure. The idle-loop test
+`keeps a presented outcome queued when the parent request fails` pins the
+acknowledgement/response-failure boundary.
 An approval for work parked before migration 140 can lack the durable native
 run mapping required to name this generation. Approval preparation validates
 that mapping before recording any policy-granted sibling answers or starting a
@@ -2464,6 +2489,15 @@ recursive leaf approval, renderer reload and a distinct native host restart.
 plan pause, failed outcomes, lost parent-result delivery and root Stop with a
 queued effect. Native background follow-up/human composer and selective subtree
 controls remain separate acceptance within BST-1723.
+
+Scripted transport fixtures identify root/child calls from their tool surfaces,
+not the last user message: root context can end with a ledger refresh. Tests of
+new native continuations use `recordWakeup`, not the ledger header, which is also
+present inside active runs. Hold children until the initial acknowledgement when
+the acceptance specifically requires an idle-loop continuation. The desktop
+deadline fixture has one child model call: the old last-user classifier wrongly
+counted the root's terminal-ledger response as a second child call. Persisted
+usage, terminal status and reload assertions remain independent of that classifier.
 
 ### Swarm diagnostics evidence (2026-09-15)
 

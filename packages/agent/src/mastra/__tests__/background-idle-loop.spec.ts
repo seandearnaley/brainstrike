@@ -1,6 +1,7 @@
 import type { Agent } from '@mastra/core/agent';
 import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/background-tasks';
 import { describe, expect, it, vi } from 'vitest';
+import { ActiveBackgroundResultsProcessor } from '../active-background-results-processor';
 import { withBackgroundIdleLoop } from '../background-idle-loop';
 import { createBackgroundLedgerSource } from '../background-ledger';
 import { createLiveDecisionChannel } from '../live-decision-channel';
@@ -79,7 +80,7 @@ const emptyTurn = { fullStream: new ReadableStream<unknown>({ start: (c) => c.cl
 const agent = { id: 'root', stream: async () => emptyTurn } as unknown as Agent;
 
 /** A parent turn that emits `chunks` and closes with Mastra's synchronous `status`. */
-function turn(status: 'success' | 'suspended', chunks: unknown[] = []) {
+function turn(status: 'failed' | 'success' | 'suspended', chunks: unknown[] = []) {
   return {
     fullStream: new ReadableStream<unknown>({
       start(controller) {
@@ -128,6 +129,33 @@ function isLedgerRow(chunk: unknown): chunk is LedgerRow {
 }
 
 describe('withBackgroundIdleLoop', () => {
+  it('keeps a presented outcome queued when the parent request fails', async () => {
+    const { ledger, manager, push, setTask } = fakeManager([], () => {});
+    setTask('t1', 'completed');
+    const processor = new ActiveBackgroundResultsProcessor(ledger);
+    vi.spyOn(processor, 'hasPresented').mockReturnValue(true);
+    const stream = vi.fn(async () => turn('success'));
+    const failedTurn = new ReadableStream<unknown>({
+      start(controller) {
+        push(lifecycle('background-task-completed', 't1'));
+        controller.close();
+      },
+    });
+    const output = withBackgroundIdleLoop(
+      { fullStream: failedTurn, status: 'failed' },
+      {
+        agent: { id: 'root', stream } as unknown as Agent,
+        ledger,
+        manager,
+        options: { inputProcessors: [processor] },
+        recordNativeRootRun,
+        rejectedDelegations: undefined,
+        scope: { resourceId: 'r', threadId: 't' },
+      }
+    );
+    await drain(output.fullStream.getReader());
+    expect(stream).toHaveBeenCalledTimes(1);
+  });
   it('ignores a repeated suspension of a resumed task and stays open until the task returns', async () => {
     const channel = createLiveDecisionChannel();
     const suspended = lifecycle('background-task-suspended', 't1', { suspendedAt: 'stamp-1' });
