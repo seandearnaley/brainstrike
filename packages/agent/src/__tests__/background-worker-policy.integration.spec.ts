@@ -423,18 +423,17 @@ it('a session grant answers every parked background sibling in the same approval
     // exact text the parent then received, before that inference ran.
     // MUTATION: recording after `agent.stream` moves `promptsAtRecord` past the
     // wakeup prompt.
-    const wakeupPrompt = fixture.model.prompts.findIndex((call) =>
-      JSON.stringify(call.prompt).includes('Background invocations of this turn')
-    );
-    const lastUser = fixture.model.prompts[wakeupPrompt]?.prompt
-      .filter((message) => message.role === 'user')
-      .at(-1);
-    const sent =
-      lastUser && Array.isArray(lastUser.content)
-        ? lastUser.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
-        : undefined;
     expect(fixture.wakeups.map((row) => row.kind)).toEqual(['resume-leg']);
-    expect(fixture.wakeups[0]?.directive).toBe(sent);
+    const directive = fixture.wakeups[0]?.directive;
+    const wakeupPrompt = fixture.model.prompts.findIndex((call) =>
+      call.prompt.some(
+        (message) =>
+          message.role === 'user' &&
+          Array.isArray(message.content) &&
+          message.content.some((part) => part.type === 'text' && part.text === directive)
+      )
+    );
+    expect(wakeupPrompt).toBeGreaterThanOrEqual(0);
     expect(fixture.wakeups[0]?.promptsAtRecord).toBe(wakeupPrompt);
     expect(
       fixture.wakeups[0]?.invocations.map((entry) => [entry.outcome, entry.toolCallId]).sort()
@@ -828,13 +827,8 @@ it('the wakeup carries the whole ledger: a root that trusts it reports the final
     siblings: 2,
   });
   const { backing, runtime, runtimeData, release, hold, database, model } = fixture;
-  release.resolve();
   const chunks: StreamChunk[] = [];
   const texts: string[] = [];
-  const isWakeupPrompt = (prompt: (typeof model.prompts)[number]) =>
-    JSON.stringify(prompt.prompt.filter((message) => message.role === 'user').at(-1)).includes(
-      'Background invocations of this turn'
-    );
   try {
     for await (const chunk of await createStreamIteratorFromRuntime({
       memory: backing.memory,
@@ -845,8 +839,12 @@ it('the wakeup carries the whole ledger: a root that trusts it reports the final
       chunks.push(chunk);
       if (chunk.type === 'text-delta') {
         texts.push(chunk.value);
+        // Keep the initial parent step active until its dispatch acknowledgement.
+        if (chunk.value.includes('PARENT_USEFUL_PROGRESS')) {
+          release.resolve();
+        }
       }
-      if (model.prompts.some(isWakeupPrompt)) {
+      if (fixture.wakeups.some((record) => model.prompts.length > record.promptsAtRecord)) {
         hold.resolve();
       }
     }
@@ -855,12 +853,13 @@ it('the wakeup carries the whole ledger: a root that trusts it reports the final
     expect(text.indexOf('PARENT_FINAL_OUTCOME')).toBeGreaterThan(
       text.indexOf('PARENT_USEFUL_PROGRESS')
     );
-    const wakeups = model.prompts
-      .filter((prompt) => prompt.tools?.some((tool) => tool.name === 'agent-explore'))
-      .filter(isWakeupPrompt)
-      .map((prompt) =>
-        JSON.stringify(prompt.prompt.filter((message) => message.role === 'user').at(-1))
-      );
+    const wakeups = fixture.wakeups.map((record) =>
+      JSON.stringify(
+        model.prompts[record.promptsAtRecord]?.prompt
+          .filter((message) => message.role === 'user')
+          .at(-1)
+      )
+    );
     expect(wakeups).toHaveLength(2);
     expect(wakeups[0]).toContain('2 total: 1 returned, 0 failed, 0 cancelled, 1 still running');
     expect(wakeups[0]).toContain('Explorer): still running');

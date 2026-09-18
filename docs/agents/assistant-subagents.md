@@ -2490,6 +2490,15 @@ plan pause, failed outcomes, lost parent-result delivery and root Stop with a
 queued effect. Native background follow-up/human composer and selective subtree
 controls remain separate acceptance within BST-1723.
 
+Scripted transport fixtures identify root/child calls from their tool surfaces,
+not the last user message: root context can end with a ledger refresh. Tests of
+new native continuations use `recordWakeup`, not the ledger header, which is also
+present inside active runs. Hold children until the initial acknowledgement when
+the acceptance specifically requires an idle-loop continuation. The desktop
+deadline fixture has one child model call: the old last-user classifier wrongly
+counted the root's terminal-ledger response as a second child call. Persisted
+usage, terminal status and reload assertions remain independent of that classifier.
+
 ### Swarm diagnostics evidence (2026-09-15)
 
 Every model-facing wakeup, deferral and late overlay is durable evidence for the

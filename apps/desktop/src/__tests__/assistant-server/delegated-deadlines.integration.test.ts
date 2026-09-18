@@ -444,11 +444,7 @@ describe('desktop delegated deadline outcomes', () => {
     async (mode) => {
       let childCalls = 0;
       holder.model = scriptedAgentModel((options) => {
-        if (
-          JSON.stringify(
-            options.prompt.filter((message) => message.role === 'user').at(-1)
-          )?.includes('ROOT_RUNTIME_TASK')
-        ) {
+        if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
           return hasToolResult(options, 'agent-explore')
             ? textParts('Parent: FLAG-42')
             : toolCallParts('agent-explore', 'delegation-call', {
@@ -613,9 +609,9 @@ describe('desktop delegated deadline outcomes', () => {
           { input_tokens: expected, output_tokens: expected, run_id: 'host-leg' },
         ]);
         expect(execute).toHaveBeenCalledTimes(mode === 'stop' ? 0 : 1);
-        // Native resume enters the next model step before its aborted stream
-        // settles; that invocation contributes no additional persisted usage.
-        expect(childCalls).toBe(mode === 'stop' ? 1 : 2);
+        // Only successful approval reaches a second child model step. A root
+        // ledger continuation is identified by its tools, never counted as a child.
+        expect(childCalls).toBe(mode === 'approve' ? 2 : 1);
         if (mode === 'deadline') {
           expect(
             (
