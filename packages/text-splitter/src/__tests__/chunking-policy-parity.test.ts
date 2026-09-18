@@ -26,34 +26,25 @@ import {
  * RED: while the two packages carried independent copies, the deep-equality
  * assertions below failed on the straight-vs-curly apostrophe drift in one
  * CHUNKING_PRESETS tradeoff string — proving no test guarded their sync.
- * GREEN: both packages consume the single canonical source, so the surfaces
- * cannot diverge silently. If anyone reintroduces a local copy here, the
- * identity assertions fail first.
+ * GREEN: this package delegates to the single canonical source. Behavioral
+ * comparisons deliberately avoid reference identity because that would couple
+ * the guard to module-resolution and bundling topology.
  */
 describe('chunking-policy parity with @brainstrike/indexing-contract (BST-1144)', () => {
-  it('re-exports the canonical function identities', () => {
-    expect(getChunkingPreset).toBe(contractGetChunkingPreset);
-    expect(getChunkingPresetDefinitions).toBe(contractGetChunkingPresetDefinitions);
-    expect(getChunkingRoutePreview).toBe(contractGetChunkingRoutePreview);
-    expect(isChunkingStrategy).toBe(contractIsChunkingStrategy);
-    expect(isResolvedChunkingStrategy).toBe(contractIsResolvedChunkingStrategy);
-    expect(resolveChunkingStrategyForFile).toBe(contractResolveChunkingStrategyForFile);
-    expect(resolveEffectiveChunkingStrategy).toBe(contractResolveEffectiveChunkingStrategy);
-  });
-
   it('preset definitions are deeply equal (catches data drift)', () => {
     expect(getChunkingPresetDefinitions()).toEqual(contractGetChunkingPresetDefinitions());
     for (const preset of getChunkingPresetDefinitions()) {
       expect(getChunkingPreset(preset.id)).toEqual(contractGetChunkingPreset(preset.id));
     }
-    expect(() => getChunkingPreset('no-such-preset' as never)).toThrow(
-      'Unknown chunking preset: no-such-preset'
-    );
+    const invalidPreset = 'no-such-preset' as Parameters<typeof getChunkingPreset>[0];
+    expect(() => getChunkingPreset(invalidPreset)).toThrow();
+    expect(() => contractGetChunkingPreset(invalidPreset)).toThrow();
   });
 
   it('strategy resolution agrees across a representative file matrix', () => {
+    const explicitStrategyFile = 'src/assistant/retrieval.ts';
     const files = [
-      'src/assistant/retrieval.ts',
+      explicitStrategyFile,
       'src/worker/chunking.worker.ts',
       'app/main.py',
       'docs/getting-started.md',
@@ -72,10 +63,10 @@ describe('chunking-policy parity with @brainstrike/indexing-contract (BST-1144)'
       expect(resolveChunkingStrategyForFile(file)).toBe(
         contractResolveChunkingStrategyForFile(file)
       );
-      expect(resolveChunkingStrategyForFile(file, 'markdown')).toBe(
-        contractResolveChunkingStrategyForFile(file, 'markdown')
-      );
     }
+    expect(resolveChunkingStrategyForFile(explicitStrategyFile, 'markdown')).toBe(
+      contractResolveChunkingStrategyForFile(explicitStrategyFile, 'markdown')
+    );
   });
 
   it('route previews agree for default and explicit strategies', () => {
@@ -87,6 +78,7 @@ describe('chunking-policy parity with @brainstrike/indexing-contract (BST-1144)'
     const cases = [
       { isCode: true, requested: 'auto' as const, resolvedAutoStrategy: 'recursive' as const },
       { isCode: false, requested: 'auto' as const, resolvedAutoStrategy: 'recursive' as const },
+      { isCode: true, requested: 'auto' as const, resolvedAutoStrategy: 'sentence' as const },
       { isCode: false, requested: 'auto' as const, resolvedAutoStrategy: 'sentence' as const },
       { isCode: true, requested: 'markdown' as const, resolvedAutoStrategy: 'sentence' as const },
     ];

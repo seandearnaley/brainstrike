@@ -1,3 +1,11 @@
+/**
+ * Chunking-policy ownership (BST-1144): `@brainstrike/indexing-contract` is the
+ * single canonical home of the chunking-policy surface — strategy/preset
+ * types, preset definitions, and strategy-resolution/route-preview behavior.
+ * This package re-exports that surface so existing `@brainstrike/text-splitter`
+ * consumers keep working. Do not reintroduce local copies here: the two
+ * packages previously drifted by a single character with no test catching it.
+ */
 import type { ResolvedChunkingStrategy } from '@brainstrike/indexing-contract';
 
 export type {
@@ -8,14 +16,6 @@ export type {
   ChunkingStrategy,
   ResolvedChunkingStrategy,
 } from '@brainstrike/indexing-contract';
-/**
- * Chunking-policy ownership (BST-1144): `@brainstrike/indexing-contract` is the
- * single canonical home of the chunking-policy surface — strategy/preset
- * types, preset definitions, and strategy-resolution/route-preview behavior.
- * This package re-exports that surface so existing `@brainstrike/text-splitter`
- * consumers keep working. Do not reintroduce local copies here: the two
- * packages previously drifted by a single character with no test catching it.
- */
 export {
   getChunkingPreset,
   getChunkingPresetDefinitions,
