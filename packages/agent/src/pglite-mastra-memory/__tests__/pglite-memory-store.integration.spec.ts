@@ -61,6 +61,10 @@ describe('PgliteMemoryStore', () => {
     try {
       await coldStore.initialize();
       await coldStore.initialize();
+      const reloadedColdStore = new PgliteMemoryStore({
+        database: coldDb as unknown as PgliteDatabase,
+      });
+      await reloadedColdStore.initialize();
 
       const result = await coldDb.query<{ tablename: string }>(
         "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'mastra_%' ORDER BY tablename"
