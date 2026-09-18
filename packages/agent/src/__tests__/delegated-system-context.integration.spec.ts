@@ -1,7 +1,8 @@
 import { DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { parseMemoryRequestContext } from '@mastra/core/memory';
 import { InMemoryStore } from '@mastra/core/storage';
-import { createTool } from '@mastra/core/tools';
+import { createTool, type ToolExecuteContext } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import { expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -67,7 +68,15 @@ it('read-only specialists retain their task and tools without inherited memory-w
   const childPrompts: unknown[] = [];
   const childTools: string[][] = [];
   const rootTools: string[][] = [];
-  const execute = vi.fn(async () => ({ matches: ['EVIDENCE'] }));
+  let observedChild: { threadId: string; resourceId: string } | undefined;
+  const execute = vi.fn(async (_input: unknown, context?: ToolExecuteContext<unknown>) => {
+    const scope = parseMemoryRequestContext(context?.requestContext);
+    if (!(scope?.thread && scope.resourceId)) {
+      throw new Error('Missing native child memory');
+    }
+    observedChild = { resourceId: scope.resourceId, threadId: scope.thread.id };
+    return { matches: ['EVIDENCE'] };
+  });
   modelHolder.current = scriptedAgentModel((options) => {
     const names = options.tools?.map((tool) => tool.name) ?? [];
     if (names.includes('agent-explore')) {
@@ -104,6 +113,19 @@ it('read-only specialists retain their task and tools without inherited memory-w
   expect(rootTools.flat()).toContain('updateWorkingMemory');
   expect(JSON.stringify(chunks)).toContain('ARCHITECTURE_REPORT: EVIDENCE');
   expect(JSON.stringify(chunks)).toContain('ROOT_REPORT');
+  expect(observedChild?.threadId).not.toBe(setup.runtime.memory.threadId);
+  expect(observedChild?.resourceId).not.toBe(setup.runtime.memory.resourceId);
+  const store = await setup.storage.getStore('memory');
+  if (!(store && observedChild)) {
+    throw new Error('Missing child storage');
+  }
+  expect(await store.getThreadById({ threadId: observedChild.threadId })).toMatchObject({
+    id: observedChild.threadId,
+    resourceId: observedChild.resourceId,
+  });
+  const saved = await store.listMessages({ perPage: false, threadId: observedChild.threadId });
+  expect(JSON.stringify(saved.messages)).toContain('ARCHITECTURE_REPORT: EVIDENCE');
+  expect(JSON.stringify(saved.messages)).not.toContain('ROOT_REPORT');
 });
 it('rejects oversized trusted child context before child inference while the parent receives its failure', async () => {
   const trustedText = '界'.repeat(23_000);

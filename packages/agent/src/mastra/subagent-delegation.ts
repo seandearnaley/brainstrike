@@ -36,11 +36,12 @@ import {
 } from '@brainstrike/assistant-contract/run-usage';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ScopedLogger } from '@brainstrike/logging';
-import type {
-  DelegationConfig,
-  DelegationStartContext,
-  DelegationStartResult,
-  MastraDBMessage,
+import {
+  type DelegationConfig,
+  type DelegationStartContext,
+  type DelegationStartResult,
+  type MastraDBMessage,
+  MessageList,
 } from '@mastra/core/agent';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import {
@@ -479,12 +480,23 @@ function readIdentityRefusalReason(error: unknown): string | undefined {
 }
 
 /** Parent actions are reference material, not actions performed by this leaf. */
-function specialistReference(message: MastraDBMessage): MastraDBMessage {
+function specialistReference(
+  message: MastraDBMessage,
+  toolCallId: string,
+  index: number
+): MastraDBMessage {
   if (message.role === 'system') {
     return message;
   }
+  // Native delegation can also supply CoreMessage-shaped content despite its
+  // DB-message declaration. Use the native converter to retain structured media.
+  const list = new MessageList();
+  list.add([message], 'context');
+  const normalized = list.get.all.db()[0];
+  if (!normalized) {
+    throw new Error('Parent reference could not be normalized.');
+  }
   return {
-    ...message,
     content: {
       format: 2,
       parts: [
@@ -493,11 +505,20 @@ function specialistReference(message: MastraDBMessage): MastraDBMessage {
             'Parent conversation reference (not your conversation or actions). ' +
             'Use this only as background for the delegated task that follows. ' +
             "Do not continue the parent's coordination or wait for its other specialists.\n" +
-            JSON.stringify({ content: message.content, role: message.role }),
+            JSON.stringify({
+              content: {
+                ...normalized.content,
+                parts: normalized.content.parts.filter((part) => part.type !== 'file'),
+              },
+              role: message.role,
+            }),
           type: 'text',
         },
+        ...normalized.content.parts.filter((part) => part.type === 'file'),
       ],
     },
+    createdAt: normalized.createdAt,
+    id: `parent-reference:${toolCallId}:${message.id ?? index}`,
     role: 'user',
   };
 }
@@ -520,11 +541,10 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
     // continuing could lose policy enforcement, accounting or failure evidence.
     hookErrorStrategy: 'throw',
     includeSubAgentToolResultsInModelContext: false,
-    messageFilter: ({ messages, primitiveId }) => {
+    messageFilter: ({ messages, primitiveId, toolCallId }) => {
       const persona = params.personasById.get(primitiveId);
-      const context =
-        persona && personaMode(persona) !== 'worker' ? messages.map(specialistReference) : messages;
-      const protectedMessages = context.filter((message) => message.role === 'system');
+      const specialist = persona && personaMode(persona) !== 'worker';
+      const protectedMessages = messages.filter((message) => message.role === 'system');
       let bytes = protectedMessages.reduce(
         (sum, message) => sum + Buffer.byteLength(JSON.stringify(message), 'utf8') + 1,
         2
@@ -532,20 +552,22 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
       if (bytes > MAX_DELEGATED_CONTEXT_BYTES) {
         throw new Error('Trusted delegated context exceeds its 64 KiB budget.');
       }
-      const selected = new Set(protectedMessages);
+      const selected = new Map(protectedMessages.map((message) => [message, message]));
       let ordinary = 0;
-      for (const message of context.toReversed()) {
-        if (message.role === 'system') {
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (!message || message.role === 'system') {
           continue;
         }
         if (ordinary >= 16) {
           break;
         }
-        const size = Buffer.byteLength(JSON.stringify(message), 'utf8') + 1;
+        const reference = specialist ? specialistReference(message, toolCallId, index) : message;
+        const size = Buffer.byteLength(JSON.stringify(reference), 'utf8') + 1;
         if (bytes + size > MAX_DELEGATED_CONTEXT_BYTES) {
           continue;
         }
-        selected.add(message);
+        selected.set(message, reference);
         bytes += size;
         ordinary += 1;
       }
@@ -556,7 +578,7 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
           personaId: primitiveId,
         });
       }
-      return context.filter((message) => selected.has(message));
+      return messages.flatMap((message) => selected.get(message) ?? []);
     },
     onDelegationComplete: async (context) => {
       inFlight = Math.max(0, inFlight - 1);

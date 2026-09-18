@@ -634,7 +634,7 @@ function specialistMemory(
 ) {
   if (
     personaMode(persona) === 'worker' ||
-    memory.getMergedThreadConfig().workingMemory?.enabled === false
+    memory.getMergedThreadConfig().workingMemory?.enabled !== true
   ) {
     return memory;
   }

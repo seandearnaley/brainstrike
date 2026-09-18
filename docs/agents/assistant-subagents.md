@@ -146,7 +146,11 @@ from the instruction override and appended to the delegated user task instead.
 serialization budget. Read-only specialists receive parent conversation messages
 as explicitly labeled reference text, preserving the source role/content inside
 that reference, rather than inheriting the parent's assistant actions as their
-own conversation. The native delegated task follows those references. This
+own conversation. Native image/file parts remain structured model inputs; each
+rewritten reference has an invocation-scoped identity without parent persistence
+ownership. References are constructed lazily during selection and their complete
+serialized size, including the label, counts toward the unchanged budget.
+The native delegated task follows those references. This
 boundary also applies on approval resume: the BST-1771 Grok replay otherwise
 mistook parent coordination for its own work and waited for other specialists
 instead of returning its briefing. Workers retain original message objects and

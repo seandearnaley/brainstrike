@@ -666,10 +666,14 @@ describe('delegated instruction and context authority', () => {
     };
     const messages = [trusted, ...list.get.all.db()];
     const before = JSON.stringify(messages);
-    const filtered = await config().messageFilter?.({ ...startContext(), messages });
-    expect(filtered?.map((message) => message.id)).toEqual(
-      [messages[0], ...messages.slice(5, 21)].map((message) => message?.id)
-    );
+    const invocation = startContext();
+    const filtered = await config().messageFilter?.({ ...invocation, messages });
+    expect(filtered?.map((message) => message.id)).toEqual([
+      trusted.id,
+      ...messages
+        .slice(5, 21)
+        .map((message) => `parent-reference:${invocation.toolCallId}:${message.id}`),
+    ]);
     expect(filtered?.[0]).toEqual(trusted);
     for (const [index, reference] of (filtered?.slice(1) ?? []).entries()) {
       const part = reference.content.parts[0];
@@ -686,6 +690,30 @@ describe('delegated instruction and context authority', () => {
     expect(filtered?.slice(1).every((message) => message.role === 'user')).toBe(true);
     expect(JSON.stringify(messages)).toBe(before);
     expect(Buffer.byteLength(JSON.stringify(filtered), 'utf8')).toBeLessThan(65_536);
+  });
+  it('preserves native image parts without reusing the parent message identity', async () => {
+    const list = new MessageList();
+    list.add(
+      [
+        {
+          content: [
+            { text: 'Inspect this screenshot.', type: 'text' },
+            { image: 'data:image/png;base64,aGVsbG8=', type: 'image' },
+          ],
+          role: 'user',
+        },
+      ],
+      'input'
+    );
+    const messages = list.get.all.db();
+    const original = messages[0];
+    const image = original?.content.parts.find((part) => part.type === 'file');
+    expect(image).toBeDefined();
+    const filtered = await config().messageFilter?.({ ...startContext(), messages });
+    expect(filtered?.[0]?.id).not.toBe(original?.id);
+    expect(filtered?.[0]?.threadId).toBeUndefined();
+    expect(filtered?.[0]?.resourceId).toBeUndefined();
+    expect(filtered?.[0]?.content.parts).toContainEqual(image);
   });
   it('fails closed instead of truncating oversized trusted instructions', async () => {
     const trusted: MastraDBMessage = {
