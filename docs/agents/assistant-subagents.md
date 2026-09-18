@@ -118,6 +118,20 @@ resource via public `parseMemoryRequestContext`, then uses Mastra's context-stor
 parser before the paused tool executes. Parent history is never borrowed. Skill
 metadata injection requires the corresponding permitted skill controls.
 Explorer/Analyst keep their curated tool surface and provenance/reporting role.
+Read-only specialists use native Memory with the same storage, retrieval options
+and embedding configuration, but working memory disabled. Sharing the root
+Memory instance also injected `updateWorkingMemory` and its mandatory per-response
+system instruction, bypassing the specialist's curated tools; the BST-1771 Grok
+capture spent its steps updating that scratchpad instead of inspecting files.
+Worker-mode children retain their configured working memory. This does not turn
+off child transcript persistence or change native thread ownership. Do not set
+`defaultOptions.memory` merely to override this option: Mastra then treats the
+child as owning its memory address and omits native child thread/resource injection.
+Paired native tests: `delegated-system-context.integration.spec.ts` checks root
+memory remains enabled while a read-only child reads evidence and reports without
+memory-write tools/instructions; `worker-delegation.integration.spec.ts` retains
+working memory and verifies delegated task content on initial and resumed workers.
+
 Model/key pins retain existing fail-closed resolution. Local renderer inference
 and surface capability rules are unchanged; no HTTP/runtime owner is added.
 
@@ -128,8 +142,19 @@ suspension. Native snapshots retain the original workspace context across a
 fresh approval runtime; resume does not reread changed AGENTS files. System
 context over 64 KiB fails closed. Model-authored `params.instructions` is cleared
 from the instruction override and appended to the delegated user task instead.
-`messageFilter` retains original message objects/roles/provenance in chronology,
-selecting at most 16 ordinary messages under a 64 KiB UTF-8 serialization budget;
+`messageFilter` selects at most 16 ordinary messages under a 64 KiB UTF-8
+serialization budget. Read-only specialists receive parent conversation messages
+as explicitly labeled reference text, preserving the source role/content inside
+that reference, rather than inheriting the parent's assistant actions as their
+own conversation. Native image/file parts remain structured model inputs; each
+rewritten reference has an invocation-scoped identity without parent persistence
+ownership. References are constructed lazily during selection and their complete
+serialized size, including the label, counts toward the unchanged budget.
+The native delegated task follows those references. This
+boundary also applies on approval resume: the BST-1771 Grok replay otherwise
+mistook parent coordination for its own work and waited for other specialists
+instead of returning its briefing. Workers retain original message objects and
+roles for their execution context. Both paths retain chronology;
 trusted system entries, if supplied by the framework, are retained or rejected
 when oversized. Pruning is logged. Hook failures propagate. Parent completion
 uses the compact native child result for Worker, Explorer and Analyst, matching
