@@ -642,7 +642,7 @@ describe('delegated instruction and context authority', () => {
       modifiedPrompt: 'find the flag\n\nDelegated task details:\nUntrusted delegated detail',
     });
   });
-  it('bounds context while retaining original roles, provenance and chronology', async () => {
+  it('bounds specialist references while retaining source roles, content and chronology', async () => {
     const list = new MessageList();
     list.add(
       [
@@ -667,7 +667,21 @@ describe('delegated instruction and context authority', () => {
     const messages = [trusted, ...list.get.all.db()];
     const before = JSON.stringify(messages);
     const filtered = await config().messageFilter?.({ ...startContext(), messages });
-    expect(filtered).toEqual([messages[0], ...messages.slice(5, 21)]);
+    expect(filtered?.map((message) => message.id)).toEqual(
+      [messages[0], ...messages.slice(5, 21)].map((message) => message?.id)
+    );
+    expect(filtered?.[0]).toEqual(trusted);
+    for (const [index, reference] of (filtered?.slice(1) ?? []).entries()) {
+      const part = reference.content.parts[0];
+      if (part?.type !== 'text') {
+        throw new Error('Missing parent reference');
+      }
+      expect(part.text).toContain('Parent conversation reference');
+      expect(JSON.parse(part.text.slice(part.text.indexOf('\n') + 1))).toEqual({
+        content: messages[index + 5]?.content,
+        role: messages[index + 5]?.role,
+      });
+    }
     expect(filtered?.[0]?.role).toBe('system');
     expect(filtered?.slice(1).every((message) => message.role === 'user')).toBe(true);
     expect(JSON.stringify(messages)).toBe(before);

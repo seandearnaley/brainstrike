@@ -632,7 +632,10 @@ function specialistMemory(
   memory: NonNullable<BuildPersonaSubAgentsParams['memory']>,
   persona: AssistantPersonaDefinition
 ) {
-  if (personaMode(persona) === 'worker') {
+  if (
+    personaMode(persona) === 'worker' ||
+    memory.getMergedThreadConfig().workingMemory?.enabled === false
+  ) {
     return memory;
   }
   return new Memory({

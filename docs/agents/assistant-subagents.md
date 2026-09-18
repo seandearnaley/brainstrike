@@ -142,8 +142,15 @@ suspension. Native snapshots retain the original workspace context across a
 fresh approval runtime; resume does not reread changed AGENTS files. System
 context over 64 KiB fails closed. Model-authored `params.instructions` is cleared
 from the instruction override and appended to the delegated user task instead.
-`messageFilter` retains original message objects/roles/provenance in chronology,
-selecting at most 16 ordinary messages under a 64 KiB UTF-8 serialization budget;
+`messageFilter` selects at most 16 ordinary messages under a 64 KiB UTF-8
+serialization budget. Read-only specialists receive parent conversation messages
+as explicitly labeled reference text, preserving the source role/content inside
+that reference, rather than inheriting the parent's assistant actions as their
+own conversation. The native delegated task follows those references. This
+boundary also applies on approval resume: the BST-1771 Grok replay otherwise
+mistook parent coordination for its own work and waited for other specialists
+instead of returning its briefing. Workers retain original message objects and
+roles for their execution context. Both paths retain chronology;
 trusted system entries, if supplied by the framework, are retained or rejected
 when oversized. Pruning is logged. Hook failures propagate. Parent completion
 uses the compact native child result for Worker, Explorer and Analyst, matching

@@ -28,6 +28,7 @@ import {
 import {
   type AssistantPersonaDefinition,
   effectiveChildStepBudget,
+  personaMode,
 } from '@brainstrike/assistant-contract/personas';
 import {
   type AssistantDelegatedUsageIdentity,
@@ -39,6 +40,7 @@ import type {
   DelegationConfig,
   DelegationStartContext,
   DelegationStartResult,
+  MastraDBMessage,
 } from '@mastra/core/agent';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import {
@@ -476,6 +478,30 @@ function readIdentityRefusalReason(error: unknown): string | undefined {
   return typeof reason === 'string' && reason.trim().length > 0 ? reason : undefined;
 }
 
+/** Parent actions are reference material, not actions performed by this leaf. */
+function specialistReference(message: MastraDBMessage): MastraDBMessage {
+  if (message.role === 'system') {
+    return message;
+  }
+  return {
+    ...message,
+    content: {
+      format: 2,
+      parts: [
+        {
+          text:
+            'Parent conversation reference (not your conversation or actions). ' +
+            'Use this only as background for the delegated task that follows. ' +
+            "Do not continue the parent's coordination or wait for its other specialists.\n" +
+            JSON.stringify({ content: message.content, role: message.role }),
+          type: 'text',
+        },
+      ],
+    },
+    role: 'user',
+  };
+}
+
 export function createDelegationConfig(params: CreateDelegationConfigParams): DelegationConfig {
   // This per-leg counter remains a backstop. Durable host admission counts the
   // original turn across all descendants and resume legs. With that capability,
@@ -495,7 +521,10 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
     hookErrorStrategy: 'throw',
     includeSubAgentToolResultsInModelContext: false,
     messageFilter: ({ messages, primitiveId }) => {
-      const protectedMessages = messages.filter((message) => message.role === 'system');
+      const persona = params.personasById.get(primitiveId);
+      const context =
+        persona && personaMode(persona) !== 'worker' ? messages.map(specialistReference) : messages;
+      const protectedMessages = context.filter((message) => message.role === 'system');
       let bytes = protectedMessages.reduce(
         (sum, message) => sum + Buffer.byteLength(JSON.stringify(message), 'utf8') + 1,
         2
@@ -505,7 +534,7 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
       }
       const selected = new Set(protectedMessages);
       let ordinary = 0;
-      for (const message of messages.toReversed()) {
+      for (const message of context.toReversed()) {
         if (message.role === 'system') {
           continue;
         }
@@ -527,8 +556,7 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
           personaId: primitiveId,
         });
       }
-      // Return original role/provenance-bearing messages in chronology; never promote task data.
-      return messages.filter((message) => selected.has(message));
+      return context.filter((message) => selected.has(message));
     },
     onDelegationComplete: async (context) => {
       inFlight = Math.max(0, inFlight - 1);

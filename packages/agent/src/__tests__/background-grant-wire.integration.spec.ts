@@ -33,7 +33,24 @@ it('publishes both consumed approvals while the root waits in text for a running
   const consuming = (async () => {
     for await (const chunk of await createStreamIteratorFromRuntime({
       memory: backing.memory,
-      messages: [{ id: 'grant-fanout', parts: [{ text: 'Survey', type: 'text' }], role: 'user' }],
+      messages: [
+        {
+          id: 'previous-request',
+          parts: [{ text: 'Prepare a canvas with four specialists.', type: 'text' }],
+          role: 'user',
+        },
+        {
+          id: 'parent-progress',
+          parts: [
+            {
+              text: 'PARENT_ACTION: I launched four specialists and will create the canvas.',
+              type: 'text',
+            },
+          ],
+          role: 'assistant',
+        },
+        { id: 'grant-fanout', parts: [{ text: 'Survey', type: 'text' }], role: 'user' },
+      ],
       runtime,
       runtimeData,
     })) {
@@ -98,6 +115,19 @@ it('publishes both consumed approvals while the root waits in text for a running
     }
     hold.resolve();
     await consuming;
+    const childPrompts = fixture.model.prompts.filter(
+      (options) => !options.tools?.some((tool) => tool.name === 'agent-explore')
+    );
+    expect(childPrompts.length).toBeGreaterThan(0);
+    for (const options of childPrompts) {
+      expect(JSON.stringify(options.prompt)).toContain('PARENT_ACTION');
+      expect(
+        JSON.stringify(options.prompt.filter((message) => message.role === 'assistant'))
+      ).not.toContain('PARENT_ACTION');
+      expect(
+        JSON.stringify(options.prompt.filter((message) => message.role === 'user').at(-1))
+      ).toMatch(/Read background evidence [123]/);
+    }
   } finally {
     release.resolve();
     hold.resolve();
