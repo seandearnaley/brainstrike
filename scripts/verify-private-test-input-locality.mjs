@@ -41,6 +41,8 @@ function boundedAlternatives(values) {
 }
 
 function trackedSourceFiles(root) {
+  // Worktrees and submodules use a .git file, which existsSync accepts alongside
+  // the directory used by a normal checkout.
   if (!existsSync(path.join(root, '.git'))) {
     throw new Error(`Private test input locality cannot verify ${root}: no Git metadata found.`);
   }

@@ -62,14 +62,16 @@ const BOUNDED_ENTRYPOINT_ARGS = new Map([
     'verify-no-source-cycles.mjs',
     {
       args: (root) => ['--repo-root', root],
-      failureSignature: (root) => root,
+      failureSignature: (root) =>
+        `Could not resolve the web renderer entrypoint (apps/web/src/main.tsx) under ${root}`,
     },
   ],
   [
     'verify-private-test-input-locality.mjs',
     {
       args: (root) => ['--repo-root', root],
-      failureSignature: (root) => root,
+      failureSignature: (root) =>
+        `Private test input locality cannot verify ${root}: no Git metadata found.`,
     },
   ],
   [
@@ -81,7 +83,7 @@ const BOUNDED_ENTRYPOINT_ARGS = new Map([
   ],
 ]);
 
-function probeEntrypoint({ args = [], failureSignature, name, scriptPath }) {
+function probeEntrypoint({ args = [], failureSignature, scriptPath }) {
   const result = spawnSync(process.execPath, [scriptPath, ...args], { encoding: 'utf8' });
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
   const spawnSucceeded = result.error === undefined;
@@ -93,7 +95,6 @@ function probeEntrypoint({ args = [], failureSignature, name, scriptPath }) {
           result.status !== 0 &&
           output.includes(failureSignature))),
     hasOutput: spawnSucceeded && output.trim() !== '',
-    name,
   };
 }
 
@@ -163,7 +164,6 @@ const isDirectExecution =
     const probe = probeEntrypoint({
       args: ['--repo-root', fixtureRoot],
       failureSignature: expectedFailure,
-      name: fixture.name,
       scriptPath,
     });
     if (probe.hasOutput && probe.boundedControlPassed) {
@@ -201,13 +201,12 @@ test('direct execution reaches the check and bounded controls fail', (t) => {
     const probe = probeEntrypoint({
       args: boundedArgs,
       failureSignature: boundedEntrypoint?.failureSignature(bogusRoot),
-      name,
       scriptPath: path.join(SCRIPTS_DIR, name),
     });
     if (!probe.hasOutput) {
       silent.push(name);
     }
-    if (!probe.boundedControlPassed) {
+    if (boundedEntrypoint && !probe.boundedControlPassed) {
       fixtureRootsIgnored.push(name);
     }
   }

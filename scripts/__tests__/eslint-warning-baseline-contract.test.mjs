@@ -23,13 +23,19 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const read = (relative) => readFileSync(path.join(repoRoot, relative), 'utf8');
+const FULL_TREE_ESLINT_INVOCATION = /\bpnpm run lint:eslint(?![\w:-])/u;
 
 test('lint:eslint invokes the per-rule verifier, not a bare --max-warnings', () => {
   const { scripts } = JSON.parse(read('package.json'));
   assert.match(
     scripts['lint:ci'],
-    /\bpnpm run lint:eslint\b/,
+    FULL_TREE_ESLINT_INVOCATION,
     'the required Static lint command must retain the full-repository ESLint verdict'
+  );
+  assert.doesNotMatch(
+    'pnpm run lint:eslint:bounded',
+    FULL_TREE_ESLINT_INVOCATION,
+    'the owner-chain assertion must reject a cheaper similarly prefixed script'
   );
   assert.match(
     scripts['lint:eslint'],
