@@ -20,6 +20,21 @@ function write(root, file, content) {
   writeFileSync(path.join(root, file), content);
 }
 
+test('required Static lint retains the full-tree private-input verdict', () => {
+  const { scripts } = JSON.parse(
+    readFileSync(new URL('../../package.json', import.meta.url), 'utf8')
+  );
+  assert.match(
+    scripts['lint:ci'],
+    /\bpnpm run lint:private-test-input-locality\b/u,
+    'lint:ci must retain the full-repository private test input verdict'
+  );
+  assert.equal(
+    scripts['lint:private-test-input-locality'],
+    'node scripts/verify-private-test-input-locality.mjs'
+  );
+});
+
 test('types build and topo exclude exactly the private files omitted by TypeScript', () => {
   const parsedTsconfig = ts.parseConfigFileTextToJson(
     'packages/types/tsconfig.json',

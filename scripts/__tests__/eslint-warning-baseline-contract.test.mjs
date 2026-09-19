@@ -27,6 +27,11 @@ const read = (relative) => readFileSync(path.join(repoRoot, relative), 'utf8');
 test('lint:eslint invokes the per-rule verifier, not a bare --max-warnings', () => {
   const { scripts } = JSON.parse(read('package.json'));
   assert.match(
+    scripts['lint:ci'],
+    /\bpnpm run lint:eslint\b/,
+    'the required Static lint command must retain the full-repository ESLint verdict'
+  );
+  assert.match(
     scripts['lint:eslint'],
     /verify-eslint-warning-baselines\.mjs/,
     'lint:eslint must run the per-rule verifier; a bare `eslint --max-warnings=N` ' +

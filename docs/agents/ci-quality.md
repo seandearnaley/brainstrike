@@ -2239,16 +2239,22 @@ while checking nothing. Control-tested: injecting a literal `"typescript":
 "6.0.3"` into a package manifest — the exact drift the guard exists to catch —
 still produced exit 0.
 
-Enforcement was never missing; each paired test asserts the real-repo verdict
-under `pnpm test:scripts` in the Static job. The damage was evidentiary — that
-exit 0 was cited as proof in a PR body, and a green from a script that cannot go
-red is indistinguishable from a real one.
+Enforcement was never missing; each guard's paired test or dedicated lint gate
+asserts the real-repo verdict in the Static job. In particular, the ESLint
+warning baseline's full-tree owner is `lint:ci` -> `lint:eslint`, after script
+tests. The damage was evidentiary — that exit 0 was cited as proof in a PR body,
+and a green from a script that cannot go red is indistinguishable from a real
+one.
 
 `scripts/__tests__/verify-script-entrypoints.test.mjs` holds the line, and its
 MONEY TEST is the load-bearing half: it drives every `main()` against an empty
 directory and fails any that report success. A `function main() {}` no-op
 satisfies the static "has an entrypoint" check while reproducing the bug exactly,
 as does a `main()` that accepts `repoRoot` and ignores it — both are covered.
+The real child-process probe also covers direct-execution detection. Expensive
+entrypoints may use an explicit bounded invalid root there when the owning gate
+already retains the full-repository verdict; that bounded probe must require its
+fixture-specific failure output and a nonzero exit.
 
 Consequences when adding a guard: thread `repoRoot` through to the check rather
 than closing over a module-level constant, and make the CLI's verdict identical
@@ -3732,6 +3738,22 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   `logging-settings.tsx`, whose only exports are one component named and defaulted).
   The eslint plugin matches the Vite runtime semantics; do not swap in Biome's rule
   without re-measuring both.
+
+  The required Static job owns the full-tree ESLint verdict through `lint:ci` ->
+  `lint:eslint`. `scripts/__tests__/verify-script-entrypoints.test.mjs` separately proves
+  that executable verifier wiring can run and fail; it must not repeat full-tree audits merely
+  to observe output. The four measured hotspots — ESLint warning baselines, workspace source
+  aliases, private test input locality, and source cycles — therefore support an explicit
+  `--repo-root <path>` control seam. Their full-tree verdicts remain in their owning lint
+  commands or paired real-tree tests. The entrypoint test launches each real child process against a
+  temporary invalid root and requires all three signals: output, a nonzero exit, and a
+  fixture-specific failure path. Its executable negative controls cover a no-op `main`, an
+  incorrect direct-execution predicate, an ignored fixture root, and a lost nonzero exit
+  status. Each default command remains the full repository audit, including ESLint's
+  `--write-baseline` mode. On the 2026-09-18 main checkout, two local entrypoint-suite
+  baselines took 26.39s and 26.54s; the bounded suite took 3.11s. The four duplicate scans
+  accounted for 24.08s in the per-verifier profile. This is verifier-proof cost, not a
+  guaranteed reduction in the required check's final elapsed time.
 
 ### React Compiler bailouts are invisible — measure them (BST-1659)
 
