@@ -602,8 +602,10 @@ function getSelectionState(
 
 interface ThreadRowContextProps {
   readonly activeThreadIds: ReadonlySet<string>;
+  /** Both durable-root and legacy-path branch joins. */
   readonly branchLookup: ThreadBranchLookup;
   readonly failedUnseenThreadIds: ReadonlySet<string>;
+  /** Folder sections project a thread's root binding; they are not move targets. */
   readonly folderMode: boolean;
   readonly forgePrLookup: ForgePrCacheLookup;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
@@ -617,11 +619,22 @@ interface ThreadRowContextProps {
     threadId: string,
     metadata: AssistantThreadMetadata
   ) => Promise<void>;
+  /** False for folder grouping and while a Show-only filter narrows the list. */
   readonly rowsDraggable: boolean;
   readonly selectedThreadId: string | undefined;
   readonly unseenThreadIds: ReadonlySet<string>;
 }
 
+/**
+ * Resolves the branch chip from the durable root id first, with the legacy
+ * display-path join owned by `lookupThreadBranch` as a fallback. A durable id
+ * is authoritative: if it has no match, a replacement root mounted at the
+ * same path must not borrow the old thread's branch.
+ *
+ * A resolved worktree with neither a branch nor a detached HEAD is bare. It
+ * intentionally renders no chip: an empty badge would occupy the narrow
+ * panel's protected slot and hide useful provider metadata.
+ */
 function resolveThreadPanelBranch(
   thread: AssistantMemoryThread,
   branchLookup: ThreadBranchLookup
@@ -799,6 +812,9 @@ function ThreadPanelCell({
         branch={resolveThreadPanelBranch(row.thread, rowsProps.branchLookup)}
         draggable={rowsProps.rowsDraggable}
         groupId={groupId}
+        // Row-local mutation state must never survive a virtual cell changing
+        // identity; the key makes that lifetime contract explicit.
+        key={row.thread.id}
         moveTargets={rowsProps.moveTargets}
         onDeleteThread={rowsProps.onDeleteThread}
         onMoveThreadToGroup={rowsProps.onMoveThreadToGroup}

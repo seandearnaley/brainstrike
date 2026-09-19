@@ -13,6 +13,10 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   openrouter: 'OpenRouter',
 };
+const THREAD_DATE_FORMATTER = new Intl.DateTimeFormat('en', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
 
 function getProviderLabel(provider: string | undefined): string | null {
   if (!provider) {
@@ -66,10 +70,7 @@ function getThreadModelLabel(thread: AssistantMemoryThread): string | null {
 }
 
 function formatThreadDate(value: Date): string {
-  return new Intl.DateTimeFormat('en', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(value);
+  return THREAD_DATE_FORMATTER.format(value);
 }
 
 export function ThreadExpandedDetails({
@@ -175,38 +176,62 @@ export function ThreadMetadataBadges({
       {/* Branch first, then PR: in folder grouping these two are the row's most
           local facts, and they are always visible once the container clears
           420px — see the `wideOnly` note on ThreadBadge for the rest. */}
-      {branch ? (
-        <ThreadBadge icon={GitBranch}>{branch.detached ? 'detached' : branch.branch}</ThreadBadge>
-      ) : null}
-      {pr ? (
-        <span
-          className={`inline-flex shrink-0 items-center gap-0.5 rounded-full border border-border/70 bg-background/70 px-1.5 py-0 text-[9px] leading-4 ${
-            pr.state === 'open' ? 'text-muted-foreground' : 'text-muted-foreground/60'
-          }`}
-          data-checks={pr.checksRollup}
-          data-state={pr.state}
-          data-testid="thread-pr-pill"
-          title={`Pull request #${pr.number} (${pr.state})`}
-        >
-          <GitPullRequest aria-hidden="true" className="size-2.5" />
-          {`#${pr.number}`}
-          <span aria-hidden="true">
-            {pr.isDraft && pr.state === 'open' ? '◌' : PR_ROLLUP_GLYPH[pr.checksRollup]}
-          </span>
-        </span>
-      ) : null}
-      {providerLabel ? (
-        <ThreadBadge wideOnly={protectedBadgePresent}>{providerLabel}</ThreadBadge>
-      ) : null}
-      {modelLabel ? <ThreadBadge wideOnly>{modelLabel}</ThreadBadge> : null}
-      {reasoningLabel ? <ThreadBadge wideOnly>{reasoningLabel}</ThreadBadge> : null}
-      {maxOutputLabel ? <ThreadBadge wideOnly>{maxOutputLabel}</ThreadBadge> : null}
+      <ThreadBranchBadge branch={branch} />
+      <ThreadPrBadge pr={pr} />
+      <OptionalThreadBadge value={providerLabel} wideOnly={protectedBadgePresent} />
+      <OptionalThreadBadge value={modelLabel} wideOnly />
+      <OptionalThreadBadge value={reasoningLabel} wideOnly />
+      <OptionalThreadBadge value={maxOutputLabel} wideOnly />
     </div>
   );
 }
 
-/** Exported for the panel unit lane; production renders it through ThreadRowItem. */
-export { ThreadMetadataBadges as ThreadMetadataBadgesForTest };
+function ThreadBranchBadge({
+  branch,
+}: {
+  readonly branch: ThreadBranchInfo | null;
+}): ReactElement | null {
+  if (!branch) {
+    return null;
+  }
+  return <ThreadBadge icon={GitBranch}>{branch.detached ? 'detached' : branch.branch}</ThreadBadge>;
+}
+
+function ThreadPrBadge({ pr }: { readonly pr: ForgePrCacheEntry | null }): ReactElement | null {
+  if (!pr) {
+    return null;
+  }
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-0.5 rounded-full border border-border/70 bg-background/70 px-1.5 py-0 text-[9px] leading-4 ${
+        pr.state === 'open' ? 'text-muted-foreground' : 'text-muted-foreground/60'
+      }`}
+      data-checks={pr.checksRollup}
+      data-state={pr.state}
+      data-testid="thread-pr-pill"
+      title={`Pull request #${pr.number} (${pr.state})`}
+    >
+      <GitPullRequest aria-hidden="true" className="size-2.5" />
+      {`#${pr.number}`}
+      <span aria-hidden="true">
+        {pr.isDraft && pr.state === 'open' ? '◌' : PR_ROLLUP_GLYPH[pr.checksRollup]}
+      </span>
+    </span>
+  );
+}
+
+function OptionalThreadBadge({
+  value,
+  wideOnly = false,
+}: {
+  readonly value: string | null;
+  readonly wideOnly?: boolean;
+}): ReactElement | null {
+  if (!value) {
+    return null;
+  }
+  return <ThreadBadge wideOnly={wideOnly}>{value}</ThreadBadge>;
+}
 
 function ThreadBadge({
   children,

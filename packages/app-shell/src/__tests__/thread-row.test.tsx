@@ -1,5 +1,7 @@
-import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
+import {
+  type AssistantMemoryThread,
+  WORKSPACE_MEMORY_RESOURCE_ID,
+} from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import type { ForgePrCacheEntry } from '@brainstrike/types';
 import { ActionRegistryProvider } from '@brainstrike/ui';
@@ -7,13 +9,14 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { ThreadBranchInfo } from '../hooks/use-thread-branch-by-root-path';
-import { ThreadMetadataBadgesForTest, ThreadRow, type ThreadRowProps } from '../thread-row';
+import { ThreadRow, type ThreadRowProps } from '../thread-row';
+import { ThreadMetadataBadges } from '../thread-row-metadata';
 
 const THREAD: AssistantMemoryThread = {
   createdAt: new Date('2026-09-18T10:00:00Z'),
   id: 'thread-row-test',
   metadata: { color: 'blue', icon: 'message' },
-  resourceId: 'workspace-memory',
+  resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
   title: 'Review architecture',
   updatedAt: new Date('2026-09-18T11:00:00Z'),
 };
@@ -56,7 +59,7 @@ describe('thread row PR pill', () => {
   };
 
   it('renders the PR number and open failing state', () => {
-    render(<ThreadMetadataBadgesForTest branch={null} pr={pr} thread={thread} />);
+    render(<ThreadMetadataBadges branch={null} pr={pr} thread={thread} />);
 
     const pill = screen.getByTestId('thread-pr-pill');
     expect(pill).toHaveTextContent('#2574');
@@ -65,15 +68,13 @@ describe('thread row PR pill', () => {
   });
 
   it('renders no PR pill when there is no cached PR', () => {
-    render(<ThreadMetadataBadgesForTest branch={null} pr={null} thread={thread} />);
+    render(<ThreadMetadataBadges branch={null} pr={null} thread={thread} />);
 
     expect(screen.queryByTestId('thread-pr-pill')).toBeNull();
   });
 
   it('marks merged PRs for faded row styling', () => {
-    render(
-      <ThreadMetadataBadgesForTest branch={null} pr={{ ...pr, state: 'merged' }} thread={thread} />
-    );
+    render(<ThreadMetadataBadges branch={null} pr={{ ...pr, state: 'merged' }} thread={thread} />);
 
     expect(screen.getByTestId('thread-pr-pill')).toHaveAttribute('data-state', 'merged');
   });
@@ -111,7 +112,7 @@ describe('thread row PR pill', () => {
     // over the "always visible in the narrow band" slot instead of also
     // hiding until 560px.
     it('does not wide-gate the provider badge when nothing protected renders', () => {
-      render(<ThreadMetadataBadgesForTest branch={null} pr={null} thread={threadWithProvider} />);
+      render(<ThreadMetadataBadges branch={null} pr={null} thread={threadWithProvider} />);
 
       const className = providerBadgeClassName();
       expect(className).toContain('inline-flex');
@@ -122,9 +123,7 @@ describe('thread row PR pill', () => {
     // (b) Branch present: branch occupies the protected slot, so provider
     // reverts to hiding until 560px, same as model/reasoning/max-output.
     it('wide-gates the provider badge once a branch renders, and keeps the branch visible', () => {
-      render(
-        <ThreadMetadataBadgesForTest branch={branchInfo} pr={null} thread={threadWithProvider} />
-      );
+      render(<ThreadMetadataBadges branch={branchInfo} pr={null} thread={threadWithProvider} />);
 
       const providerClassName = providerBadgeClassName();
       expect(providerClassName).toContain('hidden');
@@ -138,7 +137,7 @@ describe('thread row PR pill', () => {
     // (c) PR present (no branch): the PR pill alone is enough to occupy the
     // protected slot too.
     it('wide-gates the provider badge once a PR pill renders', () => {
-      render(<ThreadMetadataBadgesForTest branch={null} pr={pr} thread={threadWithProvider} />);
+      render(<ThreadMetadataBadges branch={null} pr={pr} thread={threadWithProvider} />);
 
       const providerClassName = providerBadgeClassName();
       expect(providerClassName).toContain('hidden');
@@ -150,11 +149,12 @@ describe('thread row PR pill', () => {
 
 function renderRow(props: ThreadRowProps) {
   const actionRegistry = createTestActionRegistry();
-  return render(
+  const renderResult = render(
     <ActionRegistryProvider registry={actionRegistry.registry}>
       <ThreadRow {...props} />
     </ActionRegistryProvider>
   );
+  return { actionRegistry, ...renderResult };
 }
 
 describe('ThreadRow', () => {
@@ -162,7 +162,7 @@ describe('ThreadRow', () => {
     const user = userEvent.setup();
     const onRenameThread = vi.fn().mockResolvedValue(undefined);
     const props = createProps({ onRenameThread });
-    const { rerender } = renderRow(props);
+    const { actionRegistry, rerender } = renderRow(props);
 
     await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
     await user.click(screen.getByRole('button', { name: 'Rename' }));
@@ -170,7 +170,6 @@ describe('ThreadRow', () => {
     await user.clear(input);
     await user.type(input, 'Keep this draft');
 
-    const actionRegistry = createTestActionRegistry();
     rerender(
       <ActionRegistryProvider registry={actionRegistry.registry}>
         <ThreadRow {...props} selected />
@@ -186,9 +185,7 @@ describe('ThreadRow', () => {
 
   it('keeps customization persistence and errors local to the row', async () => {
     const user = userEvent.setup();
-    const onUpdateThreadMetadata = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('Metadata write failed.'));
+    const onUpdateThreadMetadata = vi.fn().mockRejectedValue(new Error('Metadata write failed.'));
     renderRow(createProps({ onUpdateThreadMetadata }));
 
     await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
@@ -215,5 +212,36 @@ describe('ThreadRow', () => {
     expect(await screen.findByText('Delete failed.')).toBeVisible();
     expect(onDeleteThread).toHaveBeenCalledWith(THREAD.id);
     expect(screen.getByTestId('thread-row')).toBeVisible();
+  });
+
+  it('drops destructive row state when a keyed virtual cell changes thread identity', async () => {
+    const user = userEvent.setup();
+    const actionRegistry = createTestActionRegistry();
+    const firstProps = createProps();
+    const secondThread: AssistantMemoryThread = {
+      ...THREAD,
+      id: 'replacement-thread',
+      title: 'Replacement thread',
+    };
+    const { rerender } = render(
+      <ActionRegistryProvider registry={actionRegistry.registry}>
+        <ThreadRow {...firstProps} key={THREAD.id} />
+      </ActionRegistryProvider>
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
+    await user.click(screen.getByRole('button', { name: 'Delete…' }));
+    expect(
+      screen.getByRole('button', { name: 'Confirm delete thread Review architecture' })
+    ).toBeVisible();
+
+    rerender(
+      <ActionRegistryProvider registry={actionRegistry.registry}>
+        <ThreadRow {...createProps({ thread: secondThread })} key={secondThread.id} />
+      </ActionRegistryProvider>
+    );
+
+    expect(screen.getByText('Replacement thread')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Confirm delete thread/ })).toBeNull();
   });
 });

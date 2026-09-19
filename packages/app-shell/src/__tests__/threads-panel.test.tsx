@@ -2833,7 +2833,7 @@ describe('ThreadsPanel folders', () => {
     }
 
     // Proves the whole chain end-to-end: a row seeded through the live-query
-    // route (not `ThreadMetadataBadgesForTest` directly) joins on the
+    // route (not the metadata-badge component directly) joins on the
     // `gitCommonDir` the git inventory mock reports for the bound root, and
     // renders a real `thread-pr-pill` inside the actual thread row.
     it('renders a thread-pr-pill inside a real thread row', async () => {

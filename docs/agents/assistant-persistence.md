@@ -3512,12 +3512,13 @@ The Threads panel rows, customization pickers, group icon choices, and tabs
 consume those shared contracts rather than declaring local glyph maps or
 palettes. Each projected tree cell mounts one `ThreadRow`; that row owns its
 transient edit/customize/delete/details state, while `ThreadsPanel` retains the
-database-backed list, grouping, search, and bulk-operation wiring. This keeps a
-parent rerender from discarding an in-progress rename draft without storing
-ephemeral row state in the persisted thread store. A successful metadata write
-updates the one loaded thread object, so
-an open tab reflects customization without a PGlite re-read, timer, global
-invalidation, or assistant-panel remount; a failed write performs no store
+database-backed list, grouping, search, and bulk-operation wiring. The row is
+keyed by thread id: same-thread parent rerenders preserve an in-progress rename
+draft, while a virtual cell changing identity remounts instead of carrying edit
+or destructive-confirmation state to another thread. None of that ephemeral
+state enters the persisted thread store. A successful metadata write updates
+the one loaded thread object, so an open tab reflects customization without a
+PGlite re-read, timer, global invalidation, or assistant-panel remount; a failed write performs no store
 transition and remains visibly failed in the panel. `listThreads` returns the
 thread row plus its latest-run badge data in ONE SQL snapshot; splitting those
 reads permits a metadata write to interleave before a stale title refresh lands

@@ -35,7 +35,7 @@ import {
   X,
 } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
@@ -51,8 +51,6 @@ import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 import { ThreadExpandedDetails, ThreadMetadataBadges } from './thread-row-metadata';
 import { ThreadRowStatusGlyph } from './thread-row-status-glyph';
 import { ThreadRowDndShell } from './threads-panel-dnd-elements';
-
-export { ThreadMetadataBadgesForTest } from './thread-row-metadata';
 
 function getThreadIconId(thread: AssistantMemoryThread): AssistantThreadIconId {
   return thread.metadata?.icon ?? 'message';
@@ -116,6 +114,24 @@ export function ThreadRow({
   const [renameError, setRenameError] = useState<string | null>(null);
   const [savingMetadata, setSavingMetadata] = useState(false);
   const [savingRename, setSavingRename] = useState(false);
+  const handleCustomizeThreadToggle = useCallback(() => {
+    setCustomizing((current) => !current);
+    setMetadataError(null);
+  }, []);
+  const handleDeleteThreadStart = useCallback(() => {
+    setConfirmingDelete(true);
+    setDeleteError(null);
+    setCustomizing(false);
+  }, []);
+  const handleExpandedThreadToggle = useCallback(() => {
+    setExpanded((current) => !current);
+  }, []);
+  const handleRenameThreadStart = useCallback(() => {
+    setEditing(true);
+    setDraftTitle(thread.title);
+    setRenameError(null);
+    setCustomizing(false);
+  }, [thread.title]);
 
   return (
     <ThreadRowDragScope draggable={draggable} groupId={groupId} threadId={thread.id}>
@@ -150,34 +166,20 @@ export function ThreadRow({
               setDeleting(false);
             });
         }}
-        onCustomizeThreadToggle={() => {
-          setCustomizing((current) => !current);
-          setMetadataError(null);
-        }}
+        onCustomizeThreadToggle={handleCustomizeThreadToggle}
         onDeleteThreadCancel={() => {
           setConfirmingDelete(false);
           setDeleteError(null);
         }}
-        onDeleteThreadStart={() => {
-          setConfirmingDelete(true);
-          setDeleteError(null);
-          setCustomizing(false);
-        }}
+        onDeleteThreadStart={handleDeleteThreadStart}
         onDraftTitleChange={setDraftTitle}
-        onExpandedThreadToggle={() => {
-          setExpanded((current) => !current);
-        }}
+        onExpandedThreadToggle={handleExpandedThreadToggle}
         onMetadataError={setMetadataError}
         onMetadataSavingChange={setSavingMetadata}
         onMoveThreadToGroup={onMoveThreadToGroup}
         onRenameSavingChange={setSavingRename}
         onRenameThread={onRenameThread}
-        onRenameThreadStart={() => {
-          setEditing(true);
-          setDraftTitle(thread.title);
-          setRenameError(null);
-          setCustomizing(false);
-        }}
+        onRenameThreadStart={handleRenameThreadStart}
         onRenameThreadSubmitError={setRenameError}
         onRenameThreadSubmitted={() => {
           setEditing(false);
