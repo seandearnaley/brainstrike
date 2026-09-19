@@ -26,6 +26,10 @@ function deferred(): {
   return { promise, reject, resolve };
 }
 
+async function flushAsyncWork(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function createService(): WorkspaceIndexingCoordinatorService {
   return {
     cancel: vi.fn(async () => undefined),
@@ -49,6 +53,7 @@ function createInputs(
     publishPaused: vi.fn(),
     publishRuntimeUnavailable: vi.fn(),
     publishWaiting: vi.fn(),
+    readPaused: () => false,
     readPauseReasons: () => [],
     readRootDirectoryHandle: () => ROOT,
     resolveTargets: async () => [
@@ -106,10 +111,13 @@ describe('WorkspaceIndexingCoordinator', () => {
     await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(1));
 
     focusedRoot = { ...ROOT, path: '/workspace/focused-root' };
+    coordinator.updateInputs(createInputs(service, { readRootDirectoryHandle: () => focusedRoot }));
 
     expect(service.cancel).not.toHaveBeenCalled();
     expect(service.detach).not.toHaveBeenCalled();
     activePass.resolve();
+    await flushAsyncWork();
+    expect(service.sync).toHaveBeenCalledTimes(1);
   });
 
   it('invalidates a stale multi-root pass before the next root when explicitly cancelled', async () => {
@@ -143,6 +151,7 @@ describe('WorkspaceIndexingCoordinator', () => {
     const cancel = coordinator.cancel();
     firstRoot.resolve();
     await cancel;
+    await flushAsyncWork();
 
     expect(service.cancel).toHaveBeenCalledTimes(1);
     expect(service.sync).toHaveBeenCalledTimes(1);
@@ -223,11 +232,31 @@ describe('WorkspaceIndexingCoordinator', () => {
     cancellation.resolve();
     await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(2));
     firstRoot.resolve();
-    await Promise.resolve();
+    await flushAsyncWork();
 
     expect(
       vi.mocked(service.sync).mock.calls.map(([request]) => request.rootDirectoryHandle?.path)
     ).toEqual([ROOT.path, replacementRoot.path]);
+  });
+
+  it('reports a failed cancellation sweep and still starts the requested replacement', async () => {
+    const activePass = deferred();
+    const onError = vi.fn();
+    const service = createService();
+    vi.mocked(service.sync)
+      .mockImplementationOnce(async () => activePass.promise)
+      .mockResolvedValue(undefined);
+    vi.mocked(service.cancel).mockRejectedValueOnce(new Error('cancel sweep failed'));
+    const coordinator = new WorkspaceIndexingCoordinator();
+    coordinator.updateInputs(createInputs(service, { onError }));
+    coordinator.trigger();
+    await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(1));
+
+    coordinator.trigger({ mode: 'full' }, { restartActive: true });
+
+    await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(2));
+    expect(onError).toHaveBeenCalledWith('cancel', expect.any(Error));
+    activePass.resolve();
   });
 
   it('does not report stale service failures after cancellation', async () => {
@@ -242,7 +271,7 @@ describe('WorkspaceIndexingCoordinator', () => {
 
     await coordinator.cancel();
     activePass.reject(new Error('stale failure'));
-    await Promise.resolve();
+    await flushAsyncWork();
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -262,7 +291,7 @@ describe('WorkspaceIndexingCoordinator', () => {
 
     await coordinator.cancel();
     targetResolution.reject(new Error('stale resolution failure'));
-    await Promise.resolve();
+    await flushAsyncWork();
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -285,6 +314,7 @@ describe('WorkspaceIndexingCoordinator', () => {
     coordinator.updateInputs(
       createInputs(service, {
         publishPaused,
+        readPaused: () => true,
         readPauseReasons: () => ['Paused manually'],
       })
     );
@@ -295,6 +325,28 @@ describe('WorkspaceIndexingCoordinator', () => {
       activeRootPath: ROOT.path,
       managedCollectionId: 'collection-1',
       pauseReasons: ['Paused manually'],
+    });
+  });
+
+  it('cancels and publishes pause state when a paused snapshot has no labels', async () => {
+    const service = createService();
+    const publishPaused = vi.fn();
+    const coordinator = new WorkspaceIndexingCoordinator();
+    coordinator.updateInputs(
+      createInputs(service, {
+        publishPaused,
+        readPaused: () => true,
+        readPauseReasons: () => [],
+      })
+    );
+
+    coordinator.trigger();
+    await vi.waitFor(() => expect(service.cancel).toHaveBeenCalledTimes(1));
+    expect(service.sync).not.toHaveBeenCalled();
+    expect(publishPaused).toHaveBeenCalledWith({
+      activeRootPath: ROOT.path,
+      managedCollectionId: 'collection-1',
+      pauseReasons: [],
     });
   });
 

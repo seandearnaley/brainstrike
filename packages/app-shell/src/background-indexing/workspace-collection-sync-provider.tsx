@@ -1522,6 +1522,7 @@ export function WorkspaceCollectionSyncProvider({
           state: 'waiting',
         });
       },
+      readPaused: () => getBackgroundWorkArbiterSnapshot().backgroundIndexingPaused,
       readPauseReasons: () => {
         const snapshot = getBackgroundWorkArbiterSnapshot();
         if (!snapshot.backgroundIndexingPaused) {

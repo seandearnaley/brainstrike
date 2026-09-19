@@ -46,6 +46,7 @@ export interface WorkspaceIndexingCoordinatorInputs {
     managedCollectionId: string | null;
   }) => void;
   publishWaiting: (args: { activeRootPath: string; managedCollectionId: string }) => void;
+  readPaused: () => boolean;
   readPauseReasons: () => readonly string[];
   readRootDirectoryHandle: () => RootDirectoryHandle;
   resolveTargets: (
@@ -127,8 +128,8 @@ export class WorkspaceIndexingCoordinator {
       return;
     }
 
-    const pauseReasons = inputs.readPauseReasons();
-    if (pauseReasons.length > 0) {
+    if (inputs.readPaused()) {
+      const pauseReasons = inputs.readPauseReasons();
       this.invalidate();
       void inputs.service.cancel().catch((error) => inputs.onError('cancel', error));
       inputs.publishPaused({
@@ -348,20 +349,12 @@ export class WorkspaceIndexingCoordinator {
     void service
       .cancel()
       .then(() => {
-        if (this.generation !== generation) {
-          return;
-        }
-        const replacementScope = this.pendingScope ? mergeScopes(scope, this.pendingScope) : scope;
-        this.active = false;
-        this.pendingScope = null;
-        this.start(replacementScope, inputs, service);
+        this.startReplacement(scope, inputs, service, generation);
       })
       .catch((error) => {
         if (this.generation !== generation) {
           return;
         }
-        this.active = false;
-        this.pendingScope = null;
         this.debugState = {
           ...this.debugState,
           error: error instanceof Error ? error.message : String(error),
@@ -370,6 +363,22 @@ export class WorkspaceIndexingCoordinator {
           updatedAt: new Date().toISOString(),
         };
         inputs.onError('cancel', error);
+        this.startReplacement(scope, inputs, service, generation);
       });
+  }
+
+  private startReplacement(
+    scope: WorkspaceIndexingTriggerScope,
+    inputs: WorkspaceIndexingCoordinatorInputs,
+    service: WorkspaceIndexingCoordinatorService,
+    generation: number
+  ): void {
+    if (this.generation !== generation) {
+      return;
+    }
+    const replacementScope = this.pendingScope ? mergeScopes(scope, this.pendingScope) : scope;
+    this.active = false;
+    this.pendingScope = null;
+    this.start(replacementScope, inputs, service);
   }
 }

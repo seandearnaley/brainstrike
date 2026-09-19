@@ -147,7 +147,10 @@ Vector device preference is ONE canonical record (BST-1380):
      pending work owned by the replacement. Target resolution must check that
      generation after each await before reconciling roots or publishing status,
      and a restart waits for the cancellation sweep before starting replacement
-     work. Direct coordinator tests own those
+     work. A completed sweep may report aggregated failures; report them and
+     still start the requested replacement. Pause authority comes from the live
+     arbiter boolean, never from whether its human-readable reason list is empty.
+     Direct coordinator tests own those
      lifecycle rules; the mounted provider suite proves preference, arbiter,
      refresh-event, reset, and teardown wiring.
    - The renderer loop and the backfill therefore need SEPARATE abort
