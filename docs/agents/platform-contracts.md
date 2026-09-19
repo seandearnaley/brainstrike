@@ -240,7 +240,7 @@ source of truth for who may hold a channel; `hidden-preload.ts` exposes no
 | `browser:*` (all 10 pane controls) | `visible-ui` |
 | `fs:*` under `registerFileSystemIpcHandlers` (reads, root grants incl. `fs:addRootByPath`/`fs:requestDirectoryAccess`, `fs:readFileByPath`, `fs:readFileByAbsolutePath`, `fs:removeRoot`) | `visible-ui` |
 | `db:exec`, `db:transaction` (raw SQL entry points; typed replacement is BST-1234), `db:diagnostics`, `db:scheduler:snapshot`, `db:test`, `db:managed-cache:apply-batch`, `db:managed-cache:invalidate-by-identity`, `db:chunks:insert-and-enqueue-embedding-jobs` — every `db:*` channel the embedding host's `hidden-preload.ts` bridge exposes besides the shared `db:query` | `embedding-host`, `visible-ui` |
-| `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, `mcp:content:*`, MCP apps/task/elicitation bridges | `visible-ui` (pre-existing) |
+| `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, all 31 `mcp:*` invokes | `visible-ui` |
 | `vector-preferences:read`, `vector-preferences:write`, `vector-preferences:clear` | `embedding-host` (pre-existing; see BST-1380 below) |
 | Contract-derived domains: `git:*` (all 15, incl. push/commit/switchBranch), `changes:*`, `forge:*`, `worktrees:*`, `command-sessions:*`, `terminal:*`, `notes-vault:*`, `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
 
@@ -250,7 +250,7 @@ chunking/embedding hosts), the visible-UI-only `db:ping`, `db:live-query:*`,
 `db:clearAll`, `db:resetLocal` and `db:getUserDataPath`,
 `logging:get-preferences` (all four roles), `app:power-snapshot`
 (visible UI + embedding host), `parser-host:parse` (visible UI + chunking
-host), and the visible-UI-only `mcp:*`, `storage:*`/
+host), and the visible-UI-only `storage:*`/
 `preferences:*`, `fs:watch*`, hooks/file-exports/diagnostics/
 assistant-checkpoint/embedding-backfill/runtime/agent-chat channels and the hidden-host lifecycle
 controls (`*-host:ensure-started|stop|reset|get-status`, `chunking-host:chunk-*`,
@@ -398,7 +398,17 @@ allowlist:
   converts a throw-style operation into the envelope (logged in main).
 - Migrated so far: `changes`, `clipboard`, `commandSessions`, `contextFiles`,
   `forge`, `git`, `notesVault`, `skills`, `terminal`, `userCommands`, `userPersonas`,
-  `worktrees` (all `visible-ui`).
+  `worktrees`, and MCP (all `visible-ui`). MCP's pure manifests cover all 31
+  invokes and seven pushes. Root, content, elicitation, and Tasks handlers use
+  `registerDomain`; the native config picker and five Apps operations retain
+  narrow event-aware adapters because their ownership is bound to the
+  registry-authenticated `event.sender`. The preload derives each channel
+  method and subscription, then composes the public MCP object. The sole
+  channel-less method is `apps.readResource`: it first resolves the live server
+  generation and then calls the contract-derived content bridge. Existing MCP
+  raw replies, including the `{ ok, result }` content envelope, remain byte-shape
+  compatible; the preload still unwraps content into the established public
+  promise behavior.
   Git's 15 operations plus every Changes, Forge, and Worktrees invoke use
   `rawChannel` so valid calls retain each domain's established result envelope;
   their contract parsers

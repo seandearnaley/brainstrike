@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createMcpAppToolInvocationResult,
-  MCP_APPS_IPC_CHANNELS,
   McpAppPrepareRequestSchema,
   McpAppToolInvocationResultSchema,
   parseMcpAppPrepareResult,
@@ -23,17 +22,6 @@ const origin = {
 } as const;
 
 describe('MCP Apps IPC contract', () => {
-  it('pins the channel names preload and main share', () => {
-    expect(MCP_APPS_IPC_CHANNELS).toEqual({
-      execute: 'mcp:apps:execute',
-      prepare: 'mcp:apps:prepare',
-      prepareShell: 'mcp:apps:prepareShell',
-      release: 'mcp:apps:release',
-      releaseShell: 'mcp:apps:releaseShell',
-    });
-    expect(Object.isFrozen(MCP_APPS_IPC_CHANNELS)).toBe(true);
-  });
-
   it('round-trips the persisted app tool result exactly and rejects near misses', () => {
     const marker = createMcpAppToolInvocationResult(origin, { time: '2026-09-02T00:00:00Z' });
     expect(readMcpAppToolInvocationResult(marker)).toEqual(marker);

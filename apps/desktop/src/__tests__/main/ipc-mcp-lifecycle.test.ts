@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as mcpIpc from '../../ipc-mcp';
 import { loadMcpConfig, watchMcpConfig } from '../../mcp-loader';
 import { readOpenAIApiKey } from '../../openai-api-key';
+import { adaptMcpHandlerForVisibleUi } from '../helpers/mcp-authorized-handler-test-adapter';
 import { createMcpAuthorityTestRuntime } from './mcp-authority-test-runtime';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
@@ -64,7 +65,7 @@ describe('MCP lifecycle IPC', () => {
       (channel: string, handler: RegisteredHandler) => void
     >;
     mockHandle.mockImplementation((channel, handler) => {
-      handlers.set(channel, handler);
+      handlers.set(channel, adaptMcpHandlerForVisibleUi(handler));
     });
     mcpIpc.registerMcpIpcHandlers({ runtime: authority.runtime });
     await handlers.get('mcp:config:unwatch')?.();

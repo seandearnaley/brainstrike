@@ -214,13 +214,21 @@ vi.mock('electron', () => ({
   ipcMain: { handle: ipcHandleMock },
 }));
 
+vi.mock('../../window-role', () => ({
+  getTrackedWindowsByRole: vi.fn(() => []),
+  getWindowRoleByWebContentsId: vi.fn(() => 'visible-ui'),
+}));
+
 import { loadToolPreferences, mcpToolRegistry } from '@brainstrike/agent';
 import {
   registerMcpIpcHandlers,
   resetMcpRuntimeForFactoryReset,
   resumeMcpRuntimeAfterFactoryReset,
 } from '../../ipc-mcp';
+import { createAllowlistedSenderFrame } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 import { createMcpAuthorityTestRuntime } from './mcp-authority-test-runtime';
+
+const VISIBLE_UI_EVENT = { sender: { id: 1 }, senderFrame: createAllowlistedSenderFrame() };
 
 const authority = createMcpAuthorityTestRuntime(async (serverId) => {
   const discovered = await listToolsMock(serverId);
@@ -260,7 +268,7 @@ function getIpcHandler<T extends unknown[]>(
   if (!handler) {
     throw new Error(`handler not registered for ${channel}`);
   }
-  return handler;
+  return (_event, ...args) => handler(VISIBLE_UI_EVENT, ...args);
 }
 
 /** Undoes a persistent `listToolsMock` implementation installed by a test. */
@@ -423,15 +431,7 @@ describe('ipc-mcp tool preference loading', () => {
     await waitForPreferencesCall();
     const preferenceWrite = Promise.withResolvers<void>();
     saveToolPreferencesMock.mockReturnValueOnce(preferenceWrite.promise);
-    const registration = ipcHandleMock.mock.calls.find(
-      ([channel]) => channel === 'mcp:tools:disable'
-    );
-    const disable = registration?.[1] as
-      | ((event: unknown, toolIds: string[]) => Promise<void>)
-      | undefined;
-    if (!disable) {
-      throw new Error('tools:disable handler not registered');
-    }
+    const disable = getIpcHandler<[string[]]>('mcp:tools:disable');
 
     const mutation = disable({}, ['mock-server.tool.disable']);
     await vi.waitFor(() => expect(saveToolPreferencesMock).toHaveBeenCalledOnce());
@@ -452,15 +452,8 @@ describe('ipc-mcp tool preference loading', () => {
     await waitForPreferencesCall();
     const configPathWrite = Promise.withResolvers<void>();
     setCustomMcpConfigPathMock.mockImplementationOnce(async () => await configPathWrite.promise);
-    const setPath = ipcHandleMock.mock.calls.find(
-      ([channel]) => channel === 'mcp:config:setPath'
-    )?.[1] as ((event: unknown, configPath: null) => Promise<unknown>) | undefined;
-    const disable = ipcHandleMock.mock.calls.find(
-      ([channel]) => channel === 'mcp:tools:disable'
-    )?.[1] as ((event: unknown, toolIds: string[]) => Promise<void>) | undefined;
-    if (!(setPath && disable)) {
-      throw new Error('config and tool handlers not registered');
-    }
+    const setPath = getIpcHandler<[null]>('mcp:config:setPath');
+    const disable = getIpcHandler<[string[]]>('mcp:tools:disable');
     const configMutation = setPath({}, null);
     await vi.waitFor(() => expect(setCustomMcpConfigPathMock).toHaveBeenCalledOnce());
     const deferredMutation = disable({}, ['retired.tool']);
