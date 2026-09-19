@@ -3745,7 +3745,10 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   to observe output. The four measured hotspots — ESLint warning baselines, workspace source
   aliases, private test input locality, and source cycles — therefore support an explicit
   `--repo-root <path>` control seam. Their full-tree verdicts remain in their owning lint
-  commands or paired real-tree tests. The entrypoint test launches each of those four bounded real
+  commands or paired real-tree tests: `eslint-warning-baseline-contract.test.mjs`,
+  `verify-workspace-src-aliases.test.mjs`, `private-test-input-locality.test.mjs`, and
+  `verify-no-source-cycles.test.mjs`, respectively. The bounded-control map names those owners and
+  fails if an owner test disappears. The entrypoint test launches each of those four bounded real
   child processes against a temporary invalid root and requires all three signals: output, a nonzero exit, and a
   fixture-specific failure path. Its executable negative controls cover a no-op `main`, an
   incorrect direct-execution predicate, an ignored fixture root, and a lost nonzero exit

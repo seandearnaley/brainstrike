@@ -602,9 +602,17 @@ export async function findWorkspaceSrcAliasViolations(options = {}) {
  */
 export async function main(options = {}) {
   const repoRoot = options.repoRoot ?? resolve(HERE, '..');
+  const appsRoot = join(repoRoot, 'apps');
+  const packagesRoot = join(repoRoot, 'packages');
+  if (!existsSync(packagesRoot)) {
+    throw new Error(`verify-workspace-src-aliases: missing packages/ under repo root ${repoRoot}`);
+  }
+  if (!existsSync(appsRoot)) {
+    throw new Error(`verify-workspace-src-aliases: missing apps/ under repo root ${repoRoot}`);
+  }
   const violations = await findWorkspaceSrcAliasViolations({
-    appsRoot: join(repoRoot, 'apps'),
-    packagesRoot: join(repoRoot, 'packages'),
+    appsRoot,
+    packagesRoot,
   });
   if (violations.length === 0) {
     console.log(

@@ -14,6 +14,7 @@ import {
 
 const require = createRequire(import.meta.url);
 const turbo = require.resolve('turbo/bin/turbo');
+const FULL_TREE_PRIVATE_INPUT_INVOCATION = /\bpnpm run lint:private-test-input-locality(?![\w:-])/u;
 
 function write(root, file, content) {
   mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
@@ -26,8 +27,13 @@ test('required Static lint retains the full-tree private-input verdict', () => {
   );
   assert.match(
     scripts['lint:ci'],
-    /\bpnpm run lint:private-test-input-locality\b/u,
+    FULL_TREE_PRIVATE_INPUT_INVOCATION,
     'lint:ci must retain the full-repository private test input verdict'
+  );
+  assert.doesNotMatch(
+    'pnpm run lint:private-test-input-locality:bounded',
+    FULL_TREE_PRIVATE_INPUT_INVOCATION,
+    'the owner-chain assertion must reject a cheaper similarly prefixed script'
   );
   assert.equal(
     scripts['lint:private-test-input-locality'],

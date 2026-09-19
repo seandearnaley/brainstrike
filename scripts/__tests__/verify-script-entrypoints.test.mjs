@@ -56,6 +56,7 @@ const BOUNDED_ENTRYPOINT_ARGS = new Map([
     {
       args: (root) => ['--repo-root', root],
       failureSignature: (root) => path.join(root, 'eslint-warning-baseline.json'),
+      fullTreeOwner: 'eslint-warning-baseline-contract.test.mjs',
     },
   ],
   [
@@ -64,6 +65,7 @@ const BOUNDED_ENTRYPOINT_ARGS = new Map([
       args: (root) => ['--repo-root', root],
       failureSignature: (root) =>
         `Could not resolve the web renderer entrypoint (apps/web/src/main.tsx) under ${root}`,
+      fullTreeOwner: 'verify-no-source-cycles.test.mjs',
     },
   ],
   [
@@ -72,13 +74,16 @@ const BOUNDED_ENTRYPOINT_ARGS = new Map([
       args: (root) => ['--repo-root', root],
       failureSignature: (root) =>
         `Private test input locality cannot verify ${root}: no Git metadata found.`,
+      fullTreeOwner: 'private-test-input-locality.test.mjs',
     },
   ],
   [
     'verify-workspace-src-aliases.mjs',
     {
       args: (root) => ['--repo-root', root],
-      failureSignature: (root) => path.join(root, 'packages'),
+      failureSignature: (root) =>
+        `verify-workspace-src-aliases: missing packages/ under repo root ${root}`,
+      fullTreeOwner: 'verify-workspace-src-aliases.test.mjs',
     },
   ],
 ]);
@@ -95,6 +100,9 @@ function probeEntrypoint({ args = [], failureSignature, scriptPath }) {
           result.status !== 0 &&
           output.includes(failureSignature))),
     hasOutput: spawnSucceeded && output.trim() !== '',
+    output: output.trim().slice(0, 500),
+    spawnError: result.error?.message,
+    status: result.status,
   };
 }
 
@@ -110,6 +118,13 @@ test('discovery floor: the verify-* script set is not silently empty', () => {
     [],
     'Bounded entrypoint controls must name discovered verify-* scripts'
   );
+  for (const [name, { fullTreeOwner }] of BOUNDED_ENTRYPOINT_ARGS) {
+    assert.ok(
+      readdirSync(path.join(SCRIPTS_DIR, '__tests__')).includes(fullTreeOwner),
+      `${name} uses a bounded entrypoint probe but its full-tree owner test is missing: ` +
+        `scripts/__tests__/${fullTreeOwner}`
+    );
+  }
 });
 
 test('every verify-* script invokes its check on direct execution', () => {
@@ -194,6 +209,7 @@ test('direct execution reaches the check and bounded controls fail', (t) => {
   t.after(() => rmSync(bogusRoot, { force: true, recursive: true }));
 
   const silent = [];
+  const spawnFailures = [];
   const fixtureRootsIgnored = [];
   for (const name of VERIFY_SCRIPTS) {
     const boundedEntrypoint = BOUNDED_ENTRYPOINT_ARGS.get(name);
@@ -203,13 +219,27 @@ test('direct execution reaches the check and bounded controls fail', (t) => {
       failureSignature: boundedEntrypoint?.failureSignature(bogusRoot),
       scriptPath: path.join(SCRIPTS_DIR, name),
     });
+    if (probe.spawnError) {
+      spawnFailures.push(`${name}: ${probe.spawnError}`);
+      continue;
+    }
     if (!probe.hasOutput) {
       silent.push(name);
     }
     if (boundedEntrypoint && !probe.boundedControlPassed) {
-      fixtureRootsIgnored.push(name);
+      fixtureRootsIgnored.push(
+        `${name}: expected ${JSON.stringify(boundedEntrypoint.failureSignature(bogusRoot))}; ` +
+          `exit ${String(probe.status)}; output ${JSON.stringify(probe.output)}`
+      );
     }
   }
+
+  assert.deepEqual(
+    spawnFailures,
+    [],
+    'These entrypoint processes could not start:\n' +
+      spawnFailures.map((failure) => `  - ${failure}`).join('\n')
+  );
 
   assert.deepEqual(
     silent,
@@ -221,9 +251,10 @@ test('direct execution reaches the check and bounded controls fail', (t) => {
   assert.deepEqual(
     fixtureRootsIgnored,
     [],
-    'These scripts reported success against their explicit invalid fixture root. ' +
-      'The CLI either ignored the fixture argument or lost the nonzero exit status:\n' +
-      fixtureRootsIgnored.map((name) => `  - scripts/${name}`).join('\n')
+    'These bounded scripts did not produce their fixture-specific nonzero failure. ' +
+      'The CLI ignored the fixture argument, lost the nonzero exit status, or changed its ' +
+      'diagnostic without updating this contract:\n' +
+      fixtureRootsIgnored.map((failure) => `  - ${failure}`).join('\n')
   );
 });
 
