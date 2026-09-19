@@ -424,7 +424,7 @@ test('a CLI JSON error on stdout is surfaced without dumping unrelated payload f
   assert.equal(prepareReview(f), 0);
   const spawn = () => ({
     status: 1,
-    stderr: '',
+    stderr: 's'.repeat(500),
     stdout: JSON.stringify({
       api_error_status: 429,
       errors: ['five-hour limit reached'],
@@ -442,8 +442,7 @@ test('a CLI JSON error on stdout is surfaced without dumping unrelated payload f
   assert.equal(runReview({ ...f, spawn, stderr }), 1);
   assert.equal(reportReview(f), 1);
 
-  const expected =
-    "Claude CLI exited 1; subtype=error_during_execution; is_error=true; api_error_status=429; terminal_reason=api_error; errors=five-hour limit reached; result=You're out of extra usage · resets 6:40pm";
+  const expected = `Claude CLI exited 1; stderr=${'s'.repeat(500)}; subtype=error_during_execution; is_error=true; api_error_status=429; terminal_reason=api_error; errors=five-hour limit reached; result=You're out of extra usage · resets 6:40pm`;
   assert.equal(lines[0], `${CLAUDE_CLI_FAILURE_PREFIX} ${expected}\n`);
   assert.match(f.summary(), new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')));
   assert.doesNotMatch(f.summary(), /secret_payload/);

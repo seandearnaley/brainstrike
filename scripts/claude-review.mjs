@@ -41,6 +41,7 @@ const ghCommand = (args, { input } = {}) =>
 export const PUBLICATION_FAILURE_PREFIX = 'CLAUDE_REVIEW_PUBLICATION_FAILED:';
 export const CLAUDE_CLI_FAILURE_PREFIX = 'CLAUDE_REVIEW_CLI_FAILED:';
 const CLI_DIAGNOSTIC_LIMIT = 500;
+const CLI_FAILURE_REASON_LIMIT = 4096;
 const gitHeadCommand = () =>
   execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const statePath = (env) => path.join(env.RUNNER_TEMP, 'claude-review-request.json');
@@ -52,7 +53,7 @@ const captureDir = (env) => path.join(env.RUNNER_TEMP, 'claude-review-capture');
 const promptPath = (env) => path.join(captureDir(env), 'prompt.txt');
 const resultPath = (env) => path.join(env.RUNNER_TEMP, 'claude-review-result.json');
 
-function sanitizeCliDiagnostic(value) {
+function sanitizeCliDiagnostic(value, limit = CLI_DIAGNOSTIC_LIMIT) {
   if (typeof value !== 'string') {
     return '';
   }
@@ -60,7 +61,7 @@ function sanitizeCliDiagnostic(value) {
     const codePoint = character.codePointAt(0) ?? 0;
     return codePoint <= 31 || (codePoint >= 127 && codePoint <= 159) ? ' ' : character;
   }).join('');
-  return printable.replace(/\s+/gu, ' ').trim().slice(0, CLI_DIAGNOSTIC_LIMIT);
+  return printable.replace(/\s+/gu, ' ').trim().slice(0, limit);
 }
 
 function describeCliStdout(stdout) {
@@ -413,8 +414,11 @@ export function runReview({
     result.conclusion = 'success';
     result.structuredOutput = JSON.stringify(parsed.structured_output);
   } catch (error) {
-    result.reason = error instanceof Error ? error.message : String(error);
-    stderr.write(`${CLAUDE_CLI_FAILURE_PREFIX} ${sanitizeCliDiagnostic(result.reason)}\n`);
+    result.reason = sanitizeCliDiagnostic(
+      error instanceof Error ? error.message : String(error),
+      CLI_FAILURE_REASON_LIMIT
+    );
+    stderr.write(`${CLAUDE_CLI_FAILURE_PREFIX} ${result.reason}\n`);
   } finally {
     closeSync(promptFd);
   }

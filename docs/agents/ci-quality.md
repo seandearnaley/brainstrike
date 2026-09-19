@@ -1379,8 +1379,9 @@ failure payload on **stdout** while stderr is empty. `runReview` parses that
 payload and carries only a fixed, bounded set of diagnostic fields into the
 incomplete disposition: `subtype`, `is_error`, `api_error_status`,
 `terminal_reason`, `error`, string entries from `errors`, and `result` only
-when `is_error` is true. It never dumps the complete JSON object. The same
-reason is written to stderr with the stable prefix
+when `is_error` is true. It never dumps the complete JSON object. Each field
+is capped at 500 characters and the assembled reason at 4 KiB. The same reason
+is written to stderr with the stable prefix
 `CLAUDE_REVIEW_CLI_FAILED:` so the failed run step is useful without opening
 the later reporter step. Non-JSON stdout and stderr are whitespace-normalized
 and capped before either destination.
