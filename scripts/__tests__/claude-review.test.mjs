@@ -449,6 +449,30 @@ test('a CLI JSON error on stdout is surfaced without dumping unrelated payload f
   assert.doesNotMatch(lines[0], /secret_payload/);
 });
 
+test('oversized CLI diagnostics are bounded before parsing and normalization', (t) => {
+  const f = fixture(t);
+  assert.equal(prepareReview(f), 0);
+  const spawn = () => ({
+    status: 1,
+    stderr: `line\n${'s'.repeat(1000)}`,
+    stdout: JSON.stringify({
+      ignored: 'x'.repeat(70 * 1024),
+      is_error: true,
+      result: 'must never be parsed or published',
+    }),
+  });
+  const lines = [];
+  const stderr = { write: (chunk) => lines.push(chunk) };
+
+  assert.equal(runReview({ ...f, spawn, stderr }), 1);
+  assert.equal(reportReview(f), 1);
+
+  const expected = `Claude CLI exited 1; stderr=line ${'s'.repeat(495)}; stdout=omitted_over_limit`;
+  assert.equal(lines[0], `${CLAUDE_CLI_FAILURE_PREFIX} ${expected}\n`);
+  assert.match(f.summary(), new RegExp(expected));
+  assert.doesNotMatch(f.summary(), /must never be parsed or published/);
+});
+
 test('a focus beyond the fixed cap is refused before Claude runs', (t) => {
   const f = fixture(t, { eventName: 'workflow_dispatch', focus: 'F'.repeat(2001) });
   assert.equal(prepareReview(f), 1);

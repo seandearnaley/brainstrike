@@ -42,6 +42,7 @@ export const PUBLICATION_FAILURE_PREFIX = 'CLAUDE_REVIEW_PUBLICATION_FAILED:';
 export const CLAUDE_CLI_FAILURE_PREFIX = 'CLAUDE_REVIEW_CLI_FAILED:';
 const CLI_DIAGNOSTIC_LIMIT = 500;
 const CLI_FAILURE_REASON_LIMIT = 4096;
+const CLI_JSON_DIAGNOSTIC_INPUT_LIMIT = 64 * 1024;
 const gitHeadCommand = () =>
   execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const statePath = (env) => path.join(env.RUNNER_TEMP, 'claude-review-request.json');
@@ -57,23 +58,30 @@ function sanitizeCliDiagnostic(value, limit = CLI_DIAGNOSTIC_LIMIT) {
   if (typeof value !== 'string') {
     return '';
   }
-  const printable = Array.from(value, (character) => {
+  const printable = Array.from(value.slice(0, limit), (character) => {
     const codePoint = character.codePointAt(0) ?? 0;
     return codePoint <= 31 || (codePoint >= 127 && codePoint <= 159) ? ' ' : character;
   }).join('');
-  return printable.replace(/\s+/gu, ' ').trim().slice(0, limit);
+  return printable.replace(/\s+/gu, ' ').trim();
 }
 
 function describeCliStdout(stdout) {
-  const raw = String(stdout ?? '').trim();
+  const raw = String(stdout ?? '');
   if (!raw) {
+    return [];
+  }
+  if (raw.length > CLI_JSON_DIAGNOSTIC_INPUT_LIMIT) {
+    return ['stdout=omitted_over_limit'];
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
     return [];
   }
   let parsed;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(trimmed);
   } catch {
-    const diagnostic = sanitizeCliDiagnostic(raw);
+    const diagnostic = sanitizeCliDiagnostic(trimmed);
     return diagnostic ? [`stdout=${diagnostic}`] : [];
   }
   if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {

@@ -1383,8 +1383,9 @@ when `is_error` is true. It never dumps the complete JSON object. Each field
 is capped at 500 characters and the assembled reason at 4 KiB. The same reason
 is written to stderr with the stable prefix
 `CLAUDE_REVIEW_CLI_FAILED:` so the failed run step is useful without opening
-the later reporter step. Non-JSON stdout and stderr are whitespace-normalized
-and capped before either destination.
+the later reporter step. Raw JSON diagnostics over 64 KiB are not parsed and
+produce a fixed overflow marker. Other stdout and stderr diagnostics are capped
+before control-character normalization as well as before either destination.
 
 **The published body reaches `gh` on stdin too (BST-1743).** The reporter
 posts with `gh pr comment --body-file -` and hands the body to `execFileSync`
