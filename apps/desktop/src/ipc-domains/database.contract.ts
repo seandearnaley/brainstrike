@@ -318,14 +318,33 @@ type RequiredDesktopDatabaseBridge<Keys extends keyof DesktopDatabaseBridge> = {
 type AdaptedMethod = 'exec' | 'ping' | 'query' | 'test';
 type AdaptedDatabaseBridge<Generated extends object> = Omit<Generated, AdaptedMethod> &
   RequiredDesktopDatabaseBridge<Extract<keyof Generated, AdaptedMethod>>;
-type ExactBridge<Generated extends object, Expected extends object> = [
-  AdaptedDatabaseBridge<Generated>,
-] extends [Expected]
-  ? [Expected] extends [AdaptedDatabaseBridge<Generated>]
+interface ExpectedGeneratedAdapterMethods {
+  exec: (
+    sql: string,
+    paramsOrOptions?: unknown[] | DatabaseWorkOptions,
+    options?: DatabaseWorkOptions
+  ) => Promise<unknown>;
+  ping: () => Promise<{ readonly message: string; readonly success: true }>;
+  query: (
+    sql: string,
+    paramsOrOptions?: unknown[] | DatabaseWorkOptions,
+    options?: DatabaseWorkOptions
+  ) => Promise<DatabaseQueryResult>;
+  test: () => Promise<DatabaseTestResult>;
+}
+type ExactType<Actual, Expected> = [Actual] extends [Expected]
+  ? [Expected] extends [Actual]
     ? true
     : false
   : false;
+type ExactBridge<Generated extends object, Expected extends object> = ExactType<
+  AdaptedDatabaseBridge<Generated>,
+  Expected
+>;
 
+export type DatabaseAdapterMethodDerivationProof = AssertTrue<
+  ExactType<Pick<DatabaseBridge, AdaptedMethod>, ExpectedGeneratedAdapterMethods>
+>;
 export type VisibleDatabaseBridgeDerivationProof = AssertTrue<
   ExactBridge<DatabaseBridge, RequiredDesktopDatabaseBridge<keyof DatabaseBridge>>
 >;

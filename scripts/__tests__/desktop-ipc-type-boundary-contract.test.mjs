@@ -47,6 +47,11 @@ function inspectSource(sourceFile, checker) {
       symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol
     )
   );
+  for (const symbol of exportedSymbols) {
+    if (electronApiNamePattern.test(symbol.name)) {
+      findings.push(`forbidden Electron bridge re-export: ${symbol.name}`);
+    }
+  }
 
   function isExportedDeclaration(node) {
     const variableStatement =
@@ -178,6 +183,10 @@ describe('@brainstrike/types desktop IPC type boundary', () => {
     assert.ok(
       findings.includes('forbidden electron-api module reference: ./electron-api.js'),
       `missing electron-api module-reference finding: ${findings.join(', ')}`
+    );
+    assert.ok(
+      findings.includes('forbidden Electron bridge re-export: ExternalElectronAPI'),
+      `missing external Electron API re-export finding: ${findings.join(', ')}`
     );
     assert.ok(
       findings.includes('forbidden Electron bridge declaration: DesktopElectronAPI'),
