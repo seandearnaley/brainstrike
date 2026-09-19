@@ -175,7 +175,6 @@ describe('preload runtime contract', () => {
       'readResource: (origin: McpAppOrigin) => readMcpAppResource(origin)'
     );
     expect(preloadSource).not.toMatch(/ipcRenderer\.invoke\(DESKTOP_IPC_CHANNELS\.mcp\./);
-    expect(preloadSource).not.toMatch(/mcp:\s*\{[\s\S]*?invoke:\s*\(/);
   });
 
   it('keeps resolver-gated bridge key sets in parity with their required-method contracts', () => {

@@ -139,6 +139,23 @@ describe('preload contract-derived bridges', () => {
     );
   });
 
+  it('unwraps MCP content replies into the established public promise behavior', async () => {
+    const mcp = exposedApi('mcp');
+    const result = { completion: { values: ['done'] }, type: 'completion/complete' };
+    mockInvoke.mockResolvedValueOnce({ ok: true, result });
+    await expect(mcp['complete']?.({ argument: { name: 'n', value: 'v' } })).resolves.toBe(result);
+
+    mockInvoke.mockResolvedValueOnce({
+      error: { category: 'protocol', code: 'invalid-result', message: 'bad content' },
+      ok: false,
+    });
+    await expect(mcp['complete']?.({})).rejects.toMatchObject({
+      category: 'protocol',
+      code: 'invalid-result',
+      message: 'bad content (protocol · invalid-result)',
+    });
+  });
+
   it('routes clipboard.writeText to the manifest channel and unwraps the result envelope', async () => {
     mockInvoke.mockResolvedValueOnce({ ok: true, value: undefined });
     await expect(exposedApi('clipboard')['writeText']?.('copied')).resolves.toBeUndefined();

@@ -197,10 +197,7 @@ export const mcpContract = {
     parseArgs: parseNoArgs,
     roles: VISIBLE_UI,
   }),
-  setExtensionPreferences: rawChannel<
-    [preferences: McpExtensionEnablement],
-    McpExtensionEnablement
-  >({
+  setExtensionPreferences: rawChannel<[preferences: unknown], McpExtensionEnablement>({
     channel: DESKTOP_IPC_CHANNELS.mcp.extensionsSet,
     parseArgs: oneArg('MCP extension preferences'),
     roles: VISIBLE_UI,
@@ -227,7 +224,7 @@ export const mcpContract = {
     roles: VISIBLE_UI,
   }),
   writeConfigText: rawChannel<
-    [content: string],
+    [content: unknown],
     { success: true; path: string } | { success: false; path: string; error: string }
   >({
     channel: DESKTOP_IPC_CHANNELS.mcp.configWriteText,

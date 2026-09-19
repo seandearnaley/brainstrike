@@ -20,7 +20,6 @@ import {
   parseMcpElicitationSettlement,
 } from '@brainstrike/assistant-contract';
 import { mcpElicitationContract } from '../ipc-domains/mcp.contract';
-import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { type DesktopIpcRegistry, registerDomain } from '../platform/desktop-ipc-registry';
 import type { Handlers } from '../platform/ipc-contract';
 import { getTrackedWindowsByRole } from '../window-role';
@@ -70,13 +69,13 @@ export function attachMcpElicitationBridge(
   const { elicitationPresenter } = runtime;
   const detach = elicitationPresenter.attach((presentation: McpElicitationPresentation) => {
     const wire: McpElicitationPresentationWire = presentation;
-    broadcast(DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationRequested, wire);
+    broadcast(mcpElicitationContract.onElicitationRequested.channel, wire);
   });
   let stopObserving: () => void;
   try {
     stopObserving = elicitationPresenter.observeFinalized(({ code, id }) => {
       const wire: McpElicitationRetiredWire = { code, id };
-      broadcast(DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationRetired, wire);
+      broadcast(mcpElicitationContract.onElicitationRetired.channel, wire);
     });
   } catch (error) {
     detach();

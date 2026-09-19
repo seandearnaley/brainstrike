@@ -19,7 +19,6 @@ import {
   parseMcpTaskListResult,
 } from '@brainstrike/assistant-contract';
 import { mcpTasksContract } from '../ipc-domains/mcp.contract';
-import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { type DesktopIpcRegistry, registerDomain } from '../platform/desktop-ipc-registry';
 import type { Handlers } from '../platform/ipc-contract';
 import { getTrackedWindowsByRole } from '../window-role';
@@ -52,7 +51,7 @@ export function attachMcpTaskBridge(
   const { taskHost } = runtime;
   const unsubscribe = taskHost.subscribe((task) => {
     const event: McpTaskStatusChangedEvent = { task };
-    broadcast(DESKTOP_PRELOAD_IPC_CHANNELS.mcp.taskStatusChanged, event);
+    broadcast(mcpTasksContract.onStatusChanged.channel, event);
   });
   const handlers: Handlers<typeof mcpTasksContract> = {
     act: (request): Promise<McpTaskActionResult> => {

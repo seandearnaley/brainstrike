@@ -7,6 +7,7 @@ import {
   type McpHostSnapshot,
   type McpToolPreferencesFault,
   type McpToolPreferencesFaultKind,
+  parseMcpExtensionEnablement,
   parseMcpHostControlRequest,
 } from '@brainstrike/assistant-contract';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
@@ -47,7 +48,6 @@ import {
   watchMcpConfig,
   writeMcpConfigText,
 } from './mcp-loader';
-import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc-registry';
 import type { Handlers } from './platform/ipc-contract';
 
@@ -111,10 +111,10 @@ function requireToolPreferencesWritable(): void {
 const logger = createLogger('DesktopMcpIpc');
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
 const mcpContentLifecycle = { barrier: () => mcpLifecycleBarrier, isOpen: () => mcpLifecycleOpen };
-export const MCP_TOOLS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpdated;
-export const MCP_CONFIG_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUpdated;
-export const MCP_STATUS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusUpdated;
-export const MCP_EXTENSIONS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.extensionsUpdated;
+export const MCP_TOOLS_UPDATED_EVENT = mcpContract.onToolsUpdated.channel;
+export const MCP_CONFIG_UPDATED_EVENT = mcpContract.onConfigUpdated.channel;
+export const MCP_STATUS_UPDATED_EVENT = mcpContract.onServerStatusUpdated.channel;
+export const MCP_EXTENSIONS_UPDATED_EVENT = mcpContract.onExtensionPreferencesUpdated.channel;
 type McpAuthorityRuntime = Pick<
   DesktopMcpHostRuntime,
   'host' | 'mcpExtensionPreferences' | 'replaceResolvedConfig' | 'setMcpExtensionPreferences'
@@ -667,6 +667,9 @@ export function registerMcpIpcHandlers({
     key: K,
     handler: Handlers<typeof mcpContract>[K]
   ): void => {
+    if (key in mcpHandlers) {
+      throw new Error(`Duplicate MCP handler definition: ${String(key)}`);
+    }
     Object.assign(mcpHandlers, { [key]: handler });
   };
   const detachBridges = attachMcpBridges(runtime, registry);
@@ -729,18 +732,17 @@ export function registerMcpIpcHandlers({
       mcpLifecycleBarrier.then(() => ({ ...runtime.mcpExtensionPreferences }))
   );
 
-  defineMcpHandler(
-    'setExtensionPreferences',
-    async (request): Promise<McpExtensionEnablement> =>
-      await trackConfigOperation(async () => {
-        // Persist FIRST: a rejected write must not leave the live host
-        // advertising a state the next launch would not reproduce.
-        const persisted = writeStoredMcpExtensionPreferences(settingsStoreAccess, request);
-        await runtime.setMcpExtensionPreferences(persisted);
-        notifyMcpExtensionPreferences(persisted);
-        return persisted;
-      })
-  );
+  defineMcpHandler('setExtensionPreferences', async (request): Promise<McpExtensionEnablement> => {
+    const parsed = parseMcpExtensionEnablement(request);
+    return await trackConfigOperation(async () => {
+      // Persist FIRST: a rejected write must not leave the live host
+      // advertising a state the next launch would not reproduce.
+      const persisted = writeStoredMcpExtensionPreferences(settingsStoreAccess, parsed);
+      await runtime.setMcpExtensionPreferences(persisted);
+      notifyMcpExtensionPreferences(persisted);
+      return persisted;
+    });
+  });
 
   defineMcpHandler('controlServer', async (request) => {
     const parsed = parseMcpHostControlRequest(request);
