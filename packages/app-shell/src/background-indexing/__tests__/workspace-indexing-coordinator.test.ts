@@ -178,7 +178,7 @@ describe('WorkspaceIndexingCoordinator', () => {
     });
 
     firstPass.resolve();
-    await Promise.resolve();
+    await flushAsyncWork();
     replacementPass.resolve();
 
     await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(3));
@@ -255,8 +255,36 @@ describe('WorkspaceIndexingCoordinator', () => {
     coordinator.trigger({ mode: 'full' }, { restartActive: true });
 
     await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(2));
-    expect(onError).toHaveBeenCalledWith('cancel', expect.any(Error));
+    expect(onError).toHaveBeenCalledWith('cancel', new Error('cancel sweep failed'));
     activePass.resolve();
+    await flushAsyncWork();
+  });
+
+  it('does not resurrect replacement work after its cancellation sweep is superseded', async () => {
+    const activePass = deferred();
+    const restartSweep = deferred();
+    const onError = vi.fn();
+    const service = createService();
+    vi.mocked(service.sync).mockImplementation(async () => activePass.promise);
+    vi.mocked(service.cancel)
+      .mockImplementationOnce(async () => restartSweep.promise)
+      .mockResolvedValueOnce(undefined);
+    const coordinator = new WorkspaceIndexingCoordinator();
+    coordinator.updateInputs(createInputs(service, { onError }));
+    coordinator.trigger();
+    await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(1));
+
+    coordinator.trigger({ mode: 'full' }, { restartActive: true });
+    await vi.waitFor(() => expect(service.cancel).toHaveBeenCalledTimes(1));
+    await coordinator.cancel();
+    restartSweep.reject(new Error('superseded sweep failed'));
+    await flushAsyncWork();
+
+    expect(service.cancel).toHaveBeenCalledTimes(2);
+    expect(service.sync).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith('cancel', new Error('superseded sweep failed'));
+    activePass.resolve();
+    await flushAsyncWork();
   });
 
   it('does not report stale service failures after cancellation', async () => {
@@ -294,6 +322,40 @@ describe('WorkspaceIndexingCoordinator', () => {
     await flushAsyncWork();
 
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('reports failures from the current service pass', async () => {
+    const onError = vi.fn();
+    const service = createService();
+    vi.mocked(service.sync).mockRejectedValueOnce(new Error('current sync failure'));
+    const coordinator = new WorkspaceIndexingCoordinator();
+    coordinator.updateInputs(createInputs(service, { onError }));
+
+    coordinator.trigger();
+
+    await vi.waitFor(() =>
+      expect(onError).toHaveBeenCalledWith('sync', new Error('current sync failure'))
+    );
+  });
+
+  it('reports target-resolution failures from the current pass', async () => {
+    const onError = vi.fn();
+    const service = createService();
+    const coordinator = new WorkspaceIndexingCoordinator();
+    coordinator.updateInputs(
+      createInputs(service, {
+        onError,
+        resolveTargets: async () => {
+          throw new Error('current resolution failure');
+        },
+      })
+    );
+
+    coordinator.trigger();
+
+    await vi.waitFor(() =>
+      expect(onError).toHaveBeenCalledWith('sync loop', new Error('current resolution failure'))
+    );
   });
 
   it('detaches local tracking without cancelling the durable service run', async () => {

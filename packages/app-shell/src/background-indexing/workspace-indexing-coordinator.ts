@@ -346,12 +346,12 @@ export class WorkspaceIndexingCoordinator {
       state: 'restart-cancelling',
       updatedAt: new Date().toISOString(),
     };
-    void service
-      .cancel()
-      .then(() => {
+    void service.cancel().then(
+      () => {
         this.startReplacement(scope, inputs, service, generation);
-      })
-      .catch((error) => {
+      },
+      (error: unknown) => {
+        inputs.onError('cancel', error);
         if (this.generation !== generation) {
           return;
         }
@@ -362,9 +362,9 @@ export class WorkspaceIndexingCoordinator {
           state: 'restart-cancel-error',
           updatedAt: new Date().toISOString(),
         };
-        inputs.onError('cancel', error);
         this.startReplacement(scope, inputs, service, generation);
-      });
+      }
+    );
   }
 
   private startReplacement(
