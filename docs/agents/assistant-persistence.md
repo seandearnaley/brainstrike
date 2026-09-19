@@ -474,6 +474,9 @@ accepted by normal storage is not rejected merely by `structuredClone`.
    returns void and rethrows non-`MessageNotSentError` failures from a detached
    `.catch`; callers cannot observe it. Paired test: "keeps the edge an aborted
    leg persists while the echo turn lookup is pending" in the same topology file.
+   That case forces tied edge timestamps and compares the exact parent map:
+   SQL's timestamp/message-id order can place the assistant before the user,
+   without changing either persisted edge (PR #3243 CI regression).
    The UI transport preserves each assistant-ui user message id through the
    generic-message conversion, and the desktop request parser preserves
    assistant-ui's `unstable_assistantMessageId`; the stream session and Mastra
