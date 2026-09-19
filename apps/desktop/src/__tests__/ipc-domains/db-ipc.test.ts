@@ -174,22 +174,25 @@ describe('database IPC domain', () => {
 
   it('validates the db:transaction statement list and guards each statement SQL', async () => {
     // Empty / non-array statement list is rejected before any DB work.
-    await expect(handlers.get('db:transaction')?.(createTrustedInvokeEvent(), [])).rejects.toThrow(
-      'db:transaction requires a non-empty statements array.'
-    );
+    await expect(
+      handlers.get('db:transaction')?.(createTrustedInvokeEvent(), [], 0)
+    ).rejects.toThrow('db:transaction requires a non-empty statements array.');
 
     // Every statement's SQL passes through the same assertRendererSql guard as db:query.
     await expect(
-      handlers.get('db:transaction')?.(createTrustedInvokeEvent(), [
-        { sql: "SET LOCAL hnsw.ef_search = '1'" },
-        { sql: 'SELECT\0 1' },
-      ])
+      handlers.get('db:transaction')?.(
+        createTrustedInvokeEvent(),
+        [{ sql: "SET LOCAL hnsw.ef_search = '1'" }, { sql: 'SELECT\0 1' }],
+        0
+      )
     ).rejects.toThrow('db:transaction SQL must not contain null bytes.');
 
     await expect(
-      handlers.get('db:transaction')?.(createTrustedInvokeEvent(), [
-        { sql: 'DROP TABLE file_records' },
-      ])
+      handlers.get('db:transaction')?.(
+        createTrustedInvokeEvent(),
+        [{ sql: 'DROP TABLE file_records' }],
+        0
+      )
     ).rejects.toThrow('db:transaction does not permit destructive schema SQL from the renderer.');
   });
 
@@ -306,7 +309,7 @@ describe('database IPC domain', () => {
       ['db:exec', [''], rejectsWith('db:exec SQL must be a non-empty string.')],
       [
         'db:transaction',
-        [[]],
+        [[], 0],
         rejectsWith('db:transaction requires a non-empty statements array.'),
       ],
       [

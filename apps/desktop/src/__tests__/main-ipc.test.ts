@@ -1,8 +1,13 @@
 import path from 'node:path';
 import type { createIpcMainMock, createIpcRendererMock } from '@brainstrike/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
 
 const lifecycleHandlers = vi.hoisted(() => new Map<string, () => void>());
+const ipcInvokeState = vi.hoisted(() => ({ event: null as unknown }));
+const registeredIpcHandlers = vi.hoisted(
+  () => new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
+);
 
 // Hoist the Electron mock to avoid factory/temporal dead zone issues
 vi.mock('electron', async () => {
@@ -22,13 +27,20 @@ vi.mock('electron', async () => {
     removeHandler: vi.fn(),
     removeListener: vi.fn(),
   });
+  ipcMain.handle.mockImplementation((channel, handler) => {
+    registeredIpcHandlers.set(channel, handler);
+  });
   const ipcRenderer = electronUtils.createIpcRendererMock();
   const screen = electronUtils.createScreenMock();
   // Wire renderer invokes to main handlers for convenience
   const mockInvoke = (ipcRenderer as unknown as ReturnType<typeof createIpcRendererMock>).invoke;
-  mockInvoke.mockImplementation(async (channel: string, ...args: unknown[]) =>
-    (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).__invoke(channel, ...args)
-  );
+  mockInvoke.mockImplementation(async (channel: string, ...args: unknown[]) => {
+    const handler = registeredIpcHandlers.get(channel);
+    if (!handler) {
+      throw new Error(`No handler for channel: ${channel}`);
+    }
+    return handler(ipcInvokeState.event, ...args);
+  });
   const mockBrowserWindowInstance = {
     getBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
     getNormalBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
@@ -116,6 +128,7 @@ import '../main';
 
 describe('db:getUserDataPath IPC handler', () => {
   beforeEach(() => {
+    ipcInvokeState.event = createTrustedInvokeEvent();
     (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).handle.mockClear();
     vi.mocked(ipcMain.removeHandler).mockClear();
     vi.mocked(ipcMain.removeListener).mockClear();

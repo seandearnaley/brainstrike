@@ -10,8 +10,10 @@ import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { commandSessionsContract } from './ipc-domains/command-sessions.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
 import {
+  type DatabaseBridge,
   type DatabaseLiveBridge,
   type DatabaseLiveQueryUpdate,
+  type DatabasePathBridge,
   databaseContract,
   databaseLiveContract,
   databasePathContract,
@@ -175,8 +177,8 @@ function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
   };
 }
 
-const databaseBridge = createIpcBridge(ipcRenderer, databaseContract);
-const databasePathBridge = createIpcBridge(ipcRenderer, databasePathContract);
+const databaseBridge: DatabaseBridge = createIpcBridge(ipcRenderer, databaseContract);
+const databasePathBridge: DatabasePathBridge = createIpcBridge(ipcRenderer, databasePathContract);
 const databaseLiveBridge: DatabaseLiveBridge = {
   ...createIpcBridge(ipcRenderer, databaseLiveContract),
   onUpdate: subscribeToDbLiveUpdates,

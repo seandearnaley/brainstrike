@@ -202,15 +202,12 @@ export const databaseContract = {
   runTransaction: rawChannel<TransactionArgs, DatabaseQueryResult>({
     channel: DESKTOP_IPC_CHANNELS.db.transaction,
     parseArgs: (raw) => {
-      assertArgCountBetween(raw, 1, 3, 'database runTransaction');
+      assertArgCountBetween(raw, 2, 3, 'database runTransaction');
       if (!Array.isArray(raw[0])) {
         throw new Error('database runTransaction statements must be an array');
       }
-      if (raw[1] !== undefined && (typeof raw[1] !== 'number' || !Number.isFinite(raw[1]))) {
+      if (typeof raw[1] !== 'number' || !Number.isFinite(raw[1])) {
         throw new Error('database runTransaction resultIndex must be a finite number');
-      }
-      if (raw.length === 1) {
-        return [raw[0] as TransactionArgs[0], raw[1] as number];
       }
       if (raw.length === 2) {
         return [raw[0] as TransactionArgs[0], raw[1] as number];

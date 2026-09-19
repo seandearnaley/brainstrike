@@ -21,6 +21,7 @@
  */
 import { getMastraResetTables, getResetTables, wasmLoader } from '@brainstrike/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 import {
   getDatabaseMock,
   handlers,
@@ -155,7 +156,10 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
   it('commits the clear when the lazy Mastra relations were never created', async () => {
     const handler = handlers.get('db:clearAll');
 
-    const result = (await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE')) as ClearAllResult;
+    const result = (await handler?.(
+      createTrustedInvokeEvent(),
+      'CONFIRM_CLEAR_DATABASE'
+    )) as ClearAllResult;
 
     // Asserting the message too, so a regression reports the actual Postgres
     // error (`25P02 …transaction is aborted…`) instead of a bare `false`.
@@ -190,7 +194,10 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     await db.exec('DROP TABLE roots');
     const handler = handlers.get('db:clearAll');
 
-    const result = (await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE')) as ClearAllResult;
+    const result = (await handler?.(
+      createTrustedInvokeEvent(),
+      'CONFIRM_CLEAR_DATABASE'
+    )) as ClearAllResult;
 
     expect(result).toMatchObject({ message: 'Database cleared successfully', success: true });
     expect(await countRows('prompt_items')).toBe(0);
@@ -220,7 +227,10 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     `);
     const handler = handlers.get('db:clearAll');
 
-    const result = (await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE')) as ClearAllResult;
+    const result = (await handler?.(
+      createTrustedInvokeEvent(),
+      'CONFIRM_CLEAR_DATABASE'
+    )) as ClearAllResult;
 
     expect(result.success).toBe(false);
     expect(result.message).toMatch(/violates foreign key constraint/iu);
@@ -244,7 +254,10 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     `);
     const handler = handlers.get('db:clearAll');
 
-    const result = (await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE')) as ClearAllResult;
+    const result = (await handler?.(
+      createTrustedInvokeEvent(),
+      'CONFIRM_CLEAR_DATABASE'
+    )) as ClearAllResult;
 
     expect(result).toMatchObject({ success: true });
     for (const table of LAZY_MASTRA_RELATIONS) {

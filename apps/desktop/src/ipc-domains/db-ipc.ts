@@ -640,7 +640,7 @@ export function registerDatabaseIpcHandlers(
     registry,
     databaseLiveContract.stop,
     async (_event, id: number) => {
-      await cleanupLiveSubscription(Number(id));
+      await cleanupLiveSubscription(id);
       return { success: true };
     }
   );

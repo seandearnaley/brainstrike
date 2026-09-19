@@ -44,9 +44,9 @@ import type { clipboardContract } from '../ipc-domains/clipboard.contract';
 import type { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
 import type {
-  databaseContract,
-  databaseLiveContract,
-  databasePathContract,
+  DatabaseBridge,
+  DatabaseLiveBridge,
+  DatabasePathBridge,
 } from '../ipc-domains/database.contract';
 import type { forgeContract } from '../ipc-domains/forge.contract';
 import type { gitContract } from '../ipc-domains/git.contract';
@@ -171,14 +171,14 @@ declare global {
         saveLastFolder: (folderPath: string) => Promise<void>;
       };
       /** Database operations derived from the pure database contract. */
-      db: Bridge<typeof databaseContract>;
+      db: DatabaseBridge;
       /** Live-query operations derived from the pure live-query contract. */
-      dbLive: Bridge<typeof databaseLiveContract>;
+      dbLive: DatabaseLiveBridge;
       // Layout persistence methods
       saveLayout: (state: PanelPersistenceState) => Promise<LayoutPersistenceResult>;
       loadLayout: () => Promise<LayoutLoadResult>;
       // Database path method (legacy)
-      getUserDataPath: Bridge<typeof databasePathContract>['getUserDataPath'];
+      getUserDataPath: DatabasePathBridge['getUserDataPath'];
     };
     embeddingHost: {
       ensureStarted: () => Promise<EmbeddingHostStatus>;

@@ -104,8 +104,11 @@ describe('database IPC contracts', () => {
     expect(() => databaseContract.query.parseArgs([42])).toThrow(
       'database query sql must be a string'
     );
+    expect(() => databaseContract.runTransaction.parseArgs([[]])).toThrow(
+      'database runTransaction requires between 2 and 3 arguments'
+    );
     expect(() => databaseContract.runTransaction.parseArgs([[], 0, undefined, 'extra'])).toThrow(
-      'database runTransaction requires between 1 and 3 arguments'
+      'database runTransaction requires between 2 and 3 arguments'
     );
     expect(() => databaseLiveContract.stop.parseArgs(['1'])).toThrow(
       'database live stop id must be a finite number'
