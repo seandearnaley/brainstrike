@@ -7,6 +7,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
+import { gitContract } from './ipc-domains/git.contract';
 import { skillsContract } from './ipc-domains/skills.contract';
 import { userCommandsContract } from './ipc-domains/user-commands.contract';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
@@ -14,10 +15,8 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
 import { createBridgeExposer } from './platform/ipc-bridge';
 
-type GitDiffParams = import('@brainstrike/types').GitDiffParams;
 type EmbeddingTelemetrySnapshot =
   import('@brainstrike/embedding-worker').EmbeddingTelemetrySnapshot;
-type StructuredFileDiffParams = import('@brainstrike/types').StructuredFileDiffParams;
 type Changeset = import('@brainstrike/types').Changeset;
 type WorktreeAdoptParams = import('@brainstrike/types').WorktreeAdoptParams;
 type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRewindMode;
@@ -1309,35 +1308,7 @@ if (shouldExposeBridge('platform')) {
 // absent there; consumers must capability-check `window.git` rather than
 // `isElectron()`.
 if (shouldExposeBridge('git')) {
-  contextBridge.exposeInMainWorld('git', {
-    aheadBehind: (rootId: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.aheadBehind, rootId),
-    commit: (rootId: string, params: { description?: string; summary: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.commit, rootId, params),
-    commitFiles: (rootId: string, params: { commit: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.commitFiles, rootId, params),
-    createBranch: (rootId: string, params: { branch: string; startPoint?: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.createBranch, rootId, params),
-    diff: (rootId: string, params: GitDiffParams) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.diff, rootId, params),
-    fetch: (rootId: string, params: { remote: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.fetch, rootId, params),
-    history: (rootId: string, params: { limit: number; offset: number; ref?: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.history, rootId, params),
-    pull: (rootId: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.pull, rootId),
-    push: (rootId: string, params?: { remote?: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.push, rootId, params ?? {}),
-    repository: (rootId: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.repository, rootId),
-    stage: (rootId: string, params?: { path?: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.stage, rootId, params ?? {}),
-    status: (rootId: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.status, rootId),
-    structuredFileDiff: (rootId: string, params: StructuredFileDiffParams) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.structuredFileDiff, rootId, params),
-    switchBranch: (rootId: string, params: { branch: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.switchBranch, rootId, params),
-    unstage: (rootId: string, params?: { path?: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.unstage, rootId, params ?? {}),
-  });
+  exposeBridge('git', gitContract);
 }
 
 // Changeset diff bridge (desktop-only, BST-1113): resolves any `Changeset`

@@ -54,6 +54,37 @@ function createRecordingStub<T extends object>(): {
   return { calls, stub };
 }
 
+function gitInvokeArgs(channel: string): readonly unknown[] {
+  switch (channel) {
+    case 'git:aheadBehind':
+    case 'git:pull':
+    case 'git:repository':
+    case 'git:status':
+      return ['root-1'];
+    case 'git:commit':
+      return ['root-1', { summary: 'summary' }];
+    case 'git:commitFiles':
+      return ['root-1', { commit: 'abc123' }];
+    case 'git:createBranch':
+    case 'git:switchBranch':
+      return ['root-1', { branch: 'feature' }];
+    case 'git:diff':
+      return ['root-1', { mode: 'working' }];
+    case 'git:fetch':
+      return ['root-1', { remote: 'origin' }];
+    case 'git:history':
+      return ['root-1', { limit: 20, offset: 0 }];
+    case 'git:push':
+    case 'git:stage':
+    case 'git:unstage':
+      return ['root-1', {}];
+    case 'git:structuredFileDiff':
+      return ['root-1', { mode: 'working', path: 'src/index.ts' }];
+    default:
+      throw new Error(`Missing Git authorization fixture for ${channel}`);
+  }
+}
+
 const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
   {
     channels: ['terminal:create', 'terminal:write', 'terminal:resize', 'terminal:destroy'],
@@ -168,7 +199,8 @@ describe('privileged desktop IPC domains are visible-UI-only (BST-1641)', () => 
       const dispose = register(() => stub);
       const event = createTrustedInvokeEvent('visible-ui', VISIBLE_SENDER_ID);
 
-      await expect(registeredHandler(channel)(event, { rootId: 'r1' })).resolves.toEqual({
+      const args = channel.startsWith('git:') ? gitInvokeArgs(channel) : [{ rootId: 'r1' }];
+      await expect(registeredHandler(channel)(event, ...args)).resolves.toEqual({
         ok: true,
       });
       expect(calls).toHaveBeenCalledTimes(1);

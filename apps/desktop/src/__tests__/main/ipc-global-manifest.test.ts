@@ -349,6 +349,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
     expect(contracts.map(({ file }) => file)).toEqual([
       'clipboard.contract.ts',
       'context-files.contract.ts',
+      'git.contract.ts',
       'skills.contract.ts',
       'user-commands.contract.ts',
       'user-personas.contract.ts',

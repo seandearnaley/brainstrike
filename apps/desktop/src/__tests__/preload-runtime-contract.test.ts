@@ -3,7 +3,6 @@ import path from 'node:path';
 import { BROWSER_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/browser-pane/availability';
 import { CHANGES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/changes/availability';
 import { FORGE_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/forge/availability';
-import { GIT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/git-panel/availability';
 import { PLATFORM_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/platform-bridge';
 import {
   COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
@@ -244,7 +243,6 @@ describe('preload runtime contract', () => {
       commandSessions: COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
       envBootstrap: ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS,
       forge: FORGE_BRIDGE_REQUIRED_METHODS,
-      git: GIT_BRIDGE_REQUIRED_METHODS,
       notesVault: NOTES_VAULT_BRIDGE_REQUIRED_METHODS,
       platform: PLATFORM_BRIDGE_REQUIRED_METHODS,
       providerAuth: PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS,
