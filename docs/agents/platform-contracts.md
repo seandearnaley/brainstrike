@@ -242,7 +242,7 @@ source of truth for who may hold a channel; `hidden-preload.ts` exposes no
 | `db:exec`, `db:transaction` (raw SQL entry points; typed replacement is BST-1234), `db:diagnostics`, `db:scheduler:snapshot`, `db:test`, `db:managed-cache:apply-batch`, `db:managed-cache:invalidate-by-identity`, `db:chunks:insert-and-enqueue-embedding-jobs` — every `db:*` channel the embedding host's `hidden-preload.ts` bridge exposes besides the shared `db:query` | `embedding-host`, `visible-ui` |
 | `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, `mcp:content:*`, MCP apps/task/elicitation bridges | `visible-ui` (pre-existing) |
 | `vector-preferences:read`, `vector-preferences:write`, `vector-preferences:clear` | `embedding-host` (pre-existing; see BST-1380 below) |
-| Contract-derived domains: `git:*` (all 15, incl. push/commit/switchBranch), `changes:*`, `forge:*`, `worktrees:*`, `command-sessions:*`, `terminal:*`, `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
+| Contract-derived domains: `git:*` (all 15, incl. push/commit/switchBranch), `changes:*`, `forge:*`, `worktrees:*`, `command-sessions:*`, `terminal:*`, `notes-vault:*`, `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
 
 Still `registerUnauthenticatedInvoke` with a stated reason (sender-role
 policy pending, tracked as the BST-1641 follow-up): `db:query` (visible UI +
@@ -250,7 +250,7 @@ chunking/embedding hosts), the visible-UI-only `db:ping`, `db:live-query:*`,
 `db:clearAll`, `db:resetLocal` and `db:getUserDataPath`,
 `logging:get-preferences` (all four roles), `app:power-snapshot`
 (visible UI + embedding host), `parser-host:parse` (visible UI + chunking
-host), and the visible-UI-only `mcp:*`, `notesVault:*`, `storage:*`/
+host), and the visible-UI-only `mcp:*`, `storage:*`/
 `preferences:*`, `fs:watch*`, hooks/file-exports/diagnostics/
 assistant-checkpoint/embedding-backfill/runtime/agent-chat channels and the hidden-host lifecycle
 controls (`*-host:ensure-started|stop|reset|get-status`, `chunking-host:chunk-*`,
@@ -278,7 +278,7 @@ document the loaders load is on the allowlist derived from the same target,
 and the other launch mode's document is not), the unconfigured-target
 load-time failures in `create-window.test.ts` and
 `renderer-host-lifecycle.test.ts`, `privileged-ipc-sender-authorization.test.ts`
-(terminal, command sessions, shell, git, changes, forge, worktrees, browser: allowed
+(terminal, command sessions, shell, git, changes, forge, worktrees, notes vault, browser: allowed
 visible-UI, hidden, untracked, and off-allowlist frame per channel, plus the
 exact channel set), the same matrix for every contract-registered leaf domain
 in `contract-domains-sender-authorization.test.ts`, the `files` sweep in
@@ -397,7 +397,7 @@ allowlist:
   stays the one literal owner. `settleIpcResult({ category, code }, run)`
   converts a throw-style operation into the envelope (logged in main).
 - Migrated so far: `changes`, `clipboard`, `commandSessions`, `contextFiles`,
-  `forge`, `git`, `skills`, `terminal`, `userCommands`, `userPersonas`,
+  `forge`, `git`, `notesVault`, `skills`, `terminal`, `userCommands`, `userPersonas`,
   `worktrees` (all `visible-ui`).
   Git's 15 operations plus every Changes, Forge, and Worktrees invoke use
   `rawChannel` so valid calls retain each domain's established result envelope;
@@ -415,7 +415,12 @@ allowlist:
   must be bound to the registry-authenticated `event.sender` and push output only
   to that renderer. The generic domain handler deliberately receives parsed
   arguments rather than Electron's event, so this adapter is the narrow audited
-  exception instead of widening every domain handler's authority. Their parity
+  exception instead of widening every domain handler's authority. Notes vault
+  likewise keeps its established `NotesVaultResult` envelopes with `rawChannel`.
+  Its ten eventless operations use `registerDomain`; `watch` and `unwatch` use
+  the same narrow event-aware registration pattern so watcher ownership remains
+  bound to the registry-authorized `event.sender`, and `onChanged` is a push
+  event registered by neither adapter. Their parity
   tests are
   key-set equality, not source regexes: `preload-contract-bridges.test.ts` loads
   the real preload under a mocked `electron` and asserts each exposed key set equals
@@ -425,6 +430,8 @@ allowlist:
   the package `*_BRIDGE_REQUIRED_METHODS` resolver sets and exercise `parseArgs`;
   `ipc-domains/terminal.contracts.test.ts` owns the equivalent terminal and
   command-session key, raw-envelope, push-event, role, and parser proof;
+  `ipc-domains/notes-vault.contract.test.ts` owns the equivalent notes-vault
+  key, raw-envelope, push-event, role, channel, and parser proof;
   `ipc-domains/git.contract.test.ts` owns the equivalent Git key, raw-envelope,
   channel, role and structural-parser proof;
   `platform/register-domain.test.ts` and `platform/ipc-bridge.test.ts` pin

@@ -6,6 +6,7 @@ import { commandSessionsContract } from '../ipc-domains/command-sessions.contrac
 import { contextFilesContract } from '../ipc-domains/context-files.contract';
 import { forgeContract } from '../ipc-domains/forge.contract';
 import { gitContract } from '../ipc-domains/git.contract';
+import { notesVaultContract } from '../ipc-domains/notes-vault.contract';
 import { skillsContract } from '../ipc-domains/skills.contract';
 import { terminalContract } from '../ipc-domains/terminal.contract';
 import { userCommandsContract } from '../ipc-domains/user-commands.contract';
@@ -41,6 +42,7 @@ const CONTRACT_BRIDGES = {
   contextFiles: contextFilesContract,
   forge: forgeContract,
   git: gitContract,
+  notesVault: notesVaultContract,
   skills: skillsContract,
   terminal: terminalContract,
   userCommands: userCommandsContract,
@@ -104,6 +106,7 @@ describe('preload contract-derived bridges', () => {
     ['changes', 'inventory', DESKTOP_IPC_CHANNELS.changes.inventory, []],
     ['commandSessions', 'list', DESKTOP_IPC_CHANNELS.commandSessions.list, [{ rootId: 'root-1' }]],
     ['forge', 'refresh', DESKTOP_IPC_CHANNELS.forge.refresh, ['root-1', { reason: 'user' }]],
+    ['notesVault', 'readFile', DESKTOP_IPC_CHANNELS.notesVault.readFile, ['/vault/note.md']],
     ['terminal', 'create', DESKTOP_IPC_CHANNELS.terminal.create, [{ rootId: 'root-1' }]],
     ['worktrees', 'listManagedPaths', DESKTOP_IPC_CHANNELS.worktrees.managedPaths, []],
   ] as const)(
@@ -120,6 +123,7 @@ describe('preload contract-derived bridges', () => {
   it.each([
     ['changes', 'onInvalidated', DESKTOP_IPC_CHANNELS.changes.invalidated],
     ['forge', 'onPrUpdated', DESKTOP_IPC_CHANNELS.forge.prUpdated],
+    ['notesVault', 'onChanged', DESKTOP_IPC_CHANNELS.notesVault.changed],
     ['terminal', 'onData', DESKTOP_IPC_CHANNELS.terminal.data],
     ['terminal', 'onExit', DESKTOP_IPC_CHANNELS.terminal.exit],
   ] as const)('%s.%s subscribes and removes the same push listener', (name, method, channel) => {

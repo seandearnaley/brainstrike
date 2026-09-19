@@ -13,6 +13,10 @@ import { registerShellIpcHandlers } from '../../ipc-shell';
 import type { ShellIpcHandlers } from '../../ipc-shell-handlers';
 import { registerTerminalIpc } from '../../ipc-terminal';
 import { registerWorktreesIpcHandlers } from '../../ipc-worktrees';
+import {
+  type NotesVaultIpcHandlers,
+  registerNotesVaultIpcHandlers,
+} from '../../notes-vault-ipc-handlers';
 import { registerTerminalIpcHandlers, type TerminalIpcHandlers } from '../../terminal-ipc-handlers';
 import { clearWindowRoleByWebContentsId } from '../../window-role';
 import type { WorktreesIpcHandlers } from '../../worktrees-ipc-handlers';
@@ -124,6 +128,23 @@ function contractDomainInvokeArgs(channel: string): readonly unknown[] {
       return [{ rewindId: 'rewind-1' }];
     case 'changes:finalizeRewinds':
       return [{ threadId: 'thread-1' }];
+    case 'notes-vault:ensure-default-vault':
+    case 'notes-vault:pick-directory':
+      return [];
+    case 'notes-vault:delete-entry':
+      return ['/vault/note.md', { recursive: false }];
+    case 'notes-vault:rename':
+      return ['/vault/old.md', '/vault/new.md'];
+    case 'notes-vault:write-file':
+      return ['/vault/note.md', '# Note'];
+    case 'notes-vault:create-directory':
+    case 'notes-vault:list-directory':
+    case 'notes-vault:read-file':
+    case 'notes-vault:register-root':
+    case 'notes-vault:stat-entry':
+    case 'notes-vault:unwatch':
+    case 'notes-vault:watch':
+      return ['/vault'];
     case 'forge:identity':
     case 'forge:prStatus':
       return ['root-1'];
@@ -242,6 +263,24 @@ const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
     ],
     domain: 'worktrees',
     register: (stub) => registerWorktreesIpcHandlers(stub() as WorktreesIpcHandlers),
+  },
+  {
+    channels: [
+      'notes-vault:ensure-default-vault',
+      'notes-vault:pick-directory',
+      'notes-vault:register-root',
+      'notes-vault:list-directory',
+      'notes-vault:stat-entry',
+      'notes-vault:read-file',
+      'notes-vault:write-file',
+      'notes-vault:create-directory',
+      'notes-vault:delete-entry',
+      'notes-vault:rename',
+      'notes-vault:watch',
+      'notes-vault:unwatch',
+    ],
+    domain: 'notesVault',
+    register: (stub) => registerNotesVaultIpcHandlers(stub() as NotesVaultIpcHandlers),
   },
   {
     channels: [
