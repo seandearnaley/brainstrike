@@ -410,8 +410,8 @@ declare global {
      * Desktop-only git bridge. Absent on web (no preload) — consumers MUST
      * capability-check `window.git` rather than `isElectron()`. Every call takes
      * the durable workspace `rootId`; main resolves + containment-checks it to an
-     * absolute cwd and runs git via execFile (no shell). Each method resolves to
-     * a structured `GitResult` (never throws across IPC).
+     * absolute cwd and runs git via execFile (no shell). Valid calls resolve to
+     * a structured `GitResult`; structurally malformed direct IPC input rejects.
      *
      * The surface is derived from the pure desktop contract, whose compile-time
      * proof keeps it equal to app-shell's `GitBridge`.

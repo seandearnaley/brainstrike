@@ -34,6 +34,57 @@ describe('git IPC contract', () => {
     ]);
   });
 
+  it('round-trips every supported parameter key', () => {
+    expect(
+      gitContract.commit.parseArgs(['root-1', { description: 'More detail', summary: 'Summary' }])
+    ).toEqual(['root-1', { description: 'More detail', summary: 'Summary' }]);
+    expect(gitContract.commitFiles.parseArgs(['root-1', { commit: 'abc123' }])).toEqual([
+      'root-1',
+      { commit: 'abc123' },
+    ]);
+    expect(
+      gitContract.createBranch.parseArgs(['root-1', { branch: 'next', startPoint: 'main' }])
+    ).toEqual(['root-1', { branch: 'next', startPoint: 'main' }]);
+    expect(
+      gitContract.diff.parseArgs(['root-1', { mode: 'working', path: 'src/index.ts' }])
+    ).toEqual(['root-1', { mode: 'working', path: 'src/index.ts' }]);
+    expect(gitContract.fetch.parseArgs(['root-1', { remote: 'origin' }])).toEqual([
+      'root-1',
+      { remote: 'origin' },
+    ]);
+    expect(
+      gitContract.history.parseArgs(['root-1', { limit: 20, offset: 0, ref: 'main' }])
+    ).toEqual(['root-1', { limit: 20, offset: 0, ref: 'main' }]);
+    expect(gitContract.push.parseArgs(['root-1', { remote: 'origin' }])).toEqual([
+      'root-1',
+      { remote: 'origin' },
+    ]);
+    expect(gitContract.stage.parseArgs(['root-1', { path: 'src/index.ts' }])).toEqual([
+      'root-1',
+      { path: 'src/index.ts' },
+    ]);
+    expect(
+      gitContract.structuredFileDiff.parseArgs([
+        'root-1',
+        { commitId: 'abc123', mode: 'commit', path: 'src/index.ts' },
+      ])
+    ).toEqual(['root-1', { commitId: 'abc123', mode: 'commit', path: 'src/index.ts' }]);
+    expect(
+      gitContract.structuredFileDiff.parseArgs([
+        'root-1',
+        { baseRef: 'main', mode: 'range', path: 'src/index.ts' },
+      ])
+    ).toEqual(['root-1', { baseRef: 'main', mode: 'range', path: 'src/index.ts' }]);
+    expect(gitContract.switchBranch.parseArgs(['root-1', { branch: 'main' }])).toEqual([
+      'root-1',
+      { branch: 'main' },
+    ]);
+    expect(gitContract.unstage.parseArgs(['root-1', { path: 'src/index.ts' }])).toEqual([
+      'root-1',
+      { path: 'src/index.ts' },
+    ]);
+  });
+
   it('rejects malformed renderer input instead of passing it to a handler', () => {
     expect(() => gitContract.status.parseArgs([42])).toThrow('git status requires a string rootId');
     expect(() => gitContract.diff.parseArgs(['root-1', null])).toThrow(
@@ -53,6 +104,21 @@ describe('git IPC contract', () => {
     ).toThrow('git structuredFileDiff range mode baseRef must be a string');
     expect(() => gitContract.push.parseArgs(['root-1', { extra: true, remote: 'origin' }])).toThrow(
       'git push received unsupported params: extra'
+    );
+    expect(() => gitContract.status.parseArgs([])).toThrow(
+      'git status requires exactly 1 argument'
+    );
+    expect(() => gitContract.push.parseArgs(['root-1', {}, {}])).toThrow(
+      'git push requires one or two arguments'
+    );
+    expect(() => gitContract.stage.parseArgs(['root-1', 'src/index.ts'])).toThrow(
+      'git stage requires a params object'
+    );
+    expect(() => gitContract.diff.parseArgs(['root-1', { mode: 'bogus' }])).toThrow(
+      'git diff mode must be "working", "staged", or "untracked"'
+    );
+    expect(() => gitContract.structuredFileDiff.parseArgs(['root-1', { mode: 'bogus' }])).toThrow(
+      'git structuredFileDiff mode must be "commit", "range", "staged", "untracked", "unstaged", or "working"'
     );
   });
 });

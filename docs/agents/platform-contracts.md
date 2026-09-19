@@ -402,10 +402,9 @@ allowlist:
   handler entry and preserves omitted or explicit-`undefined` defaults for
   push/stage/unstage. Domain semantics such as non-empty roots, paths, refs,
   limits and branch names remain in the main-side handlers so their existing
-  `GitResult` failures do not turn into rejected invokes.
-  Their parity tests are key-set equality,
-  not source regexes: `preload-contract-bridges.test.ts` loads the real
-  preload under a mocked `electron` and asserts each exposed key set equals
+  `GitResult` failures do not turn into rejected invokes. Their parity tests are
+  key-set equality, not source regexes: `preload-contract-bridges.test.ts` loads
+  the real preload under a mocked `electron` and asserts each exposed key set equals
   `Object.keys(contract)` and routes/unwraps correctly;
   `ipc-domains/leaf-contracts.test.ts` pins `Object.keys(contract)` to the
   package `*_BRIDGE_REQUIRED_METHODS` resolver sets and exercises `parseArgs`;

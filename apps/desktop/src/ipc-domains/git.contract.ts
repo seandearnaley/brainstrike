@@ -59,7 +59,8 @@ function assertSupportedKeys(
   supported: readonly string[],
   operation: string
 ): void {
-  const unsupported = Object.keys(params).filter((key) => !supported.includes(key));
+  const supportedKeys = new Set(supported);
+  const unsupported = Object.keys(params).filter((key) => !supportedKeys.has(key));
   if (unsupported.length > 0) {
     throw new Error(`git ${operation} received unsupported params: ${unsupported.join(', ')}`);
   }
@@ -145,34 +146,37 @@ function parseDiffParams(params: ParamsRecord): GitDiffParams {
 
 function parseStructuredFileDiffParams(params: ParamsRecord): StructuredFileDiffParams {
   const mode = params['mode'];
-  const keys =
-    mode === 'commit'
-      ? ['commitId', 'mode', 'path']
-      : mode === 'range'
-        ? ['baseRef', 'mode', 'path']
-        : ['mode', 'path'];
-  assertSupportedKeys(params, keys, 'structuredFileDiff');
-  const path = requireString(params, 'path', 'structuredFileDiff');
-  if (mode === 'commit') {
-    return {
-      commitId: requireString(params, 'commitId', 'structuredFileDiff commit mode'),
-      mode,
-      path,
-    };
+  switch (mode) {
+    case 'commit': {
+      assertSupportedKeys(params, ['commitId', 'mode', 'path'], 'structuredFileDiff');
+      return {
+        commitId: requireString(params, 'commitId', 'structuredFileDiff commit mode'),
+        mode,
+        path: requireString(params, 'path', 'structuredFileDiff'),
+      };
+    }
+    case 'range': {
+      assertSupportedKeys(params, ['baseRef', 'mode', 'path'], 'structuredFileDiff');
+      return {
+        baseRef: requireString(params, 'baseRef', 'structuredFileDiff range mode'),
+        mode,
+        path: requireString(params, 'path', 'structuredFileDiff'),
+      };
+    }
+    case 'staged':
+    case 'untracked':
+    case 'unstaged':
+    case 'working':
+      assertSupportedKeys(params, ['mode', 'path'], 'structuredFileDiff');
+      return {
+        mode,
+        path: requireString(params, 'path', 'structuredFileDiff'),
+      };
+    default:
+      throw new Error(
+        'git structuredFileDiff mode must be "commit", "range", "staged", "untracked", "unstaged", or "working"'
+      );
   }
-  if (mode === 'range') {
-    return {
-      baseRef: requireString(params, 'baseRef', 'structuredFileDiff range mode'),
-      mode,
-      path,
-    };
-  }
-  if (mode === 'staged' || mode === 'untracked' || mode === 'unstaged' || mode === 'working') {
-    return { mode, path };
-  }
-  throw new Error(
-    'git structuredFileDiff mode must be "commit", "range", "staged", "untracked", "unstaged", or "working"'
-  );
 }
 
 export const gitContract = {
