@@ -65,6 +65,7 @@ import type { commandSessionsContract } from '../ipc-domains/command-sessions.co
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
 import type { forgeContract } from '../ipc-domains/forge.contract';
 import type { gitContract } from '../ipc-domains/git.contract';
+import type { notesVaultContract } from '../ipc-domains/notes-vault.contract';
 import type { skillsContract } from '../ipc-domains/skills.contract';
 import type { terminalContract } from '../ipc-domains/terminal.contract';
 import type { userCommandsContract } from '../ipc-domains/user-commands.contract';
@@ -73,12 +74,6 @@ import type { worktreesContract } from '../ipc-domains/worktrees.contract';
 import type { McpConfigStatus } from '../ipc-mcp';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 import type { LoggingSettingsPayload } from '../logging-shared';
-import type {
-  NotesVaultChangedEvent,
-  NotesVaultEntry,
-  NotesVaultResult,
-  NotesVaultRoot,
-} from '../notes-vault-ipc-handlers';
 import type { Bridge } from '../platform/ipc-contract';
 
 interface QueryResult {
@@ -449,27 +444,7 @@ declare global {
      * the user cancels. `onChanged` registers a listener for one-way
      * `notes-vault:changed` pushes and returns an unsubscribe fn.
      */
-    notesVault?: {
-      createDirectory: (path: string) => Promise<NotesVaultResult<null>>;
-      deleteEntry: (
-        path: string,
-        options: { recursive: boolean }
-      ) => Promise<NotesVaultResult<null>>;
-      rename: (fromPath: string, toPath: string) => Promise<NotesVaultResult<null>>;
-      ensureDefaultVault: () => Promise<NotesVaultResult<NotesVaultRoot>>;
-      pickDirectory: () => Promise<NotesVaultResult<NotesVaultRoot | null>>;
-      registerRoot: (path: string) => Promise<NotesVaultResult<NotesVaultRoot>>;
-      listDirectory: (path: string) => Promise<NotesVaultResult<NotesVaultEntry[]>>;
-      statEntry: (path: string) => Promise<NotesVaultResult<NotesVaultEntry | null>>;
-      readFile: (path: string) => Promise<NotesVaultResult<string>>;
-      writeFile: (
-        path: string,
-        content: string
-      ) => Promise<NotesVaultResult<{ lastModified: number }>>;
-      watch: (path: string) => Promise<NotesVaultResult<{ watchId: string }>>;
-      unwatch: (watchId: string) => Promise<NotesVaultResult<null>>;
-      onChanged: (callback: (event: NotesVaultChangedEvent) => void) => () => void;
-    };
+    notesVault?: Bridge<typeof notesVaultContract>;
     /**
      * OS shell integration bridge. Absent on web (no preload) — consumers MUST
      * capability-check `window.platform`.

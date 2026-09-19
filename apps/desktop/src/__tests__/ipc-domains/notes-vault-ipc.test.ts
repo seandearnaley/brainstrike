@@ -49,8 +49,16 @@ import {
   resetNotesVaultIpcStateForTest,
 } from '../../notes-vault-ipc-handlers';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
+import { clearWindowRoleByWebContentsId } from '../../window-role';
+import {
+  createAllowlistedSenderFrame,
+  createTrustedInvokeEvent,
+  trackTestWindowRole,
+} from '../helpers/desktop-ipc-sender-test-helpers';
 
 const createdDirs: string[] = [];
+const REGISTERED_OWNER_ID = 51;
+const FOREIGN_OWNER_ID = 52;
 
 async function makeDir(prefix = 'brainstrike-notes-vault-ipc-'): Promise<string> {
   const dir = await fsPromises.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -215,6 +223,8 @@ beforeEach(() => {
 
 afterEach(async () => {
   resetNotesVaultIpcStateForTest();
+  clearWindowRoleByWebContentsId(REGISTERED_OWNER_ID);
+  clearWindowRoleByWebContentsId(FOREIGN_OWNER_ID);
   for (const dir of createdDirs.splice(0)) {
     await fsPromises.rm(dir, { force: true, recursive: true });
   }
@@ -906,7 +916,7 @@ describe('notes vault IPC handlers', () => {
       const { handlers, storage } = createHandlers();
       const approved = await makeDir();
       await approveRoot(handlers, storage, approved);
-      const owner = new FakeWebContents(51);
+      const owner = new FakeWebContents(REGISTERED_OWNER_ID);
       expect(await handlers.watch(castOwner(owner), approved)).toMatchObject({ ok: true });
 
       const dispose = registerNotesVaultIpcHandlers(handlers);
@@ -922,13 +932,46 @@ describe('notes vault IPC handlers', () => {
       // Invoke path smoke: listDirectory through the registered handler.
       const listResult = await registeredHandlers.get(
         DESKTOP_IPC_CHANNELS.notesVault.listDirectory
-      )?.({} as IpcMainInvokeEvent, approved);
+      )?.(createTrustedInvokeEvent('visible-ui', REGISTERED_OWNER_ID), approved);
       expect(listResult).toMatchObject({ ok: true });
 
       dispose();
       expect(registeredHandlers.size).toBe(0);
       expect(liveNotesVaultWatcherCountForTest()).toBe(0);
       expect(approvedNotesVaultRootCountForTest()).toBe(0);
+    });
+
+    it('binds watch and unwatch ownership to the authorized sender', async () => {
+      const { handlers, storage } = createHandlers();
+      const approved = await makeDir();
+      await approveRoot(handlers, storage, approved);
+      const owner = new FakeWebContents(REGISTERED_OWNER_ID);
+      trackTestWindowRole(owner.id, 'visible-ui');
+      const ownerEvent = {
+        sender: castOwner(owner),
+        senderFrame: createAllowlistedSenderFrame('visible-ui'),
+      } as IpcMainInvokeEvent;
+      const foreignEvent = createTrustedInvokeEvent('visible-ui', FOREIGN_OWNER_ID);
+      const dispose = registerNotesVaultIpcHandlers(handlers);
+
+      const watchResult = await registeredHandlers.get(DESKTOP_IPC_CHANNELS.notesVault.watch)?.(
+        ownerEvent,
+        approved
+      );
+      expect(watchResult).toMatchObject({ ok: true });
+      if (!(watchResult && typeof watchResult === 'object' && 'value' in watchResult)) {
+        throw new Error('Expected watch to return its owner-bound identifier');
+      }
+      const watchId = (watchResult as { value: { watchId: string } }).value.watchId;
+
+      await expect(
+        registeredHandlers.get(DESKTOP_IPC_CHANNELS.notesVault.unwatch)?.(foreignEvent, watchId)
+      ).resolves.toMatchObject({ ok: false });
+      await expect(
+        registeredHandlers.get(DESKTOP_IPC_CHANNELS.notesVault.unwatch)?.(ownerEvent, watchId)
+      ).resolves.toEqual({ ok: true, value: null });
+
+      dispose();
     });
   });
 });

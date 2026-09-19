@@ -353,6 +353,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       'context-files.contract.ts',
       'forge.contract.ts',
       'git.contract.ts',
+      'notes-vault.contract.ts',
       'skills.contract.ts',
       'terminal.contract.ts',
       'user-commands.contract.ts',

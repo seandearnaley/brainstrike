@@ -11,6 +11,7 @@ import { commandSessionsContract } from './ipc-domains/command-sessions.contract
 import { contextFilesContract } from './ipc-domains/context-files.contract';
 import { forgeContract } from './ipc-domains/forge.contract';
 import { gitContract } from './ipc-domains/git.contract';
+import { notesVaultContract } from './ipc-domains/notes-vault.contract';
 import { skillsContract } from './ipc-domains/skills.contract';
 import { terminalContract } from './ipc-domains/terminal.contract';
 import { userCommandsContract } from './ipc-domains/user-commands.contract';
@@ -1487,36 +1488,5 @@ if (shouldExposeBridge('commandSessions')) {
 // unsubscribe fn. Web never constructs this bridge (no preload), so consumers
 // must capability-check `window.notesVault` rather than `isElectron()`.
 if (shouldExposeBridge('notesVault')) {
-  contextBridge.exposeInMainWorld('notesVault', {
-    createDirectory: (absolutePath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.createDirectory, absolutePath),
-    deleteEntry: (absolutePath: string, options: { recursive: boolean }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.deleteEntry, absolutePath, options),
-    ensureDefaultVault: () =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.ensureDefaultVault),
-    listDirectory: (absolutePath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.listDirectory, absolutePath),
-    onChanged: (callback: (event: { watchId: string }) => void) => {
-      const listener = (_event: unknown, payload: { watchId: string }) => callback(payload);
-      ipcRenderer.on(DESKTOP_IPC_CHANNELS.notesVault.changed, listener);
-      return () => {
-        ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.notesVault.changed, listener);
-      };
-    },
-    pickDirectory: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.pickDirectory),
-    readFile: (absolutePath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.readFile, absolutePath),
-    registerRoot: (absolutePath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.registerRoot, absolutePath),
-    rename: (fromPath: string, toPath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.rename, fromPath, toPath),
-    statEntry: (absolutePath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.statEntry, absolutePath),
-    unwatch: (watchId: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.unwatch, watchId),
-    watch: (absolutePath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.watch, absolutePath),
-    writeFile: (absolutePath: string, content: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.writeFile, absolutePath, content),
-  });
+  exposeBridge('notesVault', notesVaultContract);
 }

@@ -6,7 +6,6 @@ import { WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shel
 import { ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/provider-auth';
 import { SECRETS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/secrets-bridge';
-import { NOTES_VAULT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/notes-vault/desktop-contract';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
@@ -233,7 +232,6 @@ describe('preload runtime contract', () => {
     const expectedBridgeMethods: Record<string, readonly string[]> = {
       browser: BROWSER_BRIDGE_REQUIRED_METHODS,
       envBootstrap: ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS,
-      notesVault: NOTES_VAULT_BRIDGE_REQUIRED_METHODS,
       platform: PLATFORM_BRIDGE_REQUIRED_METHODS,
       providerAuth: PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS,
       secrets: SECRETS_BRIDGE_REQUIRED_METHODS,
