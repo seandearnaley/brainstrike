@@ -37,24 +37,12 @@ import type {
   DatabaseWorkOptions,
   ElectronChunkInsert,
   ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
-  GitAheadBehind,
-  GitCommitFile,
-  GitCommitResult,
-  GitCreateBranchResult,
-  GitDiff,
-  GitDiffParams,
-  GitHistoryPage,
   GitInventory,
-  GitPushPullResult,
-  GitRepository,
   GitResult,
-  GitStatus,
-  GitSwitchBranchResult,
   IFileNode,
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   StructuredFileDiff,
-  StructuredFileDiffParams,
   WorktreeAdoptParams,
   WorktreeArchiveResult,
   WorktreeCheckoutStatus,
@@ -100,6 +88,7 @@ import type {
 } from '../embedding-host-shared';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
+import type { gitContract } from '../ipc-domains/git.contract';
 import type { skillsContract } from '../ipc-domains/skills.contract';
 import type { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
@@ -421,48 +410,13 @@ declare global {
      * Desktop-only git bridge. Absent on web (no preload) — consumers MUST
      * capability-check `window.git` rather than `isElectron()`. Every call takes
      * the durable workspace `rootId`; main resolves + containment-checks it to an
-     * absolute cwd and runs git via execFile (no shell). Each method resolves to
-     * a structured `GitResult` (never throws across IPC).
+     * absolute cwd and runs git via execFile (no shell). Valid calls resolve to
+     * a structured `GitResult`; structurally malformed direct IPC input rejects.
      *
-     * ⚠️ MUST stay in sync with `GitBridge` in
-     * `packages/app-shell/src/git-panel/git-bridge.ts`; `resolveGitBridge()`
-     * rejects a bridge missing any method.
+     * The surface is derived from the pure desktop contract, whose compile-time
+     * proof keeps it equal to app-shell's `GitBridge`.
      */
-    git?: {
-      status: (rootId: string) => Promise<GitResult<GitStatus>>;
-      diff: (rootId: string, params: GitDiffParams) => Promise<GitResult<GitDiff>>;
-      stage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
-      unstage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
-      commit: (
-        rootId: string,
-        params: { description?: string; summary: string }
-      ) => Promise<GitResult<GitCommitResult>>;
-      commitFiles: (
-        rootId: string,
-        params: { commit: string }
-      ) => Promise<GitResult<readonly GitCommitFile[]>>;
-      createBranch: (
-        rootId: string,
-        params: { branch: string; startPoint?: string }
-      ) => Promise<GitResult<GitCreateBranchResult>>;
-      aheadBehind: (rootId: string) => Promise<GitResult<GitAheadBehind>>;
-      fetch: (rootId: string, params: { remote: string }) => Promise<GitResult<GitPushPullResult>>;
-      history: (
-        rootId: string,
-        params: { limit: number; offset: number; ref?: string }
-      ) => Promise<GitResult<GitHistoryPage>>;
-      push: (rootId: string, params?: { remote?: string }) => Promise<GitResult<GitPushPullResult>>;
-      pull: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
-      repository: (rootId: string) => Promise<GitResult<GitRepository>>;
-      structuredFileDiff: (
-        rootId: string,
-        params: StructuredFileDiffParams
-      ) => Promise<GitResult<StructuredFileDiff>>;
-      switchBranch: (
-        rootId: string,
-        params: { branch: string }
-      ) => Promise<GitResult<GitSwitchBranchResult>>;
-    };
+    git?: Bridge<typeof gitContract>;
     llmHost: {
       ensureStarted: () => Promise<LlmHostStatus>;
       stop: () => Promise<LlmHostStatus>;

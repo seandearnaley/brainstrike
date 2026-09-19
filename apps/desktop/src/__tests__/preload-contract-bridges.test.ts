@@ -2,6 +2,7 @@ import Module from 'node:module';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clipboardContract } from '../ipc-domains/clipboard.contract';
 import { contextFilesContract } from '../ipc-domains/context-files.contract';
+import { gitContract } from '../ipc-domains/git.contract';
 import { skillsContract } from '../ipc-domains/skills.contract';
 import { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import { userPersonasContract } from '../ipc-domains/user-personas.contract';
@@ -31,6 +32,7 @@ const CONTRACT_BRIDGES = {
   assistantPersonas: userPersonasContract,
   clipboard: clipboardContract,
   contextFiles: contextFilesContract,
+  git: gitContract,
   skills: skillsContract,
   userCommands: userCommandsContract,
 } as const;
@@ -78,6 +80,14 @@ describe('preload contract-derived bridges', () => {
     await expect(exposedApi('clipboard')['writeText']?.('copied')).rejects.toThrow(
       'clipboard locked (clipboard · write_failed)'
     );
+  });
+
+  it('routes git.status to its manifest channel and preserves the raw GitResult envelope', async () => {
+    const result = { error: 'not a repository', ok: false } as const;
+    mockInvoke.mockResolvedValueOnce(result);
+
+    await expect(exposedApi('git')['status']?.('root-1')).resolves.toBe(result);
+    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.git.status, 'root-1');
   });
 
   it.each([

@@ -237,14 +237,13 @@ source of truth for who may hold a channel; `hidden-preload.ts` exposes no
 | --- | --- |
 | `terminal:*` (create/write/resize/destroy), `command-sessions:*` | `visible-ui` |
 | `shell:*` (open-external/open-path/show-item-in-folder) | `visible-ui` |
-| `git:*` (all 15, incl. push/commit/switchBranch) | `visible-ui` |
 | `changes:*` (resolveView/fileDiff/inventory/rewind*) | `visible-ui` |
 | `browser:*` (all 10 pane controls) | `visible-ui` |
 | `fs:*` under `registerFileSystemIpcHandlers` (reads, root grants incl. `fs:addRootByPath`/`fs:requestDirectoryAccess`, `fs:readFileByPath`, `fs:readFileByAbsolutePath`, `fs:removeRoot`) | `visible-ui` |
 | `db:exec`, `db:transaction` (raw SQL entry points; typed replacement is BST-1234), `db:diagnostics`, `db:scheduler:snapshot`, `db:test`, `db:managed-cache:apply-batch`, `db:managed-cache:invalidate-by-identity`, `db:chunks:insert-and-enqueue-embedding-jobs` — every `db:*` channel the embedding host's `hidden-preload.ts` bridge exposes besides the shared `db:query` | `embedding-host`, `visible-ui` |
 | `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, `worktrees:*`, `mcp:content:*`, MCP apps/task/elicitation bridges | `visible-ui` (pre-existing) |
 | `vector-preferences:read|write|clear` | `embedding-host` (pre-existing; see BST-1380 below) |
-| Contract-registered leaf domains (BST-1648, `registerDomain` — authorized by construction): `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
+| Contract-registered domains (`registerDomain` — authorized by construction): `git:*` (all 15, incl. push/commit/switchBranch), `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
 
 Still `registerUnauthenticatedInvoke` with a stated reason (sender-role
 policy pending, tracked as the BST-1641 follow-up): `db:query` (visible UI +
@@ -390,18 +389,27 @@ allowlist:
   and each contract pins `BridgeMatches<typeof xContract, PackageBridge> =
   true` against the shared package interface its consumers import
   (`SkillsBridge`, `UserCommandsBridge`, `AssistantPersonasBridge`,
-  `ContextFilesBridge`), so app-shell/settings-ui never re-declare a bridge.
+  `ContextFilesBridge`, `GitBridge`), so app-shell/settings-ui never re-declare
+  a bridge.
   Contract modules live at `ipc-domains/<domain>.contract.ts` and reference
   the manifest entry (`DESKTOP_IPC_CHANNELS.<group>.<key>`) — the manifest
   stays the one literal owner. `settleIpcResult({ category, code }, run)`
   converts a throw-style operation into the envelope (logged in main).
-- Migrated so far: `clipboard`, `contextFiles`, `skills`, `userCommands`,
-  `userPersonas` (all `visible-ui`). Their parity tests are key-set equality,
-  not source regexes: `preload-contract-bridges.test.ts` loads the real
-  preload under a mocked `electron` and asserts each exposed key set equals
+- Migrated so far: `clipboard`, `contextFiles`, `git`, `skills`, `userCommands`,
+  `userPersonas` (all `visible-ui`). Git's 15 operations use `rawChannel` so
+  valid calls retain the established `GitResult` envelope; its contract parser
+  rejects structurally malformed direct IPC input before root resolution or
+  handler entry and preserves omitted or explicit-`undefined` defaults for
+  push/stage/unstage. Domain semantics such as non-empty roots, paths, refs,
+  limits and branch names remain in the main-side handlers so their existing
+  `GitResult` failures do not turn into rejected invokes. Their parity tests are
+  key-set equality, not source regexes: `preload-contract-bridges.test.ts` loads
+  the real preload under a mocked `electron` and asserts each exposed key set equals
   `Object.keys(contract)` and routes/unwraps correctly;
   `ipc-domains/leaf-contracts.test.ts` pins `Object.keys(contract)` to the
   package `*_BRIDGE_REQUIRED_METHODS` resolver sets and exercises `parseArgs`;
+  `ipc-domains/git.contract.test.ts` owns the equivalent Git key, raw-envelope,
+  channel, role and structural-parser proof;
   `platform/register-domain.test.ts` and `platform/ipc-bridge.test.ts` pin
   the two derivations.
 - Electron 44 clipboard writes return `Promise<void>`. The main-side
