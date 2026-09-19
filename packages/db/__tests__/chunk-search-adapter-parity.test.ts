@@ -101,6 +101,13 @@ async function seedSearchCorpus(db: PGlite): Promise<void> {
        ('00000000-0000-0000-0000-000000001304', $2, 11, 'ip weaker', $4, '[0.5,0,0,0]')`,
     [FILE_A, FILE_B, SET_L2, SET_IP]
   );
+  await db.query(
+    `INSERT INTO file_chunks (id, file_record_id, chunk_index, content) VALUES
+       ('00000000-0000-0000-0000-000000001401', $1, 20, 'shared limit token first'),
+       ('00000000-0000-0000-0000-000000001402', $1, 21, 'shared limit token second'),
+       ('00000000-0000-0000-0000-000000001403', $2, 22, 'shared limit token third')`,
+    [FILE_A, FILE_B]
+  );
   await db.query('INSERT INTO selection_snapshots (id, created_at) VALUES ($1, NOW())', [
     SNAPSHOT_ID,
   ]);
@@ -197,6 +204,28 @@ describe.each(ADAPTERS)('$name file-chunk search parity', ({ create }) => {
   });
 
   it.each([
+    [
+      'l2',
+      SET_L2,
+      ['00000000-0000-0000-0000-000000001301', '00000000-0000-0000-0000-000000001302'],
+    ],
+    [
+      'ip',
+      SET_IP,
+      ['00000000-0000-0000-0000-000000001303', '00000000-0000-0000-0000-000000001304'],
+    ],
+  ] as const)('orders multiple %s vector results by similarity', async (_distance, setId, ids) => {
+    const results = await repository.searchSimilar(QUERY_VECTOR, {
+      embeddingSetId: setId,
+      limit: 2,
+      threshold: 0,
+    });
+
+    expect(results.map((result) => result.chunk.id)).toEqual(ids);
+    expect(results[0]?.similarity).toBeGreaterThan(results[1]?.similarity ?? 0);
+  });
+
+  it.each([
     ['plain', 'authentication middleware'],
     ['phrase', 'authentication middleware'],
     ['websearch', 'authentication AND middleware'],
@@ -211,6 +240,15 @@ describe.each(ADAPTERS)('$name file-chunk search parity', ({ create }) => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ matchKind: 'exact' });
     expect(results[0]?.chunk.id).toBe(CHUNK_A);
+    expect(results[0]?.rank).toBeGreaterThan(0);
+    expect(Number.isFinite(results[0]?.rank)).toBe(true);
+  });
+
+  it('respects the requested full-text result limit', async () => {
+    const results = await repository.fullTextSearch('shared limit token', { limit: 2 });
+
+    expect(results).toHaveLength(2);
+    expect(results.every((result) => Number.isFinite(result.rank) && result.rank > 0)).toBe(true);
   });
 
   it('uses the plain-mode fuzzy fallback for a typo', async () => {
@@ -222,6 +260,8 @@ describe.each(ADAPTERS)('$name file-chunk search parity', ({ create }) => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ matchKind: 'fuzzy' });
     expect(results[0]?.chunk.id).toBe(CHUNK_A);
+    expect(results[0]?.rank).toBeGreaterThan(0.6);
+    expect(Number.isFinite(results[0]?.rank)).toBe(true);
   });
 
   it('treats an empty root allowlist as matching nothing', async () => {

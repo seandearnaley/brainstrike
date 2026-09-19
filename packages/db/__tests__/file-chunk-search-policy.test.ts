@@ -28,7 +28,7 @@ describe('file chunk search policy', () => {
   });
 
   it('maps every FTS query mode to its canonical Postgres function', () => {
-    expect(['plain', 'phrase', 'websearch'].map(tsqueryFunctionForMode)).toEqual([
+    expect((['plain', 'phrase', 'websearch'] as const).map(tsqueryFunctionForMode)).toEqual([
       'plainto_tsquery',
       'phraseto_tsquery',
       'websearch_to_tsquery',
@@ -36,7 +36,7 @@ describe('file chunk search policy', () => {
   });
 
   it.each([
-    ['cosine', '<=>', '(1 - (', ' / 2.0))'],
+    ['cosine', '<=>', '(1 - ((', ') / 2.0))'],
     ['l2', '<->', '(1.0 / (1.0 + (', ')))'],
     ['ip', '<#>', '(1.0 / (1.0 + exp(+(', '))))'],
   ] as const)(
@@ -46,13 +46,9 @@ describe('file chunk search policy', () => {
       const exact = buildChunkDistanceExpressions(distance, 768, 'exact');
 
       expect(ann.orderExpr).toBe(`(embedding::halfvec(768)) ${operator} $1::halfvec(768)`);
-      expect(ann.similarityExpr.startsWith(similarityPrefix)).toBe(true);
-      expect(ann.similarityExpr).toContain(operator);
-      expect(ann.similarityExpr.endsWith(similaritySuffix)).toBe(true);
+      expect(ann.similarityExpr).toBe(`${similarityPrefix}${ann.orderExpr}${similaritySuffix}`);
       expect(exact.orderExpr).toBe(`embedding ${operator} $1::vector(768)`);
-      expect(exact.similarityExpr.startsWith(similarityPrefix)).toBe(true);
-      expect(exact.similarityExpr).toContain(operator);
-      expect(exact.similarityExpr.endsWith(similaritySuffix)).toBe(true);
+      expect(exact.similarityExpr).toBe(`${similarityPrefix}${exact.orderExpr}${similaritySuffix}`);
     }
   );
 

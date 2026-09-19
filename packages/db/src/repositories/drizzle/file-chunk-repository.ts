@@ -1,4 +1,3 @@
-import type { IFileChunkRepository } from '../interfaces.js';
 /**
  * Drizzle-based FileChunk Repository
  *
@@ -51,6 +50,7 @@ import {
   tsqueryFunctionForMode,
 } from '../file-chunk-search-policy.js';
 import { runFindGrepCandidatesQuery, runInsertManyWithTx } from '../file-chunk-shared-queries.js';
+import type { IFileChunkRepository } from '../interfaces.js';
 
 /**
  * Maximum supported embedding dimension for pgvector.
@@ -700,6 +700,7 @@ export class DrizzleFileChunkRepository implements IFileChunkRepository {
       threshold
     );
   }
+
   /**
    * Build the `file_record_id ∈ (roots' files)` predicate for scoping a search
    * to `rootIds`. Returns `null` for an EMPTY allowlist (matches nothing — the
