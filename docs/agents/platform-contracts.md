@@ -403,7 +403,7 @@ allowlist:
   `rawChannel` so valid calls retain each domain's established result envelope;
   their contract parsers
   reject structurally malformed direct IPC input before root resolution or
-  handler entry and preserves omitted or explicit-`undefined` defaults for
+  handler entry and preserve omitted or explicit-`undefined` defaults for
   push/stage/unstage. Domain semantics such as non-empty roots, paths, refs,
   limits and branch names remain in the main-side handlers so their existing
   `GitResult` failures do not turn into rejected invokes. Changes and Forge

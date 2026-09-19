@@ -39,6 +39,27 @@ describe('terminal IPC contracts', () => {
     });
   });
 
+  it('maps every invoke to its manifest channel', () => {
+    expect({
+      create: terminalContract.create.channel,
+      destroy: terminalContract.destroy.channel,
+      resize: terminalContract.resize.channel,
+      write: terminalContract.write.channel,
+    }).toEqual({
+      create: DESKTOP_IPC_CHANNELS.terminal.create,
+      destroy: DESKTOP_IPC_CHANNELS.terminal.destroy,
+      resize: DESKTOP_IPC_CHANNELS.terminal.resize,
+      write: DESKTOP_IPC_CHANNELS.terminal.write,
+    });
+    expect({
+      list: commandSessionsContract.list.channel,
+      read: commandSessionsContract.read.channel,
+      remove: commandSessionsContract.remove.channel,
+      stop: commandSessionsContract.stop.channel,
+      write: commandSessionsContract.write.channel,
+    }).toEqual(DESKTOP_IPC_CHANNELS.commandSessions);
+  });
+
   it('parses every terminal invoke into its handler tuple', () => {
     expect(
       terminalContract.create.parseArgs([
@@ -69,6 +90,11 @@ describe('terminal IPC contracts', () => {
       ])
     ).toEqual([{ cursor: 0, rootId: 'root-1', sessionId: 'session-1' }]);
     expect(
+      commandSessionsContract.read.parseArgs([
+        { cursor: undefined, rootId: 'root-1', sessionId: 'session-1' },
+      ])
+    ).toEqual([{ rootId: 'root-1', sessionId: 'session-1' }]);
+    expect(
       commandSessionsContract.write.parseArgs([
         { data: 'continue', rootId: 'root-1', sessionId: 'session-1' },
       ])
@@ -83,6 +109,9 @@ describe('terminal IPC contracts', () => {
   it('rejects malformed direct IPC input before handler entry', () => {
     expect(() => terminalContract.create.parseArgs([{ rootId: 1 }])).toThrow(
       'terminal create rootId must be a string'
+    );
+    expect(() => terminalContract.create.parseArgs([{ extra: true, rootId: 'root-1' }])).toThrow(
+      'terminal create received unsupported fields: extra'
     );
     expect(() => terminalContract.resize.parseArgs([{ cols: 80, terminalId: 'pty-1' }])).toThrow(
       'terminal resize rows must be a finite number'

@@ -530,8 +530,9 @@ declare global {
      * MUST capability-check `window.terminal`. `create` pins the shell cwd to a
      * validated workspace `rootId` (main resolves + containment-checks it). pty
      * output/exit are pushed one-way to THIS renderer; `onData`/`onExit` register
-     * a listener and return an unsubscribe fn. Invoke calls resolve to a
-     * structured `TerminalResult` (never throw across IPC).
+     * a listener and return an unsubscribe fn. Valid invoke calls resolve to a
+     * structured `TerminalResult`; structurally malformed direct IPC rejects
+     * before handler entry.
      */
     terminal?: Bridge<typeof terminalContract>;
     tools: {

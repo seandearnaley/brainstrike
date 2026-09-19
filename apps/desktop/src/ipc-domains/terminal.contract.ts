@@ -9,57 +9,35 @@ import {
   rawChannel,
 } from '../platform/ipc-contract';
 import {
-  assertArgCount,
-  assertSupportedKeys,
+  exactSupportedKeys,
+  optionalFiniteNumber,
   optionalStringType,
-  parseRecord,
+  parseSingleRecordArg,
+  requireFiniteNumber,
   requireStringType,
 } from './contract-args';
 
 type InvokeArgs<K extends keyof TerminalBridge> = Parameters<TerminalBridge[K]>;
 type InvokeResult<K extends keyof TerminalBridge> = Awaited<ReturnType<TerminalBridge[K]>>;
 
-function optionalFiniteNumber(
-  record: Readonly<Record<string, unknown>>,
-  key: string,
-  subject: string
-): number | undefined {
-  const value = record[key];
-  if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value))) {
-    throw new Error(`${subject} ${key} must be a finite number when present`);
-  }
-  return value as number | undefined;
-}
-
-function requireFiniteNumber(
-  record: Readonly<Record<string, unknown>>,
-  key: string,
-  subject: string
-): number {
-  const value = record[key];
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${subject} ${key} must be a finite number`);
-  }
-  return value;
-}
-
-function parseParams<T>(
-  subject: string,
-  supported: readonly string[],
-  parse: (record: Readonly<Record<string, unknown>>) => T
-): (raw: readonly unknown[]) => [params: T] {
-  return (raw) => {
-    assertArgCount(raw, 1, subject);
-    const record = parseRecord(raw[0], `${subject} params`);
-    assertSupportedKeys(record, supported, subject);
-    return [parse(record)];
-  };
-}
+const TERMINAL_CREATE_KEYS = exactSupportedKeys<InvokeArgs<'create'>[0]>()([
+  'cols',
+  'cwd',
+  'rootId',
+  'rows',
+]);
+const TERMINAL_DESTROY_KEYS = exactSupportedKeys<InvokeArgs<'destroy'>[0]>()(['terminalId']);
+const TERMINAL_RESIZE_KEYS = exactSupportedKeys<InvokeArgs<'resize'>[0]>()([
+  'cols',
+  'rows',
+  'terminalId',
+]);
+const TERMINAL_WRITE_KEYS = exactSupportedKeys<InvokeArgs<'write'>[0]>()(['data', 'terminalId']);
 
 export const terminalContract = {
   create: rawChannel<InvokeArgs<'create'>, InvokeResult<'create'>>({
     channel: DESKTOP_IPC_CHANNELS.terminal.create,
-    parseArgs: parseParams('terminal create', ['cols', 'cwd', 'rootId', 'rows'], (record) => {
+    parseArgs: parseSingleRecordArg('terminal create', TERMINAL_CREATE_KEYS, (record) => {
       const cols = optionalFiniteNumber(record, 'cols', 'terminal create');
       const cwd = optionalStringType(record, 'cwd', 'terminal create');
       const rootId = requireStringType(record, 'rootId', 'terminal create');
@@ -75,7 +53,7 @@ export const terminalContract = {
   }),
   destroy: rawChannel<InvokeArgs<'destroy'>, InvokeResult<'destroy'>>({
     channel: DESKTOP_IPC_CHANNELS.terminal.destroy,
-    parseArgs: parseParams('terminal destroy', ['terminalId'], (record) => ({
+    parseArgs: parseSingleRecordArg('terminal destroy', TERMINAL_DESTROY_KEYS, (record) => ({
       terminalId: requireStringType(record, 'terminalId', 'terminal destroy'),
     })),
     roles: ['visible-ui'],
@@ -88,7 +66,7 @@ export const terminalContract = {
   }),
   resize: rawChannel<InvokeArgs<'resize'>, InvokeResult<'resize'>>({
     channel: DESKTOP_IPC_CHANNELS.terminal.resize,
-    parseArgs: parseParams('terminal resize', ['cols', 'rows', 'terminalId'], (record) => ({
+    parseArgs: parseSingleRecordArg('terminal resize', TERMINAL_RESIZE_KEYS, (record) => ({
       cols: requireFiniteNumber(record, 'cols', 'terminal resize'),
       rows: requireFiniteNumber(record, 'rows', 'terminal resize'),
       terminalId: requireStringType(record, 'terminalId', 'terminal resize'),
@@ -97,7 +75,7 @@ export const terminalContract = {
   }),
   write: rawChannel<InvokeArgs<'write'>, InvokeResult<'write'>>({
     channel: DESKTOP_IPC_CHANNELS.terminal.write,
-    parseArgs: parseParams('terminal write', ['data', 'terminalId'], (record) => ({
+    parseArgs: parseSingleRecordArg('terminal write', TERMINAL_WRITE_KEYS, (record) => ({
       data: requireStringType(record, 'data', 'terminal write'),
       terminalId: requireStringType(record, 'terminalId', 'terminal write'),
     })),
