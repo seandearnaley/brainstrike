@@ -237,13 +237,12 @@ source of truth for who may hold a channel; `hidden-preload.ts` exposes no
 | --- | --- |
 | `terminal:*` (create/write/resize/destroy), `command-sessions:*` | `visible-ui` |
 | `shell:*` (open-external/open-path/show-item-in-folder) | `visible-ui` |
-| `changes:*` (resolveView/fileDiff/inventory/rewind*) | `visible-ui` |
 | `browser:*` (all 10 pane controls) | `visible-ui` |
 | `fs:*` under `registerFileSystemIpcHandlers` (reads, root grants incl. `fs:addRootByPath`/`fs:requestDirectoryAccess`, `fs:readFileByPath`, `fs:readFileByAbsolutePath`, `fs:removeRoot`) | `visible-ui` |
 | `db:exec`, `db:transaction` (raw SQL entry points; typed replacement is BST-1234), `db:diagnostics`, `db:scheduler:snapshot`, `db:test`, `db:managed-cache:apply-batch`, `db:managed-cache:invalidate-by-identity`, `db:chunks:insert-and-enqueue-embedding-jobs` — every `db:*` channel the embedding host's `hidden-preload.ts` bridge exposes besides the shared `db:query` | `embedding-host`, `visible-ui` |
-| `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, `worktrees:*`, `mcp:content:*`, MCP apps/task/elicitation bridges | `visible-ui` (pre-existing) |
+| `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, `mcp:content:*`, MCP apps/task/elicitation bridges | `visible-ui` (pre-existing) |
 | `vector-preferences:read|write|clear` | `embedding-host` (pre-existing; see BST-1380 below) |
-| Contract-registered domains (`registerDomain` — authorized by construction): `git:*` (all 15, incl. push/commit/switchBranch), `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
+| Contract-registered domains (`registerDomain` — authorized by construction): `git:*` (all 15, incl. push/commit/switchBranch), `changes:*`, `forge:*`, `worktrees:*`, `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
 
 Still `registerUnauthenticatedInvoke` with a stated reason (sender-role
 policy pending, tracked as the BST-1641 follow-up): `db:query` (visible UI +
@@ -252,7 +251,7 @@ chunking/embedding hosts), the visible-UI-only `db:ping`, `db:live-query:*`,
 `logging:get-preferences` (all four roles), `app:power-snapshot`
 (visible UI + embedding host), `parser-host:parse` (visible UI + chunking
 host), and the visible-UI-only `mcp:*`, `notesVault:*`, `storage:*`/
-`preferences:*`, `fs:watch*`, hooks/forge/file-exports/diagnostics/
+`preferences:*`, `fs:watch*`, hooks/file-exports/diagnostics/
 assistant-checkpoint/embedding-backfill/runtime/agent-chat channels and the hidden-host lifecycle
 controls (`*-host:ensure-started|stop|reset|get-status`, `chunking-host:chunk-*`,
 `llm-host:*`, `embedding-host:query-embedding`). `tools:execute` is the
@@ -279,7 +278,7 @@ document the loaders load is on the allowlist derived from the same target,
 and the other launch mode's document is not), the unconfigured-target
 load-time failures in `create-window.test.ts` and
 `renderer-host-lifecycle.test.ts`, `privileged-ipc-sender-authorization.test.ts`
-(terminal, command sessions, shell, git, changes, browser: allowed
+(terminal, command sessions, shell, git, changes, forge, worktrees, browser: allowed
 visible-UI, hidden, untracked, and off-allowlist frame per channel, plus the
 exact channel set), the same matrix for every contract-registered leaf domain
 in `contract-domains-sender-authorization.test.ts`, the `files` sweep in
@@ -389,25 +388,32 @@ allowlist:
   and each contract pins `BridgeMatches<typeof xContract, PackageBridge> =
   true` against the shared package interface its consumers import
   (`SkillsBridge`, `UserCommandsBridge`, `AssistantPersonasBridge`,
-  `ContextFilesBridge`, `GitBridge`), so app-shell/settings-ui never re-declare
+  `ContextFilesBridge`, `GitBridge`, `ChangesBridge`, `ForgeBridge`,
+  `WorktreesBridge`), so app-shell/settings-ui never re-declare
   a bridge.
   Contract modules live at `ipc-domains/<domain>.contract.ts` and reference
   the manifest entry (`DESKTOP_IPC_CHANNELS.<group>.<key>`) — the manifest
   stays the one literal owner. `settleIpcResult({ category, code }, run)`
   converts a throw-style operation into the envelope (logged in main).
-- Migrated so far: `clipboard`, `contextFiles`, `git`, `skills`, `userCommands`,
-  `userPersonas` (all `visible-ui`). Git's 15 operations use `rawChannel` so
-  valid calls retain the established `GitResult` envelope; its contract parser
+- Migrated so far: `changes`, `clipboard`, `contextFiles`, `forge`, `git`,
+  `skills`, `userCommands`, `userPersonas`, `worktrees` (all `visible-ui`).
+  Git's 15 operations plus every Changes, Forge, and Worktrees invoke use
+  `rawChannel` so valid calls retain each domain's established result envelope;
+  their contract parsers
   rejects structurally malformed direct IPC input before root resolution or
   handler entry and preserves omitted or explicit-`undefined` defaults for
   push/stage/unstage. Domain semantics such as non-empty roots, paths, refs,
   limits and branch names remain in the main-side handlers so their existing
-  `GitResult` failures do not turn into rejected invokes. Their parity tests are
+  `GitResult` failures do not turn into rejected invokes. Changes and Forge
+  declare their main-to-renderer invalidations with `pushEvent`; `registerDomain`
+  deliberately skips those specs. Forge's temporary unauthenticated exemption
+  is gone. Their parity tests are
   key-set equality, not source regexes: `preload-contract-bridges.test.ts` loads
   the real preload under a mocked `electron` and asserts each exposed key set equals
   `Object.keys(contract)` and routes/unwraps correctly;
-  `ipc-domains/leaf-contracts.test.ts` pins `Object.keys(contract)` to the
-  package `*_BRIDGE_REQUIRED_METHODS` resolver sets and exercises `parseArgs`;
+  `ipc-domains/leaf-contracts.test.ts` and
+  `ipc-domains/git-adjacent.contracts.test.ts` pin `Object.keys(contract)` to
+  the package `*_BRIDGE_REQUIRED_METHODS` resolver sets and exercise `parseArgs`;
   `ipc-domains/git.contract.test.ts` owns the equivalent Git key, raw-envelope,
   channel, role and structural-parser proof;
   `platform/register-domain.test.ts` and `platform/ipc-bridge.test.ts` pin
