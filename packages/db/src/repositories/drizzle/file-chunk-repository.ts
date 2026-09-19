@@ -42,6 +42,13 @@ import {
   shouldUseFuzzyFallback,
 } from '../_shared.js';
 import type { FileChunkQueryTx } from '../file-chunk-repository.js';
+import {
+  buildChunkDistanceExpressions,
+  mapFullTextSearchRows,
+  mapVectorSearchRows,
+  normalizeChunkSearchScope,
+  tsqueryFunctionForMode,
+} from '../file-chunk-search-policy.js';
 import { runFindGrepCandidatesQuery, runInsertManyWithTx } from '../file-chunk-shared-queries.js';
 
 /**
@@ -64,23 +71,6 @@ function validateEmbeddingVector(embedding: number[], context: string): void {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw new Error(`${context}: Invalid embedding value at index ${i}: ${value}`);
     }
-  }
-}
-
-/**
- * Validates that a dimension value is a safe positive integer within pgvector limits.
- * @throws Error if dimension is not a safe positive integer
- */
-function validateDimension(dimension: number, context: string): void {
-  if (
-    typeof dimension !== 'number' ||
-    !Number.isInteger(dimension) ||
-    dimension <= 0 ||
-    dimension > MAX_EMBEDDING_DIMENSION
-  ) {
-    throw new Error(
-      `${context}: Invalid dimension value: ${dimension} (must be 1-${MAX_EMBEDDING_DIMENSION})`
-    );
   }
 }
 
@@ -382,14 +372,14 @@ export class DrizzleFileChunkRepository {
       throw new Error('searchSimilar requires embeddingSetId to avoid dimension mismatches');
     }
 
-    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    const { filePaths: normalizedFilePaths, selectionSnapshotId: normalizedSnapshotId } =
+      normalizeChunkSearchScope({ filePaths, selectionSnapshotId });
     if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
       throw new Error(
         `searchSimilar filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
           'Use selectionSnapshotId for large selections.'
       );
     }
-    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
     // Get embedding set config
     const [setRow] = await this.db
@@ -441,10 +431,11 @@ export class DrizzleFileChunkRepository {
       }
     }
 
-    const { similarityExpr, orderExpr } = this.buildDistanceExpressions(
+    const { similarityExpr, orderExpr } = buildChunkDistanceExpressions(
       distance as 'cosine' | 'l2' | 'ip',
       dimension,
-      route === 'exact' ? 'exact' : 'halfvec'
+      route === 'exact' ? 'exact' : 'halfvec',
+      MAX_EMBEDDING_DIMENSION
     );
 
     // Convert validated embedding to pgvector literal format
@@ -497,16 +488,14 @@ export class DrizzleFileChunkRepository {
             return await tx.execute(baseQuery);
           });
 
-    const mapped = (result.rows as Record<string, unknown>[]).map((row) => ({
-      chunk: this.fromRawRow(row),
-      rank: Number(row['rank']),
-      similarity: Number(row['similarity']),
-    }));
-
-    // Apply threshold and limit
-    return mapped
-      .filter((r) => Number.isFinite(r.similarity) && r.similarity >= threshold)
-      .slice(0, limit);
+    return mapVectorSearchRows(
+      result.rows as Array<
+        Record<string, unknown> & { rank: string | number; similarity: string | number }
+      >,
+      (row) => this.fromRawRow(row),
+      threshold,
+      limit
+    );
   }
 
   /**
@@ -550,17 +539,17 @@ export class DrizzleFileChunkRepository {
     }
     assertFuzzyThreshold(fuzzyThreshold);
 
-    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    const { filePaths: normalizedFilePaths, selectionSnapshotId: normalizedSnapshotId } =
+      normalizeChunkSearchScope({ filePaths, selectionSnapshotId });
     if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
       throw new Error(
         `fullTextSearch filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
           'Use selectionSnapshotId for large selections.'
       );
     }
-    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
     // Build tsquery using the appropriate function based on query mode
-    const tsqueryFunc = this.getTsqueryFunction(queryMode);
+    const tsqueryFunc = tsqueryFunctionForMode(queryMode);
 
     // Build WHERE clause dynamically
     const ftsColumns = includeEmbedding
@@ -697,42 +686,19 @@ export class DrizzleFileChunkRepository {
     matchKind: import('../../models/file-chunk.js').FTSSearchResult['matchKind'],
     threshold: number
   ): import('../../models/file-chunk.js').FTSSearchResult[] {
-    const results: import('../../models/file-chunk.js').FTSSearchResult[] = [];
-    for (const row of rows) {
-      const rank = Number(row['fts_rank']);
-      // Apply threshold filter
-      if (matchKind === 'exact' && threshold > 0 && rank < threshold) {
-        continue;
-      }
-      const ftsResult: import('../../models/file-chunk.js').FTSSearchResult = {
-        chunk: this.fromRawRow(row),
-        matchKind,
-        position: Number(row['position']),
-        rank,
-      };
-      if (row['headline']) {
-        ftsResult.headline = String(row['headline']);
-      }
-      results.push(ftsResult);
-    }
-    return results;
+    return mapFullTextSearchRows(
+      rows as Array<
+        Record<string, unknown> & {
+          fts_rank: string | number;
+          headline?: string | null;
+          position: string | number;
+        }
+      >,
+      (row) => this.fromRawRow(row),
+      matchKind,
+      threshold
+    );
   }
-
-  /**
-   * Get the PostgreSQL tsquery function for the given query mode
-   */
-  private getTsqueryFunction(mode: import('../../models/file-chunk.js').FTSQueryMode): string {
-    switch (mode) {
-      case 'plain':
-        return 'plainto_tsquery';
-      case 'phrase':
-        return 'phraseto_tsquery';
-      default:
-        // 'websearch' is the default query mode
-        return 'websearch_to_tsquery';
-    }
-  }
-
   /**
    * Build the `file_record_id ∈ (roots' files)` predicate for scoping a search
    * to `rootIds`. Returns `null` for an EMPTY allowlist (matches nothing — the
@@ -755,17 +721,6 @@ export class DrizzleFileChunkRepository {
         .from(fileRecords)
         .where(inArray(fileRecords.rootId, Array.from(rootIds)))
     );
-  }
-
-  private normalizeFilePaths(filePaths?: readonly string[]): string[] | undefined {
-    if (!filePaths || filePaths.length === 0) {
-      return;
-    }
-    const trimmed = filePaths.map((path) => path.trim()).filter((path) => path.length > 0);
-    if (trimmed.length === 0) {
-      return;
-    }
-    return Array.from(new Set(trimmed));
   }
 
   async getStats(): Promise<{
@@ -972,54 +927,6 @@ export class DrizzleFileChunkRepository {
     );
     const row = result.rows[0] as { c?: number | string } | undefined;
     return Number(row?.c ?? 0);
-  }
-
-  /**
-   * Build distance expressions for similarity search.
-   * 'halfvec' precision (the ANN route): the embedding column is cast to
-   * halfvec(dimension) to match the half-precision partial HNSW index
-   * expression `(embedding::halfvec(N))` — without the cast the planner cannot
-   * use the dimension-specific indexes.
-   * 'exact' precision (the selective-filter route) is the mirror-image
-   * guarantee: full-precision `embedding <=> $1::vector(N)` CANNOT match that
-   * index expression, so the planner must exact-scan the filtered subset.
-   * NOTE: similarity scores are fp32 on the exact route vs fp16 on the
-   * halfvec/ANN route, so scores near the threshold can differ across routes —
-   * callers must not assume one scale.
-   */
-  private buildDistanceExpressions(
-    distance: 'cosine' | 'l2' | 'ip',
-    dimension: number,
-    precision: 'exact' | 'halfvec' = 'halfvec'
-  ): { similarityExpr: string; orderExpr: string } {
-    // Validate dimension is a safe integer (defense-in-depth)
-    validateDimension(dimension, 'buildDistanceExpressions');
-
-    // halfvec: cast embedding (and the query param) to fixed-dimension halfvec
-    // so the ORDER BY matches the half-precision HNSW partial index built by
-    // the dimension-index-helpers. The full-precision vector stays in the
-    // column; only the ANN ranking runs in fp16.
-    const embeddingCast =
-      precision === 'exact' ? 'embedding' : `(embedding::halfvec(${dimension}))`;
-    const paramCast =
-      precision === 'exact' ? `$1::vector(${dimension})` : `$1::halfvec(${dimension})`;
-
-    if (distance === 'l2') {
-      return {
-        orderExpr: `${embeddingCast} <-> ${paramCast}`,
-        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
-      };
-    }
-    if (distance === 'ip') {
-      return {
-        orderExpr: `${embeddingCast} <#> ${paramCast}`,
-        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
-      };
-    }
-    return {
-      orderExpr: `${embeddingCast} <=> ${paramCast}`,
-      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
-    };
   }
 
   /**

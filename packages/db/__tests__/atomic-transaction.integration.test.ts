@@ -15,7 +15,7 @@
 
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
-import { runStatementsInTransaction } from '../src/atomic-transaction.js';
+import { runAtomicStatements, runStatementsInTransaction } from '../src/atomic-transaction.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 
 describe('runStatementsInTransaction (pglite integration)', () => {
@@ -81,6 +81,37 @@ describe('runStatementsInTransaction (pglite integration)', () => {
     expect((txResult.rows[0] as { ef: string }).ef).toBe('321');
     // The concurrent plain query never saw the transaction-local value — isolation holds.
     expect(plainSetting.rows[0]?.ef).not.toBe('321');
+
+    await db.close();
+  });
+
+  it('rolls back a failing callback transaction and does not leak SET LOCAL', async () => {
+    const db: PGlite = await wasmLoader.createPGlite('memory://atomic-callback-rollback');
+    await db.query('CREATE EXTENSION IF NOT EXISTS vector');
+    await db.query('CREATE TABLE atomic_callback_probe (value integer NOT NULL)');
+
+    await expect(
+      runAtomicStatements(
+        { transaction: db.transaction.bind(db) },
+        [
+          { sql: "SET LOCAL hnsw.ef_search = '246'" },
+          { sql: 'INSERT INTO atomic_callback_probe (value) VALUES (1)' },
+          { sql: "SELECT current_setting('hnsw.ef_search') AS ef" },
+          { sql: 'SELECT 1 / 0' },
+        ],
+        2,
+        'callback transaction unavailable'
+      )
+    ).rejects.toThrow();
+
+    const rows = await db.query<{ count: number }>(
+      'SELECT COUNT(*)::int AS count FROM atomic_callback_probe'
+    );
+    expect(rows.rows[0]?.count).toBe(0);
+    const setting = await db.query<{ ef: string }>(
+      "SELECT current_setting('hnsw.ef_search') AS ef"
+    );
+    expect(setting.rows[0]?.ef).not.toBe('246');
 
     await db.close();
   });
