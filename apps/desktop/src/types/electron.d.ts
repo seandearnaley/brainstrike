@@ -10,9 +10,6 @@ import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
-  DatabaseWorkOptions,
-  ElectronChunkInsert,
-  ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
   IFileNode,
 } from '@brainstrike/types';
 import type {
@@ -46,6 +43,11 @@ import type { changesContract } from '../ipc-domains/changes.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
 import type { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
+import type {
+  databaseContract,
+  databaseLiveContract,
+  databasePathContract,
+} from '../ipc-domains/database.contract';
 import type { forgeContract } from '../ipc-domains/forge.contract';
 import type { gitContract } from '../ipc-domains/git.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
@@ -58,18 +60,6 @@ import type { worktreesContract } from '../ipc-domains/worktrees.contract';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 import type { LoggingSettingsPayload } from '../logging-shared';
 import type { Bridge } from '../platform/ipc-contract';
-
-interface QueryResult {
-  fields?: { name: string; dataType: string }[];
-  rows: unknown[];
-}
-
-interface ElectronLiveQueryResults {
-  limit?: number;
-  offset?: number;
-  rows: unknown[];
-  totalCount?: number;
-}
 
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
@@ -180,48 +170,15 @@ declare global {
         restoreLastFolder: () => Promise<DirectoryHandle | null>;
         saveLastFolder: (folderPath: string) => Promise<void>;
       };
-      // Database operations
-      db: {
-        query: (sql: string, params?: unknown[]) => Promise<QueryResult>;
-        exec: (sql: string) => Promise<void>;
-        insertChunksAndEnqueueEmbeddingJobs: (
-          chunks: readonly ElectronChunkInsert[],
-          fileRecordId: string,
-          options: ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
-          workOptions?: DatabaseWorkOptions
-        ) => Promise<void>;
-        test: () => Promise<{ success: boolean; message: string; dbLocation: string }>;
-        clearAll: (confirmationToken?: string) => Promise<{
-          success: boolean;
-          message?: string;
-          deletedFiles?: number;
-          deletedChunks?: number;
-        }>;
-        resetLocal: () => Promise<{ success: boolean; message?: string }>;
-      };
-      dbLive: {
-        start: (options: {
-          query: string;
-          params?: readonly unknown[];
-          key?: string;
-          mode?: 'query' | 'incremental';
-          offset?: number;
-          limit?: number;
-        }) => Promise<{ id: number; initialResults: ElectronLiveQueryResults }>;
-        stop: (id: number) => Promise<{ success: boolean } | undefined>;
-        refresh: (payload: { id: number; offset?: number; limit?: number }) => Promise<{
-          success: boolean;
-          message?: string;
-        }>;
-        onUpdate: (
-          callback: (payload: { id: number; results: ElectronLiveQueryResults }) => void
-        ) => () => void;
-      };
+      /** Database operations derived from the pure database contract. */
+      db: Bridge<typeof databaseContract>;
+      /** Live-query operations derived from the pure live-query contract. */
+      dbLive: Bridge<typeof databaseLiveContract>;
       // Layout persistence methods
       saveLayout: (state: PanelPersistenceState) => Promise<LayoutPersistenceResult>;
       loadLayout: () => Promise<LayoutLoadResult>;
       // Database path method (legacy)
-      getUserDataPath: () => Promise<string>;
+      getUserDataPath: Bridge<typeof databasePathContract>['getUserDataPath'];
     };
     embeddingHost: {
       ensureStarted: () => Promise<EmbeddingHostStatus>;

@@ -89,7 +89,7 @@ describe('database IPC domain', () => {
   });
 
   it('registers lightweight diagnostics handlers and unregisters owned channels', async () => {
-    await expect(handlers.get('db:ping')?.({} as IpcMainInvokeEvent)).resolves.toEqual({
+    await expect(handlers.get('db:ping')?.(createTrustedInvokeEvent())).resolves.toEqual({
       message: 'ping',
       success: true,
     });
@@ -143,7 +143,7 @@ describe('database IPC domain', () => {
 
   it('rejects malformed renderer SQL before scheduling database work', async () => {
     await expect(
-      handlers.get('db:query')?.({} as IpcMainInvokeEvent, 'SELECT\0 1')
+      handlers.get('db:query')?.(createTrustedInvokeEvent(), 'SELECT\0 1')
     ).rejects.toThrow('db:query SQL must not contain null bytes.');
 
     await expect(handlers.get('db:exec')?.(createTrustedInvokeEvent(), '')).rejects.toThrow(
@@ -153,7 +153,7 @@ describe('database IPC domain', () => {
 
   it('keeps raw renderer SQL inside the documented app-internal policy', async () => {
     await expect(
-      handlers.get('db:query')?.({} as IpcMainInvokeEvent, 'DROP TABLE file_records')
+      handlers.get('db:query')?.(createTrustedInvokeEvent(), 'DROP TABLE file_records')
     ).rejects.toThrow('db:query does not permit destructive schema SQL from the renderer.');
 
     await expect(
@@ -221,29 +221,27 @@ describe('database IPC domain', () => {
     await expect(
       handlers.get('db:chunks:insert-and-enqueue-embedding-jobs')?.(
         createTrustedInvokeEvent(),
-        {
-          chunks: [
-            {
-              chunkIndex: 0,
-              chunkSize: 12,
-              chunkType: 'sentence',
-              content: 'hello world',
-              contentHash: 'chunk-hash',
-              createdAt: now,
-              fileRecordId: 'file-1',
-              id: 'chunk-1',
-              tokenCount: 2,
-              updatedAt: now,
-            },
-          ],
-          fileRecordId: 'file-1',
-          options: {
-            dimensionParameter: null,
-            model: 'local::Xenova/all-MiniLM-L6-v2',
-            provider: 'local',
-            targetDimension: 384,
-            targetEmbeddingSetId: 'workspace-index',
+        [
+          {
+            chunkIndex: 0,
+            chunkSize: 12,
+            chunkType: 'sentence',
+            content: 'hello world',
+            contentHash: 'chunk-hash',
+            createdAt: now,
+            fileRecordId: 'file-1',
+            id: 'chunk-1',
+            tokenCount: 2,
+            updatedAt: now,
           },
+        ],
+        'file-1',
+        {
+          dimensionParameter: null,
+          model: 'local::Xenova/all-MiniLM-L6-v2',
+          provider: 'local',
+          targetDimension: 384,
+          targetEmbeddingSetId: 'workspace-index',
         },
         { label: 'workspace-index import', priority: 'background' }
       )
@@ -268,15 +266,16 @@ describe('database IPC domain', () => {
 
   it('rejects malformed atomic chunk/job payloads before DB host scheduling', async () => {
     await expect(
-      handlers.get('db:chunks:insert-and-enqueue-embedding-jobs')?.(createTrustedInvokeEvent(), {
-        chunks: [],
-        fileRecordId: 'file-1',
-        options: {
+      handlers.get('db:chunks:insert-and-enqueue-embedding-jobs')?.(
+        createTrustedInvokeEvent(),
+        [],
+        'file-1',
+        {
           model: 'local::Xenova/all-MiniLM-L6-v2',
           provider: 'local',
           targetDimension: 0,
-        },
-      })
+        }
+      )
     ).rejects.toThrow('Atomic chunk/job enqueue requires a positive targetDimension.');
 
     expect(dbHostManagerMock.insertChunksAndEnqueueEmbeddingJobs).not.toHaveBeenCalled();
@@ -337,7 +336,9 @@ describe('database IPC domain', () => {
       [
         'db:chunks:insert-and-enqueue-embedding-jobs',
         [null],
-        rejectsWith('Atomic chunk/job enqueue payload must be an object.'),
+        rejectsWith(
+          'database insertChunksAndEnqueueEmbeddingJobs requires between 3 and 4 arguments'
+        ),
       ],
       [
         'db:test',
@@ -381,5 +382,52 @@ describe('database IPC domain', () => {
         ).rejects.toThrow(rejection);
       }
     );
+
+    it('authorizes db:query for both indexing hosts and the visible UI only', async () => {
+      for (const role of ['chunking-host', 'embedding-host', 'visible-ui'] as const) {
+        await expect(
+          handlers.get('db:query')?.(createTrustedInvokeEvent(role), 42)
+        ).rejects.toThrow('database query sql must be a string');
+      }
+
+      for (const role of ['llm-host'] as const) {
+        await expect(
+          handlers.get('db:query')?.(createTrustedInvokeEvent(role), 42)
+        ).rejects.toThrow(
+          'Desktop IPC db:query requires sender role chunking-host, embedding-host, visible-ui.'
+        );
+      }
+      await expect(
+        handlers.get('db:query')?.(
+          {
+            sender: { id: 777_002 },
+            senderFrame: createAllowlistedSenderFrame(),
+          } as unknown as IpcMainInvokeEvent,
+          42
+        )
+      ).rejects.toThrow(
+        'Desktop IPC db:query requires sender role chunking-host, embedding-host, visible-ui.'
+      );
+    });
+
+    it.each([
+      ['db:clearAll', [42], 'database clearAll confirmationToken must be a string when present'],
+      ['db:getUserDataPath', ['extra'], 'database getUserDataPath requires exactly 0 arguments'],
+      ['db:live-query:refresh', [], 'database live refresh requires between 1 and 2 arguments'],
+      ['db:live-query:start', [], 'database live start requires between 1 and 2 arguments'],
+      ['db:live-query:stop', ['1'], 'database live stop id must be a finite number'],
+      ['db:ping', ['extra'], 'database ping requires exactly 0 arguments'],
+      ['db:resetLocal', ['extra'], 'database resetLocal requires exactly 0 arguments'],
+    ] as const)('%s is visible-UI-only', async (channel, args, acceptedGuard) => {
+      await expect(
+        handlers.get(channel)?.(createTrustedInvokeEvent('visible-ui'), ...args)
+      ).rejects.toThrow(acceptedGuard);
+
+      for (const role of ['chunking-host', 'embedding-host', 'llm-host'] as const) {
+        await expect(
+          handlers.get(channel)?.(createTrustedInvokeEvent(role), ...args)
+        ).rejects.toThrow(`Desktop IPC ${channel} requires sender role visible-ui.`);
+      }
+    });
   });
 });

@@ -58,6 +58,7 @@ describe('hidden renderer preload contract', () => {
     // would widen the hidden hosts' reach and fails by name.
     const source = readHiddenPreloadSource();
     expect(source).toContain("from './platform/desktop-ipc-channels'");
+    expect(source).toContain("from './ipc-domains/database.contract'");
     const manifestChannels = Object.values(DESKTOP_IPC_CHANNELS).flatMap((group) =>
       Object.values(group)
     );
@@ -71,7 +72,6 @@ describe('hidden renderer preload contract', () => {
     );
     expect([...referencedGroups].sort()).toEqual([
       'chunkingHost',
-      'db',
       'embeddingHost',
       'files',
       'llmHost',
@@ -80,9 +80,6 @@ describe('hidden renderer preload contract', () => {
       'vectorPreferences',
     ]);
     for (const member of [
-      'DESKTOP_IPC_CHANNELS.db.query',
-      'DESKTOP_IPC_CHANNELS.db.exec',
-      'DESKTOP_IPC_CHANNELS.db.transaction',
       'DESKTOP_IPC_CHANNELS.files.parserHostParse',
       'DESKTOP_IPC_CHANNELS.runtime.powerSnapshot',
       'DESKTOP_IPC_CHANNELS.runtime.powerState',

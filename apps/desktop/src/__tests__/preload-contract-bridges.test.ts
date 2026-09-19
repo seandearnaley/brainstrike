@@ -4,6 +4,11 @@ import { changesContract } from '../ipc-domains/changes.contract';
 import { clipboardContract } from '../ipc-domains/clipboard.contract';
 import { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import { contextFilesContract } from '../ipc-domains/context-files.contract';
+import {
+  databaseContract,
+  databaseLiveContract,
+  databasePathContract,
+} from '../ipc-domains/database.contract';
 import { forgeContract } from '../ipc-domains/forge.contract';
 import { gitContract } from '../ipc-domains/git.contract';
 import {
@@ -154,6 +159,31 @@ describe('preload contract-derived bridges', () => {
       code: 'invalid-result',
       message: 'bad content (protocol · invalid-result)',
     });
+  });
+
+  it('derives the visible database invokes and path capability from their contracts', async () => {
+    const electronApi = exposedApi('electronAPI') as unknown as {
+      db: Record<string, (...args: unknown[]) => unknown>;
+      dbLive: Record<string, (...args: unknown[]) => unknown>;
+      getUserDataPath: () => Promise<unknown>;
+    };
+
+    expect(Object.keys(electronApi.db).sort()).toEqual(Object.keys(databaseContract).sort());
+    expect(Object.keys(electronApi.dbLive).sort()).toEqual(
+      Object.keys(databaseLiveContract).sort()
+    );
+    expect(electronApi.getUserDataPath).toBeTypeOf('function');
+    expect(Object.keys(databasePathContract)).toEqual(['getUserDataPath']);
+
+    mockInvoke.mockResolvedValueOnce({ rows: [{ value: 1 }] });
+    await expect(electronApi.db['query']?.('SELECT 1')).resolves.toEqual({
+      rows: [{ value: 1 }],
+    });
+    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.db.query, 'SELECT 1');
+
+    mockInvoke.mockResolvedValueOnce('/tmp/profile');
+    await expect(electronApi.getUserDataPath()).resolves.toBe('/tmp/profile');
+    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.db.getUserDataPath);
   });
 
   it('routes clipboard.writeText to the manifest channel and unwraps the result envelope', async () => {

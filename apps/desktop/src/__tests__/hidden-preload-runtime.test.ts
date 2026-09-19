@@ -1,5 +1,9 @@
 import Module from 'node:module';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  databaseChunkingContract,
+  databaseEmbeddingContract,
+} from '../ipc-domains/database.contract';
 
 const { exposeInMainWorldMock, invokeMock, onMock, removeListenerMock, sendMock } = vi.hoisted(
   () => ({
@@ -80,6 +84,24 @@ describe('hidden preload runtime capability manifest', () => {
     });
     expect(invokeMock).toHaveBeenCalledWith('app:power-snapshot');
   });
+
+  it.each([
+    ['chunking-host', databaseChunkingContract],
+    ['embedding-host', databaseEmbeddingContract],
+  ] as const)(
+    'derives the %s database capability without extra methods',
+    async (role, contract) => {
+      const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}${role}`]);
+      const electronAPI = exposed.get('electronAPI') as
+        | { db?: Record<string, (...args: unknown[]) => Promise<unknown>> }
+        | undefined;
+
+      expect(Object.keys(electronAPI?.db ?? {}).sort()).toEqual(Object.keys(contract).sort());
+      invokeMock.mockResolvedValueOnce({ rows: [] });
+      await electronAPI?.db?.['query']?.('SELECT 1');
+      expect(invokeMock).toHaveBeenLastCalledWith('db:query', 'SELECT 1');
+    }
+  );
 
   it('gives the embedding host a key-less vector preferences capability', async () => {
     invokeMock.mockResolvedValueOnce('{"state":{},"version":3}');

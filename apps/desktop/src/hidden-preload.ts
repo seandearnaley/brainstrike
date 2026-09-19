@@ -3,7 +3,14 @@
 // duplicated, or unknown role is a packaging error and fails closed.
 const { contextBridge, ipcRenderer } = require('electron');
 
+import {
+  type DatabaseChunkingBridge,
+  type DatabaseEmbeddingBridge,
+  databaseChunkingContract,
+  databaseEmbeddingContract,
+} from './ipc-domains/database.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+import { createIpcBridge } from './platform/ipc-bridge';
 
 type ChunkingHostRequest = import('./chunking-host-shared').ChunkingHostRequest;
 type ChunkingHostResponseReport = import('./chunking-host-shared').ChunkingHostResponseReport;
@@ -58,6 +65,7 @@ function exposeLoggingBridge(): void {
 }
 
 function exposeChunkingHostBridge(): void {
+  const db: DatabaseChunkingBridge = createIpcBridge(ipcRenderer, databaseChunkingContract);
   contextBridge.exposeInMainWorld('chunkingHost', {
     onRequest: (callback: (request: ChunkingHostRequest) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.chunkingHost.request, callback),
@@ -73,10 +81,7 @@ function exposeChunkingHostBridge(): void {
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.parserHostParse, request),
   });
   contextBridge.exposeInMainWorld('electronAPI', {
-    db: {
-      query: (sql: string, params?: unknown[], options?: unknown) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.query, sql, params, options),
-    },
+    db,
   });
 }
 
@@ -89,41 +94,9 @@ function exposeChunkingHostBridge(): void {
  * because main pins the record server-side.
  */
 function exposeEmbeddingElectronApiBridge(): void {
+  const db: DatabaseEmbeddingBridge = createIpcBridge(ipcRenderer, databaseEmbeddingContract);
   contextBridge.exposeInMainWorld('electronAPI', {
-    db: {
-      applyManagedCacheBatch: (payload: unknown, options?: unknown) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.applyManagedCacheBatch, payload, options),
-      diagnostics: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.diagnostics),
-      exec: (sql: string, params?: unknown[], options?: unknown) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.exec, sql, params, options),
-      insertChunksAndEnqueueEmbeddingJobs: (
-        chunks: readonly unknown[],
-        fileRecordId: string,
-        options: unknown,
-        workOptions?: unknown
-      ) =>
-        ipcRenderer.invoke(
-          DESKTOP_IPC_CHANNELS.db.insertChunksAndEnqueueEmbeddingJobs,
-          { chunks, fileRecordId, options },
-          workOptions
-        ),
-      invalidateManagedCacheEntriesByIdentity: (payload: unknown, options?: unknown) =>
-        ipcRenderer.invoke(
-          DESKTOP_IPC_CHANNELS.db.invalidateManagedCacheEntriesByIdentity,
-          payload,
-          options
-        ),
-      query: (sql: string, params?: unknown[], options?: unknown) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.query, sql, params, options),
-      runTransaction: (
-        statements: ReadonlyArray<{ params?: unknown[]; sql: string }>,
-        resultIndex: number,
-        options?: unknown
-      ) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.transaction, statements, resultIndex, options),
-      schedulerSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.schedulerSnapshot),
-      test: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.test),
-    },
+    db,
     vectorPreferences: {
       clear: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.vectorPreferences.clear),
       read: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.vectorPreferences.read),

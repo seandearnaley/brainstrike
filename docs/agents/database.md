@@ -163,6 +163,14 @@ the active-set queue-count and coverage queries mounted by
 switch window and after the final insert and delete; absolute counts are never
 hardcoded.
 
+The database IPC channel, role, raw-envelope, and parser declarations live in
+`apps/desktop/src/ipc-domains/database.contract.ts`. Main keeps a narrow
+event-aware registration adapter because scheduler admission and live-query
+ownership require the authenticated `IpcMainInvokeEvent`; visible and hidden
+preloads derive their exact database method sets from the same pure contracts.
+Do not replace the visible live-update multiplexer with one Electron listener
+per hook: its shared listener and local subscriber isolation are intentional.
+
 Memory release means superseded result arrays and live-query handles stop
 accumulating. It does **not** mean evicting inactive database-demo pages: that
 surface intentionally retains one page per visited collection for fast
