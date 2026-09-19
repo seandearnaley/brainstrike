@@ -6,7 +6,6 @@ import {
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import type { ThreadSearchRepository } from '@brainstrike/db';
-import type { ForgePrCacheEntry } from '@brainstrike/types';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -20,11 +19,10 @@ import {
   THREAD_CONTROL_ROW_PITCH_PX,
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from '../assistant-thread-presentation';
-import type { ThreadBranchInfo } from '../hooks/use-thread-branch-by-root-path';
 import { lookupThreadBranch } from '../thread-branch-resolution';
 import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
 import { useThreadSearchStore } from '../thread-search-store';
-import { ThreadMetadataBadgesForTest, ThreadsPanel } from '../threads-panel';
+import { ThreadsPanel } from '../threads-panel';
 
 const virtualizerState = vi.hoisted(() => ({
   estimatedSizes: [] as number[],
@@ -1638,117 +1636,6 @@ describe('ThreadsPanel', () => {
   });
 });
 
-describe('thread row PR pill', () => {
-  const thread: AssistantMemoryThread = {
-    createdAt: new Date('2026-08-24T00:00:00Z'),
-    id: 'thread-pr-pill',
-    resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-    title: 'PR pill thread',
-    updatedAt: new Date('2026-08-24T01:00:00Z'),
-  };
-  const pr: ForgePrCacheEntry = {
-    branch: 'main',
-    checksRollup: 'failing',
-    isDraft: false,
-    number: 2574,
-    repoCommonDir: '/repos/widgets/.git',
-    state: 'open',
-    url: 'https://github.test/acme/widgets/pull/2574',
-  };
-
-  it('renders the PR number and open failing state', () => {
-    render(<ThreadMetadataBadgesForTest branch={null} pr={pr} thread={thread} />);
-
-    const pill = screen.getByTestId('thread-pr-pill');
-    expect(pill).toHaveTextContent('#2574');
-    expect(pill).toHaveAttribute('data-checks', 'failing');
-    expect(pill).toHaveAttribute('data-state', 'open');
-  });
-
-  it('renders no PR pill when there is no cached PR', () => {
-    render(<ThreadMetadataBadgesForTest branch={null} pr={null} thread={thread} />);
-
-    expect(screen.queryByTestId('thread-pr-pill')).toBeNull();
-  });
-
-  it('marks merged PRs for faded row styling', () => {
-    render(
-      <ThreadMetadataBadgesForTest branch={null} pr={{ ...pr, state: 'merged' }} thread={thread} />
-    );
-
-    expect(screen.getByTestId('thread-pr-pill')).toHaveAttribute('data-state', 'merged');
-  });
-
-  describe('provider badge — the wideOnly "protected slot" it can inherit', () => {
-    const branchInfo: ThreadBranchInfo = {
-      branch: 'main',
-      detached: false,
-      gitCommonDir: '/repos/widgets/.git',
-    };
-    const threadWithProvider: AssistantMemoryThread = {
-      ...thread,
-      latestRun: {
-        completedAt: new Date('2026-08-24T00:05:00Z'),
-        createdAt: new Date('2026-08-24T00:00:00Z'),
-        error: null,
-        id: 'run-1',
-        model: 'claude-sonnet-5',
-        provider: 'openrouter',
-        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-        runtimeKind: 'hosted',
-        startedAt: new Date('2026-08-24T00:00:00Z'),
-        status: 'completed',
-        threadId: thread.id,
-        turnMessageId: null,
-        updatedAt: new Date('2026-08-24T00:05:00Z'),
-      },
-    };
-
-    function providerBadgeClassName(): string {
-      return screen.getByText('OpenRouter').className;
-    }
-
-    // (a) No branch and no PR: provider is the row's first badge, so it takes
-    // over the "always visible in the narrow band" slot instead of also
-    // hiding until 560px.
-    it('does not wide-gate the provider badge when nothing protected renders', () => {
-      render(<ThreadMetadataBadgesForTest branch={null} pr={null} thread={threadWithProvider} />);
-
-      const className = providerBadgeClassName();
-      expect(className).toContain('inline-flex');
-      expect(className).not.toContain('hidden');
-      expect(className).not.toContain('@[560px]/threads:inline-flex');
-    });
-
-    // (b) Branch present: branch occupies the protected slot, so provider
-    // reverts to hiding until 560px, same as model/reasoning/max-output.
-    it('wide-gates the provider badge once a branch renders, and keeps the branch visible', () => {
-      render(
-        <ThreadMetadataBadgesForTest branch={branchInfo} pr={null} thread={threadWithProvider} />
-      );
-
-      const providerClassName = providerBadgeClassName();
-      expect(providerClassName).toContain('hidden');
-      expect(providerClassName).toContain('@[560px]/threads:inline-flex');
-
-      const branchClassName = screen.getByText('main').className;
-      expect(branchClassName).toContain('inline-flex');
-      expect(branchClassName).not.toContain('hidden');
-    });
-
-    // (c) PR present (no branch): the PR pill alone is enough to occupy the
-    // protected slot too.
-    it('wide-gates the provider badge once a PR pill renders', () => {
-      render(<ThreadMetadataBadgesForTest branch={null} pr={pr} thread={threadWithProvider} />);
-
-      const providerClassName = providerBadgeClassName();
-      expect(providerClassName).toContain('hidden');
-      expect(providerClassName).toContain('@[560px]/threads:inline-flex');
-      expect(screen.getByTestId('thread-pr-pill')).toBeVisible();
-    });
-  });
-});
-
 describe('ThreadsPanel groups', () => {
   function seedGroup(id: string, name: string, rank: string): void {
     groupRows.push({
@@ -2946,7 +2833,7 @@ describe('ThreadsPanel folders', () => {
     }
 
     // Proves the whole chain end-to-end: a row seeded through the live-query
-    // route (not `ThreadMetadataBadgesForTest` directly) joins on the
+    // route (not the metadata-badge component directly) joins on the
     // `gitCommonDir` the git inventory mock reports for the bound root, and
     // renders a real `thread-pr-pill` inside the actual thread row.
     it('renders a thread-pr-pill inside a real thread row', async () => {

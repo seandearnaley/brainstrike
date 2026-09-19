@@ -1,7 +1,5 @@
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
-import { isRetiredModelId } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import {
   ASSISTANT_THREAD_COLOR_IDS,
   ASSISTANT_THREAD_ICON_IDS,
@@ -28,11 +26,6 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import {
-  type AnyContextAction,
-  defineContextAction,
-  type TargetOf,
-} from '@brainstrike/context-actions';
 import { ThreadSearchRepository } from '@brainstrike/db';
 import {
   useDbInitializationStatus,
@@ -42,9 +35,7 @@ import {
 } from '@brainstrike/db/react';
 import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import type { QueueAdapter } from '@brainstrike/queue';
-import type { ForgePrCacheEntry } from '@brainstrike/types';
 import {
-  ActionContextMenu,
   Button,
   type CheckboxState,
   Popover,
@@ -55,22 +46,15 @@ import {
   type TreeNode,
   TreeTable,
   type TreeTableColumn,
-  useContextMenuTarget,
 } from '@brainstrike/ui';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
-import type { LucideIcon } from 'lucide-react';
 import {
   ArrowLeft,
   Check,
-  ChevronDown,
-  ChevronUp,
   Folder,
   FolderMinus,
   FolderPlus,
-  GitBranch,
-  GitPullRequest,
   ListChecks,
-  MessageSquare,
   MoreHorizontal,
   Palette,
   Pencil,
@@ -81,18 +65,12 @@ import {
 } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   ASSISTANT_THREAD_ICON_PRESENTATION,
   getAssistantThreadColorSurface,
   resolveThreadRowStatusState,
-  THREAD_CONTROL_ACTION_CLASS_NAME,
-  THREAD_CONTROL_MARK_CLASS_NAME,
-  THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
-  THREAD_CONTROL_TITLE_CLASS_NAME,
-  type ThreadRowStatusState,
 } from './assistant-thread-presentation';
 import { DelegatedSidebarCell } from './delegated-sidebar-cell';
 import { useCreateThreadInFolder } from './hooks/use-create-thread-in-folder';
@@ -121,7 +99,7 @@ import {
   type ThreadPanelGroupRow,
   type ThreadPanelVisibleRow,
 } from './thread-panel-visible-rows';
-import { ThreadRowStatusGlyph } from './thread-row-status-glyph';
+import { type ThreadMoveTarget, ThreadRow } from './thread-row';
 import { useThreadSearchStore } from './thread-search-store';
 import {
   resolveThreadsPanelDrop,
@@ -131,7 +109,6 @@ import {
 import {
   GroupBodyDndShell,
   GroupHeaderDndShell,
-  ThreadRowDndShell,
   UngroupedSectionDndShell,
   useThreadsPanelDropMonitor,
 } from './threads-panel-dnd-elements';
@@ -150,83 +127,6 @@ const EMPTY_THREADS: readonly AssistantMemoryThread[] = [];
 // Stable identities so folder mode's empty inputs do not churn memo deps.
 const EMPTY_MOVE_TARGETS: readonly ThreadMoveTarget[] = [];
 const EMPTY_ROOT_IDS: readonly string[] = [];
-
-const PROVIDER_LABELS: Record<string, string> = {
-  anthropic: 'Anthropic',
-  google: 'Google',
-  openai: 'OpenAI',
-  openrouter: 'OpenRouter',
-};
-
-function getProviderLabel(provider: string | undefined): string | null {
-  if (!provider) {
-    return null;
-  }
-  return PROVIDER_LABELS[provider] ?? provider;
-}
-
-function getThreadIconId(thread: AssistantMemoryThread): AssistantThreadIconId {
-  return thread.metadata?.icon ?? 'message';
-}
-
-function getThreadColorId(thread: AssistantMemoryThread): AssistantThreadColorId | null {
-  return thread.metadata?.color ?? null;
-}
-
-function getThreadColorConfig(thread: AssistantMemoryThread) {
-  return getAssistantThreadColorSurface(getThreadColorId(thread));
-}
-
-function getReasoningValue(thread: AssistantMemoryThread): string | null {
-  const provider = thread.latestRun?.provider;
-  const providerOptions = thread.latestRun?.providerOptions;
-  const providerRecord =
-    provider && providerOptions && typeof providerOptions[provider] === 'object'
-      ? (providerOptions[provider] as Record<string, unknown>)
-      : null;
-  const nestedReasoning = providerRecord?.['reasoning'];
-  const nestedEffort =
-    nestedReasoning && typeof nestedReasoning === 'object'
-      ? (nestedReasoning as Record<string, unknown>)['effort']
-      : undefined;
-  const reasoning =
-    providerRecord?.['reasoningEffort'] ?? providerRecord?.['effort'] ?? nestedEffort;
-  return typeof reasoning === 'string' && reasoning.trim() ? reasoning : null;
-}
-
-function getReasoningLabel(thread: AssistantMemoryThread): string | null {
-  const value = getReasoningValue(thread);
-  return value ? `Reasoning: ${value}` : null;
-}
-
-function getMaxOutputValue(thread: AssistantMemoryThread): string | null {
-  const value = thread.latestRun?.modelSettings?.['maxOutputTokens'];
-  return typeof value === 'number' && Number.isFinite(value) ? String(value) : null;
-}
-
-function getMaxOutputLabel(thread: AssistantMemoryThread): string | null {
-  const value = getMaxOutputValue(thread);
-  return value ? `Max output: ${value}` : null;
-}
-
-function getThreadModelLabel(thread: AssistantMemoryThread): string | null {
-  const model = thread.latestRun?.model;
-  if (!model) {
-    return null;
-  }
-  const provider = thread.latestRun?.provider;
-  return (provider !== undefined && !isSupportedProvider(provider)) ||
-    isRetiredModelId(provider, model)
-    ? `Unavailable · ${model}`
-    : model;
-}
-
-function formatThreadDate(value: Date): string {
-  return new Intl.DateTimeFormat('en', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(value);
-}
 
 function ThreadStateCard({
   description,
@@ -248,1151 +148,6 @@ function ThreadStateCard({
       <div className="font-medium text-sm">{title}</div>
       <p className="pt-2 text-muted-foreground text-xs leading-5">{description}</p>
     </div>
-  );
-}
-
-interface ThreadMoveTarget {
-  readonly id: string;
-  readonly name: string;
-}
-
-function ThreadRows({
-  activeThreadIds,
-  branchLookup,
-  failedUnseenThreadIds,
-  folderMode,
-  forgePrLookup,
-  membershipByThreadId,
-  moveTargets,
-  needsYouThreadIds,
-  onDeleteThread,
-  onMoveThreadToGroup,
-  onRenameThread,
-  onSelectThread,
-  onUpdateThreadMetadata,
-  rowsDraggable,
-  selectedThreadId,
-  threads,
-  unseenThreadIds,
-}: {
-  readonly activeThreadIds: ReadonlySet<string>;
-  /** Both branch joins — see {@link resolveThreadBranch}. */
-  readonly branchLookup: ThreadBranchLookup;
-  readonly failedUnseenThreadIds: ReadonlySet<string>;
-  /**
-   * Folder grouping: a folder section is a view over the thread's own root
-   * binding, not a container it can be dragged into. Rows lose the drag shell
-   * and the group-membership actions with it.
-   */
-  readonly folderMode: boolean;
-  readonly forgePrLookup: ForgePrCacheLookup;
-  readonly membershipByThreadId: ReadonlyMap<string, string | null>;
-  readonly moveTargets: readonly ThreadMoveTarget[];
-  readonly needsYouThreadIds: ReadonlySet<string>;
-  readonly onDeleteThread: (threadId: string) => Promise<void>;
-  readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
-  readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
-  readonly onSelectThread: (threadId: string) => void;
-  readonly onUpdateThreadMetadata: (
-    threadId: string,
-    metadata: AssistantThreadMetadata
-  ) => Promise<void>;
-  /**
-   * False in folder grouping AND while a "Show only" filter narrows the list —
-   * see {@link ThreadRowDragScope} for why both withdraw the affordance.
-   */
-  readonly rowsDraggable: boolean;
-  readonly selectedThreadId: string | undefined;
-  readonly threads: readonly AssistantMemoryThread[];
-  readonly unseenThreadIds: ReadonlySet<string>;
-}): ReactElement {
-  const [customizingThreadId, setCustomizingThreadId] = useState<string | null>(null);
-  const [confirmingDeleteThreadId, setConfirmingDeleteThreadId] = useState<string | null>(null);
-  const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
-  const [expandedThreadIds, setExpandedThreadIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [metadataError, setMetadataError] = useState<string | null>(null);
-  const [draftTitle, setDraftTitle] = useState<string>('');
-  const [renameError, setRenameError] = useState<string | null>(null);
-  const [savingMetadataThreadId, setSavingMetadataThreadId] = useState<string | null>(null);
-  const [savingThreadId, setSavingThreadId] = useState<string | null>(null);
-
-  return (
-    <div className="space-y-2">
-      {threads.map((thread) => (
-        <ThreadRowDragScope
-          draggable={rowsDraggable}
-          groupId={folderMode ? null : (membershipByThreadId.get(thread.id) ?? null)}
-          key={thread.id}
-          threadId={thread.id}
-        >
-          <ThreadRowItem
-            branch={resolveThreadBranch(thread, branchLookup)}
-            confirmingDeleteThreadId={confirmingDeleteThreadId}
-            customizingThreadId={customizingThreadId}
-            deleteError={deleteError}
-            deletingThreadId={deletingThreadId}
-            draftTitle={draftTitle}
-            editingThreadId={editingThreadId}
-            expandedThreadIds={expandedThreadIds}
-            metadataError={metadataError}
-            moveTargets={moveTargets}
-            onCancelRename={() => {
-              setEditingThreadId(null);
-              setDraftTitle('');
-              setRenameError(null);
-            }}
-            onConfirmDeleteThread={() => {
-              setDeletingThreadId(thread.id);
-              setDeleteError(null);
-              onDeleteThread(thread.id)
-                .then(() => {
-                  setConfirmingDeleteThreadId(null);
-                })
-                .catch((error: unknown) => {
-                  setDeleteError(error instanceof Error ? error.message : String(error));
-                })
-                .finally(() => {
-                  setDeletingThreadId(null);
-                });
-            }}
-            onCustomizeThreadToggle={() => {
-              setCustomizingThreadId((currentThreadId) =>
-                currentThreadId === thread.id ? null : thread.id
-              );
-              setMetadataError(null);
-            }}
-            onDeleteThreadCancel={() => {
-              setConfirmingDeleteThreadId(null);
-              setDeleteError(null);
-            }}
-            onDeleteThreadStart={() => {
-              setConfirmingDeleteThreadId(thread.id);
-              setDeleteError(null);
-              setCustomizingThreadId(null);
-            }}
-            onDraftTitleChange={setDraftTitle}
-            onExpandedThreadToggle={() => {
-              setExpandedThreadIds((currentThreadIds) => {
-                const nextThreadIds = new Set(currentThreadIds);
-                if (nextThreadIds.has(thread.id)) {
-                  nextThreadIds.delete(thread.id);
-                } else {
-                  nextThreadIds.add(thread.id);
-                }
-                return nextThreadIds;
-              });
-            }}
-            onMetadataError={setMetadataError}
-            onMoveThreadToGroup={onMoveThreadToGroup}
-            onRenameThread={onRenameThread}
-            onRenameThreadStart={() => {
-              setEditingThreadId(thread.id);
-              setDraftTitle(thread.title);
-              setRenameError(null);
-              setCustomizingThreadId(null);
-            }}
-            onRenameThreadSubmitError={setRenameError}
-            onRenameThreadSubmitted={() => {
-              setEditingThreadId(null);
-              setDraftTitle('');
-            }}
-            onSavingMetadataThreadIdChange={setSavingMetadataThreadId}
-            onSavingThreadIdChange={setSavingThreadId}
-            onSelectThread={onSelectThread}
-            onUpdateThreadMetadata={onUpdateThreadMetadata}
-            pr={lookupThreadForgePr(thread, branchLookup, forgePrLookup)}
-            renameError={renameError}
-            rowGroupId={folderMode ? null : (membershipByThreadId.get(thread.id) ?? null)}
-            savingMetadataThreadId={savingMetadataThreadId}
-            savingThreadId={savingThreadId}
-            selectedThreadId={selectedThreadId}
-            status={resolveThreadRowStatusState({
-              failedUnseen: failedUnseenThreadIds.has(thread.id),
-              needsYou: needsYouThreadIds.has(thread.id),
-              running: activeThreadIds.has(thread.id),
-              unseen: unseenThreadIds.has(thread.id),
-            })}
-            thread={thread}
-          />
-        </ThreadRowDragScope>
-      ))}
-    </div>
-  );
-}
-
-/**
- * The row's drag source, or a layout-equivalent plain wrapper.
- *
- * TWO states render rows WITHOUT the drag shell rather than with a disabled
- * one: `draggable="true"` with no honored drop is an affordance that lies.
- *
- * 1. FOLDER GROUPING. A folder is not a container a thread can be dropped
- *    into — the binding is the thread's own `metadata.operatingRootId`.
- * 2. AN ACTIVE "Show only" FILTER. The rendered section is partial, and a
- *    positional drop rewrites the whole listed section's ranks in one fresh
- *    sequence, so reordering under a filter would interleave the visible
- *    threads with the hidden ones' untouched ranks — a scrambled manual order
- *    the user only discovers after clearing the filter. `Move to …` on the row
- *    stays available, so membership is still reachable while filtered.
- *
- * `resolveThreadsPanelDrop` mirrors both, because the drop monitor is global.
- */
-function ThreadRowDragScope({
-  children,
-  draggable,
-  groupId,
-  threadId,
-}: {
-  readonly children: ReactNode;
-  readonly draggable: boolean;
-  readonly groupId: string | null;
-  readonly threadId: string;
-}): ReactElement {
-  if (!draggable) {
-    return <div className="relative">{children}</div>;
-  }
-  return (
-    <ThreadRowDndShell groupId={groupId} threadId={threadId}>
-      {children}
-    </ThreadRowDndShell>
-  );
-}
-
-/**
- * The branch of the folder this thread works in, or `null`.
- *
- * TWO JOINS, durable root id first then a legacy path fallback — both keyed
- * lookups are documented on `use-thread-branch-by-root-path.ts`, which owns the
- * projection.
- *
- * 1. ROOT ID. `byRootId` is keyed by DB `roots.id`, the same id space as
- *    `metadata.operatingRootId`, and holds only root ids owned unambiguously
- *    by ONE worktree. A present durable id is authoritative: if it has no
- *    match, the thread has no branch chip. Falling through to the display path
- *    would let a replacement root mounted at the same path borrow the old
- *    thread's branch.
- * 2. PATH. Legacy threads without a durable root id can still use their
- *    display-only path. The folder rows carry the RAW `roots.path` while
- *    `byRootPath` is keyed by the NORMALIZED path, so this join has to normalize — an
- *    un-normalized key matches nothing and the chip silently never appears.
- *    That normalization seam is trim + trailing-separator strip only.
- *    Normalization is not symlink resolution: `roots.path` keeps the
- *    MOUNTED path and git reports the REALPATH, so a root mounted through a
- *    symlink (`/var/...` vs `/private/var/...`) never matches by path.
- *    The durable id lookup above resolves that skew without guessing for a
- *    folder that holds several repositories.
- *
- * A resolved worktree with NEITHER a branch nor a detached HEAD is a BARE one:
- * `git worktree list --porcelain` emits `bare` with no `branch` and no
- * `detached` line, and the parsers start every record at
- * `{branch: null, detached: false}`. It is `null` here rather than a chip,
- * because there is no name to render and `detached` would be a lie — an empty
- * pill would otherwise hold the first badge slot the narrow-panel container
- * query protects, and `ThreadMetadataBadges`' `if (!(branch || …))` early
- * return would count it as content.
- */
-function resolveThreadBranch(
-  thread: AssistantMemoryThread,
-  branchLookup: ThreadBranchLookup
-): ThreadBranchInfo | null {
-  const resolved = lookupThreadBranch(thread, branchLookup);
-  if (!resolved) {
-    return null;
-  }
-  return resolved.branch || resolved.detached ? resolved : null;
-}
-
-function ThreadRowItem({
-  branch,
-  customizingThreadId,
-  confirmingDeleteThreadId,
-  deletingThreadId,
-  deleteError,
-  draftTitle,
-  editingThreadId,
-  expandedThreadIds,
-  metadataError,
-  moveTargets,
-  onCancelRename,
-  onCustomizeThreadToggle,
-  onConfirmDeleteThread,
-  onDeleteThreadCancel,
-  onDeleteThreadStart,
-  onDraftTitleChange,
-  onExpandedThreadToggle,
-  onMetadataError,
-  onMoveThreadToGroup,
-  onRenameThread,
-  onRenameThreadStart,
-  onRenameThreadSubmitted,
-  onRenameThreadSubmitError,
-  onSavingMetadataThreadIdChange,
-  onSavingThreadIdChange,
-  onSelectThread,
-  onUpdateThreadMetadata,
-  pr,
-  renameError,
-  rowGroupId,
-  savingMetadataThreadId,
-  savingThreadId,
-  selectedThreadId,
-  status,
-  thread,
-}: {
-  readonly branch: ThreadBranchInfo | null;
-  readonly customizingThreadId: string | null;
-  readonly confirmingDeleteThreadId: string | null;
-  readonly deletingThreadId: string | null;
-  readonly deleteError: string | null;
-  readonly draftTitle: string;
-  readonly editingThreadId: string | null;
-  readonly expandedThreadIds: ReadonlySet<string>;
-  readonly metadataError: string | null;
-  readonly moveTargets: readonly ThreadMoveTarget[];
-  readonly onCancelRename: () => void;
-  readonly onCustomizeThreadToggle: () => void;
-  readonly onConfirmDeleteThread: () => void;
-  readonly onDeleteThreadCancel: () => void;
-  readonly onDeleteThreadStart: () => void;
-  readonly onDraftTitleChange: (title: string) => void;
-  readonly onExpandedThreadToggle: () => void;
-  readonly onMetadataError: (message: string | null) => void;
-  readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
-  readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
-  readonly onRenameThreadStart: () => void;
-  readonly onRenameThreadSubmitted: () => void;
-  readonly onRenameThreadSubmitError: (message: string) => void;
-  readonly onSavingMetadataThreadIdChange: (threadId: string | null) => void;
-  readonly onSavingThreadIdChange: (threadId: string | null) => void;
-  readonly onSelectThread: (threadId: string) => void;
-  readonly onUpdateThreadMetadata: (
-    threadId: string,
-    metadata: AssistantThreadMetadata
-  ) => Promise<void>;
-  readonly pr: ForgePrCacheEntry | null;
-  readonly renameError: string | null;
-  readonly rowGroupId: string | null;
-  readonly savingMetadataThreadId: string | null;
-  readonly savingThreadId: string | null;
-  readonly selectedThreadId: string | undefined;
-  readonly status: ThreadRowStatusState | null;
-  readonly thread: AssistantMemoryThread;
-}): ReactElement {
-  const isSelected = selectedThreadId === thread.id;
-  const isEditing = editingThreadId === thread.id;
-  const isConfirmingDelete = confirmingDeleteThreadId === thread.id;
-  const isCustomizing = customizingThreadId === thread.id;
-  const isExpanded = expandedThreadIds.has(thread.id);
-  const colorConfig = getThreadColorConfig(thread);
-  const contextMenuController = useContextMenuTarget();
-  const { setTarget: setContextMenuTarget } = contextMenuController;
-  const rowActions = useMemo<readonly AnyContextAction[]>(() => {
-    const isCurrentTarget = (target: TargetOf<'assistant-thread'>): boolean =>
-      target.id === thread.id && target.resourceId === thread.resourceId;
-    const staleTargetFailure = Promise.resolve({
-      error: 'Thread row is no longer available',
-      ok: false as const,
-    });
-
-    return [
-      defineContextAction({
-        appliesTo: ['assistant-thread'] as const,
-        group: 'primary',
-        icon: MessageSquare,
-        id: 'assistant-thread.open',
-        isEnabled: (target) => isCurrentTarget(target) && !isSelected,
-        label: 'Open',
-        run: (target) => {
-          if (!isCurrentTarget(target)) {
-            return staleTargetFailure;
-          }
-          onSelectThread(target.id);
-          return Promise.resolve({ ok: true });
-        },
-      }),
-      defineContextAction({
-        appliesTo: ['assistant-thread'] as const,
-        group: 'primary',
-        icon: Pencil,
-        id: 'assistant-thread.rename',
-        isEnabled: (target) => isCurrentTarget(target),
-        label: 'Rename…',
-        run: (target) => {
-          if (!isCurrentTarget(target)) {
-            return staleTargetFailure;
-          }
-          onRenameThreadStart();
-          return Promise.resolve({ ok: true });
-        },
-      }),
-      defineContextAction({
-        appliesTo: ['assistant-thread'] as const,
-        group: 'primary',
-        icon: Palette,
-        id: 'assistant-thread.customize',
-        isEnabled: (target) => isCurrentTarget(target),
-        label: isCustomizing ? 'Close Customization' : 'Customize…',
-        run: (target) => {
-          if (!isCurrentTarget(target)) {
-            return staleTargetFailure;
-          }
-          onCustomizeThreadToggle();
-          return Promise.resolve({ ok: true });
-        },
-      }),
-      defineContextAction({
-        appliesTo: ['assistant-thread'] as const,
-        group: 'inspect',
-        icon: isExpanded ? ChevronUp : ChevronDown,
-        id: 'assistant-thread.toggle-details',
-        isEnabled: (target) => isCurrentTarget(target),
-        label: isExpanded ? 'Hide Details' : 'Show Details',
-        run: (target) => {
-          if (!isCurrentTarget(target)) {
-            return staleTargetFailure;
-          }
-          onExpandedThreadToggle();
-          return Promise.resolve({ ok: true });
-        },
-      }),
-      ...moveTargets.flatMap((moveTarget) =>
-        moveTarget.id === rowGroupId
-          ? []
-          : defineContextAction({
-              appliesTo: ['assistant-thread'] as const,
-              group: 'tree',
-              icon: Folder,
-              id: `assistant-thread.move-to-group.${moveTarget.id}`,
-              isEnabled: (target) => isCurrentTarget(target),
-              label: `Move to ${moveTarget.name}`,
-              run: (target) => {
-                if (!isCurrentTarget(target)) {
-                  return staleTargetFailure;
-                }
-                return onMoveThreadToGroup(target.id, moveTarget.id).then(
-                  () => ({ ok: true as const }),
-                  (error: unknown) => ({
-                    error: error instanceof Error ? error.message : String(error),
-                    ok: false as const,
-                  })
-                );
-              },
-            })
-      ),
-      ...(rowGroupId
-        ? [
-            defineContextAction({
-              appliesTo: ['assistant-thread'] as const,
-              group: 'tree',
-              icon: FolderMinus,
-              id: 'assistant-thread.remove-from-group',
-              isEnabled: (target) => isCurrentTarget(target),
-              label: 'Remove from Group',
-              run: (target) => {
-                if (!isCurrentTarget(target)) {
-                  return staleTargetFailure;
-                }
-                return onMoveThreadToGroup(target.id, null).then(
-                  () => ({ ok: true as const }),
-                  (error: unknown) => ({
-                    error: error instanceof Error ? error.message : String(error),
-                    ok: false as const,
-                  })
-                );
-              },
-            }),
-          ]
-        : []),
-      defineContextAction({
-        appliesTo: ['assistant-thread'] as const,
-        group: 'danger',
-        icon: Trash2,
-        id: 'assistant-thread.delete',
-        isEnabled: (target) => isCurrentTarget(target) && !isConfirmingDelete,
-        label: 'Delete…',
-        run: (target) => {
-          if (!isCurrentTarget(target)) {
-            return staleTargetFailure;
-          }
-          onDeleteThreadStart();
-          return Promise.resolve({ ok: true });
-        },
-      }),
-    ];
-  }, [
-    isConfirmingDelete,
-    isCustomizing,
-    isExpanded,
-    isSelected,
-    moveTargets,
-    onCustomizeThreadToggle,
-    onDeleteThreadStart,
-    onExpandedThreadToggle,
-    onMoveThreadToGroup,
-    onRenameThreadStart,
-    onSelectThread,
-    rowGroupId,
-    thread.id,
-    thread.resourceId,
-  ]);
-  return (
-    <div
-      className={`my-0.5 flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} w-auto flex-col justify-center overflow-hidden rounded-md px-2 text-left transition-[background-color,box-shadow] motion-reduce:transition-none ${
-        isSelected ? colorConfig.selectedClassName : colorConfig.idleClassName
-      }`}
-      data-testid="thread-row"
-    >
-      {isEditing ? (
-        <ThreadRenameForm
-          draftTitle={draftTitle}
-          onCancelRename={onCancelRename}
-          onDraftTitleChange={onDraftTitleChange}
-          onRenameThread={onRenameThread}
-          onRenameThreadSubmitError={onRenameThreadSubmitError}
-          onRenameThreadSubmitted={onRenameThreadSubmitted}
-          onSavingThreadIdChange={onSavingThreadIdChange}
-          renameError={renameError}
-          savingThreadId={savingThreadId}
-          status={status}
-          thread={thread}
-        />
-      ) : (
-        <ActionContextMenu controller={contextMenuController} localActions={rowActions}>
-          {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: layout-neutral wrapper claims a resource-scoped thread context target */}
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: layout-neutral wrapper delegates all activation to the menu */}
-          <div
-            className="contents"
-            onContextMenu={() =>
-              setContextMenuTarget(assistantThreadToTarget(thread, 'assistant-thread'))
-            }
-            onContextMenuCapture={() => setContextMenuTarget(null)}
-          >
-            <ThreadRowDisplay
-              branch={branch}
-              customizing={isCustomizing}
-              deleteError={isConfirmingDelete ? deleteError : null}
-              deleting={deletingThreadId === thread.id}
-              expanded={isExpanded}
-              metadataError={isCustomizing ? metadataError : null}
-              metadataSaving={savingMetadataThreadId === thread.id}
-              onConfirmDeleteThread={onConfirmDeleteThread}
-              onCustomizeThreadToggle={onCustomizeThreadToggle}
-              onDeleteThreadCancel={onDeleteThreadCancel}
-              onDeleteThreadStart={onDeleteThreadStart}
-              onExpandedThreadToggle={onExpandedThreadToggle}
-              onMetadataError={onMetadataError}
-              onRenameThreadStart={onRenameThreadStart}
-              onSavingMetadataThreadIdChange={onSavingMetadataThreadIdChange}
-              onSelectThread={onSelectThread}
-              onUpdateThreadMetadata={onUpdateThreadMetadata}
-              pendingDelete={isConfirmingDelete}
-              pr={pr}
-              selected={isSelected}
-              status={status}
-              thread={thread}
-            />
-          </div>
-        </ActionContextMenu>
-      )}
-    </div>
-  );
-}
-
-function ThreadRenameForm({
-  draftTitle,
-  onCancelRename,
-  onDraftTitleChange,
-  onRenameThread,
-  onRenameThreadSubmitted,
-  onRenameThreadSubmitError,
-  onSavingThreadIdChange,
-  renameError,
-  savingThreadId,
-  status,
-  thread,
-}: {
-  readonly draftTitle: string;
-  readonly onCancelRename: () => void;
-  readonly onDraftTitleChange: (title: string) => void;
-  readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
-  readonly onRenameThreadSubmitted: () => void;
-  readonly onRenameThreadSubmitError: (message: string) => void;
-  readonly onSavingThreadIdChange: (threadId: string | null) => void;
-  readonly renameError: string | null;
-  readonly savingThreadId: string | null;
-  readonly status: ThreadRowStatusState | null;
-  readonly thread: AssistantMemoryThread;
-}): ReactElement {
-  return (
-    <form
-      className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} items-center gap-2`}
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSavingThreadIdChange(thread.id);
-        onRenameThread(thread.id, draftTitle)
-          .then(onRenameThreadSubmitted)
-          .catch((error: unknown) => {
-            onRenameThreadSubmitError(error instanceof Error ? error.message : String(error));
-          })
-          .finally(() => {
-            onSavingThreadIdChange(null);
-          });
-      }}
-    >
-      <ThreadIdentityMark status={status} thread={thread} />
-      <input
-        aria-label="Thread title"
-        className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onChange={(event) => {
-          onDraftTitleChange(event.target.value);
-        }}
-        onKeyDown={(event) => {
-          if (event.defaultPrevented || event.key !== 'Escape') {
-            return;
-          }
-          event.preventDefault();
-          event.stopPropagation();
-          onCancelRename();
-        }}
-        value={draftTitle}
-      />
-      {renameError ? <span className="text-[11px] text-destructive">{renameError}</span> : null}
-      <Button
-        aria-label="Save thread title"
-        className={THREAD_CONTROL_ACTION_CLASS_NAME}
-        disabled={savingThreadId === thread.id}
-        size="icon-xs"
-        type="submit"
-        variant="ghost"
-      >
-        <Check className="size-3" />
-      </Button>
-      <Button
-        aria-label="Cancel rename"
-        className={THREAD_CONTROL_ACTION_CLASS_NAME}
-        onClick={onCancelRename}
-        size="icon-xs"
-        type="button"
-        variant="ghost"
-      >
-        <X className="size-3" />
-      </Button>
-    </form>
-  );
-}
-
-function ThreadRowDisplay({
-  branch,
-  customizing,
-  deleteError,
-  deleting,
-  expanded,
-  metadataError,
-  metadataSaving,
-  onCustomizeThreadToggle,
-  onConfirmDeleteThread,
-  onDeleteThreadCancel,
-  onDeleteThreadStart,
-  onExpandedThreadToggle,
-  onMetadataError,
-  onRenameThreadStart,
-  onSavingMetadataThreadIdChange,
-  onSelectThread,
-  onUpdateThreadMetadata,
-  pendingDelete,
-  pr,
-  selected,
-  status,
-  thread,
-}: {
-  readonly branch: ThreadBranchInfo | null;
-  readonly customizing: boolean;
-  readonly deleteError: string | null;
-  readonly deleting: boolean;
-  readonly expanded: boolean;
-  readonly metadataError: string | null;
-  readonly metadataSaving: boolean;
-  readonly onCustomizeThreadToggle: () => void;
-  readonly onConfirmDeleteThread: () => void;
-  readonly onDeleteThreadCancel: () => void;
-  readonly onDeleteThreadStart: () => void;
-  readonly onExpandedThreadToggle: () => void;
-  readonly onMetadataError: (message: string | null) => void;
-  readonly onRenameThreadStart: () => void;
-  readonly onSavingMetadataThreadIdChange: (threadId: string | null) => void;
-  readonly onSelectThread: (threadId: string) => void;
-  readonly onUpdateThreadMetadata: (
-    threadId: string,
-    metadata: AssistantThreadMetadata
-  ) => Promise<void>;
-  readonly pendingDelete: boolean;
-  readonly pr: ForgePrCacheEntry | null;
-  readonly selected: boolean;
-  readonly status: ThreadRowStatusState | null;
-  readonly thread: AssistantMemoryThread;
-}): ReactElement {
-  const [actionsOpen, setActionsOpen] = useState(false);
-
-  const closeActions = (): void => {
-    setActionsOpen(false);
-  };
-
-  return (
-    <>
-      <div className="flex min-w-0 items-center justify-between gap-1.5">
-        <button
-          aria-current={selected ? 'true' : undefined}
-          className="min-w-0 flex-1 text-left"
-          onClick={(event) => {
-            event.stopPropagation();
-            onSelectThread(thread.id);
-          }}
-          type="button"
-        >
-          <div className="grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-x-2">
-            <div className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} items-center`}>
-              <ThreadIdentityMark status={status} thread={thread} />
-            </div>
-            <div
-              className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} min-w-0 items-center gap-1.5`}
-            >
-              <div className={THREAD_CONTROL_TITLE_CLASS_NAME}>{thread.title}</div>
-              <ThreadMetadataBadges branch={branch} pr={pr} thread={thread} />
-            </div>
-          </div>
-        </button>
-        <div className="-mr-px flex shrink-0 items-center gap-0.5">
-          <Button
-            aria-label={`${expanded ? 'Hide' : 'Show'} thread details ${thread.title}`}
-            className={THREAD_CONTROL_ACTION_CLASS_NAME}
-            onClick={(event) => {
-              event.stopPropagation();
-              onExpandedThreadToggle();
-            }}
-            size="icon-xs"
-            type="button"
-            variant="ghost"
-          >
-            {expanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-          </Button>
-          <Popover
-            onOpenChange={(open) => {
-              setActionsOpen(open);
-              if (open || !customizing) {
-                return;
-              }
-              onCustomizeThreadToggle();
-            }}
-            open={actionsOpen || customizing}
-          >
-            <PopoverTrigger asChild>
-              <Button
-                aria-label={`Thread actions ${thread.title}`}
-                className={THREAD_CONTROL_ACTION_CLASS_NAME}
-                onClick={(event) => event.stopPropagation()}
-                size="icon-xs"
-                type="button"
-                variant="ghost"
-              >
-                <MoreHorizontal className="size-3" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="end"
-              className={
-                customizing
-                  ? 'w-64 max-w-[calc(var(--radix-popover-content-available-width)-0.5rem)] p-3'
-                  : 'w-48 p-1.5'
-              }
-              collisionPadding={8}
-              onClick={(event) => event.stopPropagation()}
-            >
-              {customizing ? (
-                <ThreadCustomizationPanel
-                  metadataError={metadataError}
-                  metadataSaving={metadataSaving}
-                  onMetadataError={onMetadataError}
-                  onSavingMetadataThreadIdChange={onSavingMetadataThreadIdChange}
-                  onUpdateThreadMetadata={onUpdateThreadMetadata}
-                  thread={thread}
-                />
-              ) : (
-                <div className="grid gap-0.5">
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-xs"
-                    onClick={onCustomizeThreadToggle}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <SwatchBook className="size-3.5" />
-                    Customize
-                  </Button>
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-xs"
-                    onClick={() => {
-                      closeActions();
-                      onRenameThreadStart();
-                    }}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Pencil className="size-3.5" />
-                    Rename
-                  </Button>
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-destructive text-xs hover:text-destructive"
-                    onClick={() => {
-                      closeActions();
-                      onDeleteThreadStart();
-                    }}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Trash2 className="size-3.5" />
-                    Delete…
-                  </Button>
-                </div>
-              )}
-            </PopoverContent>
-          </Popover>
-        </div>
-      </div>
-      {pendingDelete ? (
-        <div className="mt-2 mb-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
-          <p className="text-[11px] text-destructive">
-            Delete this thread, its delegated children, and saved conversation data permanently?
-          </p>
-          {deleteError ? <p className="mt-1 text-[11px] text-destructive">{deleteError}</p> : null}
-          <div className="mt-2 flex justify-end gap-2">
-            <Button
-              aria-label={`Cancel delete thread ${thread.title}`}
-              disabled={deleting}
-              onClick={onDeleteThreadCancel}
-              size="sm"
-              type="button"
-              variant="ghost"
-            >
-              Cancel
-            </Button>
-            <Button
-              aria-label={`Confirm delete thread ${thread.title}`}
-              disabled={deleting}
-              onClick={onConfirmDeleteThread}
-              size="sm"
-              type="button"
-              variant="destructive"
-            >
-              Delete
-            </Button>
-          </div>
-        </div>
-      ) : null}
-      {expanded ? <ThreadExpandedDetails thread={thread} /> : null}
-    </>
-  );
-}
-
-function ThreadIdentityMark({
-  status,
-  thread,
-}: {
-  readonly status: ThreadRowStatusState | null;
-  readonly thread: AssistantMemoryThread;
-}): ReactElement {
-  const iconId = getThreadIconId(thread);
-  const colorId = getThreadColorId(thread);
-  const Icon = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].iconComponent;
-  const colorConfig = getThreadColorConfig(thread);
-  return (
-    <span
-      className={`relative ${THREAD_CONTROL_MARK_CLASS_NAME} ${colorConfig.markClassName}`}
-      data-testid={`thread-color-${colorId ?? 'unassigned'}`}
-    >
-      <Icon className="size-3" data-testid={`thread-icon-${iconId}`} />
-      <ThreadRowStatusGlyph state={status} title={thread.title} />
-    </span>
-  );
-}
-
-function ThreadCustomizationPanel({
-  metadataError,
-  metadataSaving,
-  onMetadataError,
-  onSavingMetadataThreadIdChange,
-  onUpdateThreadMetadata,
-  thread,
-}: {
-  readonly metadataError: string | null;
-  readonly metadataSaving: boolean;
-  readonly onMetadataError: (message: string | null) => void;
-  readonly onSavingMetadataThreadIdChange: (threadId: string | null) => void;
-  readonly onUpdateThreadMetadata: (
-    threadId: string,
-    metadata: AssistantThreadMetadata
-  ) => Promise<void>;
-  readonly thread: AssistantMemoryThread;
-}): ReactElement {
-  const saveMetadata = (metadata: AssistantThreadMetadata): void => {
-    onSavingMetadataThreadIdChange(thread.id);
-    onMetadataError(null);
-    onUpdateThreadMetadata(thread.id, metadata)
-      .catch((error: unknown) => {
-        onMetadataError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        onSavingMetadataThreadIdChange(null);
-      });
-  };
-  return (
-    <div className="grid gap-3" data-testid="thread-customization-panel">
-      <div>
-        <div className="font-medium text-xs">Thread appearance</div>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">Choose an icon and accent.</p>
-      </div>
-      <div className="grid gap-3">
-        <div>
-          <div className="mb-1.5 text-[11px] text-muted-foreground">Icon</div>
-          <div className="grid grid-cols-6 gap-1">
-            {ASSISTANT_THREAD_ICON_IDS.map((iconId) => {
-              const Icon = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].iconComponent;
-              const label = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].label;
-              const selected = getThreadIconId(thread) === iconId;
-              return (
-                <Button
-                  aria-label={`Use ${label} icon`}
-                  aria-pressed={selected}
-                  className={
-                    selected ? 'bg-accent shadow-inner ring-1 ring-border' : 'text-muted-foreground'
-                  }
-                  disabled={metadataSaving}
-                  key={iconId}
-                  onClick={() => {
-                    saveMetadata({ icon: iconId });
-                  }}
-                  size="icon-sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  <Icon className="size-4" />
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-        <div>
-          <div className="mb-1.5 text-[11px] text-muted-foreground">Color</div>
-          <div className="grid grid-cols-6 gap-1">
-            {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => {
-              const label = ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label;
-              const selected = getThreadColorId(thread) === colorId;
-              return (
-                <Button
-                  aria-label={`Use ${label} color`}
-                  aria-pressed={selected}
-                  className={selected ? 'bg-accent shadow-inner ring-1 ring-border' : undefined}
-                  disabled={metadataSaving}
-                  key={colorId}
-                  onClick={() => {
-                    saveMetadata({ color: colorId });
-                  }}
-                  size="icon-sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  <span
-                    className={`size-4 rounded-full ring-1 ring-black/10 ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
-                  />
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-      {metadataError ? <p className="text-[11px] text-destructive">{metadataError}</p> : null}
-    </div>
-  );
-}
-
-function ThreadExpandedDetails({
-  thread,
-}: {
-  readonly thread: AssistantMemoryThread;
-}): ReactElement {
-  const providerLabel = getProviderLabel(thread.latestRun?.provider);
-  const modelLabel = getThreadModelLabel(thread);
-  const reasoningValue = getReasoningValue(thread);
-  const maxOutputValue = getMaxOutputValue(thread);
-  return (
-    <div
-      className="mt-2 mb-2 rounded-md border border-border bg-background/70 p-2"
-      data-testid="thread-expanded-details"
-    >
-      <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">
-        {providerLabel ? <ThreadDetail label="Provider" value={providerLabel} /> : null}
-        {modelLabel ? <ThreadDetail label="Model" value={modelLabel} /> : null}
-        {thread.latestRun?.runtimeKind ? (
-          <ThreadDetail label="Runtime" value={thread.latestRun.runtimeKind} />
-        ) : null}
-        {thread.latestRun?.status ? (
-          <ThreadDetail label="Status" value={thread.latestRun.status} />
-        ) : null}
-        {reasoningValue ? <ThreadDetail label="Reasoning" value={reasoningValue} /> : null}
-        {maxOutputValue ? <ThreadDetail label="Max output" value={maxOutputValue} /> : null}
-        {thread.metadata?.operatingRootDisplayName ? (
-          <ThreadDetail
-            label="Folder"
-            title={thread.metadata.operatingRootPath ?? undefined}
-            value={thread.metadata.operatingRootDisplayName}
-          />
-        ) : null}
-        <ThreadDetail label="Created" value={formatThreadDate(thread.createdAt)} />
-        <ThreadDetail label="Updated" value={formatThreadDate(thread.updatedAt)} />
-      </div>
-      <div className="mt-2 border-border border-t pt-2">
-        <div className="font-medium text-[11px] text-muted-foreground">Diagnostics</div>
-        <div className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
-          {thread.id}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ThreadDetail({
-  label,
-  title,
-  value,
-}: {
-  readonly label: string;
-  /** Hover text for a value the row truncates — the folder's full path. */
-  readonly title?: string | undefined;
-  readonly value: string;
-}): ReactElement {
-  return (
-    <div>
-      <div className="text-muted-foreground">{label}</div>
-      <div className="truncate font-medium" title={title}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-const PR_ROLLUP_GLYPH: Readonly<Record<ForgePrCacheEntry['checksRollup'], string>> = {
-  failing: '✗',
-  none: '·',
-  passing: '✓',
-  pending: '◐',
-};
-
-function ThreadMetadataBadges({
-  branch,
-  pr,
-  thread,
-}: {
-  /** Only ever set in folder grouping, and only on desktop. */
-  readonly branch: ThreadBranchInfo | null;
-  /** Only ever set in folder grouping, and only when the cache has a row. */
-  readonly pr: ForgePrCacheEntry | null;
-  readonly thread: AssistantMemoryThread;
-}): ReactElement | null {
-  const providerLabel = getProviderLabel(thread.latestRun?.provider);
-  const modelLabel = getThreadModelLabel(thread);
-  const reasoningLabel = getReasoningLabel(thread);
-  const maxOutputLabel = getMaxOutputLabel(thread);
-  if (!(branch || pr || providerLabel || modelLabel || reasoningLabel || maxOutputLabel)) {
-    return null;
-  }
-  // Whether a badge the narrow band unconditionally protects (branch or PR)
-  // is actually rendering. When neither is present, the provider badge takes
-  // over that protected slot instead of also hiding until 560px — see the
-  // `wideOnly` note on ThreadBadge.
-  const protectedBadgePresent = Boolean(branch || pr);
-  return (
-    <div
-      className="@[420px]/threads:flex hidden min-w-0 shrink items-center gap-1 overflow-hidden"
-      data-testid="thread-metadata-badges"
-    >
-      {/* Branch first, then PR: in folder grouping these two are the row's most
-          local facts, and they are always visible once the container clears
-          420px — see the `wideOnly` note on ThreadBadge for the rest. */}
-      {branch ? (
-        <ThreadBadge icon={GitBranch}>{branch.detached ? 'detached' : branch.branch}</ThreadBadge>
-      ) : null}
-      {pr ? (
-        <span
-          className={`inline-flex shrink-0 items-center gap-0.5 rounded-full border border-border/70 bg-background/70 px-1.5 py-0 text-[9px] leading-4 ${
-            pr.state === 'open' ? 'text-muted-foreground' : 'text-muted-foreground/60'
-          }`}
-          data-checks={pr.checksRollup}
-          data-state={pr.state}
-          data-testid="thread-pr-pill"
-          title={`Pull request #${pr.number} (${pr.state})`}
-        >
-          <GitPullRequest aria-hidden="true" className="size-2.5" />
-          {`#${pr.number}`}
-          <span aria-hidden="true">
-            {pr.isDraft && pr.state === 'open' ? '◌' : PR_ROLLUP_GLYPH[pr.checksRollup]}
-          </span>
-        </span>
-      ) : null}
-      {providerLabel ? (
-        <ThreadBadge wideOnly={protectedBadgePresent}>{providerLabel}</ThreadBadge>
-      ) : null}
-      {modelLabel ? <ThreadBadge wideOnly>{modelLabel}</ThreadBadge> : null}
-      {reasoningLabel ? <ThreadBadge wideOnly>{reasoningLabel}</ThreadBadge> : null}
-      {maxOutputLabel ? <ThreadBadge wideOnly>{maxOutputLabel}</ThreadBadge> : null}
-    </div>
-  );
-}
-
-/** Exported for the panel unit lane; production renders it through ThreadRowItem. */
-export { ThreadMetadataBadges as ThreadMetadataBadgesForTest };
-
-function ThreadBadge({
-  children,
-  icon: Icon,
-  wideOnly,
-}: {
-  readonly children: ReactNode;
-  readonly icon?: LucideIcon;
-  /**
-   * Hidden until the container clears 560px, INSTEAD of the 420px every other
-   * badge in this row gets. Carried per-badge rather than as a positional
-   * `nth-child` selector on the container: `nth-child` counts RENDERED
-   * children, and branch/PR are both conditional, so a positional rule's
-   * meaning shifted with whichever optional badges happened to render —
-   * bumping its threshold once (`n+2` to `n+3`) only patched the case with
-   * both branch and PR present, and on every row with NEITHER (every row
-   * outside folder grouping, and every row on web) it kept a second badge
-   * visible in the 420-560px band that previously stayed hidden there,
-   * eating into the title's `min-w-0` truncation for rows that have nothing
-   * to do with a PR at all. A class the badge carries itself is correct
-   * regardless of what else in the row rendered.
-   *
-   * SPARINGLY conditional: only the provider badge ever passes a computed
-   * value here (`protectedBadgePresent` — whether branch or PR rendered).
-   * When neither did, provider is the row's first badge and takes over the
-   * "always visible in the narrow band" slot branch/PR would otherwise hold
-   * — exactly the pre-PR-pill `nth-child(n+2)` behavior, where badge #1 was
-   * always shown regardless of what it was. Model/reasoning/max-output stay
-   * unconditionally `wideOnly`: they are never the row's first badge, so
-   * there is no protected slot for them to inherit.
-   */
-  readonly wideOnly?: boolean;
-}): ReactElement {
-  return (
-    <span
-      className={`${wideOnly ? '@[560px]/threads:inline-flex hidden' : 'inline-flex'} shrink-0 items-center gap-0.5 rounded-full border border-border/70 bg-background/70 px-1.5 py-0 text-[9px] text-muted-foreground leading-4`}
-    >
-      {Icon ? <Icon aria-hidden="true" className="size-2.5" /> : null}
-      {children}
-    </span>
   );
 }
 
@@ -1845,7 +600,48 @@ function getSelectionState(
   return selectedCount === memberIds.length ? 'checked' : 'indeterminate';
 }
 
-type ThreadRowsProps = Parameters<typeof ThreadRows>[0];
+interface ThreadRowContextProps {
+  readonly activeThreadIds: ReadonlySet<string>;
+  /** Both durable-root and legacy-path branch joins. */
+  readonly branchLookup: ThreadBranchLookup;
+  readonly failedUnseenThreadIds: ReadonlySet<string>;
+  /** Folder sections project a thread's root binding; they are not move targets. */
+  readonly folderMode: boolean;
+  readonly forgePrLookup: ForgePrCacheLookup;
+  readonly membershipByThreadId: ReadonlyMap<string, string | null>;
+  readonly moveTargets: readonly ThreadMoveTarget[];
+  readonly needsYouThreadIds: ReadonlySet<string>;
+  readonly onDeleteThread: (threadId: string) => Promise<void>;
+  readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
+  readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
+  readonly onSelectThread: (threadId: string) => void;
+  readonly onUpdateThreadMetadata: (
+    threadId: string,
+    metadata: AssistantThreadMetadata
+  ) => Promise<void>;
+  /** False for folder grouping and while a Show-only filter narrows the list. */
+  readonly rowsDraggable: boolean;
+  readonly selectedThreadId: string | undefined;
+  readonly unseenThreadIds: ReadonlySet<string>;
+}
+
+/**
+ * Resolves the branch chip from the durable root id first, with the legacy
+ * display-path join owned by `lookupThreadBranch` as a fallback. A durable id
+ * is authoritative: if it has no match, a replacement root mounted at the
+ * same path must not borrow the old thread's branch.
+ *
+ * A resolved worktree with neither a branch nor a detached HEAD is bare. It
+ * intentionally renders no chip: an empty badge would occupy the narrow
+ * panel's protected slot and hide useful provider metadata.
+ */
+function resolveThreadPanelBranch(
+  thread: AssistantMemoryThread,
+  branchLookup: ThreadBranchLookup
+): ThreadBranchInfo | null {
+  const branch = lookupThreadBranch(thread, branchLookup);
+  return branch && (branch.branch || branch.detached) ? branch : null;
+}
 
 // Group surfaces are borderless tinted slabs; only the rounded caps vary by
 // the row's position inside the visible chassis.
@@ -2002,13 +798,40 @@ function ThreadPanelCell({
   readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onShowMore: (sectionKey: string) => void;
   readonly row: ThreadPanelVisibleRow;
-  readonly rowsProps: Omit<ThreadRowsProps, 'threads'>;
+  readonly rowsProps: ThreadRowContextProps;
 }): ReactElement {
   let content: ReactElement;
   if (row.kind === 'delegated' || row.kind === 'delegated-state') {
     content = <DelegatedSidebarCell onShowMore={onShowMoreChildren} row={row} />;
   } else if (row.kind === 'thread') {
-    content = <ThreadRows {...rowsProps} threads={[row.thread]} />;
+    const groupId = rowsProps.folderMode
+      ? null
+      : (rowsProps.membershipByThreadId.get(row.thread.id) ?? null);
+    content = (
+      <ThreadRow
+        branch={resolveThreadPanelBranch(row.thread, rowsProps.branchLookup)}
+        draggable={rowsProps.rowsDraggable}
+        groupId={groupId}
+        // Row-local mutation state must never survive a virtual cell changing
+        // identity; the key makes that lifetime contract explicit.
+        key={row.thread.id}
+        moveTargets={rowsProps.moveTargets}
+        onDeleteThread={rowsProps.onDeleteThread}
+        onMoveThreadToGroup={rowsProps.onMoveThreadToGroup}
+        onRenameThread={rowsProps.onRenameThread}
+        onSelectThread={rowsProps.onSelectThread}
+        onUpdateThreadMetadata={rowsProps.onUpdateThreadMetadata}
+        pr={lookupThreadForgePr(row.thread, rowsProps.branchLookup, rowsProps.forgePrLookup)}
+        selected={rowsProps.selectedThreadId === row.thread.id}
+        status={resolveThreadRowStatusState({
+          failedUnseen: rowsProps.failedUnseenThreadIds.has(row.thread.id),
+          needsYou: rowsProps.needsYouThreadIds.has(row.thread.id),
+          running: rowsProps.activeThreadIds.has(row.thread.id),
+          unseen: rowsProps.unseenThreadIds.has(row.thread.id),
+        })}
+        thread={row.thread}
+      />
+    );
   } else if (row.kind === 'show-more') {
     content = <ThreadPanelShowMoreCell onShowMore={onShowMore} row={row} />;
   } else if (row.kind === 'empty') {
@@ -2348,7 +1171,7 @@ function ThreadPanelTree({
     selectedThreadIds: selectedAvailableThreadIds,
   });
 
-  const rowsProps = useMemo<Omit<ThreadRowsProps, 'threads'>>(
+  const rowsProps = useMemo<ThreadRowContextProps>(
     () => ({
       activeThreadIds,
       branchLookup,

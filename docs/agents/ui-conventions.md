@@ -398,6 +398,15 @@ Windowing and performance:
   `getAssistantThreadColorSurface` rather than re-deriving an "unassigned"
   fallback per call site. Do not re-declare heights or type sizes at a call
   site; that drift is what BST-939 fixed.
+- The threads tree cell renders one `ThreadRow` from `thread-row.tsx`, never a
+  single-element `ThreadRows` list. The row owns its rename draft,
+  customization, details, delete confirmation, and pending/error state across
+  parent projection rerenders; the connected panel supplies only the projected
+  branch/PR/status/group facts and persistence actions. Keep row behavior in
+  `thread-row.test.tsx`, which deliberately mounts without the panel's
+  database, vector, search, or virtualizer setup. The whole-panel suite retains
+  grouping, filtering, bulk selection, drag suppression, and persistence
+  wiring coverage.
 
 When modifying TreeTable strategy or pagination behavior:
 - Update the related file explorer / workspace-search adapters.
