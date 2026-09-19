@@ -143,6 +143,7 @@
         "@brainstrike/context-actions",
         "@brainstrike/e2e-test-utils",
         "@brainstrike/file-system",
+        "@brainstrike/file-tree-test-fixtures",
         "@brainstrike/hooks",
         "@brainstrike/indexing-contract",
         "@brainstrike/local-runtime",

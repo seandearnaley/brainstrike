@@ -11,8 +11,9 @@
  *   as the sweep reaches it.
  */
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { composeWrappers, createFileNode, makeRenderWithProviders } from '@brainstrike/test-utils';
+import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';

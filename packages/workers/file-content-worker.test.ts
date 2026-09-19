@@ -4,7 +4,7 @@ import {
   resetFileSizeConfig,
   setFileSizeConfig,
 } from '@brainstrike/file-system';
-import { createFileNode } from '@brainstrike/test-utils';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import type { FileHandle } from '@brainstrike/types';
 import * as utils from '@brainstrike/utils';
 import { fileContent } from '@brainstrike/utils';

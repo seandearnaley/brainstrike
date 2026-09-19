@@ -2666,11 +2666,52 @@ building anything, so a `packages/types` edit no longer rebuilds ~39 packages
 before a test runs. Plain deletion of the edge would be a stale-green landmine
 (tests import upstream source, so a cached dependent must still re-hash when an
 upstream's source changes); the transit node REPLACES the edge instead of
-removing it. `topo` hashes the FULL default inputs (no test-file exclusions —
-`__tests__/` dirs contain importable helper modules and no guard enforces
-"never imported cross-package", so narrowing was reviewed out as a stale-green
-vector; test-only over-invalidation is the cheaper failure mode). Explicit build edges survive in per-package
-`turbo.json` where a test genuinely consumes a built artifact:
+removing it. `topo` hashes full default inputs except the guarded BST-1773
+pilot in `@brainstrike/types`: its `topo` and `build` exclude only executable
+`**/*.test.*` and `**/*.spec.*` files, matching its TypeScript build exclusions.
+Owner `test`/`test:coverage` inputs remain complete. The explicit lost-file reporter
+input remains a hash carrier. Never remove transit edges to narrow affected work.
+
+`lint:private-test-input-locality` runs in local and CI lint. It rejects imports
+and filesystem reads into the Types private-test boundary, including static,
+dynamic, constant-bound URL and partially static paths. Directory inventories and
+existence checks are reads too: filesystem method aliases and alternative path
+bindings must retain the same boundary checks. Only private Types specs
+may consume peer private specs. Shared helpers must live outside excluded paths;
+do not blanket-exclude `__tests__` directories. Extend this bounded policy and its
+negative controls before introducing another path-construction convention or pilot.
+This JS/TS reader guard does not model declarative JSON/YAML or tool-config globs.
+Do not add cross-package config globs over private Types specs; move shared
+fixtures outside the private boundary or explicitly model and test their task
+inputs before introducing such a consumer.
+`private-test-input-locality.test.mjs` uses the pinned Turbo binary to verify both
+hashes and affected selection, including a deliberately unsafe exclusion.
+
+File-node factories belong to `@brainstrike/file-tree-test-fixtures`, consumed by
+file-explorer, file-explorer-hooks, file-explorer-ui, utils and workers. Generic
+`@brainstrike/test-utils` must not depend on `@brainstrike/types`. The domain
+fixture package may consume generic test setup; that edge is intentionally one-way.
+
+The chunk-cycle guard is an explicit input of web/desktop `build` and desktop
+`build:renderer`, not a global input. Coverage enforcement runs directly after
+coverage collection, outside Turbo caching, so its script is not a global input.
+`ci-guard-input-locality.test.mjs` proves these boundaries with actual Turbo hashes
+and affected selection, with negative controls for missing build invalidation.
+It discovers direct guard consumers from workspace scripts, rejects package-level
+coverage-enforcement scripts, pins the absence of root build-input overrides, and
+requires cached coverage tasks to restore `coverage/**` before enforcement.
+
+BST-1773 measurements against `7bc7f079` used isolated Git fixtures and pinned
+Turbo `test test:integration --dry=json`, comparing executable task selection and
+hashes. Types source edits fell from 61 to 49 tasks; private Types test edits from
+61 to 1; domain-factory edits from 60 to 43. Generic setup edits changed 60 before
+and 61 after (the new fixture suite is an intentional consumer). Each guard script
+previously invalidated 65 test tasks and now invalidates none; chunk guard edits
+still invalidate all three consuming app build tasks. Types manifest downstream
+reach fell from 47 to 37. These are invalidation counts, not measured CI durations.
+
+Explicit build edges survive in per-package `turbo.json` where a test genuinely
+consumes a built artifact:
 `@brainstrike/desktop#test:integration`/`#test:coverage` need
 `@brainstrike/agent#build` and `@brainstrike/assistant-data#build` for the native
 delegated-decision restart verifier (BST-1720): child Node processes resolve
@@ -2861,7 +2902,7 @@ future flag, Turbo no longer reports these files in `globalCacheInputs.files`;
 it injects them into each executable task's resolved inputs instead.
 `scripts/__tests__/turbo-global-configuration.test.mjs` therefore expands the
 configured globs, runs the pinned Turbo binary, and checks every executable
-task at that actual boundary. Its floors require at least 10 matched global
+task at that actual boundary. Its floors require at least 9 matched global
 files, 47 packages, 230 total task nodes, and 160 executable tasks. Mutation
 controls remove one real input from one task and empty the task selection, and
 prove both cases fail visibly. The structural tsconfig contract separately

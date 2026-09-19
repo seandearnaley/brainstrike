@@ -92,6 +92,9 @@
       "@brainstrike/file-explorer-ui/*": [
         "./packages/file-explorer-ui/src/*"
       ],
+      "@brainstrike/file-tree-test-fixtures": [
+        "./packages/file-tree-test-fixtures/src"
+      ],
       "@brainstrike/storage": [
         "./packages/storage/src"
       ],
@@ -277,6 +280,9 @@
     },
     {
       "path": "./packages/file-explorer-ui"
+    },
+    {
+      "path": "./packages/file-tree-test-fixtures"
     },
     {
       "path": "./packages/storage"

@@ -1,9 +1,6 @@
 import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
-import {
-  composeWrappers,
-  createDirectoryNode,
-  makeRenderWithProviders,
-} from '@brainstrike/test-utils';
+import { createDirectoryNode } from '@brainstrike/file-tree-test-fixtures';
+import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { DEFAULT_MAX_SELECTION_COUNT } from '@brainstrike/types';
 import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
