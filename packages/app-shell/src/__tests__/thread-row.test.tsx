@@ -167,6 +167,7 @@ describe('ThreadRow', () => {
     await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
     await user.click(screen.getByRole('button', { name: 'Rename' }));
     const input = screen.getByRole('textbox', { name: 'Thread title' });
+    expect(input).toHaveFocus();
     await user.clear(input);
     await user.type(input, 'Keep this draft');
 

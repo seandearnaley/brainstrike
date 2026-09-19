@@ -572,6 +572,7 @@ function ThreadRenameForm({
       <ThreadIdentityMark status={status} thread={thread} />
       <input
         aria-label="Thread title"
+        autoFocus
         className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onChange={(event) => {
           onDraftTitleChange(event.target.value);
