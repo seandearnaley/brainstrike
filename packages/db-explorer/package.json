@@ -16,7 +16,6 @@
     "@brainstrike/local-runtime": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/pipeline": "workspace:*",
-    "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",

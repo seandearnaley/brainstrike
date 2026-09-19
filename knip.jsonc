@@ -30,7 +30,12 @@
     // these patterns at depth 1 — widening to `**` reinstates the fallback.
     ".": {
       "entry": ["*.{js,mjs,cjs,ts,mts,cts}"],
-      "project": ["*.{js,mjs,cjs,ts,mts,cts}"]
+      "project": ["*.{js,mjs,cjs,ts,mts,cts}"],
+      "ignoreDependencies": [
+        // scripts/react-compiler-inventory.mjs imports transformSync directly.
+        // CLI scripts are outside the root graph; keep the exception root-only.
+        "oxc-transform-react"
+      ]
     },
     // Define workspaces based on the Turborepo setup
     "apps/web": {

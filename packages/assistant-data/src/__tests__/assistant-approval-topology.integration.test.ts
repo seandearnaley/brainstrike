@@ -738,10 +738,19 @@ describe('approval/suspend branch topology (BST-1243)', () => {
     releaseLookup();
 
     await expect(echo).resolves.toBeUndefined();
-    expect(await readEdges(db, threadId)).toEqual([
-      ['user-1', null],
-      ['assistant-1', 'user-1'],
-    ]);
+    // Reproduce CI's tied edge timestamps: SQL then sorts assistant-1 first.
+    // This case owns parent topology, not persistence-time ordering.
+    await db.query(
+      `UPDATE brainstrike_assistant_message_parents
+       SET created_at = '2026-09-19T00:00:00.000Z' WHERE thread_id = $1`,
+      [threadId]
+    );
+    expect(new Map(await readEdges(db, threadId))).toEqual(
+      new Map([
+        ['user-1', null],
+        ['assistant-1', 'user-1'],
+      ])
+    );
   });
 
   it('pins multi-pause rediscovery: approving an older notice continues from the durable head', async () => {

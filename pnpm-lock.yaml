@@ -946,9 +946,6 @@ importers:
       '@testing-library/dom':
         specifier: 'catalog:'
         version: 10.4.1
-      '@testing-library/jest-dom':
-        specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.1)(vitest@5.0.0)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -1461,9 +1458,6 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
-      '@testing-library/jest-dom':
-        specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.1)(vitest@5.0.0)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -1909,9 +1903,6 @@ importers:
       '@brainstrike/pipeline':
         specifier: workspace:*
         version: link:../pipeline
-      '@brainstrike/platform-utils':
-        specifier: workspace:*
-        version: link:../platform-utils
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
@@ -2250,9 +2241,6 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
-      '@brainstrike/platform-utils':
-        specifier: workspace:*
-        version: link:../platform-utils
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
@@ -2831,9 +2819,6 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
-      '@testing-library/jest-dom':
-        specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.1)(vitest@5.0.0)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -3665,9 +3650,6 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
-      '@testing-library/jest-dom':
-        specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.1)(vitest@5.0.0)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
