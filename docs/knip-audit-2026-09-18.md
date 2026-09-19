@@ -65,7 +65,16 @@ runs `time pnpm knip`, then `node scripts/check-knip-liveness.mjs`. The second
 command temporarily plants one unreferenced web source file and restores the
 removed db-explorer dependency. It requires exit 1 and exactly those findings,
 checks the special entries above, and restores both inputs in `finally`.
-Run it serially after `pnpm knip`; it is deliberately outside the default
+Run it serially after `pnpm knip` in a disposable, clean worktree. Ordinary
+assertion/tool failures restore both inputs, but termination (including Ctrl-C
+or a killed process) and filesystem failures cannot guarantee restoration.
+After interruption, remove `apps/web/src/knip-liveness-unused-fixture.ts` and
+restore `packages/db-explorer/package.json` from the pre-run revision before
+installing or auditing again. Do not run it over uncommitted manifest edits.
+The strict single-line JSON protocol and CLI path were verified against the
+installed Knip 6.34.0; rerun the real planted probe when upgrading Knip. The
+reporter and no-config-hints options change presentation, not analysis rules.
+The probe is deliberately outside the default
 scripts-test glob so PRs do not acquire a full graph scan indirectly.
 
 Scheduled and manual runs fail visibly on any finding or tool/build error.

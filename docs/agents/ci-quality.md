@@ -3629,6 +3629,10 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   React Doctor 0.9.13 removed deslop; its native graph rules are opt-in and excluded
   from changed/staged scans. `doctor.config.ts` explicitly disables that analysis
   and its six native graph rules so dependency exceptions have one owner.
+  This audit covers unused files/dependencies. Renderer source cycles remain
+  owned by `lint:no-source-cycles`, and built bundle cycles by
+  `scripts/verify-no-cross-chunk-cycles.mjs`; disabling React Doctor's graph
+  rules does not disable either guard.
   Knip's existing export/type/duplicate exclusions remain; a clean audit is not
   proof that every exported compatibility helper has a production caller.
 - **No broad `ignore.files` exclusions.** The old 0.5.5/0.7.1 implementation silently dropped

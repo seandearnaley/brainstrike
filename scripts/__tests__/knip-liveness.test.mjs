@@ -33,6 +33,7 @@ for (const [name, status, issues, passes] of [
   ['silent no-op auditor', 0, [], false],
   ['missing dependency finding', 1, findings.slice(0, 1), false],
   ['tool failure', 2, [], false],
+  ['reporter schema drift', 1, [{ file: fixture }], false],
   ['lost special entry', 1, [...findings, { file: entries[0], files: [{}] }], false],
 ]) {
   test(`liveness ${name}: validates verdict and restores inputs`, () => {
@@ -70,7 +71,10 @@ for (const [name, status, issues, passes] of [
         timeout: 10_000,
       });
       assert.ifError(result.error);
-      assert.equal(result.status === 0, passes, result.stdout + result.stderr);
+      assert.equal(result.status, passes ? 0 : 1, result.stdout + result.stderr);
+      if (name === 'reporter schema drift') {
+        assert.match(result.stderr, /Unsupported Knip 6 JSON reporter schema/);
+      }
       assert.equal(readFileSync(path.join(root, manifest), 'utf8'), original);
       assert.equal(existsSync(path.join(root, fixture)), false);
     } finally {

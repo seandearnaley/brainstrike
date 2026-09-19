@@ -26,4 +26,5 @@ test('Knip is reachable on schedule and dispatch and failures cannot turn green'
   const checkout = job.steps.findIndex((step) => step.uses === 'actions/checkout@v6');
   const setup = job.steps.findIndex((step) => step.uses === './.github/actions/setup-workspace');
   assert.ok(checkout >= 0 && setup > checkout);
+  assert.equal(workflow.jobs.audit.steps[checkout].with['persist-credentials'], false);
 });

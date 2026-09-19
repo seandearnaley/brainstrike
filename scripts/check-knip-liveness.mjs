@@ -15,6 +15,10 @@ const fixturePath = path.join(repoRoot, fixture);
 const manifestPath = path.join(repoRoot, manifest);
 const original = readFileSync(manifestPath, 'utf8');
 const pkg = JSON.parse(original);
+assert.ok(
+  pkg.dependencies && typeof pkg.dependencies === 'object',
+  'db-explorer must declare a dependencies object for the liveness probe'
+);
 assert.ok(!existsSync(fixturePath), 'refusing to overwrite a pre-existing fixture');
 assert.ok(!pkg.dependencies[dependency], 'probe dependency must be absent before planting');
 
@@ -32,7 +36,25 @@ try {
   assert.equal(result.status, 1, `expected findings exit 1:\n${result.stdout}\n${result.stderr}`);
   // Config loaders may log before the reporter; Knip's JSON reporter emits its
   // one complete document on the final stdout line. Do not accept missing JSON.
-  const { issues } = JSON.parse(result.stdout.trim().split('\n').at(-1));
+  // Observed with installed Knip 6.34.0; changing this protocol requires a real
+  // planted-input run, not only the control-flow stubs in the unit tests.
+  const report = JSON.parse(result.stdout.trim().split('\n').at(-1));
+  const schemaMessage =
+    'Unsupported Knip 6 JSON reporter schema; rerun the planted-input audit when upgrading Knip';
+  assert.ok(report && Array.isArray(report.issues), schemaMessage);
+  const { issues } = report;
+  for (const issue of issues) {
+    assert.ok(issue && typeof issue.file === 'string', schemaMessage);
+    if (issue.file === manifest) {
+      assert.ok(Array.isArray(issue.dependencies), schemaMessage);
+      assert.ok(
+        issue.dependencies.every((item) => item && typeof item.name === 'string'),
+        schemaMessage
+      );
+    } else {
+      assert.ok(Array.isArray(issue.files), schemaMessage);
+    }
+  }
   assert.ok(issues.some((issue) => issue.file === fixture && issue.files.length > 0));
   assert.ok(
     issues.some(
