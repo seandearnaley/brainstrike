@@ -1,5 +1,4 @@
 import type { ChunkResult } from '@brainstrike/chunking-worker';
-import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type {
   WorkspaceIndexingIdleState,
   WorkspaceIndexingPowerSource,
@@ -10,7 +9,7 @@ import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
-  IFileNode,
+  ElectronFileSystemAPI,
 } from '@brainstrike/types';
 import type {
   ChunkingHostChunkBatchRequest,
@@ -159,14 +158,7 @@ declare global {
       storage: Bridge<typeof storageContract>;
       /** Scoped embedding-host-only persisted preference capability. */
       vectorPreferences?: Bridge<typeof vectorPreferencesContract>;
-      fileSystem: {
-        requestDirectoryAccess: () => Promise<DirectoryHandle>;
-        readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
-        readFile: (handle: FileHandle) => Promise<string>;
-        exists: (path: string) => Promise<boolean>;
-        restoreLastFolder: () => Promise<DirectoryHandle | null>;
-        saveLastFolder: (folderPath: string) => Promise<void>;
-      };
+      fileSystem: ElectronFileSystemAPI;
       /** Database operations derived from the pure database contract. */
       db: DatabaseBridge;
       /** Live-query operations derived from the pure live-query contract. */

@@ -18,6 +18,7 @@ import {
   databaseLiveContract,
   databasePathContract,
 } from './ipc-domains/database.contract';
+import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-system.contract';
 import { forgeContract } from './ipc-domains/forge.contract';
 import { gitContract } from './ipc-domains/git.contract';
 import {
@@ -59,7 +60,7 @@ const exposeBridge = createBridgeExposer({ contextBridge, ipcRenderer });
 // authoritative allowlist again on every call.
 const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
 
-import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
+import type { FileHandle } from '@brainstrike/file-system';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import type {
   AssistantSelectionUpdatePayload,
@@ -458,49 +459,17 @@ if (shouldExposeBridge('electronAPI')) {
     db: databaseBridge,
     dbLive: databaseLiveBridge,
     fileSystem: {
-      addRoot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.addRoot),
-      addRootByPath: (path: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.addRootByPath, path),
-      exists: (path: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.exists, path),
-      getWatcherTelemetry: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.watchTelemetry),
-      listRecentRoots: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.listRecentRoots),
-      // One-way main→renderer watch pushes (fs:watch-event). Mirrors the other
-      // subscribe-returns-unsubscribe bridges (e.g. power.onPowerState).
-      onWatchEvent: (
-        callback: (event: import('@brainstrike/types').FileSystemWatchEvent) => void
-      ) => {
-        const listener = (
-          _event: unknown,
-          payload: import('@brainstrike/types').FileSystemWatchEvent
-        ) => callback(payload);
-        ipcRenderer.on(DESKTOP_IPC_CHANNELS.files.watchEvent, listener);
-        return () => {
-          ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.files.watchEvent, listener);
-        };
-      },
-      // One-way main→renderer typed watcher health pushes (fs:watch-health,
-      // BST-568 slice 3).
-      onWatchHealth: (
-        callback: (event: import('@brainstrike/types').WatcherHealthEvent) => void
-      ) => {
-        const listener = (
-          _event: unknown,
-          payload: import('@brainstrike/types').WatcherHealthEvent
-        ) => callback(payload);
-        ipcRenderer.on(DESKTOP_IPC_CHANNELS.files.watchHealth, listener);
-        return () => {
-          ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.files.watchHealth, listener);
-        };
-      },
-      readDirectory: (handle: DirectoryHandle) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.readDirectory, handle),
+      ...createIpcBridge(ipcRenderer, fileSystemContract),
+      ...createIpcBridge(ipcRenderer, fileSystemWatchContract),
+      // File reads intentionally retain the preload decoder that turns the
+      // established wire payload into the public string-or-clean-Error API.
       readFile: async (handle: FileHandle) => {
-        const result = await ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.readFile, handle);
+        const result = await ipcRenderer.invoke(fileSystemContract.readFile.channel, handle);
         return unwrapFileReadResult(result);
       },
       readFileByAbsolutePath: async (absolutePath: string, rootPath: string, rootId: string) => {
         const result = await ipcRenderer.invoke(
-          DESKTOP_IPC_CHANNELS.files.readFileByAbsolutePath,
+          fileSystemContract.readFileByAbsolutePath.channel,
           absolutePath,
           rootPath,
           rootId
@@ -509,25 +478,11 @@ if (shouldExposeBridge('electronAPI')) {
       },
       readFileByPath: async (absolutePath: string) => {
         const result = await ipcRenderer.invoke(
-          DESKTOP_IPC_CHANNELS.files.readFileByPath,
+          fileSystemContract.readFileByPath.channel,
           absolutePath
         );
         return unwrapFileReadResult(result);
       },
-      removeRoot: (rootId: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.removeRoot, rootId),
-      requestDirectoryAccess: () =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess),
-      restoreLastFolder: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.restoreLastFolder),
-      restoreRoots: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.restoreRoots),
-      retryWatch: (watchId: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.watchRetry, watchId),
-      saveLastFolder: (folderPath: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.saveLastFolder, folderPath),
-      unwatchDirectory: (watchId: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.unwatch, watchId),
-      watchDirectory: (handle: DirectoryHandle) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.watch, handle),
     },
     // Database path (legacy - kept for compatibility)
     getUserDataPath: databasePathBridge.getUserDataPath,
