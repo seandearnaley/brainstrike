@@ -1,0 +1,303 @@
+import type { FileSystemChange } from '@brainstrike/types';
+import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
+import type {
+  WorkspaceCollectionSyncRequest,
+  WorkspaceCollectionSyncService,
+} from './workspace-collection-sync-service';
+
+export type WorkspaceIndexingTriggerScope =
+  | { mode: 'full' }
+  | {
+      mode: 'paths';
+      roots: Array<{
+        changes: readonly FileSystemChange[];
+        fullResync?: boolean;
+        rootId: string;
+      }>;
+    };
+
+export interface WorkspaceIndexingTriggerOptions {
+  restartActive?: boolean;
+}
+
+export type WorkspaceIndexingCoordinatorService = Pick<
+  WorkspaceCollectionSyncService,
+  'cancel' | 'detach' | 'sync'
+>;
+
+type RootDirectoryHandle = WorkspaceCollectionSyncRequest['rootDirectoryHandle'];
+
+export interface WorkspaceIndexingCoordinatorInputs {
+  enabled: boolean;
+  hasHydrated: boolean;
+  indexingPolicyPreset: BackgroundIndexingPolicyPreset;
+  isAccessLoading: boolean;
+  managedCollectionId: string | null;
+  onBootstrap: () => boolean;
+  onError: (operation: string, error: unknown) => void;
+  pauseReasons: readonly string[];
+  publishPaused: (args: {
+    activeRootPath: string | null;
+    managedCollectionId: string | null;
+    pauseReasons: readonly string[];
+  }) => void;
+  publishRuntimeUnavailable: (args: {
+    activeRootPath: string | null;
+    enabled: boolean;
+    managedCollectionId: string | null;
+  }) => void;
+  publishWaiting: (args: { activeRootPath: string; managedCollectionId: string }) => void;
+  resolveTargets: (
+    scope: WorkspaceIndexingTriggerScope
+  ) => Promise<readonly WorkspaceCollectionSyncRequest[]>;
+  rootDirectoryHandle: RootDirectoryHandle;
+  service: WorkspaceIndexingCoordinatorService | null;
+}
+
+function mergeScopes(
+  current: WorkspaceIndexingTriggerScope | null,
+  incoming: WorkspaceIndexingTriggerScope
+): WorkspaceIndexingTriggerScope {
+  if (current === null) {
+    return incoming;
+  }
+  if (current.mode === 'full' || incoming.mode === 'full') {
+    return { mode: 'full' };
+  }
+
+  const rootsById = new Map<
+    string,
+    { changes: FileSystemChange[]; fullResync?: boolean; rootId: string }
+  >();
+  for (const root of current.roots) {
+    rootsById.set(root.rootId, {
+      changes: [...root.changes],
+      ...(root.fullResync === true ? { fullResync: true } : {}),
+      rootId: root.rootId,
+    });
+  }
+  for (const root of incoming.roots) {
+    const existing = rootsById.get(root.rootId);
+    rootsById.set(root.rootId, {
+      changes: [...(existing?.changes ?? []), ...root.changes],
+      ...(existing?.fullResync === true || root.fullResync === true ? { fullResync: true } : {}),
+      rootId: root.rootId,
+    });
+  }
+  return { mode: 'paths', roots: [...rootsById.values()] };
+}
+
+export class WorkspaceIndexingCoordinator {
+  private active = false;
+  private debugState: Record<string, unknown> = { state: 'not-started' };
+  private generation = 0;
+  private inputs: WorkspaceIndexingCoordinatorInputs | null = null;
+  private pendingScope: WorkspaceIndexingTriggerScope | null = null;
+
+  updateInputs(inputs: WorkspaceIndexingCoordinatorInputs): void {
+    this.inputs = inputs;
+  }
+
+  getDebugState(): Readonly<Record<string, unknown>> {
+    return this.debugState;
+  }
+
+  trigger(
+    scope: WorkspaceIndexingTriggerScope = { mode: 'full' },
+    options: WorkspaceIndexingTriggerOptions = {}
+  ): void {
+    const inputs = this.inputs;
+    if (!inputs?.hasHydrated) {
+      return;
+    }
+
+    const activeRootPath = inputs.rootDirectoryHandle?.path ?? null;
+    if (!inputs.service) {
+      inputs.publishRuntimeUnavailable({
+        activeRootPath,
+        enabled: inputs.enabled,
+        managedCollectionId: inputs.managedCollectionId,
+      });
+      return;
+    }
+
+    if (inputs.onBootstrap()) {
+      return;
+    }
+
+    if (inputs.pauseReasons.length > 0) {
+      this.invalidate();
+      void inputs.service.cancel().catch((error) => inputs.onError('cancel', error));
+      inputs.publishPaused({
+        activeRootPath,
+        managedCollectionId: inputs.managedCollectionId,
+        pauseReasons: inputs.pauseReasons,
+      });
+      return;
+    }
+
+    if (!(inputs.enabled && inputs.managedCollectionId && inputs.rootDirectoryHandle)) {
+      this.invalidateActive(inputs.service, inputs.onError);
+      void inputs.service
+        .sync({
+          enabled: inputs.enabled,
+          indexingPolicyPreset: inputs.indexingPolicyPreset,
+          managedCollectionId: inputs.managedCollectionId,
+          rootDirectoryHandle: inputs.rootDirectoryHandle,
+          scope: { mode: 'full' },
+        })
+        .catch((error) => inputs.onError('sync', error));
+      return;
+    }
+
+    if (inputs.isAccessLoading) {
+      this.invalidate();
+      void inputs.service.cancel().catch((error) => inputs.onError('cancel', error));
+      inputs.publishWaiting({
+        activeRootPath: inputs.rootDirectoryHandle.path,
+        managedCollectionId: inputs.managedCollectionId,
+      });
+      return;
+    }
+
+    if (this.active) {
+      if (options.restartActive === true) {
+        this.invalidate();
+        void inputs.service.cancel().catch((error) => inputs.onError('cancel', error));
+      } else {
+        this.pendingScope = mergeScopes(this.pendingScope, scope);
+        this.debugState = {
+          ...this.debugState,
+          pendingScope: this.pendingScope.mode,
+          state: 'queued-while-active',
+          updatedAt: new Date().toISOString(),
+        };
+        return;
+      }
+    }
+
+    this.start(scope, inputs, inputs.service);
+  }
+
+  async cancel(): Promise<void> {
+    const service = this.inputs?.service;
+    this.invalidate();
+    if (service) {
+      await service.cancel();
+    }
+  }
+
+  async detach(
+    service: WorkspaceIndexingCoordinatorService | null = this.inputs?.service ?? null
+  ): Promise<void> {
+    this.invalidate();
+    if (service) {
+      await service.detach();
+    }
+  }
+
+  private invalidate(): void {
+    this.generation += 1;
+    this.active = false;
+    this.pendingScope = null;
+  }
+
+  private invalidateActive(
+    service: WorkspaceIndexingCoordinatorService,
+    onError: WorkspaceIndexingCoordinatorInputs['onError']
+  ): void {
+    if (!(this.active || this.pendingScope)) {
+      return;
+    }
+    this.invalidate();
+    void service.cancel().catch((error) => onError('cancel', error));
+  }
+
+  private start(
+    scope: WorkspaceIndexingTriggerScope,
+    inputs: WorkspaceIndexingCoordinatorInputs,
+    service: WorkspaceIndexingCoordinatorService
+  ): void {
+    this.generation += 1;
+    const generation = this.generation;
+    this.active = true;
+    this.debugState = {
+      generation,
+      scope: scope.mode,
+      state: 'resolving-targets',
+      updatedAt: new Date().toISOString(),
+    };
+
+    void inputs
+      .resolveTargets(scope)
+      .then(async (targets) => {
+        if (this.generation !== generation) {
+          return;
+        }
+        this.debugState = {
+          ...this.debugState,
+          generation,
+          state: targets.length > 0 ? 'syncing' : 'no-syncable-targets',
+          syncableTargetCount: targets.length,
+          syncableTargetPaths: targets.map((target) => target.rootDirectoryHandle?.path ?? null),
+          updatedAt: new Date().toISOString(),
+        };
+        for (const request of targets) {
+          const targetPath = request.rootDirectoryHandle?.path ?? null;
+          if (this.generation !== generation) {
+            return;
+          }
+          this.debugState = {
+            ...this.debugState,
+            activeTargetPath: targetPath,
+            generation,
+            state: 'service-sync-started',
+            updatedAt: new Date().toISOString(),
+          };
+          try {
+            // eslint-disable-next-line react-doctor/async-await-in-loop -- Serial root sync prevents cancellation from overlapping root mutations.
+            await service.sync(request);
+          } catch (error) {
+            this.debugState = {
+              ...this.debugState,
+              activeTargetPath: targetPath,
+              error: error instanceof Error ? error.message : String(error),
+              generation,
+              state: 'service-sync-error',
+              updatedAt: new Date().toISOString(),
+            };
+            inputs.onError('sync', error);
+          }
+          this.debugState = {
+            ...this.debugState,
+            activeTargetPath: targetPath,
+            completedTargetPath: targetPath,
+            generation,
+            state: 'service-sync-completed',
+            updatedAt: new Date().toISOString(),
+          };
+        }
+      })
+      .catch((error) => {
+        this.debugState = {
+          ...this.debugState,
+          error: error instanceof Error ? error.message : String(error),
+          generation,
+          state: 'sync-loop-error',
+          updatedAt: new Date().toISOString(),
+        };
+        inputs.onError('sync loop', error);
+      })
+      .finally(() => {
+        if (this.generation !== generation) {
+          return;
+        }
+        this.active = false;
+        const pendingScope = this.pendingScope;
+        this.pendingScope = null;
+        if (pendingScope) {
+          this.trigger(pendingScope);
+        }
+      });
+  }
+}
