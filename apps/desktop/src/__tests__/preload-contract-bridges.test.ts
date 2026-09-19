@@ -2,10 +2,12 @@ import Module from 'node:module';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { changesContract } from '../ipc-domains/changes.contract';
 import { clipboardContract } from '../ipc-domains/clipboard.contract';
+import { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import { contextFilesContract } from '../ipc-domains/context-files.contract';
 import { forgeContract } from '../ipc-domains/forge.contract';
 import { gitContract } from '../ipc-domains/git.contract';
 import { skillsContract } from '../ipc-domains/skills.contract';
+import { terminalContract } from '../ipc-domains/terminal.contract';
 import { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import { worktreesContract } from '../ipc-domains/worktrees.contract';
@@ -35,10 +37,12 @@ const CONTRACT_BRIDGES = {
   assistantPersonas: userPersonasContract,
   changes: changesContract,
   clipboard: clipboardContract,
+  commandSessions: commandSessionsContract,
   contextFiles: contextFilesContract,
   forge: forgeContract,
   git: gitContract,
   skills: skillsContract,
+  terminal: terminalContract,
   userCommands: userCommandsContract,
   worktrees: worktreesContract,
 } as const;
@@ -98,7 +102,9 @@ describe('preload contract-derived bridges', () => {
 
   it.each([
     ['changes', 'inventory', DESKTOP_IPC_CHANNELS.changes.inventory, []],
+    ['commandSessions', 'list', DESKTOP_IPC_CHANNELS.commandSessions.list, [{ rootId: 'root-1' }]],
     ['forge', 'refresh', DESKTOP_IPC_CHANNELS.forge.refresh, ['root-1', { reason: 'user' }]],
+    ['terminal', 'create', DESKTOP_IPC_CHANNELS.terminal.create, [{ rootId: 'root-1' }]],
     ['worktrees', 'listManagedPaths', DESKTOP_IPC_CHANNELS.worktrees.managedPaths, []],
   ] as const)(
     '%s.%s routes to its manifest channel and preserves its raw result',
@@ -114,6 +120,8 @@ describe('preload contract-derived bridges', () => {
   it.each([
     ['changes', 'onInvalidated', DESKTOP_IPC_CHANNELS.changes.invalidated],
     ['forge', 'onPrUpdated', DESKTOP_IPC_CHANNELS.forge.prUpdated],
+    ['terminal', 'onData', DESKTOP_IPC_CHANNELS.terminal.data],
+    ['terminal', 'onExit', DESKTOP_IPC_CHANNELS.terminal.exit],
   ] as const)('%s.%s subscribes and removes the same push listener', (name, method, channel) => {
     const callback = vi.fn();
     const unsubscribe = exposedApi(name)[method]?.(callback) as () => void;

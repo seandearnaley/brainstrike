@@ -1,16 +1,12 @@
 import { ipcMain } from 'electron';
 import {
-  type CommandSessionIdentityParams,
   type CommandSessionIpcHandlers,
-  type CommandSessionListParams,
-  type CommandSessionReadParams,
-  type CommandSessionWriteParams,
   createCommandSessionIpcHandlers,
 } from './command-session-ipc-handlers';
 import { getDatabase } from './db-main';
 import { createDatabaseRootResolver } from './git-ipc-handlers';
-import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import { commandSessionsContract } from './ipc-domains/command-sessions.contract';
+import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc-registry';
 import {
   createTerminalIpcHandlers,
   registerTerminalIpcHandlers,
@@ -35,36 +31,7 @@ export function registerTerminalIpc(
 ): () => void {
   const unregisterTerminal = registerTerminalIpcHandlers(handlers);
   const registry = createDesktopIpcRegistry({ ipcMain });
-  registry.registerAuthorizedInvoke(
-    'commandSessions',
-    DESKTOP_IPC_CHANNELS.commandSessions.list,
-    { roles: ['visible-ui'] },
-    (_event, params: CommandSessionListParams) => commandSessionHandlers.list(params)
-  );
-  registry.registerAuthorizedInvoke(
-    'commandSessions',
-    DESKTOP_IPC_CHANNELS.commandSessions.read,
-    { roles: ['visible-ui'] },
-    (_event, params: CommandSessionReadParams) => commandSessionHandlers.read(params)
-  );
-  registry.registerAuthorizedInvoke(
-    'commandSessions',
-    DESKTOP_IPC_CHANNELS.commandSessions.write,
-    { roles: ['visible-ui'] },
-    (_event, params: CommandSessionWriteParams) => commandSessionHandlers.write(params)
-  );
-  registry.registerAuthorizedInvoke(
-    'commandSessions',
-    DESKTOP_IPC_CHANNELS.commandSessions.stop,
-    { roles: ['visible-ui'] },
-    (_event, params: CommandSessionIdentityParams) => commandSessionHandlers.stop(params)
-  );
-  registry.registerAuthorizedInvoke(
-    'commandSessions',
-    DESKTOP_IPC_CHANNELS.commandSessions.remove,
-    { roles: ['visible-ui'] },
-    (_event, params: CommandSessionIdentityParams) => commandSessionHandlers.remove(params)
-  );
+  registerDomain(registry, 'commandSessions', commandSessionsContract, commandSessionHandlers);
 
   return () => {
     registry.unregisterAll();

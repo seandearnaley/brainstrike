@@ -242,7 +242,7 @@ source of truth for who may hold a channel; `hidden-preload.ts` exposes no
 | `db:exec`, `db:transaction` (raw SQL entry points; typed replacement is BST-1234), `db:diagnostics`, `db:scheduler:snapshot`, `db:test`, `db:managed-cache:apply-batch`, `db:managed-cache:invalidate-by-identity`, `db:chunks:insert-and-enqueue-embedding-jobs` — every `db:*` channel the embedding host's `hidden-preload.ts` bridge exposes besides the shared `db:query` | `embedding-host`, `visible-ui` |
 | `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, `mcp:content:*`, MCP apps/task/elicitation bridges | `visible-ui` (pre-existing) |
 | `vector-preferences:read`, `vector-preferences:write`, `vector-preferences:clear` | `embedding-host` (pre-existing; see BST-1380 below) |
-| Contract-registered domains (`registerDomain` — authorized by construction): `git:*` (all 15, incl. push/commit/switchBranch), `changes:*`, `forge:*`, `worktrees:*`, `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
+| Contract-derived domains: `git:*` (all 15, incl. push/commit/switchBranch), `changes:*`, `forge:*`, `worktrees:*`, `command-sessions:*`, `terminal:*`, `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
 
 Still `registerUnauthenticatedInvoke` with a stated reason (sender-role
 policy pending, tracked as the BST-1641 follow-up): `db:query` (visible UI +
@@ -389,31 +389,42 @@ allowlist:
   true` against the shared package interface its consumers import
   (`SkillsBridge`, `UserCommandsBridge`, `AssistantPersonasBridge`,
   `ContextFilesBridge`, `GitBridge`, `ChangesBridge`, `ForgeBridge`,
-  `WorktreesBridge`), so app-shell/settings-ui never re-declare
+  `WorktreesBridge`, `CommandSessionBridge`, `TerminalBridge`), so
+  app-shell/settings-ui never re-declare
   a bridge.
   Contract modules live at `ipc-domains/<domain>.contract.ts` and reference
   the manifest entry (`DESKTOP_IPC_CHANNELS.<group>.<key>`) — the manifest
   stays the one literal owner. `settleIpcResult({ category, code }, run)`
   converts a throw-style operation into the envelope (logged in main).
-- Migrated so far: `changes`, `clipboard`, `contextFiles`, `forge`, `git`,
-  `skills`, `userCommands`, `userPersonas`, `worktrees` (all `visible-ui`).
+- Migrated so far: `changes`, `clipboard`, `commandSessions`, `contextFiles`,
+  `forge`, `git`, `skills`, `terminal`, `userCommands`, `userPersonas`,
+  `worktrees` (all `visible-ui`).
   Git's 15 operations plus every Changes, Forge, and Worktrees invoke use
   `rawChannel` so valid calls retain each domain's established result envelope;
   their contract parsers
-  rejects structurally malformed direct IPC input before root resolution or
+  reject structurally malformed direct IPC input before root resolution or
   handler entry and preserves omitted or explicit-`undefined` defaults for
   push/stage/unstage. Domain semantics such as non-empty roots, paths, refs,
   limits and branch names remain in the main-side handlers so their existing
   `GitResult` failures do not turn into rejected invokes. Changes and Forge
   declare their main-to-renderer invalidations with `pushEvent`; `registerDomain`
   deliberately skips those specs. Forge's temporary unauthenticated exemption
-  is gone. Their parity tests are
+  is gone. `commandSessions` uses `registerDomain` directly. Terminal invokes
+  derive their channels, roles, parsers, preload bridge, and renderer type from
+  `terminalContract`, but their main adapter remains event-aware: PTY ownership
+  must be bound to the registry-authenticated `event.sender` and push output only
+  to that renderer. The generic domain handler deliberately receives parsed
+  arguments rather than Electron's event, so this adapter is the narrow audited
+  exception instead of widening every domain handler's authority. Their parity
+  tests are
   key-set equality, not source regexes: `preload-contract-bridges.test.ts` loads
   the real preload under a mocked `electron` and asserts each exposed key set equals
   `Object.keys(contract)` and routes/unwraps correctly;
   `ipc-domains/leaf-contracts.test.ts` and
   `ipc-domains/git-adjacent.contracts.test.ts` pin `Object.keys(contract)` to
   the package `*_BRIDGE_REQUIRED_METHODS` resolver sets and exercise `parseArgs`;
+  `ipc-domains/terminal.contracts.test.ts` owns the equivalent terminal and
+  command-session key, raw-envelope, push-event, role, and parser proof;
   `ipc-domains/git.contract.test.ts` owns the equivalent Git key, raw-envelope,
   channel, role and structural-parser proof;
   `platform/register-domain.test.ts` and `platform/ipc-bridge.test.ts` pin

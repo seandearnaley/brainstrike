@@ -7,10 +7,12 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 import { changesContract } from './ipc-domains/changes.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
+import { commandSessionsContract } from './ipc-domains/command-sessions.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
 import { forgeContract } from './ipc-domains/forge.contract';
 import { gitContract } from './ipc-domains/git.contract';
 import { skillsContract } from './ipc-domains/skills.contract';
+import { terminalContract } from './ipc-domains/terminal.contract';
 import { userCommandsContract } from './ipc-domains/user-commands.contract';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
 import { worktreesContract } from './ipc-domains/worktrees.contract';
@@ -1465,54 +1467,14 @@ if (shouldExposeBridge('assistantPersonas')) {
 // constructs this bridge (no preload), so consumers must capability-check
 // `window.terminal`. The xterm UI lands in the next PR.
 if (shouldExposeBridge('terminal')) {
-  contextBridge.exposeInMainWorld('terminal', {
-    create: (params: { rootId: string; cwd?: string; cols?: number; rows?: number }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.terminal.create, params),
-    destroy: (params: { terminalId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.terminal.destroy, params),
-    onData: (callback: (event: { terminalId: string; data: string }) => void) => {
-      const listener = (_event: unknown, payload: { terminalId: string; data: string }) =>
-        callback(payload);
-      ipcRenderer.on(DESKTOP_IPC_CHANNELS.terminal.data, listener);
-      return () => {
-        ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.terminal.data, listener);
-      };
-    },
-    onExit: (
-      callback: (event: { terminalId: string; exitCode: number; signal: number | null }) => void
-    ) => {
-      const listener = (
-        _event: unknown,
-        payload: { terminalId: string; exitCode: number; signal: number | null }
-      ) => callback(payload);
-      ipcRenderer.on(DESKTOP_IPC_CHANNELS.terminal.exit, listener);
-      return () => {
-        ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.terminal.exit, listener);
-      };
-    },
-    resize: (params: { terminalId: string; cols: number; rows: number }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.terminal.resize, params),
-    write: (params: { terminalId: string; data: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.terminal.write, params),
-  });
+  exposeBridge('terminal', terminalContract);
 }
 
 // Command-session inventory bridge (desktop-only). These sessions are owned by
 // the main-process assistant runtime and intentionally survive renderer reloads.
 // The bridge exposes workspace-scoped observation/control only; web omits it.
 if (shouldExposeBridge('commandSessions')) {
-  contextBridge.exposeInMainWorld('commandSessions', {
-    list: (params: { rootId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.commandSessions.list, params),
-    read: (params: { rootId: string; sessionId: string; cursor?: number }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.commandSessions.read, params),
-    remove: (params: { rootId: string; sessionId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.commandSessions.remove, params),
-    stop: (params: { rootId: string; sessionId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.commandSessions.stop, params),
-    write: (params: { rootId: string; sessionId: string; data: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.commandSessions.write, params),
-  });
+  exposeBridge('commandSessions', commandSessionsContract);
 }
 
 // Notes vault bridge (desktop-only): Node-fs backend for the markdown notes
