@@ -14,11 +14,39 @@ import {
 
 const require = createRequire(import.meta.url);
 const turbo = require.resolve('turbo/bin/turbo');
+const FULL_TREE_PRIVATE_INPUT_INVOCATION =
+  /\bpnpm run lint:private-test-input-locality(?=\s*(?:&&|$))/u;
 
 function write(root, file, content) {
   mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
   writeFileSync(path.join(root, file), content);
 }
+
+test('required Static lint retains the full-tree private-input verdict', () => {
+  const { scripts } = JSON.parse(
+    readFileSync(new URL('../../package.json', import.meta.url), 'utf8')
+  );
+  assert.match(
+    scripts['lint:ci'],
+    FULL_TREE_PRIVATE_INPUT_INVOCATION,
+    'lint:ci must retain the full-repository private test input verdict'
+  );
+  for (const narrowedInvocation of [
+    'pnpm run lint:private-test-input-locality:bounded',
+    'pnpm run lint:private-test-input-locality.bounded',
+    'pnpm run lint:private-test-input-locality --repo-root fixture',
+  ]) {
+    assert.doesNotMatch(
+      narrowedInvocation,
+      FULL_TREE_PRIVATE_INPUT_INVOCATION,
+      'the owner-chain assertion must reject a renamed or argument-narrowed script'
+    );
+  }
+  assert.equal(
+    scripts['lint:private-test-input-locality'],
+    'node scripts/verify-private-test-input-locality.mjs'
+  );
+});
 
 test('types build and topo exclude exactly the private files omitted by TypeScript', () => {
   const parsedTsconfig = ts.parseConfigFileTextToJson(

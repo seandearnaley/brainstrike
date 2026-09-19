@@ -6,6 +6,17 @@ import ts from 'typescript';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+function parseRepoRootArgument(argv) {
+  if (argv.length === 0) {
+    return;
+  }
+  const [argument, value] = argv;
+  if (argv.length !== 2 || argument !== '--repo-root' || !value || value.startsWith('--')) {
+    throw new Error('verify-private-test-input-locality: expected only --repo-root <path>');
+  }
+  return path.resolve(value);
+}
+
 export const PILOTS = [
   {
     packageDirectory: 'packages/types',
@@ -30,6 +41,11 @@ function boundedAlternatives(values) {
 }
 
 function trackedSourceFiles(root) {
+  // Worktrees and submodules use a .git file, which existsSync accepts alongside
+  // the directory used by a normal checkout.
+  if (!existsSync(path.join(root, '.git'))) {
+    throw new Error(`Private test input locality cannot verify ${root}: no Git metadata found.`);
+  }
   return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
     cwd: root,
     maxBuffer: 16 * 1024 * 1024,
@@ -409,7 +425,7 @@ export function main({ repoRoot: root = repoRoot } = {}) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    main();
+    main({ repoRoot: parseRepoRootArgument(process.argv.slice(2)) });
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
