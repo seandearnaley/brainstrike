@@ -241,17 +241,17 @@ source of truth for who may hold a channel; `hidden-preload.ts` exposes no
 | `fs:*` under `registerFileSystemIpcHandlers` (reads, root grants incl. `fs:addRootByPath`/`fs:requestDirectoryAccess`, `fs:readFileByPath`, `fs:readFileByAbsolutePath`, `fs:removeRoot`) | `visible-ui` |
 | `db:query` | `chunking-host`, `embedding-host`, `visible-ui` |
 | `db:exec`, `db:transaction` (raw SQL entry points; typed replacement is BST-1234), `db:diagnostics`, `db:scheduler:snapshot`, `db:test`, `db:managed-cache:apply-batch`, `db:managed-cache:invalidate-by-identity`, `db:chunks:insert-and-enqueue-embedding-jobs` — every `db:*` channel the embedding host's `hidden-preload.ts` bridge exposes besides the shared `db:query` | `embedding-host`, `visible-ui` |
-| `db:ping`, `db:live-query:*`, `db:clearAll`, `db:resetLocal`, `db:getUserDataPath` | `visible-ui` |
+| `db:ping`, `db:live-query:start`, `db:live-query:stop`, `db:live-query:refresh`, `db:clearAll`, `db:resetLocal`, `db:getUserDataPath` | `visible-ui` |
 | `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, all 31 `mcp:*` invokes | `visible-ui` |
 | `vector-preferences:read`, `vector-preferences:write`, `vector-preferences:clear` | `embedding-host` (pre-existing; see BST-1380 below) |
 | `storage:*` production channels, `layout:*`, `settings:clearAll` | `visible-ui` |
-| Contract-derived domains: `git:*` (all 15, incl. push/commit/switchBranch), `changes:*`, `forge:*`, `worktrees:*`, `command-sessions:*`, `terminal:*`, `notes-vault:*`, `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
+| Contract-derived domains: `git:*` (all 15, incl. push/commit/switchBranch), `changes:*`, `forge:*`, `worktrees:*`, `command-sessions:*`, `terminal:*`, `notes-vault:*`, all `fs:*` file/root/watcher invokes, `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
 
 Still `registerUnauthenticatedInvoke` with a stated reason (sender-role
 policy pending, tracked as the BST-1641 follow-up):
 `logging:get-preferences` (all four roles), `app:power-snapshot`
 (visible UI + embedding host), `parser-host:parse` (visible UI + chunking
-host), and the visible-UI-only `fs:watch*`, hooks/file-exports/diagnostics/
+host), and the visible-UI-only hooks/file-exports/diagnostics/
 assistant-checkpoint/embedding-backfill/runtime/agent-chat channels and the hidden-host lifecycle
 controls (`*-host:ensure-started|stop|reset|get-status`, `chunking-host:chunk-*`,
 `llm-host:*`, `embedding-host:query-embedding`). `tools:execute` is the
@@ -402,8 +402,22 @@ allowlist:
   the manifest entry (`DESKTOP_IPC_CHANNELS.<group>.<key>`) — the manifest
   stays the one literal owner. `settleIpcResult({ category, code }, run)`
   converts a throw-style operation into the envelope (logged in main).
+- **Universal types do not own desktop capabilities (BST-996).**
+  `@brainstrike/types` exports neutral database, assistant-selection, and
+  file-system wire data only. It has no `electron-api` module, no
+  `window.electronAPI` augmentation, and no `Electron*API` bridge interfaces.
+  The database package owns `DesktopDatabaseBridge` and its capability reader;
+  the desktop app composes distinct visible UI, chunking host, and embedding
+  host API roles from that owner type, the shared host protocols, the UI layout
+  capability, and desktop-local file-system, live-query, and storage shapes.
+  Each preload uses its exact role type and checks its runtime key set before
+  exposing it; the embedding role also owns the scoped vector-preferences
+  capability. Other packages read the narrow owning capability they use, while
+  web keeps the capability absent. The recursive TypeScript AST boundary and
+  its negative-control fixture are pinned by
+  `scripts/__tests__/desktop-ipc-type-boundary-contract.test.mjs`.
 - Migrated so far: `changes`, `clipboard`, `commandSessions`, `contextFiles`,
-  `database`, `forge`, `git`, `notesVault`, `skills`, `terminal`, `userCommands`,
+  `database`, visible-UI `fileSystem`, `forge`, `git`, `notesVault`, `skills`, `terminal`, `userCommands`,
   `userPersonas`, `worktrees`, MCP, visible-UI `storage` / layout / settings,
   and the embedding-host-only `vectorPreferences` capability. MCP's pure manifests cover all 31
   invokes and seven pushes. Root, content, elicitation, and Tasks handlers use
@@ -416,6 +430,19 @@ allowlist:
   raw replies, including the `{ ok, result }` content envelope, remain byte-shape
   compatible; the preload still unwraps content into the established public
   promise behavior.
+  The file-system contracts cover 17 invokes and the two watcher pushes. The
+  three read methods retain one narrow preload decoder that turns the existing
+  wire error payload into the public string-or-clean-Error behavior. The
+  parser-host channel remains a separate chunking-renderer capability.
+
+  The production registry inventory is closed in both directions by
+  `__tests__/main/ipc-global-manifest.test.ts`: its 219 registrations must equal
+  the 138 unique contract invoke channels plus the 81 entries in
+  `__tests__/helpers/manual-ipc-inventory.ts`. That explicit complement records
+  36 worker/logging/workspace protocol registrations, one parser-host
+  capability, and 44 renderer-facing registrations still eligible for later
+  migration. A new handwritten registration cannot enter production without a
+  status and reason in that inventory.
   Storage's two E2E-only channels remain a narrow conditional adapter: they
   exist only when Electron test mode is active and are authorized for
   `visible-ui`. Exporting them in the discoverable contract would incorrectly

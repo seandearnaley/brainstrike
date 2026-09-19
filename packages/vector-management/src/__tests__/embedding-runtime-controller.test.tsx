@@ -101,11 +101,6 @@ describe('useEmbeddingRuntimeController', () => {
       state: 'stopped' as const,
     });
 
-    Object.defineProperty(window, 'electronAPI', {
-      configurable: true,
-      value: {},
-    });
-
     Object.defineProperty(window, 'embeddingHost', {
       configurable: true,
       value: {
@@ -124,7 +119,6 @@ describe('useEmbeddingRuntimeController', () => {
   });
 
   function clearDesktopHostBridge(): void {
-    Reflect.deleteProperty(window, 'electronAPI');
     Reflect.deleteProperty(window, 'embeddingHost');
   }
 

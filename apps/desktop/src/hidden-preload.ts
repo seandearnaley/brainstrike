@@ -4,14 +4,19 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 import {
-  type DatabaseChunkingBridge,
-  type DatabaseEmbeddingBridge,
   databaseChunkingContract,
   databaseEmbeddingContract,
 } from './ipc-domains/database.contract';
 import { vectorPreferencesContract } from './ipc-domains/storage-preferences.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createIpcBridge } from './platform/ipc-bridge';
+import {
+  assertDesktopElectronApiKeyParity,
+  type ChunkingHostElectronApi,
+  type ChunkingHostRuntimeBridge,
+  type EmbeddingHostElectronApi,
+  type EmbeddingHostRuntimeBridge,
+} from './types/desktop-electron-api';
 
 type ChunkingHostRequest = import('./chunking-host-shared').ChunkingHostRequest;
 type ChunkingHostResponseReport = import('./chunking-host-shared').ChunkingHostResponseReport;
@@ -66,8 +71,11 @@ function exposeLoggingBridge(): void {
 }
 
 function exposeChunkingHostBridge(): void {
-  const db: DatabaseChunkingBridge = createIpcBridge(ipcRenderer, databaseChunkingContract);
-  contextBridge.exposeInMainWorld('chunkingHost', {
+  const db = createIpcBridge(
+    ipcRenderer,
+    databaseChunkingContract
+  ) as unknown as ChunkingHostElectronApi['db'];
+  const chunkingHost = {
     onRequest: (callback: (request: ChunkingHostRequest) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.chunkingHost.request, callback),
     reportResponse: (response: ChunkingHostResponseReport): void => {
@@ -76,14 +84,17 @@ function exposeChunkingHostBridge(): void {
     reportStatus: (status: ChunkingHostStatus): void => {
       ipcRenderer.send(DESKTOP_IPC_CHANNELS.chunkingHost.reportStatus, status);
     },
-  });
+  } satisfies ChunkingHostRuntimeBridge;
+  contextBridge.exposeInMainWorld('chunkingHost', chunkingHost);
   contextBridge.exposeInMainWorld('parserHost', {
     parse: (request: unknown) =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.parserHostParse, request),
   });
-  contextBridge.exposeInMainWorld('electronAPI', {
+  const electronAPI = {
     db,
-  });
+  } satisfies ChunkingHostElectronApi;
+  assertDesktopElectronApiKeyParity('chunking-host', electronAPI);
+  contextBridge.exposeInMainWorld('electronAPI', electronAPI);
 }
 
 /**
@@ -95,17 +106,22 @@ function exposeChunkingHostBridge(): void {
  * because main pins the record server-side.
  */
 function exposeEmbeddingElectronApiBridge(): void {
-  const db: DatabaseEmbeddingBridge = createIpcBridge(ipcRenderer, databaseEmbeddingContract);
+  const db = createIpcBridge(
+    ipcRenderer,
+    databaseEmbeddingContract
+  ) as unknown as EmbeddingHostElectronApi['db'];
   const vectorPreferences = createIpcBridge(ipcRenderer, vectorPreferencesContract);
-  contextBridge.exposeInMainWorld('electronAPI', {
+  const electronAPI = {
     db,
     vectorPreferences,
-  });
+  } satisfies EmbeddingHostElectronApi;
+  assertDesktopElectronApiKeyParity('embedding-host', electronAPI);
+  contextBridge.exposeInMainWorld('electronAPI', electronAPI);
 }
 
 function exposeEmbeddingHostBridge(): void {
   exposeEmbeddingElectronApiBridge();
-  contextBridge.exposeInMainWorld('embeddingHost', {
+  const embeddingHost = {
     onCommand: (callback: (command: EmbeddingHostCommand) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.command, callback),
     onQueryEmbeddingRequest: (callback: (request: EmbeddingHostQueryEmbeddingRequest) => void) =>
@@ -116,7 +132,8 @@ function exposeEmbeddingHostBridge(): void {
     reportStatus: (status: EmbeddingHostStatus): void => {
       ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportStatus, status);
     },
-  });
+  } satisfies EmbeddingHostRuntimeBridge;
+  contextBridge.exposeInMainWorld('embeddingHost', embeddingHost);
   contextBridge.exposeInMainWorld('power', {
     getSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.powerSnapshot),
     onPowerState: (callback: (state: 'resume' | 'suspend') => void) =>

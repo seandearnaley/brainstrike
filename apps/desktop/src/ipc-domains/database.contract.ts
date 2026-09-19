@@ -2,17 +2,24 @@
 import type {
   ApplyManagedCacheBatchArgs,
   ApplyManagedCacheInvalidationsArgs,
+  DatabaseWorkOptions,
+  DatabaseWorkSchedulerSnapshot,
+  DesktopDatabaseBridge,
   ManagedCacheInvalidationResult,
 } from '@brainstrike/db';
 import type {
+  DatabaseChunkInsert,
   DatabaseDiagnosticsSnapshot,
-  DatabaseWorkOptions,
-  DatabaseWorkSchedulerSnapshot,
-  ElectronChunkInsert,
-  ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+  InsertChunksAndEnqueueEmbeddingJobsOptions,
 } from '@brainstrike/types';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import { type Bridge, type Contract, pushEvent, rawChannel } from '../platform/ipc-contract';
+import {
+  type AssertTrue,
+  type Bridge,
+  type Contract,
+  pushEvent,
+  rawChannel,
+} from '../platform/ipc-contract';
 import { assertArgCount, parseRecord } from './contract-args';
 
 export interface DatabaseQueryResult {
@@ -143,9 +150,9 @@ export const databaseContract = {
   }),
   insertChunksAndEnqueueEmbeddingJobs: rawChannel<
     [
-      chunks: readonly ElectronChunkInsert[],
+      chunks: readonly DatabaseChunkInsert[],
       fileRecordId: string,
-      options: ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+      options: InsertChunksAndEnqueueEmbeddingJobsOptions,
       workOptions?: DatabaseWorkOptions,
     ],
     void
@@ -163,9 +170,9 @@ export const databaseContract = {
       }
       parseRecord(raw[2], 'database insertChunksAndEnqueueEmbeddingJobs options');
       const args = [
-        raw[0] as ElectronChunkInsert[],
+        raw[0] as DatabaseChunkInsert[],
         raw[1],
-        raw[2] as ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+        raw[2] as InsertChunksAndEnqueueEmbeddingJobsOptions,
       ] as const;
       return raw.length === 3 ? [...args] : [...args, raw[3] as DatabaseWorkOptions];
     },
@@ -304,3 +311,46 @@ export type DatabaseChunkingBridge = Bridge<typeof databaseChunkingContract>;
 export type DatabaseEmbeddingBridge = Bridge<typeof databaseEmbeddingContract>;
 export type DatabaseLiveBridge = Bridge<typeof databaseLiveContract>;
 export type DatabasePathBridge = Bridge<typeof databasePathContract>;
+
+type RequiredDesktopDatabaseBridge<Keys extends keyof DesktopDatabaseBridge> = {
+  [Key in Keys]-?: NonNullable<DesktopDatabaseBridge[Key]>;
+};
+type AdaptedMethod = 'exec' | 'ping' | 'query' | 'test';
+type AdaptedDatabaseBridge<Generated extends object> = Omit<Generated, AdaptedMethod> &
+  RequiredDesktopDatabaseBridge<Extract<keyof Generated, AdaptedMethod>>;
+interface ExpectedGeneratedAdapterMethods {
+  exec: (
+    sql: string,
+    paramsOrOptions?: unknown[] | DatabaseWorkOptions,
+    options?: DatabaseWorkOptions
+  ) => Promise<unknown>;
+  ping: () => Promise<{ readonly message: string; readonly success: true }>;
+  query: (
+    sql: string,
+    paramsOrOptions?: unknown[] | DatabaseWorkOptions,
+    options?: DatabaseWorkOptions
+  ) => Promise<DatabaseQueryResult>;
+  test: () => Promise<DatabaseTestResult>;
+}
+type ExactType<Actual, Expected> = [Actual] extends [Expected]
+  ? [Expected] extends [Actual]
+    ? true
+    : false
+  : false;
+type ExactBridge<Generated extends object, Expected extends object> = ExactType<
+  AdaptedDatabaseBridge<Generated>,
+  Expected
+>;
+
+export type DatabaseAdapterMethodDerivationProof = AssertTrue<
+  ExactType<Pick<DatabaseBridge, AdaptedMethod>, ExpectedGeneratedAdapterMethods>
+>;
+export type VisibleDatabaseBridgeDerivationProof = AssertTrue<
+  ExactBridge<DatabaseBridge, RequiredDesktopDatabaseBridge<keyof DatabaseBridge>>
+>;
+export type ChunkingDatabaseBridgeDerivationProof = AssertTrue<
+  ExactBridge<DatabaseChunkingBridge, RequiredDesktopDatabaseBridge<keyof DatabaseChunkingBridge>>
+>;
+export type EmbeddingDatabaseBridgeDerivationProof = AssertTrue<
+  ExactBridge<DatabaseEmbeddingBridge, RequiredDesktopDatabaseBridge<keyof DatabaseEmbeddingBridge>>
+>;

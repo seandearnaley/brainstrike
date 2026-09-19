@@ -258,6 +258,20 @@ export interface FileSystemChange {
   type: 'added' | 'removed' | 'modified';
 }
 
+/**
+ * A batched watcher push stamped with the watch id returned by the desktop
+ * file-system capability. The payload remains platform-neutral; bridge method
+ * ownership stays with the desktop application.
+ */
+export interface FileSystemWatchEvent {
+  changes: FileSystemChange[];
+  /** Bounded root-relative default-filter boundaries omitted from `changes`. */
+  filteredChangeBoundaries?: readonly string[];
+  /** More distinct boundaries existed than the typed protocol cap. */
+  filteredChangeBoundariesOverflow?: true;
+  watchId: string;
+}
+
 /** Maximum distinct filtered boundaries retained in one watcher batch. */
 export const FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT = 64;
 

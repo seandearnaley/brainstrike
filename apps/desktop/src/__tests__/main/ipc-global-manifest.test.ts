@@ -6,6 +6,7 @@ import type {
   DesktopIpcRegistry,
 } from '../../platform/desktop-ipc-registry';
 import type { Contract } from '../../platform/ipc-contract';
+import { MANUAL_PRODUCTION_REGISTRATIONS } from '../helpers/manual-ipc-inventory';
 
 /**
  * BST-1648 step 5 — the GLOBAL IPC manifest test. `createDesktopIpcRegistry`
@@ -352,6 +353,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       'command-sessions.contract.ts',
       'context-files.contract.ts',
       'database.contract.ts',
+      'file-system.contract.ts',
       'forge.contract.ts',
       'git.contract.ts',
       'mcp.contract.ts',
@@ -364,6 +366,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       'worktrees.contract.ts',
     ]);
     expect(contracts.filter(({ file }) => file === 'database.contract.ts')).toHaveLength(5);
+    expect(contracts.filter(({ file }) => file === 'file-system.contract.ts')).toHaveLength(2);
     expect(contracts.filter(({ file }) => file === 'mcp.contract.ts')).toHaveLength(6);
     expect(contracts.filter(({ file }) => file === 'storage-preferences.contract.ts')).toHaveLength(
       4
@@ -383,6 +386,26 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
         expect(registeredInvokes.get(spec.channel), `${exportName}.${key}`).toBeDefined();
       }
     }
+  });
+
+  it('matches the contract registry plus the explicit manual production inventory exactly', () => {
+    const contractRegistrations = [
+      ...new Map(
+        discoverContracts()
+          .flatMap(({ contract }) => Object.values(contract))
+          .filter((spec) => spec.kind === 'invoke')
+          .map((spec) => [spec.channel, { channel: spec.channel, kind: 'invoke' as const }])
+      ).values(),
+    ];
+    const expected = [...contractRegistrations, ...MANUAL_PRODUCTION_REGISTRATIONS]
+      .map(({ channel, kind }) => ({ channel, kind }))
+      .sort((left, right) => left.channel.localeCompare(right.channel));
+    const actual = union
+      .map(({ channel, kind }) => ({ channel, kind }))
+      .sort((left, right) => left.channel.localeCompare(right.channel));
+
+    expect(new Set(expected.map(({ channel }) => channel)).size).toBe(expected.length);
+    expect(actual).toEqual(expected);
   });
 
   it('registers only DESKTOP_IPC_CHANNELS manifest literals', () => {

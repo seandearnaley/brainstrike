@@ -37,6 +37,7 @@ export {
   type ResetBarrierDatabaseWork,
   waitForDatabaseWorkSchedulerIdle,
 } from './db-reset-drain.js';
+export * from './desktop-database-bridge.js';
 // Drizzle ORM utilities and database wrapper
 export {
   type DrizzleDb,
