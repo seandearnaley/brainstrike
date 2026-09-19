@@ -1,18 +1,29 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const readRepo = (file) => readFileSync(path.join(repoRoot, file), 'utf8');
 const require = createRequire(import.meta.url);
 const turbo = require.resolve('turbo/bin/turbo');
 const chunkGuard = 'scripts/verify-no-cross-chunk-cycles.mjs';
 const coverageGuard = 'scripts/enforce-coverage.mjs';
 const readConfig = (file) => {
-  const parsed = ts.parseConfigFileTextToJson(file, readFileSync(file, 'utf8'));
+  const parsed = ts.parseConfigFileTextToJson(file, readRepo(file));
   assert.equal(parsed.error, undefined);
   return parsed.config;
 };
@@ -156,14 +167,80 @@ test('guard edits select and hash only tasks that execute the guard', () => {
 });
 
 test('coverage enforcement remains an uncached direct command after artifact collection', () => {
-  const scripts = JSON.parse(readFileSync('package.json', 'utf8')).scripts;
+  const scripts = JSON.parse(readRepo('package.json')).scripts;
   assert.equal(scripts['coverage:enforce'], 'node scripts/enforce-coverage.mjs');
-  assert.match(
-    readFileSync('.github/workflows/nightly-coverage.yml', 'utf8'),
-    /run: pnpm coverage:enforce/u
+  assert.match(readRepo('.github/workflows/nightly-coverage.yml'), /run: pnpm coverage:enforce/u);
+  assert.match(readRepo('scripts/check.mjs'), /command: 'pnpm -s run coverage:enforce'/u);
+});
+
+function assertGuardInputs(manifest, config) {
+  for (const [task, command] of Object.entries(manifest.scripts ?? {})) {
+    assert.doesNotMatch(
+      command,
+      /enforce-coverage\.mjs|coverage:enforce/u,
+      `${manifest.name}#${task}: coverage enforcement must remain outside cached package tasks`
+    );
+    if (command.includes('verify-no-cross-chunk-cycles.mjs')) {
+      assert.ok(
+        config.tasks?.[task]?.inputs?.includes(`$TURBO_ROOT$/${chunkGuard}`),
+        `${manifest.name}#${task} must hash its chunk guard to prevent stale build success`
+      );
+    }
+  }
+}
+
+test('every workspace guard consumer carries its task input and coverage stays uncached', () => {
+  const config = readConfig('turbo.jsonc');
+  for (const task of ['build', 'build:renderer']) {
+    assert.equal(
+      config.tasks[task]?.inputs,
+      undefined,
+      `${task}: root inputs changed; explicitly preserve them in app overrides`
+    );
+  }
+  assert.ok(
+    config.tasks['test:coverage'].outputs.includes('coverage/**'),
+    'coverage cache hits must restore artifacts before uncached enforcement'
   );
-  assert.match(
-    readFileSync('scripts/check.mjs', 'utf8'),
-    /command: 'pnpm -s run coverage:enforce'/u
+  let consumers = 0;
+  for (const directory of ['apps', 'packages']) {
+    for (const entry of readdirSync(path.join(repoRoot, directory), { withFileTypes: true })) {
+      const relative = `${directory}/${entry.name}`;
+      if (!(entry.isDirectory() && existsSync(path.join(repoRoot, relative, 'package.json')))) {
+        continue;
+      }
+      const manifest = JSON.parse(readRepo(`${relative}/package.json`));
+      const local = existsSync(path.join(repoRoot, relative, 'turbo.json'))
+        ? readConfig(`${relative}/turbo.json`)
+        : {};
+      assertGuardInputs(manifest, local);
+      consumers += Object.values(manifest.scripts ?? {}).filter((command) =>
+        command.includes('verify-no-cross-chunk-cycles.mjs')
+      ).length;
+      const coverage = local.tasks?.['test:coverage'];
+      if (manifest.scripts?.['test:coverage'] && coverage?.cache !== false && coverage?.outputs) {
+        assert.ok(
+          coverage.outputs.includes('coverage/**'),
+          `${manifest.name}: coverage outputs must survive cache hits`
+        );
+      }
+    }
+  }
+  assert.ok(consumers >= 2, 'guard consumer discovery must not pass vacuously');
+  assert.throws(
+    () =>
+      assertGuardInputs(
+        {
+          name: 'fourth-app',
+          scripts: { build: 'node ../../scripts/verify-no-cross-chunk-cycles.mjs dist' },
+        },
+        {}
+      ),
+    /must hash/u
+  );
+  assert.throws(
+    () =>
+      assertGuardInputs({ name: 'fourth-app', scripts: { build: 'pnpm coverage:enforce' } }, {}),
+    /outside cached/u
   );
 });

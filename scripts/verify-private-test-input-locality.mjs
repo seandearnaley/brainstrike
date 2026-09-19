@@ -15,58 +15,77 @@ export const PILOTS = [
 
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]sx?)$/u;
 const READ_CALL =
-  /^(?:readFile|readFileSync|createReadStream|open|openSync|access|accessSync|stat|statSync)$/u;
+  /^(?:readFile|readFileSync|createReadStream|open|openSync|access|accessSync|stat|statSync|readdir|readdirSync|glob|globSync|existsSync|opendir|opendirSync)$/u;
 
 function trackedSourceFiles(root) {
   return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
     cwd: root,
+    maxBuffer: 16 * 1024 * 1024,
   })
     .toString('utf8')
     .split('\0')
     .filter((file) => SOURCE_EXTENSION.test(file) && existsSync(path.join(root, file)));
 }
 
-function literalText(node, bindings = new Map(), seen = new Set()) {
+function literalAlternatives(node, bindings = new Map(), seen = new Set()) {
   if (ts.isStringLiteralLike(node)) {
-    return node.text;
+    return [node.text];
   }
   if (ts.isNoSubstitutionTemplateLiteral(node)) {
-    return node.text;
+    return [node.text];
   }
   if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-    return `${literalText(node.left, bindings, seen) ?? '*'}${literalText(node.right, bindings, seen) ?? '*'}`;
+    const left = literalAlternatives(node.left, bindings, seen);
+    const right = literalAlternatives(node.right, bindings, seen);
+    return (left.length ? left : ['*']).flatMap((prefix) =>
+      (right.length ? right : ['*']).map((suffix) => prefix + suffix)
+    );
   }
   if (ts.isTemplateExpression(node)) {
-    return [
-      node.head.text,
-      ...node.templateSpans.flatMap((span) => [
-        literalText(span.expression, bindings, seen) ?? '*',
-        span.literal.text,
-      ]),
-    ].join('');
+    return node.templateSpans.reduce(
+      (prefixes, span) =>
+        prefixes.flatMap((prefix) =>
+          (literalAlternatives(span.expression, bindings, seen).length
+            ? literalAlternatives(span.expression, bindings, seen)
+            : ['*']
+          ).map((value) => `${prefix}${value}${span.literal.text}`)
+        ),
+      [node.head.text]
+    );
   }
   if (ts.isIdentifier(node) && bindings.has(node.text) && !seen.has(node.text)) {
     return bindings
       .get(node.text)
-      .map((binding) => literalText(binding, bindings, new Set([...seen, node.text])) ?? '*')
-      .join('|');
+      .flatMap((binding) => literalAlternatives(binding, bindings, new Set([...seen, node.text])));
   }
   if (
     ts.isCallExpression(node) &&
     ts.isPropertyAccessExpression(node.expression) &&
     ['join', 'resolve'].includes(node.expression.name.text)
   ) {
-    const parts = node.arguments.map((argument) => literalText(argument, bindings, seen) ?? '*');
-    return path.join(...parts);
+    return node.arguments.reduce(
+      (prefixes, argument) => {
+        const values = literalAlternatives(argument, bindings, seen);
+        return prefixes.flatMap((prefix) =>
+          (values.length ? values : ['*']).map((value) => path.join(prefix, value))
+        );
+      },
+      ['']
+    );
   }
   if (
     ts.isNewExpression(node) &&
     ts.isIdentifier(node.expression) &&
     node.expression.text === 'URL'
   ) {
-    return node.arguments?.length ? literalText(node.arguments[0], bindings, seen) : undefined;
+    return node.arguments?.length ? literalAlternatives(node.arguments[0], bindings, seen) : [];
   }
-  return;
+  return [];
+}
+
+function literalText(node, bindings = new Map()) {
+  const alternatives = literalAlternatives(node, bindings);
+  return alternatives.length ? alternatives.join('|') : undefined;
 }
 
 function importArgument(node) {
@@ -144,6 +163,7 @@ function isUnsafeTarget(specifier, importer, pilot) {
       return false;
     }
     if (
+      candidate === '__tests__' ||
       candidate.startsWith('__tests__/') ||
       candidate.includes('/__tests__/') ||
       candidate.includes('*')
@@ -161,11 +181,26 @@ export function findPrivateTestReaders({ root = repoRoot, files = trackedSourceF
     const source = ts.createSourceFile(file, sourceText, ts.ScriptTarget.Latest, true);
     const bindings = new Map();
     const readAliases = new Set();
+    const fsObjects = new Set();
+    const aliasDefinitions = [];
+    const isFsModule = (value) =>
+      ['fs', 'node:fs', 'fs/promises', 'node:fs/promises'].includes(value);
+    const isRequireFs = (node) =>
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'require' &&
+      node.arguments.length === 1 &&
+      ts.isStringLiteralLike(node.arguments[0]) &&
+      isFsModule(node.arguments[0].text);
     const collectBindings = (node) => {
       if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
         const candidates = bindings.get(node.name.text) ?? [];
         candidates.push(node.initializer);
         bindings.set(node.name.text, candidates);
+        aliasDefinitions.push({ expression: node.initializer, name: node.name.text });
+        if (isRequireFs(node.initializer)) {
+          fsObjects.add(node.name.text);
+        }
       }
       if (
         ts.isBinaryExpression(node) &&
@@ -175,24 +210,65 @@ export function findPrivateTestReaders({ root = repoRoot, files = trackedSourceF
         const candidates = bindings.get(node.left.text) ?? [];
         candidates.push(node.right);
         bindings.set(node.left.text, candidates);
+        aliasDefinitions.push({ expression: node.right, name: node.left.text });
       }
       if (
         ts.isImportDeclaration(node) &&
         ts.isStringLiteralLike(node.moduleSpecifier) &&
-        ['fs', 'node:fs', 'fs/promises', 'node:fs/promises'].includes(node.moduleSpecifier.text) &&
-        node.importClause?.namedBindings &&
-        ts.isNamedImports(node.importClause.namedBindings)
+        isFsModule(node.moduleSpecifier.text) &&
+        node.importClause
       ) {
-        for (const element of node.importClause.namedBindings.elements) {
-          const importedName = element.propertyName?.text ?? element.name.text;
-          if (READ_CALL.test(importedName)) {
-            readAliases.add(element.name.text);
+        if (node.importClause.name) {
+          fsObjects.add(node.importClause.name.text);
+        }
+        if (node.importClause.namedBindings) {
+          if (ts.isNamespaceImport(node.importClause.namedBindings)) {
+            fsObjects.add(node.importClause.namedBindings.name.text);
+          } else {
+            for (const element of node.importClause.namedBindings.elements) {
+              const importedName = element.propertyName?.text ?? element.name.text;
+              if (READ_CALL.test(importedName)) {
+                readAliases.add(element.name.text);
+              }
+            }
           }
         }
+      }
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isObjectBindingPattern(node.name) &&
+        node.initializer
+      ) {
+        aliasDefinitions.push(
+          ...node.name.elements.map((element) => ({
+            expression: ts.factory.createPropertyAccessExpression(
+              node.initializer,
+              element.propertyName ?? element.name
+            ),
+            name: element.name.text,
+          }))
+        );
       }
       ts.forEachChild(node, collectBindings);
     };
     collectBindings(source);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const { expression, name } of aliasDefinitions) {
+        const isAlias =
+          (ts.isIdentifier(expression) && readAliases.has(expression.text)) ||
+          (ts.isPropertyAccessExpression(expression) &&
+            READ_CALL.test(expression.name.text) &&
+            ((ts.isIdentifier(expression.expression) &&
+              fsObjects.has(expression.expression.text)) ||
+              isRequireFs(expression.expression)));
+        if (isAlias && !readAliases.has(name)) {
+          readAliases.add(name);
+          changed = true;
+        }
+      }
+    }
     const visit = (node) => {
       const importedArgument = importArgument(node);
       const imported = importedArgument ? literalText(importedArgument, bindings) : undefined;

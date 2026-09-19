@@ -2674,10 +2674,16 @@ input remains a hash carrier. Never remove transit edges to narrow affected work
 
 `lint:private-test-input-locality` runs in local and CI lint. It rejects imports
 and filesystem reads into the Types private-test boundary, including static,
-dynamic, constant-bound URL and partially static paths. Only private Types specs
+dynamic, constant-bound URL and partially static paths. Directory inventories and
+existence checks are reads too: filesystem method aliases and alternative path
+bindings must retain the same boundary checks. Only private Types specs
 may consume peer private specs. Shared helpers must live outside excluded paths;
 do not blanket-exclude `__tests__` directories. Extend this bounded policy and its
 negative controls before introducing another path-construction convention or pilot.
+This JS/TS reader guard does not model declarative JSON/YAML or tool-config globs.
+Do not add cross-package config globs over private Types specs; move shared
+fixtures outside the private boundary or explicitly model and test their task
+inputs before introducing such a consumer.
 `private-test-input-locality.test.mjs` uses the pinned Turbo binary to verify both
 hashes and affected selection, including a deliberately unsafe exclusion.
 
@@ -2691,6 +2697,9 @@ The chunk-cycle guard is an explicit input of web/desktop `build` and desktop
 coverage collection, outside Turbo caching, so its script is not a global input.
 `ci-guard-input-locality.test.mjs` proves these boundaries with actual Turbo hashes
 and affected selection, with negative controls for missing build invalidation.
+It discovers direct guard consumers from workspace scripts, rejects package-level
+coverage-enforcement scripts, pins the absence of root build-input overrides, and
+requires cached coverage tasks to restore `coverage/**` before enforcement.
 
 BST-1773 measurements against `7bc7f079` used isolated Git fixtures and pinned
 Turbo `test test:integration --dry=json`, comparing executable task selection and

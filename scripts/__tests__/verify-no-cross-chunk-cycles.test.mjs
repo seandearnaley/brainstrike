@@ -33,6 +33,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import ts from 'typescript';
+
 import {
   buildChunkGraph,
   findChunkCycles,
@@ -419,9 +421,21 @@ test('app build tasks list the guard so editing it invalidates their build cache
   // editing the guard would leave a stale cache HIT reporting a build that
   // never actually ran the new guard logic.
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-  for (const app of ['web', 'desktop']) {
-    const turboConfig = readFileSync(path.join(repoRoot, `apps/${app}/turbo.json`), 'utf8');
-    assert.ok(turboConfig.includes('$TURBO_ROOT$/scripts/verify-no-cross-chunk-cycles.mjs'));
+  for (const [app, tasks] of [
+    ['web', ['build']],
+    ['desktop', ['build', 'build:renderer']],
+  ]) {
+    const file = path.join(repoRoot, `apps/${app}/turbo.json`);
+    const parsed = ts.parseConfigFileTextToJson(file, readFileSync(file, 'utf8'));
+    assert.equal(parsed.error, undefined);
+    for (const task of tasks) {
+      assert.ok(
+        parsed.config.tasks[task]?.inputs?.includes(
+          '$TURBO_ROOT$/scripts/verify-no-cross-chunk-cycles.mjs'
+        ),
+        `${app}#${task} must hash the guard to avoid stale cached build success`
+      );
+    }
   }
   // ci-guard-input-locality.test.mjs runs the pinned Turbo binary to prove
   // the actual task hashes AND affected selection, including negative controls.
