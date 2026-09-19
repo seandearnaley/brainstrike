@@ -20,6 +20,11 @@ import {
 } from '../ipc-domains/mcp.contract';
 import { notesVaultContract } from '../ipc-domains/notes-vault.contract';
 import { skillsContract } from '../ipc-domains/skills.contract';
+import {
+  layoutContract,
+  settingsContract,
+  storageContract,
+} from '../ipc-domains/storage-preferences.contract';
 import { terminalContract } from '../ipc-domains/terminal.contract';
 import { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import { userPersonasContract } from '../ipc-domains/user-personas.contract';
@@ -55,6 +60,7 @@ const CONTRACT_BRIDGES = {
   forge: forgeContract,
   git: gitContract,
   notesVault: notesVaultContract,
+  settings: settingsContract,
   skills: skillsContract,
   terminal: terminalContract,
   userCommands: userCommandsContract,
@@ -198,6 +204,31 @@ describe('preload contract-derived bridges', () => {
     await expect(exposedApi('clipboard')['writeText']?.('copied')).rejects.toThrow(
       'clipboard locked (clipboard · write_failed)'
     );
+  });
+
+  it('derives the nested production storage and layout bridges', async () => {
+    const electronApi = exposedApi('electronAPI') as unknown as {
+      loadLayout: () => Promise<unknown>;
+      saveLayout: (state: unknown) => Promise<unknown>;
+      storage: Record<string, (...args: unknown[]) => Promise<unknown>>;
+    };
+    expect(Object.keys(electronApi.storage).sort()).toEqual(Object.keys(storageContract).sort());
+    expect(['loadLayout', 'saveLayout'].every((key) => key in electronApi)).toBe(true);
+
+    mockInvoke.mockResolvedValueOnce(['alpha']);
+    await expect(electronApi.storage['getAllKeys']?.()).resolves.toEqual(['alpha']);
+    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.storage.getAllKeys);
+
+    const state = {
+      showConsole: true,
+      showLeftPanel: true,
+      showRightPanel: false,
+      sizes: [50, 50],
+    };
+    mockInvoke.mockResolvedValueOnce({ success: true });
+    await expect(electronApi.saveLayout(state)).resolves.toEqual({ success: true });
+    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.preferences.layoutSave, state);
+    expect(Object.keys(layoutContract).sort()).toEqual(['loadLayout', 'saveLayout']);
   });
 
   it('routes git.status to its manifest channel and preserves the raw GitResult envelope', async () => {

@@ -244,14 +244,14 @@ source of truth for who may hold a channel; `hidden-preload.ts` exposes no
 | `db:ping`, `db:live-query:*`, `db:clearAll`, `db:resetLocal`, `db:getUserDataPath` | `visible-ui` |
 | `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, all 31 `mcp:*` invokes | `visible-ui` |
 | `vector-preferences:read`, `vector-preferences:write`, `vector-preferences:clear` | `embedding-host` (pre-existing; see BST-1380 below) |
+| `storage:*` production channels, `layout:*`, `settings:clearAll` | `visible-ui` |
 | Contract-derived domains: `git:*` (all 15, incl. push/commit/switchBranch), `changes:*`, `forge:*`, `worktrees:*`, `command-sessions:*`, `terminal:*`, `notes-vault:*`, `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
 
 Still `registerUnauthenticatedInvoke` with a stated reason (sender-role
 policy pending, tracked as the BST-1641 follow-up):
 `logging:get-preferences` (all four roles), `app:power-snapshot`
 (visible UI + embedding host), `parser-host:parse` (visible UI + chunking
-host), and the visible-UI-only `storage:*`/
-`preferences:*`, `fs:watch*`, hooks/file-exports/diagnostics/
+host), and the visible-UI-only `fs:watch*`, hooks/file-exports/diagnostics/
 assistant-checkpoint/embedding-backfill/runtime/agent-chat channels and the hidden-host lifecycle
 controls (`*-host:ensure-started|stop|reset|get-status`, `chunking-host:chunk-*`,
 `llm-host:*`, `embedding-host:query-embedding`). `tools:execute` is the
@@ -359,12 +359,15 @@ allowlist:
   `hidden-preload.ts` contain NO channel literal: `preload-runtime-contract.test.ts`
   and `hidden-preload-contract.test.ts` flag any string equal to a manifest
   channel, and the hidden test pins the manifest GROUPS the hidden preload may
-  reference (`chunkingHost`, `embeddingHost`, `files`, `llmHost`,
-  `logging`, `runtime`, `vectorPreferences`) so the role-scoped hidden
+  reference (`chunkingHost`, `embeddingHost`, `files`, `llmHost`, `logging`,
+  `runtime`) so the role-scoped hidden
   capability manifest (BST-1235/BST-1380) cannot widen by a stray reference.
   Hidden database capabilities instead come from the pure role-specific
   `databaseChunkingContract` / `databaseEmbeddingContract`; their exact key
   sets and manifest channels are pinned by the hidden-preload runtime tests.
+  The embedding host's `vectorPreferences` bridge is now derived from the pure
+  storage-preferences contract, so `hidden-preload.ts` imports that contract
+  instead of referencing the `vectorPreferences` manifest group directly.
 - `platform/ipc-contract.ts` is the pure per-domain contract vocabulary:
   `channel<Args, Result>({ channel, roles, parseArgs })`,
   `rawChannel<Args, Result>(…)`, `pushEvent<Payload>({ channel })`, and the
@@ -401,7 +404,8 @@ allowlist:
   converts a throw-style operation into the envelope (logged in main).
 - Migrated so far: `changes`, `clipboard`, `commandSessions`, `contextFiles`,
   `database`, `forge`, `git`, `notesVault`, `skills`, `terminal`, `userCommands`,
-  `userPersonas`, `worktrees`, and MCP. MCP's pure manifests cover all 31
+  `userPersonas`, `worktrees`, MCP, visible-UI `storage` / layout / settings,
+  and the embedding-host-only `vectorPreferences` capability. MCP's pure manifests cover all 31
   invokes and seven pushes. Root, content, elicitation, and Tasks handlers use
   `registerDomain`; the native config picker and five Apps operations retain
   narrow event-aware adapters because their ownership is bound to the
@@ -412,6 +416,12 @@ allowlist:
   raw replies, including the `{ ok, result }` content envelope, remain byte-shape
   compatible; the preload still unwraps content into the established public
   promise behavior.
+  Storage's two E2E-only channels remain a narrow conditional adapter: they
+  exist only when Electron test mode is active and are authorized for
+  `visible-ui`. Exporting them in the discoverable contract would incorrectly
+  require production registration in the global manifest. The visible preload
+  derives the production storage bridge and overrides only `clear` and
+  main-owned-key `setItem` routing in E2E mode.
   Git's 15 operations plus every Changes, Forge, and Worktrees invoke use
   `rawChannel` so valid calls retain each domain's established result envelope;
   their contract parsers

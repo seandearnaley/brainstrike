@@ -30,6 +30,11 @@ import {
 } from './ipc-domains/mcp.contract';
 import { notesVaultContract } from './ipc-domains/notes-vault.contract';
 import { skillsContract } from './ipc-domains/skills.contract';
+import {
+  layoutContract,
+  settingsContract,
+  storageContract,
+} from './ipc-domains/storage-preferences.contract';
 import { terminalContract } from './ipc-domains/terminal.contract';
 import { userCommandsContract } from './ipc-domains/user-commands.contract';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
@@ -61,11 +66,6 @@ import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
-import type {
-  LayoutLoadResult,
-  LayoutPersistenceResult,
-  PanelPersistenceState,
-} from '@brainstrike/ui';
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
@@ -449,6 +449,8 @@ function unwrapFileReadResult(result: unknown): string {
 
 // Expose storage APIs to renderer
 if (shouldExposeBridge('electronAPI')) {
+  const layoutBridge = createIpcBridge(ipcRenderer, layoutContract);
+  const storageBridge = createIpcBridge(ipcRenderer, storageContract);
   contextBridge.exposeInMainWorld('electronAPI', {
     // Database invokes are contract-derived. Live updates keep the intentional
     // single IPC listener fan-out below while their channel/type comes from the
@@ -529,29 +531,21 @@ if (shouldExposeBridge('electronAPI')) {
     },
     // Database path (legacy - kept for compatibility)
     getUserDataPath: databasePathBridge.getUserDataPath,
-    loadLayout: (): Promise<LayoutLoadResult> =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.preferences.layoutLoad),
+    loadLayout: layoutBridge.loadLayout,
     // Panel layout persistence
-    saveLayout: (state: PanelPersistenceState): Promise<LayoutPersistenceResult> =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.preferences.layoutSave, state),
+    saveLayout: layoutBridge.saveLayout,
     storage: {
       clear: () =>
-        ipcRenderer.invoke(
-          DESKTOP_TEST_MODE
-            ? DESKTOP_IPC_CHANNELS.storage.clearAllForE2e
-            : DESKTOP_IPC_CHANNELS.storage.clear
-        ),
-      getAllKeys: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.getAllKeys),
-      getItem: (key: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.getItem, key),
-      removeItem: (key: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.removeItem, key),
+        DESKTOP_TEST_MODE
+          ? ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.clearAllForE2e)
+          : storageBridge.clear(),
+      getAllKeys: storageBridge.getAllKeys,
+      getItem: storageBridge.getItem,
+      removeItem: storageBridge.removeItem,
       setItem: (key: string, value: string) =>
-        ipcRenderer.invoke(
-          DESKTOP_TEST_MODE && MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E.has(key)
-            ? DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e
-            : DESKTOP_IPC_CHANNELS.storage.setItem,
-          key,
-          value
-        ),
+        DESKTOP_TEST_MODE && MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E.has(key)
+          ? ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e, key, value)
+          : storageBridge.setItem(key, value),
     },
   });
 }
@@ -598,9 +592,7 @@ contextBridge.exposeInMainWorld('providerAuth', {
 });
 
 // Settings Store API (factory reset support)
-contextBridge.exposeInMainWorld('settings', {
-  clearAll: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.preferences.settingsClearAll),
-});
+exposeBridge('settings', settingsContract);
 
 contextBridge.exposeInMainWorld('desktopLifecycle', {
   isTestMode: DESKTOP_TEST_MODE,
