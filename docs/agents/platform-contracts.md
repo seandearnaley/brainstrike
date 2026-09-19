@@ -239,15 +239,15 @@ source of truth for who may hold a channel; `hidden-preload.ts` exposes no
 | `shell:*` (open-external/open-path/show-item-in-folder) | `visible-ui` |
 | `browser:*` (all 10 pane controls) | `visible-ui` |
 | `fs:*` under `registerFileSystemIpcHandlers` (reads, root grants incl. `fs:addRootByPath`/`fs:requestDirectoryAccess`, `fs:readFileByPath`, `fs:readFileByAbsolutePath`, `fs:removeRoot`) | `visible-ui` |
+| `db:query` | `chunking-host`, `embedding-host`, `visible-ui` |
 | `db:exec`, `db:transaction` (raw SQL entry points; typed replacement is BST-1234), `db:diagnostics`, `db:scheduler:snapshot`, `db:test`, `db:managed-cache:apply-batch`, `db:managed-cache:invalidate-by-identity`, `db:chunks:insert-and-enqueue-embedding-jobs` — every `db:*` channel the embedding host's `hidden-preload.ts` bridge exposes besides the shared `db:query` | `embedding-host`, `visible-ui` |
+| `db:ping`, `db:live-query:*`, `db:clearAll`, `db:resetLocal`, `db:getUserDataPath` | `visible-ui` |
 | `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, all 31 `mcp:*` invokes | `visible-ui` |
 | `vector-preferences:read`, `vector-preferences:write`, `vector-preferences:clear` | `embedding-host` (pre-existing; see BST-1380 below) |
 | Contract-derived domains: `git:*` (all 15, incl. push/commit/switchBranch), `changes:*`, `forge:*`, `worktrees:*`, `command-sessions:*`, `terminal:*`, `notes-vault:*`, `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
 
 Still `registerUnauthenticatedInvoke` with a stated reason (sender-role
-policy pending, tracked as the BST-1641 follow-up): `db:query` (visible UI +
-chunking/embedding hosts), the visible-UI-only `db:ping`, `db:live-query:*`,
-`db:clearAll`, `db:resetLocal` and `db:getUserDataPath`,
+policy pending, tracked as the BST-1641 follow-up):
 `logging:get-preferences` (all four roles), `app:power-snapshot`
 (visible UI + embedding host), `parser-host:parse` (visible UI + chunking
 host), and the visible-UI-only `storage:*`/
@@ -282,8 +282,8 @@ load-time failures in `create-window.test.ts` and
 visible-UI, hidden, untracked, and off-allowlist frame per channel, plus the
 exact channel set), the same matrix for every contract-registered leaf domain
 in `contract-domains-sender-authorization.test.ts`, the `files` sweep in
-`ipc-domains/file-system-ipc.test.ts`, and the eight-channel `db:*` role
-matrix in `ipc-domains/db-ipc.test.ts`.
+`ipc-domains/file-system-ipc.test.ts`, and the complete `db:*` role matrix in
+`ipc-domains/db-ipc.test.ts`.
 
 Narrowing a manifest can silently REMOVE a capability a hidden host still
 depends on. BST-1235 dropped `electronAPI.storage` from the hidden hosts, and
@@ -359,9 +359,12 @@ allowlist:
   `hidden-preload.ts` contain NO channel literal: `preload-runtime-contract.test.ts`
   and `hidden-preload-contract.test.ts` flag any string equal to a manifest
   channel, and the hidden test pins the manifest GROUPS the hidden preload may
-  reference (`chunkingHost`, `db`, `embeddingHost`, `files`, `llmHost`,
+  reference (`chunkingHost`, `embeddingHost`, `files`, `llmHost`,
   `logging`, `runtime`, `vectorPreferences`) so the role-scoped hidden
   capability manifest (BST-1235/BST-1380) cannot widen by a stray reference.
+  Hidden database capabilities instead come from the pure role-specific
+  `databaseChunkingContract` / `databaseEmbeddingContract`; their exact key
+  sets and manifest channels are pinned by the hidden-preload runtime tests.
 - `platform/ipc-contract.ts` is the pure per-domain contract vocabulary:
   `channel<Args, Result>({ channel, roles, parseArgs })`,
   `rawChannel<Args, Result>(…)`, `pushEvent<Payload>({ channel })`, and the
@@ -397,8 +400,8 @@ allowlist:
   stays the one literal owner. `settleIpcResult({ category, code }, run)`
   converts a throw-style operation into the envelope (logged in main).
 - Migrated so far: `changes`, `clipboard`, `commandSessions`, `contextFiles`,
-  `forge`, `git`, `notesVault`, `skills`, `terminal`, `userCommands`, `userPersonas`,
-  `worktrees`, and MCP (all `visible-ui`). MCP's pure manifests cover all 31
+  `database`, `forge`, `git`, `notesVault`, `skills`, `terminal`, `userCommands`,
+  `userPersonas`, `worktrees`, and MCP. MCP's pure manifests cover all 31
   invokes and seven pushes. Root, content, elicitation, and Tasks handlers use
   `registerDomain`; the native config picker and five Apps operations retain
   narrow event-aware adapters because their ownership is bound to the
@@ -430,8 +433,15 @@ allowlist:
   Its ten eventless operations use `registerDomain`; `watch` and `unwatch` use
   the same narrow event-aware registration pattern so watcher ownership remains
   bound to the registry-authorized `event.sender`, and `onChanged` is a push
-  event registered by neither adapter. Their parity
-  tests are
+  event registered by neither adapter. Database
+  follows that same narrow event-aware pattern: scheduler admission and live
+  query ownership still receive the authenticated `IpcMainInvokeEvent`, while
+  channel, sender roles, raw envelope, and argument parsing come from
+  `database.contract.ts`. Visible `db` / `dbLive` / `getUserDataPath` and the
+  exact hidden chunking and embedding database subsets are built from those
+  contracts. The live update bridge deliberately retains one shared
+  `ipcRenderer` listener and fans out to local subscribers rather than creating
+  one Electron listener per hook. Their parity tests are
   key-set equality, not source regexes: `preload-contract-bridges.test.ts` loads
   the real preload under a mocked `electron` and asserts each exposed key set equals
   `Object.keys(contract)` and routes/unwraps correctly;

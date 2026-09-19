@@ -9,6 +9,15 @@ import { changesContract } from './ipc-domains/changes.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { commandSessionsContract } from './ipc-domains/command-sessions.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
+import {
+  type DatabaseBridge,
+  type DatabaseLiveBridge,
+  type DatabaseLiveQueryUpdate,
+  type DatabasePathBridge,
+  databaseContract,
+  databaseLiveContract,
+  databasePathContract,
+} from './ipc-domains/database.contract';
 import { forgeContract } from './ipc-domains/forge.contract';
 import { gitContract } from './ipc-domains/git.contract';
 import {
@@ -45,20 +54,12 @@ const exposeBridge = createBridgeExposer({ contextBridge, ipcRenderer });
 // authoritative allowlist again on every call.
 const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
 
-import type {
-  ApplyManagedCacheBatchArgs,
-  ApplyManagedCacheInvalidationsArgs,
-  ManagedCacheInvalidationResult,
-} from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
-  DatabaseWorkOptions,
-  ElectronChunkInsert,
-  ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
 } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
@@ -138,22 +139,17 @@ if (DESKTOP_TEST_MODE) {
   contextBridge.exposeInMainWorld('__brainstrike_e2e_expose_file_explorer_store__', true);
 }
 
-interface DbLiveUpdatePayload {
-  id: number;
-  results: unknown;
-}
-
-type DbLiveUpdateCallback = (payload: DbLiveUpdatePayload) => void;
+type DbLiveUpdateCallback = (payload: DatabaseLiveQueryUpdate) => void;
 
 const dbLiveUpdateCallbacks = new Set<DbLiveUpdateCallback>();
-let dbLiveUpdateIpcListener: ((_event: unknown, payload: DbLiveUpdatePayload) => void) | null =
+let dbLiveUpdateIpcListener: ((_event: unknown, payload: DatabaseLiveQueryUpdate) => void) | null =
   null;
 
 function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
   dbLiveUpdateCallbacks.add(callback);
 
   if (!dbLiveUpdateIpcListener) {
-    dbLiveUpdateIpcListener = (_event: unknown, payload: DbLiveUpdatePayload) => {
+    dbLiveUpdateIpcListener = (_event: unknown, payload: DatabaseLiveQueryUpdate) => {
       for (const subscriber of Array.from(dbLiveUpdateCallbacks)) {
         try {
           subscriber(payload);
@@ -169,17 +165,24 @@ function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
         }
       }
     };
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.db.liveQueryUpdate, dbLiveUpdateIpcListener);
+    ipcRenderer.on(databaseLiveContract.onUpdate.channel, dbLiveUpdateIpcListener);
   }
 
   return () => {
     dbLiveUpdateCallbacks.delete(callback);
     if (dbLiveUpdateCallbacks.size === 0 && dbLiveUpdateIpcListener) {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.db.liveQueryUpdate, dbLiveUpdateIpcListener);
+      ipcRenderer.removeListener(databaseLiveContract.onUpdate.channel, dbLiveUpdateIpcListener);
       dbLiveUpdateIpcListener = null;
     }
   };
 }
+
+const databaseBridge: DatabaseBridge = createIpcBridge(ipcRenderer, databaseContract);
+const databasePathBridge: DatabasePathBridge = createIpcBridge(ipcRenderer, databasePathContract);
+const databaseLiveBridge: DatabaseLiveBridge = {
+  ...createIpcBridge(ipcRenderer, databaseLiveContract),
+  onUpdate: subscribeToDbLiveUpdates,
+};
 
 function disabledPreloadBridges(): Set<string> {
   if (!DESKTOP_TEST_MODE) {
@@ -447,75 +450,11 @@ function unwrapFileReadResult(result: unknown): string {
 // Expose storage APIs to renderer
 if (shouldExposeBridge('electronAPI')) {
   contextBridge.exposeInMainWorld('electronAPI', {
-    // Database operations
-    db: {
-      applyManagedCacheBatch: (
-        payload: ApplyManagedCacheBatchArgs,
-        options?: DatabaseWorkOptions
-      ) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.applyManagedCacheBatch, payload, options),
-      clearAll: (confirmationToken?: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.clearAll, confirmationToken),
-      diagnostics: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.diagnostics),
-      exec: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.exec, sql, params, options),
-      insertChunksAndEnqueueEmbeddingJobs: (
-        chunks: readonly ElectronChunkInsert[],
-        fileRecordId: string,
-        options: ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
-        workOptions?: DatabaseWorkOptions
-      ): Promise<void> =>
-        ipcRenderer.invoke(
-          DESKTOP_IPC_CHANNELS.db.insertChunksAndEnqueueEmbeddingJobs,
-          { chunks, fileRecordId, options },
-          workOptions
-        ),
-      invalidateManagedCacheEntriesByIdentity: (
-        payload: ApplyManagedCacheInvalidationsArgs,
-        options?: DatabaseWorkOptions
-      ): Promise<ManagedCacheInvalidationResult> =>
-        ipcRenderer.invoke(
-          DESKTOP_IPC_CHANNELS.db.invalidateManagedCacheEntriesByIdentity,
-          payload,
-          options
-        ),
-      ping: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.ping),
-      query: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.query, sql, params, options),
-      resetLocal: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.resetLocal),
-      // Atomic transaction over IPC (#1141): ships an ordered statement list to main
-      // to run inside one pglite.transaction() and return statements[resultIndex] rows.
-      runTransaction: (
-        statements: {
-          params?: unknown[];
-          sql: string;
-        }[],
-        resultIndex: number,
-        options?: DatabaseWorkOptions
-      ) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.transaction, statements, resultIndex, options),
-      schedulerSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.schedulerSnapshot),
-      test: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.test),
-    },
-    dbLive: {
-      onUpdate: (callback: (payload: { id: number; results: unknown }) => void) =>
-        subscribeToDbLiveUpdates(callback),
-      refresh: (
-        payload: { id: number; offset?: number; limit?: number },
-        options?: DatabaseWorkOptions
-      ) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.liveQueryRefresh, payload, options),
-      start: (
-        options: {
-          query: string;
-          params?: readonly unknown[];
-          key?: string;
-          mode?: 'query' | 'incremental';
-          offset?: number;
-          limit?: number;
-        },
-        workOptions?: DatabaseWorkOptions
-      ) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.liveQueryStart, options, workOptions),
-      stop: (id: number) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.liveQueryStop, id),
-    },
+    // Database invokes are contract-derived. Live updates keep the intentional
+    // single IPC listener fan-out below while their channel/type comes from the
+    // same contract as main registration.
+    db: databaseBridge,
+    dbLive: databaseLiveBridge,
     fileSystem: {
       addRoot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.addRoot),
       addRootByPath: (path: string) =>
@@ -589,7 +528,7 @@ if (shouldExposeBridge('electronAPI')) {
         ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.watch, handle),
     },
     // Database path (legacy - kept for compatibility)
-    getUserDataPath: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.getUserDataPath),
+    getUserDataPath: databasePathBridge.getUserDataPath,
     loadLayout: (): Promise<LayoutLoadResult> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.preferences.layoutLoad),
     // Panel layout persistence
