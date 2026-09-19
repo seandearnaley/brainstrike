@@ -13,6 +13,39 @@ pass the callback's query surface to `insertManyWithTx`. The real-PGlite
 `job-queue-transactional-enqueue.test.ts` pins atomic success and rollback and
 rejects outer-connection queries or nested transactions while the callback is active.
 
+## CHUNK SEARCH POLICY AND ATOMIC TRANSPORTS (BST-1774)
+
+Chunk repository consumers use `IFileChunkRepository`. Direct PGlite, Drizzle,
+and Electron remain supported implementations; transport choice does not belong
+in UI consumer types. Shared search policy owns the common vector/full-text
+planning, with explicit adapter differences preserved. Drizzle alone rejects
+vector search limits above 2,000; direct and server callers retain the shared
+bounded overfetch policy.
+
+`repositories/file-chunk-search-policy.ts` owns normalization, parameterized
+raw/IPC scope plans, distance expressions, query modes, and search-result
+mapping. Drizzle retains its SQL-tag rendering and finite-vector validation.
+Empty file-path lists retain their existing unfiltered meaning, while empty
+root lists match nothing. Raw/IPC snapshot scopes check expiry; Drizzle retains
+its existing membership-only snapshot behavior. These differences are explicit
+in `chunk-search-adapter-parity.test.ts`, which runs all three repositories over
+real PGlite. `file-chunk-search-policy.test.ts` pins SQL bindings and planning.
+
+Search tuning through `SET LOCAL` and its SELECT must share one atomic
+transaction. In-process connections use a callback transaction; Electron sends
+an ordered statement list through the IPC transaction primitive. Separate
+`query('BEGIN')`, tuning, SELECT, and `query('COMMIT')` calls do not hold the
+connection lock and are forbidden as a production search path. Missing atomic
+capability rejects explicitly, and transport errors propagate. An exact vector
+scan needs no HNSW settings and can remain a single direct query.
+Paired tests: `atomic-transaction.test.ts`, `electron-file-chunk-repository.test.ts`,
+and `search-thread-message-index.test.ts`.
+
+Renderer assistant repositories probe migrated schema readiness and never
+create tables or constraints. The schema probe replaces the retired lazy DDL
+mirror; migration, thread-delete, and factory-reset ownership remain mandatory.
+See `assistant-persistence.md` under RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP.
+
 ## QUERY TELEMETRY BOUNDARY
 
 Database performance instrumentation uses the typed, memory-only collector in
@@ -630,41 +663,37 @@ diagnostic (BST-1581 verifier scope).
 
 Migration 076 owns terminal provider-forensics storage
 (`brainstrike_assistant_run_errors`) and the hot diagnostic correlation index
-`bst_diagnostic_events_run_idx`. Add it to `migrations/index.ts` with a `ledgerKey`;
-the Drizzle ledger is derived. The run-errors table is also
-mirrored byte-for-byte in renderer lazy assistant bootstrap because the main
-writer is reached only with a renderer-minted durable run id. It has no FK:
-numbered migrations run without the lazy `brainstrike_assistant_thread_runs`
-parent. The canonical repository must derive thread/resource ownership from
-that parent, throw when it is absent, and preserve the first terminal row with
-`ON CONFLICT (run_id) DO NOTHING`. `cause_chain` is array-shaped JSON,
-`response_headers` is object-shaped JSON, and there is deliberately no
-`attempts` column until an honest complete retry producer exists. Pair every
-shape change with both migration and bootstrap parity tests, explicit
-thread-deletion cleanup, and all three table-enumerating reset paths. Full
-contract: `docs/agents/assistant-persistence.md` § RUN ERROR PROVIDER
-FORENSICS.
+`bst_diagnostic_events_run_idx`. Add it to `migrations/index.ts` with a `ledgerKey`; the
+Drizzle ledger is derived. The renderer schema probe includes the run-errors table;
+migrations own its DDL. It retains its historical FK-less shape; migration 118 now owns
+`brainstrike_assistant_thread_runs`. The canonical repository must derive
+thread/resource ownership from that parent, throw when it is absent, and preserve the
+first terminal row with `ON CONFLICT (run_id) DO NOTHING`. `cause_chain` is array-shaped
+JSON, `response_headers` is object-shaped JSON, and there is deliberately no `attempts`
+column until an honest complete retry producer exists. Pair every shape change with
+migration and schema-probe tests, explicit thread-deletion cleanup, and all three
+table-enumerating reset paths. Full contract: `docs/agents/assistant-persistence.md` §
+RUN ERROR PROVIDER FORENSICS.
 
-Migration 082 owns the FK-less `brainstrike_canvas_versions` ledger. Add it to `migrations/index.ts` with a `ledgerKey`;
-the Drizzle ledger is derived. Mirror
-its DDL in the renderer-lazy assistant bootstrap, and keep thread-delete plus
-factory-reset ownership explicit. A Canvas document is the rows sharing one
-app-side uuidv7 `canvas_id`; greatest `version` is current. Full contract:
-`docs/agents/assistant-persistence.md` § CANVAS DOCUMENT VERSIONS.
+Migration 082 owns the FK-less `brainstrike_canvas_versions` ledger. Add it to
+`migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. Include it in
+the renderer schema probe, and keep thread-delete plus factory-reset ownership explicit.
+A Canvas document is the rows sharing one app-side uuidv7 `canvas_id`; greatest
+`version` is current. Full contract: `docs/agents/assistant-persistence.md` § CANVAS
+DOCUMENT VERSIONS.
 
-Migration 083 owns the FK-less `brainstrike_tool_call_telemetry` ledger for
-durable model-facing per-tool counts and sizes. Add it to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
-Register the table in the reset/thread-delete registries. Mirror its DDL in the renderer-
-lazy assistant bootstrap: although only the migrated desktop main-process
-assistant server writes rows, the renderer repository's thread-delete CTE
-references every registered sidecar unconditionally. Rows contain only thread/
-run/tool ids, timestamps, numeric sizes, and booleans; raw tool inputs and
-outputs are prohibited. Migration 074's default-privilege grant makes the
-later-created table readable by the `brainstrike.querySelf` sandbox role.
-The primary key uses `crypto.randomUUID()` (matching the sibling
-`brainstrike_assistant_run_usage` writer), not a uuidv7 — this table is a
-net-new counters ledger outside any sync-related rework, so AGENTS.md's
-uuidv7-groundwork carve-out does not apply.
+Migration 083 owns the FK-less `brainstrike_tool_call_telemetry` ledger for durable
+model-facing per-tool counts and sizes. Add it to `migrations/index.ts` with a
+`ledgerKey`; the Drizzle ledger is derived. Register the table in the
+reset/thread-delete registries. Include it in the renderer schema probe: although only
+the migrated desktop main-process assistant server writes rows, the renderer
+repository's thread-delete CTE references every registered sidecar unconditionally. Rows
+contain only thread/ run/tool ids, timestamps, numeric sizes, and booleans; raw tool
+inputs and outputs are prohibited. Migration 074's default-privilege grant makes the
+later-created table readable by the `brainstrike.querySelf` sandbox role. The primary
+key uses `crypto.randomUUID()` (matching the sibling `brainstrike_assistant_run_usage`
+writer), not a uuidv7 — this table is a net-new counters ledger outside any sync-related
+rework, so AGENTS.md's uuidv7-groundwork carve-out does not apply.
 
 **Substrate split (migration 092, BST-1247):** `truncated` means exactly
 "model-facing output was clipped". Substrate degradation lives in its own
@@ -703,9 +732,8 @@ migration:
   claimed by the still-open BST-1192 PR #2333) adds a dedicated
   `brainstrike_tool_call_telemetry_occurred_at_idx` on `occurred_at` so the
   guard probe and both deletes below are real index scans, not sequential
-  scans of the whole table. Registered in `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. Mirrored
-  in the renderer-lazy assistant bootstrap DDL
-  (`packages/assistant-data/src/assistant-memory-repository.ts`), same as 083.
+  scans of the whole table. Registered in `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. Migrations alone create the index;
+  the renderer probes the table as described for migration 083.
 - Idle passes (`status: 'completed'`) run a full, unbounded-by-count
   age-DELETE — the same shape as `pruneTerminalJobs`.
 - Passes while the job queue is active (`status: 'partial'`) first run a
@@ -741,17 +769,16 @@ pruning outside that window. Migration coverage:
 (index created on both runners; a forced-seqscan-off `EXPLAIN` probe proves
 the bare `occurred_at` predicate resolves to an index scan on it).
 
-Migration 086 owns the FK-less
-`brainstrike_token_estimate_calibration` ledger. Each row stores a durable,
-model/provider-attributed run-end pair of `estimated_prompt_tokens` and
-`final_step_prompt_tokens`; the desktop writer derives `thread_id` from
-the existing `run_id` with `INSERT ... SELECT` rather than trusting a carried
-thread id. Rows contain numbers, ids, model/provider strings, and timestamps
-only—never message content, tool content, prompts, file paths, or command text.
-The migration is registered in `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
-The table is registered in the shared factory-reset registry and the thread-delete sidecar list. Its DDL is mirrored in the
-renderer-lazy assistant bootstrap because that repository references every
-sidecar unconditionally even though desktop main owns normal writes.
+Migration 086 owns the FK-less `brainstrike_token_estimate_calibration` ledger. Each row
+stores a durable, model/provider-attributed run-end pair of `estimated_prompt_tokens`
+and `final_step_prompt_tokens`; the desktop writer derives `thread_id` from the existing
+`run_id` with `INSERT ... SELECT` rather than trusting a carried thread id. Rows contain
+numbers, ids, model/provider strings, and timestamps only—never message content, tool
+content, prompts, file paths, or command text. The migration is registered in
+`migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. The table is
+registered in the shared factory-reset registry and the thread-delete sidecar list. The
+renderer schema probe includes it because the repository references every sidecar
+unconditionally even though desktop main owns normal writes.
 
 Scope is intentionally explicit. The numerator, `estimated_prompt_tokens`, is
 `RunTokenDiagnostics`'s chars/4 backstop over model-visible tool-output
@@ -763,26 +790,23 @@ same final-prompt-content basis; conversation/system-prompt text outside tool
 outputs and definitions is excluded from both. Only completed runs with at
 least one measured tool output persist a row.
 
-Migration 089 adds nullable positive domain/transport resolved-budget token
-columns. New calibration rows persist the concrete run tier; historical rows
-remain NULL because backfilling an anchor would fabricate evidence. The
-renderer-lazy bootstrap mirrors both the fresh final shape and idempotent
-`ADD COLUMN IF NOT EXISTS` upgrade seam. Its ordinal column order matches the
-migrated path: migration 086's trailing `occurred_at` precedes the two columns
-migration 089 appends. The estimator lens groups by model plus both tier
-columns.
+Migration 089 adds nullable positive domain/transport resolved-budget token columns. New
+calibration rows persist the concrete run tier; historical rows remain NULL because
+backfilling an anchor would fabricate evidence. Migrations own both the fresh shape and
+upgrade seam. The ordinal column order preserves migration 086's trailing `occurred_at`
+before the two columns migration 089 appends. The estimator lens groups by model plus
+both tier columns.
 
 Migration 091 adds nullable positive `prompt_baseline_tokens`, the same run's
-prompt-composition total of system instructions, task list, and tool
-definitions. The next turn's pre-request compaction trigger reads the newest
-thread-scoped calibration row because that baseline is not yet available when
-compaction runs. Historical rows remain NULL rather than receiving fabricated
-prompt evidence. This is an additive FK-less ledger extension registered in
-`migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. It is mirrored in the renderer-lazy bootstrap's fresh
-table shape plus its idempotent `ADD COLUMN IF NOT EXISTS` upgrade seam. It
-inherits the calibration table's existing 60-day retention and
-`occurred_at`-leading maintenance path; no new retention logic or privacy
-surface is introduced.
+prompt-composition total of system instructions, task list, and tool definitions. The
+next turn's pre-request compaction trigger reads the newest thread-scoped calibration
+row because that baseline is not yet available when compaction runs. Historical rows
+remain NULL rather than receiving fabricated prompt evidence. This is an additive
+FK-less ledger extension registered in `migrations/index.ts` with a `ledgerKey`; the
+Drizzle ledger is derived. The migration owns the fresh and upgrade shapes; the renderer
+performs no DDL. It inherits the calibration table's existing 60-day retention and
+`occurred_at`-leading maintenance path; no new retention logic or privacy surface is
+introduced.
 
 The least-new-mechanism seam is a standalone table modeled on migration 083.
 Both figures already meet in the agent/main-process stream before the existing
@@ -791,70 +815,63 @@ desktop persistence wrapper. Extending
 diagnostic backstop into its renderer-side `handleUsage` writer, adding a new
 process-boundary mechanism without improving attribution or fidelity.
 
-Retention exactly mirrors tool-call telemetry: rows older than 60 days are
-pruned unbounded on idle passes and oldest-first in bounded batches while the
-job queue is active, with a cheap expired-row guard probe. Migration 086 ships
-the `occurred_at`-leading index from the start plus a `thread_id` index for the
-thread-delete sidecar predicate, and idle maintenance includes the table in
-`VACUUM (ANALYZE)`. Factory reset clears the evidence while normal
-restarts retain it. Paired tests cover agent emission/omission, desktop
-run/thread attribution in real PGlite, migration/reset/bootstrap parity,
-60-day maintenance, and the checked-in `estimator-calibration.sql` lens golden
-path through `parseLensFile`, `coerceLensValues`, and `AgentSqlService.query`.
+Retention exactly mirrors tool-call telemetry: rows older than 60 days are pruned
+unbounded on idle passes and oldest-first in bounded batches while the job queue is
+active, with a cheap expired-row guard probe. Migration 086 ships the
+`occurred_at`-leading index from the start plus a `thread_id` index for the
+thread-delete sidecar predicate, and idle maintenance includes the table in `VACUUM
+(ANALYZE)`. Factory reset clears the evidence while normal restarts retain it. Paired
+tests cover agent emission/omission, desktop run/thread attribution in real PGlite,
+migration/reset/schema-probe coverage, 60-day maintenance, and the checked-in
+`estimator-calibration.sql` lens golden path through `parseLensFile`,
+`coerceLensValues`, and `AgentSqlService.query`.
 
-Migration 084 owns the FK-less
-`brainstrike_assistant_tool_projection_rewrites` overlay used by BST-1192's
-transient stale-read replay processor. Add it to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
-Register the table in the reset registry, all three table-enumerating clear paths, and the shared
-thread-delete sidecar list. Mirror its final schema in renderer lazy
-assistant bootstrap because that repository's delete CTE references every
-sidecar unconditionally even though desktop main owns normal writes. Durable
-Mastra message content is never mutated. Migration 087 adds the
-supersession/prune discriminator and nullable superseder used by BST-1200's
-recency pruning; both the migration ledger and bootstrap mirror carry the final
-shape. Supersession rewind recovery remains the processor's current-prompt
-superseder-presence check, while prune rows remain active whenever their own
-call is visible. Full contract:
+Migration 084 owns the FK-less `brainstrike_assistant_tool_projection_rewrites` overlay
+used by BST-1192's transient stale-read replay processor. Add it to
+`migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. Register the
+table in the reset registry, all three table-enumerating clear paths, and the shared
+thread-delete sidecar list. Include it in the renderer schema probe because that
+repository's delete CTE references every sidecar unconditionally even though desktop
+main owns normal writes. Durable Mastra message content is never mutated. Migration 087
+adds the supersession/prune discriminator and nullable superseder used by BST-1200's
+recency pruning; the migration ledger carries the final shape. Supersession rewind
+recovery remains the processor's current-prompt superseder-presence check, while prune
+rows remain active whenever their own call is visible. Full contract:
 `docs/agents/assistant-persistence.md` § STALE TOOL-PROJECTION REWRITE OVERLAYS.
 
-Migration 088 owns the FK-less
-`brainstrike_assistant_compaction_ranges` overlay used by BST-1200 Milestone
-2's durable conversation summaries. Persist an exact ordered JSONB set of
-compacted message IDs rather than interpreting opaque client/UUIDv4 message IDs
-as sortable range keys. Add it to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
-Register the table in the reset registry, all three table-enumerating clear paths, and the shared thread-delete
-sidecar list. Mirror the final schema in renderer lazy assistant bootstrap for
-the same unconditional thread-delete-CTE reason as migration 084. The overlay
-processor derives liveness from the summary message's presence in Mastra's
-already-tombstone-filtered ID-bearing input-step message list; neither raw
-Mastra content nor rewind state is mutated.
+Migration 088 owns the FK-less `brainstrike_assistant_compaction_ranges` overlay used by
+BST-1200 Milestone 2's durable conversation summaries. Persist an exact ordered JSONB
+set of compacted message IDs rather than interpreting opaque client/UUIDv4 message IDs
+as sortable range keys. Add it to `migrations/index.ts` with a `ledgerKey`; the Drizzle
+ledger is derived. Register the table in the reset registry, all three table-enumerating
+clear paths, and the shared thread-delete sidecar list. Include it in the renderer
+schema probe for the same unconditional thread-delete-CTE reason as migration 084. The
+overlay processor derives liveness from the summary message's presence in Mastra's
+already-tombstone-filtered ID-bearing input-step message list; neither raw Mastra
+content nor rewind state is mutated.
 
 Migration 090 widens `brainstrike_assistant_run_usage.run_kind` to admit
-`compaction-summary`, the provider-exact auxiliary summarizer call attributed
-under its parent run. Add the constraint replacement to `migrations/index.ts` with a `ledgerKey`;
-the Drizzle ledger is derived. Keep the renderer-lazy bootstrap CHECK aligned; adding only the
-TypeScript union makes real PGlite inserts fail. The numbered migration must
-replace migration 077's existing same-name CHECK and therefore uses
-main-process-only `DROP CONSTRAINT` + `ADD CONSTRAINT`. The renderer-reachable
-bootstrap must never emit that destructive statement: it installs the final
-constraint only when the catalog says it is absent, because `db:exec` rejects
-renderer schema drops.
+`compaction-summary`, the provider-exact auxiliary summarizer call attributed under its
+parent run. Add the constraint replacement to `migrations/index.ts` with a `ledgerKey`;
+the Drizzle ledger is derived. The numbered migration replaces migration 077's existing
+same-name CHECK using `DROP CONSTRAINT` + `ADD CONSTRAINT`; adding only the TypeScript
+union makes real PGlite inserts fail. Renderer repositories only probe schema readiness
+and never create or alter constraints.
 
-Migration 095 owns the FK-less `brainstrike_assistant_thread_workspaces`
-sidecar (BST-1268): one row per thread (`thread_id` PK) holding that thread's
-saved workspace as a versioned JSONB `payload` (open app/file tabs, editor
-view state, per-root tree expansions, root view). Add it to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
-Register the table in the shared factory-reset registry and the thread-delete
-sidecar list, and mirror its DDL in the renderer-lazy assistant bootstrap —
-the renderer coordinator is the sole writer, and the thread-delete CTE
-references every registered sidecar unconditionally. The payload is repaired
-section-wise on read by `coerceWorkspaceSnapshot` (unknown versions fall back
-to the empty snapshot; expansion lists are capped shallowest-first), so schema
-evolution happens in the payload version, not in DDL churn. Rows contain
-workspace file paths and tab ids; message content, prompts, and file contents
-are prohibited. Paired pins:
+Migration 095 owns the FK-less `brainstrike_assistant_thread_workspaces` sidecar
+(BST-1268): one row per thread (`thread_id` PK) holding that thread's saved workspace as
+a versioned JSONB `payload` (open app/file tabs, editor view state, per-root tree
+expansions, root view). Add it to `migrations/index.ts` with a `ledgerKey`; the Drizzle
+ledger is derived. Register the table in the shared factory-reset registry and the
+thread-delete sidecar list, and include it in the renderer schema probe — the renderer
+coordinator is the sole writer, and the thread-delete CTE references every registered
+sidecar unconditionally. The payload is repaired section-wise on read by
+`coerceWorkspaceSnapshot` (unknown versions fall back to the empty snapshot; expansion
+lists are capped shallowest-first), so schema evolution happens in the payload version,
+not in DDL churn. Rows contain workspace file paths and tab ids; message content,
+prompts, and file contents are prohibited. Paired pins:
 `packages/assistant-data/src/__tests__/thread-workspace-contract.test.ts`
-(migration↔bootstrap CREATE TABLE shape parity, sidecar-list membership,
+(migration-owned CREATE TABLE shape, schema-probe and sidecar-list membership,
 reset-registry membership) plus the pinned counts in
 `packages/db/__tests__/reset-table-registry.test.tsx`.
 

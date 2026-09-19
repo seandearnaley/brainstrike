@@ -1,8 +1,7 @@
 import type {
-  DrizzleFileChunkRepository,
   DrizzleFileRecordRepository,
-  ElectronFileChunkRepository,
   ElectronFileRecordRepository,
+  IFileChunkRepository,
 } from '@brainstrike/db';
 import type { DatabaseFileRecordSummary } from '../../use-database-demo-data';
 import type { CollectionSystemRole } from './drawer-model';
@@ -17,7 +16,7 @@ export interface DrawerRecordPagination {
 export interface CollectionDebugDrawerProps {
   readonly activeCollectionId: string | null;
   readonly activeCollectionSystemRole: CollectionSystemRole;
-  readonly chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  readonly chunkRepository: IFileChunkRepository | null;
   /**
    * The PGlite/Electron database context. Typed `unknown` because the context
    * union does not always carry `query`; the drawer narrows it explicitly (and

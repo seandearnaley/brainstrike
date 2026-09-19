@@ -99,6 +99,7 @@ export {
 export type {
   IDatabase,
   IEmbeddingSetsRepository,
+  IFileChunkRepository,
   IFileRecordRepository,
   IViewFilterPresetsRepository,
 } from './interfaces.js';

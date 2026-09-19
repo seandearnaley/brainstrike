@@ -1,3 +1,4 @@
+import { runAtomicStatements } from '../atomic-transaction.js';
 import type {
   MarkThreadMessageEmbeddingErrorInput,
   StoreThreadMessageEmbeddingInput,
@@ -584,9 +585,8 @@ export class ThreadSearchRepository {
    *    the controller's embedding-backlog WRITES that run alongside a search —
    *    cannot interleave inside the open transaction and get caught in a
    *    rollback.
-   * 3. Raw BEGIN/COMMIT over `query` (legacy/mock seams only): tuned, but a
-   *    concurrent statement on the shared connection can interleave inside
-   *    the open transaction (#1141 residual).
+   * A query-only handle is rejected because separate BEGIN/COMMIT calls cannot
+   * hold either transport's connection/admission lock.
    */
   private async runVectorSearchInTransaction<T>(
     searchSql: string,
@@ -595,40 +595,13 @@ export class ThreadSearchRepository {
     const tuning = hnswSearchTuningStatements().map((sql) => ({ sql }));
     const statements = [...tuning, { params, sql: searchSql }];
 
-    if (this.db.runTransaction) {
-      const result = await this.db.runTransaction(statements, statements.length - 1);
-      return { rows: result.rows as T[] };
-    }
-
-    if (this.db.transaction) {
-      const result = await this.db.transaction(async (tx) => {
-        for (const statement of tuning) {
-          await tx.query(statement.sql);
-        }
-        return await tx.query<T>(searchSql, params);
-      });
-      if (!result) {
-        // PGlite's transaction resolves undefined only when the callback
-        // signalled a rollback — which this callback never does.
-        throw new Error('Thread search vector transaction returned no result.');
-      }
-      return result;
-    }
-
-    await this.db.query('BEGIN');
-    try {
-      for (const statement of tuning) {
-        await this.db.query(statement.sql);
-      }
-      const result = await this.db.query<T>(searchSql, params);
-      await this.db.query('COMMIT');
-      return result;
-    } catch (err) {
-      await this.db.query('ROLLBACK').catch(() => {
-        // Surface the original failure, not a secondary rollback error.
-      });
-      throw err;
-    }
+    const result = await runAtomicStatements(
+      this.db,
+      statements,
+      statements.length - 1,
+      'Thread search vector search requires atomic transaction support.'
+    );
+    return { rows: result.rows as T[] };
   }
 
   /**

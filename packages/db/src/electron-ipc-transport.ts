@@ -203,7 +203,7 @@ export function createElectronIpcTransport(
       query: electronDB.query,
       // Atomic transaction primitive (#1141): lets repositories run tuning + SELECT
       // in ONE main-process pglite.transaction() so a concurrent FTS query can't
-      // interleave. Omitted on older preloads → repos fall back to raw BEGIN/COMMIT.
+      // interleave. Search rejects explicitly if the preload lacks this capability.
       ...(electronDB.runTransaction ? { transaction: electronDB.runTransaction } : {}),
     };
 
