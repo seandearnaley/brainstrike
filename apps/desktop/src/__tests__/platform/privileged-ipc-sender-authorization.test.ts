@@ -91,6 +91,21 @@ function gitInvokeArgs(channel: string): readonly unknown[] {
 
 function contractDomainInvokeArgs(channel: string): readonly unknown[] {
   switch (channel) {
+    case 'terminal:create':
+    case 'command-sessions:list':
+      return [{ rootId: 'r1' }];
+    case 'terminal:write':
+      return [{ data: 'pwd\n', terminalId: 'terminal-1' }];
+    case 'terminal:resize':
+      return [{ cols: 80, rows: 24, terminalId: 'terminal-1' }];
+    case 'terminal:destroy':
+      return [{ terminalId: 'terminal-1' }];
+    case 'command-sessions:read':
+    case 'command-sessions:remove':
+    case 'command-sessions:stop':
+      return [{ rootId: 'r1', sessionId: 'session-1' }];
+    case 'command-sessions:write':
+      return [{ data: 'continue', rootId: 'r1', sessionId: 'session-1' }];
     case 'changes:resolveView':
       return ['root-1', { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' }];
     case 'changes:fileDiff':

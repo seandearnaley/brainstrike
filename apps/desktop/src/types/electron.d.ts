@@ -46,13 +46,6 @@ import type {
   ChunkingHostResponseReport,
   ChunkingHostStatus,
 } from '../chunking-host-shared';
-import type {
-  CommandSessionIpcResult,
-  CommandSessionListParams,
-  CommandSessionReadPage,
-  CommandSessionReadParams,
-  CommandSessionWriteParams,
-} from '../command-session-ipc-handlers';
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from '../diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring';
@@ -68,10 +61,12 @@ import type {
 } from '../embedding-host-shared';
 import type { changesContract } from '../ipc-domains/changes.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
+import type { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
 import type { forgeContract } from '../ipc-domains/forge.contract';
 import type { gitContract } from '../ipc-domains/git.contract';
 import type { skillsContract } from '../ipc-domains/skills.contract';
+import type { terminalContract } from '../ipc-domains/terminal.contract';
 import type { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import type { worktreesContract } from '../ipc-domains/worktrees.contract';
@@ -85,12 +80,6 @@ import type {
   NotesVaultRoot,
 } from '../notes-vault-ipc-handlers';
 import type { Bridge } from '../platform/ipc-contract';
-import type {
-  TerminalCreateResult,
-  TerminalDataEvent,
-  TerminalExitEvent,
-  TerminalResult,
-} from '../terminal-ipc-handlers';
 
 interface QueryResult {
   fields?: { name: string; dataType: string }[];
@@ -192,24 +181,7 @@ declare global {
       onOpen: (callback: () => void) => () => void;
     };
     /** Desktop-only view/control bridge for assistant-owned persistent commands. */
-    commandSessions?: {
-      list: (params: CommandSessionListParams) => Promise<
-        CommandSessionIpcResult<{
-          readonly rootId: string;
-          readonly sessions: readonly import('../assistant-server/command-session-manager').CommandSessionInfo[];
-        }>
-      >;
-      read: (
-        params: CommandSessionReadParams
-      ) => Promise<CommandSessionIpcResult<CommandSessionReadPage>>;
-      remove: (
-        params: import('../command-session-ipc-handlers').CommandSessionIdentityParams
-      ) => Promise<CommandSessionIpcResult>;
-      stop: (
-        params: import('../command-session-ipc-handlers').CommandSessionIdentityParams
-      ) => Promise<CommandSessionIpcResult>;
-      write: (params: CommandSessionWriteParams) => Promise<CommandSessionIpcResult>;
-    };
+    commandSessions?: Bridge<typeof commandSessionsContract>;
     /**
      * Desktop-only workspace context-files scan bridge (Settings → Workspace
      * Instructions), derived from its contract (BST-1648) and pinned equal
@@ -558,27 +530,11 @@ declare global {
      * MUST capability-check `window.terminal`. `create` pins the shell cwd to a
      * validated workspace `rootId` (main resolves + containment-checks it). pty
      * output/exit are pushed one-way to THIS renderer; `onData`/`onExit` register
-     * a listener and return an unsubscribe fn. Invoke calls resolve to a
-     * structured `TerminalResult` (never throw across IPC).
+     * a listener and return an unsubscribe fn. Valid invoke calls resolve to a
+     * structured `TerminalResult`; structurally malformed direct IPC rejects
+     * before handler entry.
      */
-    terminal?: {
-      create: (params: {
-        rootId: string;
-        /** Absolute path inside the root; omitted ⇒ the root itself. */
-        cwd?: string;
-        cols?: number;
-        rows?: number;
-      }) => Promise<TerminalResult<TerminalCreateResult>>;
-      write: (params: { terminalId: string; data: string }) => Promise<TerminalResult>;
-      resize: (params: {
-        terminalId: string;
-        cols: number;
-        rows: number;
-      }) => Promise<TerminalResult>;
-      destroy: (params: { terminalId: string }) => Promise<TerminalResult>;
-      onData: (callback: (event: TerminalDataEvent) => void) => () => void;
-      onExit: (callback: (event: TerminalExitEvent) => void) => () => void;
-    };
+    terminal?: Bridge<typeof terminalContract>;
     tools: {
       onRootTreeSelectionUpdate: (
         callback: (payload: AssistantSelectionUpdatePayload) => void

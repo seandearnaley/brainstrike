@@ -1,6 +1,12 @@
 /** Pure structural helpers shared by preload-safe desktop IPC contracts. */
 export type ParamsRecord = Readonly<Record<string, unknown>>;
 
+export function exactSupportedKeys<T extends object>() {
+  return <const Keys extends readonly Extract<keyof T, string>[]>(
+    keys: Exclude<Extract<keyof T, string>, Keys[number]> extends never ? Keys : never
+  ): Keys => keys;
+}
+
 export function assertArgCount(raw: readonly unknown[], expected: number, subject: string): void {
   if (raw.length !== expected) {
     throw new Error(`${subject} requires exactly ${expected} argument${expected === 1 ? '' : 's'}`);
@@ -44,6 +50,42 @@ export function optionalStringType(
     throw new Error(`${subject} ${key} must be a string when present`);
   }
   return value;
+}
+
+export function requireFiniteNumber(record: ParamsRecord, key: string, subject: string): number {
+  const value = record[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${subject} ${key} must be a finite number`);
+  }
+  return value;
+}
+
+export function optionalFiniteNumber(
+  record: ParamsRecord,
+  key: string,
+  subject: string
+): number | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${subject} ${key} must be a finite number when present`);
+  }
+  return value;
+}
+
+export function parseSingleRecordArg<T>(
+  subject: string,
+  supported: readonly string[],
+  parse: (record: ParamsRecord) => T
+): (raw: readonly unknown[]) => [params: T] {
+  return (raw) => {
+    assertArgCount(raw, 1, subject);
+    const record = parseRecord(raw[0], `${subject} params`);
+    assertSupportedKeys(record, supported, subject);
+    return [parse(record)];
+  };
 }
 
 export function optionalBoolean(
