@@ -1,5 +1,4 @@
 /** Pure contracts for the visible-UI desktop file-system bridge. */
-import type { ElectronFileSystemAPI } from '@brainstrike/types';
 import type { FileReadErrorPayload } from '../file-read-errors';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import {
@@ -9,12 +8,13 @@ import {
   pushEvent,
   rawChannel,
 } from '../platform/ipc-contract';
+import type { DesktopFileSystemBridge } from '../types/desktop-electron-api';
 import { assertArgCount, parseRecord } from './contract-args';
 
 type ReadMethod = 'readFile' | 'readFileByAbsolutePath' | 'readFileByPath';
-type InvokeArgs<K extends keyof ElectronFileSystemAPI> = Parameters<ElectronFileSystemAPI[K]>;
-type InvokeResult<K extends keyof ElectronFileSystemAPI> = Awaited<
-  ReturnType<ElectronFileSystemAPI[K]>
+type InvokeArgs<K extends keyof DesktopFileSystemBridge> = Parameters<DesktopFileSystemBridge[K]>;
+type InvokeResult<K extends keyof DesktopFileSystemBridge> = Awaited<
+  ReturnType<DesktopFileSystemBridge[K]>
 >;
 type FileReadWireResult = string | FileReadErrorPayload;
 
@@ -128,10 +128,10 @@ export const fileSystemWatchContract = {
     parseArgs: (raw) => parseNoArguments(raw, 'file system getWatcherTelemetry'),
     roles: ['visible-ui'],
   }),
-  onWatchEvent: pushEvent<Parameters<Parameters<ElectronFileSystemAPI['onWatchEvent']>[0]>[0]>({
+  onWatchEvent: pushEvent<Parameters<Parameters<DesktopFileSystemBridge['onWatchEvent']>[0]>[0]>({
     channel: DESKTOP_IPC_CHANNELS.files.watchEvent,
   }),
-  onWatchHealth: pushEvent<Parameters<Parameters<ElectronFileSystemAPI['onWatchHealth']>[0]>[0]>({
+  onWatchHealth: pushEvent<Parameters<Parameters<DesktopFileSystemBridge['onWatchHealth']>[0]>[0]>({
     channel: DESKTOP_IPC_CHANNELS.files.watchHealth,
   }),
   retryWatch: rawChannel<InvokeArgs<'retryWatch'>, InvokeResult<'retryWatch'>>({
@@ -155,11 +155,11 @@ export const fileSystemWatchContract = {
 type GeneratedFileSystemBridge = Bridge<typeof fileSystemContract> &
   Bridge<typeof fileSystemWatchContract>;
 type AdaptedFileSystemBridge = Omit<GeneratedFileSystemBridge, ReadMethod> &
-  Pick<ElectronFileSystemAPI, ReadMethod>;
+  Pick<DesktopFileSystemBridge, ReadMethod>;
 
 export type FileSystemBridgeDerivationProof = AssertTrue<
-  [AdaptedFileSystemBridge] extends [ElectronFileSystemAPI]
-    ? [ElectronFileSystemAPI] extends [AdaptedFileSystemBridge]
+  [AdaptedFileSystemBridge] extends [DesktopFileSystemBridge]
+    ? [DesktopFileSystemBridge] extends [AdaptedFileSystemBridge]
       ? true
       : false
     : false

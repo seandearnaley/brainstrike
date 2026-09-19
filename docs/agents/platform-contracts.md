@@ -417,7 +417,7 @@ allowlist:
   its negative-control fixture are pinned by
   `scripts/__tests__/desktop-ipc-type-boundary-contract.test.mjs`.
 - Migrated so far: `changes`, `clipboard`, `commandSessions`, `contextFiles`,
-  `database`, `forge`, `git`, `notesVault`, `skills`, `terminal`, `userCommands`,
+  `database`, visible-UI `fileSystem`, `forge`, `git`, `notesVault`, `skills`, `terminal`, `userCommands`,
   `userPersonas`, `worktrees`, MCP, visible-UI `storage` / layout / settings,
   and the embedding-host-only `vectorPreferences` capability. MCP's pure manifests cover all 31
   invokes and seven pushes. Root, content, elicitation, and Tasks handlers use
@@ -430,6 +430,19 @@ allowlist:
   raw replies, including the `{ ok, result }` content envelope, remain byte-shape
   compatible; the preload still unwraps content into the established public
   promise behavior.
+  The file-system contracts cover 17 invokes and the two watcher pushes. The
+  three read methods retain one narrow preload decoder that turns the existing
+  wire error payload into the public string-or-clean-Error behavior. The
+  parser-host channel remains a separate chunking-renderer capability.
+
+  The production registry inventory is closed in both directions by
+  `__tests__/main/ipc-global-manifest.test.ts`: its 219 registrations must equal
+  the 138 unique contract invoke channels plus the 81 entries in
+  `__tests__/helpers/manual-ipc-inventory.ts`. That explicit complement records
+  36 worker/logging/workspace protocol registrations, one parser-host
+  capability, and 44 renderer-facing registrations still eligible for later
+  migration. A new handwritten registration cannot enter production without a
+  status and reason in that inventory.
   Storage's two E2E-only channels remain a narrow conditional adapter: they
   exist only when Electron test mode is active and are authorized for
   `visible-ui`. Exporting them in the discoverable contract would incorrectly

@@ -272,54 +272,6 @@ export interface FileSystemWatchEvent {
   watchId: string;
 }
 
-/** Desktop renderer file-system capability. */
-export interface ElectronFileSystemAPI {
-  addRoot: () => Promise<RootDescriptor>;
-  addRootByPath: (path: string) => Promise<RootDescriptor>;
-  exists: (path: string) => Promise<boolean>;
-  getWatcherTelemetry: () => Promise<{
-    activeWatchers: number;
-    batches: number;
-    cleanups: number;
-    degradedTransitions: number;
-    duplicateRegistrations: number;
-    events: number;
-    failures: number;
-    healthPushes: number;
-    lastSetupLatencyMs: number;
-    retries: number;
-    setupLatencySamples: number;
-  }>;
-  listRecentRoots: () => Promise<readonly RecentRootEntry[]>;
-  onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void;
-  onWatchHealth: (callback: (event: WatcherHealthEvent) => void) => () => void;
-  readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
-  readFile: (handle: FileHandle) => Promise<string>;
-  readFileByAbsolutePath: (
-    absolutePath: string,
-    rootPath: string,
-    rootId: string
-  ) => Promise<string>;
-  readFileByPath: (absolutePath: string) => Promise<string>;
-  removeRoot: (rootId: string) => Promise<void>;
-  requestDirectoryAccess: () => Promise<DirectoryHandle>;
-  restoreLastFolder: () => Promise<DirectoryHandle | null>;
-  restoreRoots: () => Promise<RootDescriptor[]>;
-  retryWatch: (watchId: string) => Promise<
-    | { retried: true }
-    | {
-        reason: 'in-flight' | 'not-failed' | 'terminal' | 'throttled' | 'unknown';
-        retried: false;
-        retryAfterMs?: number;
-      }
-  >;
-  saveLastFolder: (folderPath: string) => Promise<void>;
-  unwatchDirectory: (watchId: string) => Promise<void>;
-  watchDirectory: (
-    handle: DirectoryHandle
-  ) => Promise<{ health?: WatcherHealthTransition; watchId: string }>;
-}
-
 /** Maximum distinct filtered boundaries retained in one watcher batch. */
 export const FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT = 64;
 
