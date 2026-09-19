@@ -157,8 +157,12 @@ function partialLiteralText(node, bindings) {
       return ['*'];
     }
     return children.reduce(
-      (prefixes, child) =>
-        prefixes.flatMap((prefix) => visit(child).map((value) => path.join(prefix, value))),
+      (prefixes, child) => {
+        const values = visit(child);
+        return boundedAlternatives(
+          prefixes.flatMap((prefix) => values.map((value) => path.join(prefix, value)))
+        );
+      },
       ['']
     );
   };

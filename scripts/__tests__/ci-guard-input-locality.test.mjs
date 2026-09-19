@@ -38,7 +38,7 @@ function workspaceManifestPaths(root) {
     .map((pattern) => `${pattern.slice(1)}/package.json`);
   const manifests = globSync(
     positives.map((pattern) => `${pattern}/package.json`),
-    { cwd: root, ignore, nodir: true }
+    { cwd: root, exclude: ignore }
   ).sort();
   return ['package.json', ...manifests];
 }
@@ -330,8 +330,12 @@ test('workspace manifest discovery follows pnpm workspace globs and includes the
   };
   try {
     write('package.json', JSON.stringify({ name: 'root' }));
-    write('pnpm-workspace.yaml', 'packages:\n  - apps/*\n  - packages/config/*\n  - tooling/*\n');
+    write(
+      'pnpm-workspace.yaml',
+      'packages:\n  - apps/*\n  - packages/config/*\n  - tooling/*\n  - "!apps/legacy"\n'
+    );
     write('apps/web/package.json', JSON.stringify({ name: 'web' }));
+    write('apps/legacy/package.json', JSON.stringify({ name: 'legacy' }));
     write('packages/config/nested/package.json', JSON.stringify({ name: 'nested' }));
     write('packages/not-in-workspace/package.json', JSON.stringify({ name: 'excluded' }));
     write('tooling/new-workspace/package.json', JSON.stringify({ name: 'new-workspace' }));

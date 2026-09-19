@@ -46,6 +46,8 @@ test('guard rejects imports, dynamic imports and filesystem reads of excluded ty
         "import fs from 'node:fs'; const read = fs.readFileSync; const next = read; next('../../types/src/private.test.ts');\n",
       'packages/consumer/src/await-import.ts':
         "const { readFile: inspect } = await import('node:fs/promises'); inspect('../../types/src/private.test.ts');\n",
+      'packages/consumer/src/bounded-partial.ts':
+        "readFile(makePath(a ? 'packages' : 'other', b ? 'types' : 'other', c ? '__tests__' : 'shared', d ? 'x.test.ts' : 'x.ts', e ? 'a' : 'b', f ? 'c' : 'd', g ? 'e' : 'f'));\n",
       'packages/consumer/src/bracket-alias.ts':
         "import fs from 'node:fs'; const read = fs['readFileSync']; read('../../types/src/private.test.ts');\n",
       'packages/consumer/src/capped-alternatives.ts': [
