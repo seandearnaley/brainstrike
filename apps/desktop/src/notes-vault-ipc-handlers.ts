@@ -55,7 +55,6 @@ import { isWithinRoot } from './assistant-server/workspace-path';
 import { notesVaultContract } from './ipc-domains/notes-vault.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc-registry';
-import type { Contract } from './platform/ipc-contract';
 import {
   ensureContainedDirectory,
   resolveWorkspaceWritePath,
@@ -1062,18 +1061,12 @@ export function resetNotesVaultIpcStateForTest(): void {
 export function registerNotesVaultIpcHandlers(handlers: NotesVaultIpcHandlers): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  const requestContract = {
-    createDirectory: notesVaultContract.createDirectory,
-    deleteEntry: notesVaultContract.deleteEntry,
-    ensureDefaultVault: notesVaultContract.ensureDefaultVault,
-    listDirectory: notesVaultContract.listDirectory,
-    pickDirectory: notesVaultContract.pickDirectory,
-    readFile: notesVaultContract.readFile,
-    registerRoot: notesVaultContract.registerRoot,
-    rename: notesVaultContract.rename,
-    statEntry: notesVaultContract.statEntry,
-    writeFile: notesVaultContract.writeFile,
-  } as const satisfies Contract;
+  const {
+    onChanged: _onChanged,
+    unwatch: _unwatch,
+    watch: _watch,
+    ...requestContract
+  } = notesVaultContract;
   registerDomain(registry, 'notesVault', requestContract, {
     createDirectory: handlers.createDirectory,
     deleteEntry: handlers.deleteEntry,

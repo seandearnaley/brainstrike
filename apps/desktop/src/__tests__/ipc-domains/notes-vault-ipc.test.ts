@@ -954,24 +954,26 @@ describe('notes vault IPC handlers', () => {
       const foreignEvent = createTrustedInvokeEvent('visible-ui', FOREIGN_OWNER_ID);
       const dispose = registerNotesVaultIpcHandlers(handlers);
 
-      const watchResult = await registeredHandlers.get(DESKTOP_IPC_CHANNELS.notesVault.watch)?.(
-        ownerEvent,
-        approved
-      );
-      expect(watchResult).toMatchObject({ ok: true });
-      if (!(watchResult && typeof watchResult === 'object' && 'value' in watchResult)) {
-        throw new Error('Expected watch to return its owner-bound identifier');
+      try {
+        const watchResult = await registeredHandlers.get(DESKTOP_IPC_CHANNELS.notesVault.watch)?.(
+          ownerEvent,
+          approved
+        );
+        expect(watchResult).toMatchObject({ ok: true });
+        if (!(watchResult && typeof watchResult === 'object' && 'value' in watchResult)) {
+          throw new Error('Expected watch to return its owner-bound identifier');
+        }
+        const watchId = (watchResult as { value: { watchId: string } }).value.watchId;
+
+        await expect(
+          registeredHandlers.get(DESKTOP_IPC_CHANNELS.notesVault.unwatch)?.(foreignEvent, watchId)
+        ).resolves.toEqual({ error: `No live notes vault watcher "${watchId}".`, ok: false });
+        await expect(
+          registeredHandlers.get(DESKTOP_IPC_CHANNELS.notesVault.unwatch)?.(ownerEvent, watchId)
+        ).resolves.toEqual({ ok: true, value: null });
+      } finally {
+        dispose();
       }
-      const watchId = (watchResult as { value: { watchId: string } }).value.watchId;
-
-      await expect(
-        registeredHandlers.get(DESKTOP_IPC_CHANNELS.notesVault.unwatch)?.(foreignEvent, watchId)
-      ).resolves.toMatchObject({ ok: false });
-      await expect(
-        registeredHandlers.get(DESKTOP_IPC_CHANNELS.notesVault.unwatch)?.(ownerEvent, watchId)
-      ).resolves.toEqual({ ok: true, value: null });
-
-      dispose();
     });
   });
 });

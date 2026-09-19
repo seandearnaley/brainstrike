@@ -242,7 +242,7 @@ source of truth for who may hold a channel; `hidden-preload.ts` exposes no
 | `db:exec`, `db:transaction` (raw SQL entry points; typed replacement is BST-1234), `db:diagnostics`, `db:scheduler:snapshot`, `db:test`, `db:managed-cache:apply-batch`, `db:managed-cache:invalidate-by-identity`, `db:chunks:insert-and-enqueue-embedding-jobs` — every `db:*` channel the embedding host's `hidden-preload.ts` bridge exposes besides the shared `db:query` | `embedding-host`, `visible-ui` |
 | `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, `mcp:content:*`, MCP apps/task/elicitation bridges | `visible-ui` (pre-existing) |
 | `vector-preferences:read`, `vector-preferences:write`, `vector-preferences:clear` | `embedding-host` (pre-existing; see BST-1380 below) |
-| Contract-derived domains: `git:*` (all 15, incl. push/commit/switchBranch), `changes:*`, `forge:*`, `worktrees:*`, `command-sessions:*`, `terminal:*`, `notesVault:*`, `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
+| Contract-derived domains: `git:*` (all 15, incl. push/commit/switchBranch), `changes:*`, `forge:*`, `worktrees:*`, `command-sessions:*`, `terminal:*`, `notes-vault:*`, `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
 
 Still `registerUnauthenticatedInvoke` with a stated reason (sender-role
 policy pending, tracked as the BST-1641 follow-up): `db:query` (visible UI +
